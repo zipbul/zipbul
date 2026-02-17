@@ -25,7 +25,7 @@ const printUsage = (): void => {
   console.info('Commands:');
   console.info('  dev    Generate AOT artifacts and watch');
   console.info('  build  Generate build output');
-  console.info('  mcp    MCP tools (verify)');
+  console.info('  mcp    Start MCP server (no args)');
   console.info('Options:');
   console.info('  --profile <minimal|standard|full>');
 };

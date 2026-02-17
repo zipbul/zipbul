@@ -108,7 +108,7 @@ function reportInvalidSubcommand(value: string | undefined): void {
     code: 'INVALID_COMMAND',
     severity: 'fatal',
     summary: 'Unknown command.',
-    reason: `Unsupported command: mcp ${commandValue}.`,
+    reason: `mcp does not accept subcommands/options. Use: bunner mcp (got: ${commandValue}).`,
     file: '.',
   });
 
@@ -117,69 +117,16 @@ function reportInvalidSubcommand(value: string | undefined): void {
 
 export function createMcpCommand(deps: McpCommandDeps) {
   return async function mcp(positionals: string[], _commandOptions: CommandOptions): Promise<void> {
-    const subcommand = positionals[0] ?? 'serve';
-
-    switch (subcommand) {
-      case 'serve': {
-        const projectRoot = process.cwd();
-        await deps.ensureRepo(projectRoot);
-        const { config } = await deps.loadConfig(projectRoot);
-        await deps.startServer(projectRoot, config);
-        return;
-      }
-
-      case 'verify': {
-        const projectRoot = process.cwd();
-        await deps.ensureRepo(projectRoot);
-        const { config } = await deps.loadConfig(projectRoot);
-
-        const result = await deps.verifyProject({ projectRoot, config });
-
-        const diagnostics = [
-          ...result.errors.map((issue) =>
-            buildDiagnostic({
-              code: `MCP_VERIFY_${issue.code}`,
-              severity: 'error',
-              summary: issue.message,
-              reason: issue.message,
-              file: issue.filePath ?? issue.cardKey ?? '.',
-            }),
-          ),
-          ...result.warnings.map((issue) =>
-            buildDiagnostic({
-              code: `MCP_VERIFY_${issue.code}`,
-              severity: 'warning',
-              summary: issue.message,
-              reason: issue.message,
-              file: issue.filePath ?? issue.cardKey ?? '.',
-            }),
-          ),
-        ];
-
-        if (diagnostics.length > 0) {
-          reportDiagnostics({ diagnostics });
-        }
-
-        process.exitCode = result.ok ? 0 : 1;
-        return;
-      }
-
-      case 'rebuild': {
-        const projectRoot = process.cwd();
-        await deps.ensureRepo(projectRoot);
-        const { config } = await deps.loadConfig(projectRoot);
-
-        const full = positionals.slice(1).includes('--full');
-        const mode: 'incremental' | 'full' = full ? 'full' : 'incremental';
-        const result = await deps.rebuildProjectIndex({ projectRoot, config, mode });
-        process.exitCode = result.ok ? 0 : 1;
-        return;
-      }
-
-      default:
-        deps.reportInvalidSubcommand(subcommand);
-        process.exitCode = 1;
+    if (positionals.length > 0) {
+      deps.reportInvalidSubcommand(positionals[0]);
+      process.exitCode = 1;
+      return;
     }
+
+    const projectRoot = process.cwd();
+    await deps.ensureRepo(projectRoot);
+    const { config } = await deps.loadConfig(projectRoot);
+    await deps.startServer(projectRoot, config);
   };
 }
 

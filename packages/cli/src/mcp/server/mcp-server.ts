@@ -1429,6 +1429,17 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
     }),
   );
 
+  // Alias (PLAN name)
+  registry.register(
+    declareTool({
+      name: 'bunner.verify_project',
+      title: 'Verify project',
+      description: 'Verify MCP invariants for the project',
+      inputSchema: {},
+      run: async (ctx) => verifyProjectFn({ projectRoot: ctx.projectRoot, config: ctx.config }),
+    }),
+  );
+
   // --- P7 read tools (PLAN names) ---
 
   registry.register(
@@ -1962,6 +1973,34 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
       },
       run: async (ctx, input) => {
         const mode = (input as any)?.mode === 'full' ? 'full' : 'incremental';
+        const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
+        const db = createDbFn(dbPath);
+        try {
+          return await indexProjectFn({
+            projectRoot: ctx.projectRoot,
+            config: ctx.config,
+            db,
+            mode,
+          });
+        } finally {
+          closeDbFn(db);
+        }
+      },
+    }),
+  );
+
+  // Alias (PLAN name)
+  registry.register(
+    declareTool({
+      name: 'bunner.rebuild_index',
+      title: 'Rebuild index',
+      description: 'Rebuild the local SQLite index (defaults to full)',
+      shouldRegister: ownerOnly,
+      inputSchema: {
+        mode: z.enum(['full', 'incremental']).optional(),
+      },
+      run: async (ctx, input) => {
+        const mode = (input as any)?.mode === 'incremental' ? 'incremental' : 'full';
         const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
         const db = createDbFn(dbPath);
         try {

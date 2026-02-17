@@ -27,6 +27,7 @@ describe('createBunnerToolRegistry', () => {
     const names = registry.list().map((t) => t.name);
 
     expect(names).toContain('bunner.verifyProject');
+    expect(names).toContain('bunner.verify_project');
     expect(names).toContain('bunner.cardCreate');
     expect(names).toContain('bunner.cardUpdate');
     expect(names).toContain('bunner.cardUpdateStatus');
@@ -52,6 +53,7 @@ describe('createBunnerToolRegistry', () => {
 
     const names = registry.list().map((t) => t.name);
     expect(names).toContain('bunner.indexProject');
+    expect(names).toContain('bunner.rebuild_index');
   });
 
   it('should include search tools when registry is created', () => {
@@ -767,11 +769,13 @@ describe('startBunnerMcpServerStdio', () => {
 
     // Read tools should be present.
     expect(registered.includes('bunner.search')).toBe(true);
+    expect(registered.includes('bunner.verify_project')).toBe(true);
 
     // Write tools should not be present for reader.
     expect(registered.includes('bunner.card_create')).toBe(false);
     expect(registered.includes('bunner.keyword_create')).toBe(false);
     expect(registered.includes('bunner.tag_create')).toBe(false);
+    expect(registered.includes('bunner.rebuild_index')).toBe(false);
   });
 
   it('should build the index on startup when owner and db is missing', async () => {
