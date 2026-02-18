@@ -1,5 +1,10 @@
 {
   "servers": {
+    "bunner": {
+      "type": "stdio",
+      "command": "bun",
+      "args": ["packages/cli/src/bin/bunner.ts", "mcp"]
+    },
     "sequential-thinking": {
       "command": "bunx",
       "args": [

@@ -3,11 +3,32 @@ import { describe, expect, it } from 'bun:test';
 import type { ResolvedBunnerConfig } from '../../config';
 
 import { closeDb, createDb } from '../../store/connection';
-import { card, cardKeyword, cardTag, keyword, tag } from '../../store/schema';
+import { card, cardKeyword, cardTag, codeEntity, keyword, tag } from '../../store/schema';
 
 import { createBunnerToolRegistry, startBunnerMcpServerStdio } from './mcp-server';
 
 describe('createBunnerToolRegistry', () => {
+  it('should register only VS Code-safe tool names', () => {
+    const registry = createBunnerToolRegistry({
+      projectRoot: '/repo',
+      config: {
+        sourceDir: './src',
+        entry: './src/main.ts',
+        module: { fileName: 'module.ts' },
+        mcp: {
+          exclude: [],
+          card: {
+            relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
+          },
+        },
+      } as unknown as ResolvedBunnerConfig,
+    });
+
+    const names = registry.list().map((t) => t.name);
+    const invalid = names.filter((n) => !/^[a-z0-9_-]+$/.test(n));
+    expect(invalid).toEqual([]);
+  });
+
   it('should include verify and card CRUD tools when registry is created', () => {
     const registry = createBunnerToolRegistry({
       projectRoot: '/repo',
@@ -26,13 +47,12 @@ describe('createBunnerToolRegistry', () => {
 
     const names = registry.list().map((t) => t.name);
 
-    expect(names).toContain('bunner.verifyProject');
-    expect(names).toContain('bunner.verify_project');
-    expect(names).toContain('bunner.cardCreate');
-    expect(names).toContain('bunner.cardUpdate');
-    expect(names).toContain('bunner.cardUpdateStatus');
-    expect(names).toContain('bunner.cardDelete');
-    expect(names).toContain('bunner.cardRename');
+    expect(names).toContain('bunner_verify_project');
+    expect(names).toContain('bunner_create_card');
+    expect(names).toContain('bunner_update_card');
+    expect(names).toContain('bunner_update_card_status');
+    expect(names).toContain('bunner_delete_card');
+    expect(names).toContain('bunner_rename_card');
   });
 
   it('should include index tools when registry is created', () => {
@@ -52,8 +72,8 @@ describe('createBunnerToolRegistry', () => {
     });
 
     const names = registry.list().map((t) => t.name);
-    expect(names).toContain('bunner.indexProject');
-    expect(names).toContain('bunner.rebuild_index');
+    expect(names).toContain('bunner_index_project');
+    expect(names).toContain('bunner_rebuild_index');
   });
 
   it('should include search tools when registry is created', () => {
@@ -73,8 +93,8 @@ describe('createBunnerToolRegistry', () => {
     });
 
     const names = registry.list().map((t) => t.name);
-    expect(names).toContain('bunner.searchCards');
-    expect(names).toContain('bunner.searchCode');
+    expect(names).toContain('bunner_search_cards');
+    expect(names).toContain('bunner_search_code');
   });
 
   it('should include lookup tools when registry is created', () => {
@@ -94,10 +114,10 @@ describe('createBunnerToolRegistry', () => {
     });
 
     const names = registry.list().map((t) => t.name);
-    expect(names).toContain('bunner.getCard');
-    expect(names).toContain('bunner.getCodeEntity');
-    expect(names).toContain('bunner.listCardRelations');
-    expect(names).toContain('bunner.listCardCodeLinks');
+    expect(names).toContain('bunner_get_card');
+    expect(names).toContain('bunner_get_code_entity');
+    expect(names).toContain('bunner_list_card_relations');
+    expect(names).toContain('bunner_list_card_code_links');
   });
 
     it('should include P7 read tools when registry is created', () => {
@@ -109,15 +129,15 @@ describe('createBunnerToolRegistry', () => {
       const names = registry.list().map((t) => t.name);
 
       // Assert
-      expect(names).toContain('bunner.search');
-      expect(names).toContain('bunner.get_context');
-      expect(names).toContain('bunner.get_subgraph');
-      expect(names).toContain('bunner.impact_analysis');
-      expect(names).toContain('bunner.trace_chain');
-      expect(names).toContain('bunner.coverage_report');
-      expect(names).toContain('bunner.list_unlinked');
-      expect(names).toContain('bunner.list_cards');
-      expect(names).toContain('bunner.get_relations');
+      expect(names).toContain('bunner_search');
+      expect(names).toContain('bunner_get_context');
+      expect(names).toContain('bunner_get_subgraph');
+      expect(names).toContain('bunner_analyze_impact');
+      expect(names).toContain('bunner_trace_chain');
+      expect(names).toContain('bunner_report_coverage');
+      expect(names).toContain('bunner_list_unlinked_cards');
+      expect(names).toContain('bunner_list_cards');
+      expect(names).toContain('bunner_get_relations');
     });
 
     it('should include P7 write tools when registry is created', () => {
@@ -129,23 +149,23 @@ describe('createBunnerToolRegistry', () => {
       const names = registry.list().map((t) => t.name);
 
       // Assert
-      expect(names).toContain('bunner.card_create');
-      expect(names).toContain('bunner.card_update');
-      expect(names).toContain('bunner.card_delete');
-      expect(names).toContain('bunner.card_rename');
-      expect(names).toContain('bunner.card_update_status');
-      expect(names).toContain('bunner.link_add');
-      expect(names).toContain('bunner.link_remove');
-      expect(names).toContain('bunner.relation_add');
-      expect(names).toContain('bunner.relation_remove');
+      expect(names).toContain('bunner_create_card');
+      expect(names).toContain('bunner_update_card');
+      expect(names).toContain('bunner_delete_card');
+      expect(names).toContain('bunner_rename_card');
+      expect(names).toContain('bunner_update_card_status');
+      expect(names).toContain('bunner_add_link');
+      expect(names).toContain('bunner_remove_link');
+      expect(names).toContain('bunner_add_relation');
+      expect(names).toContain('bunner_remove_relation');
 
-      expect(names).toContain('bunner.keyword_create');
-      expect(names).toContain('bunner.keyword_delete');
-      expect(names).toContain('bunner.tag_create');
-      expect(names).toContain('bunner.tag_delete');
+      expect(names).toContain('bunner_create_keyword');
+      expect(names).toContain('bunner_delete_keyword');
+      expect(names).toContain('bunner_create_tag');
+      expect(names).toContain('bunner_delete_tag');
     });
 
-  it('should call deps.getCard when bunner.getCard tool runs', async () => {
+  it('should call deps.getCard when bunner_get_card tool runs', async () => {
     // Arrange
     let called: { key: string } | null = null;
 
@@ -172,7 +192,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner.getCard');
+    const tool = registry.get('bunner_get_card');
     const out = await tool!.run(ctx, { key: 'auth/login' });
 
     // Assert
@@ -181,7 +201,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ key: 'auth/login' });
   });
 
-  it('should return mapped keywords when bunner.getCard runs with default implementation', async () => {
+  it('should return mapped keywords when bunner_get_card runs with default implementation', async () => {
     // Arrange
     const ctx = {
       projectRoot: '/repo',
@@ -223,7 +243,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner.getCard');
+    const tool = registry.get('bunner_get_card');
     const out = await tool!.run(ctx, { key: 'a' });
 
     // Assert
@@ -241,7 +261,7 @@ describe('createBunnerToolRegistry', () => {
     });
   });
 
-  it('should filter by tags (OR) when bunner.list_cards runs with default implementation', async () => {
+  it('should filter by tags (OR) when bunner_list_cards runs with default implementation', async () => {
     // Arrange
     const ctx = {
       projectRoot: '/repo',
@@ -302,7 +322,7 @@ describe('createBunnerToolRegistry', () => {
 
     try {
       // Act
-      const tool = registry.get('bunner.list_cards');
+      const tool = registry.get('bunner_list_cards');
       const out = await tool!.run(ctx, { tags: ['backend'], limit: 50 });
 
       const outOr = await tool!.run(ctx, { tags: ['backend', 'frontend'], limit: 50 });
@@ -323,7 +343,7 @@ describe('createBunnerToolRegistry', () => {
     }
   });
 
-  it('should return mapped keywords when bunner.get_context runs with default implementation', async () => {
+  it('should return mapped keywords when bunner_get_context runs with default implementation', async () => {
     // Arrange
     const ctx = {
       projectRoot: '/repo',
@@ -365,7 +385,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner.get_context');
+    const tool = registry.get('bunner_get_context');
     const out = await tool!.run(ctx, { target: { kind: 'card', key: 'a' } });
 
     // Assert
@@ -390,7 +410,7 @@ describe('createBunnerToolRegistry', () => {
     });
   });
 
-  it('should call deps.getCodeEntity when bunner.getCodeEntity tool runs', async () => {
+  it('should call deps.getCodeEntity when bunner_get_code_entity tool runs', async () => {
     // Arrange
     let called: { entityKey: string } | null = null;
 
@@ -417,7 +437,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner.getCodeEntity');
+    const tool = registry.get('bunner_get_code_entity');
     const out = await tool!.run(ctx, { entityKey: 'module:src/a.ts' });
 
     // Assert
@@ -426,7 +446,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ entityKey: 'module:src/a.ts' });
   });
 
-  it('should call deps.listCardRelations when bunner.listCardRelations tool runs', async () => {
+  it('should call deps.listCardRelations when bunner_list_card_relations tool runs', async () => {
     // Arrange
     let called: { cardKey: string } | null = null;
 
@@ -457,7 +477,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner.listCardRelations');
+    const tool = registry.get('bunner_list_card_relations');
     const out = await tool!.run(ctx, { cardKey: 'auth/login' });
 
     // Assert
@@ -468,7 +488,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ cardKey: 'auth/login' });
   });
 
-  it('should call deps.listCardCodeLinks when bunner.listCardCodeLinks tool runs', async () => {
+  it('should call deps.listCardCodeLinks when bunner_list_card_code_links tool runs', async () => {
     // Arrange
     let called: { cardKey: string } | null = null;
 
@@ -499,7 +519,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner.listCardCodeLinks');
+    const tool = registry.get('bunner_list_card_code_links');
     const out = await tool!.run(ctx, { cardKey: 'auth/login' });
 
     // Assert
@@ -510,7 +530,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ cardKey: 'auth/login' });
   });
 
-  it('should call deps.searchCards when bunner.searchCards tool runs', async () => {
+  it('should call deps.searchCards when bunner_search_cards tool runs', async () => {
     let called: { q: string; limit: number } | null = null;
 
     const ctx = {
@@ -535,7 +555,7 @@ describe('createBunnerToolRegistry', () => {
       },
     });
 
-    const tool = registry.get('bunner.searchCards');
+    const tool = registry.get('bunner_search_cards');
     expect(tool).not.toBeUndefined();
 
     const out = await tool!.run(ctx, { query: 'auth', limit: 7 });
@@ -544,7 +564,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ q: 'auth', limit: 7 });
   });
 
-  it('should call deps.searchCode when bunner.searchCode tool runs', async () => {
+  it('should call deps.searchCode when bunner_search_code tool runs', async () => {
     let called: { q: string; limit: number } | null = null;
 
     const ctx = {
@@ -569,7 +589,7 @@ describe('createBunnerToolRegistry', () => {
       },
     });
 
-    const tool = registry.get('bunner.searchCode');
+    const tool = registry.get('bunner_search_code');
     expect(tool).not.toBeUndefined();
 
     const out = await tool!.run(ctx, { query: 'login', limit: 3 });
@@ -578,7 +598,110 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ q: 'login', limit: 3 });
   });
 
-  it('should call deps.indexProject with mode=full when bunner.indexProject runs with full mode', async () => {
+  it('should return results when bunner_search_code runs with default implementation', async () => {
+    // Arrange
+    const ctx = {
+      projectRoot: '/repo',
+      config: {
+        sourceDir: './src',
+        entry: './src/main.ts',
+        module: { fileName: 'module.ts' },
+        mcp: {
+          exclude: [],
+          card: {
+            relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
+          },
+        },
+      } as unknown as ResolvedBunnerConfig,
+    };
+
+    const seededDb = createDb(':memory:');
+    seededDb
+      .insert(codeEntity)
+      .values({
+        entityKey: 'symbol:src/mcp.ts#mcp',
+        filePath: 'src/mcp.ts',
+        symbolName: 'mcp',
+        kind: 'function',
+        signature: null,
+        fingerprint: null,
+        contentHash: 'x',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      })
+      .run();
+
+    const registry = createBunnerToolRegistry(ctx, {
+      createDb: () => seededDb as any,
+      closeDb: () => {
+        // no-op: close manually
+      },
+    });
+
+    try {
+      // Act
+      const tool = registry.get('bunner_search_code');
+      const out = await tool!.run(ctx, { query: 'mcp', limit: 10 });
+
+      // Assert
+      expect(out.results.length).toBeGreaterThan(0);
+      expect(out.results[0]!.entityKey).toBe('symbol:src/mcp.ts#mcp');
+    } finally {
+      closeDb(seededDb as any);
+    }
+  });
+
+  it('should return results when bunner_search_cards runs with default implementation', async () => {
+    // Arrange
+    const ctx = {
+      projectRoot: '/repo',
+      config: {
+        sourceDir: './src',
+        entry: './src/main.ts',
+        module: { fileName: 'module.ts' },
+        mcp: {
+          exclude: [],
+          card: {
+            relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
+          },
+        },
+      } as unknown as ResolvedBunnerConfig,
+    };
+
+    const seededDb = createDb(':memory:');
+    seededDb
+      .insert(card)
+      .values({
+        key: 'a',
+        summary: 'mcp',
+        status: 'draft',
+        constraintsJson: null,
+        body: 'Body',
+        filePath: '.bunner/cards/a.card.md',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      })
+      .run();
+
+    const registry = createBunnerToolRegistry(ctx, {
+      createDb: () => seededDb as any,
+      closeDb: () => {
+        // no-op: close manually
+      },
+    });
+
+    try {
+      // Act
+      const tool = registry.get('bunner_search_cards');
+      const out = await tool!.run(ctx, { query: 'mcp', limit: 10 });
+
+      // Assert
+      expect(out.results.length).toBeGreaterThan(0);
+      expect(out.results[0]!.key).toBe('a');
+    } finally {
+      closeDb(seededDb as any);
+    }
+  });
+
+  it('should call deps.indexProject with mode=full when bunner_index_project runs with full mode', async () => {
     let called: { projectRoot: string; mode: string; didClose: boolean } | null = null;
     let didClose = false;
 
@@ -608,7 +731,7 @@ describe('createBunnerToolRegistry', () => {
       },
     });
 
-    const tool = registry.get('bunner.indexProject');
+    const tool = registry.get('bunner_index_project');
     expect(tool).not.toBeUndefined();
 
     const out = await tool!.run(ctx, { mode: 'full' });
@@ -618,7 +741,7 @@ describe('createBunnerToolRegistry', () => {
     expect(didClose).toBe(true);
   });
 
-  it('should default mode=incremental when bunner.indexProject runs without mode', async () => {
+  it('should default mode=incremental when bunner_index_project runs without mode', async () => {
     let calledMode: string | null = null;
 
     const ctx = {
@@ -645,7 +768,7 @@ describe('createBunnerToolRegistry', () => {
       },
     });
 
-    const tool = registry.get('bunner.indexProject');
+    const tool = registry.get('bunner_index_project');
     expect(tool).not.toBeUndefined();
 
     await tool!.run(ctx, {});
@@ -653,7 +776,7 @@ describe('createBunnerToolRegistry', () => {
     expect(calledMode as any).toBe('incremental');
   });
 
-  it('should call deps.verifyProject when bunner.verifyProject tool runs', async () => {
+  it('should call deps.verifyProject when bunner_verify_project tool runs', async () => {
     let called: { projectRoot: string; hasConfig: boolean } | null = null;
 
     const ctx = {
@@ -678,7 +801,7 @@ describe('createBunnerToolRegistry', () => {
       },
     });
 
-    const tool = registry.get('bunner.verifyProject');
+    const tool = registry.get('bunner_verify_project');
     expect(tool).not.toBeUndefined();
 
     const out = await tool!.run(ctx, {});
@@ -768,14 +891,14 @@ describe('startBunnerMcpServerStdio', () => {
     });
 
     // Read tools should be present.
-    expect(registered.includes('bunner.search')).toBe(true);
-    expect(registered.includes('bunner.verify_project')).toBe(true);
+    expect(registered.includes('bunner_search')).toBe(true);
+    expect(registered.includes('bunner_verify_project')).toBe(true);
 
     // Write tools should not be present for reader.
-    expect(registered.includes('bunner.card_create')).toBe(false);
-    expect(registered.includes('bunner.keyword_create')).toBe(false);
-    expect(registered.includes('bunner.tag_create')).toBe(false);
-    expect(registered.includes('bunner.rebuild_index')).toBe(false);
+    expect(registered.includes('bunner_create_card')).toBe(false);
+    expect(registered.includes('bunner_create_keyword')).toBe(false);
+    expect(registered.includes('bunner_create_tag')).toBe(false);
+    expect(registered.includes('bunner_rebuild_index')).toBe(false);
   });
 
   it('should build the index on startup when owner and db is missing', async () => {

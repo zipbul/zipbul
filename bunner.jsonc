@@ -1,0 +1,7 @@
+{
+  "sourceDir": "./packages",
+  "entry": "./packages/cli/src/bin/bunner.ts",
+  "module": {
+    "fileName": "module.ts"
+  }
+}

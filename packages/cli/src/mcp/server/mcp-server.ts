@@ -345,7 +345,7 @@ async function searchCardsDefault(input: SearchCardsInput, deps: { createDb: typ
         score: scoreExpr,
       })
       .from(cardFts)
-      .innerJoin(card, eq(card.rowid, cardFts.rowid))
+      .innerJoin(card, eq(card.key, cardFts.key))
       .where(sql`${cardFts} MATCH ${input.query}`)
       .orderBy(scoreExpr)
       .limit(input.limit)
@@ -372,7 +372,7 @@ async function searchCodeDefault(input: SearchCodeInput, deps: { createDb: typeo
         score: scoreExpr,
       })
       .from(codeFts)
-      .innerJoin(codeEntity, eq(codeEntity.rowid, codeFts.rowid))
+      .innerJoin(codeEntity, eq(codeEntity.entityKey, codeFts.entityKey))
       .where(sql`${codeFts} MATCH ${input.query}`)
       .orderBy(scoreExpr)
       .limit(input.limit)
@@ -1421,18 +1421,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.verifyProject',
-      title: 'Verify project',
-      description: 'Verify MCP invariants for the project',
-      inputSchema: {},
-      run: async (ctx) => verifyProjectFn({ projectRoot: ctx.projectRoot, config: ctx.config }),
-    }),
-  );
-
-  // Alias (PLAN name)
-  registry.register(
-    declareTool({
-      name: 'bunner.verify_project',
+      name: 'bunner_verify_project',
       title: 'Verify project',
       description: 'Verify MCP invariants for the project',
       inputSchema: {},
@@ -1444,7 +1433,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.search',
+      name: 'bunner_search',
       title: 'Search (cards + code)',
       description: 'Full-text search across cards and code entities via the local SQLite index',
       inputSchema: {
@@ -1460,7 +1449,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.get_context',
+      name: 'bunner_get_context',
       title: 'Get context',
       description: 'Fetch a card/code entity and its immediate linked context (relations, links)',
       inputSchema: {
@@ -1480,7 +1469,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.get_subgraph',
+      name: 'bunner_get_subgraph',
       title: 'Get subgraph',
       description: 'Traverse N-hop graph from a center key (card or code entity)',
       inputSchema: {
@@ -1498,7 +1487,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.impact_analysis',
+      name: 'bunner_analyze_impact',
       title: 'Impact analysis',
       description: 'Find cards/code impacted by a card change (reverse depends-on traversal)',
       inputSchema: {
@@ -1516,7 +1505,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.trace_chain',
+      name: 'bunner_trace_chain',
       title: 'Trace chain',
       description: 'Find a shortest path between two entities (card or code entity)',
       inputSchema: {
@@ -1536,7 +1525,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.coverage_report',
+      name: 'bunner_report_coverage',
       title: 'Coverage report',
       description: 'Report @see coverage for a card',
       inputSchema: {
@@ -1548,7 +1537,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.list_unlinked',
+      name: 'bunner_list_unlinked_cards',
       title: 'List unlinked cards',
       description: 'List cards with no @see code links',
       inputSchema: {
@@ -1566,7 +1555,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.list_cards',
+      name: 'bunner_list_cards',
       title: 'List cards',
       description: 'List cards by filters (status/tags/keywords)',
       inputSchema: {
@@ -1588,7 +1577,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.get_relations',
+      name: 'bunner_get_relations',
       title: 'Get relations',
       description: 'Get card relations by direction (outgoing/incoming/both)',
       inputSchema: {
@@ -1608,7 +1597,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.card_create',
+      name: 'bunner_create_card',
       title: 'Create card',
       description: 'Create a new card file and re-index',
       shouldRegister: ownerOnly,
@@ -1637,7 +1626,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.card_update',
+      name: 'bunner_update_card',
       title: 'Update card',
       description: 'Update an existing card file and re-index',
       shouldRegister: ownerOnly,
@@ -1675,7 +1664,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.keyword_create',
+      name: 'bunner_create_keyword',
       title: 'Create keyword',
       description: 'Create (register) a keyword name in the local SQLite index',
       shouldRegister: ownerOnly,
@@ -1699,7 +1688,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.keyword_delete',
+      name: 'bunner_delete_keyword',
       title: 'Delete keyword',
       description: 'Delete a keyword name and cascade-remove its card mappings (card_keyword)',
       shouldRegister: ownerOnly,
@@ -1731,7 +1720,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.tag_create',
+      name: 'bunner_create_tag',
       title: 'Create tag',
       description: 'Create (register) a tag name in the local SQLite index',
       shouldRegister: ownerOnly,
@@ -1755,7 +1744,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.tag_delete',
+      name: 'bunner_delete_tag',
       title: 'Delete tag',
       description: 'Delete a tag name and cascade-remove its card mappings (card_tag)',
       shouldRegister: ownerOnly,
@@ -1787,7 +1776,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.card_update_status',
+      name: 'bunner_update_card_status',
       title: 'Update card status',
       description: 'Update a card status and re-index',
       shouldRegister: ownerOnly,
@@ -1805,7 +1794,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.card_delete',
+      name: 'bunner_delete_card',
       title: 'Delete card',
       description: 'Delete a card file if no references exist, then re-index',
       shouldRegister: ownerOnly,
@@ -1845,7 +1834,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.card_rename',
+      name: 'bunner_rename_card',
       title: 'Rename card',
       description: 'Rename a card key and update all references (@see + relations), then re-index',
       shouldRegister: ownerOnly,
@@ -1871,7 +1860,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.link_add',
+      name: 'bunner_add_link',
       title: 'Add @see link',
       description: 'Insert a JSDoc @see cardKey annotation and re-index',
       shouldRegister: ownerOnly,
@@ -1893,7 +1882,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.link_remove',
+      name: 'bunner_remove_link',
       title: 'Remove @see link',
       description: 'Remove a JSDoc @see cardKey annotation and re-index',
       shouldRegister: ownerOnly,
@@ -1915,7 +1904,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.relation_add',
+      name: 'bunner_add_relation',
       title: 'Add relation',
       description: 'Add a typed relation edge to a card frontmatter and re-index',
       shouldRegister: ownerOnly,
@@ -1940,7 +1929,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.relation_remove',
+      name: 'bunner_remove_relation',
       title: 'Remove relation',
       description: 'Remove a typed relation edge from a card frontmatter and re-index',
       shouldRegister: ownerOnly,
@@ -1964,7 +1953,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.indexProject',
+      name: 'bunner_index_project',
       title: 'Index project',
       description: 'Build or update the local SQLite index for MCP reads',
       shouldRegister: ownerOnly,
@@ -1989,10 +1978,9 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
     }),
   );
 
-  // Alias (PLAN name)
   registry.register(
     declareTool({
-      name: 'bunner.rebuild_index',
+      name: 'bunner_rebuild_index',
       title: 'Rebuild index',
       description: 'Rebuild the local SQLite index (defaults to full)',
       shouldRegister: ownerOnly,
@@ -2019,7 +2007,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.searchCards',
+      name: 'bunner_search_cards',
       title: 'Search cards',
       description: 'Search cards via the local SQLite FTS index',
       inputSchema: {
@@ -2035,7 +2023,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.searchCode',
+      name: 'bunner_search_code',
       title: 'Search code',
       description: 'Search code entities via the local SQLite FTS index',
       inputSchema: {
@@ -2051,7 +2039,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.getCard',
+      name: 'bunner_get_card',
       title: 'Get card',
       description: 'Get a card by full key from the local SQLite index',
       inputSchema: {
@@ -2063,7 +2051,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.getCodeEntity',
+      name: 'bunner_get_code_entity',
       title: 'Get code entity',
       description: 'Get a code entity by entity_key from the local SQLite index',
       inputSchema: {
@@ -2076,7 +2064,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.listCardRelations',
+      name: 'bunner_list_card_relations',
       title: 'List card relations',
       description: 'List card relations (incoming/outgoing) from the local SQLite index',
       inputSchema: {
@@ -2089,7 +2077,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner.listCardCodeLinks',
+      name: 'bunner_list_card_code_links',
       title: 'List card code links',
       description: 'List code links for a card from the local SQLite index',
       inputSchema: {
@@ -2097,106 +2085,6 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
       },
       run: async (ctx, input) =>
         listCardCodeLinksFn({ projectRoot: ctx.projectRoot, cardKey: String((input as any).cardKey) }),
-    }),
-  );
-
-  registry.register(
-    declareTool({
-      name: 'bunner.cardCreate',
-      title: 'Create card',
-      description: 'Create a new card file',
-      shouldRegister: ownerOnly,
-      inputSchema: {
-        slug: z.string(),
-        summary: z.string(),
-        body: z.string().optional(),
-        keywords: z.array(z.string()).optional(),
-      },
-      run: async (ctx, input) =>
-        cardCreateFn({
-          projectRoot: ctx.projectRoot,
-          config: ctx.config,
-          slug: String((input as any).slug),
-          summary: String((input as any).summary),
-          body: typeof (input as any).body === 'string' ? (input as any).body : '',
-          keywords: (input as any).keywords as any,
-        }),
-    }),
-  );
-
-  registry.register(
-    declareTool({
-      name: 'bunner.cardUpdate',
-      title: 'Update card',
-      description: 'Update an existing card file',
-      shouldRegister: ownerOnly,
-      inputSchema: {
-        fullKey: z.string(),
-        summary: z.string().optional(),
-        body: z.string().optional(),
-        keywords: z.array(z.string()).nullable().optional(),
-        constraints: z.any().optional(),
-        relations: z
-          .array(
-            z.object({
-              type: z.string(),
-              target: z.string(),
-            }),
-          )
-          .nullable()
-          .optional(),
-      },
-      run: async (ctx, input) =>
-        cardUpdateFn(ctx.projectRoot, String((input as any).fullKey), {
-          summary: (input as any).summary,
-          body: (input as any).body,
-          keywords: (input as any).keywords,
-          constraints: (input as any).constraints,
-          relations: (input as any).relations,
-        }),
-    }),
-  );
-
-  registry.register(
-    declareTool({
-      name: 'bunner.cardUpdateStatus',
-      title: 'Update card status',
-      description: 'Update a card status',
-      shouldRegister: ownerOnly,
-      inputSchema: {
-        fullKey: z.string(),
-        status: z.enum(['draft', 'accepted', 'implementing', 'implemented', 'deprecated']),
-      },
-      run: async (ctx, input) =>
-        cardUpdateStatusFn(ctx.projectRoot, String((input as any).fullKey), (input as any).status),
-    }),
-  );
-
-  registry.register(
-    declareTool({
-      name: 'bunner.cardDelete',
-      title: 'Delete card',
-      description: 'Delete a card file',
-      shouldRegister: ownerOnly,
-      inputSchema: {
-        fullKey: z.string(),
-      },
-      run: async (ctx, input) => cardDeleteFn(ctx.projectRoot, String((input as any).fullKey)),
-    }),
-  );
-
-  registry.register(
-    declareTool({
-      name: 'bunner.cardRename',
-      title: 'Rename card',
-      description: 'Rename a card file',
-      shouldRegister: ownerOnly,
-      inputSchema: {
-        fullKey: z.string(),
-        newSlug: z.string(),
-      },
-      run: async (ctx, input) =>
-        cardRenameFn(ctx.projectRoot, String((input as any).fullKey), String((input as any).newSlug)),
     }),
   );
 

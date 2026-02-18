@@ -33,7 +33,7 @@ export class ConfigLoader {
       : { path: jsoncPath, format: 'jsonc' as const };
 
     try {
-      console.info(`🔧 Loading config from ${candidate.path}`);
+      console.error(`🔧 Loading config from ${candidate.path}`);
 
       const resolved = await ConfigLoader.loadJsonConfig(candidate.path, cwd, candidate.format);
       const moduleConfig = resolved.module;
