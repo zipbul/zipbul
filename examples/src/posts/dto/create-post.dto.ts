@@ -1,5 +1,5 @@
-import { IsString } from '@bunner/core';
-import { ApiProperty } from '@bunner/scalar';
+import { IsString } from '@zipbul/core';
+import { ApiProperty } from '@zipbul/scalar';
 
 export class CreatePostDto {
   @ApiProperty({ description: 'Title of the post', example: 'Hello World' })

@@ -1,5 +1,5 @@
 {
-  "name": "@bunner/http-adapter",
+  "name": "@zipbul/http-adapter",
   "type": "module",
   "module": "index.ts",
   "scripts": {},
@@ -12,8 +12,8 @@
     "typescript": "^5"
   },
   "peerDependencies": {
-    "@bunner/common": "workspace:*",
-    "@bunner/core": "workspace:*",
-    "@bunner/logger": "workspace:*"
+    "@zipbul/common": "workspace:*",
+    "@zipbul/core": "workspace:*",
+    "@zipbul/logger": "workspace:*"
   }
 }

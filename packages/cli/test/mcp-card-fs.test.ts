@@ -16,7 +16,7 @@ function makeTempPath(prefix: string) {
 
 describe('mcp/card — fs helpers (integration)', () => {
   it('writes then reads a card file', async () => {
-    const path = makeTempPath('bunner_card');
+    const path = makeTempPath('zipbul_card');
 
     try {
       await writeCardFile(path, {
@@ -39,7 +39,7 @@ describe('mcp/card — fs helpers (integration)', () => {
   });
 
   it('deleteCardFile is idempotent', async () => {
-    const path = makeTempPath('bunner_missing');
+    const path = makeTempPath('zipbul_missing');
 
     await deleteCardFile(path);
     await deleteCardFile(path);

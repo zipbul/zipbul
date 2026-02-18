@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |                   Rule ID | 위반 조건(Violation Condition) | Diagnostic Code                | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ------------------------: | ------------------------------ | ------------------------------ | ------------------------ | ------------------- | --------------------------------- |
-| PIPELINE-MIDDLEWARE-R-001 | invalid middleware stage       | BUNNER_PIPELINE_MIDDLEWARE_001 | error                    | symbol              | static:ast                        |
+| PIPELINE-MIDDLEWARE-R-001 | invalid middleware stage       | ZIPBUL_PIPELINE_MIDDLEWARE_001 | error                    | symbol              | static:ast                        |
 
 ---
 

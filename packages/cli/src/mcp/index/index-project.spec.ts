@@ -26,16 +26,16 @@ describe('indexProject', () => {
 
   it('should rollback all changes when full rebuild fails mid-run', async () => {
     // Arrange
-    const projectRoot = join('/tmp', `bunner-index-full-tx-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const projectRoot = join('/tmp', `zipbul-index-full-tx-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     tempRoots.push(projectRoot);
 
-    mkdirSync(join(projectRoot, '.bunner', 'cards'), { recursive: true });
-    mkdirSync(join(projectRoot, '.bunner', 'cache'), { recursive: true });
+    mkdirSync(join(projectRoot, '.zipbul', 'cards'), { recursive: true });
+    mkdirSync(join(projectRoot, '.zipbul', 'cache'), { recursive: true });
     mkdirSync(join(projectRoot, 'src'), { recursive: true });
 
     // A card that will fail indexing because it references an unregistered keyword.
     await Bun.write(
-      join(projectRoot, '.bunner', 'cards', 'bad.card.md'),
+      join(projectRoot, '.zipbul', 'cards', 'bad.card.md'),
       [
         '---',
         'key: bad',
@@ -63,7 +63,7 @@ describe('indexProject', () => {
         status: 'draft',
         constraintsJson: null,
         body: null,
-        filePath: '.bunner/cards/pre-existing.card.md',
+        filePath: '.zipbul/cards/pre-existing.card.md',
         updatedAt: new Date().toISOString(),
       })
       .run();
@@ -100,13 +100,13 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { ResolvedBunnerConfig } from '../../config';
+import type { ResolvedZipbulConfig } from '../../config';
 
 import { createDb, closeDb } from '../../store/connection';
 import { indexProject } from './index-project';
 
 function tmpDir(name: string): string {
-  return join('/tmp', `bunner-${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  return join('/tmp', `zipbul-${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 }
 
 describe('indexProject (full transaction)', () => {
@@ -125,25 +125,25 @@ describe('indexProject (full transaction)', () => {
     const projectRoot = tmpDir('index-full-tx');
     createdPaths.push(projectRoot);
 
-    await mkdir(join(projectRoot, '.bunner', 'cards'), { recursive: true });
+    await mkdir(join(projectRoot, '.zipbul', 'cards'), { recursive: true });
     await mkdir(join(projectRoot, 'src'), { recursive: true });
 
     await Bun.write(
-      join(projectRoot, '.bunner', 'cards', 'a.card.md'),
+      join(projectRoot, '.zipbul', 'cards', 'a.card.md'),
       `---\nkey: a\nsummary: A\nstatus: draft\n---\nbody\n`,
     );
 
     await Bun.write(join(projectRoot, 'src', 'a.ts'), `/** @see a */\nexport const x = 1;\n`);
 
-    const config: ResolvedBunnerConfig = {
+    const config: ResolvedZipbulConfig = {
       sourceDir: './src',
       entry: './src/a.ts',
       module: { fileName: 'module.ts' },
       mcp: { exclude: [], card: { relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'] } },
     };
 
-    const dbPath = join(projectRoot, '.bunner', 'cache', 'index.sqlite');
-    await mkdir(join(projectRoot, '.bunner', 'cache'), { recursive: true });
+    const dbPath = join(projectRoot, '.zipbul', 'cache', 'index.sqlite');
+    await mkdir(join(projectRoot, '.zipbul', 'cache'), { recursive: true });
 
     const db = createDb(dbPath);
 

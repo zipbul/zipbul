@@ -160,7 +160,7 @@ export type ContractData = {
 
 | Rule ID              | 위반 조건(Violation Condition) | Diagnostic Code           | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -------------------- | ------------------------------ | ------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| PIPELINE-PIPES-R-001 | invalid pipes stage            | BUNNER_PIPELINE_PIPES_001 | error                    | symbol              | static:ast                        |
+| PIPELINE-PIPES-R-001 | invalid pipes stage            | ZIPBUL_PIPELINE_PIPES_001 | error                    | symbol              | static:ast                        |
 
 ---
 

@@ -250,18 +250,18 @@ export type CommonDeclarationsContractData = {
 
 | Rule ID                   | 위반 조건(Violation Condition)       | Diagnostic Code                | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ------------------------- | ------------------------------------ | ------------------------------ | ------------------------ | ------------------- | --------------------------------- |
-| COMMON-DECLARATIONS-R-001 | declaration not decidable            | BUNNER_COMMON_DECLARATIONS_001 | error                    | symbol              | static:ast                        |
-| COMMON-DECLARATIONS-R-002 | InjectCall.token not resolvable      | BUNNER_COMMON_DECLARATIONS_002 | error                    | symbol              | static:ast                        |
-| COMMON-DECLARATIONS-R-003 | invalid ProviderDeclaration          | BUNNER_COMMON_DECLARATIONS_003 | error                    | symbol              | static:ast                        |
-| COMMON-DECLARATIONS-R-004 | invalid ModuleDeclaration            | BUNNER_COMMON_DECLARATIONS_004 | error                    | symbol              | static:ast                        |
-| COMMON-DECLARATIONS-R-005 | invalid @Injectable declaration      | BUNNER_COMMON_DECLARATIONS_005 | error                    | symbol              | static:ast                        |
-| COMMON-DECLARATIONS-R-006 | invalid visibleTo declaration        | BUNNER_COMMON_DECLARATIONS_006 | error                    | symbol              | static:ast                        |
-| COMMON-DECLARATIONS-R-007 | invalid common decorator declaration | BUNNER_COMMON_DECLARATIONS_007 | error                    | symbol              | static:ast                        |
-| COMMON-DECLARATIONS-R-008 | TokenThunk executed at runtime       | BUNNER_COMMON_DECLARATIONS_008 | error                    | range               | runtime:observation               |
-| COMMON-DECLARATIONS-R-009 | invalid Token form                   | BUNNER_COMMON_DECLARATIONS_009 | error                    | symbol              | static:ast                        |
-| COMMON-DECLARATIONS-R-010 | invalid function reference form      | BUNNER_COMMON_DECLARATIONS_010 | error                    | symbol              | static:ast                        |
-| COMMON-DECLARATIONS-R-011 | invalid ModuleMarker marker          | BUNNER_COMMON_DECLARATIONS_011 | error                    | symbol              | static:ast                        |
-| COMMON-DECLARATIONS-R-012 | invalid @Middlewares declaration     | BUNNER_COMMON_DECLARATIONS_012 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-001 | declaration not decidable            | ZIPBUL_COMMON_DECLARATIONS_001 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-002 | InjectCall.token not resolvable      | ZIPBUL_COMMON_DECLARATIONS_002 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-003 | invalid ProviderDeclaration          | ZIPBUL_COMMON_DECLARATIONS_003 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-004 | invalid ModuleDeclaration            | ZIPBUL_COMMON_DECLARATIONS_004 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-005 | invalid @Injectable declaration      | ZIPBUL_COMMON_DECLARATIONS_005 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-006 | invalid visibleTo declaration        | ZIPBUL_COMMON_DECLARATIONS_006 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-007 | invalid common decorator declaration | ZIPBUL_COMMON_DECLARATIONS_007 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-008 | TokenThunk executed at runtime       | ZIPBUL_COMMON_DECLARATIONS_008 | error                    | range               | runtime:observation               |
+| COMMON-DECLARATIONS-R-009 | invalid Token form                   | ZIPBUL_COMMON_DECLARATIONS_009 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-010 | invalid function reference form      | ZIPBUL_COMMON_DECLARATIONS_010 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-011 | invalid ModuleMarker marker          | ZIPBUL_COMMON_DECLARATIONS_011 | error                    | symbol              | static:ast                        |
+| COMMON-DECLARATIONS-R-012 | invalid @Middlewares declaration     | ZIPBUL_COMMON_DECLARATIONS_012 | error                    | symbol              | static:ast                        |
 
 ---
 

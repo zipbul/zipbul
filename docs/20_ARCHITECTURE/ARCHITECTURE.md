@@ -1,8 +1,8 @@
-# Bunner 아키텍처 헌법 (Level 2)
+# Zipbul 아키텍처 헌법 (Level 2)
 
 > **L2 – Architecture (Structural Boundary)**
 >
-> 이 문서는 Bunner 프레임워크의 **구조적 경계**, **허용 가능한 배치(Placement)**, 그리고
+> 이 문서는 Zipbul 프레임워크의 **구조적 경계**, **허용 가능한 배치(Placement)**, 그리고
 > **의존성 방향(Direction)**을 정의하는 최상위 아키텍처 명세서이다.
 >
 > 본 문서는 **[SSOT_HIERARCHY](../10_FOUNDATION/SSOT_HIERARCHY.md)** 에 따라
@@ -20,7 +20,7 @@ NOTE: 판정 가능성의 구체적 검증 절차는 **[L4/VERIFY.md](../40_ENGI
 
 ## 1. 지능의 국소성 (Intelligence Locality)
 
-Bunner 아키텍처의 제1원칙은 **지능의 국소화**이다.
+Zipbul 아키텍처의 제1원칙은 **지능의 국소화**이다.
 시스템의 모든 구조적 판단은 빌드 타임에 완료되며,
 런타임은 이미 확정된 실행 경로만을 따른다.
 이는 **L1 Invariants #1 (Platform & Intelligence Locality)** 의 구조적 투영이다.

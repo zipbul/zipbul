@@ -1,4 +1,4 @@
-import { Injectable } from '@bunner/common';
+import { Injectable } from '@zipbul/common';
 
 import type { CreatePostDto } from './dto/create-post.dto';
 import type { UpdatePostDto } from './dto/update-post.dto';

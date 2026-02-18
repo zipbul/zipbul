@@ -1,6 +1,6 @@
-# Bunner Documentation Index (문서 지도)
+# Zipbul Documentation Index (문서 지도)
 
-이 문서는 Bunner 프로젝트의 모든 문서 구조와 위계를 안내하는 내비게이션 SSOT이다.
+이 문서는 Zipbul 프로젝트의 모든 문서 구조와 위계를 안내하는 내비게이션 SSOT이다.
 
 > 본 문서는 문서의 위치와 권위를 판정하기 위한 **내비게이션 SSOT**이며,
 > 본문에 포함된 경로 및 계층 정보는 규범적이다.

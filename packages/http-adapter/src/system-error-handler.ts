@@ -1,4 +1,4 @@
-import type { Context } from '@bunner/common';
+import type { Context } from '@zipbul/common';
 
 import type { SystemError } from './types';
 

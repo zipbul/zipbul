@@ -1,25 +1,25 @@
 {
-  "name": "bunner",
+  "name": "zipbul",
   "version": "0.0.1",
   "private": false,
-  "description": "Bunner is a web server framework for building web applications with Bun.",
+  "description": "Zipbul is a web server framework for building web applications with Bun.",
   "keywords": [
     "api",
     "bun",
-    "bunner",
+    "zipbul",
     "express",
     "framework",
     "restful"
   ],
-  "homepage": "https://github.com/parkrevil/bunner",
+  "homepage": "https://github.com/parkrevil/zipbul",
   "bugs": {
-    "url": "https://github.com/parkrevil/bunner/issues"
+    "url": "https://github.com/parkrevil/zipbul/issues"
   },
   "license": "MIT",
   "author": "revil <revil.com@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/parkrevil/bunner"
+    "url": "https://github.com/parkrevil/zipbul"
   },
   "workspaces": [
     "packages/**/*",

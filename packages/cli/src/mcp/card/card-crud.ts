@@ -1,4 +1,4 @@
-import type { ResolvedBunnerConfig } from '../../config';
+import type { ResolvedZipbulConfig } from '../../config';
 import type { CardFile, CardFrontmatter, CardRelation, CardStatus } from './types';
 
 import { dirname } from 'path';
@@ -9,7 +9,7 @@ import { readCardFile, writeCardFile } from './card-fs';
 
 export interface CardCreateInput {
   projectRoot: string;
-  config: ResolvedBunnerConfig;
+  config: ResolvedZipbulConfig;
   slug: string;
   summary: string;
   body: string;

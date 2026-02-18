@@ -1,4 +1,4 @@
-import type { AdapterCollection } from '@bunner/common';
+import type { AdapterCollection } from '@zipbul/common';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -14,7 +14,7 @@ import type {
 
 import { setupScalar } from './setup';
 
-const BUNNER_HTTP_INTERNAL = Symbol.for('bunner:http:internal');
+const ZIPBUL_HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
 
 function createHttpAdapterSpy(): HttpAdapterSpy {
   const calls: InternalRouteCall[] = [];
@@ -24,7 +24,7 @@ function createHttpAdapterSpy(): HttpAdapterSpy {
     },
   };
   const adapter: HttpAdapter = {
-    [BUNNER_HTTP_INTERNAL]: internalAdapter,
+    [ZIPBUL_HTTP_INTERNAL]: internalAdapter,
     start: async () => {},
     stop: async () => {},
   };

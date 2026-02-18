@@ -1,6 +1,6 @@
 {
   "sourceDir": "./packages",
-  "entry": "./packages/cli/src/bin/bunner.ts",
+  "entry": "./packages/cli/src/bin/zp.ts",
   "module": {
     "fileName": "module.ts"
   }

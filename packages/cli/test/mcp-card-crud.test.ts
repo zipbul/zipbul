@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
-import type { ResolvedBunnerConfig } from '../src/config/interfaces';
+import type { ResolvedZipbulConfig } from '../src/config/interfaces';
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,7 +8,7 @@ import { join } from 'path';
 
 import { cardCreate, cardDelete, cardRename, cardUpdate, cardUpdateStatus } from '../src/mcp/card/card-crud';
 
-const config: ResolvedBunnerConfig = {
+const config: ResolvedZipbulConfig = {
   module: { fileName: 'module.ts' },
   sourceDir: './src',
   entry: './src/main.ts',
@@ -22,7 +22,7 @@ describe('mcp/card — card CRUD (integration)', () => {
   let root: string | null = null;
 
   async function makeRoot(): Promise<string> {
-    const dir = await mkdtemp(join(tmpdir(), 'bunner_p3_'));
+    const dir = await mkdtemp(join(tmpdir(), 'zipbul_p3_'));
     root = dir;
     return dir;
   }
@@ -83,7 +83,7 @@ describe('mcp/card — card CRUD (integration)', () => {
     const renamed = await cardRename(projectRoot, 'auth/login', 'auth/new-login');
 
     expect(renamed.oldFilePath).toBe(created.filePath);
-    expect(renamed.newFilePath).toBe(join(projectRoot, '.bunner', 'cards', 'auth/new-login.card.md'));
+    expect(renamed.newFilePath).toBe(join(projectRoot, '.zipbul', 'cards', 'auth/new-login.card.md'));
 
     const oldExists = await Bun.file(created.filePath).exists();
     expect(oldExists).toBe(false);

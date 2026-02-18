@@ -9,11 +9,11 @@ describe('ImportRegistry', () => {
 
     registry1.getAlias('BClass', './b.ts');
     registry1.getAlias('AClass', './a.ts');
-    registry1.getAlias('CClass', '@bunner/core');
+    registry1.getAlias('CClass', '@zipbul/core');
 
     const registry2 = new ImportRegistry('/out');
 
-    registry2.getAlias('CClass', '@bunner/core');
+    registry2.getAlias('CClass', '@zipbul/core');
     registry2.getAlias('AClass', './a.ts');
     registry2.getAlias('BClass', './b.ts');
 
@@ -31,7 +31,7 @@ describe('ImportRegistry', () => {
 
     registry.getAlias('BClass', './b.ts');
     registry.getAlias('AClass', './a.ts');
-    registry.getAlias('CoreThing', '@bunner/core');
+    registry.getAlias('CoreThing', '@zipbul/core');
 
     // Act
     const statements = registry.getImportStatements();
@@ -40,7 +40,7 @@ describe('ImportRegistry', () => {
     expect(statements).toEqual([
       'import { AClass } from "./a.ts";',
       'import { BClass } from "./b.ts";',
-      'import { CoreThing } from "@bunner/core";',
+      'import { CoreThing } from "@zipbul/core";',
     ]);
   });
 });

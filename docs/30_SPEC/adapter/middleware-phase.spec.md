@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |                        Rule ID | 위반 조건(Violation Condition) | Diagnostic Code                     | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -----------------------------: | ------------------------------ | ----------------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| ADAPTER-MIDDLEWARE-PHASE-R-001 | invalid middleware phase       | BUNNER_ADAPTER_MIDDLEWARE_PHASE_001 | error                    | symbol              | static:ast                        |
+| ADAPTER-MIDDLEWARE-PHASE-R-001 | invalid middleware phase       | ZIPBUL_ADAPTER_MIDDLEWARE_PHASE_001 | error                    | symbol              | static:ast                        |
 
 ---
 

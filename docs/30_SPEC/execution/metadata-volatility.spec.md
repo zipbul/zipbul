@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |                             Rule ID | 위반 조건(Violation Condition) | Diagnostic Code                          | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ----------------------------------: | ------------------------------ | ---------------------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| EXECUTION-METADATA-VOLATILITY-R-001 | invalid metadata volatility    | BUNNER_EXECUTION_METADATA_VOLATILITY_001 | error                    | symbol              | static:ast                        |
+| EXECUTION-METADATA-VOLATILITY-R-001 | invalid metadata volatility    | ZIPBUL_EXECUTION_METADATA_VOLATILITY_001 | error                    | symbol              | static:ast                        |
 
 ---
 

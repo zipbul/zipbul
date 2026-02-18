@@ -11,7 +11,7 @@
 
 ## 문서 역할 (SSOT)
 
-- 이 문서는 의존성 선언의 **판정 규칙(Policy)** 과 `@bunner/*` 내부 관계의 최소 기준만 고정한다.
+- 이 문서는 의존성 선언의 **판정 규칙(Policy)** 과 `@zipbul/*` 내부 관계의 최소 기준만 고정한다.
 - 패키지 경계/의존 방향(어떤 패키지가 어떤 패키지를 의존할 수 있는지)의 SSOT는 [ARCHITECTURE.md](../20_ARCHITECTURE/ARCHITECTURE.md)다.
 - 이 문서는 “그 관계를 `package.json`에서 `dependencies`/`peerDependencies`/`devDependencies` 중 어디에 선언해야 하는가”의 판정 기준을 제공한다.
 - 개별 패키지의 “구체적인 의존성 목록”의 SSOT는 각 패키지의 `package.json`이다.
@@ -21,7 +21,7 @@
 
 아래 중 하나라도 발생하면 이 문서를 업데이트해야 한다.
 
-- `@bunner/*` 신규 패키지가 추가되어 분류/매트릭스가 바뀌는 경우
+- `@zipbul/*` 신규 패키지가 추가되어 분류/매트릭스가 바뀌는 경우
 - 패키지 경계/의존 방향이 바뀌는 경우(SSOT: [ARCHITECTURE.md](../20_ARCHITECTURE/ARCHITECTURE.md))
 - `dependencies`/`peerDependencies`/`devDependencies` 판정 규칙 자체가 바뀌는 경우
 - 특정 패키지의 `peerDependencies` 정책(필수/권장 범위)이 바뀌는 경우
@@ -67,65 +67,65 @@
 - 패키지 자체 구현에 항상 필요한 의존이면 `dependencies`를 사용한다.
 - 개발/테스트/타입체크/코드 생성 등 개발 시점에만 필요한 도구면 `devDependencies`를 사용한다.
 
-## `@bunner/logger` 의존성 정책 (명확화)
+## `@zipbul/logger` 의존성 정책 (명확화)
 
-- `@bunner/logger`는 레포의 “모든 패키지”가 반드시 필요로 하는 전제 패키지가 아니다.
-- 어떤 패키지가 런타임에서 `@bunner/logger`를 import 한다면, 그 패키지는 반드시 `dependencies` 또는 `peerDependencies`로 `@bunner/logger`를 선언해야 한다.
-- `@bunner/*` 내부 기본값
-  - 런타임 코어(`@bunner/core`): `dependencies`로 선언한다.
+- `@zipbul/logger`는 레포의 “모든 패키지”가 반드시 필요로 하는 전제 패키지가 아니다.
+- 어떤 패키지가 런타임에서 `@zipbul/logger`를 import 한다면, 그 패키지는 반드시 `dependencies` 또는 `peerDependencies`로 `@zipbul/logger`를 선언해야 한다.
+- `@zipbul/*` 내부 기본값
+  - 런타임 코어(`@zipbul/core`): `dependencies`로 선언한다.
   - 런타임 어댑터/플러그인: 기본값은 `peerDependencies`로 선언한다(호스트가 버전 정합성을 통제).
-  - CLI(`@bunner/cli`): 런타임 패키지에 의존해서는 안 된다(SSOT: `ARCHITECTURE.md`).
+  - CLI(`@zipbul/cli`): 런타임 패키지에 의존해서는 안 된다(SSOT: `ARCHITECTURE.md`).
 
 ## 패키지 분류별 판정
 
 - 아래 분류 및 패키지 간 의존 방향/금지 관계는 [ARCHITECTURE.md](../20_ARCHITECTURE/ARCHITECTURE.md)의 재진술이며, 충돌 시 [ARCHITECTURE.md](../20_ARCHITECTURE/ARCHITECTURE.md)가 우선한다.
 
-- 런타임 코어(`@bunner/core`)
-  - `dependencies`: 코어 런타임에 직접 필요한 패키지(예: `@bunner/common`, `@bunner/logger`)
+- 런타임 코어(`@zipbul/core`)
+  - `dependencies`: 코어 런타임에 직접 필요한 패키지(예: `@zipbul/common`, `@zipbul/logger`)
   - `peerDependencies`: 기본값으로 사용하지 않는다
 
-- 런타임 어댑터(예: `@bunner/http-adapter`)
-  - `peerDependencies`: 필수: `@bunner/core`, (사용 시) `@bunner/common`, `@bunner/logger`
+- 런타임 어댑터(예: `@zipbul/http-adapter`)
+  - `peerDependencies`: 필수: `@zipbul/core`, (사용 시) `@zipbul/common`, `@zipbul/logger`
   - `dependencies`: 어댑터 자체 구현에 필요한 외부 라이브러리
 
-- 런타임 플러그인(예: `@bunner/scalar`)
-  - `peerDependencies`: 필수: `@bunner/common`, (사용 시) `@bunner/logger`
+- 런타임 플러그인(예: `@zipbul/scalar`)
+  - `peerDependencies`: 필수: `@zipbul/common`, (사용 시) `@zipbul/logger`
   - `dependencies`: 플러그인 자체 구현에 필요한 외부 라이브러리
 
-- 공용 기반(`@bunner/common`, `@bunner/logger`)
+- 공용 기반(`@zipbul/common`, `@zipbul/logger`)
   - `dependencies`: 자체 런타임 구현에 필요한 외부 라이브러리만 선언한다
   - `peerDependencies`: 기본값으로 비운다
 
-- CLI 툴링(`@bunner/cli`)
+- CLI 툴링(`@zipbul/cli`)
   - `dependencies`: CLI 실행/분석/생성에 필요로 하는 라이브러리 및 패키지
-    - 단, 프레임워크 런타임 구현 패키지(`@bunner/core`, `@bunner/http-adapter`, `@bunner/scalar`, `@bunner/logger`)에 의존해서는 안 된다.
-    - CLI가 프레임워크 계약(Contract)을 공유해야 한다면, `@bunner/common`에만 의존할 수 있다.
+    - 단, 프레임워크 런타임 구현 패키지(`@zipbul/core`, `@zipbul/http-adapter`, `@zipbul/scalar`, `@zipbul/logger`)에 의존해서는 안 된다.
+    - CLI가 프레임워크 계약(Contract)을 공유해야 한다면, `@zipbul/common`에만 의존할 수 있다.
   - `peerDependencies`: 기본값으로 비운다
 
 ## 패키지별 의존성 타입 매트릭스 (패키지 단위)
 
 - 이 매트릭스는 현행 패키지에 대한 적용 예시이며, 분류 규칙이 SSOT다.
 
-- `@bunner/common`
+- `@zipbul/common`
   - `dependencies`: 외부 라이브러리만
   - `peerDependencies`: 비움
 
-- `@bunner/logger`
+- `@zipbul/logger`
   - `dependencies`: 외부 라이브러리만
   - `peerDependencies`: 비움
 
-- `@bunner/core`
-  - `dependencies`: `@bunner/common`, `@bunner/logger` 및 코어 런타임에 직접 필요한 외부 라이브러리
+- `@zipbul/core`
+  - `dependencies`: `@zipbul/common`, `@zipbul/logger` 및 코어 런타임에 직접 필요한 외부 라이브러리
   - `peerDependencies`: 비움
 
-- `@bunner/http-adapter`
+- `@zipbul/http-adapter`
   - `dependencies`: 어댑터 자체 구현에 필요한 외부 라이브러리
-  - `peerDependencies`: 필수: `@bunner/core`, `@bunner/common`, `@bunner/logger`
+  - `peerDependencies`: 필수: `@zipbul/core`, `@zipbul/common`, `@zipbul/logger`
 
-- `@bunner/scalar`
+- `@zipbul/scalar`
   - `dependencies`: 플러그인 자체 구현에 필요한 외부 라이브러리
-  - `peerDependencies`: 필수: `@bunner/common`, (사용 시) `@bunner/logger`
+  - `peerDependencies`: 필수: `@zipbul/common`, (사용 시) `@zipbul/logger`
 
-- `@bunner/cli`
+- `@zipbul/cli`
   - `dependencies`: CLI 실행에 필요한 라이브러리(파서/파일 I/O/템플릿 등)
   - `peerDependencies`: 비움

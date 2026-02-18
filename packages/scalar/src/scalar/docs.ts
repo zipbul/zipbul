@@ -1,4 +1,4 @@
-import { getRuntimeContext } from '@bunner/core';
+import { getRuntimeContext } from '@zipbul/core';
 
 import type { Doc } from './interfaces';
 import type { ScalarMetadataRegistry, ScalarRecord, ScalarRegistryKey } from './types';

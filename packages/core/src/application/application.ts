@@ -1,12 +1,12 @@
-import type { ModuleMarker } from '@bunner/common';
-import { BunnerApplication } from './bunner-application';
+import type { ModuleMarker } from '@zipbul/common';
+import { ZipbulApplication } from './zipbul-application';
 import type { CreateApplicationOptions } from './interfaces';
 
 function createApplication(
   _entryModuleMarker: ModuleMarker,
   _options?: CreateApplicationOptions,
-): BunnerApplication {
-  return new BunnerApplication();
+): ZipbulApplication {
+  return new ZipbulApplication();
 }
 
 export {

@@ -1,5 +1,5 @@
 {
-  "name": "@bunner/logger",
+  "name": "@zipbul/logger",
   "version": "0.0.1",
   "type": "module",
   "module": "index.ts",

@@ -7,17 +7,17 @@ import type { CommandOptions } from './types';
 import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import { ConfigLoader, ConfigLoadError } from '../config';
-import { bunnerDirPath, scanGlobSorted, writeIfChanged } from '../common';
+import { zipbulDirPath, scanGlobSorted, writeIfChanged } from '../common';
 import { buildDiagnostic, DiagnosticReportError, reportDiagnostics } from '../diagnostics';
 import { ManifestGenerator } from '../compiler/generator';
 import * as watcher from '@parcel/watcher';
 
 import { ChangesetWriter, OwnerElection, ProjectWatcher } from '../watcher';
-import { bunnerCacheDirPath } from '../common/bunner-paths';
+import { zipbulCacheDirPath } from '../common/zipbul-paths';
 import { buildDevIncrementalImpactLog } from './dev-incremental-impact';
 
 export async function dev(commandOptions?: CommandOptions) {
-  console.info('🚀 Starting Bunner Dev...');
+  console.info('🚀 Starting Zipbul Dev...');
 
   try {
     const configResult = await ConfigLoader.load();
@@ -26,7 +26,7 @@ export async function dev(commandOptions?: CommandOptions) {
     const buildProfile = commandOptions?.profile ?? 'full';
     const projectRoot = process.cwd();
     const srcDir = resolve(projectRoot, config.sourceDir);
-    const outDir = bunnerDirPath(projectRoot);
+    const outDir = zipbulDirPath(projectRoot);
     const parser = new AstParser();
     const adapterSpecResolver = new AdapterSpecResolver();
     const fileCache = new Map<string, FileAnalysis>();
@@ -249,7 +249,7 @@ export async function dev(commandOptions?: CommandOptions) {
     } else {
       console.info(`👁️  Watcher owner detected (pid=${electionRes.ownerPid}). Running in reader mode.`);
 
-      const cacheDir = bunnerCacheDirPath(projectRoot);
+      const cacheDir = zipbulCacheDirPath(projectRoot);
 
       const subscription = await watcher.subscribe(cacheDir, (_err, events) => {
         void (async () => {

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { __testing__ } from './mcp.command';
-import type { ResolvedBunnerConfig } from '../config';
+import type { ResolvedZipbulConfig } from '../config';
 
-const testConfig: ResolvedBunnerConfig = {
+const testConfig: ResolvedZipbulConfig = {
   module: { fileName: 'module.ts' },
   sourceDir: './src',
   entry: './src/main.ts',
@@ -29,6 +29,14 @@ describe('createMcpCommand', () => {
         calls.push('loadConfig');
         return { config: testConfig };
       },
+      verifyProject: async () => {
+        calls.push('verifyProject');
+        return { ok: true, errors: [], warnings: [] } as any;
+      },
+      rebuildProjectIndex: async () => {
+        calls.push('rebuildProjectIndex');
+        return { ok: true };
+      },
       startServer: async () => {
         calls.push('startServer');
       },
@@ -44,7 +52,7 @@ describe('createMcpCommand', () => {
     expect(calls).toEqual(['ensureRepo', 'loadConfig', 'startServer']);
   });
 
-  it('should report invalid args when any args are provided', async () => {
+  it('should run verify when verify subcommand is provided', async () => {
     // Arrange
     const calls: string[] = [];
     const cmd = __testing__.createMcpCommand({
@@ -55,6 +63,10 @@ describe('createMcpCommand', () => {
       verifyProject: async () => {
         calls.push('verifyProject');
         return { ok: true, errors: [], warnings: [] } as any;
+      },
+      rebuildProjectIndex: async () => {
+        calls.push('rebuildProjectIndex');
+        return { ok: true };
       },
       startServer: async () => {
         calls.push('startServer');
@@ -71,8 +83,8 @@ describe('createMcpCommand', () => {
       await cmd(['verify'], {});
 
       // Assert
-      expect(calls).toEqual(['invalidSubcommand:verify']);
-      expect(process.exitCode).toBe(1);
+      expect(calls).toEqual(['ensureRepo', 'verifyProject']);
+      expect(process.exitCode).toBe(0);
     } finally {
       // handled by afterEach
     }

@@ -201,12 +201,12 @@ export const scopedKeysMap = createScopedKeysMap();
 
       const record = token;
 
-      if (typeof record.__bunner_ref === 'string') {
-        return record.__bunner_ref;
+      if (typeof record.__zipbul_ref === 'string') {
+        return record.__zipbul_ref;
       }
 
-      if (typeof record.__bunner_forward_ref === 'string') {
-        return record.__bunner_forward_ref;
+      if (typeof record.__zipbul_forward_ref === 'string') {
+        return record.__zipbul_forward_ref;
       }
 
       return undefined;

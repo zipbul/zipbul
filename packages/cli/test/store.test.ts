@@ -162,7 +162,7 @@ describe('store', () => {
           status: 'draft',
           constraintsJson: null,
           body: '# Login spec',
-          filePath: '.bunner/cards/auth/login.card.md',
+          filePath: '.zipbul/cards/auth/login.card.md',
           updatedAt: now,
         })
         .run();
@@ -193,7 +193,7 @@ describe('store', () => {
         key: 'auth/login',
         summary: 'OAuth login',
         status: 'draft',
-        filePath: '.bunner/cards/auth/login.card.md',
+        filePath: '.zipbul/cards/auth/login.card.md',
         updatedAt: now,
       }).run();
       db.insert(keyword).values({ id: 1, name: 'auth' }).run();
@@ -224,7 +224,7 @@ describe('store', () => {
         key: 'auth/login',
         summary: 'OAuth login',
         status: 'draft',
-        filePath: '.bunner/cards/auth/login.card.md',
+        filePath: '.zipbul/cards/auth/login.card.md',
         updatedAt: now,
       }).run();
       db.insert(tag).values({ id: 1, name: 'core' }).run();

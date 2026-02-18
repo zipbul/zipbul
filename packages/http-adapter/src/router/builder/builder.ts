@@ -1,4 +1,4 @@
-import { Logger } from '@bunner/logger';
+import { Logger } from '@zipbul/logger';
 
 import type { HttpMethod } from '../../types';
 import type { BinaryRouterLayout } from '../schema';

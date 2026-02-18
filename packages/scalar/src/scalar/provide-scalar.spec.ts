@@ -1,4 +1,4 @@
-import type { Provider, ProviderToken, ProviderUseFactory, ProviderUseValue } from '@bunner/common';
+import type { Provider, ProviderToken, ProviderUseFactory, ProviderUseValue } from '@zipbul/common';
 
 import { describe, it, expect } from 'bun:test';
 

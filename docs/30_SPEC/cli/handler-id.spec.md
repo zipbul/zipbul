@@ -160,9 +160,9 @@ export type HandlerIdFormat = '<adapterId>:<file>#<symbol>';
 
 | Rule ID              | 위반 조건(Violation Condition) | Diagnostic Code           | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -------------------- | ------------------------------ | ------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| CLI-HANDLER-ID-R-001 | invalid handler id             | BUNNER_CLI_HANDLER_ID_001 | error                    | symbol              | static:ast                        |
-| CLI-HANDLER-ID-R-002 | invalid handler id             | BUNNER_CLI_HANDLER_ID_002 | error                    | symbol              | static:ast                        |
-| CLI-HANDLER-ID-R-003 | invalid handler id             | BUNNER_CLI_HANDLER_ID_003 | error                    | symbol              | static:ast                        |
+| CLI-HANDLER-ID-R-001 | invalid handler id             | ZIPBUL_CLI_HANDLER_ID_001 | error                    | symbol              | static:ast                        |
+| CLI-HANDLER-ID-R-002 | invalid handler id             | ZIPBUL_CLI_HANDLER_ID_002 | error                    | symbol              | static:ast                        |
+| CLI-HANDLER-ID-R-003 | invalid handler id             | ZIPBUL_CLI_HANDLER_ID_003 | error                    | symbol              | static:ast                        |
 
 ---
 

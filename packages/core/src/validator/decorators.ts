@@ -1,4 +1,4 @@
-import type { PrimitiveArray } from '@bunner/common';
+import type { PrimitiveArray } from '@zipbul/common';
 
 import type { ValidatorOptions } from './interfaces';
 import type { ValidatorDecoratorArgs, ValidatorDecoratorTarget, ValidatorPropertyDecorator } from './types';

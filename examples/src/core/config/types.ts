@@ -1,4 +1,4 @@
-import type { PrimitiveRecord } from '@bunner/common';
+import type { PrimitiveRecord } from '@zipbul/common';
 
 export type SomeConfigValue = string | number;
 

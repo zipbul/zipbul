@@ -27,13 +27,13 @@ afterAll(() => {
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 const mod = require('./changeset.ts') as typeof import('./changeset');
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-const paths = require('../common/bunner-paths.ts') as typeof import('../common/bunner-paths');
+const paths = require('../common/zipbul-paths.ts') as typeof import('../common/zipbul-paths');
 
 describe('ChangesetWriter', () => {
   const projectRoot = '/repo';
-  const changesetPath = paths.bunnerCacheFilePath(projectRoot, mod.CHANGESET_FILE_NAME);
-  const rotatedPath = paths.bunnerCacheFilePath(projectRoot, mod.CHANGESET_ROTATED_FILE_NAME);
-  const cacheDir = paths.bunnerCacheDirPath(projectRoot);
+  const changesetPath = paths.zipbulCacheFilePath(projectRoot, mod.CHANGESET_FILE_NAME);
+  const rotatedPath = paths.zipbulCacheFilePath(projectRoot, mod.CHANGESET_ROTATED_FILE_NAME);
+  const cacheDir = paths.zipbulCacheDirPath(projectRoot);
 
   let bunFileSpy: ReturnType<typeof spyOn> | undefined;
   let exists = false;
@@ -71,7 +71,7 @@ describe('ChangesetWriter', () => {
     bunFileSpy?.mockRestore();
   });
 
-  it('should append a JSONL record to .bunner/cache/changeset.jsonl', async () => {
+  it('should append a JSONL record to .zipbul/cache/changeset.jsonl', async () => {
     // Arrange
     const nowMs = () => 1700000000000;
     const writer = new mod.ChangesetWriter({ projectRoot, nowMs });

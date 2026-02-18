@@ -201,16 +201,16 @@ export type ContractData = {
 
 | Rule ID                            | 위반 조건(Violation Condition)                            | Diagnostic Code                         | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ---------------------------------- | --------------------------------------------------------- | --------------------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| MODULE-SYSTEM-ADAPTER-CONFIG-R-001 | invalid adapter config                                    | BUNNER_MODULE_SYSTEM_ADAPTER_CONFIG_001 | error                    | symbol              | static:ast                        |
-| MODULE-SYSTEM-ADAPTER-CONFIG-R-002 | non-deterministic adapter key order                       | BUNNER_MODULE_SYSTEM_ADAPTER_CONFIG_002 | error                    | file                | test:assert                       |
-| MODULE-SYSTEM-ADAPTER-CONFIG-R-003 | dependsOn defaulting violated                             | BUNNER_MODULE_SYSTEM_ADAPTER_CONFIG_003 | error                    | symbol              | static:ast                        |
-| MODULE-SYSTEM-ADAPTER-CONFIG-R-004 | empty dependsOn list                                      | BUNNER_MODULE_SYSTEM_ADAPTER_CONFIG_004 | error                    | symbol              | static:ast                        |
-| MODULE-SYSTEM-ADAPTER-CONFIG-R-005 | dependsOn references missing adapterId                    | BUNNER_MODULE_SYSTEM_ADAPTER_CONFIG_005 | error                    | symbol              | static:ast                        |
-| MODULE-SYSTEM-ADAPTER-CONFIG-R-006 | invalid middlewares registry                              | BUNNER_MODULE_SYSTEM_ADAPTER_CONFIG_006 | error                    | symbol              | static:ast                        |
-| MODULE-SYSTEM-ADAPTER-CONFIG-R-007 | invalid guards/pipes list                                 | BUNNER_MODULE_SYSTEM_ADAPTER_CONFIG_007 | error                    | symbol              | static:ast                        |
-| MODULE-SYSTEM-ADAPTER-CONFIG-R-008 | invalid exceptionFilters list                             | BUNNER_MODULE_SYSTEM_ADAPTER_CONFIG_008 | error                    | symbol              | static:ast                        |
-| MODULE-SYSTEM-ADAPTER-CONFIG-R-009 | dependsOn cycle detected                                  | BUNNER_MODULE_SYSTEM_ADAPTER_CONFIG_009 | error                    | file                | static:ast                        |
-| MODULE-SYSTEM-ADAPTER-CONFIG-R-010 | adapterName mismatch or unresolvable adapter package name | BUNNER_MODULE_SYSTEM_ADAPTER_CONFIG_010 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-ADAPTER-CONFIG-R-001 | invalid adapter config                                    | ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_001 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-ADAPTER-CONFIG-R-002 | non-deterministic adapter key order                       | ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_002 | error                    | file                | test:assert                       |
+| MODULE-SYSTEM-ADAPTER-CONFIG-R-003 | dependsOn defaulting violated                             | ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_003 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-ADAPTER-CONFIG-R-004 | empty dependsOn list                                      | ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_004 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-ADAPTER-CONFIG-R-005 | dependsOn references missing adapterId                    | ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_005 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-ADAPTER-CONFIG-R-006 | invalid middlewares registry                              | ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_006 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-ADAPTER-CONFIG-R-007 | invalid guards/pipes list                                 | ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_007 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-ADAPTER-CONFIG-R-008 | invalid exceptionFilters list                             | ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_008 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-ADAPTER-CONFIG-R-009 | dependsOn cycle detected                                  | ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_009 | error                    | file                | static:ast                        |
+| MODULE-SYSTEM-ADAPTER-CONFIG-R-010 | adapterName mismatch or unresolvable adapter package name | ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_010 | error                    | symbol              | static:ast                        |
 
 ---
 

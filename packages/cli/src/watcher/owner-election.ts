@@ -1,7 +1,7 @@
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'path';
 
-import { bunnerCacheFilePath } from '../common/bunner-paths';
+import { zipbulCacheFilePath } from '../common/zipbul-paths';
 
 export type OwnerRole = 'owner' | 'reader';
 
@@ -53,7 +53,7 @@ export class OwnerElection {
   private readonly lockPath: string;
 
   constructor(private readonly input: OwnerElectionInput) {
-    this.lockPath = bunnerCacheFilePath(input.projectRoot, 'watcher.owner.lock');
+    this.lockPath = zipbulCacheFilePath(input.projectRoot, 'watcher.owner.lock');
   }
 
   acquire(): OwnerElectionAcquireResult {

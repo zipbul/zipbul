@@ -26,7 +26,7 @@ function createInjectableClassMetadata(params: InjectableClassParams): ClassMeta
   const constructorParams = (injectedTokens ?? []).map((token, index) => {
     return {
       name: `p${index}`,
-      type: { __bunner_ref: token },
+      type: { __zipbul_ref: token },
       decorators: [],
     };
   });
@@ -59,7 +59,7 @@ function createModuleFileAnalysis(params: ModuleFileAnalysisParams): FileAnalysi
     defineModuleCalls: [
       {
         callee: 'defineModule',
-        importSource: '@bunner/core',
+        importSource: '@zipbul/core',
         args: [],
         exportedName: exportedName ?? 'appModule',
       },
@@ -186,7 +186,7 @@ describe('ModuleGraph', () => {
           createInjectableClassMetadata({
             className: 'BService',
             visibleTo: [
-              { __bunner_ref: 'otherModule', __bunner_import_source: moduleOtherPath },
+              { __zipbul_ref: 'otherModule', __zipbul_import_source: moduleOtherPath },
             ],
           }),
         ],
@@ -222,8 +222,8 @@ describe('ModuleGraph', () => {
           createInjectableClassMetadata({
             className: 'BService',
             visibleTo: [
-              { __bunner_ref: 'appModule', __bunner_import_source: moduleAPath },
-              { __bunner_ref: 'appModule', __bunner_import_source: moduleAPath },
+              { __zipbul_ref: 'appModule', __zipbul_import_source: moduleAPath },
+              { __zipbul_ref: 'appModule', __zipbul_import_source: moduleAPath },
             ],
           }),
         ],
@@ -286,7 +286,7 @@ describe('ModuleGraph', () => {
           tokenKind: 'invalid',
           token: null,
           callee: 'inject',
-          importSource: '@bunner/common',
+          importSource: '@zipbul/common',
         },
       ],
     });
@@ -326,13 +326,13 @@ describe('ModuleGraph', () => {
       defineModuleCalls: [
         {
           callee: 'defineModule',
-          importSource: '@bunner/core',
+          importSource: '@zipbul/core',
           args: [],
           exportedName: 'module1',
         },
         {
           callee: 'defineModule',
-          importSource: '@bunner/core',
+          importSource: '@zipbul/core',
           args: [],
           exportedName: 'module2',
         },
@@ -357,7 +357,7 @@ describe('ModuleGraph', () => {
       defineModuleCalls: [
         {
           callee: 'defineModule',
-          importSource: '@bunner/core',
+          importSource: '@zipbul/core',
           args: [],
           exportedName: undefined,
         },

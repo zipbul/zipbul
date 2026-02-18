@@ -177,15 +177,15 @@ export type DiContractData = unknown;
 
 | Rule ID  | 위반 조건(Violation Condition)                                      | Diagnostic Code | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -------- | ------------------------------------------------------------------- | --------------- | ------------------------ | ------------------- | --------------------------------- |
-| DI-R-001 | cycle resolved as success                                           | BUNNER_DI_001   | error                    | file                | static:ast                        |
-| DI-R-002 | invalid app.get exists                                              | BUNNER_DI_002   | error                    | symbol              | static:ast                        |
-| DI-R-003 | InjectCall performs runtime resolution                              | BUNNER_DI_003   | error                    | symbol              | static:ast                        |
-| DI-R-004 | visibleTo mixed or non-determinable                                 | BUNNER_DI_004   | error                    | symbol              | static:ast                        |
-| DI-R-005 | allowlist normalization non-deterministic                           | BUNNER_DI_005   | error                    | file                | test:assert                       |
-| DI-R-006 | token not statically determinable                                   | BUNNER_DI_006   | error                    | symbol              | static:ast                        |
-| DI-R-007 | runtime reflection/scan observed                                    | BUNNER_DI_007   | error                    | range               | runtime:observation               |
-| DI-R-008 | App-External Code inject() reachable                                | BUNNER_DI_008   | error                    | symbol              | runtime:observation               |
-| DI-R-009 | TokenThunk executed at runtime (violates COMMON-DECLARATIONS-R-008) | BUNNER_DI_009   | error                    | range               | runtime:observation               |
+| DI-R-001 | cycle resolved as success                                           | ZIPBUL_DI_001   | error                    | file                | static:ast                        |
+| DI-R-002 | invalid app.get exists                                              | ZIPBUL_DI_002   | error                    | symbol              | static:ast                        |
+| DI-R-003 | InjectCall performs runtime resolution                              | ZIPBUL_DI_003   | error                    | symbol              | static:ast                        |
+| DI-R-004 | visibleTo mixed or non-determinable                                 | ZIPBUL_DI_004   | error                    | symbol              | static:ast                        |
+| DI-R-005 | allowlist normalization non-deterministic                           | ZIPBUL_DI_005   | error                    | file                | test:assert                       |
+| DI-R-006 | token not statically determinable                                   | ZIPBUL_DI_006   | error                    | symbol              | static:ast                        |
+| DI-R-007 | runtime reflection/scan observed                                    | ZIPBUL_DI_007   | error                    | range               | runtime:observation               |
+| DI-R-008 | App-External Code inject() reachable                                | ZIPBUL_DI_008   | error                    | symbol              | runtime:observation               |
+| DI-R-009 | TokenThunk executed at runtime (violates COMMON-DECLARATIONS-R-008) | ZIPBUL_DI_009   | error                    | range               | runtime:observation               |
 
 ---
 

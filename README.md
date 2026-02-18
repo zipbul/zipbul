@@ -1,4 +1,4 @@
-# Bunner
+# Zipbul
 
 **[한국어](./docs/90_REFERENCE/README.ko.md)** | English
 
@@ -8,9 +8,9 @@ A blazing-fast, Bun-native web server framework with Ahead-of-Time (AOT) compila
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-blue?logo=typescript)](https://www.typescriptlang.org/)
 
-## Why Bunner?
+## Why Zipbul?
 
-Bunner is designed from the ground up to leverage Bun's performance while providing a familiar, NestJS-inspired developer experience. Unlike traditional Node.js frameworks that rely on runtime reflection, Bunner uses **AOT (Ahead-of-Time) compilation** to analyze your application at build time, resulting in:
+Zipbul is designed from the ground up to leverage Bun's performance while providing a familiar, NestJS-inspired developer experience. Unlike traditional Node.js frameworks that rely on runtime reflection, Zipbul uses **AOT (Ahead-of-Time) compilation** to analyze your application at build time, resulting in:
 
 - ⚡ **Faster startup times** — No runtime metadata scanning
 - 🛡️ **Compile-time validation** — Catch dependency injection errors before runtime
@@ -44,20 +44,20 @@ mkdir my-app && cd my-app
 bun init
 ```
 
-### 2. Install Bunner packages
+### 2. Install Zipbul packages
 
 ```bash
-bun add @bunner/core @bunner/common @bunner/http-adapter @bunner/cli
+bun add @zipbul/core @zipbul/common @zipbul/http-adapter @zipbul/cli
 ```
 
 ### 3. Create your module
 
 ```typescript
 // src/__module__.ts
-import type { BunnerModule } from '@bunner/common';
+import type { ZipbulModule } from '@zipbul/common';
 import { UserService } from './user.service';
 
-export const module: BunnerModule = {
+export const module: ZipbulModule = {
   name: 'AppModule',
   providers: [UserService],
 };
@@ -67,14 +67,14 @@ export const module: BunnerModule = {
 
 ```typescript
 // src/main.ts
-import { bootstrapApplication } from '@bunner/core';
-import { bunnerHttpAdapter } from '@bunner/http-adapter';
+import { bootstrapApplication } from '@zipbul/core';
+import { zipbulHttpAdapter } from '@zipbul/http-adapter';
 import { module } from './__module__';
 
 await bootstrapApplication(module, {
   name: 'my-app',
   adapters: [
-    bunnerHttpAdapter(() => ({
+    zipbulHttpAdapter(() => ({
       name: 'http-server',
       port: 3000,
     })),
@@ -85,20 +85,20 @@ await bootstrapApplication(module, {
 ### 5. Run development server
 
 ```bash
-bunner dev
-bun .bunner/index.ts
+zp dev
+bun .zipbul/index.ts
 ```
 
 ## Packages
 
 | Package                                         | Description                                                |
 | ----------------------------------------------- | ---------------------------------------------------------- |
-| [@bunner/cli](./packages/cli)                   | CLI tooling for AOT compilation and development            |
-| [@bunner/core](./packages/core)                 | Core framework with DI container and application bootstrap |
-| [@bunner/common](./packages/common)             | Shared interfaces, decorators, and utilities               |
-| [@bunner/http-adapter](./packages/http-adapter) | HTTP server adapter with routing and middleware            |
-| [@bunner/logger](./packages/logger)             | Structured logging utility                                 |
-| [@bunner/scalar](./packages/scalar)             | OpenAPI documentation with Scalar UI                       |
+| [@zipbul/cli](./packages/cli)                   | CLI tooling for AOT compilation and development            |
+| [@zipbul/core](./packages/core)                 | Core framework with DI container and application bootstrap |
+| [@zipbul/common](./packages/common)             | Shared interfaces, decorators, and utilities               |
+| [@zipbul/http-adapter](./packages/http-adapter) | HTTP server adapter with routing and middleware            |
+| [@zipbul/logger](./packages/logger)             | Structured logging utility                                 |
+| [@zipbul/scalar](./packages/scalar)             | OpenAPI documentation with Scalar UI                       |
 
 ## Project Structure
 
@@ -114,23 +114,23 @@ my-app/
 │   └── posts/
 │       ├── __module__.ts    # Posts feature module
 │       └── ...
-├── .bunner/                  # Generated AOT artifacts (dev)
+├── .zipbul/                  # Generated AOT artifacts (dev)
 ├── dist/                     # Production build output
-├── bunner.config.ts          # CLI configuration
+├── zipbul.config.ts          # CLI configuration
 └── package.json
 ```
 
 ## Module System
 
-Bunner uses a file-based module system with `__module__.ts` files:
+Zipbul uses a file-based module system with `__module__.ts` files:
 
 ```typescript
 // src/users/__module__.ts
-import type { BunnerModule } from '@bunner/common';
+import type { ZipbulModule } from '@zipbul/common';
 import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 
-export const module: BunnerModule = {
+export const module: ZipbulModule = {
   name: 'UsersModule',
   providers: [UsersService, UsersController],
 };

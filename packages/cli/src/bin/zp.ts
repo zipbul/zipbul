@@ -21,7 +21,7 @@ const { positionals, values } = parseArgs({
 const command = positionals[0];
 
 const printUsage = (): void => {
-  console.info('Usage: bunner <command>');
+  console.info('Usage: zp <command>');
   console.info('Commands:');
   console.info('  dev    Generate AOT artifacts and watch');
   console.info('  build  Generate build output');

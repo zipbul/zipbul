@@ -245,17 +245,17 @@ export type DiagnosticsContractData = {
 
 |           Rule ID | 위반 조건(Violation Condition)             | Diagnostic Code        | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ----------------: | ------------------------------------------ | ---------------------- | ------------------------ | ------------------- | --------------------------------- |
-| DIAGNOSTICS-R-001 | 진단 출력이 비결정적으로 달라짐            | BUNNER_DIAGNOSTICS_001 | error                    | file                | test:assert                       |
-| DIAGNOSTICS-R-002 | Diagnostic 형상 불일치 또는 where 비어있음 | BUNNER_DIAGNOSTICS_002 | error                    | file                | static:artifact                   |
-| DIAGNOSTICS-R-003 | 정렬 규칙 위반                             | BUNNER_DIAGNOSTICS_003 | error                    | file                | test:assert                       |
-| DIAGNOSTICS-R-004 | Location.file 정규화 위반                  | BUNNER_DIAGNOSTICS_004 | error                    | file                | static:artifact                   |
-| DIAGNOSTICS-R-005 | SourceRange 인덱스 규칙 위반               | BUNNER_DIAGNOSTICS_005 | error                    | file                | static:artifact                   |
-| DIAGNOSTICS-R-006 | HandlerId 형식 규칙 위반                   | BUNNER_DIAGNOSTICS_006 | error                    | symbol              | static:artifact                   |
-| DIAGNOSTICS-R-007 | DiagnosticMessageText 규칙 위반            | BUNNER_DIAGNOSTICS_007 | error                    | file                | static:artifact                   |
-| DIAGNOSTICS-R-008 | 비결정적 필드 포함                         | BUNNER_DIAGNOSTICS_008 | error                    | file                | test:assert                       |
-| DIAGNOSTICS-R-009 | where 정렬 규칙 위반                       | BUNNER_DIAGNOSTICS_009 | error                    | file                | test:assert                       |
-| DIAGNOSTICS-R-010 | representativeLocation 정의 위반           | BUNNER_DIAGNOSTICS_010 | error                    | file                | test:assert                       |
-| DIAGNOSTICS-R-011 | severity ordering 위반                     | BUNNER_DIAGNOSTICS_011 | error                    | file                | test:assert                       |
+| DIAGNOSTICS-R-001 | 진단 출력이 비결정적으로 달라짐            | ZIPBUL_DIAGNOSTICS_001 | error                    | file                | test:assert                       |
+| DIAGNOSTICS-R-002 | Diagnostic 형상 불일치 또는 where 비어있음 | ZIPBUL_DIAGNOSTICS_002 | error                    | file                | static:artifact                   |
+| DIAGNOSTICS-R-003 | 정렬 규칙 위반                             | ZIPBUL_DIAGNOSTICS_003 | error                    | file                | test:assert                       |
+| DIAGNOSTICS-R-004 | Location.file 정규화 위반                  | ZIPBUL_DIAGNOSTICS_004 | error                    | file                | static:artifact                   |
+| DIAGNOSTICS-R-005 | SourceRange 인덱스 규칙 위반               | ZIPBUL_DIAGNOSTICS_005 | error                    | file                | static:artifact                   |
+| DIAGNOSTICS-R-006 | HandlerId 형식 규칙 위반                   | ZIPBUL_DIAGNOSTICS_006 | error                    | symbol              | static:artifact                   |
+| DIAGNOSTICS-R-007 | DiagnosticMessageText 규칙 위반            | ZIPBUL_DIAGNOSTICS_007 | error                    | file                | static:artifact                   |
+| DIAGNOSTICS-R-008 | 비결정적 필드 포함                         | ZIPBUL_DIAGNOSTICS_008 | error                    | file                | test:assert                       |
+| DIAGNOSTICS-R-009 | where 정렬 규칙 위반                       | ZIPBUL_DIAGNOSTICS_009 | error                    | file                | test:assert                       |
+| DIAGNOSTICS-R-010 | representativeLocation 정의 위반           | ZIPBUL_DIAGNOSTICS_010 | error                    | file                | test:assert                       |
+| DIAGNOSTICS-R-011 | severity ordering 위반                     | ZIPBUL_DIAGNOSTICS_011 | error                    | file                | test:assert                       |
 
 ---
 

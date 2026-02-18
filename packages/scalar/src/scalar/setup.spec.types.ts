@@ -1,4 +1,4 @@
-import type { BunnerAdapter } from '@bunner/common';
+import type { ZipbulAdapter } from '@zipbul/common';
 
 export interface InternalRouteRequest {
   path?: string;
@@ -15,8 +15,8 @@ export interface HttpAdapterInternal {
   get(path: string, handler: InternalRouteHandler): void;
 }
 
-export interface HttpAdapter extends BunnerAdapter {
-  [key: PropertyKey]: HttpAdapterInternal | BunnerAdapter['start'] | BunnerAdapter['stop'] | undefined;
+export interface HttpAdapter extends ZipbulAdapter {
+  [key: PropertyKey]: HttpAdapterInternal | ZipbulAdapter['start'] | ZipbulAdapter['stop'] | undefined;
 }
 
 export interface HttpAdapterSpy {

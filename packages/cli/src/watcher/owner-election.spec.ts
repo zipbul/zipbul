@@ -93,12 +93,12 @@ afterAll(() => {
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 const { OwnerElection } = require('./owner-election');
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-const { bunnerCacheDirPath, bunnerCacheFilePath } = require('../common/bunner-paths.ts');
+const { zipbulCacheDirPath, zipbulCacheFilePath } = require('../common/zipbul-paths.ts');
 
 describe('OwnerElection', () => {
   const projectRoot = '/repo';
-  const lockPath = bunnerCacheFilePath(projectRoot, 'watcher.owner.lock');
-  const lockDir = bunnerCacheDirPath(projectRoot);
+  const lockPath = zipbulCacheFilePath(projectRoot, 'watcher.owner.lock');
+  const lockDir = zipbulCacheDirPath(projectRoot);
 
   beforeEach(() => {
     state.files.clear();

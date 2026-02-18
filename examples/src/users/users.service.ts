@@ -1,5 +1,5 @@
-import { Inject, Injectable } from '@bunner/common';
-import { Logger, type LogMetadataValue } from '@bunner/logger';
+import { Inject, Injectable } from '@zipbul/common';
+import { Logger, type LogMetadataValue } from '@zipbul/logger';
 
 import type { User } from './interfaces';
 

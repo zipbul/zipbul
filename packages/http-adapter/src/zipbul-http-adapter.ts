@@ -1,6 +1,6 @@
-import type { BunnerAdapter, BunnerRecord, Class, Context, ErrorFilterToken } from '@bunner/common';
+import type { ZipbulAdapter, ZipbulRecord, Class, Context, ErrorFilterToken } from '@zipbul/common';
 
-import { ClusterManager, getRuntimeContext, type ClusterBaseWorker } from '@bunner/core';
+import { ClusterManager, getRuntimeContext, type ClusterBaseWorker } from '@zipbul/core';
 
 import type {
   ClassMetadata as CoreClassMetadata,
@@ -8,9 +8,9 @@ import type {
   DecoratorMetadata as CoreDecoratorMetadata,
 } from '../../core/src/injector/types';
 import type {
-  BunnerHttpInternalChannel,
-  BunnerHttpServerBootOptions,
-  BunnerHttpServerOptions,
+  ZipbulHttpInternalChannel,
+  ZipbulHttpServerBootOptions,
+  ZipbulHttpServerOptions,
   HttpAdapterStartContext,
   HttpMiddlewareRegistry,
   InternalRouteHandler,
@@ -19,17 +19,17 @@ import type {
 } from './interfaces';
 import type { ClassMetadata, HttpWorkerRpc, MetadataRegistryKey, ParamTypeReference } from './types';
 
-import { BunnerHttpServer } from './bunner-http-server';
+import { ZipbulHttpServer } from './zipbul-http-server';
 import { HttpMiddlewareLifecycle } from './interfaces';
 
-const BUNNER_HTTP_INTERNAL = Symbol.for('bunner:http:internal');
+const ZIPBUL_HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
 
-export class BunnerHttpAdapter implements BunnerAdapter {
-  private options: BunnerHttpServerOptions;
+export class ZipbulHttpAdapter implements ZipbulAdapter {
+  private options: ZipbulHttpServerOptions;
   private clusterManager: ClusterManager<ClusterBaseWorker & HttpWorkerRpc> | undefined;
-  private httpServer: BunnerHttpServer | undefined;
+  private httpServer: ZipbulHttpServer | undefined;
 
-  private [BUNNER_HTTP_INTERNAL]?: BunnerHttpInternalChannel;
+  private [ZIPBUL_HTTP_INTERNAL]?: ZipbulHttpInternalChannel;
 
   private internalRoutes: InternalRouteEntry[] = [];
 
@@ -37,19 +37,19 @@ export class BunnerHttpAdapter implements BunnerAdapter {
 
   private errorFilterTokens: ErrorFilterToken[] = [];
 
-  constructor(options: BunnerHttpServerOptions = {}) {
-    const normalizedOptions: BunnerHttpServerOptions = {
+  constructor(options: ZipbulHttpServerOptions = {}) {
+    const normalizedOptions: ZipbulHttpServerOptions = {
       port: 5000,
       bodyLimit: 10 * 1024 * 1024,
       trustProxy: false,
       ...options,
-      name: 'bunner-http',
+      name: 'zipbul-http',
       logLevel: 'debug',
     };
 
     this.options = normalizedOptions;
 
-    this[BUNNER_HTTP_INTERNAL] = {
+    this[ZIPBUL_HTTP_INTERNAL] = {
       get: (path: string, handler: InternalRouteHandler) => {
         this.internalRoutes.push({ method: 'GET', path, handler });
       },
@@ -77,12 +77,12 @@ export class BunnerHttpAdapter implements BunnerAdapter {
     const isSingleProcess = workers === undefined || workers === 1;
 
     if (isSingleProcess) {
-      this.httpServer = new BunnerHttpServer();
+      this.httpServer = new ZipbulHttpServer();
 
       const runtimeContext = getRuntimeContext();
       const metadata = this.normalizeMetadataRegistry(runtimeContext.metadataRegistry);
       const scopedKeys = runtimeContext.scopedKeys;
-      const bootOptions: BunnerHttpServerBootOptions = {
+      const bootOptions: ZipbulHttpServerBootOptions = {
         ...this.options,
         ...(metadata !== undefined ? { metadata } : {}),
         ...(scopedKeys !== undefined ? { scopedKeys } : {}),
@@ -114,7 +114,7 @@ export class BunnerHttpAdapter implements BunnerAdapter {
       path: 'unknown',
       className: entryModule.name,
     };
-    const initParams: BunnerRecord = {
+    const initParams: ZipbulRecord = {
       entryModule: {
         path: sanitizedEntryModule.path,
         className: sanitizedEntryModule.className,
@@ -136,15 +136,15 @@ export class BunnerHttpAdapter implements BunnerAdapter {
     }
   }
 
-  public getInternalChannel(): BunnerHttpInternalChannel | undefined {
-    return this[BUNNER_HTTP_INTERNAL];
+  public getInternalChannel(): ZipbulHttpInternalChannel | undefined {
+    return this[ZIPBUL_HTTP_INTERNAL];
   }
 
   protected resolveWorkerScript(): URL {
     const isAotRuntime = getRuntimeContext().isAotRuntime === true;
 
     if (isAotRuntime) {
-      return new URL('./bunner-http-worker.ts', import.meta.url);
+      return new URL('./zipbul-http-worker.ts', import.meta.url);
     }
 
     return new URL(Bun.argv[1] ?? '', 'file://');

@@ -1,9 +1,9 @@
 import type { Context, MiddlewareRegistration } from './interfaces';
 import type { Class } from './types';
 
-export abstract class BunnerMiddleware<TOptions = void> {
+export abstract class ZipbulMiddleware<TOptions = void> {
   public static withOptions<TOptions>(
-    this: Class<BunnerMiddleware<TOptions>>,
+    this: Class<ZipbulMiddleware<TOptions>>,
     options: TOptions,
   ): MiddlewareRegistration<TOptions> {
     return {

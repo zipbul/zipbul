@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |              Rule ID | 위반 조건(Violation Condition) | Diagnostic Code           | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -------------------: | ------------------------------ | ------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| PROVIDER-SCOPE-R-001 | invalid provider scope         | BUNNER_PROVIDER_SCOPE_001 | error                    | symbol              | static:ast                        |
+| PROVIDER-SCOPE-R-001 | invalid provider scope         | ZIPBUL_PROVIDER_SCOPE_001 | error                    | symbol              | static:ast                        |
 
 ---
 

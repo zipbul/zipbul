@@ -1,20 +1,20 @@
 import type { Server } from 'bun';
 
 import {
-  BunnerErrorFilter,
-  type BunnerArray,
-  type BunnerContainer,
-  type BunnerRecord,
-  type BunnerValue,
+  ZipbulErrorFilter,
+  type ZipbulArray,
+  type ZipbulContainer,
+  type ZipbulRecord,
+  type ZipbulValue,
   type ErrorFilterToken,
   type ProviderToken,
-} from '@bunner/common';
-import { Logger, type LogMetadataValue } from '@bunner/logger';
+} from '@zipbul/common';
+import { Logger, type LogMetadataValue } from '@zipbul/logger';
 import { StatusCodes } from 'http-status-codes';
 
 import type {
-  BunnerHttpServerBootOptions,
-  BunnerHttpServerOptions,
+  ZipbulHttpServerBootOptions,
+  ZipbulHttpServerOptions,
   HttpMiddlewareRegistry,
   HttpWorkerResponse,
   MiddlewareRegistrationInput,
@@ -31,9 +31,9 @@ import type {
   RequestQueryMap,
 } from './types';
 
-import { BunnerHttpContext, BunnerHttpContextAdapter } from './adapter';
-import { BunnerRequest } from './bunner-request';
-import { BunnerResponse } from './bunner-response';
+import { ZipbulHttpContext, ZipbulHttpContextAdapter } from './adapter';
+import { ZipbulRequest } from './zipbul-request';
+import { ZipbulResponse } from './zipbul-response';
 import { HTTP_ERROR_FILTER } from './constants';
 import { HttpMethod } from './enums';
 import { HttpMiddlewareLifecycle } from './interfaces';
@@ -53,18 +53,18 @@ const normalizeHttpMethod = (value: string): HttpMethod => {
   return isHttpMethod(normalized) ? normalized : HttpMethod.Get;
 };
 
-export class BunnerHttpServer {
-  private container: BunnerContainer;
+export class ZipbulHttpServer {
+  private container: ZipbulContainer;
   private routeHandler: RouteHandler;
   private requestHandler: RequestHandler;
-  private logger = new Logger(BunnerHttpServer.name);
+  private logger = new Logger(ZipbulHttpServer.name);
 
-  private options: BunnerHttpServerOptions;
-  private server: Server<BunnerValue>;
+  private options: ZipbulHttpServerOptions;
+  private server: Server<ZipbulValue>;
 
   private middlewares: Partial<Record<string, HttpMiddlewareInstance[]>> = {};
 
-  async boot(container: BunnerContainer, options: BunnerHttpServerBootOptions): Promise<void> {
+  async boot(container: ZipbulContainer, options: ZipbulHttpServerBootOptions): Promise<void> {
     this.container = container;
     this.options = options.options ?? options; // Handle nested options
 
@@ -72,15 +72,15 @@ export class BunnerHttpServer {
       this.prepareMiddlewares(this.options.middlewares);
     }
 
-    this.logger.info('🚀 BunnerHttpServer booting...');
+    this.logger.info('🚀 ZipbulHttpServer booting...');
 
     if (Array.isArray(this.options.errorFilters) && this.options.errorFilters.length > 0) {
       const tokens: readonly ErrorFilterToken[] = this.options.errorFilters;
 
-      this.container.set(HTTP_ERROR_FILTER, (c: BunnerContainer) => {
-        const resolved: BunnerValue[] = tokens.map(token => c.get(token));
+      this.container.set(HTTP_ERROR_FILTER, (c: ZipbulContainer) => {
+        const resolved: ZipbulValue[] = tokens.map(token => c.get(token));
 
-        return resolved.filter((value): value is BunnerErrorFilter => this.isErrorFilter(value));
+        return resolved.filter((value): value is ZipbulErrorFilter => this.isErrorFilter(value));
       });
     }
 
@@ -110,7 +110,7 @@ export class BunnerHttpServer {
       serveOptions.maxRequestBodySize = this.options.bodyLimit;
     }
 
-    this.server = Bun.serve<BunnerValue>(serveOptions);
+    this.server = Bun.serve<ZipbulValue>(serveOptions);
 
     this.logger.info(`✨ Server listening on port ${this.options.port}`);
 
@@ -128,17 +128,17 @@ export class BunnerHttpServer {
       ips: [],
       isTrustedProxy: this.options.trustProxy ?? false,
     };
-    const bunnerReq = new BunnerRequest(adaptiveReq);
-    const bunnerRes = new BunnerResponse(bunnerReq, new Headers());
+    const zipbulReq = new ZipbulRequest(adaptiveReq);
+    const zipbulRes = new ZipbulResponse(zipbulReq, new Headers());
 
     try {
-      const adapter = new BunnerHttpContextAdapter(bunnerReq, bunnerRes);
-      const context = new BunnerHttpContext(adapter);
+      const adapter = new ZipbulHttpContextAdapter(zipbulReq, zipbulRes);
+      const context = new ZipbulHttpContext(adapter);
       // 1. beforeRequest
       const continueBeforeRequest = await this.runMiddlewares(HttpMiddlewareLifecycle.BeforeRequest, context);
 
       if (!continueBeforeRequest) {
-        return this.toResponse(bunnerRes.end());
+        return this.toResponse(zipbulRes.end());
       }
 
       const httpMethod = normalizeHttpMethod(req.method);
@@ -178,32 +178,32 @@ export class BunnerHttpServer {
         query: queryParams,
       });
 
-      bunnerReq.body = body ?? null;
-      bunnerReq.query = queryParams;
+      zipbulReq.body = body ?? null;
+      zipbulReq.query = queryParams;
 
       // 2. afterRequest (Post-Parsing)
       const continueAfterRequest = await this.runMiddlewares(HttpMiddlewareLifecycle.AfterRequest, context);
 
       if (!continueAfterRequest) {
-        return this.toResponse(bunnerRes.end());
+        return this.toResponse(zipbulRes.end());
       }
 
       // 3. beforeHandler (Pre-Routing/Handling)
       const continueBeforeHandler = await this.runMiddlewares(HttpMiddlewareLifecycle.BeforeHandler, context);
 
       if (!continueBeforeHandler) {
-        return this.toResponse(bunnerRes.end());
+        return this.toResponse(zipbulRes.end());
       }
 
       // Handle Request
-      const workerRes = await this.requestHandler.handle(bunnerReq, bunnerRes, httpMethod, path, context);
+      const workerRes = await this.requestHandler.handle(zipbulReq, zipbulRes, httpMethod, path, context);
 
       // 4. beforeResponse
       try {
         const continueBeforeResponse = await this.runMiddlewares(HttpMiddlewareLifecycle.BeforeResponse, context);
 
         if (!continueBeforeResponse) {
-          return this.toResponse(bunnerRes.end());
+          return this.toResponse(zipbulRes.end());
         }
       } catch (error) {
         const logValue: LogMetadataValue =
@@ -217,11 +217,11 @@ export class BunnerHttpServer {
 
         this.logger.error('Error in beforeResponse', logValue);
 
-        if (bunnerRes.getStatus() === 0) {
-          bunnerRes.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
+        if (zipbulRes.getStatus() === 0) {
+          zipbulRes.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
         }
 
-        return this.toResponse(bunnerRes.end());
+        return this.toResponse(zipbulRes.end());
       }
 
       const response = this.toResponse(workerRes);
@@ -262,7 +262,7 @@ export class BunnerHttpServer {
     }
   }
 
-  private async runMiddlewares(lifecycle: string, ctx: BunnerHttpContext): Promise<boolean> {
+  private async runMiddlewares(lifecycle: string, ctx: ZipbulHttpContext): Promise<boolean> {
     const list = this.middlewares[lifecycle] ?? [];
 
     for (const middleware of list) {
@@ -301,7 +301,7 @@ export class BunnerHttpServer {
         }
 
         if (!this.container.has(instanceToken)) {
-          this.container.set(instanceToken, (c: BunnerContainer) => {
+          this.container.set(instanceToken, (c: ZipbulContainer) => {
             if (c.has(normalized.token)) {
               return c.get(normalized.token);
             }
@@ -347,23 +347,23 @@ export class BunnerHttpServer {
     return entry;
   }
 
-  private isMiddlewareInstance(value: BunnerValue | HttpMiddlewareInstance | null | undefined): value is HttpMiddlewareInstance {
-    if (!this.isBunnerRecord(value)) {
+  private isMiddlewareInstance(value: ZipbulValue | HttpMiddlewareInstance | null | undefined): value is HttpMiddlewareInstance {
+    if (!this.isZipbulRecord(value)) {
       return false;
     }
 
     return typeof value.handle === 'function';
   }
 
-  private isErrorFilter(value: BunnerValue | BunnerErrorFilter | null | undefined): value is BunnerErrorFilter {
-    if (!this.isBunnerRecord(value)) {
+  private isErrorFilter(value: ZipbulValue | ZipbulErrorFilter | null | undefined): value is ZipbulErrorFilter {
+    if (!this.isZipbulRecord(value)) {
       return false;
     }
 
     return 'catch' in value;
   }
 
-  private isJsonValue(value: BunnerValue): value is RequestBodyValue {
+  private isJsonValue(value: ZipbulValue): value is RequestBodyValue {
     if (value === null) {
       return true;
     }
@@ -374,7 +374,7 @@ export class BunnerHttpServer {
       return true;
     }
 
-    if (this.isBunnerArray(value)) {
+    if (this.isZipbulArray(value)) {
       for (const entry of value) {
         if (!this.isJsonValue(entry)) {
           return false;
@@ -384,7 +384,7 @@ export class BunnerHttpServer {
       return true;
     }
 
-    if (this.isBunnerRecord(value)) {
+    if (this.isZipbulRecord(value)) {
       for (const entry of Object.values(value)) {
         if (!this.isJsonValue(entry)) {
           return false;
@@ -417,11 +417,11 @@ export class BunnerHttpServer {
     return typeof value === 'function';
   }
 
-  private isBunnerArray(value: BunnerValue): value is BunnerArray {
+  private isZipbulArray(value: ZipbulValue): value is ZipbulArray {
     return Array.isArray(value);
   }
 
-  private isBunnerRecord(value: BunnerValue): value is BunnerRecord {
+  private isZipbulRecord(value: ZipbulValue): value is ZipbulRecord {
     return typeof value === 'object' && value !== null;
   }
 

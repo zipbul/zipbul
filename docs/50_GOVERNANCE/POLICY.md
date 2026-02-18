@@ -79,7 +79,7 @@ Policy:
 ### POLICY-PKG-001: Block cross-package deep imports
 
 - Target: source
-- Violation: an import path contains `@bunner/` and `/src/` in the same path, or directly references `packages/*/src/`
+- Violation: an import path contains `@zipbul/` and `/src/` in the same path, or directly references `packages/*/src/`
 - Enforcement: block
 
 ### POLICY-CON-001: Block Public Facade changes without approval artifact

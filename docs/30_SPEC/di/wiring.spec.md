@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |         Rule ID | 위반 조건(Violation Condition) | Diagnostic Code      | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | --------------: | ------------------------------ | -------------------- | ------------------------ | ------------------- | --------------------------------- |
-| DI-WIRING-R-001 | wiring not decidable           | BUNNER_DI_WIRING_001 | error                    | symbol              | static:ast                        |
+| DI-WIRING-R-001 | wiring not decidable           | ZIPBUL_DI_WIRING_001 | error                    | symbol              | static:ast                        |
 
 ---
 

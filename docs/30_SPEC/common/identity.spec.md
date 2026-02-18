@@ -175,10 +175,10 @@ export type IdentityContractData = {
 
 | Rule ID               | 위반 조건(Violation Condition) | Diagnostic Code            | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | --------------------- | ------------------------------ | -------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| COMMON-IDENTITY-R-001 | identity not decidable         | BUNNER_COMMON_IDENTITY_001 | error                    | symbol              | static:ast                        |
-| COMMON-IDENTITY-R-002 | invalid AdapterId              | BUNNER_COMMON_IDENTITY_002 | error                    | symbol              | static:ast                        |
-| COMMON-IDENTITY-R-003 | invalid AdapterName            | BUNNER_COMMON_IDENTITY_003 | error                    | symbol              | static:ast                        |
-| COMMON-IDENTITY-R-004 | invalid Context shape          | BUNNER_COMMON_IDENTITY_004 | error                    | symbol              | static:ast                        |
+| COMMON-IDENTITY-R-001 | identity not decidable         | ZIPBUL_COMMON_IDENTITY_001 | error                    | symbol              | static:ast                        |
+| COMMON-IDENTITY-R-002 | invalid AdapterId              | ZIPBUL_COMMON_IDENTITY_002 | error                    | symbol              | static:ast                        |
+| COMMON-IDENTITY-R-003 | invalid AdapterName            | ZIPBUL_COMMON_IDENTITY_003 | error                    | symbol              | static:ast                        |
+| COMMON-IDENTITY-R-004 | invalid Context shape          | ZIPBUL_COMMON_IDENTITY_004 | error                    | symbol              | static:ast                        |
 
 ---
 

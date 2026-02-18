@@ -1,6 +1,6 @@
-# @bunner/scalar
+# @zipbul/scalar
 
-Scalar API documentation integration for Bunner.
+Scalar API documentation integration for Zipbul.
 
 ## Public API
 

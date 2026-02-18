@@ -1,18 +1,18 @@
-import type { BunnerValue, ConfigService } from '@bunner/common';
-import type { BootstrapAdapter } from '@bunner/core';
+import type { ZipbulValue, ConfigService } from '@zipbul/common';
+import type { BootstrapAdapter } from '@zipbul/core';
 
-import { CONFIG_SERVICE } from '@bunner/common';
+import { CONFIG_SERVICE } from '@zipbul/common';
 
-import type { BunnerHttpServerOptions } from './interfaces';
+import type { ZipbulHttpServerOptions } from './interfaces';
 
-import { BunnerHttpAdapter } from './bunner-http-adapter';
+import { ZipbulHttpAdapter } from './zipbul-http-adapter';
 
-interface BunnerHttpAdapterBootstrapConfig extends BunnerHttpServerOptions {
+interface ZipbulHttpAdapterBootstrapConfig extends ZipbulHttpServerOptions {
   readonly name: string;
   readonly protocol?: string;
 }
 
-function isConfigService(value: BunnerValue): value is ConfigService {
+function isConfigService(value: ZipbulValue): value is ConfigService {
   if (typeof value !== 'object' && typeof value !== 'function') {
     return false;
   }
@@ -28,7 +28,7 @@ function isConfigService(value: BunnerValue): value is ConfigService {
   return typeof value.get === 'function';
 }
 
-export function bunnerHttpAdapter(resolve: (configService: ConfigService) => BunnerHttpAdapterBootstrapConfig): BootstrapAdapter {
+export function zipbulHttpAdapter(resolve: (configService: ConfigService) => ZipbulHttpAdapterBootstrapConfig): BootstrapAdapter {
   return {
     install(app) {
       const container = app.getContainer();
@@ -74,7 +74,7 @@ export function bunnerHttpAdapter(resolve: (configService: ConfigService) => Bun
 
       const config = resolve(configService);
       const { name, protocol, ...serverOptions } = config;
-      const adapter = new BunnerHttpAdapter(serverOptions);
+      const adapter = new ZipbulHttpAdapter(serverOptions);
 
       app.addAdapter(adapter, {
         name,
@@ -84,4 +84,4 @@ export function bunnerHttpAdapter(resolve: (configService: ConfigService) => Bun
   };
 }
 
-export type { BunnerHttpAdapterBootstrapConfig };
+export type { ZipbulHttpAdapterBootstrapConfig };

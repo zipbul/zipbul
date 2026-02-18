@@ -1,10 +1,10 @@
-import type { BunnerValue } from '@bunner/common';
+import type { ZipbulValue } from '@zipbul/common';
 
 export class PaymentFailedError extends Error {
   public readonly amount: number;
   public readonly reason: string;
 
-  constructor(...args: ReadonlyArray<BunnerValue>) {
+  constructor(...args: ReadonlyArray<ZipbulValue>) {
     const amountCandidate = args[0];
     const reasonCandidate = args[1];
     const isAmount = typeof amountCandidate === 'number';

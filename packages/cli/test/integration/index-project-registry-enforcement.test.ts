@@ -160,8 +160,8 @@ describe('mcp/index — registry enforcement (integration)', () => {
       constructor(private readonly pattern: string) {}
 
       async *scan(_opts: any) {
-        if (this.pattern.includes('.bunner/cards') && this.pattern.includes('.card.md')) {
-          yield '.bunner/cards/auth/login.card.md';
+        if (this.pattern.includes('.zipbul/cards') && this.pattern.includes('.card.md')) {
+          yield '.zipbul/cards/auth/login.card.md';
           return;
         }
         // source dir code scan
@@ -172,7 +172,7 @@ describe('mcp/index — registry enforcement (integration)', () => {
       }
     };
 
-    const cardAbsPath = '/repo/.bunner/cards/auth/login.card.md';
+    const cardAbsPath = '/repo/.zipbul/cards/auth/login.card.md';
     const cardText = [
       '---',
       'key: auth/login',

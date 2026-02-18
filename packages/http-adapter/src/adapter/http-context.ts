@@ -1,16 +1,16 @@
-import { BunnerContextError, type BunnerValue, type ClassToken } from '@bunner/common';
+import { ZipbulContextError, type ZipbulValue, type ClassToken } from '@zipbul/common';
 
-import type { BunnerRequest } from '../bunner-request';
-import type { BunnerResponse } from '../bunner-response';
+import type { ZipbulRequest } from '../zipbul-request';
+import type { ZipbulResponse } from '../zipbul-response';
 import type { HttpAdapter } from './http-adapter';
 import type { HttpContext } from './interfaces';
 
 import { HTTP_CONTEXT_TYPE } from '../constants';
 
-export class BunnerHttpContext implements HttpContext {
+export class ZipbulHttpContext implements HttpContext {
   private adapter: HttpAdapter;
 
-  constructor(adapter: BunnerValue) {
+  constructor(adapter: ZipbulValue) {
     this.adapter = this.assertHttpAdapter(adapter);
   }
 
@@ -18,38 +18,38 @@ export class BunnerHttpContext implements HttpContext {
     return HTTP_CONTEXT_TYPE;
   }
 
-  get(_key: string): BunnerValue | undefined {
+  get(_key: string): ZipbulValue | undefined {
     // Basic implementation for now, can be expanded later
     return undefined;
   }
 
-  to(ctor: typeof BunnerHttpContext): BunnerHttpContext;
+  to(ctor: typeof ZipbulHttpContext): ZipbulHttpContext;
   to<TContext>(ctor: ClassToken<TContext>): TContext;
-  to<TContext>(ctor: ClassToken<TContext> | typeof BunnerHttpContext): TContext | this {
-    if (ctor === BunnerHttpContext || ctor?.name === BunnerHttpContext.name) {
+  to<TContext>(ctor: ClassToken<TContext> | typeof ZipbulHttpContext): TContext | this {
+    if (ctor === ZipbulHttpContext || ctor?.name === ZipbulHttpContext.name) {
       return this;
     }
 
-    throw new BunnerContextError(`Context cast failed: ${ctor.name || 'UnknownContext'}`);
+    throw new ZipbulContextError(`Context cast failed: ${ctor.name || 'UnknownContext'}`);
   }
 
-  get request(): BunnerRequest {
+  get request(): ZipbulRequest {
     return this.adapter.getRequest();
   }
 
-  get response(): BunnerResponse {
+  get response(): ZipbulResponse {
     return this.adapter.getResponse();
   }
 
-  private assertHttpAdapter(value: BunnerValue): HttpAdapter {
+  private assertHttpAdapter(value: ZipbulValue): HttpAdapter {
     if (this.isHttpAdapter(value)) {
       return value;
     }
 
-    throw new BunnerContextError('Invalid HTTP adapter provided to BunnerHttpContext');
+    throw new ZipbulContextError('Invalid HTTP adapter provided to ZipbulHttpContext');
   }
 
-  private isHttpAdapter(value: BunnerValue): value is HttpAdapter {
+  private isHttpAdapter(value: ZipbulValue): value is HttpAdapter {
     return (
       typeof value === 'object' &&
       value !== null &&

@@ -56,8 +56,8 @@ Rule ID 형식(Rule ID Format) (REQUIRED):
 
 ### 1.3 용어 정의(Definitions) (REQUIRED)
 
-- bunner config source: the selected config file path at `<PROJECT_ROOT>` and its format.
-- resolved bunner config: the parsed config object containing required fields (module.fileName, sourceDir, entry) with no defaults applied.
+- zipbul config source: the selected config file path at `<PROJECT_ROOT>` and its format.
+- resolved zipbul config: the parsed config object containing required fields (module.fileName, sourceDir, entry) with no defaults applied.
 
 ### 1.4 외부 용어 사용(External Terms Used) (REQUIRED)
 
@@ -81,36 +81,36 @@ Rule ID 형식(Rule ID Format) (REQUIRED):
 
 | 입력 종류(Input Kind) | 수집 출처(Collected From) | 허용 형식(Allowed Form) (token) | 리터럴 요구(Must Be Literal) (yes/no) | 해결 가능 요구(Must Be Resolvable) (yes/no) | 정규화 출력(Normalized Output) (none/string-id) |
 | --------------------- | ------------------------- | ------------------------------- | ------------------------------------- | ------------------------------------------- | ----------------------------------------------- |
-| bunner-config         | project root              | path-string                     | yes                                   | yes                                         | none                                            |
+| zipbul-config         | project root              | path-string                     | yes                                   | yes                                         | none                                            |
 | project-root          | filesystem                | path-string                     | yes                                   | yes                                         | none                                            |
 
 ### 3.2 정적 데이터 형상(Static Data Shapes) (REQUIRED)
 
 ```ts
-export type BunnerConfigSourceFormat = 'json' | 'jsonc';
+export type ZipbulConfigSourceFormat = 'json' | 'jsonc';
 
-export type BunnerConfigSource = {
+export type ZipbulConfigSource = {
 
   path: string;
-  format: BunnerConfigSourceFormat;
+  format: ZipbulConfigSourceFormat;
 };
 
-export type ResolvedBunnerConfigModule = {
+export type ResolvedZipbulConfigModule = {
 
   fileName: string;
 };
 
-export type ResolvedBunnerConfig = {
+export type ResolvedZipbulConfig = {
 
-  module: ResolvedBunnerConfigModule;
+  module: ResolvedZipbulConfigModule;
   sourceDir: string;
   entry: string;
 };
 
 export type ContractData = {
 
-  configSource: BunnerConfigSource;
-  resolvedConfig: ResolvedBunnerConfig;
+  configSource: ZipbulConfigSource;
+  resolvedConfig: ResolvedZipbulConfig;
 };
 ```
 
@@ -118,9 +118,9 @@ export type ContractData = {
 
 | Rule ID | 생명주기(Lifecycle) (token) | 키워드(Keyword) | 타깃(Targets) (token list) | 타깃 참조(Target Ref(s)) | 조건(Condition) (boolean, declarative) | 강제 레벨(Enforced Level) (token) |
 | ---: | --- | --- | --- | --- | --- | --- |
-| COMPILER-CONFIG-R-001 | active | MUST | inputs, outcomes | InputKind:project-root, Outcome:OUT-001 | bunner config source path is exactly `<PROJECT_ROOT>`/bunner.json or `<PROJECT_ROOT>`/bunner.jsonc; if both exist or neither exists, build fails | build |
-| COMPILER-CONFIG-R-002 | active | MUST | inputs, outcomes | InputKind:bunner-config, Outcome:OUT-002 | config source format is json or jsonc; build parses the config file to produce resolvedConfig and does not execute config as code | build |
-| COMPILER-CONFIG-R-003 | active | MUST | shapes, outcomes | Shape:local:ContractData, Outcome:OUT-003 | resolved bunner config contains module.fileName, sourceDir, entry; no default is assumed when missing; entry is within sourceDir | build |
+| COMPILER-CONFIG-R-001 | active | MUST | inputs, outcomes | InputKind:project-root, Outcome:OUT-001 | zipbul config source path is exactly `<PROJECT_ROOT>`/zipbul.json or `<PROJECT_ROOT>`/zipbul.jsonc; if both exist or neither exists, build fails | build |
+| COMPILER-CONFIG-R-002 | active | MUST | inputs, outcomes | InputKind:zipbul-config, Outcome:OUT-002 | config source format is json or jsonc; build parses the config file to produce resolvedConfig and does not execute config as code | build |
+| COMPILER-CONFIG-R-003 | active | MUST | shapes, outcomes | Shape:local:ContractData, Outcome:OUT-003 | resolved zipbul config contains module.fileName, sourceDir, entry; no default is assumed when missing; entry is within sourceDir | build |
 
 ---
 
@@ -168,9 +168,9 @@ export type ContractData = {
 
 | 입력 조건(Input Condition) | Rule ID | 타깃 참조(Target Ref(s)) | Outcome ID | 관측 결과(Observable Outcome) |
 | --- | ---: | --- | ---: | --- |
-| config source selected | COMPILER-CONFIG-R-001 | Artifact:ContractData | OUT-001 | config source path is bunner.json or bunner.jsonc under project root |
+| config source selected | COMPILER-CONFIG-R-001 | Artifact:ContractData | OUT-001 | config source path is zipbul.json or zipbul.jsonc under project root |
 | config parsed | COMPILER-CONFIG-R-002 | Artifact:ContractData | OUT-002 | resolvedConfig is produced by parsing json/jsonc and no config code execution is observed |
-| resolved config evaluated | COMPILER-CONFIG-R-003 | Artifact:ContractData | OUT-003 | resolved bunner config includes module.fileName, sourceDir, entry and entry is within sourceDir |
+| resolved config evaluated | COMPILER-CONFIG-R-003 | Artifact:ContractData | OUT-003 | resolved zipbul config includes module.fileName, sourceDir, entry and entry is within sourceDir |
 
 ### 6.2 State Conditions
 
@@ -184,9 +184,9 @@ export type ContractData = {
 
 | Rule ID | 위반 조건(Violation Condition) | Diagnostic Code | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ---: | --- | --- | --- | --- | --- |
-| COMPILER-CONFIG-R-001 | bunner config source path is invalid or missing | BUNNER_COMPILER_CONFIG_001 | error | file | static:artifact |
-| COMPILER-CONFIG-R-002 | config parsing/no-execution contract violated | BUNNER_COMPILER_CONFIG_002 | error | file | static:artifact |
-| COMPILER-CONFIG-R-003 | resolved config missing module.fileName/sourceDir/entry or entry is not within sourceDir or default applied | BUNNER_COMPILER_CONFIG_003 | error | file | static:artifact |
+| COMPILER-CONFIG-R-001 | zipbul config source path is invalid or missing | ZIPBUL_COMPILER_CONFIG_001 | error | file | static:artifact |
+| COMPILER-CONFIG-R-002 | config parsing/no-execution contract violated | ZIPBUL_COMPILER_CONFIG_002 | error | file | static:artifact |
+| COMPILER-CONFIG-R-003 | resolved config missing module.fileName/sourceDir/entry or entry is not within sourceDir or default applied | ZIPBUL_COMPILER_CONFIG_003 | error | file | static:artifact |
 
 ---
 

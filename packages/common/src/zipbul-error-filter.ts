@@ -1,6 +1,6 @@
 import type { Context } from './interfaces';
-import type { BunnerValue } from './types';
+import type { ZipbulValue } from './types';
 
-export abstract class BunnerErrorFilter<TError = BunnerValue> {
+export abstract class ZipbulErrorFilter<TError = ZipbulValue> {
   public abstract catch(error: TError, context: Context): void | Promise<void>;
 }

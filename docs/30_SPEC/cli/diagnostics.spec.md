@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |               Rule ID | 위반 조건(Violation Condition) | Diagnostic Code            | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | --------------------: | ------------------------------ | -------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| CLI-DIAGNOSTICS-R-001 | invalid CLI diagnostics output | BUNNER_CLI_DIAGNOSTICS_001 | error                    | symbol              | static:ast                        |
+| CLI-DIAGNOSTICS-R-001 | invalid CLI diagnostics output | ZIPBUL_CLI_DIAGNOSTICS_001 | error                    | symbol              | static:ast                        |
 
 ---
 

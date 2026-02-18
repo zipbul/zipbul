@@ -1,14 +1,14 @@
 {
-  "name": "@bunner/scalar",
+  "name": "@zipbul/scalar",
   "version": "0.0.1",
-  "description": "Scalar API Documentation integration for Bunner",
+  "description": "Scalar API Documentation integration for Zipbul",
   "main": "index.ts",
   "types": "index.ts",
   "scripts": {},
   "dependencies": {},
   "peerDependencies": {
-    "@bunner/common": "workspace:*",
-    "@bunner/core": "workspace:*",
+    "@zipbul/common": "workspace:*",
+    "@zipbul/core": "workspace:*",
     "bun": "*"
   }
 }

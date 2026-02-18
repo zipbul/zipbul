@@ -46,32 +46,32 @@ export class AdapterSpecResolver {
 
       const defineCall = this.asRecord(resolvedExport.value);
 
-      if (defineCall?.__bunner_call !== 'defineAdapter') {
-        throw new Error(`[Bunner AOT] adapterSpec must be defineAdapter(<AdapterClassRef>) in ${resolvedExport.sourceFile}.`);
+      if (defineCall?.__zipbul_call !== 'defineAdapter') {
+        throw new Error(`[Zipbul AOT] adapterSpec must be defineAdapter(<AdapterClassRef>) in ${resolvedExport.sourceFile}.`);
       }
 
       const args = isAnalyzerValueArray(defineCall.args) ? defineCall.args : [];
 
       if (args.length !== 1) {
-        throw new Error(`[Bunner AOT] defineAdapter requires exactly one argument in ${resolvedExport.sourceFile}.`);
+        throw new Error(`[Zipbul AOT] defineAdapter requires exactly one argument in ${resolvedExport.sourceFile}.`);
       }
 
       const arg = this.asRecord(args[0]);
 
-      if (arg === null || typeof arg.__bunner_ref !== 'string') {
-        throw new Error(`[Bunner AOT] defineAdapter argument must be an Identifier reference in ${resolvedExport.sourceFile}.`);
+      if (arg === null || typeof arg.__zipbul_ref !== 'string') {
+        throw new Error(`[Zipbul AOT] defineAdapter argument must be an Identifier reference in ${resolvedExport.sourceFile}.`);
       }
 
-      const adapterClassName = arg.__bunner_ref;
+      const adapterClassName = arg.__zipbul_ref;
       const adapterClassSource =
-        typeof arg.__bunner_import_source === 'string' ? arg.__bunner_import_source : resolvedExport.sourceFile;
+        typeof arg.__zipbul_import_source === 'string' ? arg.__zipbul_import_source : resolvedExport.sourceFile;
       const staticSpec = await this.extractAdapterStaticSpec(adapterClassSource, adapterClassName, fileMap);
 
       adapterSpecs.push({ adapterId: staticSpec.adapterId, staticSpec: staticSpec.staticSpec });
     }
 
     if (adapterSpecs.length === 0) {
-      throw new Error('[Bunner AOT] No adapterSpec exports found in adapter package entry files.');
+      throw new Error('[Zipbul AOT] No adapterSpec exports found in adapter package entry files.');
     }
 
     const adapterStaticSpecs = this.buildAdapterStaticSpecSet(adapterSpecs);
@@ -224,7 +224,7 @@ export class AdapterSpecResolver {
     const analysisExists = await this.getFileAnalysis(classFile, fileMap);
 
     if (analysisExists === null) {
-      throw new Error(`[Bunner AOT] Adapter class source not found: ${classFile}`);
+      throw new Error(`[Zipbul AOT] Adapter class source not found: ${classFile}`);
     }
 
     const code = await Bun.file(classFile).text();
@@ -232,20 +232,20 @@ export class AdapterSpecResolver {
     const program = this.asRecord(parsed.program);
 
     if (program === null) {
-      throw new Error(`[Bunner AOT] Failed to parse adapter class source: ${classFile}`);
+      throw new Error(`[Zipbul AOT] Failed to parse adapter class source: ${classFile}`);
     }
 
     const classNode = this.findClassDeclaration(program, className);
 
     if (classNode === null) {
-      throw new Error(`[Bunner AOT] Adapter class '${className}' not found in ${classFile}.`);
+      throw new Error(`[Zipbul AOT] Adapter class '${className}' not found in ${classFile}.`);
     }
 
     const staticFields = this.extractStaticFields(classNode);
     const adapterId = this.parseStringLiteral(staticFields.adapterId);
 
     if (!isNonEmptyString(adapterId)) {
-      throw new Error(`[Bunner AOT] AdapterClass.adapterId must be a string literal (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.adapterId must be a string literal (${className}).`);
     }
 
     const middlewarePhaseOrder = this.parseStringArray(staticFields.middlewarePhaseOrder, 'middlewarePhaseOrder', className);
@@ -279,7 +279,7 @@ export class AdapterSpecResolver {
 
     for (const entry of sorted) {
       if (Object.prototype.hasOwnProperty.call(adapterStaticSpecs, entry.adapterId)) {
-        throw new Error(`[Bunner AOT] Duplicate adapterId detected: ${entry.adapterId}`);
+        throw new Error(`[Zipbul AOT] Duplicate adapterId detected: ${entry.adapterId}`);
       }
 
       adapterStaticSpecs[entry.adapterId] = entry.staticSpec;
@@ -307,7 +307,7 @@ export class AdapterSpecResolver {
         if (controllerAdapters.length > 1) {
           const names = controllerAdapters.map(adapter => adapter.adapterId).join(', ');
 
-          throw new Error(`[Bunner AOT] Controller '${cls.className}' has multiple adapter owner decorators (${names}).`);
+          throw new Error(`[Zipbul AOT] Controller '${cls.className}' has multiple adapter owner decorators (${names}).`);
         }
 
         if (controllerAdapters.length === 1) {
@@ -347,7 +347,7 @@ export class AdapterSpecResolver {
 
             if (!isNonEmptyString(controllerAdapterId) || controllerAdapterId !== extraction.adapterId) {
               throw new Error(
-                `[Bunner AOT] Handler '${cls.className}.${method.name}' must belong to a controller for adapter '${extraction.adapterId}'.`,
+                `[Zipbul AOT] Handler '${cls.className}.${method.name}' must belong to a controller for adapter '${extraction.adapterId}'.`,
               );
             }
 
@@ -356,7 +356,7 @@ export class AdapterSpecResolver {
             const id = `${extraction.adapterId}:${file}#${symbol}`;
 
             if (seen.has(id)) {
-              throw new Error(`[Bunner AOT] Duplicate handler id detected: ${id}`);
+              throw new Error(`[Zipbul AOT] Duplicate handler id detected: ${id}`);
             }
 
             seen.add(id);
@@ -390,7 +390,7 @@ export class AdapterSpecResolver {
 
       combinedPhaseIds.forEach(phaseId => {
         if (!supportedKeys.includes(phaseId)) {
-          throw new Error(`[Bunner AOT] Unsupported middleware phase '${phaseId}' for adapter '${extraction.adapterId}'.`);
+          throw new Error(`[Zipbul AOT] Unsupported middleware phase '${phaseId}' for adapter '${extraction.adapterId}'.`);
         }
       });
     }
@@ -419,7 +419,7 @@ export class AdapterSpecResolver {
       const adapterConfig = this.asRecord(adaptersRecord[adapterId]);
 
       if (adapterConfig === null) {
-        throw new Error(`[Bunner AOT] Adapter config must be an object literal for '${adapterId}'.`);
+        throw new Error(`[Zipbul AOT] Adapter config must be an object literal for '${adapterId}'.`);
       }
 
       if (!Object.prototype.hasOwnProperty.call(adapterConfig, 'middlewares')) {
@@ -429,16 +429,16 @@ export class AdapterSpecResolver {
       const middlewares = this.asRecord(adapterConfig.middlewares);
 
       if (middlewares === null) {
-        throw new Error(`[Bunner AOT] middlewares must be an object literal for '${adapterId}'.`);
+        throw new Error(`[Zipbul AOT] middlewares must be an object literal for '${adapterId}'.`);
       }
 
       for (const key of Object.keys(middlewares)) {
-        if (key.startsWith('__bunner_computed_')) {
-          throw new Error(`[Bunner AOT] Middleware phase keys must be string literals for '${adapterId}'.`);
+        if (key.startsWith('__zipbul_computed_')) {
+          throw new Error(`[Zipbul AOT] Middleware phase keys must be string literals for '${adapterId}'.`);
         }
 
         if (key.length === 0) {
-          throw new Error(`[Bunner AOT] Middleware phase keys must be non-empty for '${adapterId}'.`);
+          throw new Error(`[Zipbul AOT] Middleware phase keys must be non-empty for '${adapterId}'.`);
         }
 
         this.assertValidPhaseId(key, adapterId, 'middlewares');
@@ -481,7 +481,7 @@ export class AdapterSpecResolver {
 
           if (!isAdapterController) {
             throw new Error(
-              `[Bunner AOT] @Middlewares handler '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
+              `[Zipbul AOT] @Middlewares handler '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
             );
           }
 
@@ -506,7 +506,7 @@ export class AdapterSpecResolver {
       const phaseId = typeof args[0] === 'string' ? args[0] : null;
 
       if (!isNonEmptyString(phaseId)) {
-        throw new Error(`[Bunner AOT] @Middlewares phaseId must be a string literal for '${adapterId}'.`);
+        throw new Error(`[Zipbul AOT] @Middlewares phaseId must be a string literal for '${adapterId}'.`);
       }
 
       this.assertValidPhaseId(phaseId, adapterId, '@Middlewares');
@@ -518,16 +518,16 @@ export class AdapterSpecResolver {
       const mapping = this.asRecord(args[0]);
 
       if (mapping === null) {
-        throw new Error(`[Bunner AOT] @Middlewares map must be an object literal for '${adapterId}'.`);
+        throw new Error(`[Zipbul AOT] @Middlewares map must be an object literal for '${adapterId}'.`);
       }
 
       return Object.keys(mapping).map(key => {
-        if (key.startsWith('__bunner_computed_')) {
-          throw new Error(`[Bunner AOT] @Middlewares phaseId must be a string literal for '${adapterId}'.`);
+        if (key.startsWith('__zipbul_computed_')) {
+          throw new Error(`[Zipbul AOT] @Middlewares phaseId must be a string literal for '${adapterId}'.`);
         }
 
         if (key.length === 0) {
-          throw new Error(`[Bunner AOT] @Middlewares phaseId must be non-empty for '${adapterId}'.`);
+          throw new Error(`[Zipbul AOT] @Middlewares phaseId must be non-empty for '${adapterId}'.`);
         }
 
         this.assertValidPhaseId(key, adapterId, '@Middlewares');
@@ -536,7 +536,7 @@ export class AdapterSpecResolver {
       });
     }
 
-    throw new Error(`[Bunner AOT] @Middlewares expects (phaseId, refs) or ({ [phaseId]: refs }) for '${adapterId}'.`);
+    throw new Error(`[Zipbul AOT] @Middlewares expects (phaseId, refs) or ({ [phaseId]: refs }) for '${adapterId}'.`);
   }
 
   private normalizeProjectPath(projectRoot: string, filePath: string): string {
@@ -660,7 +660,7 @@ export class AdapterSpecResolver {
     const node = this.asRecord(nodeValue);
 
     if (node?.type !== 'ArrayExpression') {
-      throw new Error(`[Bunner AOT] AdapterClass.${field} must be an array literal (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.${field} must be an array literal (${className}).`);
     }
 
     const elements = isAnalyzerValueArray(node.elements) ? node.elements : [];
@@ -670,13 +670,13 @@ export class AdapterSpecResolver {
       const element = this.asRecord(elementValue);
 
       if (element === null || element.type === 'SpreadElement') {
-        throw new Error(`[Bunner AOT] AdapterClass.${field} must be a string literal array (${className}).`);
+        throw new Error(`[Zipbul AOT] AdapterClass.${field} must be a string literal array (${className}).`);
       }
 
       const literal = this.parseStringLiteral(element);
 
       if (!isNonEmptyString(literal)) {
-        throw new Error(`[Bunner AOT] AdapterClass.${field} must be a string literal array (${className}).`);
+        throw new Error(`[Zipbul AOT] AdapterClass.${field} must be a string literal array (${className}).`);
       }
 
       this.assertValidPhaseId(literal, className, `AdapterClass.${field}`);
@@ -690,7 +690,7 @@ export class AdapterSpecResolver {
     const node = this.asRecord(nodeValue);
 
     if (node?.type !== 'ObjectExpression') {
-      throw new Error(`[Bunner AOT] AdapterClass.${field} must be an object literal (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.${field} must be an object literal (${className}).`);
     }
 
     const phases: Record<string, true> = {};
@@ -706,7 +706,7 @@ export class AdapterSpecResolver {
       const key = this.getPropertyKey(prop.key);
 
       if (!isNonEmptyString(key)) {
-        throw new Error(`[Bunner AOT] AdapterClass.${field} keys must be string literals (${className}).`);
+        throw new Error(`[Zipbul AOT] AdapterClass.${field} keys must be string literals (${className}).`);
       }
 
       this.assertValidPhaseId(key, className, `AdapterClass.${field}`);
@@ -715,7 +715,7 @@ export class AdapterSpecResolver {
       const literalValue = valueNode ? valueNode.value : undefined;
 
       if (literalValue !== true) {
-        throw new Error(`[Bunner AOT] AdapterClass.${field} values must be literal true (${className}).`);
+        throw new Error(`[Zipbul AOT] AdapterClass.${field} values must be literal true (${className}).`);
       }
 
       phases[key] = true;
@@ -728,7 +728,7 @@ export class AdapterSpecResolver {
     const node = this.asRecord(nodeValue);
 
     if (node?.type !== 'ObjectExpression') {
-      throw new Error(`[Bunner AOT] AdapterClass.entryDecorators must be an object literal (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.entryDecorators must be an object literal (${className}).`);
     }
 
     const controllerNode = this.getObjectPropertyValue(node, 'controller');
@@ -736,13 +736,13 @@ export class AdapterSpecResolver {
     const controller = this.parseIdentifier(controllerNode);
 
     if (!isNonEmptyString(controller)) {
-      throw new Error(`[Bunner AOT] AdapterClass.entryDecorators.controller must be an Identifier (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.entryDecorators.controller must be an Identifier (${className}).`);
     }
 
     const handler = this.parseIdentifierArray(handlerNode, 'entryDecorators.handler', className);
 
     if (handler.length === 0) {
-      throw new Error(`[Bunner AOT] AdapterClass.entryDecorators.handler must not be empty (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.entryDecorators.handler must not be empty (${className}).`);
     }
 
     return { controller, handler };
@@ -752,7 +752,7 @@ export class AdapterSpecResolver {
     const node = this.asRecord(nodeValue);
 
     if (node?.type !== 'ObjectExpression') {
-      throw new Error(`[Bunner AOT] AdapterClass.runtime must be an object literal (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.runtime must be an object literal (${className}).`);
     }
 
     const startNode = this.getObjectPropertyValue(node, 'start');
@@ -761,7 +761,7 @@ export class AdapterSpecResolver {
     const stop = this.parseIdentifier(stopNode);
 
     if (!isNonEmptyString(start) || !isNonEmptyString(stop)) {
-      throw new Error(`[Bunner AOT] AdapterClass.runtime must include start/stop Identifiers (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.runtime must include start/stop Identifiers (${className}).`);
     }
 
     return { start, stop };
@@ -771,7 +771,7 @@ export class AdapterSpecResolver {
     const node = this.asRecord(nodeValue);
 
     if (node === null) {
-      throw new Error(`[Bunner AOT] AdapterClass.pipeline must be defined (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.pipeline must be defined (${className}).`);
     }
 
     if (node.type === 'MethodDefinition') {
@@ -779,7 +779,7 @@ export class AdapterSpecResolver {
     }
 
     if (node.type !== 'ObjectExpression') {
-      throw new Error(`[Bunner AOT] AdapterClass.pipeline must be an object literal or static method (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.pipeline must be an object literal or static method (${className}).`);
     }
 
     return this.parsePipelineFromObject(node, className);
@@ -791,19 +791,19 @@ export class AdapterSpecResolver {
     const statements = body && isAnalyzerValueArray(body.body) ? body.body : [];
 
     if (statements.length !== 1) {
-      throw new Error(`[Bunner AOT] AdapterClass.pipeline must return a single object literal (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.pipeline must return a single object literal (${className}).`);
     }
 
     const stmt = this.asRecord(statements[0]);
 
     if (stmt?.type !== 'ReturnStatement') {
-      throw new Error(`[Bunner AOT] AdapterClass.pipeline must return a single object literal (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.pipeline must return a single object literal (${className}).`);
     }
 
     const argument = this.asRecord(stmt.argument);
 
     if (argument?.type !== 'ObjectExpression') {
-      throw new Error(`[Bunner AOT] AdapterClass.pipeline must return a single object literal (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.pipeline must return a single object literal (${className}).`);
     }
 
     return this.parsePipelineFromObject(argument, className);
@@ -820,7 +820,7 @@ export class AdapterSpecResolver {
     const handler = this.parseIdentifier(this.getObjectPropertyValue(node, 'handler'));
 
     if (!isNonEmptyString(handler)) {
-      throw new Error(`[Bunner AOT] AdapterClass.pipeline.handler must be an Identifier (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.pipeline.handler must be an Identifier (${className}).`);
     }
 
     return { middlewares, guards, pipes, handler };
@@ -830,7 +830,7 @@ export class AdapterSpecResolver {
     const node = this.asRecord(nodeValue);
 
     if (node?.type !== 'ArrayExpression') {
-      throw new Error(`[Bunner AOT] AdapterClass.${field} must be an array literal (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.${field} must be an array literal (${className}).`);
     }
 
     const elements = isAnalyzerValueArray(node.elements) ? node.elements : [];
@@ -840,13 +840,13 @@ export class AdapterSpecResolver {
       const element = this.asRecord(elementValue);
 
       if (element === null || element.type === 'SpreadElement') {
-        throw new Error(`[Bunner AOT] AdapterClass.${field} must be an Identifier array (${className}).`);
+        throw new Error(`[Zipbul AOT] AdapterClass.${field} must be an Identifier array (${className}).`);
       }
 
       const name = this.parseIdentifier(element);
 
       if (!isNonEmptyString(name)) {
-        throw new Error(`[Bunner AOT] AdapterClass.${field} must be an Identifier array (${className}).`);
+        throw new Error(`[Zipbul AOT] AdapterClass.${field} must be an Identifier array (${className}).`);
       }
 
       names.push(name);
@@ -861,14 +861,14 @@ export class AdapterSpecResolver {
     className: string,
   ): void {
     if (middlewarePhaseOrder.length === 0) {
-      throw new Error(`[Bunner AOT] AdapterClass.middlewarePhaseOrder must not be empty (${className}).`);
+      throw new Error(`[Zipbul AOT] AdapterClass.middlewarePhaseOrder must not be empty (${className}).`);
     }
 
     const phaseSet = new Set<string>();
 
     for (const phase of middlewarePhaseOrder) {
       if (phaseSet.has(phase)) {
-        throw new Error(`[Bunner AOT] AdapterClass.middlewarePhaseOrder must not contain duplicates (${className}).`);
+        throw new Error(`[Zipbul AOT] AdapterClass.middlewarePhaseOrder must not contain duplicates (${className}).`);
       }
 
       phaseSet.add(phase);
@@ -878,19 +878,19 @@ export class AdapterSpecResolver {
     const phaseList = Array.from(phaseSet.values()).sort();
 
     if (supportedKeys.length !== phaseList.length) {
-      throw new Error(`[Bunner AOT] supportedMiddlewarePhases keys must match middlewarePhaseOrder (${className}).`);
+      throw new Error(`[Zipbul AOT] supportedMiddlewarePhases keys must match middlewarePhaseOrder (${className}).`);
     }
 
     for (let index = 0; index < supportedKeys.length; index += 1) {
       if (supportedKeys[index] !== phaseList[index]) {
-        throw new Error(`[Bunner AOT] supportedMiddlewarePhases keys must match middlewarePhaseOrder (${className}).`);
+        throw new Error(`[Zipbul AOT] supportedMiddlewarePhases keys must match middlewarePhaseOrder (${className}).`);
       }
     }
   }
 
   private validatePipelineConsistency(pipeline: PipelineSpec, middlewarePhaseOrder: string[], className: string): void {
     if (pipeline.middlewares.length !== middlewarePhaseOrder.length) {
-      throw new Error(`[Bunner AOT] pipeline.middlewares length must match middlewarePhaseOrder (${className}).`);
+      throw new Error(`[Zipbul AOT] pipeline.middlewares length must match middlewarePhaseOrder (${className}).`);
     }
   }
 
@@ -956,11 +956,11 @@ export class AdapterSpecResolver {
 
   private assertValidPhaseId(phaseId: string, context: string, field: string): void {
     if (phaseId.length === 0) {
-      throw new Error(`[Bunner AOT] ${field} phase id must be non-empty (${context}).`);
+      throw new Error(`[Zipbul AOT] ${field} phase id must be non-empty (${context}).`);
     }
 
     if (phaseId.includes(':')) {
-      throw new Error(`[Bunner AOT] ${field} phase id must not contain ':' (${context}).`);
+      throw new Error(`[Zipbul AOT] ${field} phase id must not contain ':' (${context}).`);
     }
   }
 }

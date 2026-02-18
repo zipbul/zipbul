@@ -1,4 +1,4 @@
-import { createApplication } from '@bunner/core';
+import { createApplication } from '@zipbul/core';
 
 import { appModule } from './module';
 

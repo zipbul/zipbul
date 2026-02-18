@@ -1,5 +1,5 @@
 export type { CreateApplicationOptions } from './interfaces';
 
-export { BunnerApplication } from './bunner-application';
+export { ZipbulApplication } from './zipbul-application';
 
 export { createApplication } from './application';

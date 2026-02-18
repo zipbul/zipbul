@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
-import type { ResolvedBunnerConfig } from '../../config';
+import type { ResolvedZipbulConfig } from '../../config';
 import type { CardFile } from './types';
 
 import * as fsp from 'node:fs/promises';
 
 import * as crud from './card-crud';
 import * as fs from './card-fs';
-import { bunnerCardMarkdownPath } from '../../common/bunner-paths';
+import { zipbulCardMarkdownPath } from '../../common/zipbul-paths';
 
 describe('mcp/card — card CRUD (unit)', () => {
-  const config: ResolvedBunnerConfig = {
+  const config: ResolvedZipbulConfig = {
     module: { fileName: 'module.ts' },
     sourceDir: './src',
     entry: './src/main.ts',
@@ -53,7 +53,7 @@ describe('mcp/card — card CRUD (unit)', () => {
     renameSpy = spyOn(fsp, 'rename').mockResolvedValue(undefined as any);
 
     readCardFileSpy = spyOn(fs, 'readCardFile').mockResolvedValue({
-      filePath: bunnerCardMarkdownPath('/repo', 'auth/login'),
+      filePath: zipbulCardMarkdownPath('/repo', 'auth/login'),
       frontmatter: {
         key: 'auth/login',
         summary: 'S',
@@ -75,7 +75,7 @@ describe('mcp/card — card CRUD (unit)', () => {
 
   it('cardCreate writes file with slug-only key', async () => {
     // Arrange
-    setExists(bunnerCardMarkdownPath('/repo', 'auth/login'), false);
+    setExists(zipbulCardMarkdownPath('/repo', 'auth/login'), false);
 
     // Act
     const out = await crud.cardCreate({
@@ -89,14 +89,14 @@ describe('mcp/card — card CRUD (unit)', () => {
 
     // Assert
     expect(out.fullKey).toBe('auth/login');
-    expect(out.filePath).toBe(bunnerCardMarkdownPath('/repo', 'auth/login'));
+    expect(out.filePath).toBe(zipbulCardMarkdownPath('/repo', 'auth/login'));
     expect(mkdirSpy!).toHaveBeenCalledTimes(1);
     expect(writeCardFileSpy!).toHaveBeenCalledTimes(1);
   });
 
   it('cardCreate writes tags when provided', async () => {
     // Arrange
-    setExists(bunnerCardMarkdownPath('/repo', 'auth/login'), false);
+    setExists(zipbulCardMarkdownPath('/repo', 'auth/login'), false);
 
     // Act
     await crud.cardCreate({
@@ -130,7 +130,7 @@ describe('mcp/card — card CRUD (unit)', () => {
   it('cardUpdate updates summary/body/keywords', async () => {
     // Arrange
     readCardFileSpy!.mockResolvedValueOnce({
-      filePath: bunnerCardMarkdownPath('/repo', 'auth/login'),
+      filePath: zipbulCardMarkdownPath('/repo', 'auth/login'),
       frontmatter: { key: 'auth/login', summary: 'Old', status: 'draft' },
       body: 'OldBody\n',
     } as any);
@@ -152,7 +152,7 @@ describe('mcp/card — card CRUD (unit)', () => {
   it('cardUpdate updates tags', async () => {
     // Arrange
     readCardFileSpy!.mockResolvedValueOnce({
-      filePath: bunnerCardMarkdownPath('/repo', 'auth/login'),
+      filePath: zipbulCardMarkdownPath('/repo', 'auth/login'),
       frontmatter: { key: 'auth/login', summary: 'Old', status: 'draft' },
       body: 'OldBody\n',
     } as any);
@@ -169,24 +169,24 @@ describe('mcp/card — card CRUD (unit)', () => {
 
   it('cardDelete deletes when exists', async () => {
     // Arrange
-    setExists(bunnerCardMarkdownPath('/repo', 'auth/login'), true);
+    setExists(zipbulCardMarkdownPath('/repo', 'auth/login'), true);
 
     // Act
     const out = await crud.cardDelete('/repo', 'auth/login');
 
     // Assert
-    expect(out.filePath).toBe(bunnerCardMarkdownPath('/repo', 'auth/login'));
-    expect(bunFileSpy!).toHaveBeenCalledWith(bunnerCardMarkdownPath('/repo', 'auth/login'));
-    expect(await Bun.file(bunnerCardMarkdownPath('/repo', 'auth/login')).exists()).toBe(false);
+    expect(out.filePath).toBe(zipbulCardMarkdownPath('/repo', 'auth/login'));
+    expect(bunFileSpy!).toHaveBeenCalledWith(zipbulCardMarkdownPath('/repo', 'auth/login'));
+    expect(await Bun.file(zipbulCardMarkdownPath('/repo', 'auth/login')).exists()).toBe(false);
   });
 
   it('cardRename renames file and updates key', async () => {
     // Arrange
-    setExists(bunnerCardMarkdownPath('/repo', 'auth/login'), true);
-    setExists(bunnerCardMarkdownPath('/repo', 'auth/new'), false);
+    setExists(zipbulCardMarkdownPath('/repo', 'auth/login'), true);
+    setExists(zipbulCardMarkdownPath('/repo', 'auth/new'), false);
 
     readCardFileSpy!.mockResolvedValueOnce({
-      filePath: bunnerCardMarkdownPath('/repo', 'auth/new'),
+      filePath: zipbulCardMarkdownPath('/repo', 'auth/new'),
       frontmatter: { key: 'auth/login', summary: 'S', status: 'draft' },
       body: 'Body\n',
     } as any);

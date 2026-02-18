@@ -1,5 +1,5 @@
-import { RestController, Get, Post, Put, Delete, Body } from '@bunner/http-adapter';
-import { Logger } from '@bunner/logger';
+import { RestController, Get, Post, Put, Delete, Body } from '@zipbul/http-adapter';
+import { Logger } from '@zipbul/logger';
 
 import type { IdRouteParams } from '../interfaces';
 import type { ComplexCreateResponse, User } from './interfaces';

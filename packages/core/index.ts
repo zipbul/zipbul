@@ -1,4 +1,4 @@
-export { createApplication, BunnerApplication } from './src/application';
+export { createApplication, ZipbulApplication } from './src/application';
 export { defineModule, type DefineModuleOptions } from './src/module';
 export { getRuntimeContext } from './src/runtime/runtime-context';
 export {

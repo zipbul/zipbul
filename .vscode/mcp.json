@@ -1,9 +1,9 @@
 {
   "servers": {
-    "bunner": {
+    "zipbul": {
       "type": "stdio",
       "command": "bun",
-      "args": ["packages/cli/src/bin/bunner.ts", "mcp"]
+      "args": ["packages/cli/src/bin/zp.ts", "mcp"]
     },
     "sequential-thinking": {
       "command": "bunx",

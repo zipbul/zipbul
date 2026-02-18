@@ -1,17 +1,17 @@
 import type {
-  BunnerApplicationOptions,
-  BunnerContainer,
-  BunnerErrorFilter,
-  BunnerMiddleware,
-  BunnerValue,
+  ZipbulApplicationOptions,
+  ZipbulContainer,
+  ZipbulErrorFilter,
+  ZipbulMiddleware,
+  ZipbulValue,
   Class,
   Context,
   ErrorFilterToken,
   ProviderToken,
-} from '@bunner/common';
+} from '@zipbul/common';
 
-import type { BunnerRequest } from './bunner-request';
-import type { BunnerResponse } from './bunner-response';
+import type { ZipbulRequest } from './zipbul-request';
+import type { ZipbulResponse } from './zipbul-response';
 import type { RouteHandlerParamType } from './decorators';
 import type {
   ClassMetadata,
@@ -43,7 +43,7 @@ export type MiddlewareRegistrationInput<TOptions = MiddlewareOptions> =
 
 export type HttpMiddlewareRegistry = Partial<Record<string, readonly MiddlewareRegistrationInput[]>>;
 
-export interface BunnerHttpServerOptions extends BunnerApplicationOptions {
+export interface ZipbulHttpServerOptions extends ZipbulApplicationOptions {
   readonly port?: number;
   readonly bodyLimit?: number;
   readonly trustProxy?: boolean;
@@ -63,26 +63,26 @@ export interface InternalRouteEntry {
   readonly handler: InternalRouteHandler;
 }
 
-export interface BunnerHttpServerBootOptions extends BunnerHttpServerOptions {
-  readonly options?: BunnerHttpServerOptions;
+export interface ZipbulHttpServerBootOptions extends ZipbulHttpServerOptions {
+  readonly options?: ZipbulHttpServerOptions;
   readonly metadata?: Map<MetadataRegistryKey, ClassMetadata>;
   readonly scopedKeys?: Map<ProviderToken, string>;
   readonly internalRoutes?: readonly InternalRouteEntry[];
   readonly middlewares?: HttpMiddlewareRegistry;
   readonly errorFilters?: readonly ErrorFilterToken[];
-  readonly logger?: BunnerValue;
+  readonly logger?: ZipbulValue;
 }
 
 export interface HttpAdapterStartContext extends Context {
-  readonly container: BunnerContainer;
+  readonly container: ZipbulContainer;
   readonly entryModule?: Class;
 }
 
-export interface BunnerHttpInternalChannel {
+export interface ZipbulHttpInternalChannel {
   get(path: string, handler: InternalRouteHandler): void;
 }
 
-export type BunnerHttpInternalHost = Record<symbol, BunnerHttpInternalChannel | undefined>;
+export type ZipbulHttpInternalHost = Record<symbol, ZipbulHttpInternalChannel | undefined>;
 
 export interface WorkerInitParams {
   rootModuleClassName: string;
@@ -100,14 +100,14 @@ export interface HttpWorkerEntryModule {
 
 export interface HttpWorkerInitParams {
   readonly entryModule: HttpWorkerEntryModule;
-  readonly options: BunnerHttpServerOptions;
+  readonly options: ZipbulHttpServerOptions;
 }
 
 export interface HttpWorkerManifest {
-  createContainer(): BunnerContainer;
+  createContainer(): ZipbulContainer;
   createMetadataRegistry?(): Map<ControllerConstructor, ClassMetadata>;
   createScopedKeysMap?(): Map<ProviderToken, string>;
-  registerDynamicModules?(container: BunnerContainer): Promise<void> | void;
+  registerDynamicModules?(container: ZipbulContainer): Promise<void> | void;
 }
 
 export interface HttpWorkerResponse {
@@ -121,9 +121,9 @@ export interface RouteHandlerEntry {
   readonly paramRefs: readonly RouteParamType[];
   readonly controllerClass: ControllerConstructor | null;
   readonly methodName: string;
-  readonly middlewares: BunnerMiddleware[];
-  readonly errorFilters: Array<BunnerErrorFilter<SystemError>>;
-  readonly paramFactory: (req: BunnerRequest, res: BunnerResponse) => Promise<readonly RouteParamValue[]>;
+  readonly middlewares: ZipbulMiddleware[];
+  readonly errorFilters: Array<ZipbulErrorFilter<SystemError>>;
+  readonly paramFactory: (req: ZipbulRequest, res: ZipbulResponse) => Promise<readonly RouteParamValue[]>;
 }
 
 export interface ArgumentMetadata {

@@ -1,4 +1,4 @@
-import { Injectable } from '@bunner/common';
+import { Injectable } from '@zipbul/common';
 
 import type { PostComment, PostCommentInput } from './interfaces';
 

@@ -28,7 +28,7 @@ function createSingleModuleGraph(): ModuleGraph {
     defineModuleCalls: [
       {
         callee: 'defineModule',
-        importSource: '@bunner/core',
+        importSource: '@zipbul/core',
         args: [],
         exportedName: 'appModule',
       },

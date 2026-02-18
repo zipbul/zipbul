@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { ResolvedBunnerConfig } from '../../config';
+import type { ResolvedZipbulConfig } from '../../config';
 
 import { closeDb, createDb } from '../../store/connection';
 import { card, cardKeyword, cardTag, codeEntity, keyword, tag } from '../../store/schema';
 
-import { createBunnerToolRegistry, startBunnerMcpServerStdio } from './mcp-server';
+import { createZipbulToolRegistry, startZipbulMcpServerStdio } from './mcp-server';
 
-describe('createBunnerToolRegistry', () => {
+describe('createZipbulToolRegistry', () => {
   it('should register only VS Code-safe tool names', () => {
-    const registry = createBunnerToolRegistry({
+    const registry = createZipbulToolRegistry({
       projectRoot: '/repo',
       config: {
         sourceDir: './src',
@@ -21,7 +21,7 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     });
 
     const names = registry.list().map((t) => t.name);
@@ -30,7 +30,7 @@ describe('createBunnerToolRegistry', () => {
   });
 
   it('should include verify and card CRUD tools when registry is created', () => {
-    const registry = createBunnerToolRegistry({
+    const registry = createZipbulToolRegistry({
       projectRoot: '/repo',
       config: {
         sourceDir: './src',
@@ -42,21 +42,21 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     });
 
     const names = registry.list().map((t) => t.name);
 
-    expect(names).toContain('bunner_verify_project');
-    expect(names).toContain('bunner_create_card');
-    expect(names).toContain('bunner_update_card');
-    expect(names).toContain('bunner_update_card_status');
-    expect(names).toContain('bunner_delete_card');
-    expect(names).toContain('bunner_rename_card');
+    expect(names).toContain('zipbul_verify_project');
+    expect(names).toContain('zipbul_create_card');
+    expect(names).toContain('zipbul_update_card');
+    expect(names).toContain('zipbul_update_card_status');
+    expect(names).toContain('zipbul_delete_card');
+    expect(names).toContain('zipbul_rename_card');
   });
 
   it('should include index tools when registry is created', () => {
-    const registry = createBunnerToolRegistry({
+    const registry = createZipbulToolRegistry({
       projectRoot: '/repo',
       config: {
         sourceDir: './src',
@@ -68,16 +68,16 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     });
 
     const names = registry.list().map((t) => t.name);
-    expect(names).toContain('bunner_index_project');
-    expect(names).toContain('bunner_rebuild_index');
+    expect(names).toContain('zipbul_index_project');
+    expect(names).toContain('zipbul_rebuild_index');
   });
 
   it('should include search tools when registry is created', () => {
-    const registry = createBunnerToolRegistry({
+    const registry = createZipbulToolRegistry({
       projectRoot: '/repo',
       config: {
         sourceDir: './src',
@@ -89,16 +89,16 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     });
 
     const names = registry.list().map((t) => t.name);
-    expect(names).toContain('bunner_search_cards');
-    expect(names).toContain('bunner_search_code');
+    expect(names).toContain('zipbul_search_cards');
+    expect(names).toContain('zipbul_search_code');
   });
 
   it('should include lookup tools when registry is created', () => {
-    const registry = createBunnerToolRegistry({
+    const registry = createZipbulToolRegistry({
       projectRoot: '/repo',
       config: {
         sourceDir: './src',
@@ -110,14 +110,14 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     });
 
     const names = registry.list().map((t) => t.name);
-    expect(names).toContain('bunner_get_card');
-    expect(names).toContain('bunner_get_code_entity');
-    expect(names).toContain('bunner_list_card_relations');
-    expect(names).toContain('bunner_list_card_code_links');
+    expect(names).toContain('zipbul_get_card');
+    expect(names).toContain('zipbul_get_code_entity');
+    expect(names).toContain('zipbul_list_card_relations');
+    expect(names).toContain('zipbul_list_card_code_links');
   });
 
     it('should include P7 read tools when registry is created', () => {
@@ -125,19 +125,19 @@ describe('createBunnerToolRegistry', () => {
       const ctx = { projectRoot: '/repo', config: {} as any };
 
       // Act
-      const registry = createBunnerToolRegistry(ctx);
+      const registry = createZipbulToolRegistry(ctx);
       const names = registry.list().map((t) => t.name);
 
       // Assert
-      expect(names).toContain('bunner_search');
-      expect(names).toContain('bunner_get_context');
-      expect(names).toContain('bunner_get_subgraph');
-      expect(names).toContain('bunner_analyze_impact');
-      expect(names).toContain('bunner_trace_chain');
-      expect(names).toContain('bunner_report_coverage');
-      expect(names).toContain('bunner_list_unlinked_cards');
-      expect(names).toContain('bunner_list_cards');
-      expect(names).toContain('bunner_get_relations');
+      expect(names).toContain('zipbul_search');
+      expect(names).toContain('zipbul_get_context');
+      expect(names).toContain('zipbul_get_subgraph');
+      expect(names).toContain('zipbul_analyze_impact');
+      expect(names).toContain('zipbul_trace_chain');
+      expect(names).toContain('zipbul_report_coverage');
+      expect(names).toContain('zipbul_list_unlinked_cards');
+      expect(names).toContain('zipbul_list_cards');
+      expect(names).toContain('zipbul_get_relations');
     });
 
     it('should include P7 write tools when registry is created', () => {
@@ -145,27 +145,27 @@ describe('createBunnerToolRegistry', () => {
       const ctx = { projectRoot: '/repo', config: {} as any };
 
       // Act
-      const registry = createBunnerToolRegistry(ctx);
+      const registry = createZipbulToolRegistry(ctx);
       const names = registry.list().map((t) => t.name);
 
       // Assert
-      expect(names).toContain('bunner_create_card');
-      expect(names).toContain('bunner_update_card');
-      expect(names).toContain('bunner_delete_card');
-      expect(names).toContain('bunner_rename_card');
-      expect(names).toContain('bunner_update_card_status');
-      expect(names).toContain('bunner_add_link');
-      expect(names).toContain('bunner_remove_link');
-      expect(names).toContain('bunner_add_relation');
-      expect(names).toContain('bunner_remove_relation');
+      expect(names).toContain('zipbul_create_card');
+      expect(names).toContain('zipbul_update_card');
+      expect(names).toContain('zipbul_delete_card');
+      expect(names).toContain('zipbul_rename_card');
+      expect(names).toContain('zipbul_update_card_status');
+      expect(names).toContain('zipbul_add_link');
+      expect(names).toContain('zipbul_remove_link');
+      expect(names).toContain('zipbul_add_relation');
+      expect(names).toContain('zipbul_remove_relation');
 
-      expect(names).toContain('bunner_create_keyword');
-      expect(names).toContain('bunner_delete_keyword');
-      expect(names).toContain('bunner_create_tag');
-      expect(names).toContain('bunner_delete_tag');
+      expect(names).toContain('zipbul_create_keyword');
+      expect(names).toContain('zipbul_delete_keyword');
+      expect(names).toContain('zipbul_create_tag');
+      expect(names).toContain('zipbul_delete_tag');
     });
 
-  it('should call deps.getCard when bunner_get_card tool runs', async () => {
+  it('should call deps.getCard when zipbul_get_card tool runs', async () => {
     // Arrange
     let called: { key: string } | null = null;
 
@@ -181,10 +181,10 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       getCard: async (input) => {
         called = { key: input.key };
         return { card: { key: input.key, summary: 'S', status: 'draft', keywords: [] } } as any;
@@ -192,7 +192,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner_get_card');
+    const tool = registry.get('zipbul_get_card');
     const out = await tool!.run(ctx, { key: 'auth/login' });
 
     // Assert
@@ -201,7 +201,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ key: 'auth/login' });
   });
 
-  it('should return mapped keywords when bunner_get_card runs with default implementation', async () => {
+  it('should return mapped keywords when zipbul_get_card runs with default implementation', async () => {
     // Arrange
     const ctx = {
       projectRoot: '/repo',
@@ -215,7 +215,7 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
     const seededDb = createDb(':memory:');
@@ -227,7 +227,7 @@ describe('createBunnerToolRegistry', () => {
         status: 'draft',
         constraintsJson: null,
         body: 'Body',
-        filePath: '.bunner/cards/a.card.md',
+        filePath: '.zipbul/cards/a.card.md',
         updatedAt: '2026-01-01T00:00:00.000Z',
       })
       .run();
@@ -235,7 +235,7 @@ describe('createBunnerToolRegistry', () => {
     const authRow = seededDb.select({ id: keyword.id }).from(keyword).limit(1).get() as { id: number };
     seededDb.insert(cardKeyword).values({ cardKey: 'a', keywordId: authRow.id }).run();
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       createDb: () => seededDb as any,
       closeDb: () => {
         closeDb(seededDb as any);
@@ -243,7 +243,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner_get_card');
+    const tool = registry.get('zipbul_get_card');
     const out = await tool!.run(ctx, { key: 'a' });
 
     // Assert
@@ -255,13 +255,13 @@ describe('createBunnerToolRegistry', () => {
         keywords: ['auth'],
         constraintsJson: null,
         body: 'Body',
-        filePath: '.bunner/cards/a.card.md',
+        filePath: '.zipbul/cards/a.card.md',
         updatedAt: '2026-01-01T00:00:00.000Z',
       },
     });
   });
 
-  it('should filter by tags (OR) when bunner_list_cards runs with default implementation', async () => {
+  it('should filter by tags (OR) when zipbul_list_cards runs with default implementation', async () => {
     // Arrange
     const ctx = {
       projectRoot: '/repo',
@@ -275,7 +275,7 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
     const seededDb = createDb(':memory:');
@@ -288,7 +288,7 @@ describe('createBunnerToolRegistry', () => {
         status: 'draft',
         constraintsJson: null,
         body: 'Body A',
-        filePath: '.bunner/cards/a.card.md',
+        filePath: '.zipbul/cards/a.card.md',
         updatedAt: '2026-01-01T00:00:00.000Z',
       })
       .run();
@@ -300,7 +300,7 @@ describe('createBunnerToolRegistry', () => {
         status: 'draft',
         constraintsJson: null,
         body: 'Body B',
-        filePath: '.bunner/cards/b.card.md',
+        filePath: '.zipbul/cards/b.card.md',
         updatedAt: '2026-01-01T00:00:00.000Z',
       })
       .run();
@@ -313,7 +313,7 @@ describe('createBunnerToolRegistry', () => {
     seededDb.insert(cardTag).values({ cardKey: 'a', tagId: backendId }).run();
     seededDb.insert(cardTag).values({ cardKey: 'b', tagId: frontendId }).run();
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       createDb: () => seededDb as any,
       closeDb: () => {
         // no-op: this test calls the tool twice; we close manually at the end
@@ -322,7 +322,7 @@ describe('createBunnerToolRegistry', () => {
 
     try {
       // Act
-      const tool = registry.get('bunner_list_cards');
+      const tool = registry.get('zipbul_list_cards');
       const out = await tool!.run(ctx, { tags: ['backend'], limit: 50 });
 
       const outOr = await tool!.run(ctx, { tags: ['backend', 'frontend'], limit: 50 });
@@ -343,7 +343,7 @@ describe('createBunnerToolRegistry', () => {
     }
   });
 
-  it('should return mapped keywords when bunner_get_context runs with default implementation', async () => {
+  it('should return mapped keywords when zipbul_get_context runs with default implementation', async () => {
     // Arrange
     const ctx = {
       projectRoot: '/repo',
@@ -357,7 +357,7 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
     const seededDb = createDb(':memory:');
@@ -369,7 +369,7 @@ describe('createBunnerToolRegistry', () => {
         status: 'draft',
         constraintsJson: null,
         body: 'Body',
-        filePath: '.bunner/cards/a.card.md',
+        filePath: '.zipbul/cards/a.card.md',
         updatedAt: '2026-01-01T00:00:00.000Z',
       })
       .run();
@@ -377,7 +377,7 @@ describe('createBunnerToolRegistry', () => {
     const authRow = seededDb.select({ id: keyword.id }).from(keyword).limit(1).get() as { id: number };
     seededDb.insert(cardKeyword).values({ cardKey: 'a', keywordId: authRow.id }).run();
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       createDb: () => seededDb as any,
       closeDb: () => {
         closeDb(seededDb as any);
@@ -385,7 +385,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner_get_context');
+    const tool = registry.get('zipbul_get_context');
     const out = await tool!.run(ctx, { target: { kind: 'card', key: 'a' } });
 
     // Assert
@@ -398,7 +398,7 @@ describe('createBunnerToolRegistry', () => {
         keywords: ['auth'],
         constraintsJson: null,
         body: 'Body',
-        filePath: '.bunner/cards/a.card.md',
+        filePath: '.zipbul/cards/a.card.md',
         updatedAt: '2026-01-01T00:00:00.000Z',
       },
       codeEntity: null,
@@ -410,7 +410,7 @@ describe('createBunnerToolRegistry', () => {
     });
   });
 
-  it('should call deps.getCodeEntity when bunner_get_code_entity tool runs', async () => {
+  it('should call deps.getCodeEntity when zipbul_get_code_entity tool runs', async () => {
     // Arrange
     let called: { entityKey: string } | null = null;
 
@@ -426,10 +426,10 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       getCodeEntity: async (input) => {
         called = { entityKey: input.entityKey };
         return { entity: { entityKey: input.entityKey, filePath: 'src/a.ts', symbolName: null, kind: 'module' } } as any;
@@ -437,7 +437,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner_get_code_entity');
+    const tool = registry.get('zipbul_get_code_entity');
     const out = await tool!.run(ctx, { entityKey: 'module:src/a.ts' });
 
     // Assert
@@ -446,7 +446,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ entityKey: 'module:src/a.ts' });
   });
 
-  it('should call deps.listCardRelations when bunner_list_card_relations tool runs', async () => {
+  it('should call deps.listCardRelations when zipbul_list_card_relations tool runs', async () => {
     // Arrange
     let called: { cardKey: string } | null = null;
 
@@ -462,10 +462,10 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       listCardRelations: async (input) => {
         called = { cardKey: input.cardKey };
         return {
@@ -477,7 +477,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner_list_card_relations');
+    const tool = registry.get('zipbul_list_card_relations');
     const out = await tool!.run(ctx, { cardKey: 'auth/login' });
 
     // Assert
@@ -488,7 +488,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ cardKey: 'auth/login' });
   });
 
-  it('should call deps.listCardCodeLinks when bunner_list_card_code_links tool runs', async () => {
+  it('should call deps.listCardCodeLinks when zipbul_list_card_code_links tool runs', async () => {
     // Arrange
     let called: { cardKey: string } | null = null;
 
@@ -504,10 +504,10 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       listCardCodeLinks: async (input) => {
         called = { cardKey: input.cardKey };
         return {
@@ -519,7 +519,7 @@ describe('createBunnerToolRegistry', () => {
     });
 
     // Act
-    const tool = registry.get('bunner_list_card_code_links');
+    const tool = registry.get('zipbul_list_card_code_links');
     const out = await tool!.run(ctx, { cardKey: 'auth/login' });
 
     // Assert
@@ -530,7 +530,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ cardKey: 'auth/login' });
   });
 
-  it('should call deps.searchCards when bunner_search_cards tool runs', async () => {
+  it('should call deps.searchCards when zipbul_search_cards tool runs', async () => {
     let called: { q: string; limit: number } | null = null;
 
     const ctx = {
@@ -545,17 +545,17 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       searchCards: async (input) => {
         called = { q: input.query, limit: input.limit };
         return { results: [{ key: 'a', summary: 'A', status: 'draft', score: 1 }] };
       },
     });
 
-    const tool = registry.get('bunner_search_cards');
+    const tool = registry.get('zipbul_search_cards');
     expect(tool).not.toBeUndefined();
 
     const out = await tool!.run(ctx, { query: 'auth', limit: 7 });
@@ -564,7 +564,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ q: 'auth', limit: 7 });
   });
 
-  it('should call deps.searchCode when bunner_search_code tool runs', async () => {
+  it('should call deps.searchCode when zipbul_search_code tool runs', async () => {
     let called: { q: string; limit: number } | null = null;
 
     const ctx = {
@@ -579,17 +579,17 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       searchCode: async (input) => {
         called = { q: input.query, limit: input.limit };
         return { results: [{ entityKey: 'module:src/a.ts', symbolName: null, filePath: 'src/a.ts', kind: 'module', score: 2 }] };
       },
     });
 
-    const tool = registry.get('bunner_search_code');
+    const tool = registry.get('zipbul_search_code');
     expect(tool).not.toBeUndefined();
 
     const out = await tool!.run(ctx, { query: 'login', limit: 3 });
@@ -598,7 +598,7 @@ describe('createBunnerToolRegistry', () => {
     expect(called as any).toEqual({ q: 'login', limit: 3 });
   });
 
-  it('should return results when bunner_search_code runs with default implementation', async () => {
+  it('should return results when zipbul_search_code runs with default implementation', async () => {
     // Arrange
     const ctx = {
       projectRoot: '/repo',
@@ -612,7 +612,7 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
     const seededDb = createDb(':memory:');
@@ -630,7 +630,7 @@ describe('createBunnerToolRegistry', () => {
       })
       .run();
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       createDb: () => seededDb as any,
       closeDb: () => {
         // no-op: close manually
@@ -639,7 +639,7 @@ describe('createBunnerToolRegistry', () => {
 
     try {
       // Act
-      const tool = registry.get('bunner_search_code');
+      const tool = registry.get('zipbul_search_code');
       const out = await tool!.run(ctx, { query: 'mcp', limit: 10 });
 
       // Assert
@@ -650,7 +650,7 @@ describe('createBunnerToolRegistry', () => {
     }
   });
 
-  it('should return results when bunner_search_cards runs with default implementation', async () => {
+  it('should return results when zipbul_search_cards runs with default implementation', async () => {
     // Arrange
     const ctx = {
       projectRoot: '/repo',
@@ -664,7 +664,7 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
     const seededDb = createDb(':memory:');
@@ -676,12 +676,12 @@ describe('createBunnerToolRegistry', () => {
         status: 'draft',
         constraintsJson: null,
         body: 'Body',
-        filePath: '.bunner/cards/a.card.md',
+        filePath: '.zipbul/cards/a.card.md',
         updatedAt: '2026-01-01T00:00:00.000Z',
       })
       .run();
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       createDb: () => seededDb as any,
       closeDb: () => {
         // no-op: close manually
@@ -690,7 +690,7 @@ describe('createBunnerToolRegistry', () => {
 
     try {
       // Act
-      const tool = registry.get('bunner_search_cards');
+      const tool = registry.get('zipbul_search_cards');
       const out = await tool!.run(ctx, { query: 'mcp', limit: 10 });
 
       // Assert
@@ -701,7 +701,7 @@ describe('createBunnerToolRegistry', () => {
     }
   });
 
-  it('should call deps.indexProject with mode=full when bunner_index_project runs with full mode', async () => {
+  it('should call deps.indexProject with mode=full when zipbul_index_project runs with full mode', async () => {
     let called: { projectRoot: string; mode: string; didClose: boolean } | null = null;
     let didClose = false;
 
@@ -717,10 +717,10 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       createDb: () => ({}) as any,
       closeDb: () => {
         didClose = true;
@@ -731,7 +731,7 @@ describe('createBunnerToolRegistry', () => {
       },
     });
 
-    const tool = registry.get('bunner_index_project');
+    const tool = registry.get('zipbul_index_project');
     expect(tool).not.toBeUndefined();
 
     const out = await tool!.run(ctx, { mode: 'full' });
@@ -741,7 +741,7 @@ describe('createBunnerToolRegistry', () => {
     expect(didClose).toBe(true);
   });
 
-  it('should default mode=incremental when bunner_index_project runs without mode', async () => {
+  it('should default mode=incremental when zipbul_index_project runs without mode', async () => {
     let calledMode: string | null = null;
 
     const ctx = {
@@ -756,10 +756,10 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       createDb: () => ({}) as any,
       closeDb: () => {},
       indexProject: async (input) => {
@@ -768,7 +768,7 @@ describe('createBunnerToolRegistry', () => {
       },
     });
 
-    const tool = registry.get('bunner_index_project');
+    const tool = registry.get('zipbul_index_project');
     expect(tool).not.toBeUndefined();
 
     await tool!.run(ctx, {});
@@ -776,7 +776,7 @@ describe('createBunnerToolRegistry', () => {
     expect(calledMode as any).toBe('incremental');
   });
 
-  it('should call deps.verifyProject when bunner_verify_project tool runs', async () => {
+  it('should call deps.verifyProject when zipbul_verify_project tool runs', async () => {
     let called: { projectRoot: string; hasConfig: boolean } | null = null;
 
     const ctx = {
@@ -791,17 +791,17 @@ describe('createBunnerToolRegistry', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
-    const registry = createBunnerToolRegistry(ctx, {
+    const registry = createZipbulToolRegistry(ctx, {
       verifyProject: async (input) => {
         called = { projectRoot: input.projectRoot, hasConfig: input.config != null };
         return { ok: true, errors: [], warnings: [] };
       },
     });
 
-    const tool = registry.get('bunner_verify_project');
+    const tool = registry.get('zipbul_verify_project');
     expect(tool).not.toBeUndefined();
 
     const out = await tool!.run(ctx, {});
@@ -811,7 +811,7 @@ describe('createBunnerToolRegistry', () => {
   });
 });
 
-describe('startBunnerMcpServerStdio', () => {
+describe('startZipbulMcpServerStdio', () => {
   it('should connect the server to the transport when started', async () => {
     const ctx = {
       projectRoot: '/repo',
@@ -825,7 +825,7 @@ describe('startBunnerMcpServerStdio', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
     const calls: Array<{ type: string; name?: string }> = [];
@@ -839,11 +839,11 @@ describe('startBunnerMcpServerStdio', () => {
       },
     };
 
-    await startBunnerMcpServerStdio(ctx, {
+    await startZipbulMcpServerStdio(ctx, {
       createServer: () => fakeServer as any,
       createTransport: () => ({}) as any,
       createOwnerElection: () => ({
-        acquire: () => ({ role: 'reader', ownerPid: 1, lockPath: '/repo/.bunner/cache/watcher.owner.lock' }),
+        acquire: () => ({ role: 'reader', ownerPid: 1, lockPath: '/repo/.zipbul/cache/watcher.owner.lock' }),
         release: () => {},
       }),
       fileExists: async () => true,
@@ -867,7 +867,7 @@ describe('startBunnerMcpServerStdio', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
     const registered: string[] = [];
@@ -879,11 +879,11 @@ describe('startBunnerMcpServerStdio', () => {
       connect: async () => {},
     };
 
-    await startBunnerMcpServerStdio(ctx, {
+    await startZipbulMcpServerStdio(ctx, {
       createServer: () => fakeServer as any,
       createTransport: () => ({}) as any,
       createOwnerElection: () => ({
-        acquire: () => ({ role: 'reader', ownerPid: 1, lockPath: '/repo/.bunner/cache/watcher.owner.lock' }),
+        acquire: () => ({ role: 'reader', ownerPid: 1, lockPath: '/repo/.zipbul/cache/watcher.owner.lock' }),
         release: () => {},
       }),
       fileExists: async () => true,
@@ -891,14 +891,14 @@ describe('startBunnerMcpServerStdio', () => {
     });
 
     // Read tools should be present.
-    expect(registered.includes('bunner_search')).toBe(true);
-    expect(registered.includes('bunner_verify_project')).toBe(true);
+    expect(registered.includes('zipbul_search')).toBe(true);
+    expect(registered.includes('zipbul_verify_project')).toBe(true);
 
     // Write tools should not be present for reader.
-    expect(registered.includes('bunner_create_card')).toBe(false);
-    expect(registered.includes('bunner_create_keyword')).toBe(false);
-    expect(registered.includes('bunner_create_tag')).toBe(false);
-    expect(registered.includes('bunner_rebuild_index')).toBe(false);
+    expect(registered.includes('zipbul_create_card')).toBe(false);
+    expect(registered.includes('zipbul_create_keyword')).toBe(false);
+    expect(registered.includes('zipbul_create_tag')).toBe(false);
+    expect(registered.includes('zipbul_rebuild_index')).toBe(false);
   });
 
   it('should build the index on startup when owner and db is missing', async () => {
@@ -915,7 +915,7 @@ describe('startBunnerMcpServerStdio', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
     const calls: string[] = [];
@@ -925,11 +925,11 @@ describe('startBunnerMcpServerStdio', () => {
       connect: async () => {},
     };
 
-    await startBunnerMcpServerStdio(ctx, {
+    await startZipbulMcpServerStdio(ctx, {
       createServer: () => fakeServer as any,
       createTransport: () => ({}) as any,
       createOwnerElection: () => ({
-        acquire: () => ({ role: 'owner', ownerPid: 1, lockPath: '/repo/.bunner/cache/watcher.owner.lock' }),
+        acquire: () => ({ role: 'owner', ownerPid: 1, lockPath: '/repo/.zipbul/cache/watcher.owner.lock' }),
         release: () => {
           calls.push('release');
         },
@@ -964,7 +964,7 @@ describe('startBunnerMcpServerStdio', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
     const calls: string[] = [];
@@ -976,11 +976,11 @@ describe('startBunnerMcpServerStdio', () => {
       connect: async () => {},
     };
 
-    await startBunnerMcpServerStdio(ctx, {
+    await startZipbulMcpServerStdio(ctx, {
       createServer: () => fakeServer as any,
       createTransport: () => ({}) as any,
       createOwnerElection: () => ({
-        acquire: () => ({ role: 'owner', ownerPid: 1, lockPath: '/repo/.bunner/cache/watcher.owner.lock' }),
+        acquire: () => ({ role: 'owner', ownerPid: 1, lockPath: '/repo/.zipbul/cache/watcher.owner.lock' }),
         release: () => {},
       }),
       fileExists: async () => true,
@@ -1012,9 +1012,9 @@ describe('startBunnerMcpServerStdio', () => {
     if (!watchCb) throw new Error('Expected watcher subscription callback');
 
     // Act
-    watchCb(null, [{ type: 'update', path: '/repo/.bunner/cards/a.card.md' }]);
+    watchCb(null, [{ type: 'update', path: '/repo/.zipbul/cards/a.card.md' }]);
     watchCb(null, [{ type: 'update', path: '/repo/src/a.ts' }]);
-    watchCb(null, [{ type: 'update', path: '/repo/bunner.jsonc' }]);
+    watchCb(null, [{ type: 'update', path: '/repo/zipbul.jsonc' }]);
 
     // Allow queued tasks to flush.
     for (let i = 0; i < 12; i += 1) {
@@ -1040,7 +1040,7 @@ describe('startBunnerMcpServerStdio', () => {
             relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'],
           },
         },
-      } as unknown as ResolvedBunnerConfig,
+      } as unknown as ResolvedZipbulConfig,
     };
 
     const calls: string[] = [];
@@ -1052,11 +1052,11 @@ describe('startBunnerMcpServerStdio', () => {
       connect: async () => {},
     };
 
-    await startBunnerMcpServerStdio(ctx, {
+    await startZipbulMcpServerStdio(ctx, {
       createServer: () => fakeServer as any,
       createTransport: () => ({}) as any,
       createOwnerElection: () => ({
-        acquire: () => ({ role: 'owner', ownerPid: 1, lockPath: '/repo/.bunner/cache/watcher.owner.lock' }),
+        acquire: () => ({ role: 'owner', ownerPid: 1, lockPath: '/repo/.zipbul/cache/watcher.owner.lock' }),
         release: () => {},
       }),
       fileExists: async () => true,
@@ -1067,7 +1067,7 @@ describe('startBunnerMcpServerStdio', () => {
         return { stats: { indexedCardFiles: 0, indexedCodeFiles: 0, removedFiles: 0 } } as any;
       },
       subscribe: async (root: string, cb: any) => {
-        if (root === '/repo/.bunner/cache') {
+        if (root === '/repo/.zipbul/cache') {
           cacheCb = cb;
         }
         return { unsubscribe: async () => {} };
@@ -1076,7 +1076,7 @@ describe('startBunnerMcpServerStdio', () => {
 
     if (!cacheCb) throw new Error('Expected cache subscription callback');
 
-    cacheCb(null, [{ type: 'update', path: '/repo/.bunner/cache/reindex.signal' }]);
+    cacheCb(null, [{ type: 'update', path: '/repo/.zipbul/cache/reindex.signal' }]);
 
     for (let i = 0; i < 12; i += 1) {
       // eslint-disable-next-line no-await-in-loop

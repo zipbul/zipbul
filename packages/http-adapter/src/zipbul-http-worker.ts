@@ -1,17 +1,17 @@
-import type { BunnerRecord, BunnerValue, ProviderToken } from '@bunner/common';
-import type { RpcArgs, RpcCallable } from '@bunner/core/src/cluster/types';
+import type { ZipbulRecord, ZipbulValue, ProviderToken } from '@zipbul/common';
+import type { RpcArgs, RpcCallable } from '@zipbul/core/src/cluster/types';
 
-import { ClusterBaseWorker, Container, type ClusterWorkerId, expose } from '@bunner/core';
-import { Logger } from '@bunner/logger';
+import { ClusterBaseWorker, Container, type ClusterWorkerId, expose } from '@zipbul/core';
+import { Logger } from '@zipbul/logger';
 
-import type { BunnerHttpServerBootOptions, HttpWorkerInitParams, HttpWorkerManifest } from './interfaces';
+import type { ZipbulHttpServerBootOptions, HttpWorkerInitParams, HttpWorkerManifest } from './interfaces';
 import type { ClassMetadata, ControllerConstructor } from './types';
 
-import { BunnerHttpServer } from './bunner-http-server';
+import { ZipbulHttpServer } from './zipbul-http-server';
 
-class BunnerHttpWorker extends ClusterBaseWorker {
-  private logger = new Logger(BunnerHttpWorker.name);
-  private httpServer: BunnerHttpServer;
+class ZipbulHttpWorker extends ClusterBaseWorker {
+  private logger = new Logger(ZipbulHttpWorker.name);
+  private httpServer: ZipbulHttpServer;
 
   constructor() {
     super();
@@ -24,10 +24,10 @@ class BunnerHttpWorker extends ClusterBaseWorker {
   override async init(workerId: ClusterWorkerId, params: Parameters<ClusterBaseWorker['init']>[1]) {
     await super.init(workerId, params);
 
-    this.logger.info(`🔧 Bunner HTTP Worker #${workerId} is initializing...`);
+    this.logger.info(`🔧 Zipbul HTTP Worker #${workerId} is initializing...`);
 
     if (!this.isHttpWorkerInitParams(params)) {
-      throw new Error('Invalid worker init params for BunnerHttpWorker.');
+      throw new Error('Invalid worker init params for ZipbulHttpWorker.');
     }
 
     const { options, entryModule } = params;
@@ -49,10 +49,10 @@ class BunnerHttpWorker extends ClusterBaseWorker {
         await manifest.registerDynamicModules(container);
       }
 
-      this.httpServer = new BunnerHttpServer();
+      this.httpServer = new ZipbulHttpServer();
 
       // Pass combined options including metadata for Runtime to use
-      const bootOptions: BunnerHttpServerBootOptions = {
+      const bootOptions: ZipbulHttpServerBootOptions = {
         ...options,
         metadata: metadataRegistry,
         scopedKeys: scopedKeysMap,
@@ -69,7 +69,7 @@ class BunnerHttpWorker extends ClusterBaseWorker {
       // Basic JIT Container Setup
       const container = new Container();
 
-      this.httpServer = new BunnerHttpServer();
+      this.httpServer = new ZipbulHttpServer();
 
       // Boot without pre-compiled metadata - Runtime will rely on what's available
       await this.httpServer.boot(container, options);
@@ -77,14 +77,14 @@ class BunnerHttpWorker extends ClusterBaseWorker {
   }
 
   bootstrap() {
-    this.logger.info(`🚀 Bunner HTTP Worker #${this.id} is bootstrapping...`);
+    this.logger.info(`🚀 Zipbul HTTP Worker #${this.id} is bootstrapping...`);
   }
 
   destroy() {
     this.logger.info(`🛑 Worker #${this.id} is destroying...`);
   }
 
-  private isHttpWorkerManifest(value: BunnerValue | undefined): value is HttpWorkerManifest {
+  private isHttpWorkerManifest(value: ZipbulValue | undefined): value is HttpWorkerManifest {
     if (!this.isRecord(value)) {
       return false;
     }
@@ -94,7 +94,7 @@ class BunnerHttpWorker extends ClusterBaseWorker {
     return typeof createContainer === 'function';
   }
 
-  private isHttpWorkerInitParams(value: BunnerValue): value is HttpWorkerInitParams {
+  private isHttpWorkerInitParams(value: ZipbulValue): value is HttpWorkerInitParams {
     if (!this.isRecord(value)) {
       return false;
     }
@@ -113,16 +113,16 @@ class BunnerHttpWorker extends ClusterBaseWorker {
     return this.isRecord(options);
   }
 
-  private isRecord(value: BunnerValue | undefined): value is BunnerRecord {
+  private isRecord(value: ZipbulValue | undefined): value is ZipbulRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 }
 
-const worker = new BunnerHttpWorker();
+const worker = new ZipbulHttpWorker();
 
 const initWorker: RpcCallable = async (...args: RpcArgs) => {
   const workerId = typeof args[0] === 'number' ? args[0] : 0;
-  const params = args.length > 1 && isBunnerRecord(args[1]) ? args[1] : undefined;
+  const params = args.length > 1 && isZipbulRecord(args[1]) ? args[1] : undefined;
 
   await worker.init(workerId, params);
 
@@ -154,8 +154,8 @@ expose({
   getStats: getWorkerStats,
 });
 
-function isBunnerRecord(value: BunnerValue): value is BunnerRecord {
+function isZipbulRecord(value: ZipbulValue): value is ZipbulRecord {
   return typeof value === 'object' && value !== null;
 }
 
-export { BunnerHttpWorker };
+export { ZipbulHttpWorker };

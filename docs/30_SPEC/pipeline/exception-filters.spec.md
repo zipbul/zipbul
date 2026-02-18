@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |                          Rule ID | 위반 조건(Violation Condition)  | Diagnostic Code                       | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -------------------------------: | ------------------------------- | ------------------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| PIPELINE-EXCEPTION-FILTERS-R-001 | invalid exception filters stage | BUNNER_PIPELINE_EXCEPTION_FILTERS_001 | error                    | symbol              | static:ast                        |
+| PIPELINE-EXCEPTION-FILTERS-R-001 | invalid exception filters stage | ZIPBUL_PIPELINE_EXCEPTION_FILTERS_001 | error                    | symbol              | static:ast                        |
 
 ---
 

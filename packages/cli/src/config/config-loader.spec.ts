@@ -13,11 +13,11 @@ import { ConfigLoadError } from './errors';
 
 describe('ConfigLoader', () => {
   const projectRoot = '/project';
-  const jsonPath = join(projectRoot, 'bunner.json');
-  const jsoncPath = join(projectRoot, 'bunner.jsonc');
+  const jsonPath = join(projectRoot, 'zipbul.json');
+  const jsoncPath = join(projectRoot, 'zipbul.jsonc');
   let setup: FileSetup;
   let bunFileSpy: ReturnType<typeof spyOn> | undefined;
-  let consoleInfoSpy: ReturnType<typeof spyOn> | undefined;
+  let consoleErrorSpy: ReturnType<typeof spyOn> | undefined;
   let jsonParseSpy: ReturnType<typeof spyOn> | undefined;
   let jsoncParseSpy: ReturnType<typeof spyOn> | undefined;
 
@@ -31,19 +31,19 @@ describe('ConfigLoader', () => {
       return createBunFileStub(setup, String(path)) as any;
     });
 
-    consoleInfoSpy = spyOn(console, 'info').mockImplementation(() => {});
+    consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
     jsonParseSpy = spyOn(JSON, 'parse');
     jsoncParseSpy = spyOn(Bun.JSONC, 'parse');
   });
 
   afterEach(() => {
     bunFileSpy?.mockRestore();
-    consoleInfoSpy?.mockRestore();
+    consoleErrorSpy?.mockRestore();
     jsonParseSpy?.mockRestore();
     jsoncParseSpy?.mockRestore();
   });
 
-  it('should throw when both bunner.json and bunner.jsonc exist', async () => {
+  it('should throw when both zipbul.json and zipbul.jsonc exist', async () => {
     // Arrange
     setup.existsByPath.set(jsonPath, true);
     setup.existsByPath.set(jsoncPath, true);
@@ -52,7 +52,7 @@ describe('ConfigLoader', () => {
     await expect(ConfigLoader.load(projectRoot)).rejects.toBeInstanceOf(ConfigLoadError);
   });
 
-  it('should throw when bunner config is missing', async () => {
+  it('should throw when zipbul config is missing', async () => {
     // Arrange
     setup.existsByPath.set(jsonPath, false);
     setup.existsByPath.set(jsoncPath, false);
@@ -428,21 +428,18 @@ describe('ConfigLoader', () => {
     // Arrange
     setup.existsByPath.set(jsonPath, true);
     setup.existsByPath.set(jsoncPath, false);
-    setup.textByPath.set(
-      jsonPath,
-      JSON.stringify(
-        {
-          module: { fileName: '__module__.ts' },
-          sourceDir: 'src',
-          entry: 'src/main.ts',
-        },
-        null,
-        2,
-      ),
-    );
 
-    consoleInfoSpy!.mockImplementationOnce(() => {
-      throw new Error('console failed');
+    bunFileSpy!.mockImplementation((path: any) => {
+      const p = String(path);
+      if (p === jsonPath) {
+        return {
+          exists: async () => true,
+          text: async () => {
+            throw new Error('read failed');
+          },
+        } as any;
+      }
+      return createBunFileStub(setup, p) as any;
     });
 
     // Act & Assert
@@ -450,7 +447,7 @@ describe('ConfigLoader', () => {
   });
 
   describe('mcp config', () => {
-    it('should call JSON.parse when bunner.json is used', async () => {
+    it('should call JSON.parse when zipbul.json is used', async () => {
       // Arrange
       setup.existsByPath.set(jsonPath, true);
       setup.existsByPath.set(jsoncPath, false);
@@ -475,7 +472,7 @@ describe('ConfigLoader', () => {
       expect(jsoncParseSpy).toHaveBeenCalledTimes(0);
     });
 
-    it('should call Bun.JSONC.parse when bunner.jsonc is used', async () => {
+    it('should call Bun.JSONC.parse when zipbul.jsonc is used', async () => {
       // Arrange
       setup.existsByPath.set(jsonPath, false);
       setup.existsByPath.set(jsoncPath, true);

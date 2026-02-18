@@ -1,6 +1,6 @@
 # Glossary (용어 사전)
 
-Bunner 프로젝트에서 사용되는 주요 기술 용어와 도메인 개념의 SSOT 정의이다.
+Zipbul 프로젝트에서 사용되는 주요 기술 용어와 도메인 개념의 SSOT 정의이다.
 
 ---
 
@@ -55,7 +55,7 @@ Bunner 프로젝트에서 사용되는 주요 기술 용어와 도메인 개념�
 - **ModuleId**: 모듈을 식별하기 위한 정적 동일성 값이다.
 - **Context**: 실행 시점의 컨텍스트 오브젝트이며, 최소 `contextId`와 `adapterId`를 포함한다.
 
-- **BunnerAdapter**: 런타임 어댑터 실행체의 기반 추상 클래스이다. 각 프로토콜 어댑터의 실행체는 `BunnerAdapter`를 상속하는 concrete class로 구현되어야 한다.
+- **ZipbulAdapter**: 런타임 어댑터 실행체의 기반 추상 클래스이다. 각 프로토콜 어댑터의 실행체는 `ZipbulAdapter`를 상속하는 concrete class로 구현되어야 한다.
 
 - **Pipeline**: 어댑터가 정적으로 선언하는 실행 단계열(순서 포함)이다. 프레임워크/컴파일러는 Pipeline 선언을 인지하여 정적 wiring을 생성한다.
 - **PipelineStep**: Pipeline을 구성하는 단일 실행 단위이다.
@@ -102,7 +102,7 @@ Bunner 프로젝트에서 사용되는 주요 기술 용어와 도메인 개념�
 
 ## 3. 엔지니어링 및 테스트 (Engineering & Testing)
 
-- **Reflections**: 런타임에 객체의 메타데이터를 조회하거나 수정하는 행위. Bunner에서는 금지됨.
+- **Reflections**: 런타임에 객체의 메타데이터를 조회하거나 수정하는 행위. Zipbul에서는 금지됨.
 
 - **Mechanically Checkable**: 해석 없이 정해진 입력/산출물에 대해 결정 절차로 참/거짓 판정이 가능한 성질.
 

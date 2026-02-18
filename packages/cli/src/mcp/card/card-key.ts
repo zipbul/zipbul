@@ -1,4 +1,4 @@
-import { bunnerCardMarkdownPath } from '../../common/bunner-paths';
+import { zipbulCardMarkdownPath } from '../../common/zipbul-paths';
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
@@ -38,5 +38,5 @@ export function parseFullKey(fullKey: string): string {
 
 export function cardPathFromFullKey(projectRoot: string, fullKey: string): string {
   const slug = parseFullKey(fullKey);
-  return bunnerCardMarkdownPath(projectRoot, slug);
+  return zipbulCardMarkdownPath(projectRoot, slug);
 }

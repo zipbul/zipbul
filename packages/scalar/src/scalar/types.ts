@@ -1,8 +1,8 @@
-import type { AdapterCollection, AdapterGroup, BunnerAdapter, BunnerRecord, Class } from '@bunner/common';
+import type { AdapterCollection, AdapterGroup, ZipbulAdapter, ZipbulRecord, Class } from '@zipbul/common';
 
 export type DocumentTargets = 'all' | DocumentTarget[];
 
-export interface DocumentTarget extends BunnerRecord {
+export interface DocumentTarget extends ZipbulRecord {
   protocol: string;
   names?: string[];
 }
@@ -17,14 +17,14 @@ export interface AdapterGroupWithName {
   forEach: AdapterGroupForEach;
 }
 
-export type AdapterGroupGetResult = ScalarInput | BunnerAdapter | ScalarKeyedRecord;
+export type AdapterGroupGetResult = ScalarInput | ZipbulAdapter | ScalarKeyedRecord;
 
 export interface AdapterGroupWithGet {
   get: (name: string) => AdapterGroupGetResult | undefined;
 }
 
 export type AdapterGroupLike =
-  | AdapterGroup<BunnerAdapter>
+  | AdapterGroup<ZipbulAdapter>
   | Map<string, ScalarInput>
   | AdapterGroupWithGet
   | AdapterGroupWithName;

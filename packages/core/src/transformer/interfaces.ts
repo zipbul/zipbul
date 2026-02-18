@@ -1,4 +1,4 @@
-import type { Class } from '@bunner/common';
+import type { Class } from '@zipbul/common';
 
 import type {
   ClassRefs,

@@ -2,7 +2,7 @@ import { mkdirSync } from 'fs';
 
 import * as watcher from '@parcel/watcher';
 
-import { bunnerCacheDirPath, bunnerCacheFilePath } from '../common/bunner-paths';
+import { zipbulCacheDirPath, zipbulCacheFilePath } from '../common/zipbul-paths';
 
 export function parseReindexSignalText(text: string): { pid: number; timestampMs: number } | null {
   const trimmed = text.trim();
@@ -31,8 +31,8 @@ export async function emitReindexSignal(options: {
   pid: number;
   nowMs: () => number;
 }): Promise<{ signalPath: string }> {
-  const signalDir = bunnerCacheDirPath(options.projectRoot);
-  const signalPath = bunnerCacheFilePath(options.projectRoot, 'reindex.signal');
+  const signalDir = zipbulCacheDirPath(options.projectRoot);
+  const signalPath = zipbulCacheFilePath(options.projectRoot, 'reindex.signal');
 
   mkdirSync(signalDir, { recursive: true });
   await Bun.write(signalPath, `${options.pid}\n${options.nowMs()}\n`);
@@ -46,8 +46,8 @@ export class ReindexSignalWatcher {
   private readonly signalPath: string;
 
   constructor(options: { projectRoot: string }) {
-    this.signalDir = bunnerCacheDirPath(options.projectRoot);
-    this.signalPath = bunnerCacheFilePath(options.projectRoot, 'reindex.signal');
+    this.signalDir = zipbulCacheDirPath(options.projectRoot);
+    this.signalPath = zipbulCacheFilePath(options.projectRoot, 'reindex.signal');
   }
 
   async start(onSignal: (signal: { pid: number; timestampMs: number }) => void) {

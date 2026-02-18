@@ -1,7 +1,7 @@
-import type { BunnerContainer, BunnerRecord, BunnerValue, Context } from '@bunner/common';
+import type { ZipbulContainer, ZipbulRecord, ZipbulValue, Context } from '@zipbul/common';
 
-import { BunnerErrorFilter, BunnerMiddleware } from '@bunner/common';
-import { Logger, type LogMetadataValue } from '@bunner/logger';
+import { ZipbulErrorFilter, ZipbulMiddleware } from '@zipbul/common';
+import { Logger, type LogMetadataValue } from '@zipbul/logger';
 import { StatusCodes } from 'http-status-codes';
 
 import type { RouteHandler } from './route-handler';
@@ -20,9 +20,9 @@ import type {
   SystemErrorHandlerLike,
 } from './types';
 
-import { BunnerHttpContext, BunnerHttpContextAdapter } from './adapter';
-import { BunnerRequest } from './bunner-request';
-import { BunnerResponse } from './bunner-response';
+import { ZipbulHttpContext, ZipbulHttpContextAdapter } from './adapter';
+import { ZipbulRequest } from './zipbul-request';
+import { ZipbulResponse } from './zipbul-response';
 import {
   HTTP_AFTER_RESPONSE,
   HTTP_BEFORE_REQUEST,
@@ -36,15 +36,15 @@ import { SystemErrorHandler } from './system-error-handler';
 
 export class RequestHandler {
   private readonly logger = new Logger(RequestHandler.name);
-  private globalBeforeRequest: BunnerMiddleware[] = [];
-  private globalBeforeResponse: BunnerMiddleware[] = [];
-  private globalAfterResponse: BunnerMiddleware[] = [];
-  private globalErrorFilters: Array<BunnerErrorFilter<SystemError>> = [];
+  private globalBeforeRequest: ZipbulMiddleware[] = [];
+  private globalBeforeResponse: ZipbulMiddleware[] = [];
+  private globalAfterResponse: ZipbulMiddleware[] = [];
+  private globalErrorFilters: Array<ZipbulErrorFilter<SystemError>> = [];
   private errorFilterEngineHealthy = true;
   private systemErrorHandler: SystemErrorHandlerLike | undefined;
 
   constructor(
-    private readonly container: BunnerContainer,
+    private readonly container: ZipbulContainer,
     private readonly routeHandler: RouteHandler,
     private readonly metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
   ) {
@@ -52,13 +52,13 @@ export class RequestHandler {
   }
 
   public async handle(
-    req: BunnerRequest,
-    res: BunnerResponse,
+    req: ZipbulRequest,
+    res: ZipbulResponse,
     method: HttpMethod,
     path: string,
-    context?: BunnerHttpContext,
+    context?: ZipbulHttpContext,
   ): Promise<HttpWorkerResponse> {
-    const ctx: Context = context ?? new BunnerHttpContext(new BunnerHttpContextAdapter(req, res));
+    const ctx: Context = context ?? new ZipbulHttpContext(new ZipbulHttpContextAdapter(req, res));
     let matchResult: MatchResult | undefined = undefined;
     let systemErrorHandlerCalled = false;
     let errorFiltersCalled = false;
@@ -150,7 +150,7 @@ export class RequestHandler {
             };
           }
 
-          if (result instanceof BunnerResponse) {
+          if (result instanceof ZipbulResponse) {
             return result.end();
           }
 
@@ -245,7 +245,7 @@ export class RequestHandler {
     return res.end();
   }
 
-  private async runMiddlewares(middlewares: BunnerMiddleware[], ctx: Context): Promise<boolean> {
+  private async runMiddlewares(middlewares: ZipbulMiddleware[], ctx: Context): Promise<boolean> {
     for (const mw of middlewares) {
       const result = await mw.handle(ctx);
 
@@ -257,12 +257,12 @@ export class RequestHandler {
     return true;
   }
 
-  private isSystemErrorHandlerLike(value: ReturnType<BunnerContainer['get']>): value is SystemErrorHandlerLike {
+  private isSystemErrorHandlerLike(value: ReturnType<ZipbulContainer['get']>): value is SystemErrorHandlerLike {
     if (value === null || value === undefined) {
       return false;
     }
 
-    if (!this.isBunnerRecord(value)) {
+    if (!this.isZipbulRecord(value)) {
       return false;
     }
 
@@ -284,7 +284,7 @@ export class RequestHandler {
       throw new Error('ErrorFilter engine failed');
     }
 
-    const filters: Array<BunnerErrorFilter<SystemError>> = [...(entry?.errorFilters ?? []), ...this.globalErrorFilters];
+    const filters: Array<ZipbulErrorFilter<SystemError>> = [...(entry?.errorFilters ?? []), ...this.globalErrorFilters];
     const originalError = error;
     let currentError: SystemError = error;
 
@@ -449,11 +449,11 @@ export class RequestHandler {
     this.systemErrorHandler = this.resolveSystemErrorHandlers(HTTP_SYSTEM_ERROR_HANDLER, { strict: true })[0];
   }
 
-  private resolveMiddlewares(token: string, options?: ResolveTokenOptions): BunnerMiddleware[] {
+  private resolveMiddlewares(token: string, options?: ResolveTokenOptions): ZipbulMiddleware[] {
     return this.resolveTokenValues(token, options, value => this.isMiddleware(value));
   }
 
-  private resolveErrorFilters(token: string, options?: ResolveTokenOptions): Array<BunnerErrorFilter<SystemError>> {
+  private resolveErrorFilters(token: string, options?: ResolveTokenOptions): Array<ZipbulErrorFilter<SystemError>> {
     return this.resolveTokenValues(token, options, value => this.isErrorFilter(value));
   }
 
@@ -461,10 +461,10 @@ export class RequestHandler {
     return this.resolveTokenValues(token, options, value => this.isSystemErrorHandler(value));
   }
 
-  private resolveTokenValues<T extends BunnerMiddleware | BunnerErrorFilter<SystemError> | SystemErrorHandlerLike>(
+  private resolveTokenValues<T extends ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike>(
     token: string,
     options: ResolveTokenOptions | undefined,
-    predicate: (value: BunnerMiddleware | BunnerErrorFilter<SystemError> | SystemErrorHandlerLike) => value is T,
+    predicate: (value: ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike) => value is T,
   ): T[] {
     const results: T[] = [];
     const strict = options?.strict === true;
@@ -496,10 +496,10 @@ export class RequestHandler {
     return results;
   }
 
-  private collectValues<T extends BunnerMiddleware | BunnerErrorFilter<SystemError> | SystemErrorHandlerLike>(
+  private collectValues<T extends ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike>(
     results: T[],
-    value: ReturnType<BunnerContainer['get']>,
-    predicate: (value: BunnerMiddleware | BunnerErrorFilter<SystemError> | SystemErrorHandlerLike) => value is T,
+    value: ReturnType<ZipbulContainer['get']>,
+    predicate: (value: ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike) => value is T,
     options: ResolveTokenContext,
   ): void {
     if (this.isValueArray(value)) {
@@ -534,9 +534,9 @@ export class RequestHandler {
   }
 
   private isTokenValue(
-    value: ReturnType<BunnerContainer['get']>,
-  ): value is BunnerMiddleware | BunnerErrorFilter<SystemError> | SystemErrorHandlerLike {
-    if (value instanceof BunnerMiddleware || value instanceof BunnerErrorFilter || value instanceof SystemErrorHandler) {
+    value: ReturnType<ZipbulContainer['get']>,
+  ): value is ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike {
+    if (value instanceof ZipbulMiddleware || value instanceof ZipbulErrorFilter || value instanceof SystemErrorHandler) {
       return true;
     }
 
@@ -544,19 +544,19 @@ export class RequestHandler {
   }
 
   private isMiddleware(
-    value: BunnerMiddleware | BunnerErrorFilter<SystemError> | SystemErrorHandlerLike,
-  ): value is BunnerMiddleware {
-    return value instanceof BunnerMiddleware;
+    value: ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike,
+  ): value is ZipbulMiddleware {
+    return value instanceof ZipbulMiddleware;
   }
 
   private isErrorFilter(
-    value: BunnerMiddleware | BunnerErrorFilter<SystemError> | SystemErrorHandlerLike,
-  ): value is BunnerErrorFilter<SystemError> {
-    return value instanceof BunnerErrorFilter;
+    value: ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike,
+  ): value is ZipbulErrorFilter<SystemError> {
+    return value instanceof ZipbulErrorFilter;
   }
 
   private isSystemErrorHandler(
-    value: BunnerMiddleware | BunnerErrorFilter<SystemError> | SystemErrorHandlerLike,
+    value: ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike,
   ): value is SystemErrorHandlerLike {
     if (value instanceof SystemErrorHandler) {
       return true;
@@ -565,7 +565,7 @@ export class RequestHandler {
     return this.isSystemErrorHandlerLike(value);
   }
 
-  private isValueArray(value: ReturnType<BunnerContainer['get']>): value is ReadonlyArray<ReturnType<BunnerContainer['get']>> {
+  private isValueArray(value: ReturnType<ZipbulContainer['get']>): value is ReadonlyArray<ReturnType<ZipbulContainer['get']>> {
     return Array.isArray(value);
   }
 
@@ -602,7 +602,7 @@ export class RequestHandler {
     return undefined;
   }
 
-  private async invokeErrorFilter(filter: BunnerErrorFilter<SystemError>, error: SystemError, ctx: Context): Promise<void> {
+  private async invokeErrorFilter(filter: ZipbulErrorFilter<SystemError>, error: SystemError, ctx: Context): Promise<void> {
     const catchHandler = filter.catch.bind(filter);
 
     await catchHandler(error, ctx);
@@ -620,7 +620,7 @@ export class RequestHandler {
     return { error: this.formatSystemError(value) };
   }
 
-  private isBunnerRecord(value: BunnerValue | null | undefined): value is BunnerRecord {
+  private isZipbulRecord(value: ZipbulValue | null | undefined): value is ZipbulRecord {
     return typeof value === 'object' && value !== null;
   }
 }

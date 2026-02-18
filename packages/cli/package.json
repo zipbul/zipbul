@@ -1,13 +1,13 @@
 {
-  "name": "@bunner/cli",
+  "name": "@zipbul/cli",
   "private": true,
   "bin": {
-    "bunner": "./src/bin/bunner.ts"
+    "zp": "./src/bin/zp.ts"
   },
   "type": "module",
   "module": "index.ts",
   "scripts": {
-    "build": "bun build ./src/bin/bunner.ts --compile --outfile dist/bunner",
+    "build": "bun build ./src/bin/zp.ts --compile --outfile dist/zp",
     "drizzle:generate": "bunx drizzle-kit generate --config packages/cli/drizzle.config.ts",
     "drizzle:migrate": "bunx drizzle-kit migrate --config packages/cli/drizzle.config.ts"
   },

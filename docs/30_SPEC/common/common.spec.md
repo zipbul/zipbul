@@ -164,7 +164,7 @@ export type CommonContractData = unknown;
 
 |      Rule ID | 위반 조건(Violation Condition)   | Diagnostic Code   | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -----------: | -------------------------------- | ----------------- | ------------------------ | ------------------- | --------------------------------- |
-| COMMON-R-001 | 공통 declarations 수집/판정 불가 | BUNNER_COMMON_001 | error                    | file                | static:ast                        |
+| COMMON-R-001 | 공통 declarations 수집/판정 불가 | ZIPBUL_COMMON_001 | error                    | file                | static:ast                        |
 
 ---
 

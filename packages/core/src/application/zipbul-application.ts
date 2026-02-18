@@ -1,8 +1,8 @@
 import type {
   ProviderToken,
-} from '@bunner/common';
+} from '@zipbul/common';
 
-export class BunnerApplication {
+export class ZipbulApplication {
   public get(_token: ProviderToken): void {
     //
   }

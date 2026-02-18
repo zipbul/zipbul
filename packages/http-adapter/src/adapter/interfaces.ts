@@ -1,9 +1,9 @@
-import type { Context } from '@bunner/common';
+import type { Context } from '@zipbul/common';
 
-import type { BunnerRequest } from '../bunner-request';
-import type { BunnerResponse } from '../bunner-response';
+import type { ZipbulRequest } from '../zipbul-request';
+import type { ZipbulResponse } from '../zipbul-response';
 
 export interface HttpContext extends Context {
-  readonly request: BunnerRequest;
-  readonly response: BunnerResponse;
+  readonly request: ZipbulRequest;
+  readonly response: ZipbulResponse;
 }

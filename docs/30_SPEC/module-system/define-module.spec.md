@@ -168,9 +168,9 @@ export type DefineModuleCall = {
 
 | Rule ID | 위반 조건(Violation Condition) | Diagnostic Code | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | --- | --- | --- | --- | --- | --- |
-| DEFINE-MODULE-R-001 | defineModule call not mechanically decidable | BUNNER_DEFINE_MODULE_001 | error | symbol | static:ast |
-| DEFINE-MODULE-R-002 | module marker is not exported | BUNNER_DEFINE_MODULE_002 | error | symbol | static:ast |
-| DEFINE-MODULE-R-003 | multiple defineModule calls in the same module file | BUNNER_DEFINE_MODULE_003 | error | file | static:ast |
+| DEFINE-MODULE-R-001 | defineModule call not mechanically decidable | ZIPBUL_DEFINE_MODULE_001 | error | symbol | static:ast |
+| DEFINE-MODULE-R-002 | module marker is not exported | ZIPBUL_DEFINE_MODULE_002 | error | symbol | static:ast |
+| DEFINE-MODULE-R-003 | multiple defineModule calls in the same module file | ZIPBUL_DEFINE_MODULE_003 | error | file | static:ast |
 
 ---
 

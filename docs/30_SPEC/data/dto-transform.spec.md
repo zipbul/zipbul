@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |             Rule ID | 위반 조건(Violation Condition) | Diagnostic Code          | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ------------------: | ------------------------------ | ------------------------ | ------------------------ | ------------------- | --------------------------------- |
-| DTO-TRANSFORM-R-001 | invalid DTO transform          | BUNNER_DTO_TRANSFORM_001 | error                    | symbol              | static:ast                        |
+| DTO-TRANSFORM-R-001 | invalid DTO transform          | ZIPBUL_DTO_TRANSFORM_001 | error                    | symbol              | static:ast                        |
 
 ---
 

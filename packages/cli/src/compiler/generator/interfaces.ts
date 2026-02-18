@@ -2,13 +2,13 @@ import type { ClassMetadata } from '../analyzer';
 import type { ModuleGraph } from '../analyzer/graph/module-graph';
 import type { AdapterStaticSpec, HandlerIndexEntry } from '../analyzer/interfaces';
 import type { AnalyzerValue } from '../analyzer/types';
-import type { BunnerConfigSource, ResolvedBunnerConfig } from '../../config/interfaces';
+import type { ZipbulConfigSource, ResolvedZipbulConfig } from '../../config/interfaces';
 
 export interface ManifestJsonParams {
   graph: ModuleGraph;
   projectRoot: string;
-  source: BunnerConfigSource;
-  resolvedConfig: ResolvedBunnerConfig;
+  source: ZipbulConfigSource;
+  resolvedConfig: ResolvedZipbulConfig;
   adapterStaticSpecs: Record<string, AdapterStaticSpec>;
   handlerIndex: HandlerIndexEntry[];
 }

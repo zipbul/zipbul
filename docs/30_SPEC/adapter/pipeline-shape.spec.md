@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |                      Rule ID | 위반 조건(Violation Condition) | Diagnostic Code                   | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ---------------------------: | ------------------------------ | --------------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| ADAPTER-PIPELINE-SHAPE-R-001 | invalid pipeline shape         | BUNNER_ADAPTER_PIPELINE_SHAPE_001 | error                    | symbol              | static:ast                        |
+| ADAPTER-PIPELINE-SHAPE-R-001 | invalid pipeline shape         | ZIPBUL_ADAPTER_PIPELINE_SHAPE_001 | error                    | symbol              | static:ast                        |
 
 ---
 

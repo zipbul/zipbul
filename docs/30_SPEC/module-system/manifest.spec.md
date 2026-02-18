@@ -151,7 +151,7 @@ export type ManifestHandlerEntry = {
 
 export type ManifestHandlerIndex = ManifestHandlerEntry[];
 
-export type BunnerManifest = {
+export type ZipbulManifest = {
   schemaVersion: ManifestSchemaVersion;
   config: ManifestConfig;
   modules: ManifestModule[];
@@ -165,11 +165,11 @@ export type BunnerManifest = {
 
 | Rule ID        | 생명주기(Lifecycle) (token) | 키워드(Keyword) | 타깃(Targets) (token list) | 타깃 참조(Target Ref(s))                                                     | 조건(Condition) (boolean, declarative)                                                                  | 강제 레벨(Enforced Level) (token) |
 | -------------- | --------------------------- | --------------- | -------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| MANIFEST-R-001 | active                      | MUST            | inputs, artifacts, shapes  | InputKind:manifest-json, Artifact:BunnerManifest, Shape:local:BunnerManifest | Manifest is deterministically generated for identical inputs                                            | build                             |
-| MANIFEST-R-002 | active                      | MUST            | shapes                     | Shape:local:BunnerManifest                                                   | modules, diGraph.nodes, handlerIndex are sorted deterministically by id                                 | build                             |
-| MANIFEST-R-003 | active                      | MUST            | shapes                     | Shape:local:BunnerManifest                                                   | schemaVersion equals ManifestSchemaVersion                                                              | build                             |
+| MANIFEST-R-001 | active                      | MUST            | inputs, artifacts, shapes  | InputKind:manifest-json, Artifact:ZipbulManifest, Shape:local:ZipbulManifest | Manifest is deterministically generated for identical inputs                                            | build                             |
+| MANIFEST-R-002 | active                      | MUST            | shapes                     | Shape:local:ZipbulManifest                                                   | modules, diGraph.nodes, handlerIndex are sorted deterministically by id                                 | build                             |
+| MANIFEST-R-003 | active                      | MUST            | shapes                     | Shape:local:ZipbulManifest                                                   | schemaVersion equals ManifestSchemaVersion                                                              | build                             |
 | MANIFEST-R-004 | active                      | MUST            | outcomes                   | Outcome:OUT-004                                                              | manifest is immutable at runtime                                                                        | runtime                           |
-| MANIFEST-R-005 | active                      | MUST            | shapes                     | Shape:local:BunnerManifest                                                   | manifest includes modules, adapterStaticSpecs, diGraph, handlerIndex                                    | build                             |
+| MANIFEST-R-005 | active                      | MUST            | shapes                     | Shape:local:ZipbulManifest                                                   | manifest includes modules, adapterStaticSpecs, diGraph, handlerIndex                                    | build                             |
 | MANIFEST-R-006 | active                      | MUST            | outcomes                   | Outcome:OUT-006                                                              | adapterStaticSpecs key set matches module adapter configuration key set                                 | build                             |
 | MANIFEST-R-007 | active                      | MUST            | outcomes                   | Outcome:OUT-007                                                              | access to manifest after bootstrap throws                                                               | runtime                           |
 | MANIFEST-R-008 | active                      | MUST NOT        | outcomes                   | Outcome:OUT-008                                                              | manifest includes runtime state (listening/host/port/activation)                                        | build                             |
@@ -184,7 +184,7 @@ export type BunnerManifest = {
 
 | 아티팩트명(Artifact Name) | 종류(Kind) (token) | 형상 참조(Shape Reference) | 쓰기 권한(Write Authority) (token) |
 | ------------------------- | ------------------ | -------------------------- | ---------------------------------- |
-| BunnerManifest            | schema             | local:BunnerManifest       | this-spec-only                     |
+| ZipbulManifest            | schema             | local:ZipbulManifest       | this-spec-only                     |
 | AdapterStaticSpec         | schema             | local:AdapterStaticSpec    | this-spec-only                     |
 
 ### 4.2 Referenced Artifacts
@@ -210,7 +210,7 @@ export type BunnerManifest = {
 
 | 아티팩트(Artifact) | 패턴 종류(Pattern Kind) (token) | 위치(Location) (pattern)                    | 집행(Enforced By) (token) | 수동 사유(Manual Reason) (required if manual) | 자동화 계획(Automation Plan) (required if manual) | 만료(Expiry) (required if manual) |
 | ------------------ | ------------------------------- | ------------------------------------------- | ------------------------- | --------------------------------------------- | ------------------------------------------------- | --------------------------------- |
-| BunnerManifest     | glob                            | docs/30_SPEC/module-system/manifest.spec.md | build                     | n/a                                           | n/a                                               | n/a                               |
+| ZipbulManifest     | glob                            | docs/30_SPEC/module-system/manifest.spec.md | build                     | n/a                                           | n/a                                               | n/a                               |
 | AdapterStaticSpec  | glob                            | docs/30_SPEC/module-system/manifest.spec.md | build                     | n/a                                           | n/a                                               | n/a                               |
 
 ### 5.2 Dependency
@@ -227,11 +227,11 @@ export type BunnerManifest = {
 
 | 입력 조건(Input Condition) | Rule ID        | 타깃 참조(Target Ref(s))   | Outcome ID | 관측 결과(Observable Outcome)                                      |
 | -------------------------- | -------------- | -------------------------- | ---------- | ------------------------------------------------------------------ |
-| same inputs twice          | MANIFEST-R-001 | Shape:local:BunnerManifest | OUT-001    | generated manifest bytes are identical                             |
-| manifest generated         | MANIFEST-R-002 | Shape:local:BunnerManifest | OUT-002    | sorted arrays by id are observable in JSON                         |
-| manifest generated         | MANIFEST-R-003 | Shape:local:BunnerManifest | OUT-003    | schemaVersion is observable as the expected const                  |
+| same inputs twice          | MANIFEST-R-001 | Shape:local:ZipbulManifest | OUT-001    | generated manifest bytes are identical                             |
+| manifest generated         | MANIFEST-R-002 | Shape:local:ZipbulManifest | OUT-002    | sorted arrays by id are observable in JSON                         |
+| manifest generated         | MANIFEST-R-003 | Shape:local:ZipbulManifest | OUT-003    | schemaVersion is observable as the expected const                  |
 | runtime attempts mutation  | MANIFEST-R-004 | Outcome:OUT-004            | OUT-004    | mutation attempt throws                                            |
-| manifest generated         | MANIFEST-R-005 | Shape:local:BunnerManifest | OUT-005    | required top-level fields are present                              |
+| manifest generated         | MANIFEST-R-005 | Shape:local:ZipbulManifest | OUT-005    | required top-level fields are present                              |
 | manifest generated         | MANIFEST-R-006 | Outcome:OUT-006            | OUT-006    | adapterStaticSpecs keys match adapter config keys                  |
 | app bootstrap completed    | MANIFEST-R-007 | Outcome:OUT-007            | OUT-007    | manifest access throws after bootstrap                             |
 | manifest generated         | MANIFEST-R-008 | Outcome:OUT-008            | OUT-008    | runtime state is not present in manifest                           |
@@ -250,16 +250,16 @@ export type BunnerManifest = {
 
 | Rule ID        | 위반 조건(Violation Condition)                      | Diagnostic Code     | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -------------- | --------------------------------------------------- | ------------------- | ------------------------ | ------------------- | --------------------------------- |
-| MANIFEST-R-001 | non-deterministic manifest                          | BUNNER_MANIFEST_001 | error                    | file                | test:assert                       |
-| MANIFEST-R-002 | unsorted arrays                                     | BUNNER_MANIFEST_002 | error                    | file                | static:artifact                   |
-| MANIFEST-R-003 | schemaVersion mismatch                              | BUNNER_MANIFEST_003 | error                    | file                | static:artifact                   |
-| MANIFEST-R-004 | runtime mutation succeeded                          | BUNNER_MANIFEST_004 | error                    | symbol              | runtime:observation               |
-| MANIFEST-R-005 | required fields missing                             | BUNNER_MANIFEST_005 | error                    | file                | static:artifact                   |
-| MANIFEST-R-006 | adapterStaticSpecs mismatch                         | BUNNER_MANIFEST_006 | error                    | file                | static:artifact                   |
-| MANIFEST-R-007 | post-bootstrap manifest access                      | BUNNER_MANIFEST_007 | error                    | range               | runtime:observation               |
-| MANIFEST-R-008 | runtime state included                              | BUNNER_MANIFEST_008 | error                    | file                | static:artifact                   |
-| MANIFEST-R-009 | adapterStaticSpecs not derived from adapter package | BUNNER_MANIFEST_009 | error                    | file                | static:artifact                   |
-| MANIFEST-R-010 | adapterStaticSpecs mismatch for same adapterName    | BUNNER_MANIFEST_010 | error                    | file                | static:artifact                   |
+| MANIFEST-R-001 | non-deterministic manifest                          | ZIPBUL_MANIFEST_001 | error                    | file                | test:assert                       |
+| MANIFEST-R-002 | unsorted arrays                                     | ZIPBUL_MANIFEST_002 | error                    | file                | static:artifact                   |
+| MANIFEST-R-003 | schemaVersion mismatch                              | ZIPBUL_MANIFEST_003 | error                    | file                | static:artifact                   |
+| MANIFEST-R-004 | runtime mutation succeeded                          | ZIPBUL_MANIFEST_004 | error                    | symbol              | runtime:observation               |
+| MANIFEST-R-005 | required fields missing                             | ZIPBUL_MANIFEST_005 | error                    | file                | static:artifact                   |
+| MANIFEST-R-006 | adapterStaticSpecs mismatch                         | ZIPBUL_MANIFEST_006 | error                    | file                | static:artifact                   |
+| MANIFEST-R-007 | post-bootstrap manifest access                      | ZIPBUL_MANIFEST_007 | error                    | range               | runtime:observation               |
+| MANIFEST-R-008 | runtime state included                              | ZIPBUL_MANIFEST_008 | error                    | file                | static:artifact                   |
+| MANIFEST-R-009 | adapterStaticSpecs not derived from adapter package | ZIPBUL_MANIFEST_009 | error                    | file                | static:artifact                   |
+| MANIFEST-R-010 | adapterStaticSpecs mismatch for same adapterName    | ZIPBUL_MANIFEST_010 | error                    | file                | static:artifact                   |
 
 ---
 

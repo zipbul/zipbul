@@ -1,10 +1,10 @@
-import type { BunnerValue } from '@bunner/common';
+import type { ZipbulValue } from '@zipbul/common';
 
 import type { ScalarSetupOptions } from './interfaces';
 import type { ScalarConfigurer } from './scalar-configurer';
 
-export const ScalarSetupOptionsToken = Symbol.for('@bunner/scalar:setup-options');
-export const ScalarConfigurerToken = Symbol.for('@bunner/scalar:configurer');
+export const ScalarSetupOptionsToken = Symbol.for('@zipbul/scalar:setup-options');
+export const ScalarConfigurerToken = Symbol.for('@zipbul/scalar:configurer');
 
 export type ScalarSetupOptionsToken = typeof ScalarSetupOptionsToken;
 export type ScalarConfigurerToken = typeof ScalarConfigurerToken;
@@ -16,6 +16,6 @@ export interface ScalarSetupOptionsProvider {
 
 export interface ScalarConfigurerProvider {
   readonly provide: ScalarConfigurerToken;
-  readonly useFactory: (...args: readonly BunnerValue[]) => ScalarConfigurer;
+  readonly useFactory: (...args: readonly ZipbulValue[]) => ScalarConfigurer;
   readonly inject: readonly [ScalarSetupOptionsToken];
 }

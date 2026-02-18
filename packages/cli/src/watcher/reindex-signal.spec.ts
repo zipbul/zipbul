@@ -46,12 +46,12 @@ afterAll(() => {
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 const mod = require('./reindex-signal.ts') as typeof import('./reindex-signal.ts');
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-const { bunnerCacheDirPath, bunnerCacheFilePath } = require('../common/bunner-paths.ts') as typeof import('../common/bunner-paths');
+const { zipbulCacheDirPath, zipbulCacheFilePath } = require('../common/zipbul-paths.ts') as typeof import('../common/zipbul-paths');
 
 describe('reindex-signal', () => {
   const projectRoot = '/repo';
-  const signalPath = bunnerCacheFilePath(projectRoot, 'reindex.signal');
-  const signalDir = bunnerCacheDirPath(projectRoot);
+  const signalPath = zipbulCacheFilePath(projectRoot, 'reindex.signal');
+  const signalDir = zipbulCacheDirPath(projectRoot);
 
   let writeSpy: ReturnType<typeof spyOn> | undefined;
 

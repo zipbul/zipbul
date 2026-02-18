@@ -4,7 +4,7 @@ import type { CommandOptions } from '../src/bin/types';
 
 import { __testing__ } from '../src/bin/mcp.command';
 
-describe('cli — bunner mcp (default serve)', () => {
+describe('cli — zp mcp (default serve)', () => {
   it('should start server when no subcommand is provided', async () => {
     let started = false;
 
@@ -12,6 +12,7 @@ describe('cli — bunner mcp (default serve)', () => {
       loadConfig: async () => ({ config: {} as any }),
       ensureRepo: async () => {},
       verifyProject: async () => ({ ok: true, errors: [], warnings: [] }),
+      rebuildProjectIndex: async () => ({ ok: true }),
       startServer: async () => {
         started = true;
       },
@@ -34,6 +35,7 @@ describe('cli — bunner mcp (default serve)', () => {
         verified = true;
         return { ok: true, errors: [], warnings: [] };
       },
+      rebuildProjectIndex: async () => ({ ok: true }),
       startServer: async () => {
         throw new Error('should not be called');
       },

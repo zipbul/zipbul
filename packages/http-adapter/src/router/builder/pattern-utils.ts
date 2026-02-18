@@ -1,4 +1,4 @@
-import { Logger } from '@bunner/logger';
+import { Logger } from '@zipbul/logger';
 
 import type { BuilderConfig } from './types';
 

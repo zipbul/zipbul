@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsString } from '@bunner/core';
+import { IsBoolean, IsNumber, IsString } from '@zipbul/core';
 
 export class AddressDto {
   @IsString()

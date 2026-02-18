@@ -1,4 +1,4 @@
-import type { ResolvedBunnerConfig } from '../../config';
+import type { ResolvedZipbulConfig } from '../../config';
 
 import { relative } from 'node:path';
 
@@ -20,7 +20,7 @@ import {
 
 import { parseSync } from 'oxc-parser';
 
-import { bunnerCacheDirPath, bunnerCacheFilePath } from '../../common/bunner-paths';
+import { zipbulCacheDirPath, zipbulCacheFilePath } from '../../common/zipbul-paths';
 import { closeDb, createDb } from '../../store/connection';
 import { OwnerElection } from '../../watcher/owner-election';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
@@ -332,7 +332,7 @@ function clampLimit(limit: unknown, fallback: number): number {
 }
 
 async function searchCardsDefault(input: SearchCardsInput, deps: { createDb: typeof createDb; closeDb: typeof closeDb }): Promise<SearchCardsResult> {
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
 
   try {
@@ -358,7 +358,7 @@ async function searchCardsDefault(input: SearchCardsInput, deps: { createDb: typ
 }
 
 async function searchCodeDefault(input: SearchCodeInput, deps: { createDb: typeof createDb; closeDb: typeof closeDb }): Promise<SearchCodeResult> {
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
 
   try {
@@ -385,7 +385,7 @@ async function searchCodeDefault(input: SearchCodeInput, deps: { createDb: typeo
 }
 
 async function getCardDefault(input: GetCardInput, deps: { createDb: typeof createDb; closeDb: typeof closeDb }): Promise<GetCardResult> {
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
 
   try {
@@ -429,7 +429,7 @@ async function getCodeEntityDefault(
   input: GetCodeEntityInput,
   deps: { createDb: typeof createDb; closeDb: typeof closeDb },
 ): Promise<GetCodeEntityResult> {
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
 
   try {
@@ -470,7 +470,7 @@ async function listCardRelationsDefault(
   input: ListCardRelationsInput,
   deps: { createDb: typeof createDb; closeDb: typeof closeDb },
 ): Promise<ListCardRelationsResult> {
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
 
   try {
@@ -503,7 +503,7 @@ async function listCardCodeLinksDefault(
   input: ListCardCodeLinksInput,
   deps: { createDb: typeof createDb; closeDb: typeof closeDb },
 ): Promise<ListCardCodeLinksResult> {
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
 
   try {
@@ -557,7 +557,7 @@ async function getContextDefault(
   input: GetContextInput,
   deps: { createDb: typeof createDb; closeDb: typeof closeDb },
 ): Promise<GetContextResult> {
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
   try {
     if (input.target.kind === 'card') {
@@ -740,7 +740,7 @@ async function listCardsDefault(
   input: ListCardsInput,
   deps: { createDb: typeof createDb; closeDb: typeof closeDb },
 ): Promise<ListCardsResult> {
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
   try {
     const limit = input.limit;
@@ -828,7 +828,7 @@ async function listUnlinkedDefault(
   input: ListUnlinkedInput,
   deps: { createDb: typeof createDb; closeDb: typeof closeDb },
 ): Promise<ListUnlinkedResult> {
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
   try {
     const linkCountExpr = sql<number>`count(${cardCodeLink.id})`;
@@ -871,7 +871,7 @@ async function getSubgraphDefault(
   deps: { createDb: typeof createDb; closeDb: typeof closeDb },
 ): Promise<GetSubgraphResult> {
   const hops = Math.max(0, Math.min(5, Math.trunc(input.hops)));
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
   try {
     const nodes = new Map<string, { key: string; kind: 'card' | 'code' }>();
@@ -956,7 +956,7 @@ async function impactAnalysisDefault(
   deps: { createDb: typeof createDb; closeDb: typeof closeDb },
 ): Promise<ImpactAnalysisResult> {
   const depth = Math.max(1, Math.min(10, Math.trunc(input.depth)));
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
   try {
     const affected = new Set<string>([input.cardKey]);
@@ -1014,7 +1014,7 @@ async function traceChainDefault(
   deps: { createDb: typeof createDb; closeDb: typeof closeDb },
 ): Promise<TraceChainResult> {
   const maxHops = Math.max(1, Math.min(10, Math.trunc(input.maxHops)));
-  const dbPath = bunnerCacheFilePath(input.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(input.projectRoot, 'index.sqlite');
   const db = deps.createDb(dbPath);
   try {
     const from = input.fromKey;
@@ -1189,7 +1189,7 @@ function normalizeRelations(rels: CardRelationModel[] | undefined): CardRelation
   return rels.slice();
 }
 
-async function relationAddDefault(input: { projectRoot: string; srcKey: string; dstKey: string; type: string; config: ResolvedBunnerConfig }) {
+async function relationAddDefault(input: { projectRoot: string; srcKey: string; dstKey: string; type: string; config: ResolvedZipbulConfig }) {
   if (!input.config.mcp.card.relations.includes(input.type)) {
     throw new Error(`Invalid relation type: ${input.type}`);
   }
@@ -1239,7 +1239,7 @@ async function relationRemoveDefault(input: { projectRoot: string; srcKey: strin
 
 async function cardRenameEverywhereDefault(input: {
   projectRoot: string;
-  config: ResolvedBunnerConfig;
+  config: ResolvedZipbulConfig;
   oldKey: string;
   newKey: string;
 }): Promise<{ updatedCodeFiles: number; updatedCardFiles: number }> {
@@ -1247,7 +1247,7 @@ async function cardRenameEverywhereDefault(input: {
   const newKey = input.newKey;
 
   // update card relations across all cards
-  const cardGlob = new Bun.Glob('.bunner/cards/**/*.card.md');
+  const cardGlob = new Bun.Glob('.zipbul/cards/**/*.card.md');
   let updatedCardFiles = 0;
   for await (const rel of cardGlob.scan({ cwd: input.projectRoot, onlyFiles: true, dot: true })) {
     const abs = joinPath(input.projectRoot, String(rel));
@@ -1290,13 +1290,13 @@ async function cardRenameEverywhereDefault(input: {
   return { updatedCodeFiles, updatedCardFiles };
 }
 
-export interface BunnerMcpContext {
+export interface ZipbulMcpContext {
   projectRoot: string;
-  config: ResolvedBunnerConfig;
+  config: ResolvedZipbulConfig;
   role?: 'owner' | 'reader';
 }
 
-export interface BunnerMcpDeps {
+export interface ZipbulMcpDeps {
   verifyProject?: typeof verifyProject;
   indexProject?: typeof indexProject;
 
@@ -1320,9 +1320,9 @@ export interface BunnerMcpDeps {
 
   linkAdd?: (input: { projectRoot: string; filePath: string; cardKey: string }) => Promise<{ filePath: string; changed: boolean }>;
   linkRemove?: (input: { projectRoot: string; filePath: string; cardKey: string }) => Promise<{ filePath: string; changed: boolean }>;
-  relationAdd?: (input: { projectRoot: string; srcKey: string; dstKey: string; type: string; config: ResolvedBunnerConfig }) => Promise<{ filePath: string; changed: boolean }>;
+  relationAdd?: (input: { projectRoot: string; srcKey: string; dstKey: string; type: string; config: ResolvedZipbulConfig }) => Promise<{ filePath: string; changed: boolean }>;
   relationRemove?: (input: { projectRoot: string; srcKey: string; dstKey: string; type: string }) => Promise<{ filePath: string; changed: boolean }>;
-  cardRenameEverywhere?: (input: { projectRoot: string; config: ResolvedBunnerConfig; oldKey: string; newKey: string }) => Promise<{ updatedCodeFiles: number; updatedCardFiles: number }>;
+  cardRenameEverywhere?: (input: { projectRoot: string; config: ResolvedZipbulConfig; oldKey: string; newKey: string }) => Promise<{ updatedCodeFiles: number; updatedCardFiles: number }>;
 
   cardCreate?: typeof cardCreate;
   cardUpdate?: typeof cardUpdate;
@@ -1334,10 +1334,10 @@ export interface BunnerMcpDeps {
   closeDb?: typeof closeDb;
 }
 
-export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMcpDeps): ToolRegistry {
+export function createZipbulToolRegistry(_ctx: ZipbulMcpContext, deps?: ZipbulMcpDeps): ToolRegistry {
   const registry = new ToolRegistry();
 
-  const ownerOnly = (ctx: BunnerMcpContext) => ctx.role === 'owner';
+  const ownerOnly = (ctx: ZipbulMcpContext) => ctx.role === 'owner';
 
   const verifyProjectFn = deps?.verifyProject ?? verifyProject;
   const indexProjectFn = deps?.indexProject ?? indexProject;
@@ -1405,12 +1405,12 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   const linkAddFn = deps?.linkAdd ?? ((input: { projectRoot: string; filePath: string; cardKey: string }) => linkAddDefault(input, { parse: (f, c) => { parseSync(f, c); } }));
   const linkRemoveFn = deps?.linkRemove ?? ((input: { projectRoot: string; filePath: string; cardKey: string }) => linkRemoveDefault(input, { parse: (f, c) => { parseSync(f, c); } }));
-  const relationAddFn = deps?.relationAdd ?? ((input: { projectRoot: string; srcKey: string; dstKey: string; type: string; config: ResolvedBunnerConfig }) => relationAddDefault(input));
+  const relationAddFn = deps?.relationAdd ?? ((input: { projectRoot: string; srcKey: string; dstKey: string; type: string; config: ResolvedZipbulConfig }) => relationAddDefault(input));
   const relationRemoveFn = deps?.relationRemove ?? ((input: { projectRoot: string; srcKey: string; dstKey: string; type: string }) => relationRemoveDefault(input));
-  const cardRenameEverywhereFn = deps?.cardRenameEverywhere ?? ((input: { projectRoot: string; config: ResolvedBunnerConfig; oldKey: string; newKey: string }) => cardRenameEverywhereDefault(input));
+  const cardRenameEverywhereFn = deps?.cardRenameEverywhere ?? ((input: { projectRoot: string; config: ResolvedZipbulConfig; oldKey: string; newKey: string }) => cardRenameEverywhereDefault(input));
 
-  async function reindexAfterWrite(ctx: BunnerMcpContext, mode: 'incremental' | 'full' = 'incremental') {
-    const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
+  async function reindexAfterWrite(ctx: ZipbulMcpContext, mode: 'incremental' | 'full' = 'incremental') {
+    const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
     const db = createDbFn(dbPath);
     try {
       await indexProjectFn({ projectRoot: ctx.projectRoot, config: ctx.config, db, mode });
@@ -1421,7 +1421,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_verify_project',
+      name: 'zipbul_verify_project',
       title: 'Verify project',
       description: 'Verify MCP invariants for the project',
       inputSchema: {},
@@ -1433,7 +1433,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_search',
+      name: 'zipbul_search',
       title: 'Search (cards + code)',
       description: 'Full-text search across cards and code entities via the local SQLite index',
       inputSchema: {
@@ -1449,7 +1449,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_get_context',
+      name: 'zipbul_get_context',
       title: 'Get context',
       description: 'Fetch a card/code entity and its immediate linked context (relations, links)',
       inputSchema: {
@@ -1469,7 +1469,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_get_subgraph',
+      name: 'zipbul_get_subgraph',
       title: 'Get subgraph',
       description: 'Traverse N-hop graph from a center key (card or code entity)',
       inputSchema: {
@@ -1487,7 +1487,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_analyze_impact',
+      name: 'zipbul_analyze_impact',
       title: 'Impact analysis',
       description: 'Find cards/code impacted by a card change (reverse depends-on traversal)',
       inputSchema: {
@@ -1505,7 +1505,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_trace_chain',
+      name: 'zipbul_trace_chain',
       title: 'Trace chain',
       description: 'Find a shortest path between two entities (card or code entity)',
       inputSchema: {
@@ -1525,7 +1525,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_report_coverage',
+      name: 'zipbul_report_coverage',
       title: 'Coverage report',
       description: 'Report @see coverage for a card',
       inputSchema: {
@@ -1537,7 +1537,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_list_unlinked_cards',
+      name: 'zipbul_list_unlinked_cards',
       title: 'List unlinked cards',
       description: 'List cards with no @see code links',
       inputSchema: {
@@ -1555,7 +1555,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_list_cards',
+      name: 'zipbul_list_cards',
       title: 'List cards',
       description: 'List cards by filters (status/tags/keywords)',
       inputSchema: {
@@ -1577,7 +1577,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_get_relations',
+      name: 'zipbul_get_relations',
       title: 'Get relations',
       description: 'Get card relations by direction (outgoing/incoming/both)',
       inputSchema: {
@@ -1597,7 +1597,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_create_card',
+      name: 'zipbul_create_card',
       title: 'Create card',
       description: 'Create a new card file and re-index',
       shouldRegister: ownerOnly,
@@ -1626,7 +1626,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_update_card',
+      name: 'zipbul_update_card',
       title: 'Update card',
       description: 'Update an existing card file and re-index',
       shouldRegister: ownerOnly,
@@ -1664,7 +1664,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_create_keyword',
+      name: 'zipbul_create_keyword',
       title: 'Create keyword',
       description: 'Create (register) a keyword name in the local SQLite index',
       shouldRegister: ownerOnly,
@@ -1673,7 +1673,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
       },
       run: async (ctx, input) => {
         const name = String((input as any).name);
-        const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
+        const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
         const db = createDbFn(dbPath);
         try {
           db.insert(keyword).values({ name }).onConflictDoNothing().run();
@@ -1688,7 +1688,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_delete_keyword',
+      name: 'zipbul_delete_keyword',
       title: 'Delete keyword',
       description: 'Delete a keyword name and cascade-remove its card mappings (card_keyword)',
       shouldRegister: ownerOnly,
@@ -1697,7 +1697,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
       },
       run: async (ctx, input) => {
         const name = String((input as any).name);
-        const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
+        const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
         const db = createDbFn(dbPath);
         try {
           const row = db.select({ id: keyword.id }).from(keyword).where(eq(keyword.name, name)).get();
@@ -1720,7 +1720,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_create_tag',
+      name: 'zipbul_create_tag',
       title: 'Create tag',
       description: 'Create (register) a tag name in the local SQLite index',
       shouldRegister: ownerOnly,
@@ -1729,7 +1729,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
       },
       run: async (ctx, input) => {
         const name = String((input as any).name);
-        const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
+        const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
         const db = createDbFn(dbPath);
         try {
           db.insert(tag).values({ name }).onConflictDoNothing().run();
@@ -1744,7 +1744,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_delete_tag',
+      name: 'zipbul_delete_tag',
       title: 'Delete tag',
       description: 'Delete a tag name and cascade-remove its card mappings (card_tag)',
       shouldRegister: ownerOnly,
@@ -1753,7 +1753,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
       },
       run: async (ctx, input) => {
         const name = String((input as any).name);
-        const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
+        const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
         const db = createDbFn(dbPath);
         try {
           const row = db.select({ id: tag.id }).from(tag).where(eq(tag.name, name)).get();
@@ -1776,7 +1776,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_update_card_status',
+      name: 'zipbul_update_card_status',
       title: 'Update card status',
       description: 'Update a card status and re-index',
       shouldRegister: ownerOnly,
@@ -1794,7 +1794,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_delete_card',
+      name: 'zipbul_delete_card',
       title: 'Delete card',
       description: 'Delete a card file if no references exist, then re-index',
       shouldRegister: ownerOnly,
@@ -1804,7 +1804,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
       run: async (ctx, input) => {
         const fullKey = String((input as any).fullKey);
         // reference checks via local index
-        const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
+        const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
         const db = createDbFn(dbPath);
         try {
           const relRef = db
@@ -1834,7 +1834,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_rename_card',
+      name: 'zipbul_rename_card',
       title: 'Rename card',
       description: 'Rename a card key and update all references (@see + relations), then re-index',
       shouldRegister: ownerOnly,
@@ -1860,7 +1860,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_add_link',
+      name: 'zipbul_add_link',
       title: 'Add @see link',
       description: 'Insert a JSDoc @see cardKey annotation and re-index',
       shouldRegister: ownerOnly,
@@ -1882,7 +1882,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_remove_link',
+      name: 'zipbul_remove_link',
       title: 'Remove @see link',
       description: 'Remove a JSDoc @see cardKey annotation and re-index',
       shouldRegister: ownerOnly,
@@ -1904,7 +1904,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_add_relation',
+      name: 'zipbul_add_relation',
       title: 'Add relation',
       description: 'Add a typed relation edge to a card frontmatter and re-index',
       shouldRegister: ownerOnly,
@@ -1929,7 +1929,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_remove_relation',
+      name: 'zipbul_remove_relation',
       title: 'Remove relation',
       description: 'Remove a typed relation edge from a card frontmatter and re-index',
       shouldRegister: ownerOnly,
@@ -1953,7 +1953,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_index_project',
+      name: 'zipbul_index_project',
       title: 'Index project',
       description: 'Build or update the local SQLite index for MCP reads',
       shouldRegister: ownerOnly,
@@ -1962,7 +1962,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
       },
       run: async (ctx, input) => {
         const mode = (input as any)?.mode === 'full' ? 'full' : 'incremental';
-        const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
+        const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
         const db = createDbFn(dbPath);
         try {
           return await indexProjectFn({
@@ -1980,7 +1980,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_rebuild_index',
+      name: 'zipbul_rebuild_index',
       title: 'Rebuild index',
       description: 'Rebuild the local SQLite index (defaults to full)',
       shouldRegister: ownerOnly,
@@ -1989,7 +1989,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
       },
       run: async (ctx, input) => {
         const mode = (input as any)?.mode === 'incremental' ? 'incremental' : 'full';
-        const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
+        const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
         const db = createDbFn(dbPath);
         try {
           return await indexProjectFn({
@@ -2007,7 +2007,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_search_cards',
+      name: 'zipbul_search_cards',
       title: 'Search cards',
       description: 'Search cards via the local SQLite FTS index',
       inputSchema: {
@@ -2023,7 +2023,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_search_code',
+      name: 'zipbul_search_code',
       title: 'Search code',
       description: 'Search code entities via the local SQLite FTS index',
       inputSchema: {
@@ -2039,7 +2039,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_get_card',
+      name: 'zipbul_get_card',
       title: 'Get card',
       description: 'Get a card by full key from the local SQLite index',
       inputSchema: {
@@ -2051,7 +2051,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_get_code_entity',
+      name: 'zipbul_get_code_entity',
       title: 'Get code entity',
       description: 'Get a code entity by entity_key from the local SQLite index',
       inputSchema: {
@@ -2064,7 +2064,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_list_card_relations',
+      name: 'zipbul_list_card_relations',
       title: 'List card relations',
       description: 'List card relations (incoming/outgoing) from the local SQLite index',
       inputSchema: {
@@ -2077,7 +2077,7 @@ export function createBunnerToolRegistry(_ctx: BunnerMcpContext, deps?: BunnerMc
 
   registry.register(
     declareTool({
-      name: 'bunner_list_card_code_links',
+      name: 'zipbul_list_card_code_links',
       title: 'List card code links',
       description: 'List code links for a card from the local SQLite index',
       inputSchema: {
@@ -2096,7 +2096,7 @@ export interface McpServerLike {
   connect: (transport: unknown) => Promise<void>;
 }
 
-export interface StartBunnerMcpServerDeps extends BunnerMcpDeps {
+export interface StartZipbulMcpServerDeps extends ZipbulMcpDeps {
   createServer?: () => McpServerLike;
   createTransport?: () => unknown;
 
@@ -2110,7 +2110,7 @@ export interface StartBunnerMcpServerDeps extends BunnerMcpDeps {
 
   createDb?: typeof createDb;
   closeDb?: typeof closeDb;
-  loadConfig?: (projectRoot: string) => Promise<{ config: ResolvedBunnerConfig }>;
+  loadConfig?: (projectRoot: string) => Promise<{ config: ResolvedZipbulConfig }>;
 }
 
 function toCallToolResult(structuredContent: unknown): unknown {
@@ -2122,7 +2122,7 @@ function toCallToolResult(structuredContent: unknown): unknown {
 
 async function createDefaultServer(): Promise<McpServerLike> {
   const mod = await import('@modelcontextprotocol/sdk/server/mcp.js');
-  const server = new mod.McpServer({ name: 'bunner', version: '0.0.1' });
+  const server = new mod.McpServer({ name: 'zipbul', version: '0.0.1' });
   return server as unknown as McpServerLike;
 }
 
@@ -2131,9 +2131,9 @@ async function createDefaultTransport(): Promise<unknown> {
   return new mod.StdioServerTransport();
 }
 
-export async function startBunnerMcpServerStdio(
-  ctx: BunnerMcpContext,
-  deps?: StartBunnerMcpServerDeps,
+export async function startZipbulMcpServerStdio(
+  ctx: ZipbulMcpContext,
+  deps?: StartZipbulMcpServerDeps,
 ): Promise<void> {
   const fileExists = deps?.fileExists ?? (async (path: string) => Bun.file(path).exists());
   const createDbFn = deps?.createDb ?? createDb;
@@ -2147,7 +2147,7 @@ export async function startBunnerMcpServerStdio(
   ctx.role = electionRes.role;
 
   // Ensure index is ready (build if missing) — owner only.
-  const dbPath = bunnerCacheFilePath(ctx.projectRoot, 'index.sqlite');
+  const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
   if (electionRes.role === 'owner') {
     const exists = await fileExists(dbPath);
     if (!exists) {
@@ -2198,10 +2198,10 @@ export async function startBunnerMcpServerStdio(
           if (relPath.startsWith('..')) continue;
 
           // Prevent indexing loops.
-          if (relPath.startsWith('.bunner/cache/') || relPath.startsWith('.bunner/build/')) continue;
+          if (relPath.startsWith('.zipbul/cache/') || relPath.startsWith('.zipbul/build/')) continue;
 
-          const isConfig = relPath === 'bunner.jsonc' || relPath === 'bunner.json';
-          const isCard = relPath.startsWith('.bunner/cards/') && relPath.endsWith('.card.md');
+          const isConfig = relPath === 'zipbul.jsonc' || relPath === 'zipbul.json';
+          const isCard = relPath.startsWith('.zipbul/cards/') && relPath.endsWith('.card.md');
           const sourceDirRel = normalizeSourceDirRel(ctx.config.sourceDir);
           const isCode = relPath.startsWith(`${sourceDirRel}/`) && relPath.endsWith('.ts') && !relPath.endsWith('.d.ts');
 
@@ -2223,12 +2223,12 @@ export async function startBunnerMcpServerStdio(
         }
       },
       {
-        ignore: ['**/.git/**', '**/dist/**', '**/node_modules/**', '**/.bunner/cache/**', '**/.bunner/build/**'],
+        ignore: ['**/.git/**', '**/dist/**', '**/node_modules/**', '**/.zipbul/cache/**', '**/.zipbul/build/**'],
       },
     );
 
-    const cacheDir = bunnerCacheDirPath(ctx.projectRoot);
-    const signalPath = bunnerCacheFilePath(ctx.projectRoot, 'reindex.signal');
+    const cacheDir = zipbulCacheDirPath(ctx.projectRoot);
+    const signalPath = zipbulCacheFilePath(ctx.projectRoot, 'reindex.signal');
     const cacheSubscription = await subscribeFn(
       cacheDir,
       (_err: Error | null, events: Array<{ type: string; path: string }>) => {
@@ -2255,7 +2255,7 @@ export async function startBunnerMcpServerStdio(
   const server = deps?.createServer ? deps.createServer() : await createDefaultServer();
   const transport = deps?.createTransport ? deps.createTransport() : await createDefaultTransport();
 
-  const registry = createBunnerToolRegistry(ctx, deps);
+  const registry = createZipbulToolRegistry(ctx, deps);
 
   for (const tool of registry.listForContext(ctx)) {
     server.registerTool(

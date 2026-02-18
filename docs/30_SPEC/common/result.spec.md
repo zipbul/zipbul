@@ -85,14 +85,14 @@ Normative: 본 SPEC은 새로운 용어를 도입하지 않는다.
 ### 3.2 정적 데이터 형상(Static Data Shapes) (REQUIRED)
 
 ```ts
-export type BunnerError<E extends object = Record<string, never>> = {
-  __bunner_error__: true;
+export type ZipbulError<E extends object = Record<string, never>> = {
+  __zipbul_error__: true;
   stack: string;
   cause: unknown;
   data: E;
 };
 
-export type Result<T, E extends object = BunnerError<Record<string, never>>> = T | E;
+export type Result<T, E extends object = ZipbulError<Record<string, never>>> = T | E;
 
 export type CommonResultContractData = {
   result: unknown;
@@ -103,13 +103,13 @@ export type CommonResultContractData = {
 
 | Rule ID             | 생명주기(Lifecycle) (token) | 키워드(Keyword) | 타깃(Targets) (token list)          | 타깃 참조(Target Ref(s))                                                                                                     | 조건(Condition) (boolean, declarative)                                                                                                                                                                                                                                                                     | 강제 레벨(Enforced Level) (token) |
 | ------------------- | --------------------------- | --------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| COMMON-RESULT-R-001 | active                      | MUST            | inputs, artifacts, shapes, outcomes | InputKind:result-flow, Artifact:CommonResultContract, Artifact:Result, Shape:local:CommonResultContractData, Outcome:OUT-001 | Result and BunnerError contract is mechanically checkable                                                                                                                                                                                                                                                  | build                             |
-| COMMON-RESULT-R-002 | active                      | MUST            | outcomes                            | Outcome:OUT-002                                                                                                              | isError(X) is true iff X.**bunner_error** === true                                                                                                                                                                                                                                                         | runtime                           |
-| COMMON-RESULT-R-003 | active                      | MUST            | outcomes                            | Outcome:OUT-003                                                                                                              | error helper returns BunnerError and never throws                                                                                                                                                                                                                                                          | runtime                           |
-| COMMON-RESULT-R-004 | active                      | MUST            | outcomes                            | Outcome:OUT-004                                                                                                              | when constructing BunnerError from a single input value X: cause is exactly X; if X is an ECMAScript Error and X.stack is a non-empty string then stack equals X.stack else stack equals the captured stack at construction time; the created BunnerError is frozen via Object.freeze before being exposed | runtime                           |
+| COMMON-RESULT-R-001 | active                      | MUST            | inputs, artifacts, shapes, outcomes | InputKind:result-flow, Artifact:CommonResultContract, Artifact:Result, Shape:local:CommonResultContractData, Outcome:OUT-001 | Result and ZipbulError contract is mechanically checkable                                                                                                                                                                                                                                                  | build                             |
+| COMMON-RESULT-R-002 | active                      | MUST            | outcomes                            | Outcome:OUT-002                                                                                                              | isError(X) is true iff X.**zipbul_error** === true                                                                                                                                                                                                                                                         | runtime                           |
+| COMMON-RESULT-R-003 | active                      | MUST            | outcomes                            | Outcome:OUT-003                                                                                                              | error helper returns ZipbulError and never throws                                                                                                                                                                                                                                                          | runtime                           |
+| COMMON-RESULT-R-004 | active                      | MUST            | outcomes                            | Outcome:OUT-004                                                                                                              | when constructing ZipbulError from a single input value X: cause is exactly X; if X is an ECMAScript Error and X.stack is a non-empty string then stack equals X.stack else stack equals the captured stack at construction time; the created ZipbulError is frozen via Object.freeze before being exposed | runtime                           |
 | COMMON-RESULT-R-005 | active                      | MUST NOT        | outcomes                            | Outcome:OUT-005                                                                                                              | error helper throws                                                                                                                                                                                                                                                                                        | runtime                           |
 | COMMON-RESULT-R-006 | active                      | MUST NOT        | outcomes                            | Outcome:OUT-006                                                                                                              | isError helper throws                                                                                                                                                                                                                                                                                      | runtime                           |
-| COMMON-RESULT-R-007 | active                      | MUST            | outcomes                            | Outcome:OUT-007                                                                                                              | statically observable Success object literal MUST NOT include **bunner_error** === true without diagnostic                                                                                                                                                                                                 | build                             |
+| COMMON-RESULT-R-007 | active                      | MUST            | outcomes                            | Outcome:OUT-007                                                                                                              | statically observable Success object literal MUST NOT include **zipbul_error** === true without diagnostic                                                                                                                                                                                                 | build                             |
 
 ---
 
@@ -160,9 +160,9 @@ export type CommonResultContractData = {
 | 입력 조건(Input Condition) | Rule ID             | 타깃 참조(Target Ref(s))      | Outcome ID | 관측 결과(Observable Outcome)                                             |
 | -------------------------- | ------------------- | ----------------------------- | ---------- | ------------------------------------------------------------------------- |
 | result flow exists         | COMMON-RESULT-R-001 | Artifact:CommonResultContract | OUT-001    | result usage is checkable                                                 |
-| runtime evaluates isError  | COMMON-RESULT-R-002 | Outcome:OUT-002               | OUT-002    | isError follows **bunner_error** marker                                   |
-| runtime calls error helper | COMMON-RESULT-R-003 | Outcome:OUT-003               | OUT-003    | error helper returns BunnerError                                          |
-| runtime constructs error   | COMMON-RESULT-R-004 | Outcome:OUT-004               | OUT-004    | BunnerError cause/stack selection and freeze-before-expose are observable |
+| runtime evaluates isError  | COMMON-RESULT-R-002 | Outcome:OUT-002               | OUT-002    | isError follows **zipbul_error** marker                                   |
+| runtime calls error helper | COMMON-RESULT-R-003 | Outcome:OUT-003               | OUT-003    | error helper returns ZipbulError                                          |
+| runtime constructs error   | COMMON-RESULT-R-004 | Outcome:OUT-004               | OUT-004    | ZipbulError cause/stack selection and freeze-before-expose are observable |
 | runtime calls error helper | COMMON-RESULT-R-005 | Outcome:OUT-005               | OUT-005    | error helper does not throw                                               |
 | runtime calls isError      | COMMON-RESULT-R-006 | Outcome:OUT-006               | OUT-006    | isError does not throw                                                    |
 | build sees reserved field  | COMMON-RESULT-R-007 | Outcome:OUT-007               | OUT-007    | reserved field misuse yields diagnostic                                   |
@@ -179,13 +179,13 @@ export type CommonResultContractData = {
 
 | Rule ID             | 위반 조건(Violation Condition)          | Diagnostic Code          | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ------------------- | --------------------------------------- | ------------------------ | ------------------------ | ------------------- | --------------------------------- |
-| COMMON-RESULT-R-001 | result contract violated                | BUNNER_COMMON_RESULT_001 | error                    | symbol              | static:ast                        |
-| COMMON-RESULT-R-002 | isError marker violated                 | BUNNER_COMMON_RESULT_002 | error                    | range               | runtime:observation               |
-| COMMON-RESULT-R-003 | error helper did not return BunnerError | BUNNER_COMMON_RESULT_003 | error                    | range               | runtime:observation               |
-| COMMON-RESULT-R-004 | BunnerError construction violated       | BUNNER_COMMON_RESULT_004 | error                    | range               | runtime:observation               |
-| COMMON-RESULT-R-005 | error helper threw                      | BUNNER_COMMON_RESULT_005 | error                    | range               | runtime:observation               |
-| COMMON-RESULT-R-006 | isError helper threw                    | BUNNER_COMMON_RESULT_006 | error                    | range               | runtime:observation               |
-| COMMON-RESULT-R-007 | reserved field misuse in Success        | BUNNER_COMMON_RESULT_007 | error                    | symbol              | static:ast                        |
+| COMMON-RESULT-R-001 | result contract violated                | ZIPBUL_COMMON_RESULT_001 | error                    | symbol              | static:ast                        |
+| COMMON-RESULT-R-002 | isError marker violated                 | ZIPBUL_COMMON_RESULT_002 | error                    | range               | runtime:observation               |
+| COMMON-RESULT-R-003 | error helper did not return ZipbulError | ZIPBUL_COMMON_RESULT_003 | error                    | range               | runtime:observation               |
+| COMMON-RESULT-R-004 | ZipbulError construction violated       | ZIPBUL_COMMON_RESULT_004 | error                    | range               | runtime:observation               |
+| COMMON-RESULT-R-005 | error helper threw                      | ZIPBUL_COMMON_RESULT_005 | error                    | range               | runtime:observation               |
+| COMMON-RESULT-R-006 | isError helper threw                    | ZIPBUL_COMMON_RESULT_006 | error                    | range               | runtime:observation               |
+| COMMON-RESULT-R-007 | reserved field misuse in Success        | ZIPBUL_COMMON_RESULT_007 | error                    | symbol              | static:ast                        |
 
 ---
 

@@ -1,8 +1,8 @@
-# INVARIANTS: Bunner의 절대 헌법 (L1)
+# INVARIANTS: Zipbul의 절대 헌법 (L1)
 
 > **L1 – Foundation (Technical Invariants)**
 >
-> 이 문서는 Bunner 프로젝트의 **최상위 기술 불변식**을 정의하는 정본(SSOT)이다.
+> 이 문서는 Zipbul 프로젝트의 **최상위 기술 불변식**을 정의하는 정본(SSOT)이다.
 > 본 문서의 규칙은 설계 선택의 대상이 아니며, 시스템의 존재를 규정하는 물리 법칙이다.
 > 위반은 논의 없이 즉시 중단(Immediate Stop) 대상이다.
 
@@ -10,7 +10,7 @@
 
 ## 1. Platform & Intelligence Locality
 
-- **Exclusive Bun:** Bunner는 **Bun 런타임 이외의 환경에서 동작하는 것을 전제로 하지 않는다.** Node.js 호환성 유지를 위한 타협적 코드는 존재할 수 없다.
+- **Exclusive Bun:** Zipbul는 **Bun 런타임 이외의 환경에서 동작하는 것을 전제로 하지 않는다.** Node.js 호환성 유지를 위한 타협적 코드는 존재할 수 없다.
 - **Intelligence at Build-Time:** 프레임워크의 모든 추론과 판단(지능)은 **빌드 타임(CLI)에 완결된다.** 런타임이 스스로의 구조를 분석하거나 판단하는 지능적 경로는 **존재하지 않는다.**
 - **Immutable Engine:** 프레임워크의 핵심 실행 엔진은 사용자에 의해 **교체되거나 변형될 수 없다.** 엔진의 실행 메커니즘을 런타임에 후킹하거나 오버라이딩하는 행위는 허용되지 않는다.
 - **No Runtime Reflection:** `reflect-metadata`를 포함하여, 런타임에 심볼의 의미를 탐색하거나 타입 정보를 추론하는 모든 행위는 **절대 금지된다.**
@@ -67,7 +67,7 @@
 
 ---
 
-이 헌법은 Bunner의 정체성이자 기술적 물리 법칙이다.
+이 헌법은 Zipbul의 정체성이자 기술적 물리 법칙이다.
 모든 에이전트와 개발자는 이 법칙을 **기계적으로 집행**해야 한다.
 
 ---

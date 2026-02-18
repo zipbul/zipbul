@@ -1,4 +1,4 @@
-import type { Class, PrimitiveArray, PrimitiveRecord, PrimitiveValue } from '@bunner/common';
+import type { Class, PrimitiveArray, PrimitiveRecord, PrimitiveValue } from '@zipbul/common';
 
 export type MetadataForwardRef = () => Class;
 

@@ -1,9 +1,9 @@
-import type { BunnerRecord } from '@bunner/common';
+import type { ZipbulRecord } from '@zipbul/common';
 
 import type { OpenApiDocument } from '../openapi';
 import type { DocumentTarget, DocumentTargets, HttpTargets, ScalarMetadataRegistry } from './types';
 
-export interface ScalarSetupOptions extends BunnerRecord {
+export interface ScalarSetupOptions extends ZipbulRecord {
   documentTargets: DocumentTargets;
   httpTargets: HttpTargets;
 }

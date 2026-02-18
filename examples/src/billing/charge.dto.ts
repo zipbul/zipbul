@@ -1,4 +1,4 @@
-import { IsNumber, Min } from '@bunner/core';
+import { IsNumber, Min } from '@zipbul/core';
 
 export class ChargeDto {
   @IsNumber()

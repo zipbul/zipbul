@@ -7,8 +7,8 @@ import type { CollectedClass, CommandOptions } from './types';
 import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import {
-  bunnerDirPath,
-  bunnerTempDirPath,
+  zipbulDirPath,
+  zipbulTempDirPath,
   compareCodePoint,
   scanGlobSorted,
   writeIfChanged,
@@ -18,7 +18,7 @@ import { buildDiagnostic, DiagnosticReportError, reportDiagnostics } from '../di
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 
 export async function build(commandOptions?: CommandOptions) {
-  console.info('🚀 Starting Bunner Production Build...');
+  console.info('🚀 Starting Zipbul Production Build...');
 
   try {
     const configResult = await ConfigLoader.load();
@@ -28,8 +28,8 @@ export async function build(commandOptions?: CommandOptions) {
     const projectRoot = process.cwd();
     const srcDir = resolve(projectRoot, config.sourceDir);
     const outDir = resolve(projectRoot, 'dist');
-    const bunnerDir = bunnerDirPath(projectRoot);
-    const buildTempDir = bunnerTempDirPath(outDir);
+    const zipbulDir = zipbulDirPath(projectRoot);
+    const buildTempDir = zipbulTempDirPath(outDir);
 
     console.info(`📂 Project Root: ${projectRoot}`);
     console.info(`📂 Source Dir: ${srcDir}`);
@@ -191,9 +191,9 @@ export async function build(commandOptions?: CommandOptions) {
 
     console.info('🛠️  Generating intermediate manifests...');
 
-    await mkdir(bunnerDir, { recursive: true });
+    await mkdir(zipbulDir, { recursive: true });
 
-    const manifestFile = join(bunnerDir, 'manifest.json');
+    const manifestFile = join(zipbulDir, 'manifest.json');
     const manifestJson = manifestGen.generateJson({
       graph,
       projectRoot,
@@ -234,8 +234,8 @@ export async function build(commandOptions?: CommandOptions) {
       throw new Error(`Invalid build profile: ${buildProfile}`);
     }
 
-    const interfaceCatalogFile = join(bunnerDir, 'interface-catalog.json');
-    const runtimeReportFile = join(bunnerDir, 'runtime-report.json');
+    const interfaceCatalogFile = join(zipbulDir, 'interface-catalog.json');
+    const runtimeReportFile = join(zipbulDir, 'runtime-report.json');
 
     if (buildProfile === 'standard' || buildProfile === 'full') {
       const interfaceCatalogJson = JSON.stringify({ schemaVersion: '1', entries: [] }, null, 2);

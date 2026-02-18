@@ -20,7 +20,7 @@ export function buildModuleImpact(
 
   uniqueChanged.forEach(file => {
     if (!fileMap.has(file)) {
-      throw new Error(`[Bunner AOT] Changed file not recognized: ${file}`);
+      throw new Error(`[Zipbul AOT] Changed file not recognized: ${file}`);
     }
   });
 
@@ -30,7 +30,7 @@ export function buildModuleImpact(
   const orphans = discovery.getOrphans();
 
   if (orphans.size > 0) {
-    throw new Error(`[Bunner AOT] Orphan files detected: ${Array.from(orphans).join(', ')}`);
+    throw new Error(`[Zipbul AOT] Orphan files detected: ${Array.from(orphans).join(', ')}`);
   }
 
   const fileToModule = new Map<string, string>();

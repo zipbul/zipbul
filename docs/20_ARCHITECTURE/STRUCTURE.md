@@ -1,6 +1,6 @@
 # STRUCTURE (Level 2)
 
-> **이 문서는 Bunner 프레임워크 저장소(Monorepo)의 물리적 배치(Placement)를 판정하는 SSOT 문서다.**
+> **이 문서는 Zipbul 프레임워크 저장소(Monorepo)의 물리적 배치(Placement)를 판정하는 SSOT 문서다.**
 >
 > 이 문서는 오직 "어디에 위치하는가"와 "물리적으로 어떻게 구성되는가"만을 정의한다. 문서의 권위 위계는 **[SSOT_HIERARCHY](../10_FOUNDATION/SSOT_HIERARCHY.md)** 가, 코드의 세부 명명 및 테스트 작성 규율은 **L4(ENGINEERING)** 가 담당한다.
 

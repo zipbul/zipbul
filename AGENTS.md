@@ -15,7 +15,7 @@ No file create/modify/delete without explicit approval token `ㅇㅇ`.
 
 ## Project
 
-Bunner — Bun-based monorepo.
+Zipbul — Bun-based monorepo.
 
 **Stack:** Bun, TypeScript, Drizzle ORM, SQLite, MCP SDK
 

@@ -1,4 +1,4 @@
-export class BunnerError extends Error {
+export class ZipbulError extends Error {
   constructor(message: string) {
     super(message);
   }

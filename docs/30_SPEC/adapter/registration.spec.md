@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |                    Rule ID | 위반 조건(Violation Condition) | Diagnostic Code                 | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -------------------------: | ------------------------------ | ------------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| ADAPTER-REGISTRATION-R-001 | invalid adapter registration   | BUNNER_ADAPTER_REGISTRATION_001 | error                    | symbol              | static:ast                        |
+| ADAPTER-REGISTRATION-R-001 | invalid adapter registration   | ZIPBUL_ADAPTER_REGISTRATION_001 | error                    | symbol              | static:ast                        |
 
 ---
 

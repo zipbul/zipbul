@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |                  Rule ID | 위반 조건(Violation Condition) | Diagnostic Code               | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -----------------------: | ------------------------------ | ----------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| PROVIDER-LIFECYCLE-R-001 | invalid provider lifecycle     | BUNNER_PROVIDER_LIFECYCLE_001 | error                    | symbol              | static:ast                        |
+| PROVIDER-LIFECYCLE-R-001 | invalid provider lifecycle     | ZIPBUL_PROVIDER_LIFECYCLE_001 | error                    | symbol              | static:ast                        |
 
 ---
 

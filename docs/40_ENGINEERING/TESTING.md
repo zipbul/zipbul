@@ -2,7 +2,7 @@
 
 ## 1. 개요 및 원칙 (Overview & Principles)
 
-이 문서는 **Bunner** 프로젝트의 테스트 작성, 유지보수, 실행에 관한 **단일 진실 공급원(Single Source of Truth, SSOT)**이다.
+이 문서는 **Zipbul** 프로젝트의 테스트 작성, 유지보수, 실행에 관한 **단일 진실 공급원(Single Source of Truth, SSOT)**이다.
 본 문서에 기술된 규칙은 권장 사항이 아니며, 모든 기여자(Human/Agent)가 준수해야 할 **강제적 규범**이다.
 
 ### 1.1 핵심 철학 (Core Philosophy)

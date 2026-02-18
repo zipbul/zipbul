@@ -1,4 +1,4 @@
-import type { BunnerValue } from '@bunner/common';
+import type { ZipbulValue } from '@zipbul/common';
 
 import type { RPCMessage, RPCResponse, RpcPending } from './interfaces';
 import type { Promisified, RpcArgs, RpcCallable, RpcResult } from './types';
@@ -8,7 +8,7 @@ type PromisifiedRecord = Record<string, (...args: RpcArgs) => Promise<RpcResult>
 type PartialPromisifiedRecord = Partial<PromisifiedRecord>;
 
 type RecordCandidate =
-  | BunnerValue
+  | ZipbulValue
   | Worker
   | RPCMessage
   | RPCResponse
@@ -16,7 +16,7 @@ type RecordCandidate =
   | PromisifiedRecord
   | PartialPromisifiedRecord;
 
-function isRecord(value: RecordCandidate): value is Record<string, BunnerValue> {
+function isRecord(value: RecordCandidate): value is Record<string, ZipbulValue> {
   return (typeof value === 'object' || typeof value === 'function') && value !== null;
 }
 
@@ -63,7 +63,7 @@ function isRpcResponse(value: RecordCandidate): value is RPCResponse {
 }
 
 function isPromisifiedApi<T extends Record<string, RpcCallable>>(
-  value: Partial<Promisified<T>> | BunnerValue,
+  value: Partial<Promisified<T>> | ZipbulValue,
   methods: ReadonlyArray<keyof T>,
 ): value is Promisified<T> {
   if (!isRecord(value)) {
@@ -82,7 +82,7 @@ function isPromisifiedApi<T extends Record<string, RpcCallable>>(
 }
 
 function ensurePromisifiedApi<T extends Record<string, RpcCallable>>(
-  value: Partial<Promisified<T>> | BunnerValue,
+  value: Partial<Promisified<T>> | ZipbulValue,
   methods: ReadonlyArray<keyof T>,
 ): Promisified<T> {
   if (!isPromisifiedApi(value, methods)) {
@@ -99,7 +99,7 @@ export function expose<T extends Record<string, RpcCallable>>(obj: T): void {
     throw new Error('RPC expose requires a worker context');
   }
 
-  self.addEventListener('message', (event: MessageEvent<BunnerValue>) => {
+  self.addEventListener('message', (event: MessageEvent<ZipbulValue>) => {
     void (async () => {
       if (!isRpcMessage(event.data)) {
         return;
@@ -131,7 +131,7 @@ export function expose<T extends Record<string, RpcCallable>>(obj: T): void {
 export function wrap<T extends Record<string, RpcCallable>>(worker: Worker, methods: ReadonlyArray<keyof T>): Promisified<T> {
   const pending = new Map<string, RpcPending>();
 
-  worker.addEventListener('message', (event: MessageEvent<BunnerValue>) => {
+  worker.addEventListener('message', (event: MessageEvent<ZipbulValue>) => {
     if (!isRpcResponse(event.data)) {
       return;
     }

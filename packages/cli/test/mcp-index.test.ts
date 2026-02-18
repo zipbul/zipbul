@@ -7,7 +7,7 @@ import { dirname, join } from 'path';
 import { createDb, closeDb } from '../src/store/connection';
 import { card, cardCodeLink, cardRelation, codeEntity, codeRelation } from '../src/store/schema';
 
-import type { ResolvedBunnerConfig } from '../src/config/interfaces';
+import type { ResolvedZipbulConfig } from '../src/config/interfaces';
 
 import { indexProject } from '../src/mcp/index/index-project';
 
@@ -19,7 +19,7 @@ const config = {
     card: { relations: ['depends-on', 'references', 'related', 'extends', 'conflicts'] },
     exclude: [],
   },
-} as unknown as ResolvedBunnerConfig;
+} as unknown as ResolvedZipbulConfig;
 
 describe('mcp/index — indexProject (integration)', () => {
   let projectRoot: string | null = null;
@@ -30,15 +30,15 @@ describe('mcp/index — indexProject (integration)', () => {
   }
 
   beforeEach(async () => {
-    projectRoot = await mkdtemp(join(tmpdir(), 'bunner_p4_'));
+    projectRoot = await mkdtemp(join(tmpdir(), 'zipbul_p4_'));
 
     await writeText(
-      join(projectRoot, '.bunner', 'cards', 'auth', 'login.card.md'),
+      join(projectRoot, '.zipbul', 'cards', 'auth', 'login.card.md'),
       `---\nkey: auth/login\nsummary: Login\nstatus: accepted\nrelations:\n  - type: depends-on\n    target: auth/session\n---\nBody\n`,
     );
 
     await writeText(
-      join(projectRoot, '.bunner', 'cards', 'auth', 'session.card.md'),
+      join(projectRoot, '.zipbul', 'cards', 'auth', 'session.card.md'),
       `---\nkey: auth/session\nsummary: Session\nstatus: accepted\n---\nBody\n`,
     );
 
@@ -113,7 +113,7 @@ describe('mcp/index — indexProject (integration)', () => {
 
       // Remove the relation from login -> session
       await writeText(
-        join(projectRoot!, '.bunner', 'cards', 'auth', 'login.card.md'),
+        join(projectRoot!, '.zipbul', 'cards', 'auth', 'login.card.md'),
         `---\nkey: auth/login\nsummary: Login\nstatus: accepted\n---\nBody\n`,
       );
 
@@ -163,7 +163,7 @@ describe('mcp/index — indexProject (integration)', () => {
           keywords: null,
           constraintsJson: null,
           body: 'X',
-          filePath: '.bunner/cards/bogus.card.md',
+          filePath: '.zipbul/cards/bogus.card.md',
           updatedAt: new Date().toISOString(),
         } as any)
         .run();

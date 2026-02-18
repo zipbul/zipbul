@@ -17,7 +17,7 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): v
   if (callEntries.length === 0) {
     throw new DiagnosticReportError(
       buildDiagnostic({
-        code: 'BUNNER_APP_002',
+        code: 'ZIPBUL_APP_002',
         severity: 'fatal',
         summary: 'createApplication entry module not found.',
         reason: 'createApplication call not found in recognized files.',
@@ -29,7 +29,7 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): v
   if (callEntries.length > 1) {
     throw new DiagnosticReportError(
       buildDiagnostic({
-        code: 'BUNNER_APP_018',
+        code: 'ZIPBUL_APP_018',
         severity: 'fatal',
         summary: 'Multiple createApplication calls detected.',
         reason: 'Multiple createApplication calls detected in recognized files.',
@@ -49,7 +49,7 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): v
   if (args.length !== 1) {
     throw new DiagnosticReportError(
       buildDiagnostic({
-        code: 'BUNNER_APP_002',
+        code: 'ZIPBUL_APP_002',
         severity: 'fatal',
         summary: 'Invalid createApplication entry argument.',
         reason: 'createApplication must take exactly one entry module argument.',
@@ -63,7 +63,7 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): v
   if (!isAnalyzerRecord(entryArg)) {
     throw new DiagnosticReportError(
       buildDiagnostic({
-        code: 'BUNNER_APP_002',
+        code: 'ZIPBUL_APP_002',
         severity: 'fatal',
         summary: 'Invalid createApplication entry argument.',
         reason: 'createApplication entry module must be a statically resolvable identifier.',
@@ -72,12 +72,12 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): v
     );
   }
 
-  const entryRef = entryArg.__bunner_ref;
+  const entryRef = entryArg.__zipbul_ref;
 
   if (typeof entryRef !== 'string' || entryRef.length === 0) {
     throw new DiagnosticReportError(
       buildDiagnostic({
-        code: 'BUNNER_APP_002',
+        code: 'ZIPBUL_APP_002',
         severity: 'fatal',
         summary: 'Invalid createApplication entry argument.',
         reason: 'createApplication entry module must be a statically resolvable identifier.',

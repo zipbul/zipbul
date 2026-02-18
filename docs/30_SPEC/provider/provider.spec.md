@@ -175,15 +175,15 @@ export type ProviderContractData = unknown;
 
 | Rule ID        | 위반 조건(Violation Condition)                     | Diagnostic Code     | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -------------- | -------------------------------------------------- | ------------------- | ------------------------ | ------------------- | --------------------------------- |
-| PROVIDER-R-001 | init order violates dependency ordering            | BUNNER_PROVIDER_001 | error                    | symbol              | runtime:observation               |
-| PROVIDER-R-002 | dispose order violates reverse dependency ordering | BUNNER_PROVIDER_002 | error                    | symbol              | runtime:observation               |
-| PROVIDER-R-003 | scope not decidable                                | BUNNER_PROVIDER_003 | error                    | symbol              | static:ast                        |
-| PROVIDER-R-004 | singleton identity is not stable                   | BUNNER_PROVIDER_004 | error                    | symbol              | runtime:observation               |
-| PROVIDER-R-005 | request scope crosses ContextId boundary           | BUNNER_PROVIDER_005 | error                    | symbol              | runtime:observation               |
-| PROVIDER-R-006 | transient resolution reuses instance               | BUNNER_PROVIDER_006 | error                    | symbol              | runtime:observation               |
-| PROVIDER-R-007 | singleton captures request instance                | BUNNER_PROVIDER_007 | error                    | symbol              | runtime:observation               |
-| PROVIDER-R-008 | singleton recreated due to request dependency      | BUNNER_PROVIDER_008 | error                    | symbol              | runtime:observation               |
-| PROVIDER-R-009 | scope semantics implicitly changed                 | BUNNER_PROVIDER_009 | error                    | symbol              | runtime:observation               |
+| PROVIDER-R-001 | init order violates dependency ordering            | ZIPBUL_PROVIDER_001 | error                    | symbol              | runtime:observation               |
+| PROVIDER-R-002 | dispose order violates reverse dependency ordering | ZIPBUL_PROVIDER_002 | error                    | symbol              | runtime:observation               |
+| PROVIDER-R-003 | scope not decidable                                | ZIPBUL_PROVIDER_003 | error                    | symbol              | static:ast                        |
+| PROVIDER-R-004 | singleton identity is not stable                   | ZIPBUL_PROVIDER_004 | error                    | symbol              | runtime:observation               |
+| PROVIDER-R-005 | request scope crosses ContextId boundary           | ZIPBUL_PROVIDER_005 | error                    | symbol              | runtime:observation               |
+| PROVIDER-R-006 | transient resolution reuses instance               | ZIPBUL_PROVIDER_006 | error                    | symbol              | runtime:observation               |
+| PROVIDER-R-007 | singleton captures request instance                | ZIPBUL_PROVIDER_007 | error                    | symbol              | runtime:observation               |
+| PROVIDER-R-008 | singleton recreated due to request dependency      | ZIPBUL_PROVIDER_008 | error                    | symbol              | runtime:observation               |
+| PROVIDER-R-009 | scope semantics implicitly changed                 | ZIPBUL_PROVIDER_009 | error                    | symbol              | runtime:observation               |
 
 ---
 

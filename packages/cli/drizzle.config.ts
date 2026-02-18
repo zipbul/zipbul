@@ -5,6 +5,6 @@ export default {
   out: './packages/cli/drizzle',
   dialect: 'sqlite',
   dbCredentials: {
-    url: 'file:./.bunner/cache/index.sqlite',
+    url: 'file:./.zipbul/cache/index.sqlite',
   },
 } satisfies Config;

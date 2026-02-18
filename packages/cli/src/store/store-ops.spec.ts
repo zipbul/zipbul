@@ -10,7 +10,7 @@ import * as schema from './schema';
 describe('store/store-ops (unit)', () => {
   describe('deleteSqliteFilesSync', () => {
     it('deletes base, -wal, -shm files with force: true', () => {
-      const dir = join(tmpdir(), `bunner_store_ops_${Date.now()}`);
+      const dir = join(tmpdir(), `zipbul_store_ops_${Date.now()}`);
       mkdirSync(dir, { recursive: true });
 
       const path = join(dir, 'a.sqlite');
@@ -44,7 +44,7 @@ describe('store/store-ops (unit)', () => {
     });
 
     it('opens file db via bun:sqlite Database client', () => {
-      const dir = join(tmpdir(), `bunner_store_ops_${Date.now()}`);
+      const dir = join(tmpdir(), `zipbul_store_ops_${Date.now()}`);
       mkdirSync(dir, { recursive: true });
       const path = join(dir, 'x.sqlite');
 

@@ -1,4 +1,4 @@
-import type { BunnerValue, Class, PrimitiveArray, PrimitiveRecord, PrimitiveValue } from '@bunner/common';
+import type { ZipbulValue, Class, PrimitiveArray, PrimitiveRecord, PrimitiveValue } from '@zipbul/common';
 
 export type ValidatorTarget = Class;
 
@@ -18,6 +18,6 @@ export type ValidatorDecoratorArgument = ValidatorOptionValue;
 
 export type ValidatorDecoratorArgs = ReadonlyArray<ValidatorDecoratorArgument>;
 
-export type ValidatorDecoratorTarget = BunnerValue;
+export type ValidatorDecoratorTarget = ZipbulValue;
 
 export type ValidatorPropertyDecorator = PropertyDecorator;

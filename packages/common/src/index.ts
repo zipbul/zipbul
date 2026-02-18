@@ -3,9 +3,9 @@ export * from './interfaces';
 export * from './types';
 export * from './errors/errors';
 
-export { BunnerContextError } from './errors/bunner-context.error';
-export { BunnerErrorFilter } from './bunner-error-filter';
-export { BunnerMiddleware } from './bunner-middleware';
+export { ZipbulContextError } from './errors/zipbul-context.error';
+export { ZipbulErrorFilter } from './zipbul-error-filter';
+export { ZipbulMiddleware } from './zipbul-middleware';
 
 export * from './decorators/index';
 export * from './utils';

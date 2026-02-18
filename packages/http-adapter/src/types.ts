@@ -1,8 +1,8 @@
 import type {
-  BunnerErrorFilter,
-  BunnerMiddleware,
-  BunnerRecord,
-  BunnerValue,
+  ZipbulErrorFilter,
+  ZipbulMiddleware,
+  ZipbulRecord,
+  ZipbulValue,
   Class,
   ClassToken,
   Context,
@@ -11,11 +11,11 @@ import type {
   PrimitiveArray,
   PrimitiveRecord,
   ProviderToken,
-} from '@bunner/common';
+} from '@zipbul/common';
 import type { CookieMap } from 'bun';
 
-import type { BunnerRequest } from './bunner-request';
-import type { BunnerResponse } from './bunner-response';
+import type { ZipbulRequest } from './zipbul-request';
+import type { ZipbulResponse } from './zipbul-response';
 import type { RouteHandlerEntry } from './interfaces';
 
 export type RouteKey = number;
@@ -24,7 +24,7 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS'
 
 export type HeadersInit = Headers | Array<[string, string]> | Record<string, string>;
 
-export type HttpWorkerRpcCallable = (...args: ReadonlyArray<BunnerValue>) => BunnerValue | Promise<BunnerValue>;
+export type HttpWorkerRpcCallable = (...args: ReadonlyArray<ZipbulValue>) => ZipbulValue | Promise<ZipbulValue>;
 
 export type HttpWorkerRpc = Record<string, HttpWorkerRpcCallable>;
 
@@ -52,7 +52,7 @@ export type RequestBodyValue = JsonValue;
 
 export type ResponseBodyValue = RequestBodyValue | string | Uint8Array | ArrayBuffer | null;
 
-export interface HttpMiddlewareInstance extends BunnerRecord {
+export interface HttpMiddlewareInstance extends ZipbulRecord {
   handle(context: Context, options?: MiddlewareOptions): void | boolean | Promise<void | boolean>;
 }
 
@@ -67,7 +67,7 @@ export interface HttpMiddlewareRegistration<TOptions = MiddlewareOptions> {
   options?: TOptions;
 }
 
-export interface BunnerRequestInit {
+export interface ZipbulRequestInit {
   readonly url: string;
   readonly httpMethod: HttpMethod;
   readonly headers: HeadersInit;
@@ -96,8 +96,8 @@ export interface AdaptiveRequest {
 export type HttpWorkerResponseBody = string | Uint8Array | ArrayBuffer | null;
 
 export type RouteHandlerArgument =
-  | BunnerRequest
-  | BunnerResponse
+  | ZipbulRequest
+  | ZipbulResponse
   | RequestBodyValue
   | RequestParamMap
   | RequestQueryMap
@@ -108,7 +108,7 @@ export type RouteHandlerArgument =
   | null
   | undefined;
 
-export type RouteHandlerResult = BunnerResponse | Response | RequestBodyValue | bigint | null | undefined | void;
+export type RouteHandlerResult = ZipbulResponse | Response | RequestBodyValue | bigint | null | undefined | void;
 
 export type RouteHandlerValue = RouteHandlerArgument;
 
@@ -117,10 +117,10 @@ export type RouteHandlerFunction = (...args: readonly RouteHandlerArgument[]) =>
 export type ControllerInstance = Record<string, RouteHandlerValue | RouteHandlerFunction>;
 
 export type ContainerInstance =
-  | BunnerValue
+  | ZipbulValue
   | ControllerInstance
-  | BunnerMiddleware
-  | BunnerErrorFilter
+  | ZipbulMiddleware
+  | ZipbulErrorFilter
   | RouteHandlerValue
   | RouteHandlerFunction
   | null
@@ -129,8 +129,8 @@ export type ContainerInstance =
 export type ControllerConstructor = Class<ControllerInstance>;
 
 export type HttpContextValue =
-  | BunnerRequest
-  | BunnerResponse
+  | ZipbulRequest
+  | ZipbulResponse
   | RequestBodyValue
   | RequestParamMap
   | RequestQueryMap
@@ -146,8 +146,8 @@ export type HttpContextConstructor<TContext> = ClassToken<TContext>;
 export type MetadataRegistryKey = ClassToken;
 
 export interface TokenRecord {
-  readonly __bunner_ref?: string;
-  readonly __bunner_forward_ref?: string;
+  readonly __zipbul_ref?: string;
+  readonly __zipbul_forward_ref?: string;
   readonly name?: string;
 }
 
@@ -227,7 +227,7 @@ export interface ErrorFilterRunResult {
 
 export interface ShouldCatchParams {
   readonly error: SystemError;
-  readonly filter: BunnerErrorFilter<SystemError>;
+  readonly filter: ZipbulErrorFilter<SystemError>;
 }
 
 export interface MatchCatchArgumentParams {

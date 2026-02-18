@@ -1,15 +1,15 @@
-import type { BunnerMiddleware } from './bunner-middleware';
-import type { BunnerFunction, BunnerValue, Class, ClassToken, ValueLike } from './types';
+import type { ZipbulMiddleware } from './zipbul-middleware';
+import type { ZipbulFunction, ZipbulValue, Class, ClassToken, ValueLike } from './types';
 
-export interface BunnerAdapter {
+export interface ZipbulAdapter {
   start(context: Context): Promise<void>;
   stop(): Promise<void>;
 }
 
 export interface Context {
   getType(): string;
-  get(key: string): BunnerValue | undefined;
-  to<TContext extends BunnerValue>(ctor: ClassToken<TContext>): TContext;
+  get(key: string): ZipbulValue | undefined;
+  to<TContext extends ZipbulValue>(ctor: ClassToken<TContext>): TContext;
 }
 
 // DI Interfaces
@@ -24,7 +24,7 @@ export interface ProviderBase {
 }
 
 export interface ProviderUseValue extends ProviderBase {
-  useValue: BunnerValue | EnvService | ConfigService;
+  useValue: ZipbulValue | EnvService | ConfigService;
 }
 
 export interface ProviderUseClass extends ProviderBase {
@@ -36,12 +36,12 @@ export interface ProviderUseExisting extends ProviderBase {
 }
 
 export interface ProviderUseFactory extends ProviderBase {
-  useFactory: BunnerFunction;
+  useFactory: ZipbulFunction;
   inject?: ProviderToken[];
 }
 
 export interface ForwardRef {
-  forwardRef: () => BunnerValue;
+  forwardRef: () => ZipbulValue;
 }
 
 // Lifecycle Interfaces
@@ -72,14 +72,14 @@ export interface AdapterGroup<T> {
 }
 
 export interface AdapterCollection {
-  [protocol: string]: AdapterGroup<BunnerAdapter>;
+  [protocol: string]: AdapterGroup<ZipbulAdapter>;
 }
 
 export interface Configurer {
   configure(app: Context, adapters: AdapterCollection): void;
 }
 
-export interface BunnerApplicationOptions {
+export interface ZipbulApplicationOptions {
   //
 }
 
@@ -99,27 +99,27 @@ export interface EnvSource {
   load(): Promise<Readonly<Record<string, string>>> | Readonly<Record<string, string>>;
 }
 
-export type MiddlewareToken<TOptions = BunnerValue> = Class<BunnerMiddleware<TOptions>> | symbol;
+export type MiddlewareToken<TOptions = ZipbulValue> = Class<ZipbulMiddleware<TOptions>> | symbol;
 
-export interface MiddlewareRegistration<TOptions = BunnerValue> {
+export interface MiddlewareRegistration<TOptions = ZipbulValue> {
   token: MiddlewareToken<TOptions>;
   options?: TOptions;
 }
 
-export type BunnerFactory<TValue = BunnerValue> = (container: BunnerContainer) => TValue;
+export type ZipbulFactory<TValue = ZipbulValue> = (container: ZipbulContainer) => TValue;
 
-export interface BunnerContainer {
-  get(token: ProviderToken): BunnerValue;
-  set<TValue = BunnerValue>(token: ProviderToken, factory: BunnerFactory<TValue>): void;
+export interface ZipbulContainer {
+  get(token: ProviderToken): ZipbulValue;
+  set<TValue = ZipbulValue>(token: ProviderToken, factory: ZipbulFactory<TValue>): void;
   has(token: ProviderToken): boolean;
-  getInstances(): IterableIterator<BunnerValue>;
+  getInstances(): IterableIterator<ZipbulValue>;
   keys(): IterableIterator<ProviderToken>;
 }
 
 export type ErrorFilterToken = ProviderToken;
 
 // Module Interface (Strict Schema Enforcement)
-export interface BunnerModule {
+export interface ZipbulModule {
   name?: string;
   providers?: Provider[];
   adapters?: AdapterConfig;
@@ -136,7 +136,7 @@ export interface AdapterProtocolConfig {
 export interface AdapterInstanceConfig {
   middlewares?: MiddlewareConfig;
   errorFilters?: ErrorFilterConfig[];
-  [key: string]: BunnerValue | MiddlewareConfig | ErrorFilterConfig[];
+  [key: string]: ZipbulValue | MiddlewareConfig | ErrorFilterConfig[];
 }
 
 export interface MiddlewareConfig {

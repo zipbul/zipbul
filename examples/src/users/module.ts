@@ -1,4 +1,4 @@
-import { defineModule } from '@bunner/core';
+import { defineModule } from '@zipbul/core';
 
 const usersModule = defineModule();
 

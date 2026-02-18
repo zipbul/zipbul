@@ -1,4 +1,4 @@
-import type { BunnerValue, Provider } from '@bunner/common';
+import type { ZipbulValue, Provider } from '@zipbul/common';
 
 import type { ScalarSetupOptions } from './interfaces';
 
@@ -10,7 +10,7 @@ function provideScalar(options: ScalarSetupOptions): readonly Provider[] {
     { provide: ScalarSetupOptionsToken, useValue: options },
     {
       provide: ScalarConfigurerToken,
-      useFactory: (...args: readonly BunnerValue[]) => {
+      useFactory: (...args: readonly ZipbulValue[]) => {
         const maybeOptions = args[0];
 
         if (!isScalarSetupOptions(maybeOptions)) {
@@ -28,7 +28,7 @@ function provideScalar(options: ScalarSetupOptions): readonly Provider[] {
   ];
 }
 
-function isScalarSetupOptions(value: BunnerValue | undefined): value is ScalarSetupOptions {
+function isScalarSetupOptions(value: ZipbulValue | undefined): value is ScalarSetupOptions {
   if (value === undefined || value === null) {
     return false;
   }

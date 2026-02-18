@@ -201,17 +201,17 @@ export type DtoRefFormat = '<file>#<symbol>';
 
 | Rule ID   | 위반 조건(Violation Condition)                      | Diagnostic Code | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | --------- | --------------------------------------------------- | --------------- | ------------------------ | ------------------- | --------------------------------- |
-| DTO-R-001 | schema generator input includes non-instance fields | BUNNER_DTO_012  | error                    | symbol              | static:ast                        |
-| DTO-R-002 | implicit validation/transform                       | BUNNER_DTO_002  | error                    | range               | runtime:observation               |
-| DTO-R-003 | invalid schema shape                                | BUNNER_DTO_003  | error                    | symbol              | static:artifact                   |
-| DTO-R-004 | optional detection violates marker-only rule        | BUNNER_DTO_004  | error                    | symbol              | static:ast                        |
-| DTO-R-005 | field type mapping violated                         | BUNNER_DTO_005  | error                    | symbol              | static:ast                        |
-| DTO-R-006 | invalid dto ref format                              | BUNNER_DTO_006  | error                    | symbol              | static:ast                        |
-| DTO-R-007 | required list not sorted or incorrect               | BUNNER_DTO_007  | error                    | symbol              | static:ast                        |
-| DTO-R-008 | unsupported field type found                        | BUNNER_DTO_001  | error                    | symbol              | static:ast                        |
-| DTO-R-009 | transform/validate not schema-based                 | BUNNER_DTO_009  | error                    | range               | runtime:observation               |
-| DTO-R-010 | runtime reflection required                         | BUNNER_DTO_010  | error                    | symbol              | static:ast                        |
-| DTO-R-011 | protocol metadata present                           | BUNNER_DTO_011  | error                    | symbol              | static:ast                        |
+| DTO-R-001 | schema generator input includes non-instance fields | ZIPBUL_DTO_012  | error                    | symbol              | static:ast                        |
+| DTO-R-002 | implicit validation/transform                       | ZIPBUL_DTO_002  | error                    | range               | runtime:observation               |
+| DTO-R-003 | invalid schema shape                                | ZIPBUL_DTO_003  | error                    | symbol              | static:artifact                   |
+| DTO-R-004 | optional detection violates marker-only rule        | ZIPBUL_DTO_004  | error                    | symbol              | static:ast                        |
+| DTO-R-005 | field type mapping violated                         | ZIPBUL_DTO_005  | error                    | symbol              | static:ast                        |
+| DTO-R-006 | invalid dto ref format                              | ZIPBUL_DTO_006  | error                    | symbol              | static:ast                        |
+| DTO-R-007 | required list not sorted or incorrect               | ZIPBUL_DTO_007  | error                    | symbol              | static:ast                        |
+| DTO-R-008 | unsupported field type found                        | ZIPBUL_DTO_001  | error                    | symbol              | static:ast                        |
+| DTO-R-009 | transform/validate not schema-based                 | ZIPBUL_DTO_009  | error                    | range               | runtime:observation               |
+| DTO-R-010 | runtime reflection required                         | ZIPBUL_DTO_010  | error                    | symbol              | static:ast                        |
+| DTO-R-011 | protocol metadata present                           | ZIPBUL_DTO_011  | error                    | symbol              | static:ast                        |
 
 ---
 

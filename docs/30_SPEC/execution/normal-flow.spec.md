@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 |                     Rule ID | 위반 조건(Violation Condition) | Diagnostic Code                  | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | --------------------------: | ------------------------------ | -------------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| EXECUTION-NORMAL-FLOW-R-001 | invalid normal flow            | BUNNER_EXECUTION_NORMAL_FLOW_001 | error                    | symbol              | static:ast                        |
+| EXECUTION-NORMAL-FLOW-R-001 | invalid normal flow            | ZIPBUL_EXECUTION_NORMAL_FLOW_001 | error                    | symbol              | static:ast                        |
 
 ---
 

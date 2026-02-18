@@ -1,6 +1,6 @@
 import { appendFile, mkdir, rename, rm } from 'node:fs/promises';
 
-import { bunnerCacheDirPath, bunnerCacheFilePath } from '../common/bunner-paths';
+import { zipbulCacheDirPath, zipbulCacheFilePath } from '../common/zipbul-paths';
 
 export type ChangesetEventType = 'change' | 'rename' | 'delete';
 
@@ -42,9 +42,9 @@ export class ChangesetWriter {
       maxLines?: number;
     },
   ) {
-    this.changesetDir = bunnerCacheDirPath(options.projectRoot);
-    this.changesetPath = bunnerCacheFilePath(options.projectRoot, CHANGESET_FILE_NAME);
-    this.rotatedPath = bunnerCacheFilePath(options.projectRoot, CHANGESET_ROTATED_FILE_NAME);
+    this.changesetDir = zipbulCacheDirPath(options.projectRoot);
+    this.changesetPath = zipbulCacheFilePath(options.projectRoot, CHANGESET_FILE_NAME);
+    this.rotatedPath = zipbulCacheFilePath(options.projectRoot, CHANGESET_ROTATED_FILE_NAME);
     this.maxLines = options.maxLines ?? DEFAULT_CHANGESET_MAX_LINES;
   }
 

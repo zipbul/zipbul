@@ -44,8 +44,8 @@ export class MetadataGenerator {
         return null;
       }
 
-      if (typeof value.__bunner_ref === 'string') {
-        return value.__bunner_ref;
+      if (typeof value.__zipbul_ref === 'string') {
+        return value.__zipbul_ref;
       }
 
       return null;
@@ -159,46 +159,46 @@ export class MetadataGenerator {
 
         const record = value;
 
-        if (typeof record.__bunner_ref === 'string') {
-          if (typeof record.__bunner_import_source === 'string') {
-            registry.addImport(record.__bunner_ref, record.__bunner_import_source);
+        if (typeof record.__zipbul_ref === 'string') {
+          if (typeof record.__zipbul_import_source === 'string') {
+            registry.addImport(record.__zipbul_ref, record.__zipbul_import_source);
           }
 
-          return record.__bunner_ref;
+          return record.__zipbul_ref;
         }
 
-        if (typeof record.__bunner_factory_code === 'string') {
-          return record.__bunner_factory_code;
+        if (typeof record.__zipbul_factory_code === 'string') {
+          return record.__zipbul_factory_code;
         }
 
-        if (typeof record.__bunner_call === 'string') {
-          if (typeof record.__bunner_import_source === 'string') {
-            const root = record.__bunner_call.split('.')[0];
+        if (typeof record.__zipbul_call === 'string') {
+          if (typeof record.__zipbul_import_source === 'string') {
+            const root = record.__zipbul_call.split('.')[0];
 
             if (!isNonEmptyString(root)) {
-              return record.__bunner_call;
+              return record.__zipbul_call;
             }
 
-            if (root !== record.__bunner_call) {
-              registry.addImport(root, record.__bunner_import_source);
+            if (root !== record.__zipbul_call) {
+              registry.addImport(root, record.__zipbul_import_source);
             } else {
-              registry.addImport(record.__bunner_call, record.__bunner_import_source);
+              registry.addImport(record.__zipbul_call, record.__zipbul_import_source);
             }
           }
 
           const args = (isAnalyzerValueArray(record.args) ? record.args : []).map(a => serializeValue(a)).join(', ');
 
-          return `${record.__bunner_call}(${args})`;
+          return `${record.__zipbul_call}(${args})`;
         }
 
-        if (typeof record.__bunner_new === 'string') {
+        if (typeof record.__zipbul_new === 'string') {
           const args = (isAnalyzerValueArray(record.args) ? record.args : []).map(a => serializeValue(a)).join(', ');
 
-          return `new ${record.__bunner_new}(${args})`;
+          return `new ${record.__zipbul_new}(${args})`;
         }
 
-        if (typeof record.__bunner_forward_ref === 'string') {
-          return `forwardRef(() => ${record.__bunner_forward_ref})`;
+        if (typeof record.__zipbul_forward_ref === 'string') {
+          return `forwardRef(() => ${record.__zipbul_forward_ref})`;
         }
 
         const entries = Object.entries(record).map(([k, v]) => {

@@ -100,7 +100,7 @@ export class AstParser {
         }
 
         const resolvedSource = this.resolvePath(filename, sourceValue);
-        const isCoreImport = sourceValue === '@bunner/core';
+        const isCoreImport = sourceValue === '@zipbul/core';
 
         importEntries.push({ source: sourceValue, resolvedSource, isRelative: sourceValue.startsWith('.') });
 
@@ -539,7 +539,7 @@ export class AstParser {
 
       const importSource = this.currentImportSources[name];
 
-      if (importSource !== '@bunner/core') {
+      if (importSource !== '@zipbul/core') {
         return null;
       }
 
@@ -568,7 +568,7 @@ export class AstParser {
 
       const importSource = this.currentImportSources[objectName];
 
-      if (importSource !== '@bunner/core') {
+      if (importSource !== '@zipbul/core') {
         return null;
       }
 
@@ -606,7 +606,7 @@ export class AstParser {
 
       const importSource = this.currentImportSources[name];
 
-      if (importSource !== '@bunner/core') {
+      if (importSource !== '@zipbul/core') {
         return null;
       }
 
@@ -635,7 +635,7 @@ export class AstParser {
 
       const importSource = this.currentImportSources[objectName];
 
-      if (importSource !== '@bunner/core') {
+      if (importSource !== '@zipbul/core') {
         return null;
       }
 
@@ -773,8 +773,8 @@ export class AstParser {
 
       if (isNonEmptyString(importSource)) {
         return {
-          __bunner_ref: typeInfo.typeName,
-          __bunner_import_source: importSource,
+          __zipbul_ref: typeInfo.typeName,
+          __zipbul_import_source: importSource,
         };
       }
 
@@ -1046,7 +1046,7 @@ export class AstParser {
     const errorFilters: ClassMetadata['errorFilters'] = [];
 
     const error = (): never => {
-      throw new Error('[Bunner AOT] addErrorFilters는 리터럴 배열 + Identifier만 지원합니다.');
+      throw new Error('[Zipbul AOT] addErrorFilters는 리터럴 배열 + Identifier만 지원합니다.');
     };
 
     const visit = (n: AnalyzerValue): void => {
@@ -1138,7 +1138,7 @@ export class AstParser {
     const middlewares: ClassMetadata['middlewares'] = [];
 
     const error = (): never => {
-      throw new Error('[Bunner AOT] addMiddlewares는 리터럴 배열 + Identifier/withOptions만 지원합니다.');
+      throw new Error('[Zipbul AOT] addMiddlewares는 리터럴 배열 + Identifier/withOptions만 지원합니다.');
     };
 
     const visit = (n: AnalyzerValue): void => {
@@ -1351,9 +1351,9 @@ export class AstParser {
             const valExpr = this.parseExpression(prop.value);
             const start = typeof prop.start === 'number' ? prop.start : 0;
 
-            obj[`__bunner_computed_${start}`] = {
-              __bunner_computed_key: keyExpr,
-              __bunner_computed_value: valExpr,
+            obj[`__zipbul_computed_${start}`] = {
+              __zipbul_computed_key: keyExpr,
+              __zipbul_computed_value: valExpr,
             };
 
             continue;
@@ -1382,7 +1382,7 @@ export class AstParser {
           const el = this.asNode(elValue);
 
           if (el?.type === 'SpreadElement') {
-            return { __bunner_spread: this.parseExpression(el.argument) };
+            return { __zipbul_spread: this.parseExpression(el.argument) };
           }
 
           return this.parseExpression(elValue);
@@ -1399,8 +1399,8 @@ export class AstParser {
         const importSource = this.currentImports[name];
 
         return {
-          __bunner_ref: name,
-          __bunner_import_source: importSource,
+          __zipbul_ref: name,
+          __zipbul_import_source: importSource,
         };
       }
 
@@ -1415,7 +1415,7 @@ export class AstParser {
         const args = argsValue ?? [];
 
         return {
-          __bunner_new: this.getString(callee, 'name') ?? UNKNOWN_TYPE_NAME,
+          __zipbul_new: this.getString(callee, 'name') ?? UNKNOWN_TYPE_NAME,
           args: args.map(arg => this.parseExpression(arg)),
         };
       }
@@ -1452,7 +1452,7 @@ export class AstParser {
           this.currentInjectCalls.push(injectCall);
 
           return {
-            __bunner_inject: true,
+            __zipbul_inject: true,
             tokenKind: injectCall.tokenKind,
             token: injectCall.token,
           };
@@ -1466,14 +1466,14 @@ export class AstParser {
             const refName = this.getString(argBody, 'name');
 
             if (isNonEmptyString(refName)) {
-              return { __bunner_forward_ref: refName };
+              return { __zipbul_forward_ref: refName };
             }
           }
         }
 
         return {
-          __bunner_call: calleeName,
-          __bunner_import_source: importSource,
+          __zipbul_call: calleeName,
+          __zipbul_import_source: importSource,
           args: args.map(arg => this.parseExpression(arg)),
         };
       }
@@ -1487,14 +1487,14 @@ export class AstParser {
         const injectCalls = this.extractFactoryInjectCalls(expr, start);
 
         return {
-          __bunner_factory_code: factoryCode,
-          __bunner_factory_deps: deps,
-          __bunner_factory_injects: injectCalls,
+          __zipbul_factory_code: factoryCode,
+          __zipbul_factory_deps: deps,
+          __zipbul_factory_injects: injectCalls,
         };
       }
 
       case 'SpreadElement':
-        return { __bunner_spread: this.parseExpression(expr.argument) };
+        return { __zipbul_spread: this.parseExpression(expr.argument) };
 
       default:
         return null;
@@ -1645,7 +1645,7 @@ export class AstParser {
     args: AnalyzerValue[],
     node: NodeRecord,
   ): InjectCall | null {
-    if (importSource !== '@bunner/common') {
+    if (importSource !== '@zipbul/common') {
       return null;
     }
 

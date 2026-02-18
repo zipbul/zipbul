@@ -1,9 +1,9 @@
 # Card-centric MCP Index Design (Git-first + File SSOT + SQLite Index)
 
-> **Scope**: bunner MCP architecture optimized for vibe-coding agents
+> **Scope**: zipbul MCP architecture optimized for vibe-coding agents
 > **Status**: Draft v6.0 — 2026-02-16
-> **Core idea**: **Git is the source of truth** (cards are files with frontmatter metadata + body spec). **SQLite is a disposable local index (gitignored, always rebuildable)** for ultra-fast agent traversal. **SQLite is managed exclusively by the MCP domain** — `bunner build/dev` produce only build artifacts (manifest); `bunner mcp` owns all SQLite indexing.
-> **Where it lives**: bunner **CLI package** — CLI and MCP share the same core logic.
+> **Core idea**: **Git is the source of truth** (cards are files with frontmatter metadata + body spec). **SQLite is a disposable local index (gitignored, always rebuildable)** for ultra-fast agent traversal. **SQLite is managed exclusively by the MCP domain** — `zp build/dev` produce only build artifacts (manifest); `zp mcp` owns all SQLite indexing.
+> **Where it lives**: zipbul **CLI package** — CLI and MCP share the same core logic.
 > **Card = Spec**: Cards are exclusively for specifications. No type field — all cards are specs. Classification via keyword (normalized term dictionary) + tag (free categorization).
 
 **Out of scope**: repository documentation directory (it will be deleted)
@@ -33,10 +33,10 @@ And the answer must be:
 1. **Git-first SSOT**: Card files (frontmatter + body) are Git-tracked, human-reviewable, mergeable.
 2. **SQLite index**: Disposable local cache (gitignored). Provides high-performance traversal/search. Always rebuildable.
 3. **CLI + MCP share core**: Both interfaces invoke the same core logic for reads and writes. Framework authors may use MCP exclusively; end-users may use CLI.
-4. **MCP embedded**: MCP server is started via `bunner mcp` (single command). MCP write tools are **required** (not deferred).
+4. **MCP embedded**: MCP server is started via `zp mcp` (single command). MCP write tools are **required** (not deferred).
 5. **AOT/AST (oxc-parser only)**: Reuse existing CLI `oxc-parser` pipeline. No TypeScript Compiler API dependency.
 6. **Call-level code relations**: Code↔code relations include imports, calls, extends, implements — all statically extractable via AST. (DI inject/provide reserved for future framework-user features.)
-7. **Dual audience**: Must serve both the framework author (building bunner itself via vibe-coding/MCP) and framework users (who get richer features including framework rules via MCP).
+7. **Dual audience**: Must serve both the framework author (building zipbul itself via vibe-coding/MCP) and framework users (who get richer features including framework rules via MCP).
 8. **No "snapshot export/import" as a workflow**: the SSOT is the files themselves.
 
 ---
@@ -45,25 +45,25 @@ And the answer must be:
 
 ### 3.1 Source-of-truth layers
 
-- **SSOT (Git-tracked)**: `.bunner/cards/**/*.card.md` (frontmatter=metadata, body=spec) + **optional** in-code card links (JSDoc `@see key`)
-- **Build artifacts (Git-tracked)**: `.bunner/build/` — compiler output (manifest TS, etc.)
-- **Derived local index (gitignored)**: `.bunner/cache/index.sqlite` — managed exclusively by MCP domain
+- **SSOT (Git-tracked)**: `.zipbul/cards/**/*.card.md` (frontmatter=metadata, body=spec) + **optional** in-code card links (JSDoc `@see key`)
+- **Build artifacts (Git-tracked)**: `.zipbul/build/` — compiler output (manifest TS, etc.)
+- **Derived local index (gitignored)**: `.zipbul/cache/index.sqlite` — managed exclusively by MCP domain
 
 ```
 repo/
-  .bunner/
+  .zipbul/
     cards/                 # SSOT: card files (frontmatter + body)
     build/                 # Git-tracked: compiler artifacts
       runtime.ts           #   manifest (export const manifest = ... as const)
     cache/                 # gitignored: MCP-managed derived data
       index.sqlite         #   project index (code_entity, card, relations, FTS5)
       watcher.owner.lock   #   Owner Election lock file (PID)
-  bunner.jsonc             # Config: source dir, entry, relations, exclusions
+  zipbul.jsonc             # Config: source dir, entry, relations, exclusions
   src/
     ...                    # Code SSOT
 ```
 
-`.gitignore` rule: `.bunner/cache/`
+`.gitignore` rule: `.zipbul/cache/`
 
 ### 3.2 Read vs Write paths
 
@@ -83,8 +83,8 @@ Cards are stored as Markdown files with **frontmatter (metadata) + body (spec co
 
 Path convention:
 
-- `.bunner/cards/auth.card.md`
-- `.bunner/cards/auth/login.card.md`
+- `.zipbul/cards/auth.card.md`
+- `.zipbul/cards/auth/login.card.md`
 
 This is a filesystem hierarchy for organization. Logical relationships are stored in frontmatter, not directory structure.
 
@@ -101,7 +101,7 @@ Cards have no `type` field — all cards are specs. Classification uses two orth
 
 **tag** = "이 카드를 어떻게 분류할 것인가" (e.g. `auth-module`, `core`, `v2`). PK-managed to prevent duplicate/inconsistent tags.
 
-Relation types are configured in `bunner.jsonc`:
+Relation types are configured in `zipbul.jsonc`:
 
 ```jsonc
 {
@@ -206,7 +206,7 @@ Card-centric verification operates at two layers:
 
 **1. Verification command warnings**
 
-When the verification command (`bunner mcp verify`) is executed, it performs full integrity verification and reports errors/warnings. It warns about confirmed cards (`accepted` / `implementing` / `implemented`) that have no `@see` code links.
+When the verification command (`zp mcp verify`) is executed, it performs full integrity verification and reports errors/warnings. It warns about confirmed cards (`accepted` / `implementing` / `implemented`) that have no `@see` code links.
 
 **2. Agent instruction hardcoding (out of document scope)**
 
@@ -232,19 +232,19 @@ Notes:
 
 ### 5.1 Purpose
 
-SQLite index is the **MCP-managed project index**. The MCP domain is the sole owner of all SQLite read/write operations. `bunner build/dev` do not access SQLite.
+SQLite index is the **MCP-managed project index**. The MCP domain is the sole owner of all SQLite read/write operations. `zp build/dev` do not access SQLite.
 
 **MCP read tools** (consumer):
 - `search`, `get_context`, `get_subgraph`, `impact_analysis`, `trace_chain`
 
 **MCP indexer** (producer):
-- `bunner mcp rebuild` performs full index build (card parsing + code AST scanning + FTS5)
-- `bunner mcp` server performs incremental re-index on file changes (watch mode)
+- `zp mcp rebuild` performs full index build (card parsing + code AST scanning + FTS5)
+- `zp mcp` server performs incremental re-index on file changes (watch mode)
 
 The index is always **disposable and rebuildable** from:
 
-- `.bunner/cards/**/*.card.md`
-- code files under configured source roots (from `bunner.jsonc`)
+- `.zipbul/cards/**/*.card.md`
+- code files under configured source roots (from `zipbul.jsonc`)
 
 **WAL mode**: SQLite is opened with `PRAGMA journal_mode = WAL` for optimal read-write concurrency (single writer via Owner Election, multiple readers via MCP tools). `PRAGMA busy_timeout = 5000` is set to handle transient lock contention.
 
@@ -440,9 +440,9 @@ This prevents ambiguity: any key containing `:` (single colon) is a code entity,
 
 ## 6. MCP Indexing Pipeline
 
-The MCP domain is the sole owner of SQLite indexing. `bunner build/dev` produce only build artifacts (manifest) and do **not** access SQLite. The MCP indexer independently parses card files and code files to populate the index.
+The MCP domain is the sole owner of SQLite indexing. `zp build/dev` produce only build artifacts (manifest) and do **not** access SQLite. The MCP indexer independently parses card files and code files to populate the index.
 
-### 6.1 Full rebuild (`bunner mcp rebuild --full`)
+### 6.1 Full rebuild (`zp mcp rebuild --full`)
 
 1. Check `metadata.schema_version` → mismatch with code constant → DROP ALL tables + recreate schema
 2. **Entire rebuild is wrapped in a single SQLite transaction** (atomic: all-or-nothing)
@@ -453,7 +453,7 @@ The MCP domain is the sole owner of SQLite indexing. `bunner build/dev` produce 
 7. FTS5 external content tables are auto-synchronized via triggers (no manual refresh needed)
 8. Update `file_state` for all processed files
 
-### 6.2 Incremental re-index (watch mode / `bunner mcp rebuild`)
+### 6.2 Incremental re-index (watch mode / `zp mcp rebuild`)
 
 - Use `file_state` to skip unchanged files (content_hash + mtime comparison)
 - Each file update is wrapped in a **SQLite transaction** (atomic per-file: all-or-nothing)
@@ -493,10 +493,10 @@ interface CodeRelationExtractor {
 
 | Command | Responsibility | SQLite access |
 |---------|---------------|---------------|
-| `bunner build` | AOT compilation → manifest (`.bunner/build/runtime.ts`) | **None** |
-| `bunner dev` | Watch mode compilation → manifest | **None** |
-| `bunner mcp rebuild` | Full/incremental index rebuild | **Read + Write** |
-| `bunner mcp` (server) | Watch mode incremental re-index + MCP tools | **Read + Write** |
+| `zp build` | AOT compilation → manifest (`.zipbul/build/runtime.ts`) | **None** |
+| `zp dev` | Watch mode compilation → manifest | **None** |
+| `zp mcp rebuild` | Full/incremental index rebuild | **Read + Write** |
+| `zp mcp` (server) | Watch mode incremental re-index + MCP tools | **Read + Write** |
 
 ---
 
@@ -504,37 +504,37 @@ interface CodeRelationExtractor {
 
 ### 7.1 Commands
 
-- `bunner mcp rebuild [--full]`
-  - build/refresh `.bunner/cache/index.sqlite` (manual rebuild)
+- `zp mcp rebuild [--full]`
+  - build/refresh `.zipbul/cache/index.sqlite` (manual rebuild)
 
-- `bunner mcp verify`
+- `zp mcp verify`
   - runs full integrity verification (cards, relations, and `@see` links)
   - prints errors/warnings and returns non-zero exit code on errors
-  - **CI integration**: run `bunner mcp verify` in CI pipeline to enforce invariants
+  - **CI integration**: run `zp mcp verify` in CI pipeline to enforce invariants
 
-- `bunner mcp`
+- `zp mcp`
   - start MCP server (stdio / HTTP)
   - auto-ensure required repo structure/config on startup:
-    - create `.bunner/` structure if missing (including `cards/`, `build/`, `cache/`)
-    - ensure `.bunner/cache/` is gitignored
-    - if `bunner.jsonc` is missing: create it with minimum required fields (`sourceDir`, `entry`, `module.fileName`)
-    - if `bunner.jsonc` exists: never auto-edit it (non-destructive); missing fields are filled by runtime defaults
+    - create `.zipbul/` structure if missing (including `cards/`, `build/`, `cache/`)
+    - ensure `.zipbul/cache/` is gitignored
+    - if `zipbul.jsonc` is missing: create it with minimum required fields (`sourceDir`, `entry`, `module.fileName`)
+    - if `zipbul.jsonc` exists: never auto-edit it (non-destructive); missing fields are filled by runtime defaults
   - ensures index is ready (build if missing)
   - always-on index watch: when cards/code/config change, automatically re-index
-    - `.bunner/cards/**/*.card.md` changes: incremental re-index
+    - `.zipbul/cards/**/*.card.md` changes: incremental re-index
     - code changes under `sourceDir` (`*.ts`, excluding `*.d.ts`): incremental re-index
-    - `bunner.jsonc` changes: full rebuild
+    - `zipbul.jsonc` changes: full rebuild
 
 ### 7.2 Write helpers
 
-- `bunner mcp card create|update|delete|rename|status`
+- `zp mcp card create|update|delete|rename|status`
   - create/modify/delete/rename `.card.md` (frontmatter + body)
   - `rename` updates all `@see` references + `relations[].target` across codebase
 
-- `bunner mcp link add|remove`
+- `zp mcp link add|remove`
   - insert/remove `@see key` annotation using AST (safe edit)
 
-- `bunner mcp relation add|remove`
+- `zp mcp relation add|remove`
   - add/remove `relations[]` entries in card frontmatter
 
 All write helpers use the **shared core logic** (same code as MCP write tools).
@@ -610,11 +610,11 @@ All governance is handled by Git:
 
 - approvals: PR review + commit history
 - rollback: `git revert`
-- history: `git log .bunner/cards/...`
+- history: `git log .zipbul/cards/...`
 
 If stronger governance is required later:
 
-- add an optional append-only `.bunner/events.jsonl` (Git-tracked) as a structured audit stream
+- add an optional append-only `.zipbul/events.jsonl` (Git-tracked) as a structured audit stream
 
 ---
 
@@ -627,7 +627,7 @@ Hard rules (errors):
 3. every code-referenced `@see key` must exist as a card
 4. every `relations[].target` in frontmatter must exist as a card
 5. card with status `implemented` must have at least one `@see` code reference
-6. every `relations[].type` must be in `mcp.card.relations` (in `bunner.jsonc`)
+6. every `relations[].type` must be in `mcp.card.relations` (in `zipbul.jsonc`)
 7. every keyword in frontmatter `keywords[]` must be registered in `keyword` table
 8. every tag in frontmatter `tags[]` must be registered in `tag` table
 
@@ -662,25 +662,25 @@ Soft rules (warnings):
 | 17 | FTS tokenizer | trigram (for CJK/Unicode support) |
 | 18 | Cycle handling | Visited set in traversal tools. `depends-on` cycles are CI warnings (not errors) |
 | 19 | Code relation extractors | Plugin interface ready. Only pure-AST extractors implemented now |
-| 20 | Config format | `bunner.jsonc` (JSONC). Shared with framework config |
-| 21 | Package structure | CLI package (`packages/cli/`). MCP commands as `bunner mcp` subcommand group |
-| 22 | Framework-shipped cards | Deferred. `bunner mcp` auto-creates required empty structure on first run. Content TBD |
+| 20 | Config format | `zipbul.jsonc` (JSONC). Shared with framework config |
+| 21 | Package structure | CLI package (`packages/cli/`). MCP commands as `zp mcp` subcommand group |
+| 22 | Framework-shipped cards | Deferred. `zp mcp` auto-creates required empty structure on first run. Content TBD |
 | 23 | Card type registry | **Removed**. All cards are specs. No `mcp.card.types` config. Classification via keyword (term dict PK) + tag (category PK) |
-| 24 | `relations[].type` set | `mcp.card.relations` in `bunner.jsonc`. Default: `["depends-on", "references", "related", "extends", "conflicts"]` |
-| 25 | Verification command | `bunner mcp verify` performs full integrity verification; warns about confirmed cards with no code links |
+| 24 | `relations[].type` set | `mcp.card.relations` in `zipbul.jsonc`. Default: `["depends-on", "references", "related", "extends", "conflicts"]` |
+| 25 | Verification command | `zp mcp verify` performs full integrity verification; warns about confirmed cards with no code links |
 | 26 | Agent @see insertion rule | Hardcode `@see` insertion rule in agent instruction files (applied during implementation) |
 | 27 | Manifest format | TypeScript: `export const manifest = ${JSON.stringify(data)} as const;`. Frozen at build time, deleted from memory after bootstrap via null assignment + GC |
-| 28 | SQLite ownership | **MCP-exclusive** — MCP domain is the sole owner of all SQLite operations. `bunner build/dev` do not access SQLite. MCP indexer independently parses card files and code AST to populate the index |
-| 29 | `.bunner/` directory | `cards/` + `build/` (Git-tracked) + `cache/` (gitignored: `index.sqlite` + `watcher.owner.lock`). No `schema/` directory — schema versioning is handled by `metadata` table in SQLite |
-| 30 | Owner Election | lock file + PID + signal. **MCP processes only** (build/dev do not participate). First `bunner mcp` process = owner (watch + write), subsequent = reader (signal + read only). Owner death → reader promotes |
+| 28 | SQLite ownership | **MCP-exclusive** — MCP domain is the sole owner of all SQLite operations. `zp build/dev` do not access SQLite. MCP indexer independently parses card files and code AST to populate the index |
+| 29 | `.zipbul/` directory | `cards/` + `build/` (Git-tracked) + `cache/` (gitignored: `index.sqlite` + `watcher.owner.lock`). No `schema/` directory — schema versioning is handled by `metadata` table in SQLite |
+| 30 | Owner Election | lock file + PID + signal. **MCP processes only** (build/dev do not participate). First `zp mcp` process = owner (watch + write), subsequent = reader (signal + read only). Owner death → reader promotes |
 | 31 | WAL mode | `PRAGMA journal_mode = WAL` + `PRAGMA busy_timeout = 5000`. Optimal for single-writer + multi-reader (Owner Election + MCP read tools) |
 | 32 | CLI architecture | Domain-oriented vertical slicing: `compiler/`, `mcp/`, `store/`, `watcher/`, `config/`, `diagnostics/`, `shared/`, `errors/`, `bin/`. No horizontal layering |
 | 33 | Angular CLI patterns | All 8 patterns adopted (Bun-native): declareTool factory, Host abstraction, McpToolContext, SQLite schema versioning, FTS5+bm25, domain-vertical dirs, Zod schemas, shouldRegister |
 | 34 | Design principle | Performance, safety, stability over implementation cost. Complexity is acceptable when it serves these goals |
 | 35 | build/dev duplication | Resolved by domain restructuring — compiler domain unifies analyzer + generator + build/dev orchestration |
-| 36 | Build vs Index separation | `bunner build/dev` = manifest only (no SQLite). `bunner mcp rebuild` = SQLite sync. Complete responsibility separation |
+| 36 | Build vs Index separation | `zp build/dev` = manifest only (no SQLite). `zp mcp rebuild` = SQLite sync. Complete responsibility separation |
 | 37 | `metadata` table | `metadata(key TEXT PK, value TEXT NOT NULL)` in SQLite. Stores `schema_version`. Code constant `SCHEMA_VERSION` compared on open; mismatch → DROP ALL + rebuild |
-| 38 | `.bunner/schema/` removal | Removed. No separate schema directory needed. DB schema version in `metadata` table, card format handled by backward-compatible parser |
+| 38 | `.zipbul/schema/` removal | Removed. No separate schema directory needed. DB schema version in `metadata` table, card format handled by backward-compatible parser |
 | 39 | FTS5 auto-sync | External content FTS5 (`content='card'`/`content='code_entity'`, `content_rowid='rowid'`). Trigger-based sync using special `VALUES('delete', ...)` syntax. No data duplication, no manual FTS update needed |
 | 40 | `card_code_link.entity_key` | NOT NULL. File-level `@see` maps to the file's `module:` entity. Ensures referential integrity and simpler JOINs |
 | 41 | `code_relation.type` scope | Current: `imports\|calls\|extends\|implements`. `injects\|provides` reserved for future framework-user features |
@@ -700,7 +700,7 @@ Items to discuss in later phases. Recorded here for continuity.
 
 ### Architecture / Design
 
-1. **Framework user data accumulation**: How to collect and structure data for framework end-users? What data does the MCP expose to users building apps with bunner?
+1. **Framework user data accumulation**: How to collect and structure data for framework end-users? What data does the MCP expose to users building apps with zipbul?
 2. **Agent-to-agent workflow**: Multi-agent orchestration for planning, coding, testing, review. Temporary workflow documents (plans, discussions, reviews) managed outside card system as plain markdown files.
 3. **Framework documentation delivery**: When `.d.ts` JSDoc is insufficient, consider MCP tool for framework docs. Currently YAGNI.
 
@@ -732,26 +732,26 @@ packages/cli/src/
     file-state.ts  #   Incremental indexing (file_state table)
     interfaces.ts  #   Port interfaces
   watcher/         # File watching + Owner Election (lock+PID+signal)
-  config/          # bunner.jsonc loading, config resolution (currently in common/, migrated in P8)
+  config/          # zipbul.jsonc loading, config resolution (currently in common/, migrated in P8)
   diagnostics/     # Diagnostic message building/reporting
   shared/          # Pure utilities (codepoint-compare, glob-scan, write-if-changed)
   errors/          # Error types
-  bin/             # CLI entry points (bunner build, bunner dev, bunner mcp)
+  bin/             # CLI entry points (zp build, zp dev, zp mcp)
 ```
 
 ### 14.1 Owner Election
 
-- Scope: **MCP processes only** (`bunner mcp` / `bunner mcp rebuild`). `bunner build/dev` do not participate.
-- Lock file: `.bunner/cache/watcher.owner.lock` contains owner PID
-- First `bunner mcp` process = **owner** (watch + SQLite write authority)
-- Subsequent `bunner mcp` processes = **reader** (SQLite read only, signal owner for re-index)
+- Scope: **MCP processes only** (`zp mcp` / `zp mcp rebuild`). `zp build/dev` do not participate.
+- Lock file: `.zipbul/cache/watcher.owner.lock` contains owner PID
+- First `zp mcp` process = **owner** (watch + SQLite write authority)
+- Subsequent `zp mcp` processes = **reader** (SQLite read only, signal owner for re-index)
 - Owner death detection: reader checks if PID is alive; promotes if dead
 - Single writer eliminates concurrency hazards at the root cause
 
 ### 14.2 Manifest Format
 
 - TypeScript: `export const manifest = ${JSON.stringify(data)} as const;`
-- Output: `.bunner/build/runtime.ts` (Git-tracked)
+- Output: `.zipbul/build/runtime.ts` (Git-tracked)
 - Lifecycle: frozen (`Object.freeze` + `Object.seal`) at build time → consumed during bootstrap → deleted from memory (`null` + GC)
 
 ### 14.3 Angular CLI Patterns (Bun-adapted)
@@ -779,7 +779,7 @@ All patterns adopted from Angular CLI MCP, adapted for Bun runtime:
 | P5 | `mcp/verify/` | Invariants §11 verification (8 hard + 3 soft rules — **no type validation, added keyword/tag registration checks**) | store/, mcp/card/ |
 | P6 | `watcher/` | Owner Election (lock+PID+signal), incremental re-index trigger | store/ |
 | P7 | `mcp/server/` | MCP server (stdio), tool registry (declareTool), read/write tools (**including keyword_create/delete, tag_create/delete**) | store/, mcp/card/, mcp/index/, mcp/verify/ |
-| P8 | `bin/` | CLI entry restructure: `bunner build`, `bunner dev`, `bunner mcp`. `config/` 분리 (`common/` 유틸 유지) | all |
+| P8 | `bin/` | CLI entry restructure: `zp build`, `zp dev`, `zp mcp`. `config/` 분리 (`common/` 유틸 유지) | all |
 
 P0 is a prerequisite for all phases. P1 and P3 are independent and can proceed in parallel after P0. P6 is independent after P1.
 

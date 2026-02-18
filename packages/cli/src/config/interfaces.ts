@@ -1,33 +1,33 @@
-export type BunnerConfigSourceFormat = 'json' | 'jsonc';
+export type ZipbulConfigSourceFormat = 'json' | 'jsonc';
 
-export interface BunnerConfigSource {
+export interface ZipbulConfigSource {
   path: string;
-  format: BunnerConfigSourceFormat;
+  format: ZipbulConfigSourceFormat;
 }
 
-export interface ResolvedBunnerConfigModule {
+export interface ResolvedZipbulConfigModule {
   fileName: string;
 }
 
-export interface ResolvedBunnerConfigCard {
+export interface ResolvedZipbulConfigCard {
   relations: string[];
 }
 
-export interface ResolvedBunnerConfigMcp {
-  card: ResolvedBunnerConfigCard;
+export interface ResolvedZipbulConfigMcp {
+  card: ResolvedZipbulConfigCard;
   exclude: string[];
 }
 
-export interface ResolvedBunnerConfig {
-  module: ResolvedBunnerConfigModule;
+export interface ResolvedZipbulConfig {
+  module: ResolvedZipbulConfigModule;
   sourceDir: string;
   entry: string;
-  mcp: ResolvedBunnerConfigMcp;
+  mcp: ResolvedZipbulConfigMcp;
 }
 
 export interface ConfigLoadResult {
-  config: ResolvedBunnerConfig;
-  source: BunnerConfigSource;
+  config: ResolvedZipbulConfig;
+  source: ZipbulConfigSource;
 }
 
 export type JsonPrimitive = string | number | boolean | null;

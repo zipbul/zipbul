@@ -1,6 +1,6 @@
 import type {
   BeforeStart,
-  BunnerAdapter,
+  ZipbulAdapter,
   ConfigService,
   Configurer,
   EnvService,
@@ -10,9 +10,9 @@ import type {
   OnStart,
 } from './interfaces';
 
-export type BunnerPrimitive = string | number | boolean | bigint | symbol | null | undefined;
+export type ZipbulPrimitive = string | number | boolean | bigint | symbol | null | undefined;
 
-export type ErrorConstructorLike = new (...args: ReadonlyArray<BunnerValue>) => Error;
+export type ErrorConstructorLike = new (...args: ReadonlyArray<ZipbulValue>) => Error;
 
 export type ErrorToken =
   | ErrorConstructorLike
@@ -22,26 +22,26 @@ export type ErrorToken =
   | BigIntConstructor
   | SymbolConstructor;
 
-export interface BunnerArray extends Array<BunnerValue> {}
+export interface ZipbulArray extends Array<ZipbulValue> {}
 
-export interface BunnerRecord extends Record<string, BunnerValue> {}
+export interface ZipbulRecord extends Record<string, ZipbulValue> {}
 
-export interface BunnerConstructorDescriptor {
+export interface ZipbulConstructorDescriptor {
   readonly name?: string;
 }
 
-export interface BunnerInstance {
-  readonly constructor: BunnerConstructorDescriptor;
+export interface ZipbulInstance {
+  readonly constructor: ZipbulConstructorDescriptor;
 }
 
-export type BunnerValue =
-  | BunnerPrimitive
-  | BunnerRecord
-  | BunnerArray
-  | BunnerInstance
+export type ZipbulValue =
+  | ZipbulPrimitive
+  | ZipbulRecord
+  | ZipbulArray
+  | ZipbulInstance
   | ClassToken
   | Callable
-  | BunnerAdapter
+  | ZipbulAdapter
   | ConfigService
   | Configurer
   | EnvService
@@ -51,44 +51,44 @@ export type BunnerValue =
   | OnShutdown
   | OnDestroy;
 
-export interface BunnerFunction {
-  (...args: readonly BunnerValue[]): BunnerValue | void;
+export interface ZipbulFunction {
+  (...args: readonly ZipbulValue[]): ZipbulValue | void;
 }
 
-export interface Class<T = BunnerValue> {
-  new (...args: ReadonlyArray<BunnerValue>): T;
+export interface Class<T = ZipbulValue> {
+  new (...args: ReadonlyArray<ZipbulValue>): T;
 }
 
-export interface ClassToken<T = BunnerValue> {
-  new (...args: ReadonlyArray<BunnerValue>): T;
+export interface ClassToken<T = ZipbulValue> {
+  new (...args: ReadonlyArray<ZipbulValue>): T;
 }
 
 export type ClassProperties<T> = {
-  [K in keyof T]-?: T[K] extends (...args: BunnerValue[]) => BunnerValue ? K : never;
+  [K in keyof T]-?: T[K] extends (...args: ZipbulValue[]) => ZipbulValue ? K : never;
 }[keyof T];
 
-export type MethodParams<T, K extends ClassProperties<T>> = T[K] extends (...args: infer P) => BunnerValue | void
+export type MethodParams<T, K extends ClassProperties<T>> = T[K] extends (...args: infer P) => ZipbulValue | void
   ? [...P]
   : never;
 
-export type MethodReturn<T, K extends ClassProperties<T>> = T[K] extends (...args: BunnerValue[]) => infer R ? R : never;
+export type MethodReturn<T, K extends ClassProperties<T>> = T[K] extends (...args: ZipbulValue[]) => infer R ? R : never;
 
 export type MethodTailParams<T, K extends ClassProperties<T>> = T[K] extends (
-  first: BunnerValue,
+  first: ZipbulValue,
   ...rest: infer R
-) => BunnerValue | void
+) => ZipbulValue | void
   ? [...R]
   : [];
 
 export type MethodSecondParam<T, K extends ClassProperties<T>> = T[K] extends (
-  a: BunnerValue,
+  a: ZipbulValue,
   b: infer S,
-  ...args: BunnerValue[]
-) => BunnerValue | void
+  ...args: ZipbulValue[]
+) => ZipbulValue | void
   ? S
   : never;
 
-export type SyncFunction<T extends BunnerFunction> = ReturnType<T> extends Promise<BunnerValue> ? never : T;
+export type SyncFunction<T extends ZipbulFunction> = ReturnType<T> extends Promise<ZipbulValue> ? never : T;
 
 export type PrimitiveValue = string | number | boolean | bigint | symbol | null | undefined;
 
@@ -97,14 +97,14 @@ export type PrimitiveArray = Array<PrimitiveValue>;
 export type PrimitiveRecord = Record<string, PrimitiveValue | PrimitiveArray>;
 
 export interface Callable {
-  (...args: ReadonlyArray<BunnerValue>): BunnerValue | void;
+  (...args: ReadonlyArray<ZipbulValue>): ZipbulValue | void;
 }
 
-export type Constructor<T = BunnerValue> = new (...args: ReadonlyArray<BunnerValue>) => T;
+export type Constructor<T = ZipbulValue> = new (...args: ReadonlyArray<ZipbulValue>) => T;
 
 export type ValueLike = PrimitiveValue | PrimitiveArray | PrimitiveRecord | Callable;
 
-export type ForwardRefFactory = () => BunnerValue;
+export type ForwardRefFactory = () => ZipbulValue;
 
 export type DecoratorTarget = Class | Record<string, ValueLike>;
 

@@ -145,7 +145,7 @@ git diff --unified=0 | grep -nE "^\\+.*\\b(object|Function)\\b"  # 0이어야 �
 |    대상    | 규칙                   | 예시                       | 비고                   |
 | :--------: | :--------------------- | :------------------------- | :--------------------- |
 |  디렉토리  | `kebab-case`           | `http-server`, `user-auth` |                        |
-|  패키지명  | `kebab-case` (Scoped)  | `@bunner/http-server`      |                        |
+|  패키지명  | `kebab-case` (Scoped)  | `@zipbul/http-server`      |                        |
 |   파일명   | `kebab-case`           | `user-controller.ts`       |                        |
 |   클래스   | `PascalCase`           | `UserController`           |                        |
 | 인터페이스 | `PascalCase`           | `HttpRequest`              | `I` 접두사 금지        |
@@ -450,7 +450,7 @@ export interface UserRepository {
 **process-payment.ts** (구현만 포함, 타입 없음)
 
 ```ts
-import { BunnerError } from '@bunner/common';
+import { ZipbulError } from '@zipbul/common';
 import type { PaymentRequest, PaymentResult, ProcessPaymentParams } from './interfaces';
 
 export async function processPayment(params: ProcessPaymentParams): Promise<PaymentResult> {
@@ -461,7 +461,7 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Paym
   const userExists = await userRepo.exists(req.userId);
 
   if (!userExists) {
-    throw new BunnerError('User not found');
+    throw new ZipbulError('User not found');
   }
 
   logger.info('payment:charge:requested', { userId: req.userId, amount: req.amount, currency: req.currency });
@@ -483,11 +483,11 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Paym
 
 function ensurePaymentRequestIsValid(req: PaymentRequest): void {
   if (req.userId.length === 0) {
-    throw new BunnerError('Invalid userId');
+    throw new ZipbulError('Invalid userId');
   }
 
   if (!Number.isFinite(req.amount) || req.amount <= 0) {
-    throw new BunnerError('Invalid amount');
+    throw new ZipbulError('Invalid amount');
   }
 }
 ```
@@ -500,7 +500,7 @@ function ensurePaymentRequestIsValid(req: PaymentRequest): void {
 
 ```ts
 import { describe, expect, it, mock } from 'bun:test';
-import { BunnerError } from '@bunner/common';
+import { ZipbulError } from '@zipbul/common';
 import type { LogMetadata, PaymentChargeInput, PaymentChargeResult } from './interfaces';
 import { processPayment } from './process-payment';
 
@@ -524,7 +524,7 @@ describe('processPayment', () => {
     expect(result).toEqual({ receiptId: 'r_123', chargedAmount: 1000, currency: 'KRW' });
   });
 
-  it('should throw BunnerError when userId is empty string', async () => {
+  it('should throw ZipbulError when userId is empty string', async () => {
     const exists = mock(async (_userId: string) => true);
     const charge = mock(async (_input: PaymentChargeInput): Promise<PaymentChargeResult> => ({ receiptId: 'r_123' }));
     const info = mock((_message: string, _meta?: LogMetadata) => {});
@@ -537,12 +537,12 @@ describe('processPayment', () => {
         gateway: { charge },
         logger: { info, warn },
       }),
-    ).rejects.toBeInstanceOf(BunnerError);
+    ).rejects.toBeInstanceOf(ZipbulError);
 
     expect(charge).toHaveBeenCalledTimes(0);
   });
 
-  it('should throw BunnerError when amount is zero', async () => {
+  it('should throw ZipbulError when amount is zero', async () => {
     const exists = mock(async (_userId: string) => true);
     const charge = mock(async (_input: PaymentChargeInput): Promise<PaymentChargeResult> => ({ receiptId: 'r_123' }));
     const info = mock((_message: string, _meta?: LogMetadata) => {});
@@ -555,12 +555,12 @@ describe('processPayment', () => {
         gateway: { charge },
         logger: { info, warn },
       }),
-    ).rejects.toBeInstanceOf(BunnerError);
+    ).rejects.toBeInstanceOf(ZipbulError);
 
     expect(charge).toHaveBeenCalledTimes(0);
   });
 
-  it('should throw BunnerError when user does not exist', async () => {
+  it('should throw ZipbulError when user does not exist', async () => {
     const exists = mock(async (_userId: string) => false);
     const charge = mock(async (_input: PaymentChargeInput): Promise<PaymentChargeResult> => ({ receiptId: 'r_123' }));
     const info = mock((_message: string, _meta?: LogMetadata) => {});
@@ -573,7 +573,7 @@ describe('processPayment', () => {
         gateway: { charge },
         logger: { info, warn },
       }),
-    ).rejects.toBeInstanceOf(BunnerError);
+    ).rejects.toBeInstanceOf(ZipbulError);
 
     expect(charge).toHaveBeenCalledTimes(0);
     expect(info).toHaveBeenCalledTimes(0);

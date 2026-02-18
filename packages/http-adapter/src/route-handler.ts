@@ -1,10 +1,10 @@
-import type { BunnerContainer, BunnerValue, ProviderToken } from '@bunner/common';
+import type { ZipbulContainer, ZipbulValue, ProviderToken } from '@zipbul/common';
 
-import { BunnerErrorFilter, BunnerMiddleware } from '@bunner/common';
-import { Logger } from '@bunner/logger';
+import { ZipbulErrorFilter, ZipbulMiddleware } from '@zipbul/common';
+import { Logger } from '@zipbul/logger';
 
-import type { BunnerRequest } from './bunner-request';
-import type { BunnerResponse } from './bunner-response';
+import type { ZipbulRequest } from './zipbul-request';
+import type { ZipbulResponse } from './zipbul-response';
 import type { RouteHandlerParamType } from './decorators';
 import type { ArgumentMetadata, RouteHandlerEntry } from './interfaces';
 import type { RouterOptions } from './router/types';
@@ -37,7 +37,7 @@ import { ValidationPipe } from './pipes/validation.pipe';
 import { Router } from './router';
 
 export class RouteHandler {
-  private container: BunnerContainer;
+  private container: ZipbulContainer;
   private metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>;
   private scopedKeys: Map<ProviderToken, string>;
   private router: Router;
@@ -45,7 +45,7 @@ export class RouteHandler {
   private validationPipe = new ValidationPipe();
 
   constructor(
-    container: BunnerContainer,
+    container: ZipbulContainer,
     metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
     scopedKeys: Map<ProviderToken, string> = new Map(),
     routerOptions?: RouterOptions,
@@ -115,7 +115,7 @@ export class RouteHandler {
         methodName: '__internal__',
         middlewares: [],
         errorFilters: [],
-        paramFactory: async (req: BunnerRequest, res: BunnerResponse) => {
+        paramFactory: async (req: ZipbulRequest, res: ZipbulResponse) => {
           const arity = typeof route.handler === 'function' ? route.handler.length : 0;
           const args: readonly RouteParamValue[] = arity >= 2 ? [req, res] : [req];
 
@@ -193,7 +193,7 @@ export class RouteHandler {
           };
         });
 
-        const paramFactory = async (req: BunnerRequest, res: BunnerResponse): Promise<readonly RouteParamValue[]> => {
+        const paramFactory = async (req: ZipbulRequest, res: ZipbulResponse): Promise<readonly RouteParamValue[]> => {
           const params: RouteParamValue[] = [];
 
           for (const config of paramsConfig) {
@@ -319,22 +319,22 @@ export class RouteHandler {
     return (
       typeof value === 'object' &&
       value !== null &&
-      ('__bunner_ref' in value || '__bunner_forward_ref' in value || 'name' in value)
+      ('__zipbul_ref' in value || '__zipbul_forward_ref' in value || 'name' in value)
     );
   }
 
-  private extractBunnerTokenRef(token: DecoratorArgument): string | undefined {
+  private extractZipbulTokenRef(token: DecoratorArgument): string | undefined {
     if (!this.isTokenRecord(token)) {
       return undefined;
     }
 
-    const ref = token.__bunner_ref;
+    const ref = token.__zipbul_ref;
 
     if (typeof ref === 'string' && ref.length > 0) {
       return ref;
     }
 
-    const forward = token.__bunner_forward_ref;
+    const forward = token.__zipbul_forward_ref;
 
     if (typeof forward === 'string' && forward.length > 0) {
       return forward;
@@ -360,7 +360,7 @@ export class RouteHandler {
       return token;
     }
 
-    const extracted = this.extractBunnerTokenRef(token);
+    const extracted = this.extractZipbulTokenRef(token);
 
     if (typeof extracted === 'string' && extracted.length > 0) {
       return extracted;
@@ -403,7 +403,7 @@ export class RouteHandler {
     const constructorParams = meta.constructorParams ?? [];
     const deps = constructorParams.map(param => {
       let token: DecoratorArgument = param.type;
-      const extracted = this.extractBunnerTokenRef(token);
+      const extracted = this.extractZipbulTokenRef(token);
 
       if (typeof extracted === 'string' && extracted.length > 0) {
         token = extracted;
@@ -412,7 +412,7 @@ export class RouteHandler {
       const decorators = param.decorators ?? [];
       const injectDec = decorators.find((decorator: DecoratorMetadata) => decorator.name === 'Inject');
       const injected = injectDec?.arguments?.[0];
-      const injectedRef = this.extractBunnerTokenRef(injected);
+      const injectedRef = this.extractZipbulTokenRef(injected);
 
       if (typeof injected !== 'undefined') {
         token = injected;
@@ -424,7 +424,7 @@ export class RouteHandler {
 
       return this.tryGetFromContainer(token);
     });
-    const ctorArgs = deps.map(dep => (this.isBunnerValue(dep) ? dep : undefined));
+    const ctorArgs = deps.map(dep => (this.isZipbulValue(dep) ? dep : undefined));
 
     try {
       return new constructor(...ctorArgs);
@@ -433,7 +433,7 @@ export class RouteHandler {
     }
   }
 
-  private isBunnerValue(value: BunnerValue | ContainerInstance): value is BunnerValue {
+  private isZipbulValue(value: ZipbulValue | ContainerInstance): value is ZipbulValue {
     return (
       value === null ||
       value === undefined ||
@@ -548,7 +548,7 @@ export class RouteHandler {
       return this.formatTokenLabel(token.token);
     }
 
-    const ref = this.extractBunnerTokenRef(token);
+    const ref = this.extractZipbulTokenRef(token);
 
     if (typeof ref === 'string' && ref.length > 0) {
       return ref;
@@ -561,12 +561,12 @@ export class RouteHandler {
     return 'unknown-token';
   }
 
-  private isBunnerMiddleware(value: ContainerInstance): value is BunnerMiddleware {
-    return value instanceof BunnerMiddleware;
+  private isZipbulMiddleware(value: ContainerInstance): value is ZipbulMiddleware {
+    return value instanceof ZipbulMiddleware;
   }
 
-  private isBunnerErrorFilter(value: ContainerInstance): value is BunnerErrorFilter<SystemError> {
-    return value instanceof BunnerErrorFilter;
+  private isZipbulErrorFilter(value: ContainerInstance): value is ZipbulErrorFilter<SystemError> {
+    return value instanceof ZipbulErrorFilter;
   }
 
   private isHttpMethod(value: string): value is HttpMethod {
@@ -645,8 +645,8 @@ export class RouteHandler {
     _targetClass: ControllerConstructor,
     method: MethodMetadata,
     classMeta: ClassMetadata,
-  ): BunnerMiddleware[] {
-    const middlewares: BunnerMiddleware[] = [];
+  ): ZipbulMiddleware[] {
+    const middlewares: ZipbulMiddleware[] = [];
     // Method Level
     const decs = (method.decorators ?? []).filter((decorator: DecoratorMetadata) => decorator.name === 'UseMiddlewares');
 
@@ -654,7 +654,7 @@ export class RouteHandler {
       (decorator.arguments ?? []).forEach(arg => {
         const resolved = this.tryGetFromContainer(arg);
 
-        if (resolved !== undefined && resolved !== null && this.isBunnerMiddleware(resolved)) {
+        if (resolved !== undefined && resolved !== null && this.isZipbulMiddleware(resolved)) {
           middlewares.push(resolved);
 
           return;
@@ -662,7 +662,7 @@ export class RouteHandler {
 
         const created = this.tryCreateControllerInstance(arg);
 
-        if (created !== undefined && created !== null && this.isBunnerMiddleware(created)) {
+        if (created !== undefined && created !== null && this.isZipbulMiddleware(created)) {
           middlewares.push(created);
         }
       });
@@ -678,7 +678,7 @@ export class RouteHandler {
         (decorator.arguments ?? []).forEach(arg => {
           const resolved = this.tryGetFromContainer(arg);
 
-          if (resolved !== undefined && resolved !== null && this.isBunnerMiddleware(resolved)) {
+          if (resolved !== undefined && resolved !== null && this.isZipbulMiddleware(resolved)) {
             middlewares.push(resolved);
 
             return;
@@ -686,7 +686,7 @@ export class RouteHandler {
 
           const created = this.tryCreateControllerInstance(arg);
 
-          if (created !== undefined && created !== null && this.isBunnerMiddleware(created)) {
+          if (created !== undefined && created !== null && this.isZipbulMiddleware(created)) {
             middlewares.push(created);
           }
         });
@@ -700,7 +700,7 @@ export class RouteHandler {
     targetClass: ControllerConstructor,
     method: MethodMetadata,
     classMeta: ClassMetadata,
-  ): Array<BunnerErrorFilter<SystemError>> {
+  ): Array<ZipbulErrorFilter<SystemError>> {
     const tokens: DecoratorArgument[] = [];
     const methodDecs = (method.decorators ?? []).filter((decorator: DecoratorMetadata) => decorator.name === 'UseErrorFilters');
 
@@ -732,7 +732,7 @@ export class RouteHandler {
 
       return true;
     });
-    const resolved: Array<BunnerErrorFilter<SystemError>> = [];
+    const resolved: Array<ZipbulErrorFilter<SystemError>> = [];
 
     for (const token of dedupedTokens) {
       if (token === null || token === undefined) {
@@ -741,7 +741,7 @@ export class RouteHandler {
 
       const instance = this.tryGetFromContainer(token);
 
-      if (instance !== undefined && instance !== null && this.isBunnerErrorFilter(instance)) {
+      if (instance !== undefined && instance !== null && this.isZipbulErrorFilter(instance)) {
         resolved.push(instance);
 
         continue;
@@ -749,7 +749,7 @@ export class RouteHandler {
 
       const created = this.tryCreateControllerInstance(token);
 
-      if (created === undefined || created === null || !this.isBunnerErrorFilter(created)) {
+      if (created === undefined || created === null || !this.isZipbulErrorFilter(created)) {
         throw new Error(
           `Cannot resolve ErrorFilter token for ${targetClass.name}.${method.name}: ${this.formatTokenLabel(token)}`,
         );

@@ -1,4 +1,4 @@
-import { IsIn, IsString } from '@bunner/core';
+import { IsIn, IsString } from '@zipbul/core';
 
 export class SocialDto {
   @IsIn(['twitter', 'github', 'linkedin'])

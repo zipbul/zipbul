@@ -101,8 +101,8 @@ const getRefName = (value: AnalyzerValue): string | null => {
     return null;
   }
 
-  if (typeof record.__bunner_ref === 'string') {
-    return record.__bunner_ref;
+  if (typeof record.__zipbul_ref === 'string') {
+    return record.__zipbul_ref;
   }
 
   return null;
@@ -115,8 +115,8 @@ const getForwardRefName = (value: AnalyzerValue): string | null => {
     return null;
   }
 
-  if (typeof record.__bunner_forward_ref === 'string') {
-    return record.__bunner_forward_ref;
+  if (typeof record.__zipbul_forward_ref === 'string') {
+    return record.__zipbul_forward_ref;
   }
 
   return null;
@@ -234,10 +234,10 @@ export class InjectorGenerator {
 
           if (providerRecord.useFactory !== undefined) {
             const factoryRecord = asRecord(providerRecord.useFactory as AnalyzerValue);
-            let factoryFn = typeof factoryRecord?.__bunner_factory_code === 'string' ? factoryRecord.__bunner_factory_code : '';
+            let factoryFn = typeof factoryRecord?.__zipbul_factory_code === 'string' ? factoryRecord.__zipbul_factory_code : '';
             const deps =
-              factoryRecord && isAnalyzerValueArray(factoryRecord.__bunner_factory_deps)
-                ? factoryRecord.__bunner_factory_deps
+              factoryRecord && isAnalyzerValueArray(factoryRecord.__zipbul_factory_deps)
+                ? factoryRecord.__zipbul_factory_deps
                 : [];
 
             if (factoryFn.length === 0) {
@@ -302,8 +302,8 @@ export class InjectorGenerator {
             });
 
             const injectCalls =
-              factoryRecord && isAnalyzerValueArray(factoryRecord.__bunner_factory_injects)
-                ? factoryRecord.__bunner_factory_injects
+              factoryRecord && isAnalyzerValueArray(factoryRecord.__zipbul_factory_injects)
+                ? factoryRecord.__zipbul_factory_injects
                 : [];
 
             injectCalls.forEach(injectEntry => {
@@ -319,13 +319,13 @@ export class InjectorGenerator {
               const tokenValue = injectRecord.token;
 
               if (start === null || end === null || tokenKind === 'invalid' || tokenValue === null) {
-                throw new Error('[Bunner AOT] inject() token is not statically determinable.');
+                throw new Error('[Zipbul AOT] inject() token is not statically determinable.');
               }
 
               const tokenName = getRefName(tokenValue);
 
               if (!isNonEmptyString(tokenName)) {
-                throw new Error('[Bunner AOT] inject() token is not statically determinable.');
+                throw new Error('[Zipbul AOT] inject() token is not statically determinable.');
               }
 
               const resolvedToken = graph.resolveToken(node.name, tokenName);
@@ -417,11 +417,11 @@ export class InjectorGenerator {
       dynamicImports.forEach(imp => {
         const impRecord = asRecord(imp);
 
-        if (impRecord === null || typeof impRecord.__bunner_call !== 'string') {
+        if (impRecord === null || typeof impRecord.__zipbul_call !== 'string') {
           return;
         }
 
-        const parts = impRecord.__bunner_call.split('.');
+        const parts = impRecord.__zipbul_call.split('.');
         const className = parts[0];
         const methodName = parts[1];
 
@@ -429,8 +429,8 @@ export class InjectorGenerator {
           return;
         }
 
-        let callExpression = impRecord.__bunner_call;
-        const importSource = asString(impRecord.__bunner_import_source);
+        let callExpression = impRecord.__zipbul_call;
+        const importSource = asString(impRecord.__zipbul_import_source);
 
         if (importSource === undefined) {
           return;
@@ -455,7 +455,7 @@ export class InjectorGenerator {
     });
 
     return `
-import { Container } from "@bunner/core";
+import { Container } from "@zipbul/core";
 
 export function createContainer() {
   const container = new Container();
@@ -500,12 +500,12 @@ ${dynamicEntries.join('\n')}
       return 'undefined';
     }
 
-    if (typeof record.__bunner_ref === 'string' && typeof record.__bunner_import_source === 'string') {
-      return registry.getAlias(record.__bunner_ref, record.__bunner_import_source);
+    if (typeof record.__zipbul_ref === 'string' && typeof record.__zipbul_import_source === 'string') {
+      return registry.getAlias(record.__zipbul_ref, record.__zipbul_import_source);
     }
 
-    if (typeof record.__bunner_call === 'string') {
-      const parts = record.__bunner_call.split('.');
+    if (typeof record.__zipbul_call === 'string') {
+      const parts = record.__zipbul_call.split('.');
       const className = parts[0];
       const methodName = parts[1];
 
@@ -513,8 +513,8 @@ ${dynamicEntries.join('\n')}
         return 'undefined';
       }
 
-      let callName = record.__bunner_call;
-      const importSource = asString(record.__bunner_import_source);
+      let callName = record.__zipbul_call;
+      const importSource = asString(record.__zipbul_import_source);
 
       if (importSource !== undefined) {
         const alias = registry.getAlias(className, importSource);
@@ -533,10 +533,10 @@ ${dynamicEntries.join('\n')}
 
     const entries = Object.entries(record).sort(([a], [b]) => compareCodePoint(a, b));
     const props = entries.map(([key, entryValue]) => {
-      if (key.startsWith('__bunner_computed_')) {
+      if (key.startsWith('__zipbul_computed_')) {
         const computed = asRecord(entryValue) ?? {};
-        const keyContent = this.serializeValue(computed.__bunner_computed_key, registry);
-        const valContent = this.serializeValue(computed.__bunner_computed_value, registry);
+        const keyContent = this.serializeValue(computed.__zipbul_computed_key, registry);
+        const valContent = this.serializeValue(computed.__zipbul_computed_value, registry);
 
         return `[${keyContent}]: ${valContent}`;
       }

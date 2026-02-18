@@ -80,7 +80,7 @@ Rule ID 형식(Rule ID Format) (REQUIRED):
 
 | 입력 종류(Input Kind) | 수집 출처(Collected From) | 허용 형식(Allowed Form) (token) | 리터럴 요구(Must Be Literal) (yes/no) | 해결 가능 요구(Must Be Resolvable) (yes/no) | 정규화 출력(Normalized Output) (none/string-id) |
 | --------------------- | ------------------------- | ------------------------------- | ------------------------------------- | ------------------------------------------- | ----------------------------------------------- |
-| module-fileName       | bunner config (resolved)  | string-literal                  | yes                                   | yes                                         | none                                            |
+| module-fileName       | zipbul config (resolved)  | string-literal                  | yes                                   | yes                                         | none                                            |
 | project-tree          | filesystem                | file-tree                       | no                                    | yes                                         | none                                            |
 
 ### 3.2 정적 데이터 형상(Static Data Shapes) (REQUIRED)
@@ -183,14 +183,14 @@ export type ContractData = {
 
 |                      Rule ID | 위반 조건(Violation Condition)             | Diagnostic Code                   | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ---------------------------: | ------------------------------------------ | --------------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| MODULE-SYSTEM-BOUNDARY-R-001 | invalid module boundary                    | BUNNER_MODULE_SYSTEM_BOUNDARY_001 | error                    | symbol              | static:ast                        |
-| MODULE-SYSTEM-BOUNDARY-R-002 | invalid module fileName                    | BUNNER_MODULE_SYSTEM_BOUNDARY_002 | error                    | file                | static:artifact                   |
-| MODULE-SYSTEM-BOUNDARY-R-003 | module roots not identified                | BUNNER_MODULE_SYSTEM_BOUNDARY_003 | error                    | file                | static:artifact                   |
-| MODULE-SYSTEM-BOUNDARY-R-004 | file attribution ambiguous                 | BUNNER_MODULE_SYSTEM_BOUNDARY_004 | error                    | file                | static:artifact                   |
-| MODULE-SYSTEM-BOUNDARY-R-005 | module id normalization violated           | BUNNER_MODULE_SYSTEM_BOUNDARY_005 | error                    | file                | test:assert                       |
-| MODULE-SYSTEM-BOUNDARY-R-006 | module name not decidable when required    | BUNNER_MODULE_SYSTEM_BOUNDARY_006 | error                    | symbol              | static:ast                        |
-| MODULE-SYSTEM-BOUNDARY-R-007 | runtime module boundary re-evaluated       | BUNNER_MODULE_SYSTEM_BOUNDARY_007 | error                    | range               | runtime:observation               |
-| MODULE-SYSTEM-BOUNDARY-R-008 | file not attributed or multiply attributed | BUNNER_MODULE_SYSTEM_BOUNDARY_008 | error                    | file                | static:artifact                   |
+| MODULE-SYSTEM-BOUNDARY-R-001 | invalid module boundary                    | ZIPBUL_MODULE_SYSTEM_BOUNDARY_001 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-BOUNDARY-R-002 | invalid module fileName                    | ZIPBUL_MODULE_SYSTEM_BOUNDARY_002 | error                    | file                | static:artifact                   |
+| MODULE-SYSTEM-BOUNDARY-R-003 | module roots not identified                | ZIPBUL_MODULE_SYSTEM_BOUNDARY_003 | error                    | file                | static:artifact                   |
+| MODULE-SYSTEM-BOUNDARY-R-004 | file attribution ambiguous                 | ZIPBUL_MODULE_SYSTEM_BOUNDARY_004 | error                    | file                | static:artifact                   |
+| MODULE-SYSTEM-BOUNDARY-R-005 | module id normalization violated           | ZIPBUL_MODULE_SYSTEM_BOUNDARY_005 | error                    | file                | test:assert                       |
+| MODULE-SYSTEM-BOUNDARY-R-006 | module name not decidable when required    | ZIPBUL_MODULE_SYSTEM_BOUNDARY_006 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-BOUNDARY-R-007 | runtime module boundary re-evaluated       | ZIPBUL_MODULE_SYSTEM_BOUNDARY_007 | error                    | range               | runtime:observation               |
+| MODULE-SYSTEM-BOUNDARY-R-008 | file not attributed or multiply attributed | ZIPBUL_MODULE_SYSTEM_BOUNDARY_008 | error                    | file                | static:artifact                   |
 
 ---
 

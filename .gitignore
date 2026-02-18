@@ -2,18 +2,15 @@ node_modules
 dist
 bun.lock
 **/bench/**/results
-# Ignore bunner internal directory by default
-**/.bunner/
+# Ignore zipbul internal directory by default
+**/.zipbul/
 
 # Track cards SSOT only
-!.bunner/
-!.bunner/cards/
-!.bunner/cards/**
+!.zipbul/
+!.zipbul/cards/
+!.zipbul/cards/**
 
 # Keep derived/index artifacts ignored
-.bunner/cache/
-.bunner/build/
+.zipbul/cache/
+.zipbul/build/
 .lsmcp/cache
-**/.firebat/**
-.volumes
-.env

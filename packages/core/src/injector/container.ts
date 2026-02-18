@@ -1,6 +1,6 @@
 import type {
-  BunnerContainer,
-  BunnerFactory,
+  ZipbulContainer,
+  ZipbulFactory,
   Class,
   Provider,
   ProviderToken,
@@ -8,7 +8,7 @@ import type {
   ProviderUseExisting,
   ProviderUseFactory,
   ProviderUseValue,
-} from '@bunner/common';
+} from '@zipbul/common';
 
 import type {
   ContainerValue,
@@ -23,7 +23,7 @@ import type {
 
 import { getRuntimeContext } from '../runtime/runtime-context';
 
-export class Container implements BunnerContainer {
+export class Container implements ZipbulContainer {
   private factories = new Map<Token, FactoryFn>();
   private instances = new Map<Token, ContainerValue>();
 
@@ -33,9 +33,9 @@ export class Container implements BunnerContainer {
     }
   }
 
-  set<TValue extends ContainerValue = ContainerValue>(token: Token, factory: BunnerFactory<TValue>): void;
+  set<TValue extends ContainerValue = ContainerValue>(token: Token, factory: ZipbulFactory<TValue>): void;
   set(token: Token, factory: FactoryFn): void;
-  set<TValue extends ContainerValue = ContainerValue>(token: Token, factory: BunnerFactory<TValue> | FactoryFn): void {
+  set<TValue extends ContainerValue = ContainerValue>(token: Token, factory: ZipbulFactory<TValue> | FactoryFn): void {
     const wrapped: FactoryFn = c => factory(c);
 
     this.factories.set(token, wrapped);
@@ -211,8 +211,8 @@ export class Container implements BunnerContainer {
     }
 
     if (this.isTokenRecord(token)) {
-      const ref = token.__bunner_ref;
-      const forwardRef = token.__bunner_forward_ref;
+      const ref = token.__zipbul_ref;
+      const forwardRef = token.__zipbul_forward_ref;
 
       if (typeof ref === 'string') {
         return ref;
@@ -275,11 +275,11 @@ export class Container implements BunnerContainer {
       return false;
     }
 
-    if ('__bunner_ref' in value && typeof value.__bunner_ref === 'string') {
+    if ('__zipbul_ref' in value && typeof value.__zipbul_ref === 'string') {
       return true;
     }
 
-    if ('__bunner_forward_ref' in value && typeof value.__bunner_forward_ref === 'string') {
+    if ('__zipbul_forward_ref' in value && typeof value.__zipbul_forward_ref === 'string') {
       return true;
     }
 
@@ -295,12 +295,12 @@ export class Container implements BunnerContainer {
       return token;
     }
 
-    if (typeof token.__bunner_ref === 'string') {
-      return token.__bunner_ref;
+    if (typeof token.__zipbul_ref === 'string') {
+      return token.__zipbul_ref;
     }
 
-    if (typeof token.__bunner_forward_ref === 'string') {
-      return token.__bunner_forward_ref;
+    if (typeof token.__zipbul_forward_ref === 'string') {
+      return token.__zipbul_forward_ref;
     }
 
     return token;

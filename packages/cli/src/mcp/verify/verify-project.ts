@@ -1,10 +1,10 @@
-import type { ResolvedBunnerConfig } from '../../config';
+import type { ResolvedZipbulConfig } from '../../config';
 
 import { join } from 'path';
 import { mkdir } from 'node:fs/promises';
 
-import { bunnerCardsGlobRel } from '../../common';
-import { bunnerCacheFilePath } from '../../common/bunner-paths';
+import { zipbulCardsGlobRel } from '../../common';
+import { zipbulCacheDirPath, zipbulCacheFilePath } from '../../common/zipbul-paths';
 import { closeDb, createDb, keyword, tag } from '../../store';
 
 import { readCardFile } from '../card/card-fs';
@@ -35,7 +35,7 @@ export interface VerifyIssue {
 
 export interface VerifyProjectInput {
   projectRoot: string;
-  config: ResolvedBunnerConfig;
+  config: ResolvedZipbulConfig;
 }
 
 export interface VerifyProjectResult {
@@ -53,8 +53,8 @@ function normalizeLowerSet(items: string[]): Set<string> {
 }
 
 async function loadRegisteredClassification(projectRoot: string): Promise<{ keywords: Set<string>; tags: Set<string> }> {
-  const dbPath = bunnerCacheFilePath(projectRoot, 'index.sqlite');
-  await mkdir(join(projectRoot, '.bunner', 'cache'), { recursive: true });
+  const dbPath = zipbulCacheFilePath(projectRoot, 'index.sqlite');
+  await mkdir(zipbulCacheDirPath(projectRoot), { recursive: true });
 
   const db = createDb(dbPath);
   try {
@@ -121,7 +121,7 @@ export async function verifyProject(input: VerifyProjectInput): Promise<VerifyPr
 
   const registered = await loadRegisteredClassification(projectRoot);
 
-  const cardPathsRel = (await scanGlobRel(projectRoot, bunnerCardsGlobRel())).filter((p) => !excludeSet.has(p));
+  const cardPathsRel = (await scanGlobRel(projectRoot, zipbulCardsGlobRel())).filter((p) => !excludeSet.has(p));
   const codePathsRel = (await scanGlobRel(projectRoot, `${sourceDirRel}/**/*.ts`)).filter((p) => !excludeSet.has(p));
 
   const errors: VerifyIssue[] = [];

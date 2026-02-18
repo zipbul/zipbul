@@ -22,5 +22,5 @@
     "noImplicitOverride": true,
     "verbatimModuleSyntax": true
   },
-  "exclude": ["**/dist/**", "**/.bunner/**"]
+  "exclude": ["**/dist/**", "**/.zipbul/**"]
 }

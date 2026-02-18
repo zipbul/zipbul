@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { cardPathFromFullKey, normalizeSlug, parseFullKey } from './card-key';
-import { bunnerCardMarkdownPath } from '../../common/bunner-paths';
+import { zipbulCardMarkdownPath } from '../../common/zipbul-paths';
 
 describe('mcp/card — card key', () => {
   it('normalizes slug by trimming slashes and backslashes', () => {
@@ -50,10 +50,10 @@ describe('mcp/card — card key', () => {
     expect(() => parseFullKey('auth/../login')).toThrow();
   });
 
-  it('maps key to .bunner/cards path', () => {
+  it('maps key to .zipbul/cards path', () => {
     const root = '/repo';
-    expect(cardPathFromFullKey(root, 'auth/login')).toBe(bunnerCardMarkdownPath(root, 'auth/login'));
-    expect(cardPathFromFullKey(root, 'auth')).toBe(bunnerCardMarkdownPath(root, 'auth'));
-    expect(cardPathFromFullKey(root, '/auth/login/')).toBe(bunnerCardMarkdownPath(root, 'auth/login'));
+    expect(cardPathFromFullKey(root, 'auth/login')).toBe(zipbulCardMarkdownPath(root, 'auth/login'));
+    expect(cardPathFromFullKey(root, 'auth')).toBe(zipbulCardMarkdownPath(root, 'auth'));
+    expect(cardPathFromFullKey(root, '/auth/login/')).toBe(zipbulCardMarkdownPath(root, 'auth/login'));
   });
 });

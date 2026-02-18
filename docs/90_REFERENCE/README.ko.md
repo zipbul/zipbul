@@ -1,4 +1,4 @@
-# Bunner
+# Zipbul
 
 한국어 | **[English](../../README.md)**
 
@@ -8,9 +8,9 @@ AOT(Ahead-of-Time) 컴파일을 지원하는 초고속 Bun 네이티브 웹 서�
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-blue?logo=typescript)](https://www.typescriptlang.org/)
 
-## 왜 Bunner인가?
+## 왜 Zipbul인가?
 
-Bunner는 Bun의 성능을 최대한 활용하면서 친숙한 NestJS 스타일의 개발 경험을 제공하도록 처음부터 설계되었습니다. 런타임 리플렉션에 의존하는 기존 Node.js 프레임워크와 달리, Bunner는 **AOT(Ahead-of-Time) 컴파일**을 사용하여 빌드 시점에 애플리케이션을 분석합니다:
+Zipbul는 Bun의 성능을 최대한 활용하면서 친숙한 NestJS 스타일의 개발 경험을 제공하도록 처음부터 설계되었습니다. 런타임 리플렉션에 의존하는 기존 Node.js 프레임워크와 달리, Zipbul는 **AOT(Ahead-of-Time) 컴파일**을 사용하여 빌드 시점에 애플리케이션을 분석합니다:
 
 - ⚡ **빠른 시작 시간** — 런타임 메타데이터 스캔 없음
 - 🛡️ **컴파일 타임 검증** — 런타임 전에 의존성 주입 오류 감지
@@ -44,20 +44,20 @@ mkdir my-app && cd my-app
 bun init
 ```
 
-### 2. Bunner 패키지 설치
+### 2. Zipbul 패키지 설치
 
 ```bash
-bun add @bunner/core @bunner/common @bunner/http-adapter @bunner/cli
+bun add @zipbul/core @zipbul/common @zipbul/http-adapter @zipbul/cli
 ```
 
 ### 3. 모듈 생성
 
 ```typescript
 // src/__module__.ts
-import type { BunnerModule } from '@bunner/common';
+import type { ZipbulModule } from '@zipbul/common';
 import { UserService } from './user.service';
 
-export const module: BunnerModule = {
+export const module: ZipbulModule = {
   name: 'AppModule',
   providers: [UserService],
 };
@@ -67,14 +67,14 @@ export const module: BunnerModule = {
 
 ```typescript
 // src/main.ts
-import { bootstrapApplication } from '@bunner/core';
-import { bunnerHttpAdapter } from '@bunner/http-adapter';
+import { bootstrapApplication } from '@zipbul/core';
+import { zipbulHttpAdapter } from '@zipbul/http-adapter';
 import { module } from './__module__';
 
 await bootstrapApplication(module, {
   name: 'my-app',
   adapters: [
-    bunnerHttpAdapter(() => ({
+    zipbulHttpAdapter(() => ({
       name: 'http-server',
       port: 3000,
     })),
@@ -85,20 +85,20 @@ await bootstrapApplication(module, {
 ### 5. 개발 서버 실행
 
 ```bash
-bunner dev
-bun .bunner/index.ts
+zp dev
+bun .zipbul/index.ts
 ```
 
 ## 패키지
 
 | 패키지                                          | 설명                                                           |
 | ----------------------------------------------- | -------------------------------------------------------------- |
-| [@bunner/cli](./packages/cli)                   | AOT 컴파일 및 개발을 위한 CLI 도구                             |
-| [@bunner/core](./packages/core)                 | DI 컨테이너와 애플리케이션 부트스트랩을 포함한 코어 프레임워크 |
-| [@bunner/common](./packages/common)             | 공유 인터페이스, 데코레이터, 유틸리티                          |
-| [@bunner/http-adapter](./packages/http-adapter) | 라우팅과 미들웨어를 지원하는 HTTP 서버 어댑터                  |
-| [@bunner/logger](./packages/logger)             | 구조화된 로깅 유틸리티                                         |
-| [@bunner/scalar](./packages/scalar)             | Scalar UI를 활용한 OpenAPI 문서                                |
+| [@zipbul/cli](./packages/cli)                   | AOT 컴파일 및 개발을 위한 CLI 도구                             |
+| [@zipbul/core](./packages/core)                 | DI 컨테이너와 애플리케이션 부트스트랩을 포함한 코어 프레임워크 |
+| [@zipbul/common](./packages/common)             | 공유 인터페이스, 데코레이터, 유틸리티                          |
+| [@zipbul/http-adapter](./packages/http-adapter) | 라우팅과 미들웨어를 지원하는 HTTP 서버 어댑터                  |
+| [@zipbul/logger](./packages/logger)             | 구조화된 로깅 유틸리티                                         |
+| [@zipbul/scalar](./packages/scalar)             | Scalar UI를 활용한 OpenAPI 문서                                |
 
 ## 프로젝트 구조
 
@@ -114,23 +114,23 @@ my-app/
 │   └── posts/
 │       ├── __module__.ts    # Posts 기능 모듈
 │       └── ...
-├── .bunner/                  # 생성된 AOT 아티팩트 (개발)
+├── .zipbul/                  # 생성된 AOT 아티팩트 (개발)
 ├── dist/                     # 프로덕션 빌드 출력
-├── bunner.config.ts          # CLI 설정
+├── zipbul.config.ts          # CLI 설정
 └── package.json
 ```
 
 ## 모듈 시스템
 
-Bunner는 `__module__.ts` 파일 기반의 모듈 시스템을 사용합니다:
+Zipbul는 `__module__.ts` 파일 기반의 모듈 시스템을 사용합니다:
 
 ```typescript
 // src/users/__module__.ts
-import type { BunnerModule } from '@bunner/common';
+import type { ZipbulModule } from '@zipbul/common';
 import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 
-export const module: BunnerModule = {
+export const module: ZipbulModule = {
   name: 'UsersModule',
   providers: [UsersService, UsersController],
 };

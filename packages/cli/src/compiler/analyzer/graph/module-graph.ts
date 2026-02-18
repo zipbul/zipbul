@@ -66,7 +66,7 @@ export class ModuleGraph {
       const sortedOrphans = Array.from(orphans.values()).sort(compareCodePoint);
       const summary = sortedOrphans.join('\n');
 
-      throw new Error(`[Bunner AOT] Orphan files detected:\n${summary}`);
+      throw new Error(`[Zipbul AOT] Orphan files detected:\n${summary}`);
     }
 
     const moduleEntries = Array.from(moduleMap.entries()).sort(([a], [b]) => compareCodePoint(a, b));
@@ -82,22 +82,22 @@ export class ModuleGraph {
         const defineModuleCalls = moduleFile.defineModuleCalls ?? [];
 
         if (defineModuleCalls.length === 0) {
-          throw new Error(`[Bunner AOT] Missing defineModule call in module file (${modulePath}).`);
+          throw new Error(`[Zipbul AOT] Missing defineModule call in module file (${modulePath}).`);
         }
 
         if (defineModuleCalls.length > 1) {
-          throw new Error(`[Bunner AOT] Multiple defineModule calls in module file (${modulePath}).`);
+          throw new Error(`[Zipbul AOT] Multiple defineModule calls in module file (${modulePath}).`);
         }
 
         const exportedCall = defineModuleCalls.find(call => typeof call.exportedName === 'string');
 
         if (!exportedCall) {
-          throw new Error(`[Bunner AOT] Module marker must be exported from module file (${modulePath}).`);
+          throw new Error(`[Zipbul AOT] Module marker must be exported from module file (${modulePath}).`);
         }
       }
 
       if (rawDef?.nameDeclared === true && !isNonEmptyString(rawDef.name)) {
-        throw new Error(`[Bunner AOT] Module name must be a statically determinable string literal (${modulePath}).`);
+        throw new Error(`[Zipbul AOT] Module name must be a statically determinable string literal (${modulePath}).`);
       }
 
       if (!moduleFile) {
@@ -178,8 +178,8 @@ export class ModuleGraph {
         rawDef.providers.forEach((p: ProviderTokenValue) => {
           const record = this.asRecord(p);
 
-          if (record && typeof record.__bunner_spread === 'string') {
-            node.dynamicProviderBundles.add(record.__bunner_spread);
+          if (record && typeof record.__zipbul_spread === 'string') {
+            node.dynamicProviderBundles.add(record.__zipbul_spread);
 
             return;
           }
@@ -188,7 +188,7 @@ export class ModuleGraph {
 
           if (node.providers.has(ref.token) && !this.isImplicit(node.providers.get(ref.token))) {
             throw new Error(
-              `[Bunner AOT] Ambiguous provider '${ref.token}' in module '${node.name}' (${node.filePath}). Duplicate explicit definition.`,
+              `[Zipbul AOT] Ambiguous provider '${ref.token}' in module '${node.name}' (${node.filePath}). Duplicate explicit definition.`,
             );
           }
 
@@ -198,7 +198,7 @@ export class ModuleGraph {
             if (this.isImplicit(prev)) {
               const metaRecord = this.asRecord(ref.metadata);
 
-              if (metaRecord && typeof metaRecord.__bunner_ref === 'string') {
+              if (metaRecord && typeof metaRecord.__zipbul_ref === 'string') {
                 const prevMeta = prev?.metadata;
                 const prevFilePath = prev?.filePath;
                 const prevScope = prev?.scope;
@@ -240,7 +240,7 @@ export class ModuleGraph {
     if (cycles.length > 0) {
       const summary = cycles.map(c => c.path.join(' -> ')).join('\n');
 
-      throw new Error(`[Bunner AOT] Circular dependency detected:\n${summary}`);
+      throw new Error(`[Zipbul AOT] Circular dependency detected:\n${summary}`);
     }
 
     return this.modules;
@@ -396,7 +396,7 @@ export class ModuleGraph {
 
           if (sourceScope === 'singleton' && targetScope === 'request') {
             throw new Error(
-              `[Bunner AOT] Scope Violation: Singleton '${provider.token}' cannot inject Request-Scoped '${depToken}'.`,
+              `[Zipbul AOT] Scope Violation: Singleton '${provider.token}' cannot inject Request-Scoped '${depToken}'.`,
             );
           }
         });
@@ -427,7 +427,7 @@ export class ModuleGraph {
 
     if (targetProvider.visibility === 'module') {
       throw new Error(
-        `[Bunner AOT] Visibility Violation: '${sourceLabel}' in module '${node.name}' tries to inject '${depToken}' from '${targetModule.name}', but it is module-only.`,
+        `[Zipbul AOT] Visibility Violation: '${sourceLabel}' in module '${node.name}' tries to inject '${depToken}' from '${targetModule.name}', but it is module-only.`,
       );
     }
 
@@ -435,7 +435,7 @@ export class ModuleGraph {
 
     if (!allowlist.includes(node.name)) {
       throw new Error(
-        `[Bunner AOT] Visibility Violation: '${sourceLabel}' in module '${node.name}' tries to inject '${depToken}' from '${targetModule.name}', but it is not allowlisted.`,
+        `[Zipbul AOT] Visibility Violation: '${sourceLabel}' in module '${node.name}' tries to inject '${depToken}' from '${targetModule.name}', but it is not allowlisted.`,
       );
     }
   }
@@ -487,8 +487,8 @@ export class ModuleGraph {
       token = this.extractTokenName(record.provide);
     } else if (typeof p === 'function') {
       token = p.name;
-    } else if (record && typeof record.__bunner_ref === 'string') {
-      token = record.__bunner_ref;
+    } else if (record && typeof record.__zipbul_ref === 'string') {
+      token = record.__zipbul_ref;
     }
 
     const metadata = this.isClassMetadata(p) ? p : (record ?? undefined);
@@ -517,8 +517,8 @@ export class ModuleGraph {
 
     const record = this.asRecord(t);
 
-    if (record && typeof record.__bunner_ref === 'string') {
-      return record.__bunner_ref;
+    if (record && typeof record.__zipbul_ref === 'string') {
+      return record.__zipbul_ref;
     }
 
     return 'UNKNOWN';
@@ -620,17 +620,17 @@ export class ModuleGraph {
         return { kind: 'module' };
       }
 
-      throw new Error(`[Bunner AOT] Invalid Injectable visibleTo value: '${visibleTo}'.`);
+      throw new Error(`[Zipbul AOT] Invalid Injectable visibleTo value: '${visibleTo}'.`);
     }
 
     const arrayValue = isAnalyzerValueArray(visibleTo) ? visibleTo : null;
 
     if (arrayValue === null) {
-      throw new Error('[Bunner AOT] Injectable visibleTo must be "all", "module", or ModuleMarkerList.');
+      throw new Error('[Zipbul AOT] Injectable visibleTo must be "all", "module", or ModuleMarkerList.');
     }
 
     if (arrayValue.length === 0) {
-      throw new Error('[Bunner AOT] Injectable visibleTo allowlist must not be empty.');
+      throw new Error('[Zipbul AOT] Injectable visibleTo allowlist must not be empty.');
     }
 
     const resolved = arrayValue
@@ -638,7 +638,7 @@ export class ModuleGraph {
       .filter((value): value is string => typeof value === 'string');
 
     if (resolved.length !== arrayValue.length) {
-      throw new Error('[Bunner AOT] Injectable visibleTo contains non-determinable module markers.');
+      throw new Error('[Zipbul AOT] Injectable visibleTo contains non-determinable module markers.');
     }
 
     const unique = Array.from(new Set(resolved)).sort(compareCodePoint);
@@ -661,7 +661,7 @@ export class ModuleGraph {
       return 'request';
     }
 
-    throw new Error(`[Bunner AOT] Invalid provider scope '${raw}'.`);
+    throw new Error(`[Zipbul AOT] Invalid provider scope '${raw}'.`);
   }
 
   private collectModuleNames(moduleEntries: Array<[string, Set<string>]>): Map<string, string> {
@@ -724,12 +724,12 @@ export class ModuleGraph {
   private resolveModuleMarker(token: AnalyzerValue, modulePath: string, moduleName: string): string | null {
     const record = this.asRecord(token);
 
-    if (!record || typeof record.__bunner_ref !== 'string') {
+    if (!record || typeof record.__zipbul_ref !== 'string') {
       return null;
     }
 
-    const refName = record.__bunner_ref;
-    const importSource = typeof record.__bunner_import_source === 'string' ? record.__bunner_import_source : undefined;
+    const refName = record.__zipbul_ref;
+    const importSource = typeof record.__zipbul_import_source === 'string' ? record.__zipbul_import_source : undefined;
     const targetModulePath = this.resolveModulePath(importSource) ?? modulePath;
     const exports = this.moduleMarkerExports.get(targetModulePath);
 
@@ -759,17 +759,17 @@ export class ModuleGraph {
 
     injectCalls.forEach(call => {
       if (call.tokenKind === 'invalid') {
-        throw new Error('[Bunner AOT] inject() token is not statically determinable.');
+        throw new Error('[Zipbul AOT] inject() token is not statically determinable.');
       }
 
       if (call.token === null) {
-        throw new Error('[Bunner AOT] inject() token is not statically determinable.');
+        throw new Error('[Zipbul AOT] inject() token is not statically determinable.');
       }
 
       const tokenName = this.extractTokenName(call.token);
 
       if (!tokenName || tokenName === 'UNKNOWN') {
-        throw new Error('[Bunner AOT] inject() token is not statically determinable.');
+        throw new Error('[Zipbul AOT] inject() token is not statically determinable.');
       }
 
       deps.push(tokenName);

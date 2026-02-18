@@ -46,7 +46,7 @@ Rule ID 형식(Rule ID Format) (REQUIRED):
 
 | Item                         |
 | ---------------------------- |
-| bunner config 로딩 경계      |
+| zipbul config 로딩 경계      |
 | 프로젝트 루트 판정 최소 조건 |
 | AOT 입력 결정성 정의         |
 | 산출물 루트 디렉토리 위치    |
@@ -88,7 +88,7 @@ Normative: 본 SPEC은 추가적인 용어 정의를 도입하지 않는다.
 
 | 입력 종류(Input Kind) | 수집 출처(Collected From) | 허용 형식(Allowed Form) (token) | 리터럴 요구(Must Be Literal) (yes/no) | 해결 가능 요구(Must Be Resolvable) (yes/no) | 정규화 출력(Normalized Output) (none/string-id) |
 | --------------------- | ------------------------- | ------------------------------- | ------------------------------------- | ------------------------------------------- | ----------------------------------------------- |
-| bunner-config         | project root              | path-string                     | yes                                   | yes                                         | none                                            |
+| zipbul-config         | project root              | path-string                     | yes                                   | yes                                         | none                                            |
 | build-profile         | build invocation          | string-literal                  | yes                                   | yes                                         | none                                            |
 | project-fs-state      | filesystem snapshot       | digest-string                   | yes                                   | yes                                         | none                                            |
 | project-root          | filesystem                | path-string                     | yes                                   | yes                                         | none                                            |
@@ -98,26 +98,26 @@ Normative: 본 SPEC은 추가적인 용어 정의를 도입하지 않는다.
 ```ts
 export type BuildProfile = 'minimal' | 'standard' | 'full';
 
-export type ResolvedBunnerConfigModule = {
+export type ResolvedZipbulConfigModule = {
   fileName: string;
 };
 
-export type ResolvedBunnerConfig = {
-  module: ResolvedBunnerConfigModule;
+export type ResolvedZipbulConfig = {
+  module: ResolvedZipbulConfigModule;
   sourceDir: string;
   entry: string;
 };
 
-export type BunnerConfigSourceFormat = 'json' | 'jsonc';
+export type ZipbulConfigSourceFormat = 'json' | 'jsonc';
 
-export type BunnerConfigSource = {
+export type ZipbulConfigSource = {
   path: string;
-  format: BunnerConfigSourceFormat;
+  format: ZipbulConfigSourceFormat;
 };
 
 export type AotAstContractData = {
-  configSource: BunnerConfigSource;
-  resolvedConfig: ResolvedBunnerConfig;
+  configSource: ZipbulConfigSource;
+  resolvedConfig: ResolvedZipbulConfig;
   effectiveBuildProfile: BuildProfile;
   projectFsStateDigest: string;
   projectRootDir: string;
@@ -132,17 +132,17 @@ export type AotAstContractData = {
 
 | Rule ID | 생명주기(Lifecycle) (token) | 키워드(Keyword) | 타깃(Targets) (token list) | 타깃 참조(Target Ref(s)) | 조건(Condition) (boolean, declarative) | 강제 레벨(Enforced Level) (token) |
 | --- | --- | --- | --- | --- | --- | --- |
-| AOT-AST-R-001 | active | MUST | inputs | InputKind:bunner-config | bunner config is loaded at build time | build |
-| AOT-AST-R-002 | active | MUST | shapes, outcomes | Shape:local:AotAstContractData, Shape:local:ResolvedBunnerConfig, Shape:local:ResolvedBunnerConfigModule, Outcome:OUT-002 | resolved bunner config contains module.fileName, sourceDir, entry; no default is assumed when missing; entry is within sourceDir | build |
+| AOT-AST-R-001 | active | MUST | inputs | InputKind:zipbul-config | zipbul config is loaded at build time | build |
+| AOT-AST-R-002 | active | MUST | shapes, outcomes | Shape:local:AotAstContractData, Shape:local:ResolvedZipbulConfig, Shape:local:ResolvedZipbulConfigModule, Outcome:OUT-002 | resolved zipbul config contains module.fileName, sourceDir, entry; no default is assumed when missing; entry is within sourceDir | build |
 | AOT-AST-R-003 | active | MUST | inputs, shapes, outcomes | InputKind:build-profile, Shape:local:BuildProfile, Outcome:OUT-003 | effective build profile is decidable and equals build invocation override when present | build |
 | AOT-AST-R-004 | active | MUST | outcomes | Outcome:OUT-004 | build profile selects the produced artifact set: minimal=manifest; standard=manifest+interface catalog; full=manifest+interface catalog+runtime observation | build |
-| AOT-AST-R-005 | active | MUST | outcomes | Outcome:OUT-005 | outputRootDir is exactly `<PROJECT_ROOT>`/.bunner | build |
+| AOT-AST-R-005 | active | MUST | outcomes | Outcome:OUT-005 | outputRootDir is exactly `<PROJECT_ROOT>`/.zipbul | build |
 | AOT-AST-R-006 | active | MUST | inputs, outcomes | InputKind:project-fs-state, Outcome:OUT-006 | identical (projectFsStateDigest, resolvedConfig, effectiveBuildProfile) yields identical AOT results and produced artifact bytes | test |
 | AOT-AST-R-007 | active | MUST | outcomes | Outcome:OUT-007 | when ambiguity is detected, build stops and emits at least one Diagnostic | build |
 | AOT-AST-R-008 | active | MUST NOT | outcomes | Outcome:OUT-008 | runtime infers or decides structural facts (module boundary, dependency relation, role) | runtime |
 | AOT-AST-R-009 | active | MUST NOT | outcomes | Outcome:OUT-009 | CLI rewrites user function bodies as part of AOT | build |
 | AOT-AST-R-010 | active | MUST NOT | outcomes | Outcome:OUT-010 | static interpretation reads files under node_modules that are not reachable from the project reference graph | build |
-| AOT-AST-R-011 | active | MUST | inputs, outcomes | InputKind:project-root, Outcome:OUT-011 | bunner config source path is exactly `<PROJECT_ROOT>`/bunner.json or `<PROJECT_ROOT>`/bunner.jsonc; if both exist or neither exists, build fails | build |
+| AOT-AST-R-011 | active | MUST | inputs, outcomes | InputKind:project-root, Outcome:OUT-011 | zipbul config source path is exactly `<PROJECT_ROOT>`/zipbul.json or `<PROJECT_ROOT>`/zipbul.jsonc; if both exist or neither exists, build fails | build |
 | AOT-AST-R-012 | active | MUST | outcomes | Outcome:OUT-012 | config source format is json or jsonc; build parses the config file to produce resolvedConfig and does not execute config as code | build |
 
 ---
@@ -193,17 +193,17 @@ export type AotAstContractData = {
 
 | 입력 조건(Input Condition) | Rule ID | 타깃 참조(Target Ref(s)) | Outcome ID | 관측 결과(Observable Outcome) |
 | --- | --- | --- | --- | --- |
-| bunner config required | AOT-AST-R-001 | Artifact:AotAstContract | OUT-001 | bunner config absence causes build failure |
-| resolved config evaluated | AOT-AST-R-002 | Artifact:AotAstContract | OUT-002 | resolved bunner config includes module.fileName, sourceDir, entry and entry is within sourceDir |
+| zipbul config required | AOT-AST-R-001 | Artifact:AotAstContract | OUT-001 | zipbul config absence causes build failure |
+| resolved config evaluated | AOT-AST-R-002 | Artifact:AotAstContract | OUT-002 | resolved zipbul config includes module.fileName, sourceDir, entry and entry is within sourceDir |
 | build profile resolved | AOT-AST-R-003 | Artifact:AotAstContract | OUT-003 | effective build profile is one of minimal/standard/full and respects invocation override |
 | build executed | AOT-AST-R-004 | Artifact:AotAstContract | OUT-004 | artifact set matches effective build profile |
-| artifacts written | AOT-AST-R-005 | Artifact:AotAstContract | OUT-005 | output root directory equals `<PROJECT_ROOT>`/.bunner |
+| artifacts written | AOT-AST-R-005 | Artifact:AotAstContract | OUT-005 | output root directory equals `<PROJECT_ROOT>`/.zipbul |
 | two identical builds | AOT-AST-R-006 | Artifact:AotAstContract | OUT-006 | produced artifacts are byte-identical for identical determinism inputs |
 | ambiguity detected | AOT-AST-R-007 | Artifact:Diagnostic | OUT-007 | build stops and emits at least one diagnostic |
 | runtime executes | AOT-AST-R-008 | Outcome:OUT-008 | OUT-008 | structural inference is not observed at runtime |
 | build executed | AOT-AST-R-009 | Outcome:OUT-009 | OUT-009 | no source rewriting artifact is produced |
 | build executed | AOT-AST-R-010 | Outcome:OUT-010 | OUT-010 | file reads under node_modules are limited to reachable reference graph |
-| config source selected | AOT-AST-R-011 | Artifact:AotAstContract | OUT-011 | config source path is bunner.json or bunner.jsonc under project root |
+| config source selected | AOT-AST-R-011 | Artifact:AotAstContract | OUT-011 | config source path is zipbul.json or zipbul.jsonc under project root |
 | config parsed | AOT-AST-R-012 | Artifact:AotAstContract | OUT-012 | resolvedConfig is produced by parsing json/jsonc and no config code execution is observed |
 
 ### 6.2 State Conditions
@@ -218,18 +218,18 @@ export type AotAstContractData = {
 
 | Rule ID | 위반 조건(Violation Condition) | Diagnostic Code | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | --- | --- | --- | --- | --- | --- |
-| AOT-AST-R-001 | bunner config missing but build succeeds | BUNNER_AOT_AST_001 | error | file | static:artifact |
-| AOT-AST-R-002 | resolved config missing module.fileName/sourceDir/entry or entry is not within sourceDir or default applied | BUNNER_AOT_AST_002 | error | file | static:artifact |
-| AOT-AST-R-003 | effective build profile not decidable or invalid | BUNNER_AOT_AST_003 | error | file | static:artifact |
-| AOT-AST-R-004 | artifact set does not match effective build profile | BUNNER_AOT_AST_004 | error | file | static:artifact |
-| AOT-AST-R-005 | outputRootDir not equal to `<PROJECT_ROOT>`/.bunner | BUNNER_AOT_AST_005 | error | file | static:artifact |
-| AOT-AST-R-006 | non-deterministic output observed for identical determinism input | BUNNER_AOT_AST_006 | error | file | test:assert |
-| AOT-AST-R-007 | ambiguity detected but build continues or emits no diagnostics | BUNNER_AOT_AST_007 | error | file | static:artifact |
-| AOT-AST-R-008 | runtime structural inference observed | BUNNER_AOT_AST_008 | error | range | runtime:observation |
-| AOT-AST-R-009 | source rewriting observed | BUNNER_AOT_AST_009 | error | file | static:artifact |
-| AOT-AST-R-010 | unreachable node_modules file read observed | BUNNER_AOT_AST_010 | error | file | static:artifact |
-| AOT-AST-R-011 | bunner config source path is invalid or missing | BUNNER_AOT_AST_011 | error | file | static:artifact |
-| AOT-AST-R-012 | config parsing/no-execution contract violated | BUNNER_AOT_AST_012 | error | file | static:artifact |
+| AOT-AST-R-001 | zipbul config missing but build succeeds | ZIPBUL_AOT_AST_001 | error | file | static:artifact |
+| AOT-AST-R-002 | resolved config missing module.fileName/sourceDir/entry or entry is not within sourceDir or default applied | ZIPBUL_AOT_AST_002 | error | file | static:artifact |
+| AOT-AST-R-003 | effective build profile not decidable or invalid | ZIPBUL_AOT_AST_003 | error | file | static:artifact |
+| AOT-AST-R-004 | artifact set does not match effective build profile | ZIPBUL_AOT_AST_004 | error | file | static:artifact |
+| AOT-AST-R-005 | outputRootDir not equal to `<PROJECT_ROOT>`/.zipbul | ZIPBUL_AOT_AST_005 | error | file | static:artifact |
+| AOT-AST-R-006 | non-deterministic output observed for identical determinism input | ZIPBUL_AOT_AST_006 | error | file | test:assert |
+| AOT-AST-R-007 | ambiguity detected but build continues or emits no diagnostics | ZIPBUL_AOT_AST_007 | error | file | static:artifact |
+| AOT-AST-R-008 | runtime structural inference observed | ZIPBUL_AOT_AST_008 | error | range | runtime:observation |
+| AOT-AST-R-009 | source rewriting observed | ZIPBUL_AOT_AST_009 | error | file | static:artifact |
+| AOT-AST-R-010 | unreachable node_modules file read observed | ZIPBUL_AOT_AST_010 | error | file | static:artifact |
+| AOT-AST-R-011 | zipbul config source path is invalid or missing | ZIPBUL_AOT_AST_011 | error | file | static:artifact |
+| AOT-AST-R-012 | config parsing/no-execution contract violated | ZIPBUL_AOT_AST_012 | error | file | static:artifact |
 
 ---
 
@@ -246,7 +246,7 @@ export type AotAstContractData = {
 
 | From                   | To Document                                           |
 | ---------------------- | ----------------------------------------------------- |
-| resolved bunner config | path:docs/30_SPEC/module-system/module-system.spec.md |
+| resolved zipbul config | path:docs/30_SPEC/module-system/module-system.spec.md |
 
 ---
 

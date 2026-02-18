@@ -5,34 +5,55 @@ import { join } from 'node:path';
 
 import { buildDiagnostic, reportDiagnostics } from '../diagnostics';
 import { ConfigLoader } from '../config';
-import type { ResolvedBunnerConfig } from '../config';
-import { bunnerCacheDirPath } from '../common/bunner-paths';
+import type { ResolvedZipbulConfig } from '../config';
+import { zipbulCacheDirPath } from '../common/zipbul-paths';
 import { indexProject } from '../mcp/index/index-project';
 import { verifyProject } from '../mcp/verify/verify-project';
-import { startBunnerMcpServerStdio } from '../mcp/server/mcp-server';
+import { startZipbulMcpServerStdio } from '../mcp/server/mcp-server';
 import { closeDb, createDb } from '../store/connection';
 import { OwnerElection } from '../watcher/owner-election';
 import { emitReindexSignal } from '../watcher/reindex-signal';
 
 export interface McpCommandDeps {
-  loadConfig: (projectRoot: string) => Promise<{ config: ResolvedBunnerConfig }>;
+  loadConfig: (projectRoot: string) => Promise<{ config: ResolvedZipbulConfig }>;
   ensureRepo: (projectRoot: string) => Promise<void>;
-  verifyProject: (input: { projectRoot: string; config: ResolvedBunnerConfig }) => Promise<{ ok: boolean; errors: any[]; warnings: any[] }>; 
-  rebuildProjectIndex: (input: { projectRoot: string; config: ResolvedBunnerConfig; mode: 'incremental' | 'full' }) => Promise<{ ok: boolean }>;
-  startServer: (projectRoot: string, config: ResolvedBunnerConfig) => Promise<void>;
+  verifyProject: (input: { projectRoot: string; config: ResolvedZipbulConfig }) => Promise<{ ok: boolean; errors: any[]; warnings: any[] }>;
+  rebuildProjectIndex: (input: { projectRoot: string; config: ResolvedZipbulConfig; mode: 'incremental' | 'full' }) => Promise<{ ok: boolean }>;
+  startServer: (projectRoot: string, config: ResolvedZipbulConfig) => Promise<void>;
   reportInvalidSubcommand: (value: string | undefined) => void;
 }
 
-async function ensureRepoDefault(projectRoot: string): Promise<void> {
-  // Ensure required .bunner structure exists.
-  const bunnerDir = join(projectRoot, '.bunner');
-  await mkdir(join(bunnerDir, 'cards'), { recursive: true });
-  await mkdir(join(bunnerDir, 'build'), { recursive: true });
-  await mkdir(join(bunnerDir, 'cache'), { recursive: true });
+type VerifyLikeIssue = {
+  severity: 'error' | 'warning';
+  code: string;
+  message: string;
+  filePath?: string;
+};
 
-  // Ensure .bunner/cache is gitignored.
+function reportVerifyDiagnostics(result: { errors: VerifyLikeIssue[]; warnings: VerifyLikeIssue[] }): void {
+  const diagnostics = [...result.errors, ...result.warnings].map((issue) => {
+    const severity = issue.severity === 'warning' ? 'warning' : 'error';
+    const file = issue.filePath ?? '.';
+    const code = `MCP_VERIFY_${issue.code}`;
+    const summary = issue.message;
+    const reason = issue.message;
+    return buildDiagnostic({ code, severity, summary, reason, file });
+  });
+
+  if (diagnostics.length === 0) return;
+  reportDiagnostics({ diagnostics });
+}
+
+async function ensureRepoDefault(projectRoot: string): Promise<void> {
+  // Ensure required .zipbul structure exists.
+  const zipbulDir = join(projectRoot, '.zipbul');
+  await mkdir(join(zipbulDir, 'cards'), { recursive: true });
+  await mkdir(join(zipbulDir, 'build'), { recursive: true });
+  await mkdir(join(zipbulDir, 'cache'), { recursive: true });
+
+  // Ensure .zipbul/cache is gitignored.
   const gitignorePath = join(projectRoot, '.gitignore');
-  const requiredLine = `${join('.bunner', 'cache').replaceAll('\\', '/')}/`;
+  const requiredLine = `${join('.zipbul', 'cache').replaceAll('\\', '/')}/`;
   const exists = await Bun.file(gitignorePath).exists();
   const current = exists ? await Bun.file(gitignorePath).text() : '';
   const lines = current.split(/\r?\n/);
@@ -42,9 +63,9 @@ async function ensureRepoDefault(projectRoot: string): Promise<void> {
     await Bun.write(gitignorePath, next);
   }
 
-  // Ensure bunner.jsonc exists with minimal required fields.
-  const jsonPath = join(projectRoot, 'bunner.json');
-  const jsoncPath = join(projectRoot, 'bunner.jsonc');
+  // Ensure zipbul.jsonc exists with minimal required fields.
+  const jsonPath = join(projectRoot, 'zipbul.json');
+  const jsoncPath = join(projectRoot, 'zipbul.jsonc');
   const jsonExists = await Bun.file(jsonPath).exists();
   const jsoncExists = await Bun.file(jsoncPath).exists();
 
@@ -70,7 +91,7 @@ export interface RebuildProjectIndexDefaultDeps {
 }
 
 async function rebuildProjectIndexDefault(
-  input: { projectRoot: string; config: ResolvedBunnerConfig; mode: 'incremental' | 'full' },
+  input: { projectRoot: string; config: ResolvedZipbulConfig; mode: 'incremental' | 'full' },
   deps?: RebuildProjectIndexDefaultDeps,
 ): Promise<{ ok: boolean }> {
   const pid = deps?.pid ?? process.pid;
@@ -91,7 +112,7 @@ async function rebuildProjectIndexDefault(
   const closeDbFn = deps?.closeDb ?? closeDb;
   const indexProjectFn = deps?.indexProject ?? indexProject;
 
-  const dbPath = join(bunnerCacheDirPath(input.projectRoot), 'index.sqlite');
+  const dbPath = join(zipbulCacheDirPath(input.projectRoot), 'index.sqlite');
   const db = createDbFn(dbPath);
   try {
     await indexProjectFn({ projectRoot: input.projectRoot, config: input.config as any, db, mode: input.mode });
@@ -108,7 +129,7 @@ function reportInvalidSubcommand(value: string | undefined): void {
     code: 'INVALID_COMMAND',
     severity: 'fatal',
     summary: 'Unknown command.',
-    reason: `mcp does not accept subcommands/options. Use: bunner mcp (got: ${commandValue}).`,
+    reason: `Unsupported mcp subcommand: ${commandValue}. Use: zp mcp | zp mcp verify | zp mcp rebuild.`,
     file: '.',
   });
 
@@ -117,16 +138,36 @@ function reportInvalidSubcommand(value: string | undefined): void {
 
 export function createMcpCommand(deps: McpCommandDeps) {
   return async function mcp(positionals: string[], _commandOptions: CommandOptions): Promise<void> {
-    if (positionals.length > 0) {
-      deps.reportInvalidSubcommand(positionals[0]);
-      process.exitCode = 1;
+    const projectRoot = process.cwd();
+
+    const subcommand = positionals[0];
+    if (subcommand === undefined) {
+      await deps.ensureRepo(projectRoot);
+      const { config } = await deps.loadConfig(projectRoot);
+      await deps.startServer(projectRoot, config);
       return;
     }
 
-    const projectRoot = process.cwd();
-    await deps.ensureRepo(projectRoot);
-    const { config } = await deps.loadConfig(projectRoot);
-    await deps.startServer(projectRoot, config);
+    if (subcommand === 'verify') {
+      await deps.ensureRepo(projectRoot);
+      const { config } = await deps.loadConfig(projectRoot);
+      const result = await deps.verifyProject({ projectRoot, config });
+      reportVerifyDiagnostics(result as any);
+      process.exitCode = result.ok ? 0 : 1;
+      return;
+    }
+
+    if (subcommand === 'rebuild') {
+      await deps.ensureRepo(projectRoot);
+      const { config } = await deps.loadConfig(projectRoot);
+      const mode = positionals.includes('--full') || positionals.includes('full') ? 'full' : 'incremental';
+      const result = await deps.rebuildProjectIndex({ projectRoot, config, mode });
+      process.exitCode = result.ok ? 0 : 1;
+      return;
+    }
+
+    deps.reportInvalidSubcommand(subcommand);
+    process.exitCode = 1;
   };
 }
 
@@ -142,7 +183,7 @@ export async function mcp(positionals: string[], _commandOptions: CommandOptions
     verifyProject,
     rebuildProjectIndex: rebuildProjectIndexDefault,
     startServer: async (projectRoot, config) => {
-      await startBunnerMcpServerStdio({ projectRoot, config });
+      await startZipbulMcpServerStdio({ projectRoot, config });
     },
     reportInvalidSubcommand,
   });

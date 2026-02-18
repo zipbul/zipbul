@@ -5,29 +5,29 @@ import { describe, expect, it } from 'bun:test';
 import { AstParser } from './ast-parser';
 
 describe('AstParser', () => {
-  it('should collect createApplication calls when createApplication is imported from @bunner/core', () => {
+  it('should collect createApplication calls when createApplication is imported from @zipbul/core', () => {
     const source = [
-      "import { createApplication as ca } from '@bunner/core';",
-      "import * as bunner from '@bunner/core';",
+      "import { createApplication as ca } from '@zipbul/core';",
+      "import * as zipbul from '@zipbul/core';",
       "import { createApplication } from 'other';",
       "import { AppModule } from './app.module';",
       '',
       'ca(AppModule);',
-      'bunner.createApplication(AppModule);',
+      'zipbul.createApplication(AppModule);',
       'createApplication(AppModule);',
     ].join('\n');
     const parser = new AstParser();
     const result = parser.parse('/app/src/main.ts', source);
     const calls = result.createApplicationCalls ?? [];
 
-    expect(calls.map(call => call.callee)).toEqual(['ca', 'bunner.createApplication']);
-    expect(calls.every(call => call.importSource === '@bunner/core')).toBe(true);
+    expect(calls.map(call => call.callee)).toEqual(['ca', 'zipbul.createApplication']);
+    expect(calls.every(call => call.importSource === '@zipbul/core')).toBe(true);
   });
 
   it('should collect createApplication calls when createApplication is called in variable initializers', () => {
     const source = [
-      "import { createApplication } from '@bunner/core';",
-      "import { createApplication as alias } from '@bunner/core';",
+      "import { createApplication } from '@zipbul/core';",
+      "import { createApplication as alias } from '@zipbul/core';",
       "import { AppModule } from './app.module';",
       '',
       'const app = createApplication(AppModule);',
@@ -38,35 +38,35 @@ describe('AstParser', () => {
     const calls = result.createApplicationCalls ?? [];
 
     expect(calls.map(call => call.callee)).toEqual(['createApplication', 'alias']);
-    expect(calls.every(call => call.importSource === '@bunner/core')).toBe(true);
+    expect(calls.every(call => call.importSource === '@zipbul/core')).toBe(true);
   });
 
-  it('should collect defineModule calls when defineModule is imported from @bunner/core', () => {
+  it('should collect defineModule calls when defineModule is imported from @zipbul/core', () => {
     const source = [
-      "import { defineModule } from '@bunner/core';",
-      "import * as bunner from '@bunner/core';",
+      "import { defineModule } from '@zipbul/core';",
+      "import * as zipbul from '@zipbul/core';",
       '',
       'export const appModule = defineModule({});',
-      'export const otherModule = bunner.defineModule({});',
+      'export const otherModule = zipbul.defineModule({});',
     ].join('\n');
     const parser = new AstParser();
     const result = parser.parse('/app/src/__module__.ts', source);
     const calls = result.defineModuleCalls ?? [];
 
-    expect(calls.map(call => call.callee)).toEqual(['defineModule', 'bunner.defineModule']);
+    expect(calls.map(call => call.callee)).toEqual(['defineModule', 'zipbul.defineModule']);
     expect(calls.map(call => call.exportedName)).toEqual(['appModule', 'otherModule']);
-    expect(calls.every(call => call.importSource === '@bunner/core')).toBe(true);
+    expect(calls.every(call => call.importSource === '@zipbul/core')).toBe(true);
   });
 
-  it('should collect inject calls when inject is imported from @bunner/common', () => {
+  it('should collect inject calls when inject is imported from @zipbul/common', () => {
     const source = [
-      "import { inject } from '@bunner/common';",
-      "import * as bunner from '@bunner/common';",
+      "import { inject } from '@zipbul/common';",
+      "import * as zipbul from '@zipbul/common';",
       '',
       'const TokenA = 1;',
       '',
       'inject(TokenA);',
-      'bunner.inject(TokenA);',
+      'zipbul.inject(TokenA);',
       'inject(() => TokenA);',
       'inject(function () { return TokenA; });',
     ].join('\n');
@@ -74,14 +74,14 @@ describe('AstParser', () => {
     const result = parser.parse('/app/src/main.ts', source);
     const calls = result.injectCalls ?? [];
 
-    expect(calls.map(call => call.callee)).toEqual(['inject', 'bunner.inject', 'inject', 'inject']);
+    expect(calls.map(call => call.callee)).toEqual(['inject', 'zipbul.inject', 'inject', 'inject']);
     expect(calls.map(call => call.tokenKind)).toEqual(['token', 'token', 'thunk', 'thunk']);
-    expect(calls.every(call => call.importSource === '@bunner/common')).toBe(true);
+    expect(calls.every(call => call.importSource === '@zipbul/common')).toBe(true);
   });
 
   it('should mark inject call invalid when argument count is not 1', () => {
     const source = [
-      "import { inject } from '@bunner/common';",
+      "import { inject } from '@zipbul/common';",
       '',
       'const TokenA = 1;',
       '',
@@ -99,7 +99,7 @@ describe('AstParser', () => {
 
   it('should parse Injectable decorator when class has Injectable decorator with options', () => {
     const source = [
-      "import { Injectable } from '@bunner/common';",
+      "import { Injectable } from '@zipbul/common';",
       '',
       "@Injectable({ visibility: 'module', scope: 'singleton' })",
       'export class MyService {}',

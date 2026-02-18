@@ -70,7 +70,7 @@ describe('incremental impact integration', () => {
   });
 
   it('includes dependent modules when a shared module changes', async () => {
-    rootDir = await mkdtemp(join(tmpdir(), 'bunner-inc-'));
+    rootDir = await mkdtemp(join(tmpdir(), 'zipbul-inc-'));
     const srcDir = join(rootDir, 'src');
 
     await mkdir(join(srcDir, 'a'), { recursive: true });
@@ -78,11 +78,11 @@ describe('incremental impact integration', () => {
 
     await writeFile(
       join(srcDir, 'a', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const aModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const aModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'b', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const bModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const bModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'b', 'b.service.ts'),
@@ -105,7 +105,7 @@ describe('incremental impact integration', () => {
   });
 
   it('propagates through export * re-exports (barrel files)', async () => {
-    rootDir = await mkdtemp(join(tmpdir(), 'bunner-inc-'));
+    rootDir = await mkdtemp(join(tmpdir(), 'zipbul-inc-'));
     const srcDir = join(rootDir, 'src');
 
     await mkdir(join(srcDir, 'a'), { recursive: true });
@@ -113,11 +113,11 @@ describe('incremental impact integration', () => {
 
     await writeFile(
       join(srcDir, 'a', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const aModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const aModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'b', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const bModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const bModule = defineModule();\n",
     );
 
     await writeFile(join(srcDir, 'b', 'b.service.ts'), 'export const bService = 1;\n');
@@ -136,7 +136,7 @@ describe('incremental impact integration', () => {
   });
 
   it('propagates through named re-exports (export { x } from)', async () => {
-    rootDir = await mkdtemp(join(tmpdir(), 'bunner-inc-'));
+    rootDir = await mkdtemp(join(tmpdir(), 'zipbul-inc-'));
     const srcDir = join(rootDir, 'src');
 
     await mkdir(join(srcDir, 'a'), { recursive: true });
@@ -144,11 +144,11 @@ describe('incremental impact integration', () => {
 
     await writeFile(
       join(srcDir, 'a', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const aModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const aModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'b', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const bModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const bModule = defineModule();\n",
     );
 
     await writeFile(join(srcDir, 'b', 'b.service.ts'), 'export const bService = 1;\n');
@@ -173,7 +173,7 @@ describe('incremental impact integration', () => {
   });
 
   it('does not propagate through non-relative imports (absolute path specifiers)', async () => {
-    rootDir = await mkdtemp(join(tmpdir(), 'bunner-inc-'));
+    rootDir = await mkdtemp(join(tmpdir(), 'zipbul-inc-'));
     const srcDir = join(rootDir, 'src');
 
     await mkdir(join(srcDir, 'a'), { recursive: true });
@@ -181,11 +181,11 @@ describe('incremental impact integration', () => {
 
     await writeFile(
       join(srcDir, 'a', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const aModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const aModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'b', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const bModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const bModule = defineModule();\n",
     );
 
     const bServicePath = join(srcDir, 'b', 'b.service.ts');
@@ -208,7 +208,7 @@ describe('incremental impact integration', () => {
   });
 
   it('resolves directory imports via index.ts in real parsing', async () => {
-    rootDir = await mkdtemp(join(tmpdir(), 'bunner-inc-'));
+    rootDir = await mkdtemp(join(tmpdir(), 'zipbul-inc-'));
     const srcDir = join(rootDir, 'src');
 
     await mkdir(join(srcDir, 'a'), { recursive: true });
@@ -216,11 +216,11 @@ describe('incremental impact integration', () => {
 
     await writeFile(
       join(srcDir, 'a', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const aModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const aModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'b', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const bModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const bModule = defineModule();\n",
     );
 
     await writeFile(join(srcDir, 'b', 'b.service.ts'), 'export const bService = () => "x";\n');
@@ -239,18 +239,18 @@ describe('incremental impact integration', () => {
   });
 
   it('uses the closest module root for nested modules', async () => {
-    rootDir = await mkdtemp(join(tmpdir(), 'bunner-inc-'));
+    rootDir = await mkdtemp(join(tmpdir(), 'zipbul-inc-'));
     const srcDir = join(rootDir, 'src');
 
     await mkdir(join(srcDir, 'a', 'feature'), { recursive: true });
 
     await writeFile(
       join(srcDir, 'a', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const aModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const aModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'a', 'feature', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const featureModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const featureModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'a', 'feature', 'feature.service.ts'),
@@ -268,7 +268,7 @@ describe('incremental impact integration', () => {
   });
 
   it('includes transitive dependents in a multi-hop import chain', async () => {
-    rootDir = await mkdtemp(join(tmpdir(), 'bunner-inc-'));
+    rootDir = await mkdtemp(join(tmpdir(), 'zipbul-inc-'));
     const srcDir = join(rootDir, 'src');
 
     await mkdir(join(srcDir, 'a'), { recursive: true });
@@ -277,15 +277,15 @@ describe('incremental impact integration', () => {
 
     await writeFile(
       join(srcDir, 'a', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const aModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const aModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'b', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const bModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const bModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'c', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const cModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const cModule = defineModule();\n",
     );
     await writeFile(join(srcDir, 'c', 'c.service.ts'), 'export const cService = () => true;\n');
     await writeFile(
@@ -310,7 +310,7 @@ describe('incremental impact integration', () => {
   });
 
   it('unions impacts when multiple files change', async () => {
-    rootDir = await mkdtemp(join(tmpdir(), 'bunner-inc-'));
+    rootDir = await mkdtemp(join(tmpdir(), 'zipbul-inc-'));
     const srcDir = join(rootDir, 'src');
 
     await mkdir(join(srcDir, 'a'), { recursive: true });
@@ -318,11 +318,11 @@ describe('incremental impact integration', () => {
 
     await writeFile(
       join(srcDir, 'a', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const aModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const aModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'b', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const bModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const bModule = defineModule();\n",
     );
     await writeFile(join(srcDir, 'a', 'a.service.ts'), 'export const aService = () => 1;\n');
     await writeFile(join(srcDir, 'b', 'b.service.ts'), 'export const bService = () => 2;\n');
@@ -341,7 +341,7 @@ describe('incremental impact integration', () => {
   });
 
   it('is deterministic regardless of file map insertion order', async () => {
-    rootDir = await mkdtemp(join(tmpdir(), 'bunner-inc-'));
+    rootDir = await mkdtemp(join(tmpdir(), 'zipbul-inc-'));
     const srcDir = join(rootDir, 'src');
 
     await mkdir(join(srcDir, 'a'), { recursive: true });
@@ -349,11 +349,11 @@ describe('incremental impact integration', () => {
 
     await writeFile(
       join(srcDir, 'a', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const aModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const aModule = defineModule();\n",
     );
     await writeFile(
       join(srcDir, 'b', 'module.ts'),
-      "import { defineModule } from '@bunner/core';\nexport const bModule = defineModule();\n",
+      "import { defineModule } from '@zipbul/core';\nexport const bModule = defineModule();\n",
     );
     await writeFile(join(srcDir, 'b', 'b.service.ts'), 'export const bService = 1;\n');
     await writeFile(join(srcDir, 'a', 'a.service.ts'), "import { bService } from '../b/b.service';\nexport const a = bService;\n");

@@ -1,4 +1,4 @@
-import type { Class } from '@bunner/common';
+import type { Class } from '@zipbul/common';
 
 import type { MetadataDecorator } from '../metadata/interfaces';
 import type { MetadataTypeValue } from '../metadata/types';

@@ -154,7 +154,7 @@ export type ContractData = unknown;
 
 | Rule ID                 | 위반 조건(Violation Condition) | Diagnostic Code              | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ----------------------- | ------------------------------ | ---------------------------- | ------------------------ | ------------------- | --------------------------------- |
-| COMMON-REFERENCES-R-001 | invalid reference format       | BUNNER_COMMON_REFERENCES_001 | error                    | symbol              | static:ast                        |
+| COMMON-REFERENCES-R-001 | invalid reference format       | ZIPBUL_COMMON_REFERENCES_001 | error                    | symbol              | static:ast                        |
 
 ---
 

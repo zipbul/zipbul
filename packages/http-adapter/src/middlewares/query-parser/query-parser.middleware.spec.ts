@@ -3,15 +3,15 @@ import { describe, expect, it } from 'bun:test';
 import type { HttpAdapter } from '../../adapter/http-adapter';
 import type { RequestQueryMap } from '../../types';
 
-import { BunnerHttpContext } from '../../adapter';
-import { BunnerRequest } from '../../bunner-request';
-import { BunnerResponse } from '../../bunner-response';
+import { ZipbulHttpContext } from '../../adapter';
+import { ZipbulRequest } from '../../zipbul-request';
+import { ZipbulResponse } from '../../zipbul-response';
 import { BadRequestError } from '../../errors/errors';
 import { QueryParserMiddleware } from './query-parser.middleware';
 
 describe('query-parser.middleware', () => {
-  const createContext = (url: string): BunnerHttpContext => {
-    const request = new BunnerRequest({
+  const createContext = (url: string): ZipbulHttpContext => {
+    const request = new ZipbulRequest({
       url,
       httpMethod: 'GET',
       headers: {},
@@ -22,7 +22,7 @@ describe('query-parser.middleware', () => {
       ip: null,
       ips: [],
     });
-    const response = new BunnerResponse(request, new Response());
+    const response = new ZipbulResponse(request, new Response());
     const adapter: HttpAdapter = {
       getRequest: () => request,
       getResponse: () => response,
@@ -30,7 +30,7 @@ describe('query-parser.middleware', () => {
       setStatus: () => {},
     };
 
-    return new BunnerHttpContext(adapter);
+    return new ZipbulHttpContext(adapter);
   };
 
   // ============================================

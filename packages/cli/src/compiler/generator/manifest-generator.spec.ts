@@ -58,7 +58,7 @@ function createSingleModuleGraph(): ModuleGraph {
     defineModuleCalls: [
       {
         callee: 'defineModule',
-        importSource: '@bunner/core',
+        importSource: '@zipbul/core',
         args: [],
         exportedName: 'appModule',
       },
@@ -110,7 +110,7 @@ function createMultiModuleGraph(): ModuleGraph {
     defineModuleCalls: [
       {
         callee: 'defineModule',
-        importSource: '@bunner/core',
+        importSource: '@zipbul/core',
         args: [],
         exportedName: 'appModule',
       },
@@ -130,7 +130,7 @@ function createMultiModuleGraph(): ModuleGraph {
     defineModuleCalls: [
       {
         callee: 'defineModule',
-        importSource: '@bunner/core',
+        importSource: '@zipbul/core',
         args: [],
         exportedName: 'bModule',
       },
@@ -297,7 +297,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' },
+      source: { path: '/app/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -336,7 +336,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' },
+      source: { path: '/app/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -405,7 +405,7 @@ describe('ManifestGenerator', () => {
         defineModuleCalls: [
           {
             callee: 'defineModule',
-            importSource: '@bunner/core',
+            importSource: '@zipbul/core',
             args: [],
             exportedName: `${name}Module`,
           },
@@ -427,7 +427,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' },
+      source: { path: '/app/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -452,7 +452,7 @@ describe('ManifestGenerator', () => {
     const gen = new ManifestGenerator();
     const params = {
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' as const },
+      source: { path: '/app/zipbul.json', format: 'json' as const },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -476,7 +476,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' },
+      source: { path: '/app/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -502,7 +502,7 @@ describe('ManifestGenerator', () => {
       defineModuleCalls: [
         {
           callee: 'defineModule',
-          importSource: '@bunner/core',
+          importSource: '@zipbul/core',
           args: [],
           exportedName: 'appModule',
         },
@@ -523,7 +523,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' },
+      source: { path: '/app/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -552,7 +552,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' },
+      source: { path: '/app/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -574,7 +574,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' },
+      source: { path: '/app/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -589,7 +589,7 @@ describe('ManifestGenerator', () => {
     const config = assertRecordValue(parsedRecord.config);
     const resolvedModuleConfig = assertRecordValue(config.resolvedModuleConfig);
 
-    expect(config.sourcePath).toBe('/app/bunner.json');
+    expect(config.sourcePath).toBe('/app/zipbul.json');
     expect(config.sourceFormat).toBe('json');
     expect(resolvedModuleConfig.fileName).toBe('__module__.ts');
 
@@ -605,7 +605,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' },
+      source: { path: '/app/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -627,7 +627,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' },
+      source: { path: '/app/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -649,7 +649,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/app/src',
-      source: { path: '/app/src/bunner.json', format: 'json' },
+      source: { path: '/app/src/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -671,7 +671,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/',
-      source: { path: '/bunner.json', format: 'json' },
+      source: { path: '/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -693,7 +693,7 @@ describe('ManifestGenerator', () => {
     const json = gen.generateJson({
       graph,
       projectRoot: '/Users/dev/project',
-      source: { path: '/Users/dev/project/bunner.json', format: 'json' },
+      source: { path: '/Users/dev/project/zipbul.json', format: 'json' },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
@@ -713,7 +713,7 @@ describe('ManifestGenerator', () => {
     const graph1 = createSingleModuleGraph();
     const params = {
       projectRoot: '/app',
-      source: { path: '/app/bunner.json', format: 'json' as const },
+      source: { path: '/app/zipbul.json', format: 'json' as const },
       resolvedConfig: {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',

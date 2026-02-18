@@ -1,4 +1,4 @@
-import type { AdapterCollection, Configurer, Context, PrimitiveArray } from '@bunner/common';
+import type { AdapterCollection, Configurer, Context, PrimitiveArray } from '@zipbul/common';
 
 import type { ScalarSetupOptions } from './interfaces';
 

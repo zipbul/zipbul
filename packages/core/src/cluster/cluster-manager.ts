@@ -1,4 +1,4 @@
-import { Logger } from '@bunner/logger';
+import { Logger } from '@zipbul/logger';
 import { backOff } from 'exponential-backoff'; // Consider removing if complex retry logic handles native restarts differently, but keeping for now.
 
 import type { ClusterBaseWorker } from './cluster-base-worker';
@@ -63,7 +63,7 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     const native = new Worker(this.script.href, {
       env: {
         ...Bun.env,
-        BUNNER_WORKER_ID: id.toString(),
+        ZIPBUL_WORKER_ID: id.toString(),
       },
       smol: true, // Optional: memory optimization
     });

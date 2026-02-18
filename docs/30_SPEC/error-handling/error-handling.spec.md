@@ -166,12 +166,12 @@ export type ErrorHandlingContractData = unknown;
 
 | Rule ID              | 위반 조건(Violation Condition)         | Diagnostic Code | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | -------------------- | -------------------------------------- | --------------- | ------------------------ | ------------------- | --------------------------------- |
-| ERROR-HANDLING-R-001 | exception bypasses chain               | BUNNER_ERR_001  | error                    | range               | runtime:observation               |
-| ERROR-HANDLING-R-002 | parsing-based classification           | BUNNER_ERR_002  | error                    | symbol              | static:ast                        |
-| ERROR-HANDLING-R-003 | Error/Panic split violated             | BUNNER_ERR_003  | error                    | range               | runtime:observation               |
-| ERROR-HANDLING-R-004 | non-deterministic filter order         | BUNNER_ERR_004  | error                    | range               | runtime:observation               |
-| ERROR-HANDLING-R-005 | protocol info embedded in domain error | BUNNER_ERR_005  | error                    | symbol              | static:ast                        |
-| ERROR-HANDLING-R-006 | exception swallowed/lost               | BUNNER_ERR_006  | error                    | range               | runtime:observation               |
+| ERROR-HANDLING-R-001 | exception bypasses chain               | ZIPBUL_ERR_001  | error                    | range               | runtime:observation               |
+| ERROR-HANDLING-R-002 | parsing-based classification           | ZIPBUL_ERR_002  | error                    | symbol              | static:ast                        |
+| ERROR-HANDLING-R-003 | Error/Panic split violated             | ZIPBUL_ERR_003  | error                    | range               | runtime:observation               |
+| ERROR-HANDLING-R-004 | non-deterministic filter order         | ZIPBUL_ERR_004  | error                    | range               | runtime:observation               |
+| ERROR-HANDLING-R-005 | protocol info embedded in domain error | ZIPBUL_ERR_005  | error                    | symbol              | static:ast                        |
+| ERROR-HANDLING-R-006 | exception swallowed/lost               | ZIPBUL_ERR_006  | error                    | range               | runtime:observation               |
 
 ---
 

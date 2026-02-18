@@ -155,7 +155,7 @@ export type AppContractData = {
 | APP-R-016 | active                      | MUST NOT        | outcomes                    | Outcome:OUT-016                                                    | shutdown throw values in AggregateError.errors are wrapped/normalized/converted instead of being included by strict equality | runtime                           |
 | APP-R-013 | active                      | MUST NOT        | outcomes                    | Outcome:OUT-013                                                    | createApplication/app.start/app.stop/app.get/app.attach returns Result                                                       | runtime                           |
 | APP-R-017 | active                      | MUST            | inputs, outcomes            | InputKind:app-entry, Outcome:OUT-017                               | app-entry normalization produces string-id with required format                                                              | build                             |
-| APP-R-018 | active                      | MUST            | outcomes                    | Outcome:OUT-018                                                    | BunnerApplication is unique per process/worker; multiple createApplication calls are rejected by CLI as error                | build                             |
+| APP-R-018 | active                      | MUST            | outcomes                    | Outcome:OUT-018                                                    | ZipbulApplication is unique per process/worker; multiple createApplication calls are rejected by CLI as error                | build                             |
 
 ---
 
@@ -236,24 +236,24 @@ export type AppContractData = {
 
 | Rule ID   | 위반 조건(Violation Condition)                                | Diagnostic Code | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | --------- | ------------------------------------------------------------- | --------------- | ------------------------ | ------------------- | --------------------------------- |
-| APP-R-001 | preload semantics violated                                    | BUNNER_APP_001  | error                    | symbol              | runtime:observation               |
-| APP-R-002 | entry module not determinable or not exactly one              | BUNNER_APP_002  | error                    | symbol              | static:ast                        |
-| APP-R-003 | preload results change after bootstrap                        | BUNNER_APP_003  | error                    | symbol              | runtime:observation               |
-| APP-R-004 | env preload does not use provided env list                    | BUNNER_APP_004  | error                    | symbol              | runtime:observation               |
-| APP-R-005 | loader execution observed without loader input                | BUNNER_APP_005  | error                    | symbol              | runtime:observation               |
-| APP-R-006 | loader failure not observable as throw                        | BUNNER_APP_006  | error                    | symbol              | runtime:observation               |
-| APP-R-007 | loader execution uses timeout/retry                           | BUNNER_APP_007  | error                    | symbol              | runtime:observation               |
-| APP-R-008 | attach after start or adapterId not declared                  | BUNNER_APP_008  | error                    | symbol              | runtime:observation               |
-| APP-R-009 | attach mutates static graph                                   | BUNNER_APP_009  | error                    | symbol              | runtime:observation               |
-| APP-R-010 | DI access bypasses app.get or violates DI rules               | BUNNER_APP_010  | error                    | symbol              | runtime:observation               |
-| APP-R-011 | lifecycle hooks not AST-collected or order not deterministic  | BUNNER_APP_011  | error                    | symbol              | runtime:observation               |
-| APP-R-012 | app.stop aggregation/ordering contract violated               | BUNNER_APP_012  | error                    | symbol              | runtime:observation               |
-| APP-R-014 | app.stop did not throw AggregateError after shutdown throws   | BUNNER_APP_014  | error                    | symbol              | runtime:observation               |
-| APP-R-015 | AggregateError.errors order does not match observation order  | BUNNER_APP_015  | error                    | symbol              | runtime:observation               |
-| APP-R-016 | AggregateError.errors values are wrapped/normalized/converted | BUNNER_APP_016  | error                    | symbol              | runtime:observation               |
-| APP-R-013 | Result returned from app surface                              | BUNNER_APP_013  | error                    | symbol              | runtime:observation               |
-| APP-R-017 | app-entry normalization output violates format                | BUNNER_APP_017  | error                    | symbol              | static:artifact                   |
-| APP-R-018 | multiple createApplication calls observed                     | BUNNER_APP_018  | error                    | file                | static:ast                        |
+| APP-R-001 | preload semantics violated                                    | ZIPBUL_APP_001  | error                    | symbol              | runtime:observation               |
+| APP-R-002 | entry module not determinable or not exactly one              | ZIPBUL_APP_002  | error                    | symbol              | static:ast                        |
+| APP-R-003 | preload results change after bootstrap                        | ZIPBUL_APP_003  | error                    | symbol              | runtime:observation               |
+| APP-R-004 | env preload does not use provided env list                    | ZIPBUL_APP_004  | error                    | symbol              | runtime:observation               |
+| APP-R-005 | loader execution observed without loader input                | ZIPBUL_APP_005  | error                    | symbol              | runtime:observation               |
+| APP-R-006 | loader failure not observable as throw                        | ZIPBUL_APP_006  | error                    | symbol              | runtime:observation               |
+| APP-R-007 | loader execution uses timeout/retry                           | ZIPBUL_APP_007  | error                    | symbol              | runtime:observation               |
+| APP-R-008 | attach after start or adapterId not declared                  | ZIPBUL_APP_008  | error                    | symbol              | runtime:observation               |
+| APP-R-009 | attach mutates static graph                                   | ZIPBUL_APP_009  | error                    | symbol              | runtime:observation               |
+| APP-R-010 | DI access bypasses app.get or violates DI rules               | ZIPBUL_APP_010  | error                    | symbol              | runtime:observation               |
+| APP-R-011 | lifecycle hooks not AST-collected or order not deterministic  | ZIPBUL_APP_011  | error                    | symbol              | runtime:observation               |
+| APP-R-012 | app.stop aggregation/ordering contract violated               | ZIPBUL_APP_012  | error                    | symbol              | runtime:observation               |
+| APP-R-014 | app.stop did not throw AggregateError after shutdown throws   | ZIPBUL_APP_014  | error                    | symbol              | runtime:observation               |
+| APP-R-015 | AggregateError.errors order does not match observation order  | ZIPBUL_APP_015  | error                    | symbol              | runtime:observation               |
+| APP-R-016 | AggregateError.errors values are wrapped/normalized/converted | ZIPBUL_APP_016  | error                    | symbol              | runtime:observation               |
+| APP-R-013 | Result returned from app surface                              | ZIPBUL_APP_013  | error                    | symbol              | runtime:observation               |
+| APP-R-017 | app-entry normalization output violates format                | ZIPBUL_APP_017  | error                    | symbol              | static:artifact                   |
+| APP-R-018 | multiple createApplication calls observed                     | ZIPBUL_APP_018  | error                    | file                | static:ast                        |
 
 ---
 

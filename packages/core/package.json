@@ -1,10 +1,10 @@
 {
-  "name": "@bunner/core",
+  "name": "@zipbul/core",
   "type": "module",
   "module": "index.ts",
   "dependencies": {
-    "@bunner/common": "workspace:*",
-    "@bunner/logger": "workspace:*",
+    "@zipbul/common": "workspace:*",
+    "@zipbul/logger": "workspace:*",
     "dotenv": "^16.4.5",
     "exponential-backoff": "^3.1.2"
   },

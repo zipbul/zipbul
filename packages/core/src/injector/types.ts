@@ -1,4 +1,4 @@
-import type { BunnerValue, Class, ForwardRef, PrimitiveRecord, Provider, ProviderToken } from '@bunner/common';
+import type { ZipbulValue, Class, ForwardRef, PrimitiveRecord, Provider, ProviderToken } from '@zipbul/common';
 
 import type { Container } from './container';
 
@@ -7,8 +7,8 @@ export type DependencyProvider = ProviderToken | ForwardRef;
 export type Token = ProviderToken;
 
 export interface TokenRecord {
-  readonly __bunner_ref?: string;
-  readonly __bunner_forward_ref?: string;
+  readonly __zipbul_ref?: string;
+  readonly __zipbul_forward_ref?: string;
   readonly name?: string;
 }
 
@@ -24,7 +24,7 @@ export type DecoratorArgument =
   | null
   | undefined;
 
-export type ContainerValue = BunnerValue;
+export type ContainerValue = ZipbulValue;
 
 export type FactoryFn<T = ContainerValue> = (container: Container) => T;
 

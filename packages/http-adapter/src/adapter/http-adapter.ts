@@ -1,9 +1,9 @@
-import type { BunnerRequest } from '../bunner-request';
-import type { BunnerResponse } from '../bunner-response';
+import type { ZipbulRequest } from '../zipbul-request';
+import type { ZipbulResponse } from '../zipbul-response';
 
 export interface HttpAdapter {
-  getRequest(): BunnerRequest;
-  getResponse(): BunnerResponse;
+  getRequest(): ZipbulRequest;
+  getResponse(): ZipbulResponse;
   setHeader(name: string, value: string): void;
   setStatus(status: number): void;
 }

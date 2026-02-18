@@ -6,7 +6,7 @@ import type {
   ProviderUseExisting,
   ProviderUseFactory,
   ProviderUseValue,
-} from '@bunner/common';
+} from '@zipbul/common';
 
 import type { Container } from './container';
 import type {
@@ -24,7 +24,7 @@ import type {
 
 import { getRuntimeContext } from '../runtime/runtime-context';
 
-export class BunnerScanner {
+export class ZipbulScanner {
   constructor(
     private readonly container: Container,
     private readonly registry?: Map<Class, ClassMetadata>,
@@ -234,8 +234,8 @@ export class BunnerScanner {
     }
 
     if (this.isTokenRecord(token)) {
-      const ref = token.__bunner_ref;
-      const forwardRef = token.__bunner_forward_ref;
+      const ref = token.__zipbul_ref;
+      const forwardRef = token.__zipbul_forward_ref;
 
       if (typeof ref === 'string') {
         return ref;
@@ -312,11 +312,11 @@ export class BunnerScanner {
       return false;
     }
 
-    if ('__bunner_ref' in value && typeof value.__bunner_ref === 'string') {
+    if ('__zipbul_ref' in value && typeof value.__zipbul_ref === 'string') {
       return true;
     }
 
-    if ('__bunner_forward_ref' in value && typeof value.__bunner_forward_ref === 'string') {
+    if ('__zipbul_forward_ref' in value && typeof value.__zipbul_forward_ref === 'string') {
       return true;
     }
 
@@ -332,12 +332,12 @@ export class BunnerScanner {
       return token;
     }
 
-    if (typeof token.__bunner_ref === 'string') {
-      return token.__bunner_ref;
+    if (typeof token.__zipbul_ref === 'string') {
+      return token.__zipbul_ref;
     }
 
-    if (typeof token.__bunner_forward_ref === 'string') {
-      return token.__bunner_forward_ref;
+    if (typeof token.__zipbul_forward_ref === 'string') {
+      return token.__zipbul_forward_ref;
     }
 
     return token;

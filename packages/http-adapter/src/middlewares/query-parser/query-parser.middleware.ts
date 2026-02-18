@@ -1,12 +1,12 @@
-import { Middleware, BunnerMiddleware, type Context } from '@bunner/common';
+import { Middleware, ZipbulMiddleware, type Context } from '@zipbul/common';
 
 import type { QueryParserOptions } from './interfaces';
 
-import { BunnerHttpContext } from '../../adapter';
+import { ZipbulHttpContext } from '../../adapter';
 import { QueryParser } from './query-parser';
 
 @Middleware()
-export class QueryParserMiddleware extends BunnerMiddleware<QueryParserOptions> {
+export class QueryParserMiddleware extends ZipbulMiddleware<QueryParserOptions> {
   private readonly parser: QueryParser;
 
   constructor(options: QueryParserOptions = {}) {
@@ -37,11 +37,11 @@ export class QueryParserMiddleware extends BunnerMiddleware<QueryParserOptions> 
     req.query = this.parser.parse(queryString);
   }
 
-  private assertHttpContext(context: Context): BunnerHttpContext {
-    if (context instanceof BunnerHttpContext) {
+  private assertHttpContext(context: Context): ZipbulHttpContext {
+    if (context instanceof ZipbulHttpContext) {
       return context;
     }
 
-    throw new Error('Expected BunnerHttpContext');
+    throw new Error('Expected ZipbulHttpContext');
   }
 }

@@ -1,4 +1,4 @@
-import { IsArray, IsOptional, IsString, Max, Min, ValidateNested } from '@bunner/core';
+import { IsArray, IsOptional, IsString, Max, Min, ValidateNested } from '@zipbul/core';
 
 import { AddressDto } from './address.dto';
 import { SocialDto } from './social.dto';

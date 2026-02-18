@@ -1,4 +1,4 @@
-import type { BunnerValue } from '@bunner/common';
+import type { ZipbulValue } from '@zipbul/common';
 import type { Server } from 'bun';
 
 export interface ClientIpOptions {
@@ -15,6 +15,6 @@ export interface MockServerCalls {
 }
 
 export interface MockServerResult {
-  server: Pick<Server<BunnerValue>, 'requestIP'>;
+  server: Pick<Server<ZipbulValue>, 'requestIP'>;
   calls: MockServerCalls;
 }

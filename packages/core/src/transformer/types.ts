@@ -1,6 +1,6 @@
-import type { BunnerRecord, Class, PrimitiveArray, PrimitiveRecord, PrimitiveValue } from '@bunner/common';
+import type { ZipbulRecord, Class, PrimitiveArray, PrimitiveRecord, PrimitiveValue } from '@zipbul/common';
 
-export type TransformerValueItem = PrimitiveValue | PrimitiveRecord | BunnerRecord;
+export type TransformerValueItem = PrimitiveValue | PrimitiveRecord | ZipbulRecord;
 
 export type TransformerValueArray = Array<TransformerValue>;
 

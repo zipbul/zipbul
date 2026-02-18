@@ -1,4 +1,4 @@
-import type { Class, PrimitiveValue } from '@bunner/common';
+import type { Class, PrimitiveValue } from '@zipbul/common';
 
 import type { MetadataDecorator, MetadataProperty } from '../metadata/interfaces';
 import type { MetadataArgument } from '../metadata/types';

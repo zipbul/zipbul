@@ -1,4 +1,4 @@
-import type { ConfigService, ValueLike } from '@bunner/common';
+import type { ConfigService, ValueLike } from '@zipbul/common';
 
 import type { HttpConfig, HttpDefaultsParams } from './types';
 

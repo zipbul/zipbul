@@ -128,8 +128,8 @@ describe('adapter-spec-resolver', () => {
     entryAnalysis.exportedValues = {
       ...entryAnalysis.exportedValues,
       adapterSpec: {
-        __bunner_call: 'defineAdapter',
-        args: [{ __bunner_ref: 'TestAdapter' }],
+        __zipbul_call: 'defineAdapter',
+        args: [{ __zipbul_ref: 'TestAdapter' }],
       } as any,
     };
 

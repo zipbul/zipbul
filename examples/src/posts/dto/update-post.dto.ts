@@ -1,4 +1,4 @@
-import { ApiPropertyOptional } from '@bunner/scalar';
+import { ApiPropertyOptional } from '@zipbul/scalar';
 
 export class UpdatePostDto {
   @ApiPropertyOptional({ description: 'Title of the post', example: 'Hello World' })

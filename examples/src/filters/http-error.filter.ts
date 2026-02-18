@@ -1,15 +1,15 @@
-import { BunnerErrorFilter, type BunnerValue, type Context, Catch } from '@bunner/common';
-import { BunnerHttpContext } from '@bunner/http-adapter';
-import { Logger, type LogMetadataValue } from '@bunner/logger';
+import { ZipbulErrorFilter, type ZipbulValue, type Context, Catch } from '@zipbul/common';
+import { ZipbulHttpContext } from '@zipbul/http-adapter';
+import { Logger, type LogMetadataValue } from '@zipbul/logger';
 
 import type { HttpErrorPayload } from './interfaces';
 
 @Catch()
-export class HttpErrorFilter extends BunnerErrorFilter {
+export class HttpErrorFilter extends ZipbulErrorFilter {
   private logger = new Logger('HttpErrorFilter');
 
-  public catch(error: BunnerValue, ctx: Context): void {
-    const http = ctx.to(BunnerHttpContext);
+  public catch(error: ZipbulValue, ctx: Context): void {
+    const http = ctx.to(ZipbulHttpContext);
     const res = http.response;
     const req = http.request;
     const errorPayload = this.getHttpErrorPayload(error);
@@ -25,12 +25,12 @@ export class HttpErrorFilter extends BunnerErrorFilter {
     });
   }
 
-  private getHttpErrorPayload(error: BunnerValue): HttpErrorPayload | undefined {
+  private getHttpErrorPayload(error: ZipbulValue): HttpErrorPayload | undefined {
     if (error instanceof Error) {
       return { message: error.message };
     }
 
-    if (!this.isBunnerRecord(error)) {
+    if (!this.isZipbulRecord(error)) {
       return undefined;
     }
 
@@ -57,7 +57,7 @@ export class HttpErrorFilter extends BunnerErrorFilter {
     return 500;
   }
 
-  private toLogMetadataValue(value: BunnerValue): LogMetadataValue {
+  private toLogMetadataValue(value: ZipbulValue): LogMetadataValue {
     if (value instanceof Error) {
       return value;
     }
@@ -95,7 +95,7 @@ export class HttpErrorFilter extends BunnerErrorFilter {
     return 'Unknown error';
   }
 
-  private isBunnerRecord(value: BunnerValue): value is Record<string, BunnerValue> {
+  private isZipbulRecord(value: ZipbulValue): value is Record<string, ZipbulValue> {
     return typeof value === 'object' && value !== null;
   }
 }

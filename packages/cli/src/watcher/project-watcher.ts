@@ -2,13 +2,13 @@ import { relative } from 'path';
 
 import * as watcher from '@parcel/watcher';
 
-import { BUNNER_DIRNAME } from '../common/bunner-paths';
+import { ZIPBUL_DIRNAME } from '../common/zipbul-paths';
 
 import type { FileChangePayload } from './interfaces';
 
 export const PROJECT_WATCHER_IGNORE_GLOBS: readonly string[] = [
   '**/.git/**',
-  `**/${BUNNER_DIRNAME}/**`,
+  `**/${ZIPBUL_DIRNAME}/**`,
   '**/dist/**',
   '**/node_modules/**',
 ];

@@ -172,15 +172,15 @@ export type ExecutionContractData = unknown;
 
 | Rule ID         | 위반 조건(Violation Condition)                   | Diagnostic Code | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | --------------- | ------------------------------------------------ | --------------- | ------------------------ | ------------------- | --------------------------------- |
-| EXECUTION-R-001 | pipeline order violated                          | BUNNER_EXEC_001 | error                    | range               | runtime:observation               |
-| EXECUTION-R-002 | manifest access reachable                        | BUNNER_EXEC_002 | error                    | symbol              | runtime:observation               |
-| EXECUTION-R-003 | normal flow not expressed as Result              | BUNNER_EXEC_003 | error                    | range               | runtime:observation               |
-| EXECUTION-R-004 | Context not passed to steps deterministically    | BUNNER_EXEC_004 | error                    | range               | runtime:observation               |
-| EXECUTION-R-005 | implicit transform/validate observed             | BUNNER_EXEC_005 | error                    | range               | runtime:observation               |
-| EXECUTION-R-006 | dependencies not satisfied by build-time wiring  | BUNNER_EXEC_006 | error                    | symbol              | runtime:observation               |
-| EXECUTION-R-007 | runtime rewiring/inference observed              | BUNNER_EXEC_007 | error                    | range               | runtime:observation               |
-| EXECUTION-R-008 | source rewriting observed                        | BUNNER_EXEC_008 | error                    | file                | static:artifact                   |
-| EXECUTION-R-009 | runtime container resolve is part of normal flow | BUNNER_EXEC_009 | error                    | range               | runtime:observation               |
+| EXECUTION-R-001 | pipeline order violated                          | ZIPBUL_EXEC_001 | error                    | range               | runtime:observation               |
+| EXECUTION-R-002 | manifest access reachable                        | ZIPBUL_EXEC_002 | error                    | symbol              | runtime:observation               |
+| EXECUTION-R-003 | normal flow not expressed as Result              | ZIPBUL_EXEC_003 | error                    | range               | runtime:observation               |
+| EXECUTION-R-004 | Context not passed to steps deterministically    | ZIPBUL_EXEC_004 | error                    | range               | runtime:observation               |
+| EXECUTION-R-005 | implicit transform/validate observed             | ZIPBUL_EXEC_005 | error                    | range               | runtime:observation               |
+| EXECUTION-R-006 | dependencies not satisfied by build-time wiring  | ZIPBUL_EXEC_006 | error                    | symbol              | runtime:observation               |
+| EXECUTION-R-007 | runtime rewiring/inference observed              | ZIPBUL_EXEC_007 | error                    | range               | runtime:observation               |
+| EXECUTION-R-008 | source rewriting observed                        | ZIPBUL_EXEC_008 | error                    | file                | static:artifact                   |
+| EXECUTION-R-009 | runtime container resolve is part of normal flow | ZIPBUL_EXEC_009 | error                    | range               | runtime:observation               |
 
 ---
 

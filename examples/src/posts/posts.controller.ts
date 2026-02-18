@@ -1,4 +1,4 @@
-import { RestController, Delete, Get, Param, Post, Put, Body } from '@bunner/http-adapter';
+import { RestController, Delete, Get, Param, Post, Put, Body } from '@zipbul/http-adapter';
 
 import type { PostCommentInput } from './comments/interfaces';
 import type { Post as PostEntity } from './interfaces';

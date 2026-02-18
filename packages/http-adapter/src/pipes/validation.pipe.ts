@@ -1,8 +1,8 @@
-import type { Class, PrimitiveArray, PrimitiveRecord, PrimitiveValue } from '@bunner/common';
-import type { TransformerPlainValue, TransformerValue } from '@bunner/core/src/transformer/types';
-import type { ValidatorValueRecord } from '@bunner/core/src/validator/types';
+import type { Class, PrimitiveArray, PrimitiveRecord, PrimitiveValue } from '@zipbul/common';
+import type { TransformerPlainValue, TransformerValue } from '@zipbul/core/src/transformer/types';
+import type { ValidatorValueRecord } from '@zipbul/core/src/validator/types';
 
-import { ValidatorCompiler, TransformerCompiler } from '@bunner/core';
+import { ValidatorCompiler, TransformerCompiler } from '@zipbul/core';
 import { StatusCodes } from 'http-status-codes';
 
 import type { ArgumentMetadata, PipeTransform } from '../interfaces';

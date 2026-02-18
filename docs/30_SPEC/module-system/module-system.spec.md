@@ -86,7 +86,7 @@ Normative: 본 SPEC은 추가적인 용어 정의를 도입하지 않는다.
 
 | 입력 종류(Input Kind) | 수집 출처(Collected From) | 허용 형식(Allowed Form) (token) | 리터럴 요구(Must Be Literal) (yes/no) | 해결 가능 요구(Must Be Resolvable) (yes/no) | 정규화 출력(Normalized Output) (none/string-id) |
 | --------------------- | ------------------------- | ------------------------------- | ------------------------------------- | ------------------------------------------- | ----------------------------------------------- |
-| module-fileName       | bunner config (resolved)  | string-literal                  | yes                                   | yes                                         | none                                            |
+| module-fileName       | zipbul config (resolved)  | string-literal                  | yes                                   | yes                                         | none                                            |
 | adapter-config        | module root file (AOT)    | object-literal                  | yes                                   | yes                                         | none                                            |
 
 ### 3.2 정적 데이터 형상(Static Data Shapes) (REQUIRED)
@@ -163,8 +163,8 @@ export type ModuleSystemData = unknown;
 
 | Rule ID             | 위반 조건(Violation Condition) | Diagnostic Code   | 심각도(Severity) (token) | 위치(Where) (token) | 탐지 방법(How Detectable) (token) |
 | ------------------- | ------------------------------ | ----------------- | ------------------------ | ------------------- | --------------------------------- |
-| MODULE-SYSTEM-R-001 | module root ambiguous          | BUNNER_MODULE_001 | error                    | file                | static:ast                        |
-| MODULE-SYSTEM-R-002 | dependsOn invalid or cyclic    | BUNNER_MODULE_002 | error                    | symbol              | static:ast                        |
+| MODULE-SYSTEM-R-001 | module root ambiguous          | ZIPBUL_MODULE_001 | error                    | file                | static:ast                        |
+| MODULE-SYSTEM-R-002 | dependsOn invalid or cyclic    | ZIPBUL_MODULE_002 | error                    | symbol              | static:ast                        |
 
 ---
 

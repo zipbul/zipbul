@@ -1,6 +1,6 @@
-import { UseMiddlewares, UseErrorFilters } from '@bunner/common';
-import { Controller, Post, Get, Body } from '@bunner/http-adapter';
-import { Logger } from '@bunner/logger';
+import { UseMiddlewares, UseErrorFilters } from '@zipbul/common';
+import { Controller, Post, Get, Body } from '@zipbul/http-adapter';
+import { Logger } from '@zipbul/logger';
 
 import { AuditMiddleware } from './audit.middleware';
 import { ChargeDto } from './charge.dto';

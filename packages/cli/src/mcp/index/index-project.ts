@@ -1,4 +1,4 @@
-import type { ResolvedBunnerConfig } from '../../config';
+import type { ResolvedZipbulConfig } from '../../config';
 
 import { parseSync } from 'oxc-parser';
 import type { Program } from 'oxc-parser';
@@ -24,7 +24,7 @@ import {
 import { readCardFile } from '../card/card-fs';
 import { parseFullKey } from '../card/card-key';
 
-import { bunnerCardsGlobRel, bunnerCardsPrefixRel } from '../../common';
+import { zipbulCardsGlobRel, zipbulCardsPrefixRel } from '../../common';
 
 import {
   CallsExtractor,
@@ -37,7 +37,7 @@ export type IndexMode = 'full' | 'incremental';
 
 export interface IndexProjectInput {
   projectRoot: string;
-  config: ResolvedBunnerConfig;
+  config: ResolvedZipbulConfig;
   db: StoreDb;
   mode: IndexMode;
 }
@@ -151,7 +151,7 @@ async function buildExcludeSet(projectRoot: string, patterns: string[]): Promise
 }
 
 function isCardPath(relPath: string): boolean {
-  return relPath.startsWith(bunnerCardsPrefixRel()) && relPath.endsWith('.card.md');
+  return relPath.startsWith(zipbulCardsPrefixRel()) && relPath.endsWith('.card.md');
 }
 
 function isCodePath(relPath: string, sourceDirRel: string): boolean {
@@ -550,7 +550,7 @@ export async function indexProject(input: IndexProjectInput): Promise<IndexProje
   const { projectRoot, config, db, mode } = input;
 
   const sourceDirRel = normalizeSourceDirRel(config.sourceDir);
-  const cardPathsRel = await scanGlobRel(projectRoot, bunnerCardsGlobRel());
+  const cardPathsRel = await scanGlobRel(projectRoot, zipbulCardsGlobRel());
   const codePathsRel = await scanGlobRel(projectRoot, `${sourceDirRel}/**/*.ts`);
 
   const excludeSet = await buildExcludeSet(projectRoot, config.mcp.exclude);

@@ -1,10 +1,10 @@
-# Bunner — Copilot Instructions
+# Zipbul — Copilot Instructions
 
 > Codebase knowledge for VS Code Copilot. Policy rules live in `AGENTS.md` + `.ai/rules/`.
 
 ## Project Overview
 
-Bunner is a Bun-native web framework with AOT (Ahead-of-Time) compilation, inspired by NestJS but using file-based modules instead of class decorators. It includes a CLI-integrated Knowledge Base (KB) that maintains a Knowledge Graph of the codebase in SQLite.
+Zipbul is a Bun-native web framework with AOT (Ahead-of-Time) compilation, inspired by NestJS but using file-based modules instead of class decorators. It includes a CLI-integrated Knowledge Base (KB) that maintains a Knowledge Graph of the codebase in SQLite.
 
 **Stack:** Bun, TypeScript (strict), Drizzle ORM, SQLite, MCP SDK
 
@@ -18,7 +18,7 @@ packages/
   http-adapter/ → HTTP server, routing, middleware, pipes
   scalar/     → OpenAPI/Scalar UI documentation generation
   cli/        → AOT compiler, dev server, Knowledge Base (MCP + SQLite store)
-examples/     → Example Bunner application
+examples/     → Example Zipbul application
 docs/         → Specs, architecture, governance (SSOT hierarchy)
 ```
 
@@ -32,7 +32,7 @@ File-based modules using `__module__.ts` (not class decorators):
 
 ```typescript
 // src/users/__module__.ts
-export const module: BunnerModule = {
+export const module: ZipbulModule = {
   name: 'UsersModule',
   providers: [UsersService, UsersController],
 };
@@ -77,8 +77,8 @@ DB connection: SQLite with WAL mode, schema versioning (mismatch → full rebuil
 bun test                    # Run all tests (bun:test)
 bun test --coverage         # With coverage
 bun test packages/cli/test/ # Run specific package tests
-bunner dev                  # Dev server with hot reload
-bunner build                # AOT compilation → dist/
+zp dev                  # Dev server with hot reload
+zp build                # AOT compilation → dist/
 ```
 
 ## Test Conventions

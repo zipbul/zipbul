@@ -3,9 +3,9 @@ import { StatusCodes } from 'http-status-codes';
 
 import type { HttpAdapter } from '../../adapter/http-adapter';
 
-import { BunnerHttpContext } from '../../adapter';
-import { BunnerRequest } from '../../bunner-request';
-import { BunnerResponse } from '../../bunner-response';
+import { ZipbulHttpContext } from '../../adapter';
+import { ZipbulRequest } from '../../zipbul-request';
+import { ZipbulResponse } from '../../zipbul-response';
 import { HeaderField, HttpMethod } from '../../enums';
 import { CORS_DEFAULT_METHODS } from './constants';
 import { CorsMiddleware } from './cors.middleware';
@@ -43,9 +43,9 @@ describe('cors.middleware', () => {
     return HttpMethod.Get;
   };
 
-  const createMockContext = (method: HttpMethod | string, headers: Record<string, string> = {}): BunnerHttpContext => {
+  const createMockContext = (method: HttpMethod | string, headers: Record<string, string> = {}): ZipbulHttpContext => {
     const reqHeaders = new Headers(headers);
-    const request = new BunnerRequest({
+    const request = new ZipbulRequest({
       url: 'http://example.test',
       httpMethod: normalizeHttpMethod(method),
       headers: reqHeaders,
@@ -56,7 +56,7 @@ describe('cors.middleware', () => {
       ip: null,
       ips: [],
     });
-    const response = new BunnerResponse(request, new Headers());
+    const response = new ZipbulResponse(request, new Headers());
     const adapter: HttpAdapter = {
       getRequest: () => request,
       getResponse: () => response,
@@ -74,10 +74,10 @@ describe('cors.middleware', () => {
       },
     };
 
-    return new BunnerHttpContext(adapter);
+    return new ZipbulHttpContext(adapter);
   };
 
-  const getResHeader = (ctx: BunnerHttpContext, name: string): string | null => {
+  const getResHeader = (ctx: ZipbulHttpContext, name: string): string | null => {
     return ctx.response.getHeader(name);
   };
 

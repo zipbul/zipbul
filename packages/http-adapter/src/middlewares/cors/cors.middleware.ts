@@ -1,12 +1,12 @@
-import { BunnerMiddleware, type Context } from '@bunner/common';
+import { ZipbulMiddleware, type Context } from '@zipbul/common';
 
 import type { CorsOptions } from './interfaces';
 
-import { BunnerHttpContext } from '../../adapter';
+import { ZipbulHttpContext } from '../../adapter';
 import { HeaderField, HttpMethod } from '../../enums';
 import { CORS_DEFAULT_METHODS, CORS_DEFAULT_OPTIONS_SUCCESS_STATUS } from './constants';
 
-export class CorsMiddleware extends BunnerMiddleware<CorsOptions> {
+export class CorsMiddleware extends ZipbulMiddleware<CorsOptions> {
   constructor(private readonly options: CorsOptions = {}) {
     super();
   }
@@ -113,12 +113,12 @@ export class CorsMiddleware extends BunnerMiddleware<CorsOptions> {
     }
   }
 
-  private assertHttpContext(context: Context): BunnerHttpContext {
-    if (context instanceof BunnerHttpContext) {
+  private assertHttpContext(context: Context): ZipbulHttpContext {
+    if (context instanceof ZipbulHttpContext) {
       return context;
     }
 
-    throw new Error('Expected BunnerHttpContext');
+    throw new Error('Expected ZipbulHttpContext');
   }
 
   private async matchOrigin(origin: string, options: CorsOptions): Promise<string | undefined> {

@@ -29,7 +29,7 @@
 
 AGI 시대가 도래하면 사람의 역할은 **에이전트가 최고 효율로 일할 수 있는 환경을 만드는 것**으로 수렴한다.
 
-bunner 프레임워크는 이미 에이전트 친화적으로 설계되어 있다:
+zipbul 프레임워크는 이미 에이전트 친화적으로 설계되어 있다:
 
 - **Marker-Based Role Identification** → 에이전트가 추측 없이 코드 역할 파악
 - **Directory-First Modularity** → 파일 구조만으로 아키텍처 이해
@@ -47,7 +47,7 @@ bunner 프레임워크는 이미 에이전트 친화적으로 설계되어 있�
 
 ### 1.3 차별화
 
-| 기존 멀티 에이전트 | bunner Agent Orchestra |
+| 기존 멀티 에이전트 | zipbul Agent Orchestra |
 |--------------------|----------------------|
 | API key 필수 | MCP Sampling — 사용자 키 불필요 |
 | Docker / 별도 프로세스 | Bun Worker — 단일 프로세스 내 병렬 |
@@ -163,7 +163,7 @@ model_hint: "claude-sonnet-4"  # Standard tier
 
 **페르소나는 "추상적 성격"이 아니라 "구체적 행동 지침(behavioral directives)"이다.**
 
-bunner의 "Structure Over Rules" 원칙을 에이전트에 적용:
+zipbul의 "Structure Over Rules" 원칙을 에이전트에 적용:
 ```
 ❌ "너는 분석적이고 신중한 성격이야"
 ✅ 구체적 사고 절차 + 출력 형식 + 판단 기준을 강제
@@ -814,7 +814,7 @@ function routeMessages(
 [Review Phase] 최종 검토 → 카드 상태 'implemented'
     │
     ▼
-[bunner mcp verify] 무결성 자동 검증
+[zp mcp verify] 무결성 자동 검증
 ```
 
 ### 9.2 토론 로그 보존
@@ -945,7 +945,7 @@ interface ConvergenceConfig {
   staleRounds?: number;
 }
 
-/** 멀티에이전트 설정. bunner.jsonc의 "agents" 키. */
+/** 멀티에이전트 설정. zipbul.jsonc의 "agents" 키. */
 interface AgentsConfig {
   /** L1 — 전략 프리셋. 이것만 설정하면 나머지 전부 자동. */
   strategy: Strategy;
@@ -966,7 +966,7 @@ interface AgentsConfig {
 }
 ```
 
-### 10.4 bunner.jsonc 설정 예시
+### 10.4 zipbul.jsonc 설정 예시
 
 #### L1 — Strategy만 (대부분의 사용자)
 
@@ -1042,12 +1042,12 @@ interface AgentsConfig {
 ### 10.6 CLI Surface
 
 ```
-bunner agents discuss <topic>        # 전체 파이프라인 실행 (Ideation → Review)
-bunner agents ideate <topic>         # Ideation phase만
-bunner agents spec <card-key>        # 카드 기반 Spec phase
-bunner agents test <card-key>        # 카드 기반 Test phase
-bunner agents review <card-key>      # 카드 기반 Review phase
-bunner agents debug <error-context>  # Debug phase
+zipbul agents discuss <topic>        # 전체 파이프라인 실행 (Ideation → Review)
+zipbul agents ideate <topic>         # Ideation phase만
+zipbul agents spec <card-key>        # 카드 기반 Spec phase
+zipbul agents test <card-key>        # 카드 기반 Test phase
+zipbul agents review <card-key>      # 카드 기반 Review phase
+zipbul agents debug <error-context>  # Debug phase
 
 # 옵션
 --strategy <preset>     # 전략 프리셋 오버라이드
@@ -1090,5 +1090,5 @@ bunner agents debug <error-context>  # Debug phase
 | D13 | 반박 수준 | Modest Tit for Tat (steel man 후 반박) | Liang et al. — 과격→발산, 순종→groupthink |
 | D14 | 성격/특성의 위상 | R²AP의 독립 4번째 축 (Persona) | 연구 기반 체계적 설계가 전제 → 1줄 병합이 아닌 독립 축 |
 | D15 | 비용 전략 | "토론은 싸게, 결론만 비싸게" + 4개 전략 프리셋 | Free 모델 다수(토론) + Standard(합성) + Premium(선택적 심판) |
-| D16 | firebat 배치 | 별도 패키지 (현행 유지). MCP tool로 연동. | 범용 도구 + 의존성 무게 + 릴리스 독립성. bunner에서 MCP tool call로 호출. |
+| D16 | firebat 배치 | 별도 패키지 (현행 유지). MCP tool로 연동. | 범용 도구 + 의존성 무게 + 릴리스 독립성. zipbul에서 MCP tool call로 호출. |
 | D17 | 에이전트 설정 스키마 | 3-Layer (Strategy → Phase Override → Convergence Tuning) + enum 기반 옵션 | "사용자는 what, 시스템이 how". Responsibility/Authority/Topology/ThinkingPattern은 시스템 강제. |
