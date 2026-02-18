@@ -1,825 +1,1716 @@
-# Card-centric MCP Index Design (Git-first + File SSOT + SQLite Index)
+# Emberdeck 분리 실행계획
 
-> **Scope**: zipbul MCP architecture optimized for vibe-coding agents
-> **Status**: Draft v6.0 — 2026-02-16
-> **Core idea**: **Git is the source of truth** (cards are files with frontmatter metadata + body spec). **SQLite is a disposable local index (gitignored, always rebuildable)** for ultra-fast agent traversal. **SQLite is managed exclusively by the MCP domain** — `zp build/dev` produce only build artifacts (manifest); `zp mcp` owns all SQLite indexing.
-> **Where it lives**: zipbul **CLI package** — CLI and MCP share the same core logic.
-> **Card = Spec**: Cards are exclusively for specifications. No type field — all cards are specs. Classification via keyword (normalized term dictionary) + tag (free categorization).
-
-**Out of scope**: repository documentation directory (it will be deleted)
+> 상태: 실행 준비 완료
+> 작성일: 2026-02-19
+> 목표: 카드 시스템을 `emberdeck` 패키지로 완전 분리. Zipbul 내부 의존 0건.
 
 ---
 
-## 1. Problem Statement
+## 0. 절대 규칙
 
-During vibe-coding, an agent must be able to answer quickly:
-
-- "What requirement(card) does this code implement?"
-- "What code implements this card?"
-- "What other cards depend on this?"
-- "What code is adjacent/impacted?"
-
-And the answer must be:
-
-- **Fast** (sub-100ms interactive)
-- **Branch-safe** (Git branches naturally isolate)
-- **Merge-safe** (Git merge resolves conflicts)
-- **Low-ops** (no always-on shared DB requirement)
+| # | 규칙 |
+|---|---|
+| R1 | 패키지명 `emberdeck` (unscoped) |
+| R2 | 범위 = **카드 시스템 로직만** (watcher, MCP 서버, AOT 컴파일러 제외) |
+| R3 | Repository 패턴 필수 (인터페이스 → Drizzle 구현) |
+| R4 | Drizzle ORM + drizzle-kit migration 필수 |
+| R5 | `sql\`\``, `sql.raw`, `sql.unsafe`, `Bun.SQL` 금지 |
+| R6 | `@zipbul/*` import 0건 |
+| R7 | watcher는 외부 존재 가정. emberdeck은 **sync API만** 제공 |
+| R8 | 테스트: `bun:test`, BDD, AAA, RED→GREEN |
 
 ---
 
-## 2. Design Goals
+## 1. 디렉토리 구조
 
-1. **Git-first SSOT**: Card files (frontmatter + body) are Git-tracked, human-reviewable, mergeable.
-2. **SQLite index**: Disposable local cache (gitignored). Provides high-performance traversal/search. Always rebuildable.
-3. **CLI + MCP share core**: Both interfaces invoke the same core logic for reads and writes. Framework authors may use MCP exclusively; end-users may use CLI.
-4. **MCP embedded**: MCP server is started via `zp mcp` (single command). MCP write tools are **required** (not deferred).
-5. **AOT/AST (oxc-parser only)**: Reuse existing CLI `oxc-parser` pipeline. No TypeScript Compiler API dependency.
-6. **Call-level code relations**: Code↔code relations include imports, calls, extends, implements — all statically extractable via AST. (DI inject/provide reserved for future framework-user features.)
-7. **Dual audience**: Must serve both the framework author (building zipbul itself via vibe-coding/MCP) and framework users (who get richer features including framework rules via MCP).
-8. **No "snapshot export/import" as a workflow**: the SSOT is the files themselves.
-
----
-
-## 3. High-Level Architecture
-
-### 3.1 Source-of-truth layers
-
-- **SSOT (Git-tracked)**: `.zipbul/cards/**/*.card.md` (frontmatter=metadata, body=spec) + **optional** in-code card links (JSDoc `@see key`)
-- **Build artifacts (Git-tracked)**: `.zipbul/build/` — compiler output (manifest TS, etc.)
-- **Derived local index (gitignored)**: `.zipbul/cache/index.sqlite` — managed exclusively by MCP domain
-
+```text
+packages/emberdeck/
+├── package.json
+├── tsconfig.json
+├── drizzle.config.ts
+├── index.ts                         ← public API barrel
+├── src/
+│   ├── config.ts                    ← EmberdeckOptions, DEFAULT_RELATION_TYPES
+│   ├── setup.ts                     ← setupEmberdeck(), teardownEmberdeck()
+│   ├── card/                        ← 순수 도메인 (I/O 없음)
+│   │   ├── types.ts                 ← CardStatus, CardRelation, CardFrontmatter, CardFile
+│   │   ├── card-key.ts              ← normalizeSlug, parseFullKey, buildCardPath
+│   │   ├── markdown.ts              ← parseCardMarkdown, serializeCardMarkdown
+│   │   └── errors.ts               ← CardKeyError, CardNotFoundError, …
+│   ├── fs/                          ← 카드 파일 I/O
+│   │   ├── reader.ts               ← readCardFile
+│   │   └── writer.ts               ← writeCardFile, deleteCardFile
+│   ├── db/                          ← 영속성 계층
+│   │   ├── schema.ts               ← card, cardRelation, keyword, tag, cardKeyword, cardTag, cardFts
+│   │   ├── connection.ts            ← createEmberdeckDb, migrateEmberdeck, closeDb
+│   │   ├── repository.ts           ← CardRepository, RelationRepository, ClassificationRepository 인터페이스
+│   │   ├── card-repo.ts            ← DrizzleCardRepository
+│   │   ├── relation-repo.ts        ← DrizzleRelationRepository
+│   │   └── classification-repo.ts  ← DrizzleClassificationRepository
+│   └── ops/                         ← CRUD 오케스트레이션 (fs + db 조합)
+│       ├── create.ts
+│       ├── update.ts
+│       ├── delete.ts
+│       ├── rename.ts
+│       ├── query.ts                 ← getCard, listCards, searchCards
+│       └── sync.ts                  ← syncCardFromFile, removeCardByFile
+├── drizzle/                          ← drizzle-kit migration 출력
+└── test/
+    ├── helpers.ts                    ← createTestContext, cleanup
+    ├── card/
+    │   ├── card-key.spec.ts
+    │   └── markdown.spec.ts
+    ├── db/
+    │   ├── card-repo.spec.ts
+    │   ├── relation-repo.spec.ts
+    │   └── classification-repo.spec.ts
+    ├── ops/
+    │   ├── create.spec.ts
+    │   ├── update.spec.ts
+    │   ├── delete.spec.ts
+    │   ├── rename.spec.ts
+    │   └── sync.spec.ts
+    └── migration.spec.ts
 ```
-repo/
-  .zipbul/
-    cards/                 # SSOT: card files (frontmatter + body)
-    build/                 # Git-tracked: compiler artifacts
-      runtime.ts           #   manifest (export const manifest = ... as const)
-    cache/                 # gitignored: MCP-managed derived data
-      index.sqlite         #   project index (code_entity, card, relations, FTS5)
-      watcher.owner.lock   #   Owner Election lock file (PID)
-  zipbul.jsonc             # Config: source dir, entry, relations, exclusions
-  src/
-    ...                    # Code SSOT
-```
-
-`.gitignore` rule: `.zipbul/cache/`
-
-### 3.2 Read vs Write paths
-
-- **Reads** (agent tools): always serve from SQLite index
-- **Writes** (human/agent via CLI or MCP): modify SSOT files (cards / code annotations) via shared core logic, then re-index
-
-CLI and MCP invoke the **same core** for writes (AST-safe edits, card CRUD, re-index).
-The SQLite DB is always rebuildable.
 
 ---
 
-## 4. SSOT File Model
+## 2. 모듈 의존 그래프
 
-### 4.1 Cards as files
+```text
+config.ts ──┐
+card/    ←──┼── fs/ ←──┐
+            └── db/ ←──┴── ops/
+                            ↑
+                         setup.ts ← index.ts
+```
 
-Cards are stored as Markdown files with **frontmatter (metadata) + body (spec content only)**.
+**금지 방향** (위반 시 순환 의존):
+- `card/` → `fs/`, `db/`, `ops/`
+- `fs/` → `ops/`
+- `db/` → `ops/`, `fs/`
 
-Path convention:
+---
 
-- `.zipbul/cards/auth.card.md`
-- `.zipbul/cards/auth/login.card.md`
+## 3. 파일별 상세 명세
 
-This is a filesystem hierarchy for organization. Logical relationships are stored in frontmatter, not directory structure.
+### 3.1 `package.json`
 
-### 4.2 Card classification (keyword + tag)
-
-Cards have no `type` field — all cards are specs. Classification uses two orthogonal mechanisms:
-
-| Mechanism | Purpose | Storage | Constraint |
-|-----------|---------|---------|------------|
-| **keyword** | Normalized term dictionary (search precision) | `keyword` table (PK) + `card_keyword` N:M | Registered terms only |
-| **tag** | Free categorization (grouping/filtering) | `tag` table (PK) + `card_tag` N:M | Registered tags only |
-
-**keyword** = "이 카드가 무엇에 관한 것인가" (e.g. `authentication`, `jwt`, `UserService`). Normalized PK prevents agents from using inconsistent terms (`auth` vs `authentication` vs `인증`).
-
-**tag** = "이 카드를 어떻게 분류할 것인가" (e.g. `auth-module`, `core`, `v2`). PK-managed to prevent duplicate/inconsistent tags.
-
-Relation types are configured in `zipbul.jsonc`:
-
-```jsonc
+```json
 {
-  "sourceDir": "./src",
-  "entry": "./src/main.ts",
-  "module": { "fileName": "module.ts" },
-  "mcp": {
-    "card": {
-      "relations": ["depends-on", "references", "related", "extends", "conflicts"]
-    },
-    "exclude": []
+  "name": "emberdeck",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "module": "index.ts",
+  "scripts": {
+    "test": "bun test",
+    "drizzle:generate": "bunx drizzle-kit generate --config drizzle.config.ts",
+    "drizzle:migrate": "bunx drizzle-kit migrate --config drizzle.config.ts"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.1"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.9",
+    "@types/bun": "^1.3.0"
   }
 }
 ```
 
-- `mcp.card.relations`: allowed `relations[].type` values. Default: 5 types above.
-- `mcp.exclude`: glob patterns excluded from indexing and `@see` verification.
-- ~~`mcp.card.types`~~: **Removed**. No type system — all cards are specs.
-
-### 4.3 Card frontmatter
-
-```yaml
----
-key: auth/login
-summary: OAuth login
-status: draft              # draft | accepted | implementing | implemented | deprecated
-tags:                      # registered tags for categorization (PK-managed)
-  - auth-module
-  - user-facing
-keywords:                  # registered terms for search precision (PK-managed)
-  - authentication
-  - jwt
-constraints:               # optional (spec-specific constraints, brief)
-  - latency < 200ms
-  - PII must be masked
-relations:                 # optional (graph edges to other cards)
-  - type: depends-on
-    target: auth/session
-  - type: related
-    target: auth/token-refresh
----
-```
-
-**Body** contains **spec content only**. No AC checklists, no style guides, no tutorials. Completion is determined by user-directed `status` transitions.
-
-### 4.4 Relationship model (graph/web, no tree)
-
-- **No `parent` field**. No forced tree hierarchy.
-- All card↔card relationships are **typed edges** stored in frontmatter `relations[]`.
-- `relations[].type` is a fixed set of edge kinds:
-
-| Type | Meaning |
-|------|---------|
-| `depends-on` | Prerequisite / blocking |
-| `references` | Weak reference / background |
-| `related` | Associated (symmetric — both directions have identical semantics) |
-| `extends` | Refinement / elaboration |
-| `conflicts` | Contradicts / clashes |
-
-- SSOT stores **outgoing edges only**. Reverse edges are auto-generated by the indexer in SQLite.
-- Start with R1 (frontmatter). Migrate to R2 (separate files) if merge conflicts become frequent.
-
-### 4.5 Card↔Code links (card-centric verification)
-
-`@see key` is an **optional connection mechanism**. Code uses `@see` to declare that it implements a specific card.
-
-Not every code file needs a card link. Types, interfaces, constants, and utility code may exist without `@see`. Verification is **card-centric**, not code-centric.
-
-#### Syntax
-
-```ts
-/**
- * @see auth/login
- */
-export function handleOAuthCallback() {}
-```
-
-Multiple links:
-
-```ts
-/**
- * @see auth/login
- * @see auth/session
- */
-```
-
-#### Card-centric verification rules
-
-Verification checks whether **confirmed cards have implementation code linked**, not whether all code has card links.
-
-| Card status | No @see references | Action |
-|-------------|-------------------|--------|
-| `draft` | — | no check |
-| `accepted` | warning | "confirmed card, no implementation code linked" |
-| `implementing` | warning | "card in progress, no code linked" |
-| `implemented` | **error** | "marked implemented but no code linked" |
-| `deprecated` | — | no check |
-
-#### Verification layers
-
-Card-centric verification operates at two layers:
-
-**1. Verification command warnings**
-
-When the verification command (`zp mcp verify`) is executed, it performs full integrity verification and reports errors/warnings. It warns about confirmed cards (`accepted` / `implementing` / `implemented`) that have no `@see` code links.
-
-**2. Agent instruction hardcoding (out of document scope)**
-
-Hardcode the following rule into agent instruction files (`.github/copilot-instructions.md`, `AGENTS.md`, `.cursor/rules/`, etc.):
-
-> When writing or modifying implementation code, always insert `@see key` JSDoc comments if the code relates to a card.
-
-This rule is outside the scope of the card system document, but is stated at the design stage because card-centric verification requires agents to consistently insert `@see` links. Actual instruction file modifications will be done during implementation.
-
-#### Validity rules (always enforced)
-
-- Every `@see key` in code MUST reference an existing card
-- Invalid `@see` references are **errors**
-
-Notes:
-
-- JSDoc contains **only the card key reference** (no spec duplication). The card file remains SSOT for spec content.
-- Link insertion is supported via CLI/MCP core (AST-safe edit).
-
----
-
-## 5. Local SQLite Index Model (Derived)
-
-### 5.1 Purpose
-
-SQLite index is the **MCP-managed project index**. The MCP domain is the sole owner of all SQLite read/write operations. `zp build/dev` do not access SQLite.
-
-**MCP read tools** (consumer):
-- `search`, `get_context`, `get_subgraph`, `impact_analysis`, `trace_chain`
-
-**MCP indexer** (producer):
-- `zp mcp rebuild` performs full index build (card parsing + code AST scanning + FTS5)
-- `zp mcp` server performs incremental re-index on file changes (watch mode)
-
-The index is always **disposable and rebuildable** from:
-
-- `.zipbul/cards/**/*.card.md`
-- code files under configured source roots (from `zipbul.jsonc`)
-
-**WAL mode**: SQLite is opened with `PRAGMA journal_mode = WAL` for optimal read-write concurrency (single writer via Owner Election, multiple readers via MCP tools). `PRAGMA busy_timeout = 5000` is set to handle transient lock contention.
-
-### 5.2 Tables (domain-separated)
-
-```sql
--- Schema metadata (versioning, configuration)
-metadata(
-  key           TEXT PRIMARY KEY,
-  value         TEXT NOT NULL
-)
--- Initial row: ('schema_version', '1')
--- Code constant SCHEMA_VERSION compared on open; mismatch → DROP ALL + rebuild (disposable DB)
-
--- Card metadata (parsed from frontmatter)
-card(
-  key           TEXT PRIMARY KEY,  -- e.g. 'auth/login'
-  summary       TEXT NOT NULL,
-  status        TEXT NOT NULL,     -- draft|accepted|implementing|implemented|deprecated
-  constraints_json TEXT,           -- JSON array
-  body          TEXT,              -- raw markdown body
-  file_path     TEXT NOT NULL,     -- source .card.md path
-  updated_at    TEXT NOT NULL
-)
-
--- Keyword master table (unique keyword registry / term dictionary)
-keyword(
-  id            INTEGER PRIMARY KEY,
-  name          TEXT NOT NULL UNIQUE  -- e.g. 'authentication', 'jwt', 'UserService'
-)
-
--- Card↔Keyword mapping (N:M, PK-managed)
-card_keyword(
-  card_key      TEXT NOT NULL REFERENCES card(key),
-  keyword_id    INTEGER NOT NULL REFERENCES keyword(id),
-  PRIMARY KEY (card_key, keyword_id)
-)
-
--- Tag master table (unique tag registry / categorization)
-tag(
-  id            INTEGER PRIMARY KEY,
-  name          TEXT NOT NULL UNIQUE  -- e.g. 'auth-module', 'core', 'v2'
-)
-
--- Card↔Tag mapping (N:M, PK-managed)
-card_tag(
-  card_key      TEXT NOT NULL REFERENCES card(key),
-  tag_id        INTEGER NOT NULL REFERENCES tag(id),
-  PRIMARY KEY (card_key, tag_id)
-)
-
--- Code entities (parsed from AST by MCP indexer)
-code_entity(
-  entity_key    TEXT PRIMARY KEY,  -- e.g. 'symbol:src/auth/login.ts#handleOAuth'
-  file_path     TEXT NOT NULL,
-  symbol_name   TEXT,
-  kind          TEXT NOT NULL,     -- module|class|function|variable|...
-  signature     TEXT,
-  fingerprint   TEXT,              -- hash of (symbol_name + kind + signature) for move tracking
-  content_hash  TEXT NOT NULL,
-  updated_at    TEXT NOT NULL
-)
-
--- Card↔Card relations (parsed from frontmatter relations[])
--- Indexer auto-generates reverse edges (is_reverse = true) for bidirectional traversal
-card_relation(
-  id            INTEGER PRIMARY KEY,
-  type          TEXT NOT NULL,     -- depends-on|references|related|extends|conflicts
-  src_card_key  TEXT NOT NULL REFERENCES card(key),
-  dst_card_key  TEXT NOT NULL REFERENCES card(key),
-  is_reverse    BOOLEAN NOT NULL DEFAULT false,
-  meta_json     TEXT
-)
-
--- Card↔Code links (parsed from JSDoc @see key)
--- entity_key is NOT NULL: file-level @see maps to the module entity
-card_code_link(
-  id            INTEGER PRIMARY KEY,
-  type          TEXT NOT NULL,     -- see (all card↔code links are represented as @see)
-  card_key      TEXT NOT NULL REFERENCES card(key),
-  entity_key    TEXT NOT NULL REFERENCES code_entity(entity_key),
-  file_path     TEXT NOT NULL,
-  symbol_name   TEXT,
-  meta_json     TEXT
-)
-
--- Code↔Code relations (extracted by AST pipeline)
-code_relation(
-  id              INTEGER PRIMARY KEY,
-  type            TEXT NOT NULL,   -- imports|calls|extends|implements
-  src_entity_key  TEXT NOT NULL REFERENCES code_entity(entity_key),
-  dst_entity_key  TEXT NOT NULL REFERENCES code_entity(entity_key),
-  meta_json       TEXT
-)
-
--- File state (for incremental indexing)
-file_state(
-  path            TEXT PRIMARY KEY,
-  content_hash    TEXT NOT NULL,
-  mtime           TEXT NOT NULL,
-  last_indexed_at TEXT NOT NULL
-)
-
--- FTS5 external content virtual tables (trigram tokenizer for CJK support)
--- External content FTS5: content stored in source table, FTS index auto-synced via triggers
--- No data duplication — FTS reads from source table on SELECT, only index is stored
-CREATE VIRTUAL TABLE card_fts USING fts5(
-  key, summary, body,
-  content='card', content_rowid='rowid',
-  tokenize='trigram'
-);
-CREATE VIRTUAL TABLE code_fts USING fts5(
-  entity_key, symbol_name,
-  content='code_entity', content_rowid='rowid',
-  tokenize='trigram'
-);
-
--- FTS external content sync triggers (card_fts)
--- External content DELETE uses special INSERT INTO fts(fts, ...) VALUES('delete', ...) syntax
-CREATE TRIGGER card_fts_ai AFTER INSERT ON card BEGIN
-  INSERT INTO card_fts(rowid, key, summary, body)
-    VALUES (new.rowid, new.key, new.summary, new.body);
-END;
-CREATE TRIGGER card_fts_au AFTER UPDATE ON card BEGIN
-  INSERT INTO card_fts(card_fts, rowid, key, summary, body)
-    VALUES('delete', old.rowid, old.key, old.summary, old.body);
-  INSERT INTO card_fts(rowid, key, summary, body)
-    VALUES (new.rowid, new.key, new.summary, new.body);
-END;
-CREATE TRIGGER card_fts_ad AFTER DELETE ON card BEGIN
-  INSERT INTO card_fts(card_fts, rowid, key, summary, body)
-    VALUES('delete', old.rowid, old.key, old.summary, old.body);
-END;
-
--- FTS external content sync triggers (code_fts)
-CREATE TRIGGER code_fts_ai AFTER INSERT ON code_entity BEGIN
-  INSERT INTO code_fts(rowid, entity_key, symbol_name)
-    VALUES (new.rowid, new.entity_key, new.symbol_name);
-END;
-CREATE TRIGGER code_fts_au AFTER UPDATE ON code_entity BEGIN
-  INSERT INTO code_fts(code_fts, rowid, entity_key, symbol_name)
-    VALUES('delete', old.rowid, old.entity_key, old.symbol_name);
-  INSERT INTO code_fts(rowid, entity_key, symbol_name)
-    VALUES (new.rowid, new.entity_key, new.symbol_name);
-END;
-CREATE TRIGGER code_fts_ad AFTER DELETE ON code_entity BEGIN
-  INSERT INTO code_fts(code_fts, rowid, entity_key, symbol_name)
-    VALUES('delete', old.rowid, old.entity_key, old.symbol_name);
-END;
-
--- Indexes for query performance (§9 targets)
-CREATE INDEX idx_card_status ON card(status);
-CREATE INDEX idx_card_file_path ON card(file_path);
-CREATE INDEX idx_code_entity_file_path ON code_entity(file_path);
-CREATE INDEX idx_code_entity_kind ON code_entity(kind);
-CREATE INDEX idx_card_relation_src ON card_relation(src_card_key);
-CREATE INDEX idx_card_relation_dst ON card_relation(dst_card_key);
-CREATE INDEX idx_card_relation_type ON card_relation(type);
-CREATE INDEX idx_card_code_link_card ON card_code_link(card_key);
-CREATE INDEX idx_card_code_link_entity ON card_code_link(entity_key);
-CREATE INDEX idx_card_code_link_file ON card_code_link(file_path);
-CREATE INDEX idx_code_relation_src ON code_relation(src_entity_key);
-CREATE INDEX idx_code_relation_dst ON code_relation(dst_entity_key);
-CREATE INDEX idx_code_relation_type ON code_relation(type);
-CREATE INDEX idx_card_keyword_card ON card_keyword(card_key);
-CREATE INDEX idx_card_keyword_keyword ON card_keyword(keyword_id);
-CREATE INDEX idx_card_tag_card ON card_tag(card_key);
-CREATE INDEX idx_card_tag_tag ON card_tag(tag_id);
--- Note: keyword.name and tag.name already have UNIQUE indexes (implicit from UNIQUE constraint)
-```
-
-### 5.3 Identity strategy
-
-**Namespace separation** (intentional delimiter difference):
-- Card keys use **slash-separated slugs** — e.g. `auth/login`, `auth/session`
-- Code entity keys use **single colon** `:` — e.g. `module:src/auth/login.ts`, `symbol:src/auth/login.ts#handleOAuth`
-
-This prevents ambiguity: any key containing `:` (single colon) is a code entity, keys without colon are cards.
-
-- Cards: identity is `card.key` (e.g. `auth/login`). Key is defined in frontmatter and is immutable by policy. Rename is supported via `card_rename` tool (updates all references).
-- Code: identity is `entity_key` derived from AST:
-  - module: `module:{relativePath}`
-  - symbol: `symbol:{relativePath}#{symbolName}`
-
-**Fingerprint for move tracking**:
-- `fingerprint` = hash of (symbol_name + kind + signature)
-- When a file moves, the indexer matches old entities to new entities by fingerprint
-- **Safety-first (zero false positives):** retarget only when fingerprint match is **unique 1:1** (single old ↔ single new). Ambiguous matches are skipped.
-- Match found → retarget `code_relation` (src/dst) and `card_code_link.entity_key` to the new `entity_key`, then delete the old entity row
-- No match → delete old, create new
-
----
-
-## 6. MCP Indexing Pipeline
-
-The MCP domain is the sole owner of SQLite indexing. `zp build/dev` produce only build artifacts (manifest) and do **not** access SQLite. The MCP indexer independently parses card files and code files to populate the index.
-
-### 6.1 Full rebuild (`zp mcp rebuild --full`)
-
-1. Check `metadata.schema_version` → mismatch with code constant → DROP ALL tables + recreate schema
-2. **Entire rebuild is wrapped in a single SQLite transaction** (atomic: all-or-nothing)
-3. Parse all card files → `card` rows + `card_relation` rows (from frontmatter `relations[]`) + `keyword`/`card_keyword` rows (from frontmatter `keywords[]`) + `tag`/`card_tag` rows (from frontmatter `tags[]`)
-4. Auto-generate reverse `card_relation` rows (`is_reverse = true`)
-5. Parse code files via `oxc-parser` AST → `code_entity` rows (with fingerprint) + `code_relation` rows (imports, calls, extends, implements)
-6. Parse JSDoc `@see key` annotations → `card_code_link` rows
-7. FTS5 external content tables are auto-synchronized via triggers (no manual refresh needed)
-8. Update `file_state` for all processed files
-
-### 6.2 Incremental re-index (watch mode / `zp mcp rebuild`)
-
-- Use `file_state` to skip unchanged files (content_hash + mtime comparison)
-- Each file update is wrapped in a **SQLite transaction** (atomic per-file: all-or-nothing)
-- If a card file changes: update `card` + `card_relation` + `card_keyword` + `card_tag` rows from that file. **Reverse edge scope**: delete only reverse edges where `dst_card_key` is the changed card, then regenerate from the card's current outgoing relations (not full reverse rebuild)
-- If a code file changes: update `code_entity` + `code_relation` + `card_code_link` rows from that file
-- FTS5 external content tables are auto-synchronized via triggers (no manual update needed)
-- File move detection: compare fingerprints of deleted entities with new entities to preserve relations
-  - **Conservative retargeting:** only 1:1 fingerprint matches are retargeted (otherwise skip)
-  - Retarget scope: `code_relation` (src/dst) + `card_code_link.entity_key` (best-effort)
-
-### 6.3 Data flow
-
-```
-[.card.md frontmatter] ──parse──→ card + card_relation + card_keyword + card_tag tables (+ reverse edges)
-[.card.md body]        ──parse──→ card.body column
-[*.ts files AST]       ──parse──→ code_entity (with fingerprint) + code_relation tables
-[*.ts JSDoc @see]      ──parse──→ card_code_link table
-(FTS5 external content) ──triggers──→ card_fts + code_fts indexes (no data duplication)
-```
-
-### 6.4 Code relation extractor (plugin structure)
-
-The code relation extraction pipeline is designed for extensibility. Extractors live in `compiler/` domain and are imported by MCP indexer.
-
-```typescript
-interface CodeRelationExtractor {
-  name: string;
-  extract(ast: AST, filePath: string): CodeRelation[];
+### 3.2 `tsconfig.json`
+
+```json
+{
+  "extends": "../../tsconfig.json"
 }
 ```
 
-**Currently implemented:** `imports`, `calls`, `extends`, `implements` (pure AST extractable)
+### 3.3 `drizzle.config.ts`
 
-**Reserved for future:** `injects`, `provides` (framework-user features, to be added with system/adapter card types)
+```ts
+import type { Config } from 'drizzle-kit';
 
-### 6.5 Build vs Index separation
-
-| Command | Responsibility | SQLite access |
-|---------|---------------|---------------|
-| `zp build` | AOT compilation → manifest (`.zipbul/build/runtime.ts`) | **None** |
-| `zp dev` | Watch mode compilation → manifest | **None** |
-| `zp mcp rebuild` | Full/incremental index rebuild | **Read + Write** |
-| `zp mcp` (server) | Watch mode incremental re-index + MCP tools | **Read + Write** |
-
----
-
-## 7. CLI Surface (Draft)
-
-### 7.1 Commands
-
-- `zp mcp rebuild [--full]`
-  - build/refresh `.zipbul/cache/index.sqlite` (manual rebuild)
-
-- `zp mcp verify`
-  - runs full integrity verification (cards, relations, and `@see` links)
-  - prints errors/warnings and returns non-zero exit code on errors
-  - **CI integration**: run `zp mcp verify` in CI pipeline to enforce invariants
-
-- `zp mcp`
-  - start MCP server (stdio / HTTP)
-  - auto-ensure required repo structure/config on startup:
-    - create `.zipbul/` structure if missing (including `cards/`, `build/`, `cache/`)
-    - ensure `.zipbul/cache/` is gitignored
-    - if `zipbul.jsonc` is missing: create it with minimum required fields (`sourceDir`, `entry`, `module.fileName`)
-    - if `zipbul.jsonc` exists: never auto-edit it (non-destructive); missing fields are filled by runtime defaults
-  - ensures index is ready (build if missing)
-  - always-on index watch: when cards/code/config change, automatically re-index
-    - `.zipbul/cards/**/*.card.md` changes: incremental re-index
-    - code changes under `sourceDir` (`*.ts`, excluding `*.d.ts`): incremental re-index
-    - `zipbul.jsonc` changes: full rebuild
-
-### 7.2 Write helpers
-
-- `zp mcp card create|update|delete|rename|status`
-  - create/modify/delete/rename `.card.md` (frontmatter + body)
-  - `rename` updates all `@see` references + `relations[].target` across codebase
-
-- `zp mcp link add|remove`
-  - insert/remove `@see key` annotation using AST (safe edit)
-
-- `zp mcp relation add|remove`
-  - add/remove `relations[]` entries in card frontmatter
-
-All write helpers use the **shared core logic** (same code as MCP write tools).
-
----
-
-## 8. MCP Server (Embedded in CLI)
-
-CLI and MCP share the **same core**. MCP is the primary interface for vibe-coding.
-
-### 8.1 Read tools
-
-- `search(query, filters)` — full-text search across cards and code
-- `get_context(target)` — card or code entity with linked entities
-- `get_subgraph(center, hops, filters)` — N-hop graph traversal (visited set cycle prevention)
-- `impact_analysis(card_key)` — cards + code affected by a card change (reverse dependency traversal)
-- `trace_chain(from_key, to_key)` — shortest relation path between two entities
-- `coverage_report(card_key)` — card's linked code status
-- `list_unlinked(status_filter)` — cards with no @see code references (filterable by status)
-- `list_cards(filters)` — card listing by status, tags, keywords
-- `get_relations(card_key, direction)` — card's relations (outgoing / incoming / both)
-
-All read tools query SQLite only.
-
-### 8.2 Write tools (required, not deferred)
-
-MCP write tools are **required**. Framework authors use MCP exclusively.
-
-Write tools must:
-
-- modify SSOT files (cards / code annotations) via shared core logic
-- trigger re-index after write
-- never modify SQLite directly as SSOT
-
-Tools:
-
-- `card_create(key, summary, body, keywords?, tags?)` — create card file
-- `card_update(key, fields)` — update card frontmatter/body
-- `card_delete(key)` — delete card file (rejects deletion if `@see` references still exist in code OR other cards reference this card in `relations[].target`; user must remove all references first)
-- `card_rename(old_key, new_key)` — rename key across all @see + relations
-- `card_update_status(key, status)` — transition card status
-- `link_add(file_path, card_key)` — AST-safe JSDoc @see insertion
-- `link_remove(file_path, card_key)` — AST-safe JSDoc @see removal
-- `relation_add(src_key, dst_key, type)` — add relation to card frontmatter
-- `relation_remove(src_key, dst_key, type)` — remove relation from card frontmatter
-- `keyword_create(name)` — register new keyword in term dictionary
-- `keyword_delete(name)` — remove keyword (unlinks from all cards)
-- `tag_create(name)` — register new tag
-- `tag_delete(name)` — remove tag (unlinks from all cards)
-
----
-
-## 9. Performance Targets (Draft)
-
-Benchmark baseline: **500 cards + 2,000 code files + 10,000 code entities**
-
-On a typical laptop (local SQLite):
-
-| Operation | Target |
-|-----------|--------|
-| `get_context` | < 20ms |
-| `search` (FTS trigram) | < 30ms |
-| `get_subgraph` (hops=2) | < 50ms |
-| `impact_analysis` (depth=3) | < 100ms |
-| incremental index (1 file) | < 200ms |
-| full rebuild | < 10s |
-
----
-
-## 10. Governance & History (Git-native)
-
-All governance is handled by Git:
-
-- approvals: PR review + commit history
-- rollback: `git revert`
-- history: `git log .zipbul/cards/...`
-
-If stronger governance is required later:
-
-- add an optional append-only `.zipbul/events.jsonl` (Git-tracked) as a structured audit stream
-
----
-
-## 11. Invariants (Minimal set)
-
-Hard rules (errors):
-
-1. `card.key` is globally unique in repo
-2. no duplicate card file defines the same key
-3. every code-referenced `@see key` must exist as a card
-4. every `relations[].target` in frontmatter must exist as a card
-5. card with status `implemented` must have at least one `@see` code reference
-6. every `relations[].type` must be in `mcp.card.relations` (in `zipbul.jsonc`)
-7. every keyword in frontmatter `keywords[]` must be registered in `keyword` table
-8. every tag in frontmatter `tags[]` must be registered in `tag` table
-
-Soft rules (warnings):
-
-1. card with status `accepted` or `implementing` has no `@see` code references
-2. `depends-on` cycles (traversal uses visited set to prevent infinite loops)
-3. references to `deprecated` cards
-
----
-
-## 12. Resolved Decisions
-
-| # | Decision | Resolution |
-|---|----------|------------|
-| 1 | Card status set | `draft \| accepted \| implementing \| implemented \| deprecated` |
-| 2 | Relation storage | R1 (frontmatter, outgoing only) to start. Reverse edges auto-generated by indexer. Migrate to R2 if merge conflicts become frequent |
-| 3 | AST engine | `oxc-parser` only. No TypeScript Compiler API |
-| 4 | Code relation depth | Call-level included (imports, calls, extends, implements). injects/provides reserved for future |
-| 5 | Link prefix | `@see key` (slug only, no type prefix). Card = spec, type removed |
-| 6 | Policy/agent rules | Not stored in cards. Out of scope for card model |
-| 7 | `.tsx` support | Not applicable (backend framework) |
-| 8 | In-code ignore tokens | Not applicable (`@see` is optional; no code-level enforcement to bypass) |
-| 9 | MCP write tools | Required (not deferred). Full CRUD for cards, links, relations |
-| 10 | `parent` field | Removed. Graph/web structure only (typed edges) |
-| 11 | Card↔code links | `@see {type}::key` is optional. Verification is card-centric (not code-centric) |
-| 12 | CI enforcement | Mandatory for: invalid @see targets, implemented cards without code links |
-| 13 | @see enforcement | Optional. Card-centric verification, not code-centric |
-| 14 | Reverse relations | Auto-generated by indexer (`is_reverse` flag). SSOT stores outgoing only |
-| 15 | Code identity | Path-based `entity_key` + `fingerprint` (symbol+kind+signature hash) for move tracking |
-| 16 | Status transitions | User-directed. No automatic AC checking. Agent acts on user instruction |
-| 17 | FTS tokenizer | trigram (for CJK/Unicode support) |
-| 18 | Cycle handling | Visited set in traversal tools. `depends-on` cycles are CI warnings (not errors) |
-| 19 | Code relation extractors | Plugin interface ready. Only pure-AST extractors implemented now |
-| 20 | Config format | `zipbul.jsonc` (JSONC). Shared with framework config |
-| 21 | Package structure | CLI package (`packages/cli/`). MCP commands as `zp mcp` subcommand group |
-| 22 | Framework-shipped cards | Deferred. `zp mcp` auto-creates required empty structure on first run. Content TBD |
-| 23 | Card type registry | **Removed**. All cards are specs. No `mcp.card.types` config. Classification via keyword (term dict PK) + tag (category PK) |
-| 24 | `relations[].type` set | `mcp.card.relations` in `zipbul.jsonc`. Default: `["depends-on", "references", "related", "extends", "conflicts"]` |
-| 25 | Verification command | `zp mcp verify` performs full integrity verification; warns about confirmed cards with no code links |
-| 26 | Agent @see insertion rule | Hardcode `@see` insertion rule in agent instruction files (applied during implementation) |
-| 27 | Manifest format | TypeScript: `export const manifest = ${JSON.stringify(data)} as const;`. Frozen at build time, deleted from memory after bootstrap via null assignment + GC |
-| 28 | SQLite ownership | **MCP-exclusive** — MCP domain is the sole owner of all SQLite operations. `zp build/dev` do not access SQLite. MCP indexer independently parses card files and code AST to populate the index |
-| 29 | `.zipbul/` directory | `cards/` + `build/` (Git-tracked) + `cache/` (gitignored: `index.sqlite` + `watcher.owner.lock`). No `schema/` directory — schema versioning is handled by `metadata` table in SQLite |
-| 30 | Owner Election | lock file + PID + signal. **MCP processes only** (build/dev do not participate). First `zp mcp` process = owner (watch + write), subsequent = reader (signal + read only). Owner death → reader promotes |
-| 31 | WAL mode | `PRAGMA journal_mode = WAL` + `PRAGMA busy_timeout = 5000`. Optimal for single-writer + multi-reader (Owner Election + MCP read tools) |
-| 32 | CLI architecture | Domain-oriented vertical slicing: `compiler/`, `mcp/`, `store/`, `watcher/`, `config/`, `diagnostics/`, `shared/`, `errors/`, `bin/`. No horizontal layering |
-| 33 | Angular CLI patterns | All 8 patterns adopted (Bun-native): declareTool factory, Host abstraction, McpToolContext, SQLite schema versioning, FTS5+bm25, domain-vertical dirs, Zod schemas, shouldRegister |
-| 34 | Design principle | Performance, safety, stability over implementation cost. Complexity is acceptable when it serves these goals |
-| 35 | build/dev duplication | Resolved by domain restructuring — compiler domain unifies analyzer + generator + build/dev orchestration |
-| 36 | Build vs Index separation | `zp build/dev` = manifest only (no SQLite). `zp mcp rebuild` = SQLite sync. Complete responsibility separation |
-| 37 | `metadata` table | `metadata(key TEXT PK, value TEXT NOT NULL)` in SQLite. Stores `schema_version`. Code constant `SCHEMA_VERSION` compared on open; mismatch → DROP ALL + rebuild |
-| 38 | `.zipbul/schema/` removal | Removed. No separate schema directory needed. DB schema version in `metadata` table, card format handled by backward-compatible parser |
-| 39 | FTS5 auto-sync | External content FTS5 (`content='card'`/`content='code_entity'`, `content_rowid='rowid'`). Trigger-based sync using special `VALUES('delete', ...)` syntax. No data duplication, no manual FTS update needed |
-| 40 | `card_code_link.entity_key` | NOT NULL. File-level `@see` maps to the file's `module:` entity. Ensures referential integrity and simpler JOINs |
-| 41 | `code_relation.type` scope | Current: `imports\|calls\|extends\|implements`. `injects\|provides` reserved for future framework-user features |
-| 42 | CLI naming convention | CRUD standard: `create\|update\|delete\|rename\|status`. CLI and MCP tool names aligned (e.g. `card create` / `card_create`) |
-| 43 | Keyword system | Keywords are a **normalized term dictionary** (PK-managed). `keyword` table (id + name UNIQUE) + `card_keyword` N:M. No denormalized TEXT column in card table. FTS searches body/summary only; keyword/tag lookup via JOIN |
-| 44 | Keyword PK strategy | INTEGER PK (`keyword.id`) + `name TEXT UNIQUE`. ID-based FK in `card_keyword` — keyword rename does not cascade to junction table. Chosen because agents frequently rename keywords |
-| 45 | P0 directory restructure | Pure directory move before any new code. `analyzer/+generator/ → compiler/`, `commands/ → bin/`, empty dirs created. File rename/refactor deferred to each Phase. Git history preserved via pure mv |
-| 46 | Card type removal | `card.type` field **removed**. All cards are specs. Key format changed: `spec::auth/login` → `auth/login`. No type prefix in `@see` links. Simplifies schema, config, validation |
-| 47 | Tag system | Tags are **PK-managed categorization**. `tag` table (id + name UNIQUE) + `card_tag` N:M. Same structure as keyword but different purpose: keyword = search precision (what), tag = classification (how to organize) |
-| 48 | Card TEXT columns removed | `card.keywords` TEXT and `card.type` TEXT removed from card table. keyword/tag data lives exclusively in normalized N:M tables. FTS covers only `key`, `summary`, `body` |
-| 49 | Framework doc delivery | **YAGNI**. No MCP tool for framework docs. `.d.ts` JSDoc is the API reference. MCP provides project KB only. Revisit when agent-to-agent workflow is implemented |
-| 50 | Workflow documents | Not part of card system. Plans, reviews, discussions are temporary markdown files managed outside KB. Cards = specs only |
-
-## 13. Future Discussion (out of current scope)
-
-Items to discuss in later phases. Recorded here for continuity.
-
-### Architecture / Design
-
-1. **Framework user data accumulation**: How to collect and structure data for framework end-users? What data does the MCP expose to users building apps with zipbul?
-2. **Agent-to-agent workflow**: Multi-agent orchestration for planning, coding, testing, review. Temporary workflow documents (plans, discussions, reviews) managed outside card system as plain markdown files.
-3. **Framework documentation delivery**: When `.d.ts` JSDoc is insufficient, consider MCP tool for framework docs. Currently YAGNI.
-
-### Implementation Details
-
-1. **YAML frontmatter parser**: Bun-compatible library selection for card parsing
-2. **oxc-parser JSDoc @see extraction**: Integration with existing CLI AST pipeline for `@see key` parsing
-3. **MCP transport protocol**: stdio vs HTTP selection criteria and configuration
-4. **`card_rename` transaction safety**: Atomicity guarantees when renaming across many files
-
----
-
-## 14. CLI Domain Architecture
-
-The CLI package uses **domain-oriented vertical slicing**. Each domain owns all its code (no horizontal layers splitting domains).
-
-```
-packages/cli/src/
-  compiler/        # AOT build: AST parsing, module graph, manifest, injector, code gen
-                   #   Does NOT access SQLite. Produces only build artifacts.
-                   #   Contains CodeRelationExtractor implementations (reused by MCP indexer)
-  mcp/             # Card system + indexing: card CRUD, indexing, MCP server, verification
-    card/          #   Card parsing (frontmatter+body), CRUD helpers
-    index/         #   Full/incremental indexing (card, code_entity, relations, FTS5)
-    server/        #   MCP server (stdio), tool registry (declareTool pattern)
-    verify/        #   Integrity verification (invariants §11)
-  store/           # SQLite access layer (used by MCP domain only)
-    index-store.ts #   Schema, connection, WAL, metadata, CRUD operations
-    file-state.ts  #   Incremental indexing (file_state table)
-    interfaces.ts  #   Port interfaces
-  watcher/         # File watching + Owner Election (lock+PID+signal)
-  config/          # zipbul.jsonc loading, config resolution (currently in common/, migrated in P8)
-  diagnostics/     # Diagnostic message building/reporting
-  shared/          # Pure utilities (codepoint-compare, glob-scan, write-if-changed)
-  errors/          # Error types
-  bin/             # CLI entry points (zp build, zp dev, zp mcp)
+export default {
+  schema: './src/db/schema.ts',
+  out: './drizzle',
+  dialect: 'sqlite',
+  dbCredentials: {
+    url: 'file:./.zipbul/cache/emberdeck.sqlite',
+  },
+} satisfies Config;
 ```
 
-### 14.1 Owner Election
+---
 
-- Scope: **MCP processes only** (`zp mcp` / `zp mcp rebuild`). `zp build/dev` do not participate.
-- Lock file: `.zipbul/cache/watcher.owner.lock` contains owner PID
-- First `zp mcp` process = **owner** (watch + SQLite write authority)
-- Subsequent `zp mcp` processes = **reader** (SQLite read only, signal owner for re-index)
-- Owner death detection: reader checks if PID is alive; promotes if dead
-- Single writer eliminates concurrency hazards at the root cause
+### 3.4 `src/config.ts`
 
-### 14.2 Manifest Format
+```ts
+import type { EmberdeckDb } from './db/connection';
+import type { CardRepository, RelationRepository, ClassificationRepository } from './db/repository';
 
-- TypeScript: `export const manifest = ${JSON.stringify(data)} as const;`
-- Output: `.zipbul/build/runtime.ts` (Git-tracked)
-- Lifecycle: frozen (`Object.freeze` + `Object.seal`) at build time → consumed during bootstrap → deleted from memory (`null` + GC)
+export const DEFAULT_RELATION_TYPES = [
+  'depends-on',
+  'references',
+  'related',
+  'extends',
+  'conflicts',
+] as const;
 
-### 14.3 Angular CLI Patterns (Bun-adapted)
+export type DefaultRelationType = (typeof DEFAULT_RELATION_TYPES)[number];
 
-All patterns adopted from Angular CLI MCP, adapted for Bun runtime:
+export interface EmberdeckOptions {
+  /** 카드 .card.md 파일이 저장되는 절대 경로 디렉토리 */
+  cardsDir: string;
+  /** SQLite DB 파일 절대 경로. ':memory:' 허용 */
+  dbPath: string;
+  /** 허용 관계 타입. 미지정 시 DEFAULT_RELATION_TYPES 사용 */
+  allowedRelationTypes?: readonly string[];
+}
 
-1. **declareTool factory** — Tool declaration/registration/filtering separation
-2. **Host abstraction** — OS/FS operations behind interface for testability
-3. **McpToolContext** — Shared context injected into all tools
-4. **SQLite schema versioning** — `metadata(key, value)` table with `schema_version`
-5. **FTS5 + bm25 weighted search** — Column-weighted relevance ranking
-6. **Domain-vertical directory organization** — Related files grouped by domain
-7. **Zod input/output schemas** — Type-safe tool I/O validation
-8. **shouldRegister conditional registration** — Runtime condition checks for tool availability
-
-### 14.4 Implementation Order
-
-| Phase | Domain | Content | Depends On |
-|-------|--------|---------|------------|
-| P0 | (all) | **Directory restructure** (pure mv + import path fix, no file rename/refactor). `analyzer/+generator/ → compiler/`, `commands/ → bin/`, empty dirs: `store/`, `shared/`, `mcp/{card,index,server,verify}/`. Git history preserved via pure move. Tests must pass after each commit | — |
-| P1 | `store/` | SQLite schema (§5.2 — card without type/keywords TEXT, keyword, card_keyword, **tag, card_tag**), connection, WAL, file_state, port interfaces | config (done) |
-| P2 | `compiler/` | CodeRelationExtractor implementations for MCP indexer reuse. No SQLite access | P0 |
-| P3 | `mcp/card/` | Card file parsing (frontmatter+body — **no type field, with tags[] and keywords[]**), CRUD helpers, key format (slug only, no type prefix) | config |
-| P4 | `mcp/index/` | Full/incremental indexing (card, card_relation, card_code_link, code_entity, code_relation, **card_keyword, card_tag**), FTS5 (key/summary/body only), file_state | store/, mcp/card/, compiler/ |
-| P5 | `mcp/verify/` | Invariants §11 verification (8 hard + 3 soft rules — **no type validation, added keyword/tag registration checks**) | store/, mcp/card/ |
-| P6 | `watcher/` | Owner Election (lock+PID+signal), incremental re-index trigger | store/ |
-| P7 | `mcp/server/` | MCP server (stdio), tool registry (declareTool), read/write tools (**including keyword_create/delete, tag_create/delete**) | store/, mcp/card/, mcp/index/, mcp/verify/ |
-| P8 | `bin/` | CLI entry restructure: `zp build`, `zp dev`, `zp mcp`. `config/` 분리 (`common/` 유틸 유지) | all |
-
-P0 is a prerequisite for all phases. P1 and P3 are independent and can proceed in parallel after P0. P6 is independent after P1.
-
-Each phase follows **strict TDD**: write ALL tests first → RED → implement → GREEN.
+export interface EmberdeckContext {
+  cardsDir: string;
+  db: EmberdeckDb;
+  cardRepo: CardRepository;
+  relationRepo: RelationRepository;
+  classificationRepo: ClassificationRepository;
+  allowedRelationTypes: readonly string[];
+}
+```
 
 ---
 
-## Appendix: Why this aligns with vibe-coding
+### 3.5 `src/setup.ts`
 
-- Agent reads become deterministic and fast (SQLite index)
-- Human collaboration remains Git-native
-- Complexity is concentrated in the indexer (single place), not in distributed constraints
-- MCP write tools enable fully MCP-driven development (no CLI required)
-- Card = Spec: single purpose simplifies tooling; keyword (term dict) + tag (classification) provide flexible discovery without schema bloat
-- Card-centric verification allows exploratory coding (code first, link later) while ensuring confirmed specs have implementations
+```ts
+import { createEmberdeckDb, closeDb, type EmberdeckDb } from './db/connection';
+import { DrizzleCardRepository } from './db/card-repo';
+import { DrizzleRelationRepository } from './db/relation-repo';
+import { DrizzleClassificationRepository } from './db/classification-repo';
+import { DEFAULT_RELATION_TYPES, type EmberdeckContext, type EmberdeckOptions } from './config';
+
+export function setupEmberdeck(options: EmberdeckOptions): EmberdeckContext {
+  const db = createEmberdeckDb(options.dbPath);
+  return {
+    cardsDir: options.cardsDir,
+    db,
+    cardRepo: new DrizzleCardRepository(db),
+    relationRepo: new DrizzleRelationRepository(db),
+    classificationRepo: new DrizzleClassificationRepository(db),
+    allowedRelationTypes: options.allowedRelationTypes ?? [...DEFAULT_RELATION_TYPES],
+  };
+}
+
+export function teardownEmberdeck(ctx: EmberdeckContext): void {
+  closeDb(ctx.db);
+}
+```
 
 ---
 
-## Appendix: Non-Guarantee Area (Static-only Limits)
+### 3.6 `src/card/types.ts`
 
-이 문서에서 말하는 `compiler/`의 CodeRelationExtractor(= pure AST 기반)는 **정적 분석만으로** 관계를 추출한다. 따라서 아래 케이스들은 “구멍”이 아니라 **정의상 보장 불가 영역**이다.
+기존 `packages/cli/src/mcp/card/types.ts` **그대로 복사**. 변경 0건.
 
-1. **비리터럴 dynamic import**: `import(expr)`에서 `expr`가 문자열 리터럴이 아니면 대상 모듈을 결정할 수 없다.
-2. **계산된 멤버 접근/호출**: `obj[expr]()` / `obj[expr]`는 `expr` 평가 결과에 따라 대상이 달라져 정적으로 확정 불가.
-3. **런타임 재바인딩/몽키패치**: 함수/메서드가 재할당되거나 프로토타입이 변경되면 “호출 → 실제 대상” 매핑이 런타임에 바뀐다.
-4. **리플렉션/메타프로그래밍**: `Reflect`, `Proxy`, 데코레이터/메타데이터 기반 라우팅 등은 AST만으로 완전 추적 불가.
-5. **FS/툴체인 의존 해석**: `tsconfig paths`, 확장자/인덱스 규칙, 번들러 리졸브 규칙 등은 파일시스템/설정에 의존하므로 P2의 “no FS / no SQLite” 제약 하에서 완전해질 수 없다.
+```ts
+export type CardStatus =
+  | 'draft'
+  | 'accepted'
+  | 'implementing'
+  | 'implemented'
+  | 'deprecated';
 
-### Guarantee modes
+export interface CardRelation {
+  type: string;
+  target: string;
+}
 
-정적 추출 결과의 신뢰도/완전성은 모드로 정의한다.
+export interface CardFrontmatter {
+  key: string;
+  summary: string;
+  status: CardStatus;
+  tags?: string[];
+  keywords?: string[];
+  constraints?: unknown;
+  relations?: CardRelation[];
+}
 
-1. **Sound mode (no false positives)**
-  - 확실히 판별 가능한 관계만 기록한다.
-  - 장점: 잘못된 엣지(거짓 양성)를 최소화.
-  - 단점: 누락(거짓 음성)이 늘 수 있음.
+export interface CardFile {
+  frontmatter: CardFrontmatter;
+  body: string;
+  filePath?: string;
+}
+```
 
-2. **Complete-ish mode (best-effort + meta_json)**
-  - 가능한 많이 엣지를 생성하되, 애매한 경우 `meta_json`에 “best-effort/불확실성”을 명시한다.
-  - 장점: 누락(거짓 음성)을 줄여 탐색/리트리벌에 유리.
-  - 단점: 일부 엣지는 런타임과 불일치할 수 있음(거짓 양성 가능).
+---
 
-현재 계획은 인덱서의 탐색 성능/리트리벌을 우선하여 **Complete-ish**를 기본으로 한다.
+### 3.7 `src/card/card-key.ts`
+
+기존 `packages/cli/src/mcp/card/card-key.ts`에서 복사.
+
+**변경 2건:**
+1. `import { zipbulCardMarkdownPath }` 삭제 → `buildCardPath(cardsDir, slug)` 신규 함수로 대체
+2. `throw new Error(...)` → `throw new CardKeyError(...)` 로 에러 클래스 변경
+
+```ts
+import { join } from 'node:path';
+
+const CARD_SLUG_RE =
+  /^(?![A-Za-z]:)(?!.*::)(?!.*:)(?!.*\/\/)(?!\.{1,2}$)(?!.*(?:^|\/)\.{1,2}(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
+
+export class CardKeyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CardKeyError';
+  }
+}
+
+function assertValidSlug(slug: string): void {
+  if (!CARD_SLUG_RE.test(slug)) {
+    throw new CardKeyError(`Invalid card slug: ${slug}`);
+  }
+}
+
+export function normalizeSlug(slug: string): string {
+  const normalized = slug.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  assertValidSlug(normalized);
+  return normalized;
+}
+
+export function parseFullKey(fullKey: string): string {
+  if (typeof fullKey !== 'string' || fullKey.length === 0) {
+    throw new CardKeyError('Invalid card key: empty');
+  }
+  return normalizeSlug(fullKey);
+}
+
+/**
+ * cardsDir + slug → 카드 파일 절대 경로.
+ * 기존 cardPathFromFullKey(projectRoot, fullKey) 대체.
+ * projectRoot → cardsDir 변환은 CLI 어댑터 책임.
+ */
+export function buildCardPath(cardsDir: string, slug: string): string {
+  return join(cardsDir, `${slug}.card.md`);
+}
+```
+
+---
+
+### 3.8 `src/card/markdown.ts`
+
+기존 `packages/cli/src/mcp/card/card-markdown.ts` **전체 복사**.
+
+**변경 1건:** `throw new Error(...)` → `throw new CardValidationError(...)` (import 추가)
+
+```ts
+import type { CardFile, CardFrontmatter, CardRelation, CardStatus } from './types';
+import { CardValidationError } from './errors';
+```
+
+**구현 지시**: `packages/cli/src/mcp/card/card-markdown.ts`의 모든 내부 함수(`normalizeNewlines`, `isCardStatus`, `asString`, `normalizeKeywords`, `normalizeTags`, `normalizeRelations`, `coerceFrontmatter`)를 그대로 복사. 각 `throw new Error(...)` → `throw new CardValidationError(...)` 치환. export 함수 `parseCardMarkdown`, `serializeCardMarkdown` 동일 시그니처 유지. `Bun.YAML.parse`, `Bun.YAML.stringify` 사용 유지.
+
+---
+
+### 3.9 `src/card/errors.ts`
+
+```ts
+export { CardKeyError } from './card-key';
+
+export class CardValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CardValidationError';
+  }
+}
+
+export class CardNotFoundError extends Error {
+  constructor(key: string) {
+    super(`Card not found: ${key}`);
+    this.name = 'CardNotFoundError';
+  }
+}
+
+export class CardAlreadyExistsError extends Error {
+  constructor(key: string) {
+    super(`Card already exists: ${key}`);
+    this.name = 'CardAlreadyExistsError';
+  }
+}
+
+export class CardRenameSamePathError extends Error {
+  constructor() {
+    super('No-op rename: source and target paths are identical');
+    this.name = 'CardRenameSamePathError';
+  }
+}
+
+export class RelationTypeError extends Error {
+  constructor(type: string, allowed: readonly string[]) {
+    super(`Invalid relation type "${type}". Allowed: ${allowed.join(', ')}`);
+    this.name = 'RelationTypeError';
+  }
+}
+```
+
+---
+
+### 3.10 `src/fs/reader.ts`
+
+```ts
+import type { CardFile } from '../card/types';
+import { parseCardMarkdown } from '../card/markdown';
+
+export async function readCardFile(filePath: string): Promise<CardFile> {
+  const text = await Bun.file(filePath).text();
+  const parsed = parseCardMarkdown(text);
+  return { ...parsed, filePath };
+}
+```
+
+### 3.11 `src/fs/writer.ts`
+
+```ts
+import type { CardFile } from '../card/types';
+import { serializeCardMarkdown } from '../card/markdown';
+
+export async function writeCardFile(filePath: string, card: CardFile): Promise<void> {
+  const text = serializeCardMarkdown(card.frontmatter, card.body);
+  await Bun.write(filePath, text);
+}
+
+export async function deleteCardFile(filePath: string): Promise<void> {
+  const file = Bun.file(filePath);
+  if (await file.exists()) {
+    await file.delete();
+  }
+}
+```
+
+---
+
+### 3.12 `src/db/schema.ts`
+
+기존 `packages/cli/src/store/schema.ts`에서 **카드 관련 테이블만** 추출.
+
+**포함**: `card`, `cardRelation`, `keyword`, `tag`, `cardKeyword`, `cardTag`, `cardFts`
+
+**제외** (CLI 잔류): `metadata`, `codeEntity`, `codeRelation`, `cardCodeLink`, `fileState`, `codeFts`
+
+**변경**: FK에 `onDelete: 'cascade'`, `onUpdate: 'cascade'` 추가 (기존 CLI는 `no action`).
+
+```ts
+import {
+  sqliteTable,
+  text,
+  integer,
+  index,
+  primaryKey,
+} from 'drizzle-orm/sqlite-core';
+
+export const card = sqliteTable(
+  'card',
+  {
+    rowid: integer('rowid'),
+    key: text('key').primaryKey(),
+    summary: text('summary').notNull(),
+    status: text('status').notNull(),
+    constraintsJson: text('constraints_json'),
+    body: text('body'),
+    filePath: text('file_path').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    index('idx_card_status').on(table.status),
+    index('idx_card_file_path').on(table.filePath),
+  ],
+);
+
+export const keyword = sqliteTable('keyword', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull().unique(),
+});
+
+export const tag = sqliteTable('tag', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull().unique(),
+});
+
+export const cardKeyword = sqliteTable(
+  'card_keyword',
+  {
+    cardKey: text('card_key')
+      .notNull()
+      .references(() => card.key, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    keywordId: integer('keyword_id')
+      .notNull()
+      .references(() => keyword.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.cardKey, table.keywordId] }),
+    index('idx_card_keyword_card').on(table.cardKey),
+    index('idx_card_keyword_keyword').on(table.keywordId),
+  ],
+);
+
+export const cardTag = sqliteTable(
+  'card_tag',
+  {
+    cardKey: text('card_key')
+      .notNull()
+      .references(() => card.key, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    tagId: integer('tag_id')
+      .notNull()
+      .references(() => tag.id, { onDelete: 'cascade' }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.cardKey, table.tagId] }),
+    index('idx_card_tag_card').on(table.cardKey),
+    index('idx_card_tag_tag').on(table.tagId),
+  ],
+);
+
+export const cardRelation = sqliteTable(
+  'card_relation',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    type: text('type').notNull(),
+    srcCardKey: text('src_card_key')
+      .notNull()
+      .references(() => card.key, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    dstCardKey: text('dst_card_key')
+      .notNull()
+      .references(() => card.key, { onDelete: 'cascade', onUpdate: 'cascade' }),
+    isReverse: integer('is_reverse', { mode: 'boolean' }).notNull().default(false),
+    metaJson: text('meta_json'),
+  },
+  (table) => [
+    index('idx_card_relation_src').on(table.srcCardKey),
+    index('idx_card_relation_dst').on(table.dstCardKey),
+    index('idx_card_relation_type').on(table.type),
+  ],
+);
+
+/** FTS5 가상 테이블 매핑. 실제 생성은 수동 마이그레이션 SQL. */
+export const cardFts = sqliteTable('card_fts', {
+  rowid: integer('rowid'),
+  key: text('key'),
+  summary: text('summary'),
+  body: text('body'),
+});
+```
+
+---
+
+### 3.13 `src/db/connection.ts`
+
+기존 `packages/cli/src/store/store-ops.ts` + `connection.ts` 패턴 참고 신규 작성.
+
+```ts
+import { drizzle } from 'drizzle-orm/bun-sqlite';
+import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
+import { Database } from 'bun:sqlite';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { mkdirSync } from 'node:fs';
+
+import * as schema from './schema';
+
+export type EmberdeckDb = ReturnType<typeof drizzle<typeof schema>>;
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function getMigrationsFolder(): string {
+  return resolve(__dirname, '../../drizzle');
+}
+
+function configurePragmas(db: EmberdeckDb): void {
+  const client = db.$client;
+  client.run('PRAGMA journal_mode = WAL');
+  client.run('PRAGMA foreign_keys = ON');
+  client.run('PRAGMA busy_timeout = 5000');
+}
+
+/**
+ * 독립 실행: 새 DB 열기 + pragma + migration.
+ */
+export function createEmberdeckDb(path: string): EmberdeckDb {
+  if (path !== ':memory:') {
+    mkdirSync(dirname(path), { recursive: true });
+  }
+  const client = new Database(path);
+  const db = drizzle(client, { schema, casing: 'snake_case' });
+  configurePragmas(db);
+  migrateEmberdeck(db);
+  return db;
+}
+
+/**
+ * 기존 DB에 emberdeck 마이그레이션만 실행 (CLI 통합용).
+ */
+export function migrateEmberdeck(db: EmberdeckDb): void {
+  migrate(db, { migrationsFolder: getMigrationsFolder() });
+}
+
+export function closeDb(db: EmberdeckDb): void {
+  db.$client.close();
+}
+```
+
+> **CLI 통합**: CLI가 자체 DB를 열고, `migrateEmberdeck(db)` 호출 → emberdeck 테이블 생성. 이후 CLI 자체 migration(codeEntity, fileState 등) 실행. 동일 `__drizzle_migrations` 테이블에 서로 다른 해시로 기록되므로 충돌 없음.
+
+---
+
+### 3.14 `src/db/repository.ts` — 인터페이스 정의
+
+```ts
+import type { CardStatus } from '../card/types';
+
+// ---- 행 타입 ----
+
+export interface CardRow {
+  key: string;
+  summary: string;
+  status: string;
+  constraintsJson: string | null;
+  body: string | null;
+  filePath: string;
+  updatedAt: string;
+}
+
+export interface RelationRow {
+  id: number;
+  type: string;
+  srcCardKey: string;
+  dstCardKey: string;
+  isReverse: boolean;
+  metaJson: string | null;
+}
+
+export interface CardListFilter {
+  status?: CardStatus;
+}
+
+// ---- Repository 인터페이스 ----
+
+export interface CardRepository {
+  findByKey(key: string): CardRow | null;
+  findByFilePath(filePath: string): CardRow | null;
+  upsert(row: CardRow): void;
+  deleteByKey(key: string): void;
+  existsByKey(key: string): boolean;
+  list(filter?: CardListFilter): CardRow[];
+  search(query: string): CardRow[];
+}
+
+export interface RelationRepository {
+  /** 카드의 관계를 전부 교체. isReverse 양방향 자동 처리. */
+  replaceForCard(cardKey: string, relations: { type: string; target: string }[]): void;
+  findByCardKey(cardKey: string): RelationRow[];
+  deleteByCardKey(cardKey: string): void;
+}
+
+export interface ClassificationRepository {
+  /** 카드의 keyword 매핑을 전부 교체. 미등록 keyword는 자동 생성. */
+  replaceKeywords(cardKey: string, names: string[]): void;
+  /** 카드의 tag 매핑을 전부 교체. 미등록 tag는 자동 생성. */
+  replaceTags(cardKey: string, names: string[]): void;
+  findKeywordsByCard(cardKey: string): string[];
+  findTagsByCard(cardKey: string): string[];
+  deleteByCardKey(cardKey: string): void;
+}
+```
+
+> **동기 시그니처**: bun-sqlite는 동기 드라이버. 모든 repo 메서드는 동기.
+
+---
+
+### 3.15 `src/db/card-repo.ts`
+
+```ts
+import { eq } from 'drizzle-orm';
+
+import type { EmberdeckDb } from './connection';
+import type { CardRepository, CardRow, CardListFilter } from './repository';
+import { card } from './schema';
+
+export class DrizzleCardRepository implements CardRepository {
+  constructor(private db: EmberdeckDb) {}
+
+  findByKey(key: string): CardRow | null {
+    const row = this.db.select().from(card).where(eq(card.key, key)).get();
+    return (row as CardRow | undefined) ?? null;
+  }
+
+  findByFilePath(filePath: string): CardRow | null {
+    const row = this.db.select().from(card).where(eq(card.filePath, filePath)).get();
+    return (row as CardRow | undefined) ?? null;
+  }
+
+  upsert(row: CardRow): void {
+    this.db
+      .insert(card)
+      .values(row)
+      .onConflictDoUpdate({
+        target: card.key,
+        set: {
+          summary: row.summary,
+          status: row.status,
+          constraintsJson: row.constraintsJson,
+          body: row.body,
+          filePath: row.filePath,
+          updatedAt: row.updatedAt,
+        },
+      })
+      .run();
+  }
+
+  deleteByKey(key: string): void {
+    this.db.delete(card).where(eq(card.key, key)).run();
+  }
+
+  existsByKey(key: string): boolean {
+    const row = this.db.select({ key: card.key }).from(card).where(eq(card.key, key)).get();
+    return row !== undefined;
+  }
+
+  list(filter?: CardListFilter): CardRow[] {
+    if (filter?.status) {
+      return this.db.select().from(card).where(eq(card.status, filter.status)).all() as CardRow[];
+    }
+    return this.db.select().from(card).all() as CardRow[];
+  }
+
+  search(query: string): CardRow[] {
+    // FTS5 MATCH. cardFts 가상 테이블은 수동 마이그레이션 후 사용 가능.
+    // Drizzle에서 FTS5 MATCH를 표현할 수 없으므로 prepared statement 사용.
+    // prepared statement는 parameterized query이며 R5 금지 대상(sql``)이 아님.
+    //
+    // 구현:
+    //   const results = this.db.$client
+    //     .prepare('SELECT key FROM card_fts WHERE card_fts MATCH ?')
+    //     .all(query) as { key: string }[];
+    //   const keys = results.map(r => r.key);
+    //   if (keys.length === 0) return [];
+    //   return this.db.select().from(card).where(inArray(card.key, keys)).all();
+    //
+    // 초기 구현: FTS 미설정 시 빈 배열 반환.
+    // FTS5 마이그레이션 적용 후 위 코드로 교체.
+    return [];
+  }
+}
+```
+
+---
+
+### 3.16 `src/db/relation-repo.ts`
+
+```ts
+import { eq } from 'drizzle-orm';
+
+import type { EmberdeckDb } from './connection';
+import type { RelationRepository, RelationRow } from './repository';
+import { cardRelation } from './schema';
+
+export class DrizzleRelationRepository implements RelationRepository {
+  constructor(private db: EmberdeckDb) {}
+
+  replaceForCard(cardKey: string, relations: { type: string; target: string }[]): void {
+    // 1. 이 카드가 src인 모든 관계 삭제 (정방향 + 역방향에서 이 카드가 src인 것)
+    this.db.delete(cardRelation).where(eq(cardRelation.srcCardKey, cardKey)).run();
+    // 이 카드가 dst인 reverse 엔트리도 삭제
+    this.db.delete(cardRelation).where(eq(cardRelation.dstCardKey, cardKey)).run();
+
+    // 2. 새 관계 삽입 (정방향 + 역방향)
+    // FK 방어: PRAGMA foreign_keys = ON 상태에서 대상 카드 미존재 시 FK 위반 → 스킵
+    for (const rel of relations) {
+      try {
+        this.db
+          .insert(cardRelation)
+          .values({
+            type: rel.type,
+            srcCardKey: cardKey,
+            dstCardKey: rel.target,
+            isReverse: false,
+          })
+          .run();
+
+        this.db
+          .insert(cardRelation)
+          .values({
+            type: rel.type,
+            srcCardKey: rel.target,
+            dstCardKey: cardKey,
+            isReverse: true,
+          })
+          .run();
+      } catch {
+        // 대상 카드 미존재 → FK violation → 해당 relation만 스킵 (정상)
+      }
+    }
+  }
+
+  findByCardKey(cardKey: string): RelationRow[] {
+    return this.db
+      .select()
+      .from(cardRelation)
+      .where(eq(cardRelation.srcCardKey, cardKey))
+      .all() as RelationRow[];
+  }
+
+  deleteByCardKey(cardKey: string): void {
+    this.db.delete(cardRelation).where(eq(cardRelation.srcCardKey, cardKey)).run();
+    this.db.delete(cardRelation).where(eq(cardRelation.dstCardKey, cardKey)).run();
+  }
+}
+```
+
+> **FK 방어**: `PRAGMA foreign_keys = ON` 상태에서 `rel.target`이 `card` 테이블에 없으면 FK 위반 에러 발생. 이는 정상 상황(아직 인덱싱 안 된 카드 참조)이므로 위 코드블록의 try-catch로 스킵 처리한다.
+
+---
+
+### 3.17 `src/db/classification-repo.ts`
+
+```ts
+import { eq, inArray } from 'drizzle-orm';
+
+import type { EmberdeckDb } from './connection';
+import type { ClassificationRepository } from './repository';
+import { keyword, tag, cardKeyword, cardTag } from './schema';
+
+export class DrizzleClassificationRepository implements ClassificationRepository {
+  constructor(private db: EmberdeckDb) {}
+
+  replaceKeywords(cardKey: string, names: string[]): void {
+    this.db.delete(cardKeyword).where(eq(cardKeyword.cardKey, cardKey)).run();
+    if (names.length === 0) return;
+
+    for (const name of names) {
+      this.db.insert(keyword).values({ name }).onConflictDoNothing().run();
+    }
+
+    const rows = this.db
+      .select({ id: keyword.id, name: keyword.name })
+      .from(keyword)
+      .where(inArray(keyword.name, names))
+      .all();
+
+    for (const row of rows) {
+      this.db.insert(cardKeyword).values({ cardKey, keywordId: row.id }).run();
+    }
+  }
+
+  replaceTags(cardKey: string, names: string[]): void {
+    this.db.delete(cardTag).where(eq(cardTag.cardKey, cardKey)).run();
+    if (names.length === 0) return;
+
+    for (const name of names) {
+      this.db.insert(tag).values({ name }).onConflictDoNothing().run();
+    }
+
+    const rows = this.db
+      .select({ id: tag.id, name: tag.name })
+      .from(tag)
+      .where(inArray(tag.name, names))
+      .all();
+
+    for (const row of rows) {
+      this.db.insert(cardTag).values({ cardKey, tagId: row.id }).run();
+    }
+  }
+
+  findKeywordsByCard(cardKey: string): string[] {
+    const rows = this.db
+      .select({ name: keyword.name })
+      .from(cardKeyword)
+      .innerJoin(keyword, eq(cardKeyword.keywordId, keyword.id))
+      .where(eq(cardKeyword.cardKey, cardKey))
+      .all();
+    return rows.map((r) => r.name);
+  }
+
+  findTagsByCard(cardKey: string): string[] {
+    const rows = this.db
+      .select({ name: tag.name })
+      .from(cardTag)
+      .innerJoin(tag, eq(cardTag.tagId, tag.id))
+      .where(eq(cardTag.cardKey, cardKey))
+      .all();
+    return rows.map((r) => r.name);
+  }
+
+  deleteByCardKey(cardKey: string): void {
+    this.db.delete(cardKeyword).where(eq(cardKeyword.cardKey, cardKey)).run();
+    this.db.delete(cardTag).where(eq(cardTag.cardKey, cardKey)).run();
+  }
+}
+```
+
+---
+
+### 3.18 `src/ops/create.ts`
+
+```ts
+import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
+
+import type { EmberdeckContext } from '../config';
+import type { CardRelation, CardFile } from '../card/types';
+import type { CardRow } from '../db/repository';
+import { normalizeSlug, buildCardPath } from '../card/card-key';
+import { CardAlreadyExistsError, RelationTypeError } from '../card/errors';
+import { writeCardFile } from '../fs/writer';
+import { DrizzleCardRepository } from '../db/card-repo';
+import { DrizzleRelationRepository } from '../db/relation-repo';
+import { DrizzleClassificationRepository } from '../db/classification-repo';
+import type { EmberdeckDb } from '../db/connection';
+
+export interface CreateCardInput {
+  slug: string;
+  summary: string;
+  body?: string;
+  keywords?: string[];
+  tags?: string[];
+  relations?: CardRelation[];
+}
+
+export interface CreateCardResult {
+  filePath: string;
+  fullKey: string;
+  card: CardFile;
+}
+
+export async function createCard(
+  ctx: EmberdeckContext,
+  input: CreateCardInput,
+): Promise<CreateCardResult> {
+  const slug = normalizeSlug(input.slug);
+  const fullKey = slug;
+  const filePath = buildCardPath(ctx.cardsDir, slug);
+
+  if (input.relations) {
+    for (const rel of input.relations) {
+      if (!ctx.allowedRelationTypes.includes(rel.type)) {
+        throw new RelationTypeError(rel.type, ctx.allowedRelationTypes);
+      }
+    }
+  }
+
+  const exists = await Bun.file(filePath).exists();
+  if (exists) {
+    throw new CardAlreadyExistsError(fullKey);
+  }
+
+  const frontmatter = {
+    key: fullKey,
+    summary: input.summary,
+    status: 'draft' as const,
+    ...(input.keywords && input.keywords.length > 0 ? { keywords: input.keywords } : {}),
+    ...(input.tags && input.tags.length > 0 ? { tags: input.tags } : {}),
+    ...(input.relations && input.relations.length > 0 ? { relations: input.relations } : {}),
+  };
+
+  const body = input.body ?? '';
+  const card: CardFile = { filePath, frontmatter, body };
+
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeCardFile(filePath, card);
+
+  const now = new Date().toISOString();
+  ctx.db.transaction((tx) => {
+    const cardRepo = new DrizzleCardRepository(tx as EmberdeckDb);
+    const relationRepo = new DrizzleRelationRepository(tx as EmberdeckDb);
+    const classRepo = new DrizzleClassificationRepository(tx as EmberdeckDb);
+
+    const row: CardRow = {
+      key: fullKey,
+      summary: input.summary,
+      status: 'draft',
+      constraintsJson: null,
+      body,
+      filePath,
+      updatedAt: now,
+    };
+
+    cardRepo.upsert(row);
+    if (input.relations && input.relations.length > 0) {
+      relationRepo.replaceForCard(fullKey, input.relations);
+    }
+    if (input.keywords && input.keywords.length > 0) {
+      classRepo.replaceKeywords(fullKey, input.keywords);
+    }
+    if (input.tags && input.tags.length > 0) {
+      classRepo.replaceTags(fullKey, input.tags);
+    }
+  });
+
+  return { filePath, fullKey, card };
+}
+```
+
+> **트랜잭션 패턴**: `ctx.db.transaction((tx) => { ... })` — 동기 콜백. `tx`로 repo 인스턴스 생성하여 동일 트랜잭션 내에서 실행. 파일 I/O는 트랜잭션 밖(async). DB 실패 시 자동 롤백되지만 이미 쓰인 파일은 남음 → `syncCardFromFile`로 재동기화 가능하므로 문제 없음.
+
+> **tx 타입**: `db.transaction((tx) => {...})`의 `tx`는 `BunSQLiteTransaction` 타입이며, repo 생성자의 `EmberdeckDb`(`BunSQLiteDatabase`) 타입과 정확히 일치하지 않는다. API 표면은 동일(select/insert/delete/update)하므로 `tx as EmberdeckDb` 캐스트로 해결. 위 코드블록에 이미 반영됨.
+
+---
+
+### 3.19 `src/ops/update.ts`
+
+```ts
+import type { EmberdeckContext } from '../config';
+import type { CardFile, CardFrontmatter, CardRelation, CardStatus } from '../card/types';
+import type { CardRow } from '../db/repository';
+import { parseFullKey, buildCardPath } from '../card/card-key';
+import { CardNotFoundError, RelationTypeError } from '../card/errors';
+import { readCardFile } from '../fs/reader';
+import { writeCardFile } from '../fs/writer';
+import { DrizzleCardRepository } from '../db/card-repo';
+import { DrizzleRelationRepository } from '../db/relation-repo';
+import { DrizzleClassificationRepository } from '../db/classification-repo';
+import type { EmberdeckDb } from '../db/connection';
+
+export interface UpdateCardFields {
+  summary?: string;
+  body?: string;
+  keywords?: string[] | null;
+  tags?: string[] | null;
+  constraints?: unknown;
+  relations?: CardRelation[] | null;
+}
+
+export interface UpdateCardResult {
+  filePath: string;
+  card: CardFile;
+}
+
+export async function updateCard(
+  ctx: EmberdeckContext,
+  fullKey: string,
+  fields: UpdateCardFields,
+): Promise<UpdateCardResult> {
+  const key = parseFullKey(fullKey);
+  const filePath = buildCardPath(ctx.cardsDir, key);
+
+  const current = await readCardFile(filePath);
+  if (current.frontmatter.key !== key) {
+    throw new CardNotFoundError(key);
+  }
+
+  if (fields.relations && fields.relations !== null) {
+    for (const rel of fields.relations) {
+      if (!ctx.allowedRelationTypes.includes(rel.type)) {
+        throw new RelationTypeError(rel.type, ctx.allowedRelationTypes);
+      }
+    }
+  }
+
+  // 필드 머지 (기존 card-crud.ts 로직 동일)
+  const next: CardFrontmatter = { ...current.frontmatter };
+  if (fields.summary !== undefined) next.summary = fields.summary;
+  if (fields.keywords !== undefined) {
+    if (fields.keywords === null || fields.keywords.length === 0) delete next.keywords;
+    else next.keywords = fields.keywords;
+  }
+  if (fields.tags !== undefined) {
+    if (fields.tags === null || fields.tags.length === 0) delete next.tags;
+    else next.tags = fields.tags;
+  }
+  if (fields.constraints !== undefined) next.constraints = fields.constraints;
+  if (fields.relations !== undefined) {
+    if (fields.relations === null || fields.relations.length === 0) delete next.relations;
+    else next.relations = fields.relations;
+  }
+
+  const nextBody = fields.body !== undefined ? fields.body : current.body;
+  const card: CardFile = { filePath, frontmatter: next, body: nextBody };
+
+  await writeCardFile(filePath, card);
+
+  const now = new Date().toISOString();
+  ctx.db.transaction((tx) => {
+    const cardRepo = new DrizzleCardRepository(tx as EmberdeckDb);
+    const relationRepo = new DrizzleRelationRepository(tx as EmberdeckDb);
+    const classRepo = new DrizzleClassificationRepository(tx as EmberdeckDb);
+
+    const row: CardRow = {
+      key,
+      summary: next.summary,
+      status: next.status,
+      constraintsJson: next.constraints ? JSON.stringify(next.constraints) : null,
+      body: nextBody,
+      filePath,
+      updatedAt: now,
+    };
+    cardRepo.upsert(row);
+
+    if (fields.relations !== undefined) relationRepo.replaceForCard(key, next.relations ?? []);
+    if (fields.keywords !== undefined) classRepo.replaceKeywords(key, next.keywords ?? []);
+    if (fields.tags !== undefined) classRepo.replaceTags(key, next.tags ?? []);
+  });
+
+  return { filePath, card };
+}
+
+export async function updateCardStatus(
+  ctx: EmberdeckContext,
+  fullKey: string,
+  status: CardStatus,
+): Promise<UpdateCardResult> {
+  const key = parseFullKey(fullKey);
+  const filePath = buildCardPath(ctx.cardsDir, key);
+
+  const current = await readCardFile(filePath);
+  if (current.frontmatter.key !== key) {
+    throw new CardNotFoundError(key);
+  }
+
+  const card: CardFile = {
+    filePath,
+    frontmatter: { ...current.frontmatter, status },
+    body: current.body,
+  };
+  await writeCardFile(filePath, card);
+
+  const now = new Date().toISOString();
+  const cardRepo = new DrizzleCardRepository(ctx.db);
+  const existing = cardRepo.findByKey(key);
+  if (existing) {
+    cardRepo.upsert({ ...existing, status, updatedAt: now });
+  }
+
+  return { filePath, card };
+}
+```
+
+---
+
+### 3.20 `src/ops/delete.ts`
+
+```ts
+import type { EmberdeckContext } from '../config';
+import { parseFullKey, buildCardPath } from '../card/card-key';
+import { CardNotFoundError } from '../card/errors';
+import { deleteCardFile } from '../fs/writer';
+import { DrizzleCardRepository } from '../db/card-repo';
+
+export async function deleteCard(
+  ctx: EmberdeckContext,
+  fullKey: string,
+): Promise<{ filePath: string }> {
+  const key = parseFullKey(fullKey);
+  const filePath = buildCardPath(ctx.cardsDir, key);
+
+  const exists = await Bun.file(filePath).exists();
+  if (!exists) {
+    throw new CardNotFoundError(key);
+  }
+
+  await deleteCardFile(filePath);
+
+  // FK cascade로 relation, keyword, tag 매핑 자동 삭제
+  const cardRepo = new DrizzleCardRepository(ctx.db);
+  cardRepo.deleteByKey(key);
+
+  return { filePath };
+}
+```
+
+---
+
+### 3.21 `src/ops/rename.ts`
+
+```ts
+import { mkdir, rename } from 'node:fs/promises';
+import { dirname } from 'node:path';
+
+import type { EmberdeckContext } from '../config';
+import type { CardFile } from '../card/types';
+import type { CardRow } from '../db/repository';
+import { parseFullKey, normalizeSlug, buildCardPath } from '../card/card-key';
+import { CardNotFoundError, CardAlreadyExistsError, CardRenameSamePathError } from '../card/errors';
+import { readCardFile } from '../fs/reader';
+import { writeCardFile } from '../fs/writer';
+import { DrizzleCardRepository } from '../db/card-repo';
+import { DrizzleRelationRepository } from '../db/relation-repo';
+import { DrizzleClassificationRepository } from '../db/classification-repo';
+import type { EmberdeckDb } from '../db/connection';
+
+export interface RenameCardResult {
+  oldFilePath: string;
+  newFilePath: string;
+  newFullKey: string;
+  card: CardFile;
+}
+
+export async function renameCard(
+  ctx: EmberdeckContext,
+  fullKey: string,
+  newSlug: string,
+): Promise<RenameCardResult> {
+  const oldKey = parseFullKey(fullKey);
+  const normalizedNewSlug = normalizeSlug(newSlug);
+  const newFullKey = normalizedNewSlug;
+
+  const oldFilePath = buildCardPath(ctx.cardsDir, oldKey);
+  const newFilePath = buildCardPath(ctx.cardsDir, newFullKey);
+
+  if (oldFilePath === newFilePath) throw new CardRenameSamePathError();
+
+  if (!(await Bun.file(oldFilePath).exists())) throw new CardNotFoundError(oldKey);
+  if (await Bun.file(newFilePath).exists()) throw new CardAlreadyExistsError(newFullKey);
+
+  await mkdir(dirname(newFilePath), { recursive: true });
+  await rename(oldFilePath, newFilePath);
+
+  const current = await readCardFile(newFilePath);
+  const card: CardFile = {
+    filePath: newFilePath,
+    frontmatter: { ...current.frontmatter, key: newFullKey },
+    body: current.body,
+  };
+  await writeCardFile(newFilePath, card);
+
+  // DB: old 삭제(cascade) → new 삽입 → 관계/분류 복원
+  const now = new Date().toISOString();
+  ctx.db.transaction((tx) => {
+    const cardRepo = new DrizzleCardRepository(tx as EmberdeckDb);
+    const relationRepo = new DrizzleRelationRepository(tx as EmberdeckDb);
+    const classRepo = new DrizzleClassificationRepository(tx as EmberdeckDb);
+
+    // 기존 관계/분류 백업
+    const oldRelations = relationRepo.findByCardKey(oldKey)
+      .filter((r) => !r.isReverse)
+      .map((r) => ({ type: r.type, target: r.dstCardKey }));
+    const oldKeywords = classRepo.findKeywordsByCard(oldKey);
+    const oldTags = classRepo.findTagsByCard(oldKey);
+
+    cardRepo.deleteByKey(oldKey); // cascade 삭제
+
+    const row: CardRow = {
+      key: newFullKey,
+      summary: card.frontmatter.summary,
+      status: card.frontmatter.status,
+      constraintsJson: card.frontmatter.constraints ? JSON.stringify(card.frontmatter.constraints) : null,
+      body: card.body,
+      filePath: newFilePath,
+      updatedAt: now,
+    };
+    cardRepo.upsert(row);
+
+    if (oldRelations.length > 0) relationRepo.replaceForCard(newFullKey, oldRelations);
+    if (oldKeywords.length > 0) classRepo.replaceKeywords(newFullKey, oldKeywords);
+    if (oldTags.length > 0) classRepo.replaceTags(newFullKey, oldTags);
+  });
+
+  return { oldFilePath, newFilePath, newFullKey, card };
+}
+```
+
+---
+
+### 3.22 `src/ops/query.ts`
+
+```ts
+import type { EmberdeckContext } from '../config';
+import type { CardFile, CardStatus } from '../card/types';
+import type { CardRow, RelationRow } from '../db/repository';
+import { parseFullKey, buildCardPath } from '../card/card-key';
+import { CardNotFoundError } from '../card/errors';
+import { readCardFile } from '../fs/reader';
+
+export async function getCard(ctx: EmberdeckContext, fullKey: string): Promise<CardFile> {
+  const key = parseFullKey(fullKey);
+  const filePath = buildCardPath(ctx.cardsDir, key);
+  if (!(await Bun.file(filePath).exists())) throw new CardNotFoundError(key);
+  return readCardFile(filePath);
+}
+
+export function listCards(ctx: EmberdeckContext, filter?: { status?: CardStatus }): CardRow[] {
+  return ctx.cardRepo.list(filter);
+}
+
+export function searchCards(ctx: EmberdeckContext, query: string): CardRow[] {
+  return ctx.cardRepo.search(query);
+}
+
+export function listCardRelations(ctx: EmberdeckContext, fullKey: string): RelationRow[] {
+  const key = parseFullKey(fullKey);
+  return ctx.relationRepo.findByCardKey(key);
+}
+```
+
+---
+
+### 3.23 `src/ops/sync.ts`
+
+```ts
+import type { EmberdeckContext } from '../config';
+import type { CardRow } from '../db/repository';
+import { parseFullKey } from '../card/card-key';
+import { readCardFile } from '../fs/reader';
+import { DrizzleCardRepository } from '../db/card-repo';
+import { DrizzleRelationRepository } from '../db/relation-repo';
+import { DrizzleClassificationRepository } from '../db/classification-repo';
+import type { EmberdeckDb } from '../db/connection';
+
+/**
+ * 외부 변경된 카드 파일 → DB 동기화.
+ * watcher 이벤트(생성/변경) 수신 시 CLI가 호출.
+ */
+export async function syncCardFromFile(ctx: EmberdeckContext, filePath: string): Promise<void> {
+  const cardFile = await readCardFile(filePath);
+  const key = parseFullKey(cardFile.frontmatter.key);
+  const now = new Date().toISOString();
+
+  const row: CardRow = {
+    key,
+    summary: cardFile.frontmatter.summary,
+    status: cardFile.frontmatter.status,
+    constraintsJson: cardFile.frontmatter.constraints
+      ? JSON.stringify(cardFile.frontmatter.constraints)
+      : null,
+    body: cardFile.body,
+    filePath,
+    updatedAt: now,
+  };
+
+  ctx.db.transaction((tx) => {
+    const cardRepo = new DrizzleCardRepository(tx as EmberdeckDb);
+    const relationRepo = new DrizzleRelationRepository(tx as EmberdeckDb);
+    const classRepo = new DrizzleClassificationRepository(tx as EmberdeckDb);
+
+    cardRepo.upsert(row);
+    relationRepo.replaceForCard(key, cardFile.frontmatter.relations ?? []);
+    classRepo.replaceKeywords(key, cardFile.frontmatter.keywords ?? []);
+    classRepo.replaceTags(key, cardFile.frontmatter.tags ?? []);
+  });
+}
+
+/**
+ * 외부 삭제된 카드 파일 → DB에서 제거.
+ * watcher 이벤트(삭제) 수신 시 CLI가 호출.
+ */
+export function removeCardByFile(ctx: EmberdeckContext, filePath: string): void {
+  const existing = ctx.cardRepo.findByFilePath(filePath);
+  if (existing) {
+    ctx.cardRepo.deleteByKey(existing.key);
+  }
+}
+```
+
+---
+
+### 3.24 `index.ts` — public API barrel
+
+```ts
+// ---- Setup ----
+export { setupEmberdeck, teardownEmberdeck } from './src/setup';
+export type { EmberdeckOptions, EmberdeckContext } from './src/config';
+export { DEFAULT_RELATION_TYPES } from './src/config';
+
+// ---- Types ----
+export type { CardStatus, CardRelation, CardFrontmatter, CardFile } from './src/card/types';
+export {
+  CardKeyError,
+  CardValidationError,
+  CardNotFoundError,
+  CardAlreadyExistsError,
+  CardRenameSamePathError,
+  RelationTypeError,
+} from './src/card/errors';
+
+// ---- Operations ----
+export { createCard, type CreateCardInput, type CreateCardResult } from './src/ops/create';
+export { updateCard, updateCardStatus, type UpdateCardFields, type UpdateCardResult } from './src/ops/update';
+export { deleteCard } from './src/ops/delete';
+export { renameCard, type RenameCardResult } from './src/ops/rename';
+export { getCard, listCards, searchCards, listCardRelations } from './src/ops/query';
+export { syncCardFromFile, removeCardByFile } from './src/ops/sync';
+
+// ---- Repository interfaces (테스트/목킹용) ----
+export type {
+  CardRepository, RelationRepository, ClassificationRepository,
+  CardRow, RelationRow,
+} from './src/db/repository';
+
+// ---- Pure utilities (CLI에서 키 검증만 필요할 때) ----
+export { normalizeSlug, parseFullKey, buildCardPath } from './src/card/card-key';
+export { parseCardMarkdown, serializeCardMarkdown } from './src/card/markdown';
+
+// ---- DB (CLI 통합용) ----
+export { migrateEmberdeck, type EmberdeckDb } from './src/db/connection';
+```
+
+---
+
+## 4. 기존 코드 → 새 위치 매핑표
+
+| 기존 파일 | 대상 | 처리 |
+|---|---|---|
+| `cli/src/mcp/card/types.ts` | `emberdeck/src/card/types.ts` | 그대로 복사 |
+| `cli/src/mcp/card/card-key.ts` | `emberdeck/src/card/card-key.ts` | `zipbul-paths` 의존 제거, `cardPathFromFullKey` → `buildCardPath` |
+| `cli/src/mcp/card/card-markdown.ts` | `emberdeck/src/card/markdown.ts` | `throw new Error` → `throw new CardValidationError` |
+| `cli/src/mcp/card/card-fs.ts` → `readCardFile` | `emberdeck/src/fs/reader.ts` | import 경로만 변경 |
+| `cli/src/mcp/card/card-fs.ts` → `writeCardFile`, `deleteCardFile` | `emberdeck/src/fs/writer.ts` | import 경로만 변경 |
+| `cli/src/mcp/card/card-crud.ts` → `cardCreate` | `emberdeck/src/ops/create.ts` | `ResolvedZipbulConfig` 제거, ctx 기반, DB 저장 추가 |
+| `cli/src/mcp/card/card-crud.ts` → `cardUpdate` | `emberdeck/src/ops/update.ts` | 동일 패턴 변환 |
+| `cli/src/mcp/card/card-crud.ts` → `cardUpdateStatus` | `emberdeck/src/ops/update.ts` | 동일 |
+| `cli/src/mcp/card/card-crud.ts` → `cardDelete` | `emberdeck/src/ops/delete.ts` | 동일 |
+| `cli/src/mcp/card/card-crud.ts` → `cardRename` | `emberdeck/src/ops/rename.ts` | 동일 |
+| `cli/src/store/schema.ts` (카드 테이블) | `emberdeck/src/db/schema.ts` | 카드 테이블만 추출, FK cascade 추가 |
+| `cli/src/store/store-ops.ts` + `connection.ts` | `emberdeck/src/db/connection.ts` | emberdeck 전용 신규 |
+| `cli/src/config/config-loader.ts` → `CARD_RELATION_TYPES` | `emberdeck/src/config.ts` → `DEFAULT_RELATION_TYPES` | 상수 복사 |
+| (신규) | `emberdeck/src/db/repository.ts` | 인터페이스 신규 작성 |
+| (신규) | `emberdeck/src/db/card-repo.ts` | Drizzle 구현 신규 |
+| (신규) | `emberdeck/src/db/relation-repo.ts` | 신규 |
+| (신규) | `emberdeck/src/db/classification-repo.ts` | 신규 |
+| (신규) | `emberdeck/src/ops/query.ts` | 신규 |
+| (신규) | `emberdeck/src/ops/sync.ts` | 신규 |
+| (신규) | `emberdeck/src/card/errors.ts` | 신규 |
+| (신규) | `emberdeck/src/setup.ts` | 신규 |
+| (신규) | `emberdeck/src/config.ts` | 신규 |
+
+---
+
+## 5. DB 마이그레이션 계획
+
+### 5.1 drizzle-kit 워크플로
+
+```bash
+cd packages/emberdeck
+bunx drizzle-kit generate --config drizzle.config.ts
+# → drizzle/0000_*.sql + drizzle/meta/_journal.json 생성
+```
+
+### 5.2 예상 DDL (drizzle-kit 자동 생성)
+
+```sql
+CREATE TABLE `card` (
+  `rowid` integer,
+  `key` text PRIMARY KEY NOT NULL,
+  `summary` text NOT NULL,
+  `status` text NOT NULL,
+  `constraints_json` text,
+  `body` text,
+  `file_path` text NOT NULL,
+  `updated_at` text NOT NULL
+);
+CREATE INDEX `idx_card_status` ON `card` (`status`);
+CREATE INDEX `idx_card_file_path` ON `card` (`file_path`);
+
+CREATE TABLE `keyword` (
+  `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+  `name` text NOT NULL
+);
+CREATE UNIQUE INDEX `keyword_name_unique` ON `keyword` (`name`);
+
+CREATE TABLE `tag` (
+  `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+  `name` text NOT NULL
+);
+CREATE UNIQUE INDEX `tag_name_unique` ON `tag` (`name`);
+
+CREATE TABLE `card_keyword` (
+  `card_key` text NOT NULL,
+  `keyword_id` integer NOT NULL,
+  PRIMARY KEY(`card_key`, `keyword_id`),
+  FOREIGN KEY (`card_key`) REFERENCES `card`(`key`) ON UPDATE cascade ON DELETE cascade,
+  FOREIGN KEY (`keyword_id`) REFERENCES `keyword`(`id`) ON UPDATE no action ON DELETE cascade
+);
+CREATE INDEX `idx_card_keyword_card` ON `card_keyword` (`card_key`);
+CREATE INDEX `idx_card_keyword_keyword` ON `card_keyword` (`keyword_id`);
+
+CREATE TABLE `card_tag` (
+  `card_key` text NOT NULL,
+  `tag_id` integer NOT NULL,
+  PRIMARY KEY(`card_key`, `tag_id`),
+  FOREIGN KEY (`card_key`) REFERENCES `card`(`key`) ON UPDATE cascade ON DELETE cascade,
+  FOREIGN KEY (`tag_id`) REFERENCES `tag`(`id`) ON UPDATE no action ON DELETE cascade
+);
+CREATE INDEX `idx_card_tag_card` ON `card_tag` (`card_key`);
+CREATE INDEX `idx_card_tag_tag` ON `card_tag` (`tag_id`);
+
+CREATE TABLE `card_relation` (
+  `id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+  `type` text NOT NULL,
+  `src_card_key` text NOT NULL,
+  `dst_card_key` text NOT NULL,
+  `is_reverse` integer DEFAULT false NOT NULL,
+  `meta_json` text,
+  FOREIGN KEY (`src_card_key`) REFERENCES `card`(`key`) ON UPDATE cascade ON DELETE cascade,
+  FOREIGN KEY (`dst_card_key`) REFERENCES `card`(`key`) ON UPDATE cascade ON DELETE cascade
+);
+CREATE INDEX `idx_card_relation_src` ON `card_relation` (`src_card_key`);
+CREATE INDEX `idx_card_relation_dst` ON `card_relation` (`dst_card_key`);
+CREATE INDEX `idx_card_relation_type` ON `card_relation` (`type`);
+
+CREATE TABLE `card_fts` (
+  `rowid` integer,
+  `key` text,
+  `summary` text,
+  `body` text
+);
+```
+
+### 5.3 FTS5 수동 마이그레이션 (Phase C 이후 후속)
+
+```sql
+DROP TABLE IF EXISTS `card_fts`;
+CREATE VIRTUAL TABLE card_fts USING fts5(key, summary, body, content='card', content_rowid='rowid');
+
+CREATE TRIGGER card_fts_ai AFTER INSERT ON card BEGIN
+  INSERT INTO card_fts(rowid, key, summary, body) VALUES (new.rowid, new.key, new.summary, new.body);
+END;
+CREATE TRIGGER card_fts_ad AFTER DELETE ON card BEGIN
+  INSERT INTO card_fts(card_fts, rowid, key, summary, body) VALUES('delete', old.rowid, old.key, old.summary, old.body);
+END;
+CREATE TRIGGER card_fts_au AFTER UPDATE ON card BEGIN
+  INSERT INTO card_fts(card_fts, rowid, key, summary, body) VALUES('delete', old.rowid, old.key, old.summary, old.body);
+  INSERT INTO card_fts(rowid, key, summary, body) VALUES (new.rowid, new.key, new.summary, new.body);
+END;
+```
+
+---
+
+## 6. Phase 실행 절차
+
+### Phase A — 패키지 골격 + 순수 모듈 (card/, config)
+
+1. `packages/emberdeck/` 디렉토리 생성
+2. `package.json`, `tsconfig.json`, `drizzle.config.ts` 생성
+3. `src/card/types.ts` 생성
+4. `src/card/card-key.ts` 생성
+5. `src/card/errors.ts` 생성
+6. `src/card/markdown.ts` 생성
+7. `src/config.ts` 생성
+
+**검증**: `bun test packages/emberdeck/test/card/` → card-key, markdown 유닛 테스트 통과
+
+### Phase B — 파일 I/O 계층 (fs/)
+
+1. `src/fs/reader.ts` 생성
+2. `src/fs/writer.ts` 생성
+
+**검증**: fs 읽기/쓰기/삭제 테스트 통과
+
+### Phase C — 영속성 계층 (db/)
+
+1. `src/db/schema.ts` 생성
+2. `bunx drizzle-kit generate` 실행 → `drizzle/` 생성 확인
+3. `src/db/connection.ts` 생성
+4. `src/db/repository.ts` 생성
+5. `src/db/card-repo.ts` 생성
+6. `src/db/relation-repo.ts` 생성
+7. `src/db/classification-repo.ts` 생성
+
+**검증**: `bun test packages/emberdeck/test/db/` + `test/migration.spec.ts` 통과
+
+### Phase D — 오퍼레이션 계층 (ops/, setup, index)
+
+1. `src/setup.ts` 생성
+2. `src/ops/create.ts` 생성
+3. `src/ops/update.ts` 생성
+4. `src/ops/delete.ts` 생성
+5. `src/ops/rename.ts` 생성
+6. `src/ops/query.ts` 생성
+7. `src/ops/sync.ts` 생성
+8. `index.ts` 생성
+
+**검증**: `bun test packages/emberdeck/` → 전체 GREEN
+
+### Phase E — CLI 어댑터 전환
+
+1. `packages/cli/package.json`에 `"emberdeck": "workspace:*"` 추가
+2. `mcp-server.ts` import 교체 (아래 §7.1 참조)
+3. `index-project.ts` 카드 DB 로직 → `syncCardFromFile()` 교체 (§7.2 참조)
+4. CLI 테스트 보정
+
+**검증**: `bun test packages/cli/test/` 통과
+
+### Phase F — 정리
+
+1. `packages/cli/src/mcp/card/` 삭제
+2. `packages/cli/src/store/schema.ts`에서 카드 테이블 제거
+3. CLI migration 재생성 (codeEntity, fileState 등만)
+4. DB schema version bump → 기존 DB 자동 리빌드
+
+**검증**: `bun test` 루트 전체 GREEN
+
+---
+
+## 7. CLI 어댑터 전환 상세
+
+### 7.1 `mcp-server.ts` 변경
+
+```ts
+// ---- 삭제 ----
+import { cardCreate, cardUpdate, cardUpdateStatus, cardDelete, cardRename } from '../card/card-crud';
+import { parseFullKey, cardPathFromFullKey } from '../card/card-key';
+import { readCardFile } from '../card/card-fs';
+
+// ---- 추가 ----
+import {
+  setupEmberdeck,
+  createCard,
+  updateCard,
+  updateCardStatus,
+  deleteCard,
+  renameCard,
+  getCard,
+  listCards,
+  listCardRelations,
+  syncCardFromFile,
+  type EmberdeckContext,
+} from 'emberdeck';
+```
+
+초기화:
+
+```ts
+const ctx = setupEmberdeck({
+  cardsDir: zipbulCardsDirPath(projectRoot),
+  dbPath: zipbulCacheFilePath(projectRoot, 'index.sqlite'),
+  allowedRelationTypes: config.mcp.card.relations,
+});
+```
+
+핸들러 교체 예시:
+
+```ts
+// 기존: await cardCreate({ projectRoot, config, slug, summary, body, keywords, tags })
+// 변경: await createCard(ctx, { slug, summary, body, keywords, tags })
+```
+
+### 7.2 `index-project.ts` 변경
+
+카드 인덱싱 부분:
+
+```ts
+// 기존: readCardFile(path) → DB 직접 INSERT
+// 변경: syncCardFromFile(ctx, path)
+```
+
+카드 삭제 감지:
+
+```ts
+// 기존: DB에서 직접 DELETE
+// 변경: removeCardByFile(ctx, path)
+```
+
+유지하는 것:
+- 코드 엔티티 인덱싱 (`codeEntity`, `codeRelation`)
+- `cardCodeLink` 관리 (CLI 소유)
+- `fileState` 관리
+
+### 7.3 DB 통합
+
+```ts
+// CLI connection.ts
+import { migrateEmberdeck } from 'emberdeck';
+
+const db = openDb(path);
+// EmberdeckDb와 StoreDb는 schema generic이 다르므로 타입 캐스트 필요
+migrateEmberdeck(db as any);    // emberdeck 테이블
+migrate(db, { migrationsFolder: cliMigrationsDir }); // CLI 테이블
+```
+
+> **타입 캐스트 이유**: `EmberdeckDb`는 `drizzle<typeof emberdeckSchema>`, CLI의 StoreDb는 `drizzle<typeof cliSchema>`. schema generic이 달라 직접 할당 불가. `migrate()` 내부는 schema에 무관하게 SQL을 실행하므로 `as any` 캐스트 안전.
+
+---
+
+## 8. 테스트 전략
+
+### 8.1 테스트 파일 + 검증 대상
+
+| 파일 | 종류 | 검증 대상 |
+|---|---|---|
+| `test/card/card-key.spec.ts` | 유닛 | `normalizeSlug` 정상/에러 케이스, `parseFullKey` 정상/에러, `buildCardPath` 경로 조합 |
+| `test/card/markdown.spec.ts` | 유닛 | `parseCardMarkdown` 정상/누락필드/잘못된status, `serializeCardMarkdown` 왕복 동등성 |
+| `test/db/card-repo.spec.ts` | 통합 | `upsert`/`findByKey`/`findByFilePath`/`deleteByKey`/`existsByKey`/`list` (in-memory SQLite) |
+| `test/db/relation-repo.spec.ts` | 통합 | `replaceForCard` 양방향 생성 확인, `findByCardKey`, `deleteByCardKey` |
+| `test/db/classification-repo.spec.ts` | 통합 | `replaceKeywords` get-or-create, `replaceTags`, `findKeywordsByCard`, `findTagsByCard` |
+| `test/ops/create.spec.ts` | 통합 | 파일+DB 동시 생성, 중복 시 `CardAlreadyExistsError`, 관계 타입 에러 |
+| `test/ops/update.spec.ts` | 통합 | 필드 머지, status 변경, keywords null 처리, DB 동기 |
+| `test/ops/delete.spec.ts` | 통합 | 파일+DB 동시 삭제, cascade 검증 |
+| `test/ops/rename.spec.ts` | 통합 | 파일 이동, key 업데이트, 관계/분류 보존, 동일 경로 에러 |
+| `test/ops/sync.spec.ts` | 통합 | 외부 파일 → DB upsert, `removeCardByFile` → DB 삭제 |
+| `test/migration.spec.ts` | 통합 | in-memory DB migration 적용 → 7개 테이블 존재 확인 |
+
+### 8.2 테스트 헬퍼
+
+```ts
+// test/helpers.ts
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setupEmberdeck, teardownEmberdeck, type EmberdeckContext } from '../index';
+
+export async function createTestContext(): Promise<{
+  ctx: EmberdeckContext;
+  cardsDir: string;
+  cleanup: () => Promise<void>;
+}> {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'emberdeck_test_'));
+  const cardsDir = join(tmpDir, 'cards');
+  const ctx = setupEmberdeck({ cardsDir, dbPath: ':memory:' });
+
+  return {
+    ctx,
+    cardsDir,
+    cleanup: async () => {
+      teardownEmberdeck(ctx);
+      await rm(tmpDir, { recursive: true, force: true });
+    },
+  };
+}
+```
+
+---
+
+## 9. 금지사항 검증 체크리스트
+
+구현 완료 후 전수 grep:
+
+- [ ] `` sql` `` 사용 0건 — `grep -r "sql\`" packages/emberdeck/src/`
+- [ ] `sql.raw` 사용 0건 — `grep -r "sql.raw" packages/emberdeck/src/`
+- [ ] `sql.unsafe` 사용 0건 — `grep -r "sql.unsafe" packages/emberdeck/src/`
+- [ ] `@zipbul/` import 0건 — `grep -r "@zipbul/" packages/emberdeck/`
+- [ ] `zipbul-paths` import 0건 — `grep -r "zipbul-paths" packages/emberdeck/`
+- [ ] watcher 구현 0건 — `grep -r "parcel/watcher\|chokidar\|fs.watch" packages/emberdeck/`
+- [ ] `card/` → `fs/`, `db/`, `ops/` import 0건 (순수성)
+- [ ] `fs/` → `db/`, `ops/` import 0건
+- [ ] `db/` → `ops/`, `fs/` import 0건
+
+---
+
+## 10. 완료 조건 (Definition of Done)
+
+1. `bun test packages/emberdeck/` 전체 GREEN
+2. `bun test packages/cli/test/` 전체 GREEN
+3. `bunx drizzle-kit generate` 오류 없음
+4. 금지 API 0건 (§9 전수 통과)
+5. emberdeck에서 `@zipbul/*` import 0건
+6. 카드 CRUD + 상태변경 + 리네임 + 관계조회 + 동기화 기능 동등성 유지
+7. `card/` 모듈 순수성 (I/O import 없음) 확인
+
+---
+
+## 11. 롤백 계획
+
+1. CLI에서 emberdeck import → 기존 `card/*` 경로로 revert
+2. `packages/emberdeck` 유지하되 미사용
+3. DB는 disposable — schema version bump로 자동 재빌드
+
+---
+
+## 12. 구현 순서 요약
+
+```
+Phase A → card/ + config (순수 도메인)
+Phase B → fs/ (파일 I/O)
+Phase C → db/ + migration (영속성)
+Phase D → ops/ + setup + index.ts (오케스트레이션)
+Phase E → CLI adapter (통합)
+Phase F → cleanup (정리)
+```
+
+> 이 문서는 설계가 아니라 **실행 지시서**다. 각 phase와 파일은 생략 없이 순서대로 수행한다.
