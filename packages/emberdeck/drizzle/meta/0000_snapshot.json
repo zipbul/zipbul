@@ -1,0 +1,451 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "a955154b-bf8b-4471-9fdf-b1db78fb8a4c",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "card": {
+      "name": "card",
+      "columns": {
+        "rowid": {
+          "name": "rowid",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "constraints_json": {
+          "name": "constraints_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "file_path": {
+          "name": "file_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_card_status": {
+          "name": "idx_card_status",
+          "columns": [
+            "status"
+          ],
+          "isUnique": false
+        },
+        "idx_card_file_path": {
+          "name": "idx_card_file_path",
+          "columns": [
+            "file_path"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "card_fts": {
+      "name": "card_fts",
+      "columns": {
+        "rowid": {
+          "name": "rowid",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "card_keyword": {
+      "name": "card_keyword",
+      "columns": {
+        "card_key": {
+          "name": "card_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "keyword_id": {
+          "name": "keyword_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_card_keyword_card": {
+          "name": "idx_card_keyword_card",
+          "columns": [
+            "card_key"
+          ],
+          "isUnique": false
+        },
+        "idx_card_keyword_keyword": {
+          "name": "idx_card_keyword_keyword",
+          "columns": [
+            "keyword_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "card_keyword_card_key_card_key_fk": {
+          "name": "card_keyword_card_key_card_key_fk",
+          "tableFrom": "card_keyword",
+          "tableTo": "card",
+          "columnsFrom": [
+            "card_key"
+          ],
+          "columnsTo": [
+            "key"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "card_keyword_keyword_id_keyword_id_fk": {
+          "name": "card_keyword_keyword_id_keyword_id_fk",
+          "tableFrom": "card_keyword",
+          "tableTo": "keyword",
+          "columnsFrom": [
+            "keyword_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "card_keyword_card_key_keyword_id_pk": {
+          "columns": [
+            "card_key",
+            "keyword_id"
+          ],
+          "name": "card_keyword_card_key_keyword_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "card_relation": {
+      "name": "card_relation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "src_card_key": {
+          "name": "src_card_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dst_card_key": {
+          "name": "dst_card_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_reverse": {
+          "name": "is_reverse",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "meta_json": {
+          "name": "meta_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_card_relation_src": {
+          "name": "idx_card_relation_src",
+          "columns": [
+            "src_card_key"
+          ],
+          "isUnique": false
+        },
+        "idx_card_relation_dst": {
+          "name": "idx_card_relation_dst",
+          "columns": [
+            "dst_card_key"
+          ],
+          "isUnique": false
+        },
+        "idx_card_relation_type": {
+          "name": "idx_card_relation_type",
+          "columns": [
+            "type"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "card_relation_src_card_key_card_key_fk": {
+          "name": "card_relation_src_card_key_card_key_fk",
+          "tableFrom": "card_relation",
+          "tableTo": "card",
+          "columnsFrom": [
+            "src_card_key"
+          ],
+          "columnsTo": [
+            "key"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "card_relation_dst_card_key_card_key_fk": {
+          "name": "card_relation_dst_card_key_card_key_fk",
+          "tableFrom": "card_relation",
+          "tableTo": "card",
+          "columnsFrom": [
+            "dst_card_key"
+          ],
+          "columnsTo": [
+            "key"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "card_tag": {
+      "name": "card_tag",
+      "columns": {
+        "card_key": {
+          "name": "card_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tag_id": {
+          "name": "tag_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_card_tag_card": {
+          "name": "idx_card_tag_card",
+          "columns": [
+            "card_key"
+          ],
+          "isUnique": false
+        },
+        "idx_card_tag_tag": {
+          "name": "idx_card_tag_tag",
+          "columns": [
+            "tag_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "card_tag_card_key_card_key_fk": {
+          "name": "card_tag_card_key_card_key_fk",
+          "tableFrom": "card_tag",
+          "tableTo": "card",
+          "columnsFrom": [
+            "card_key"
+          ],
+          "columnsTo": [
+            "key"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "cascade"
+        },
+        "card_tag_tag_id_tag_id_fk": {
+          "name": "card_tag_tag_id_tag_id_fk",
+          "tableFrom": "card_tag",
+          "tableTo": "tag",
+          "columnsFrom": [
+            "tag_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "card_tag_card_key_tag_id_pk": {
+          "columns": [
+            "card_key",
+            "tag_id"
+          ],
+          "name": "card_tag_card_key_tag_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "keyword": {
+      "name": "keyword",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "keyword_name_unique": {
+          "name": "keyword_name_unique",
+          "columns": [
+            "name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "tag": {
+      "name": "tag",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "tag_name_unique": {
+          "name": "tag_name_unique",
+          "columns": [
+            "name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}
