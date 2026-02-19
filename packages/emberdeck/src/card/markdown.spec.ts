@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
-import { parseCardMarkdown, serializeCardMarkdown } from '../../src/card/markdown';
-import { CardValidationError } from '../../src/card/errors';
-import type { CardFrontmatter } from '../../src/card/types';
+import { parseCardMarkdown, serializeCardMarkdown } from './markdown';
+import { CardValidationError } from './errors';
+import type { CardFrontmatter } from './types';
 
 // ---- Helpers ----
 

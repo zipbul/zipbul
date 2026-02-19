@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { normalizeSlug, parseFullKey, buildCardPath, CardKeyError } from '../../src/card/card-key';
+import { normalizeSlug, parseFullKey, buildCardPath, CardKeyError } from './card-key';
 
 describe('normalizeSlug', () => {
   // HP
