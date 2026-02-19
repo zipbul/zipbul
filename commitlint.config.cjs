@@ -34,7 +34,7 @@ module.exports = {
     'scope-enum': [
       2,
       'always',
-      ['cli', 'common', 'core', 'http-adapter', 'logger', 'scalar', 'examples', 'repo', 'config', 'plan', 'eslint', 'scripts'],
+      ['cli', 'common', 'core', 'http-adapter', 'logger', 'scalar', 'examples', 'repo', 'config', 'plan', 'eslint', 'scripts', 'emberdeck'],
     ],
     'type-enum': [2, 'always', ['build', 'chore', 'ci', 'docs', 'feat', 'fix', 'perf', 'refactor', 'revert', 'style', 'test']],
     'subject-case': [2, 'never', ['pascal-case', 'upper-case']],
