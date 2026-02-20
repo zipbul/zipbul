@@ -4,15 +4,6 @@ import type { ConfigLoadResult, JsonRecord, JsonValue, ResolvedZipbulConfig, Res
 
 import { ConfigLoadError } from './errors';
 
-export const CARD_RELATION_TYPES = ['depends-on', 'references', 'related', 'extends', 'conflicts'] as const;
-export type CardRelationType = (typeof CARD_RELATION_TYPES)[number];
-
-const CARD_RELATION_TYPE_SET: ReadonlySet<string> = new Set(CARD_RELATION_TYPES);
-
-function isCardRelationType(value: string): value is CardRelationType {
-  return CARD_RELATION_TYPE_SET.has(value);
-}
-
 export class ConfigLoader {
   static async load(cwd: string = process.cwd()): Promise<ConfigLoadResult> {
     const jsonPath = join(cwd, 'zipbul.json');
@@ -82,25 +73,6 @@ export class ConfigLoader {
     return typeof value === 'string' && value.length > 0;
   }
 
-  private static isNonEmptyStringArray(value: JsonValue | undefined): value is string[] {
-    return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === 'string');
-  }
-
-  private static normalizeRelationTypes(value: string[], sourcePath: string): string[] {
-    const out: string[] = [];
-    for (const raw of value) {
-      const trimmed = raw.trim();
-      if (trimmed.length === 0) {
-        throw new ConfigLoadError('Invalid zipbul config: mcp.card.relations must be a non-empty string array.', sourcePath);
-      }
-      if (!isCardRelationType(trimmed)) {
-        throw new ConfigLoadError(`Invalid zipbul config: mcp.card.relations contains unknown relation type: ${trimmed}`, sourcePath);
-      }
-      out.push(trimmed);
-    }
-    return out;
-  }
-
   private static toResolvedConfig(value: JsonValue, sourcePath: string, projectRoot: string): ResolvedZipbulConfig {
     if (!this.isRecord(value)) {
       throw new ConfigLoadError('Invalid zipbul config: must be an object.', sourcePath);
@@ -152,37 +124,11 @@ export class ConfigLoader {
 
   private static toResolvedMcpConfig(value: JsonValue | undefined, sourcePath: string): ResolvedZipbulConfigMcp {
     if (value === undefined || value === null) {
-      return {
-        card: {
-          relations: [...CARD_RELATION_TYPES],
-        },
-        exclude: [],
-      };
+      return { exclude: [] };
     }
 
     if (!this.isRecord(value)) {
       throw new ConfigLoadError('Invalid zipbul config: mcp must be an object.', sourcePath);
-    }
-
-    const cardValue = value.card;
-    let relations: string[] = [...CARD_RELATION_TYPES];
-
-    if (cardValue !== undefined && cardValue !== null) {
-      if (!this.isRecord(cardValue)) {
-        throw new ConfigLoadError('Invalid zipbul config: mcp.card must be an object.', sourcePath);
-      }
-
-      if (cardValue.types !== undefined) {
-        throw new ConfigLoadError('Invalid zipbul config: mcp.card.types is removed.', sourcePath);
-      }
-
-      if (cardValue.relations !== undefined) {
-        if (!this.isNonEmptyStringArray(cardValue.relations)) {
-          throw new ConfigLoadError('Invalid zipbul config: mcp.card.relations must be a non-empty string array.', sourcePath);
-        }
-
-        relations = this.normalizeRelationTypes(cardValue.relations, sourcePath);
-      }
     }
 
     let exclude: string[] = [];
@@ -195,10 +141,7 @@ export class ConfigLoader {
       exclude = value.exclude as string[];
     }
 
-    return {
-      card: { relations },
-      exclude,
-    };
+    return { exclude };
   }
 
   private static async loadJsonConfig(

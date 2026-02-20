@@ -9,12 +9,7 @@ export interface ResolvedZipbulConfigModule {
   fileName: string;
 }
 
-export interface ResolvedZipbulConfigCard {
-  relations: string[];
-}
-
 export interface ResolvedZipbulConfigMcp {
-  card: ResolvedZipbulConfigCard;
   exclude: string[];
 }
 

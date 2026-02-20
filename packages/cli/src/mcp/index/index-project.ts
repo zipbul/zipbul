@@ -5,26 +5,11 @@ import type { Program } from 'oxc-parser';
 import { stat } from 'node:fs/promises';
 import { join, relative, resolve } from 'path';
 
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { eq, inArray, or, sql } from 'drizzle-orm';
 
 import type { StoreDb } from '../../store/connection';
-import {
-  card,
-  cardCodeLink,
-  cardKeyword,
-  cardTag,
-  cardRelation,
-  codeEntity,
-  codeRelation,
-  fileState,
-  keyword,
-  tag,
-} from '../../store/schema';
+import { codeEntity, codeRelation, fileState } from '../../store/schema';
 
-import { readCardFile } from '../card/card-fs';
-import { parseFullKey } from '../card/card-key';
-
-import { zipbulCardsGlobRel, zipbulCardsPrefixRel } from '../../common';
 
 import {
   CallsExtractor,
@@ -43,7 +28,6 @@ export interface IndexProjectInput {
 }
 
 export interface IndexProjectStats {
-  indexedCardFiles: number;
   indexedCodeFiles: number;
   removedFiles: number;
 }
@@ -150,10 +134,6 @@ async function buildExcludeSet(projectRoot: string, patterns: string[]): Promise
   return set;
 }
 
-function isCardPath(relPath: string): boolean {
-  return relPath.startsWith(zipbulCardsPrefixRel()) && relPath.endsWith('.card.md');
-}
-
 function isCodePath(relPath: string, sourceDirRel: string): boolean {
   return relPath.startsWith(sourceDirRel.endsWith('/') ? sourceDirRel : `${sourceDirRel}/`) && relPath.endsWith('.ts');
 }
@@ -184,19 +164,6 @@ async function upsertFileStateRow(db: StoreDb, relPath: string, contentHash: str
 }
 
 async function deleteRemovedFile(db: StoreDb, relPath: string, opts?: { keepEntityKeys?: Set<string> }) {
-  if (isCardPath(relPath)) {
-    const cards = db.select({ key: card.key }).from(card).where(eq(card.filePath, relPath)).all();
-    const keys = cards.map((c) => c.key);
-
-    if (keys.length > 0) {
-      db.delete(cardKeyword).where(inArray(cardKeyword.cardKey, keys)).run();
-      db.delete(cardTag).where(inArray(cardTag.cardKey, keys)).run();
-      db.delete(cardCodeLink).where(inArray(cardCodeLink.cardKey, keys)).run();
-      db.delete(cardRelation).where(or(inArray(cardRelation.srcCardKey, keys), inArray(cardRelation.dstCardKey, keys))).run();
-      db.delete(card).where(inArray(card.key, keys)).run();
-    }
-  }
-
   const entityKeys = db
     .select({ entityKey: codeEntity.entityKey })
     .from(codeEntity)
@@ -225,150 +192,14 @@ async function deleteRemovedFile(db: StoreDb, relPath: string, opts?: { keepEnti
   } else {
     db.delete(codeEntity).where(eq(codeEntity.filePath, relPath)).run();
   }
-  db.delete(cardCodeLink).where(eq(cardCodeLink.filePath, relPath)).run();
-
   db.delete(fileState).where(eq(fileState.path, relPath)).run();
 }
 
 function clearIndexTables(db: StoreDb) {
   // Delete in FK-safe order.
-  db.delete(cardKeyword).run();
-  db.delete(cardTag).run();
-  db.delete(cardCodeLink).run();
-  db.delete(cardRelation).run();
   db.delete(codeRelation).run();
   db.delete(codeEntity).run();
-  db.delete(card).run();
   db.delete(fileState).run();
-}
-
-async function upsertCardRow(db: StoreDb, projectRoot: string, relCardPath: string) {
-  const absPath = join(projectRoot, relCardPath);
-  const parsed = await readCardFile(absPath);
-
-  const normalizedKey = parseFullKey(parsed.frontmatter.key);
-
-  const keywordsList = parsed.frontmatter.keywords ?? [];
-  const tagsList = parsed.frontmatter.tags ?? [];
-  const constraintsJson = parsed.frontmatter.constraints !== undefined ? JSON.stringify(parsed.frontmatter.constraints) : null;
-
-  const updatedAt = nowIso();
-
-  db.insert(card)
-    .values({
-      key: normalizedKey,
-      summary: parsed.frontmatter.summary,
-      status: parsed.frontmatter.status,
-      constraintsJson,
-      body: parsed.body,
-      filePath: relCardPath,
-      updatedAt,
-    })
-    .onConflictDoUpdate({
-      target: card.key,
-      set: {
-        summary: parsed.frontmatter.summary,
-        status: parsed.frontmatter.status,
-        constraintsJson,
-        body: parsed.body,
-        filePath: relCardPath,
-        updatedAt,
-      },
-    })
-    .run();
-
-  // keywords N:M
-  db.delete(cardKeyword).where(eq(cardKeyword.cardKey, normalizedKey)).run();
-
-  if (keywordsList.length > 0) {
-    const known = db
-      .select({ id: keyword.id, name: keyword.name })
-      .from(keyword)
-      .where(inArray(keyword.name, keywordsList))
-      .all();
-
-    const keywordIdByName = new Map<string, number>();
-    for (const row of known) {
-      keywordIdByName.set(row.name, row.id);
-    }
-
-    const missing = keywordsList.filter((name) => !keywordIdByName.has(name));
-    if (missing.length > 0) {
-      throw new Error(`Unregistered classification: keyword(s): ${missing.join(', ')}`);
-    }
-
-    for (const name of keywordsList) {
-      const keywordId = keywordIdByName.get(name);
-      if (keywordId != null) {
-        db.insert(cardKeyword)
-          .values({ cardKey: normalizedKey, keywordId })
-          .onConflictDoNothing()
-          .run();
-      }
-    }
-  }
-
-  // tags N:M
-  db.delete(cardTag).where(eq(cardTag.cardKey, normalizedKey)).run();
-
-  if (tagsList.length > 0) {
-    const known = db
-      .select({ id: tag.id, name: tag.name })
-      .from(tag)
-      .where(inArray(tag.name, tagsList))
-      .all();
-
-    const tagIdByName = new Map<string, number>();
-    for (const row of known) {
-      tagIdByName.set(row.name, row.id);
-    }
-
-    const missing = tagsList.filter((name) => !tagIdByName.has(name));
-    if (missing.length > 0) {
-      throw new Error(`Unregistered classification: tag(s): ${missing.join(', ')}`);
-    }
-
-    for (const name of tagsList) {
-      const tagId = tagIdByName.get(name);
-      if (tagId != null) {
-        db.insert(cardTag)
-          .values({ cardKey: normalizedKey, tagId })
-          .onConflictDoNothing()
-          .run();
-      }
-    }
-  }
-
-  return {
-    ...parsed,
-    frontmatter: {
-      ...parsed.frontmatter,
-      key: normalizedKey,
-    },
-  };
-}
-
-function parseSeeCardKeysFromText(text: string): string[] {
-  const out: string[] = [];
-  const re = /@see\s+([^\s*]+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    out.push(m[1]!);
-  }
-  return Array.from(new Set(out));
-}
-
-function entityKeyToFilePath(entityKey: string): string | null {
-  if (entityKey.startsWith('module:')) {
-    return entityKey.slice('module:'.length);
-  }
-  if (entityKey.startsWith('symbol:')) {
-    const rest = entityKey.slice('symbol:'.length);
-    const hashIdx = rest.indexOf('#');
-    if (hashIdx === -1) return null;
-    return rest.slice(0, hashIdx);
-  }
-  return null;
 }
 
 type PreferredEntityMeta = {
@@ -550,11 +381,10 @@ export async function indexProject(input: IndexProjectInput): Promise<IndexProje
   const { projectRoot, config, db, mode } = input;
 
   const sourceDirRel = normalizeSourceDirRel(config.sourceDir);
-  const cardPathsRel = await scanGlobRel(projectRoot, zipbulCardsGlobRel());
   const codePathsRel = await scanGlobRel(projectRoot, `${sourceDirRel}/**/*.ts`);
 
   const excludeSet = await buildExcludeSet(projectRoot, config.mcp.exclude);
-  const scanned = [...cardPathsRel, ...codePathsRel].filter((p) => !excludeSet.has(p));
+  const scanned = codePathsRel.filter((p) => !excludeSet.has(p));
   const scannedSet = new Set(scanned);
 
   const trackedState = mode === 'incremental' ? await readFileStateMap(db) : new Map<string, { contentHash: string; mtime: string }>();
@@ -562,13 +392,12 @@ export async function indexProject(input: IndexProjectInput): Promise<IndexProje
   const removed: string[] = [];
   if (mode === 'incremental') {
     for (const path of trackedState.keys()) {
-      if ((isCardPath(path) || isCodePath(path, sourceDirRel)) && !scannedSet.has(path)) {
+      if (isCodePath(path, sourceDirRel) && !scannedSet.has(path)) {
         removed.push(path);
       }
     }
   }
 
-  const changedCardFiles: string[] = [];
   const changedCodeFiles: string[] = [];
   const addedCodeFiles: string[] = [];
 
@@ -585,9 +414,7 @@ export async function indexProject(input: IndexProjectInput): Promise<IndexProje
       continue;
     }
 
-    if (isCardPath(relPath)) {
-      changedCardFiles.push(relPath);
-    } else if (isCodePath(relPath, sourceDirRel)) {
+    if (isCodePath(relPath, sourceDirRel)) {
       changedCodeFiles.push(relPath);
       if (mode === 'incremental' && !prev) {
         addedCodeFiles.push(relPath);
@@ -598,94 +425,10 @@ export async function indexProject(input: IndexProjectInput): Promise<IndexProje
   const runIndexing = async (): Promise<IndexProjectResult> => {
     if (mode === 'full') {
       clearIndexTables(db);
-    } else {
-      const removedCardFiles = removed.filter((p) => isCardPath(p));
-      for (const relPath of removedCardFiles) {
-        // per-file atomicity
-        // eslint-disable-next-line no-await-in-loop
-        await withTransaction(db, async () => {
-          await deleteRemovedFile(db, relPath);
-        });
-      }
     }
 
-    // Cards
-    const changedCards: Array<{ relPath: string; key: string; relations: Array<{ type: string; target: string }> }> = [];
-
-    for (const relPath of changedCardFiles) {
-      // eslint-disable-next-line no-await-in-loop
-      await withTransaction(db, async () => {
-        const absPath = join(projectRoot, relPath);
-        const st = await stat(absPath);
-        const contentHash = await sha256HexOfFile(absPath);
-
-        const parsed = await upsertCardRow(db, projectRoot, relPath);
-        await upsertFileStateRow(db, relPath, contentHash, st.mtimeMs);
-
-        changedCards.push({
-          relPath,
-          key: parsed.frontmatter.key,
-          relations: parsed.frontmatter.relations ?? [],
-        });
-      });
-    }
-
-    const existingCardKeys = new Set(db.select({ key: card.key }).from(card).all().map((r) => r.key));
-    const allowedRelationTypes = new Set(config.mcp.card.relations);
-
-    for (const c of changedCards) {
-      // Atomic per-card relation rebuild
-      // eslint-disable-next-line no-await-in-loop
-      await withTransaction(db, async () => {
-        db.delete(cardRelation)
-          .where(
-            or(
-              and(eq(cardRelation.srcCardKey, c.key), eq(cardRelation.isReverse, false)),
-              and(eq(cardRelation.dstCardKey, c.key), eq(cardRelation.isReverse, true)),
-            ),
-          )
-          .run();
-
-      const dedup = new Set<string>();
-      const rows: Array<{
-        type: string;
-        srcCardKey: string;
-        dstCardKey: string;
-        isReverse: boolean;
-        metaJson: string | null;
-      }> = [];
-
-      for (const rel of c.relations) {
-        if (!allowedRelationTypes.has(rel.type)) continue;
-        let targetKey: string;
-        try {
-          targetKey = parseFullKey(rel.target);
-        } catch {
-          continue;
-        }
-        if (!existingCardKeys.has(targetKey)) continue;
-
-        const k1 = `${rel.type}|${c.key}|${targetKey}|0`;
-        const k2 = `${rel.type}|${targetKey}|${c.key}|1`;
-        if (!dedup.has(k1)) {
-          dedup.add(k1);
-          rows.push({ type: rel.type, srcCardKey: c.key, dstCardKey: targetKey, isReverse: false, metaJson: null });
-        }
-        if (!dedup.has(k2)) {
-          dedup.add(k2);
-          rows.push({ type: rel.type, srcCardKey: targetKey, dstCardKey: c.key, isReverse: true, metaJson: null });
-        }
-      }
-
-        if (rows.length > 0) {
-          db.insert(cardRelation).values(rows).run();
-        }
-      });
-    }
 
     // Code
-    const existingCardKeysForLinks = new Set(db.select({ key: card.key }).from(card).all().map((r) => r.key));
-
     const removedCodeFiles = mode === 'incremental' ? removed.filter((p) => isCodePath(p, sourceDirRel)) : [];
     const removedEntitiesBeforeDelete =
       mode === 'incremental' && removedCodeFiles.length > 0
@@ -809,35 +552,6 @@ export async function indexProject(input: IndexProjectInput): Promise<IndexProje
             .run();
         }
 
-        // card_code_link via @see (module-level link)
-        db.delete(cardCodeLink).where(eq(cardCodeLink.filePath, relPath)).run();
-
-        const srcModuleKey = `module:${relPath}`;
-        const seenKeys = parseSeeCardKeysFromText(codeText)
-          .map((raw) => {
-            try {
-              return parseFullKey(raw);
-            } catch {
-              return null;
-            }
-          })
-          .filter((k): k is string => k !== null)
-          .filter((k) => existingCardKeysForLinks.has(k));
-        if (seenKeys.length > 0) {
-          db.insert(cardCodeLink)
-            .values(
-              seenKeys.map((cardKeyValue) => ({
-                type: 'see',
-                cardKey: cardKeyValue,
-                entityKey: srcModuleKey,
-                filePath: relPath,
-                symbolName: null,
-                metaJson: null,
-              })),
-            )
-            .run();
-        }
-
         await upsertFileStateRow(db, relPath, contentHash, st.mtimeMs);
       });
     }
@@ -882,17 +596,6 @@ export async function indexProject(input: IndexProjectInput): Promise<IndexProje
           db.update(codeRelation).set({ srcEntityKey: newKey }).where(eq(codeRelation.srcEntityKey, oldKey)).run();
           db.update(codeRelation).set({ dstEntityKey: newKey }).where(eq(codeRelation.dstEntityKey, oldKey)).run();
 
-          // Update card_code_link rows (if any) so they are not deleted by old file cleanup.
-          const newFilePath = entityKeyToFilePath(newKey);
-          if (newFilePath) {
-            db.update(cardCodeLink)
-              .set({ entityKey: newKey, filePath: newFilePath })
-              .where(eq(cardCodeLink.entityKey, oldKey))
-              .run();
-          } else {
-            db.update(cardCodeLink).set({ entityKey: newKey }).where(eq(cardCodeLink.entityKey, oldKey)).run();
-          }
-
           db.delete(codeEntity).where(eq(codeEntity.entityKey, oldKey)).run();
           movedOldKeys.add(oldKey);
         }
@@ -918,7 +621,6 @@ export async function indexProject(input: IndexProjectInput): Promise<IndexProje
 
     return {
       stats: {
-        indexedCardFiles: changedCardFiles.length,
         indexedCodeFiles: changedCodeFiles.length,
         removedFiles: removed.length,
       },

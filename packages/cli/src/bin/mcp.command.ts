@@ -8,7 +8,6 @@ import { ConfigLoader } from '../config';
 import type { ResolvedZipbulConfig } from '../config';
 import { zipbulCacheDirPath } from '../common/zipbul-paths';
 import { indexProject } from '../mcp/index/index-project';
-import { verifyProject } from '../mcp/verify/verify-project';
 import { startZipbulMcpServerStdio } from '../mcp/server/mcp-server';
 import { closeDb, createDb } from '../store/connection';
 import { OwnerElection } from '../watcher/owner-election';
@@ -17,37 +16,14 @@ import { emitReindexSignal } from '../watcher/reindex-signal';
 export interface McpCommandDeps {
   loadConfig: (projectRoot: string) => Promise<{ config: ResolvedZipbulConfig }>;
   ensureRepo: (projectRoot: string) => Promise<void>;
-  verifyProject: (input: { projectRoot: string; config: ResolvedZipbulConfig }) => Promise<{ ok: boolean; errors: any[]; warnings: any[] }>;
   rebuildProjectIndex: (input: { projectRoot: string; config: ResolvedZipbulConfig; mode: 'incremental' | 'full' }) => Promise<{ ok: boolean }>;
   startServer: (projectRoot: string, config: ResolvedZipbulConfig) => Promise<void>;
   reportInvalidSubcommand: (value: string | undefined) => void;
 }
 
-type VerifyLikeIssue = {
-  severity: 'error' | 'warning';
-  code: string;
-  message: string;
-  filePath?: string;
-};
-
-function reportVerifyDiagnostics(result: { errors: VerifyLikeIssue[]; warnings: VerifyLikeIssue[] }): void {
-  const diagnostics = [...result.errors, ...result.warnings].map((issue) => {
-    const severity = issue.severity === 'warning' ? 'warning' : 'error';
-    const file = issue.filePath ?? '.';
-    const code = `MCP_VERIFY_${issue.code}`;
-    const summary = issue.message;
-    const reason = issue.message;
-    return buildDiagnostic({ code, severity, summary, reason, file });
-  });
-
-  if (diagnostics.length === 0) return;
-  reportDiagnostics({ diagnostics });
-}
-
 async function ensureRepoDefault(projectRoot: string): Promise<void> {
   // Ensure required .zipbul structure exists.
   const zipbulDir = join(projectRoot, '.zipbul');
-  await mkdir(join(zipbulDir, 'cards'), { recursive: true });
   await mkdir(join(zipbulDir, 'build'), { recursive: true });
   await mkdir(join(zipbulDir, 'cache'), { recursive: true });
 
@@ -148,15 +124,6 @@ export function createMcpCommand(deps: McpCommandDeps) {
       return;
     }
 
-    if (subcommand === 'verify') {
-      await deps.ensureRepo(projectRoot);
-      const { config } = await deps.loadConfig(projectRoot);
-      const result = await deps.verifyProject({ projectRoot, config });
-      reportVerifyDiagnostics(result as any);
-      process.exitCode = result.ok ? 0 : 1;
-      return;
-    }
-
     if (subcommand === 'rebuild') {
       await deps.ensureRepo(projectRoot);
       const { config } = await deps.loadConfig(projectRoot);
@@ -180,7 +147,6 @@ export async function mcp(positionals: string[], _commandOptions: CommandOptions
   const impl = createMcpCommand({
     loadConfig: ConfigLoader.load,
     ensureRepo: ensureRepoDefault,
-    verifyProject,
     rebuildProjectIndex: rebuildProjectIndexDefault,
     startServer: async (projectRoot, config) => {
       await startZipbulMcpServerStdio({ projectRoot, config });

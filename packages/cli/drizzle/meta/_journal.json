@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1771246635160,
+      "when": 1771492000000,
       "tag": "0000_init",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1771246635161,
-      "tag": "0001_add_fts",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1771246635162,
-      "tag": "0002_card_relation_type_check",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1771272386628,
-      "tag": "0003_lowly_morbius",
       "breakpoints": true
     }
   ]

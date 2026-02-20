@@ -20,13 +20,4 @@ describe('config', () => {
     // Assert
     expect(config.ConfigLoadError).toBeDefined();
   });
-
-  it('should export CARD_RELATION_TYPES', () => {
-    // Arrange
-
-    // Act
-
-    // Assert
-    expect(config.CARD_RELATION_TYPES).toBeDefined();
-  });
 });

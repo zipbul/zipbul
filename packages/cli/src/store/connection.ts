@@ -11,7 +11,7 @@ import * as ops from './store-ops';
 // NOTE: bumped after adding tag/card_tag tables
 // NOTE: bumped after enforcing card_relation.type CHECK constraint
 // NOTE: bumped after removing denormalized card.keywords (classification is via keyword/tag registry + mapping tables)
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export type StoreDb = ReturnType<typeof createDb>;
 
