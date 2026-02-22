@@ -1,6 +1,8 @@
 import { Gildash } from '@zipbul/gildash';
 import type { IndexResult } from '@zipbul/gildash';
 
+import { isErr } from '@zipbul/result';
+
 export interface GildashProviderOptions {
   projectRoot: string;
   extensions?: string[];
@@ -11,36 +13,84 @@ export class GildashProvider {
   private constructor(private readonly ledger: Gildash) {}
 
   static async open(options: GildashProviderOptions): Promise<GildashProvider> {
-    const ledger = await Gildash.open({
+    const gildashOptions: Parameters<typeof Gildash.open>[0] = {
       projectRoot: options.projectRoot,
-      extensions: options.extensions,
-      ignorePatterns: options.ignorePatterns,
-    });
+    };
 
-    return new GildashProvider(ledger);
+    if (options.extensions !== undefined) {
+      gildashOptions.extensions = options.extensions;
+    }
+
+    if (options.ignorePatterns !== undefined) {
+      gildashOptions.ignorePatterns = options.ignorePatterns;
+    }
+
+    const result = await Gildash.open(gildashOptions);
+
+    if (isErr(result)) {
+      throw new Error(result.data.message, { cause: result.data.cause });
+    }
+
+    return new GildashProvider(result);
   }
 
   getDependencies(filePath: string): string[] {
-    return this.ledger.getDependencies(filePath);
+    const result = this.ledger.getDependencies(filePath);
+
+    if (isErr(result)) {
+      throw new Error(result.data.message, { cause: result.data.cause });
+    }
+
+    return result;
   }
 
   getDependents(filePath: string): string[] {
-    return this.ledger.getDependents(filePath);
+    const result = this.ledger.getDependents(filePath);
+
+    if (isErr(result)) {
+      throw new Error(result.data.message, { cause: result.data.cause });
+    }
+
+    return result;
   }
 
   async getAffected(changedFiles: string[]): Promise<string[]> {
-    return this.ledger.getAffected(changedFiles);
+    const result = await this.ledger.getAffected(changedFiles);
+
+    if (isErr(result)) {
+      throw new Error(result.data.message, { cause: result.data.cause });
+    }
+
+    return result;
   }
 
   async hasCycle(): Promise<boolean> {
-    return this.ledger.hasCycle();
+    const result = await this.ledger.hasCycle();
+
+    if (isErr(result)) {
+      throw new Error(result.data.message, { cause: result.data.cause });
+    }
+
+    return result;
   }
 
   onIndexed(callback: (result: IndexResult) => void): () => void {
     return this.ledger.onIndexed(callback);
   }
 
+  async reindex(): Promise<void> {
+    const result = await this.ledger.reindex();
+
+    if (isErr(result)) {
+      throw new Error(result.data.message, { cause: result.data.cause });
+    }
+  }
+
   async close(): Promise<void> {
-    return this.ledger.close();
+    const result = await this.ledger.close();
+
+    if (isErr(result)) {
+      throw new Error(result.data.message, { cause: result.data.cause });
+    }
   }
 }

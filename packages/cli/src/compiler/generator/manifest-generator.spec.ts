@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm';
 import { ModuleKind, ScriptTarget, transpileModule } from 'typescript';
 
 import type { FileAnalysis } from '../analyzer/graph/interfaces';
+import type { ClassMetadata } from '../analyzer/interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
 import type { DeepFreezeModule, GeneratedBlockParams, MetadataRegistryModule, ScopedKeysMapModule } from './types';
 
@@ -302,6 +303,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {
         test: {
@@ -341,6 +343,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {
         b: {
@@ -432,6 +435,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -457,6 +461,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -481,6 +486,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -528,6 +534,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -557,6 +564,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -579,6 +587,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -610,6 +619,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -632,6 +642,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -654,6 +665,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -676,6 +688,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -698,6 +711,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],
@@ -718,6 +732,7 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
+        mcp: { exclude: [] },
       },
       adapterStaticSpecs: {},
       handlerIndex: [],

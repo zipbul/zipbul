@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 
 import type { DevCommandDeps } from '../src/bin/dev.command';
 import { __testing__ } from '../src/bin/dev.command';
+import type { AstParser, AdapterSpecResolver } from '../src/compiler/analyzer';
+import type { GildashProvider, GildashProviderOptions } from '../src/compiler/gildash-provider';
 import type { ResolvedZipbulConfig } from '../src/config';
 import { ConfigLoadError } from '../src/config';
 
@@ -39,7 +41,6 @@ const makeParseResult = (filePath: string) => {
 // ---------------------------------------------------------------------------
 let tmpDir: string;
 let mainFile: string;
-let originalCwd: string;
 
 beforeAll(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'cli-dev-test-'));
@@ -65,19 +66,19 @@ const makeSource = () => ({ path: 'zipbul.jsonc', format: 'jsonc' as const });
 
 const makeParserMock = () => ({
   parse: mock((filePath: string, _content: string) => makeParseResult(filePath)),
-});
+}) as unknown as AstParser;
 
 const makeAdapterResolverMock = () => ({
   resolve: mock(async () => ({ adapterStaticSpecs: [], handlerIndex: [] })),
-});
+}) as unknown as AdapterSpecResolver;
 
 const makeGildashLedgerMock = () => ({
   onIndexed: mock((_cb: unknown) => mock(() => {})),
   getAffected: mock(async (_files: string[]) => [] as string[]),
   close: mock(async () => {}),
-});
+}) as unknown as GildashProvider;
 
-const makeGildashProviderMock = () => mock(async () => makeGildashLedgerMock());
+const makeGildashProviderMock = () => mock(async (_opts: GildashProviderOptions) => makeGildashLedgerMock());
 
 const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
   loadConfig: mock(async () => ({ config: testConfig, source: makeSource() })),
@@ -163,7 +164,7 @@ describe('createDevCommand', () => {
           parseCalls.push(filePath);
           return makeParseResult(filePath);
         }),
-      })),
+      }) as unknown as AstParser),
       scanFiles: mock(async () => ['module.ts', 'main.ts']),
     });
     const dev = createDevCommand(deps);
@@ -201,7 +202,7 @@ describe('createDevCommand', () => {
 
     // Assert: baseDir is the resolved srcDir (config.sourceDir = 'src')
     expect(capturedBaseDir).not.toBeNull();
-    expect(capturedBaseDir).toContain('src');
+    expect(capturedBaseDir!).toContain('src');
   });
 
   // -- Negative / Error --
@@ -245,7 +246,7 @@ describe('createDevCommand', () => {
           }
           return makeParseResult(filePath);
         }),
-      })),
+      }) as unknown as AstParser),
       // Include module.ts (defineModule) + main.ts (createApplication) + service.ts (fails)
       scanFiles: mock(async () => ['service.ts', 'module.ts', 'main.ts']),
     });
@@ -267,7 +268,7 @@ describe('createDevCommand', () => {
           parseCalls.push(filePath);
           return makeParseResult(filePath);
         }),
-      })),
+      }) as unknown as AstParser),
       scanFiles: mock(async () => ['types.d.ts', 'module.ts', 'main.ts']),
     });
     const dev = createDevCommand(deps);
@@ -288,7 +289,7 @@ describe('createDevCommand', () => {
           parseCalls.push(filePath);
           return makeParseResult(filePath);
         }),
-      })),
+      }) as unknown as AstParser),
       scanFiles: mock(async () => ['app.spec.ts', 'module.ts', 'main.ts']),
     });
     const dev = createDevCommand(deps);
@@ -309,7 +310,7 @@ describe('createDevCommand', () => {
           parseCalls.push(filePath);
           return makeParseResult(filePath);
         }),
-      })),
+      }) as unknown as AstParser),
       scanFiles: mock(async () => ['app.test.ts', 'module.ts', 'main.ts']),
     });
     const dev = createDevCommand(deps);
@@ -332,7 +333,7 @@ describe('createDevCommand', () => {
           order.push('analyze:' + filePath.split('/').pop());
           return makeParseResult(filePath);
         }),
-      })),
+      }) as unknown as AstParser),
     });
     const dev = createDevCommand(deps);
 

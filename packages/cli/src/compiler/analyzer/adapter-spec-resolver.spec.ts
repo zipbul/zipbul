@@ -47,9 +47,9 @@ describe('adapter-spec-resolver', () => {
       textByPath: new Map<string, string>(),
     };
 
-    bunFileSpy = spyOn(Bun, 'file').mockImplementation((path: string) => {
+    bunFileSpy = spyOn(Bun, 'file').mockImplementation(((path: string) => {
       return createBunFileStub(setup, path) as any;
-    });
+    }) as typeof Bun.file);
   });
 
   afterEach(() => {

@@ -57,10 +57,19 @@ export function createDevCommand(deps: DevCommandDeps) {
             classes: parseResult.classes,
             reExports: parseResult.reExports,
             exports: parseResult.exports,
-            createApplicationCalls: parseResult.createApplicationCalls,
-            defineModuleCalls: parseResult.defineModuleCalls,
-            injectCalls: parseResult.injectCalls,
           };
+
+          if (parseResult.createApplicationCalls !== undefined) {
+            analysis.createApplicationCalls = parseResult.createApplicationCalls;
+          }
+
+          if (parseResult.defineModuleCalls !== undefined) {
+            analysis.defineModuleCalls = parseResult.defineModuleCalls;
+          }
+
+          if (parseResult.injectCalls !== undefined) {
+            analysis.injectCalls = parseResult.injectCalls;
+          }
 
           if (parseResult.imports !== undefined) {
             analysis.imports = parseResult.imports;

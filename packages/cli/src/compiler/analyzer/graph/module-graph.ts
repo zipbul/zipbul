@@ -156,14 +156,17 @@ export class ModuleGraph {
             const injectableDec = cls.decorators.find(d => d.name === 'Injectable');
             const options = this.parseInjectableOptions(injectableDec?.arguments?.[0], modulePath, moduleName);
 
-            node.providers.set(token, {
+            const providerRef: ProviderRef = {
               token,
               metadata: cls,
               visibility: options.visibility,
-              visibleTo: options.visibleTo,
               scope: options.scope,
               filePath: filePath,
-            });
+            };
+            if (options.visibleTo !== undefined) {
+              providerRef.visibleTo = options.visibleTo;
+            }
+            node.providers.set(token, providerRef);
           }
         });
       });
@@ -493,13 +496,18 @@ export class ModuleGraph {
 
     const metadata = this.isClassMetadata(p) ? p : (record ?? undefined);
 
-    return {
+    const ref: ProviderRef = {
       token,
       metadata,
       visibility: options.visibility,
-      visibleTo: options.visibleTo,
-      scope: options.scope,
     };
+    if (options.visibleTo !== undefined) {
+      ref.visibleTo = options.visibleTo;
+    }
+    if (options.scope !== undefined) {
+      ref.scope = options.scope;
+    }
+    return ref;
   }
 
   private extractTokenName(t: ProviderTokenValue | AnalyzerValue): string {
@@ -595,11 +603,14 @@ export class ModuleGraph {
     const visibility = this.resolveVisibility(record?.visibleTo, modulePath, moduleName);
     const scope = this.resolveScope(record?.scope, record?.lifetime);
 
-    return {
+    const opts: InjectableOptions = {
       visibility: visibility.kind,
-      visibleTo: visibility.visibleTo,
       scope,
     };
+    if (visibility.visibleTo !== undefined) {
+      opts.visibleTo = visibility.visibleTo;
+    }
+    return opts;
   }
 
   private resolveVisibility(

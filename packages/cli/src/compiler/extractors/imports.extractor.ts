@@ -20,12 +20,15 @@ export const ImportsExtractor: CodeRelationExtractor = {
         
         if (resolvedPath) {
           const dstKey = getModuleEntityKey(resolvedPath);
-          relations.push({
+          const relation: CodeRelation = {
             type: 'imports',
             srcEntityKey: srcKey,
             dstEntityKey: dstKey,
-            metaJson: isType ? JSON.stringify({ isType: true }) : undefined
-          });
+          };
+          if (isType) {
+            relation.metaJson = JSON.stringify({ isType: true });
+          }
+          relations.push(relation);
         }
       } else if (stmt.type === 'ExportAllDeclaration') {
         const source = (stmt as any).source?.value;

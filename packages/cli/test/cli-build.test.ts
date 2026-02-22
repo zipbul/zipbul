@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 
 import type { BuildCommandDeps } from '../src/bin/build.command';
 import { __testing__ } from '../src/bin/build.command';
+import type { AstParser, AdapterSpecResolver } from '../src/compiler/analyzer';
+import type { GildashProvider, GildashProviderOptions } from '../src/compiler/gildash-provider';
 import type { ResolvedZipbulConfig } from '../src/config';
 import { ConfigLoadError } from '../src/config';
 
@@ -40,7 +42,6 @@ const makeParseResult = (filePath: string) => {
 let tmpDir: string;
 let mainFile: string;
 let moduleFile: string;
-let originalCwd: string;
 
 beforeAll(async () => {
   tmpDir = await mkdtemp(join(tmpdir(), 'cli-build-test-'));
@@ -79,28 +80,28 @@ const makeEntryGenMock = () => ({
 
 const makeAdapterResolverMock = () => ({
   resolve: mock(async () => ({ adapterStaticSpecs: [], handlerIndex: [] })),
-});
+}) as unknown as AdapterSpecResolver;
 
 const makeGildashLedgerMock = () => ({
   hasCycle: mock(async () => false),
   close: mock(async () => {}),
-});
+}) as unknown as GildashProvider;
 
-const makeGildashProviderMock = () => mock(async () => makeGildashLedgerMock());
+const makeGildashProviderMock = () => mock(async (_opts: GildashProviderOptions) => makeGildashLedgerMock());
 
 const makeParserMock = () => ({
   parse: mock((filePath: string, _content: string) => makeParseResult(filePath)),
-});
+}) as unknown as AstParser;
 
 const makeDeps = (overrides?: Partial<BuildCommandDeps>): BuildCommandDeps => ({
   loadConfig: mock(async () => ({ config: testConfig, source: makeSource() })),
   createParser: mock(() => makeParserMock()),
-  createManifestGenerator: mock(() => makeManifestGenMock()),
+  createManifestGenerator: mock(() => makeManifestGenMock()) as unknown as BuildCommandDeps['createManifestGenerator'],
   createEntryGenerator: mock(() => makeEntryGenMock()),
   createAdapterSpecResolver: mock(() => makeAdapterResolverMock()),
   scanFiles: mock(async () => ['module.ts']),
   resolveImport: mock((_spec: string, _from: string) => { throw new Error('resolve'); }),
-  buildBundle: mock(async () => ({ success: true as const, outputs: [], logs: [] })),
+  buildBundle: mock(async () => ({ success: true as const, outputs: [], logs: [] })) as unknown as BuildCommandDeps['buildBundle'],
   createGildashProvider: makeGildashProviderMock(),
   ...overrides,
 });
@@ -282,7 +283,7 @@ describe('createBuildCommand', () => {
         success: false as const,
         outputs: [],
         logs: [{ message: 'bundler error', level: 'error' as const, position: null }],
-      })),
+      })) as unknown as BuildCommandDeps['buildBundle'],
     });
     const build = createBuildCommand(deps);
 
@@ -301,7 +302,7 @@ describe('createBuildCommand', () => {
       generate: mock(() => 'const r={};'),
     };
     const deps = makeDeps({
-      createManifestGenerator: mock(() => manifestGenMock),
+      createManifestGenerator: mock(() => manifestGenMock) as unknown as BuildCommandDeps['createManifestGenerator'],
     });
     const build = createBuildCommand(deps);
 
@@ -325,7 +326,7 @@ describe('createBuildCommand', () => {
         parse: mock((_filePath: string, _content: string) => {
           throw new Error('parse boom');
         }),
-      })),
+      }) as unknown as AstParser),
     });
     const build = createBuildCommand(deps);
 
@@ -348,7 +349,7 @@ describe('createBuildCommand', () => {
           }
           return result;
         }),
-      })),
+      }) as unknown as AstParser),
       resolveImport: mock((_spec: string, _from: string) => '/some/data.json'),
     });
     const build = createBuildCommand(deps);
@@ -366,7 +367,7 @@ describe('createBuildCommand', () => {
           parseCallCounts[filePath] = (parseCallCounts[filePath] ?? 0) + 1;
           return makeParseResult(filePath);
         }),
-      })),
+      }) as unknown as AstParser),
       // scanFiles includes module.ts twice to test deduplication via visited Set
       scanFiles: mock(async () => ['module.ts', 'module.ts']),
     });

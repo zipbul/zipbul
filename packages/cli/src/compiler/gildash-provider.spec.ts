@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import type { IndexResult } from '@zipbul/gildash';
 
@@ -9,8 +9,9 @@ const mockGetDependencies = mock((_filePath: string) => ['dep-a.ts', 'dep-b.ts']
 const mockGetDependents = mock((_filePath: string) => ['dep-on-a.ts']);
 const mockGetAffected = mock(async (_files: string[]) => ['affected-a.ts']);
 const mockHasCycle = mock(async () => false);
+const mockReindex = mock(async () => { return { indexedFiles: 0, removedFiles: 0, totalSymbols: 0, totalRelations: 0, durationMs: 0, changedFiles: [], deletedFiles: [], failedFiles: [] }; });
 const mockOnIndexedUnsubscribe = mock(() => {});
-const mockOnIndexed = mock((_cb: (r: IndexResult) => void) => mockOnIndexedUnsubscribe);
+const mockOnIndexed = mock((_cb: (r: unknown) => void) => mockOnIndexedUnsubscribe);
 
 const mockLedger = {
   close: mockClose,
@@ -18,6 +19,7 @@ const mockLedger = {
   getDependents: mockGetDependents,
   getAffected: mockGetAffected,
   hasCycle: mockHasCycle,
+  reindex: mockReindex,
   onIndexed: mockOnIndexed,
 };
 
@@ -27,7 +29,6 @@ mock.module('@zipbul/gildash', () => ({
   Gildash: {
     open: mockGildashOpen,
   },
-  GildashError: class GildashError extends Error {},
 }));
 
 // Dynamic import ensures the mock is applied before module evaluation.
@@ -41,6 +42,7 @@ describe('GildashProvider', () => {
     mockGetDependents.mockClear();
     mockGetAffected.mockClear();
     mockHasCycle.mockClear();
+    mockReindex.mockClear();
     mockOnIndexed.mockClear();
     mockOnIndexedUnsubscribe.mockClear();
   });
@@ -165,6 +167,17 @@ describe('GildashProvider', () => {
     // Verify unsubscribe delegates to ledger's unsubscribe
     unsubscribe();
     expect(mockOnIndexedUnsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('should delegate to ledger.reindex() when reindex() is called', async () => {
+    // Arrange
+    const provider = await GildashProvider.open({ projectRoot: '/p' });
+
+    // Act
+    await provider.reindex();
+
+    // Assert
+    expect(mockReindex).toHaveBeenCalledTimes(1);
   });
 
   it('should propagate rejection when Gildash.open() rejects', async () => {

@@ -1,9 +1,10 @@
+import type { AnalyzerValue } from '../types';
 import type { ClassMetadata } from '../interfaces';
 
 export interface InjectableClassParams {
   readonly className: string;
   readonly injectedTokens?: readonly string[];
-  readonly visibleTo?: unknown;
+  readonly visibleTo?: AnalyzerValue;
   readonly scope?: string;
 }
 

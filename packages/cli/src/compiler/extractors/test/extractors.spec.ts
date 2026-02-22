@@ -29,9 +29,9 @@ describe('CodeRelationExtractors', () => {
       const relations = ImportsExtractor.extract(ast, filePath);
       
       expect(relations).toHaveLength(1);
-      expect(relations[0].type).toBe('imports');
-      expect(relations[0].srcEntityKey).toBe(srcModuleKey);
-      expect(relations[0].dstEntityKey).toBe(`module:src/utils.ts`);
+      expect(relations[0]!.type).toBe('imports');
+      expect(relations[0]!.srcEntityKey).toBe(srcModuleKey);
+      expect(relations[0]!.dstEntityKey).toBe(`module:src/utils.ts`);
     });
 
     it('should extract side-effect imports', () => {
@@ -40,7 +40,7 @@ describe('CodeRelationExtractors', () => {
       const relations = ImportsExtractor.extract(ast, filePath);
 
       expect(relations).toHaveLength(1);
-      expect(relations[0].dstEntityKey).toBe(`module:src/side-effect.ts`);
+      expect(relations[0]!.dstEntityKey).toBe(`module:src/side-effect.ts`);
     });
 
     it('should include type-only imports with meta', () => {
@@ -49,8 +49,8 @@ describe('CodeRelationExtractors', () => {
       const relations = ImportsExtractor.extract(ast, filePath);
 
       expect(relations).toHaveLength(1);
-      expect(getMeta(relations[0].metaJson)).toEqual({ isType: true });
-      expect(relations[0].dstEntityKey).toBe(`module:src/types.ts`);
+      expect(getMeta(relations[0]!.metaJson)).toEqual({ isType: true });
+      expect(relations[0]!.dstEntityKey).toBe(`module:src/types.ts`);
     });
 
     it('should extract re-exports', () => {
@@ -59,9 +59,9 @@ describe('CodeRelationExtractors', () => {
       const relations = ImportsExtractor.extract(ast, filePath);
       
       expect(relations).toHaveLength(1);
-      expect(relations[0].type).toBe('imports');
-      expect(getMeta(relations[0].metaJson)).toEqual({ isReExport: true });
-      expect(relations[0].dstEntityKey).toBe(`module:src/barrel.ts`);
+      expect(relations[0]!.type).toBe('imports');
+      expect(getMeta(relations[0]!.metaJson)).toEqual({ isReExport: true });
+      expect(relations[0]!.dstEntityKey).toBe(`module:src/barrel.ts`);
     });
 
     it('should include type-only re-exports with meta', () => {
@@ -70,8 +70,8 @@ describe('CodeRelationExtractors', () => {
       const relations = ImportsExtractor.extract(ast, filePath);
 
       expect(relations).toHaveLength(1);
-      expect(getMeta(relations[0].metaJson)).toEqual({ isReExport: true, isType: true });
-      expect(relations[0].dstEntityKey).toBe(`module:src/types.ts`);
+      expect(getMeta(relations[0]!.metaJson)).toEqual({ isReExport: true, isType: true });
+      expect(relations[0]!.dstEntityKey).toBe(`module:src/types.ts`);
     });
 
     it('should extract dynamic imports (best-effort)', () => {
@@ -80,8 +80,8 @@ describe('CodeRelationExtractors', () => {
       const relations = ImportsExtractor.extract(ast, filePath);
 
       expect(relations).toHaveLength(1);
-      expect(getMeta(relations[0].metaJson)).toEqual({ isDynamic: true });
-      expect(relations[0].dstEntityKey).toBe(`module:src/dyn.ts`);
+      expect(getMeta(relations[0]!.metaJson)).toEqual({ isDynamic: true });
+      expect(relations[0]!.dstEntityKey).toBe(`module:src/dyn.ts`);
     });
   });
 
@@ -92,10 +92,10 @@ describe('CodeRelationExtractors', () => {
       const relations = ExtendsExtractor.extract(ast, filePath);
       
       expect(relations).toHaveLength(1);
-      expect(relations[0].type).toBe('extends');
-      expect(relations[0].srcEntityKey).toBe(`symbol:src/test.ts#Derived`);
-      expect(relations[0].dstEntityKey).toBe(`symbol:src/test.ts#Base`);
-      expect(getMeta(relations[0].metaJson)).toEqual({ isLocal: true });
+      expect(relations[0]!.type).toBe('extends');
+      expect(relations[0]!.srcEntityKey).toBe(`symbol:src/test.ts#Derived`);
+      expect(relations[0]!.dstEntityKey).toBe(`symbol:src/test.ts#Base`);
+      expect(getMeta(relations[0]!.metaJson)).toEqual({ isLocal: true });
     });
 
     it('should extract extends relation from import', () => {
@@ -107,7 +107,7 @@ describe('CodeRelationExtractors', () => {
         const relations = ExtendsExtractor.extract(ast, filePath);
         
         expect(relations).toHaveLength(1);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/base.ts#Base`);
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/base.ts#Base`);
     });
 
     it('should extract extends relation from default import', () => {
@@ -119,7 +119,7 @@ describe('CodeRelationExtractors', () => {
         const relations = ExtendsExtractor.extract(ast, filePath);
         
         expect(relations).toHaveLength(1);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/base.ts#default`);
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/base.ts#default`);
     });
 
     it('should extract extends relation from namespace import member', () => {
@@ -131,8 +131,8 @@ describe('CodeRelationExtractors', () => {
       const relations = ExtendsExtractor.extract(ast, filePath);
 
       expect(relations).toHaveLength(1);
-      expect(relations[0].dstEntityKey).toBe(`symbol:src/base.ts#Base`);
-      expect(getMeta(relations[0].metaJson)).toEqual({ isNamespaceImport: true });
+      expect(relations[0]!.dstEntityKey).toBe(`symbol:src/base.ts#Base`);
+      expect(getMeta(relations[0]!.metaJson)).toEqual({ isNamespaceImport: true });
     });
 
     it('should extract extends relation for local member super class (best-effort)', () => {
@@ -144,8 +144,8 @@ describe('CodeRelationExtractors', () => {
       const relations = ExtendsExtractor.extract(ast, filePath);
 
       expect(relations).toHaveLength(1);
-      expect(relations[0].dstEntityKey).toBe(`symbol:src/test.ts#NS.Base`);
-      expect(getMeta(relations[0].metaJson)).toEqual({ isLocal: true, isMember: true });
+      expect(relations[0]!.dstEntityKey).toBe(`symbol:src/test.ts#NS.Base`);
+      expect(getMeta(relations[0]!.metaJson)).toEqual({ isLocal: true, isMember: true });
     });
   });
 
@@ -159,9 +159,9 @@ describe('CodeRelationExtractors', () => {
           const relations = ImplementsExtractor.extract(ast, filePath);
 
           expect(relations).toHaveLength(1);
-          expect(relations[0].type).toBe('implements');
-          expect(relations[0].srcEntityKey).toBe(`symbol:src/test.ts#Impl`);
-          expect(relations[0].dstEntityKey).toBe(`symbol:src/types.ts#IFace`);
+          expect(relations[0]!.type).toBe('implements');
+          expect(relations[0]!.srcEntityKey).toBe(`symbol:src/test.ts#Impl`);
+          expect(relations[0]!.dstEntityKey).toBe(`symbol:src/types.ts#IFace`);
       });
 
       it('should extract implements relation from namespace import member', () => {
@@ -173,8 +173,8 @@ describe('CodeRelationExtractors', () => {
         const relations = ImplementsExtractor.extract(ast, filePath);
 
         expect(relations).toHaveLength(1);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/types.ts#IFace`);
-        expect(getMeta(relations[0].metaJson)).toEqual({ isNamespaceImport: true });
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/types.ts#IFace`);
+        expect(getMeta(relations[0]!.metaJson)).toEqual({ isNamespaceImport: true });
       });
 
       it('should extract implements relation for local member interface (best-effort)', () => {
@@ -186,8 +186,8 @@ describe('CodeRelationExtractors', () => {
         const relations = ImplementsExtractor.extract(ast, filePath);
 
         expect(relations).toHaveLength(1);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/test.ts#NS.IFace`);
-        expect(getMeta(relations[0].metaJson)).toEqual({ isLocal: true, isMember: true });
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/test.ts#NS.IFace`);
+        expect(getMeta(relations[0]!.metaJson)).toEqual({ isLocal: true, isMember: true });
       });
   });
 
@@ -201,10 +201,10 @@ describe('CodeRelationExtractors', () => {
         const relations = CallsExtractor.extract(ast, filePath);
 
         expect(relations).toHaveLength(1);
-        expect(relations[0].type).toBe('calls');
-        expect(relations[0].srcEntityKey).toBe(srcModuleKey);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/utils.ts#util`);
-        expect(getMeta(relations[0].metaJson)).toEqual({ resolution: 'import', callee: 'util', scope: 'module' });
+        expect(relations[0]!.type).toBe('calls');
+        expect(relations[0]!.srcEntityKey).toBe(srcModuleKey);
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/utils.ts#util`);
+        expect(getMeta(relations[0]!.metaJson)).toEqual({ resolution: 'import', callee: 'util', scope: 'module' });
       });
 
       it('should extract direct calls inside function', () => {
@@ -218,10 +218,10 @@ describe('CodeRelationExtractors', () => {
           const relations = CallsExtractor.extract(ast, filePath);
 
           expect(relations).toHaveLength(1);
-          expect(relations[0].type).toBe('calls');
-          expect(relations[0].srcEntityKey).toBe(`symbol:src/test.ts#main`);
-          expect(relations[0].dstEntityKey).toBe(`symbol:src/utils.ts#util`);
-            expect(getMeta(relations[0].metaJson)).toEqual({ resolution: 'import', callee: 'util' });
+          expect(relations[0]!.type).toBe('calls');
+          expect(relations[0]!.srcEntityKey).toBe(`symbol:src/test.ts#main`);
+          expect(relations[0]!.dstEntityKey).toBe(`symbol:src/utils.ts#util`);
+            expect(getMeta(relations[0]!.metaJson)).toEqual({ resolution: 'import', callee: 'util' });
       });
 
       it('should extract local calls inside function', () => {
@@ -235,9 +235,9 @@ describe('CodeRelationExtractors', () => {
         const relations = CallsExtractor.extract(ast, filePath);
 
         expect(relations).toHaveLength(1);
-        expect(relations[0].srcEntityKey).toBe(`symbol:src/test.ts#main`);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/test.ts#local`);
-        expect(getMeta(relations[0].metaJson)).toEqual({ resolution: 'local', callee: 'local' });
+        expect(relations[0]!.srcEntityKey).toBe(`symbol:src/test.ts#main`);
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/test.ts#local`);
+        expect(getMeta(relations[0]!.metaJson)).toEqual({ resolution: 'local', callee: 'local' });
     });
 
       it('should extract calls inside arrow function assigned to variable', () => {
@@ -251,8 +251,8 @@ describe('CodeRelationExtractors', () => {
         const relations = CallsExtractor.extract(ast, filePath);
 
         expect(relations).toHaveLength(1);
-        expect(relations[0].srcEntityKey).toBe(`symbol:src/test.ts#main`);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/utils.ts#util`);
+        expect(relations[0]!.srcEntityKey).toBe(`symbol:src/test.ts#main`);
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/utils.ts#util`);
       });
 
       it('should extract calls inside function expression assigned to variable', () => {
@@ -266,8 +266,8 @@ describe('CodeRelationExtractors', () => {
         const relations = CallsExtractor.extract(ast, filePath);
 
         expect(relations).toHaveLength(1);
-        expect(relations[0].srcEntityKey).toBe(`symbol:src/test.ts#main`);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/utils.ts#util`);
+        expect(relations[0]!.srcEntityKey).toBe(`symbol:src/test.ts#main`);
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/utils.ts#util`);
       });
 
       it('should extract calls from class method bodies', () => {
@@ -283,8 +283,8 @@ describe('CodeRelationExtractors', () => {
         const relations = CallsExtractor.extract(ast, filePath);
 
         expect(relations).toHaveLength(1);
-        expect(relations[0].srcEntityKey).toBe(`symbol:src/test.ts#C.run`);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/utils.ts#util`);
+        expect(relations[0]!.srcEntityKey).toBe(`symbol:src/test.ts#C.run`);
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/utils.ts#util`);
       });
 
       it('should extract namespace member calls (import * as NS)', () => {
@@ -298,8 +298,8 @@ describe('CodeRelationExtractors', () => {
         const relations = CallsExtractor.extract(ast, filePath);
 
         expect(relations).toHaveLength(1);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/utils.ts#util`);
-        expect(getMeta(relations[0].metaJson)).toEqual({ resolution: 'namespace', callee: 'NS.util' });
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/utils.ts#util`);
+        expect(getMeta(relations[0]!.metaJson)).toEqual({ resolution: 'namespace', callee: 'NS.util' });
       });
 
       it('should extract local member calls (best-effort)', () => {
@@ -312,8 +312,8 @@ describe('CodeRelationExtractors', () => {
         const relations = CallsExtractor.extract(ast, filePath);
 
         expect(relations).toHaveLength(1);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/test.ts#obj.method`);
-        expect(getMeta(relations[0].metaJson)).toEqual({ resolution: 'local-member', callee: 'obj.method' });
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/test.ts#obj.method`);
+        expect(getMeta(relations[0]!.metaJson)).toEqual({ resolution: 'local-member', callee: 'obj.method' });
       });
 
       it('should extract this/super member calls (best-effort)', () => {
@@ -374,8 +374,8 @@ describe('CodeRelationExtractors', () => {
         const relations = CallsExtractor.extract(ast, filePath);
 
         expect(relations).toHaveLength(1);
-        expect(relations[0].dstEntityKey).toBe(`symbol:src/utils.ts#Base`);
-        expect(getMeta(relations[0].metaJson)).toEqual({ resolution: 'namespace', callee: 'NS.Base', isNew: true });
+        expect(relations[0]!.dstEntityKey).toBe(`symbol:src/utils.ts#Base`);
+        expect(getMeta(relations[0]!.metaJson)).toEqual({ resolution: 'namespace', callee: 'NS.Base', isNew: true });
       });
   });
 
