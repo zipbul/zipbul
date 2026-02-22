@@ -6,320 +6,283 @@ import type { CommandOptions } from './types';
 
 import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
-import { ConfigLoader, ConfigLoadError } from '../config';
+import { ConfigLoader, ConfigLoadError, type ResolvedZipbulConfig } from '../config';
+import type { ZipbulConfigSource } from '../config/interfaces';
 import { zipbulDirPath, scanGlobSorted, writeIfChanged } from '../common';
 import { buildDiagnostic, DiagnosticReportError, reportDiagnostics } from '../diagnostics';
 import { ManifestGenerator } from '../compiler/generator';
-import * as watcher from '@parcel/watcher';
+import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
+import type { IndexResult } from '@zipbul/gildash';
 
-import { ChangesetWriter, OwnerElection, ProjectWatcher } from '../watcher';
-import { zipbulCacheDirPath } from '../common/zipbul-paths';
 import { buildDevIncrementalImpactLog } from './dev-incremental-impact';
 
-export async function dev(commandOptions?: CommandOptions) {
-  console.info('🚀 Starting Zipbul Dev...');
+// ---------------------------------------------------------------------------
+// DI factory types
+// ---------------------------------------------------------------------------
 
-  try {
-    const configResult = await ConfigLoader.load();
-    const config = configResult.config;
-    const moduleFileName = config.module.fileName;
-    const buildProfile = commandOptions?.profile ?? 'full';
-    const projectRoot = process.cwd();
-    const srcDir = resolve(projectRoot, config.sourceDir);
-    const outDir = zipbulDirPath(projectRoot);
-    const parser = new AstParser();
-    const adapterSpecResolver = new AdapterSpecResolver();
-    const fileCache = new Map<string, FileAnalysis>();
+export interface DevCommandDeps {
+  loadConfig: () => Promise<{ config: ResolvedZipbulConfig; source: ZipbulConfigSource }>;
+  createParser: () => AstParser;
+  createAdapterSpecResolver: () => AdapterSpecResolver;
+  scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
+  createGildashProvider?: (opts: GildashProviderOptions) => Promise<GildashProvider>;
+}
 
-    const toProjectRelativePath = (filePath: string): string => {
-      return relative(projectRoot, filePath) || '.';
-    };
+export function createDevCommand(deps: DevCommandDeps) {
+  return async function dev(commandOptions?: CommandOptions): Promise<void> {
+    console.info('🚀 Starting Zipbul Dev...');
 
-    async function analyzeFile(filePath: string) {
-      try {
-        const fileContent = await Bun.file(filePath).text();
-        const parseResult = parser.parse(filePath, fileContent);
-        const analysis: FileAnalysis = {
-          filePath,
-          classes: parseResult.classes,
-          reExports: parseResult.reExports,
-          exports: parseResult.exports,
-          createApplicationCalls: parseResult.createApplicationCalls,
-          defineModuleCalls: parseResult.defineModuleCalls,
-          injectCalls: parseResult.injectCalls,
-        };
+    try {
+      const configResult = await deps.loadConfig();
+      const config = configResult.config;
+      const moduleFileName = config.module.fileName;
+      const buildProfile = commandOptions?.profile ?? 'full';
+      const projectRoot = process.cwd();
+      const srcDir = resolve(projectRoot, config.sourceDir);
+      const outDir = zipbulDirPath(projectRoot);
+      const parser = deps.createParser();
+      const adapterSpecResolver = deps.createAdapterSpecResolver();
+      const fileCache = new Map<string, FileAnalysis>();
 
-        if (parseResult.imports !== undefined) {
-          analysis.imports = parseResult.imports;
+      const toProjectRelativePath = (filePath: string): string => {
+        return relative(projectRoot, filePath) || '.';
+      };
+
+      async function analyzeFile(filePath: string) {
+        try {
+          const fileContent = await Bun.file(filePath).text();
+          const parseResult = parser.parse(filePath, fileContent);
+          const analysis: FileAnalysis = {
+            filePath,
+            classes: parseResult.classes,
+            reExports: parseResult.reExports,
+            exports: parseResult.exports,
+            createApplicationCalls: parseResult.createApplicationCalls,
+            defineModuleCalls: parseResult.defineModuleCalls,
+            injectCalls: parseResult.injectCalls,
+          };
+
+          if (parseResult.imports !== undefined) {
+            analysis.imports = parseResult.imports;
+          }
+
+          if (parseResult.importEntries !== undefined) {
+            analysis.importEntries = parseResult.importEntries;
+          }
+
+          if (parseResult.exportedValues !== undefined) {
+            analysis.exportedValues = parseResult.exportedValues;
+          }
+
+          if (parseResult.localValues !== undefined) {
+            analysis.localValues = parseResult.localValues;
+          }
+
+          if (parseResult.moduleDefinition !== undefined) {
+            analysis.moduleDefinition = parseResult.moduleDefinition;
+          }
+
+          fileCache.set(filePath, analysis);
+
+          return true;
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Unknown parse error.';
+          const diagnostic = buildDiagnostic({
+            code: 'PARSE_FAILED',
+            severity: 'fatal',
+            summary: 'Parse failed.',
+            reason,
+            file: toProjectRelativePath(filePath),
+          });
+
+          reportDiagnostics({ diagnostics: [diagnostic] });
+
+          return false;
+        }
+      }
+
+      async function rebuild() {
+        try {
+          const fileMap = new Map(fileCache.entries());
+          const graph = new ModuleGraph(fileMap, moduleFileName);
+
+          graph.build();
+
+          const adapterSpecResolution = await adapterSpecResolver.resolve({ fileMap, projectRoot });
+          const manifestGen = new ManifestGenerator();
+          const manifestJson = manifestGen.generateJson({
+            graph,
+            projectRoot,
+            source: configResult.source,
+            resolvedConfig: config,
+            adapterStaticSpecs: adapterSpecResolution.adapterStaticSpecs,
+            handlerIndex: adapterSpecResolution.handlerIndex,
+          });
+
+          await mkdir(outDir, { recursive: true });
+          await writeIfChanged(join(outDir, 'manifest.json'), manifestJson);
+
+          if (!['minimal', 'standard', 'full'].includes(buildProfile)) {
+            throw new Error(`Invalid build profile: ${buildProfile}`);
+          }
+
+          const interfaceCatalogPath = join(outDir, 'interface-catalog.json');
+          const runtimeReportPath = join(outDir, 'runtime-report.json');
+
+          if (buildProfile === 'standard' || buildProfile === 'full') {
+            const interfaceCatalogJson = JSON.stringify({ schemaVersion: '1', entries: [] }, null, 2);
+
+            await writeIfChanged(interfaceCatalogPath, interfaceCatalogJson);
+          } else {
+            await rm(interfaceCatalogPath, { force: true });
+          }
+
+          if (buildProfile === 'full') {
+            const runtimeReportJson = JSON.stringify({ schemaVersion: '1', adapters: [] }, null, 2);
+
+            await writeIfChanged(runtimeReportPath, runtimeReportJson);
+          } else {
+            await rm(runtimeReportPath, { force: true });
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Unknown dev error.';
+          const diagnostic = buildDiagnostic({
+            code: 'DEV_FAILED',
+            severity: 'fatal',
+            summary: 'Dev failed.',
+            reason,
+            file: '.',
+          });
+
+          throw new DiagnosticReportError(diagnostic);
+        }
+      }
+
+      function shouldAnalyzeFile(filePath: string): boolean {
+        if (filePath.endsWith('.d.ts')) {
+          return false;
         }
 
-        if (parseResult.importEntries !== undefined) {
-          analysis.importEntries = parseResult.importEntries;
+        if (filePath.endsWith('.spec.ts') || filePath.endsWith('.test.ts')) {
+          return false;
         }
-
-        if (parseResult.exportedValues !== undefined) {
-          analysis.exportedValues = parseResult.exportedValues;
-        }
-
-        if (parseResult.localValues !== undefined) {
-          analysis.localValues = parseResult.localValues;
-        }
-
-        if (parseResult.moduleDefinition !== undefined) {
-          analysis.moduleDefinition = parseResult.moduleDefinition;
-        }
-
-        fileCache.set(filePath, analysis);
 
         return true;
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : 'Unknown parse error.';
-        const diagnostic = buildDiagnostic({
-          code: 'PARSE_FAILED',
-          severity: 'fatal',
-          summary: 'Parse failed.',
-          reason,
-          file: toProjectRelativePath(filePath),
-        });
-
-        reportDiagnostics({ diagnostics: [diagnostic] });
-
-        return false;
       }
-    }
 
-    async function rebuild() {
-      try {
-        const fileMap = new Map(fileCache.entries());
-        const graph = new ModuleGraph(fileMap, moduleFileName);
+      const glob = new Glob('**/*.ts');
+      const srcFiles = await deps.scanFiles({ glob, baseDir: srcDir });
 
-        graph.build();
+      for (const file of srcFiles) {
+        const fullPath = join(srcDir, file);
 
-        const adapterSpecResolution = await adapterSpecResolver.resolve({ fileMap, projectRoot });
-        const manifestGen = new ManifestGenerator();
-        const manifestJson = manifestGen.generateJson({
-          graph,
-          projectRoot,
-          source: configResult.source,
-          resolvedConfig: config,
-          adapterStaticSpecs: adapterSpecResolution.adapterStaticSpecs,
-          handlerIndex: adapterSpecResolution.handlerIndex,
-        });
-
-        await mkdir(outDir, { recursive: true });
-        await writeIfChanged(join(outDir, 'manifest.json'), manifestJson);
-
-        if (!['minimal', 'standard', 'full'].includes(buildProfile)) {
-          throw new Error(`Invalid build profile: ${buildProfile}`);
+        if (!shouldAnalyzeFile(fullPath)) {
+          continue;
         }
 
-        const interfaceCatalogPath = join(outDir, 'interface-catalog.json');
-        const runtimeReportPath = join(outDir, 'runtime-report.json');
-
-        if (buildProfile === 'standard' || buildProfile === 'full') {
-          const interfaceCatalogJson = JSON.stringify({ schemaVersion: '1', entries: [] }, null, 2);
-
-          await writeIfChanged(interfaceCatalogPath, interfaceCatalogJson);
-        } else {
-          await rm(interfaceCatalogPath, { force: true });
-        }
-
-        if (buildProfile === 'full') {
-          const runtimeReportJson = JSON.stringify({ schemaVersion: '1', adapters: [] }, null, 2);
-
-          await writeIfChanged(runtimeReportPath, runtimeReportJson);
-        } else {
-          await rm(runtimeReportPath, { force: true });
-        }
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : 'Unknown dev error.';
-        const diagnostic = buildDiagnostic({
-          code: 'DEV_FAILED',
-          severity: 'fatal',
-          summary: 'Dev failed.',
-          reason,
-          file: '.',
-        });
-
-        throw new DiagnosticReportError(diagnostic);
-      }
-    }
-
-    function shouldAnalyzeFile(filePath: string): boolean {
-      if (filePath.endsWith('.d.ts')) {
-        return false;
+        await analyzeFile(fullPath);
       }
 
-      if (filePath.endsWith('.spec.ts') || filePath.endsWith('.test.ts')) {
-        return false;
-      }
+      validateCreateApplication(fileCache);
 
-      return true;
-    }
+      await rebuild();
 
-    const glob = new Glob('**/*.ts');
-    const srcFiles = await scanGlobSorted({ glob, baseDir: srcDir });
+      console.info('🛠️  AOT artifacts generated.');
+      console.info(`   Manifest: ${join(outDir, 'manifest.json')}`);
 
-    for (const file of srcFiles) {
-      const fullPath = join(srcDir, file);
-
-      if (!shouldAnalyzeFile(fullPath)) {
-        continue;
-      }
-
-      await analyzeFile(fullPath);
-    }
-
-    validateCreateApplication(fileCache);
-
-    await rebuild();
-
-    console.info('🛠️  AOT artifacts generated.');
-    console.info(`   Manifest: ${join(outDir, 'manifest.json')}`);
-
-    const election = new OwnerElection({ projectRoot, pid: process.pid });
-    const electionRes = election.acquire();
-
-    if (electionRes.role === 'owner') {
-      const changesetWriter = new ChangesetWriter({ projectRoot, nowMs: () => Date.now() });
-      const projectWatcher = new ProjectWatcher(srcDir);
-
-      await projectWatcher.start(event => {
-        void (async () => {
-          const filename = event.filename;
-          if (!filename) {
-            return;
-          }
-
-          const fullPath = join(srcDir, filename);
-
-          if (!shouldAnalyzeFile(fullPath)) {
-            return;
-          }
-
-          const previousFileMap = new Map(fileCache.entries());
-
-          const exists = await Bun.file(fullPath).exists();
-          const isDeleted = event.eventType === 'delete' || (event.eventType === 'rename' && !exists);
-
-          const changesetEvent: 'change' | 'rename' | 'delete' =
-            event.eventType === 'change' ? 'change' : isDeleted ? 'delete' : 'rename';
-
-          await changesetWriter.append({
-            event: changesetEvent,
-            file: toProjectRelativePath(fullPath).replaceAll('\\', '/'),
-          });
-
-          if (isDeleted) {
-            console.info(`🗑️ File deleted: ${filename}`);
-            fileCache.delete(fullPath);
-          } else {
-            await analyzeFile(fullPath);
-          }
-
-          const impactLog = buildDevIncrementalImpactLog({
-            previousFileMap,
-            nextFileMap: new Map(fileCache.entries()),
-            moduleFileName,
-            changedFilePath: fullPath,
-            isDeleted,
-            toProjectRelativePath,
-          });
-
-          console.info(impactLog.logLine);
-
-          try {
-            await rebuild();
-          } catch (error) {
-            if (error instanceof DiagnosticReportError) {
-              reportDiagnostics({ diagnostics: [error.diagnostic] });
-            }
-
-            return;
-          }
-        })();
+      const openGildash = deps.createGildashProvider ?? GildashProvider.open;
+      const ledger = await openGildash({
+        projectRoot,
+        ignorePatterns: ['dist', 'node_modules', '.zipbul'],
       });
 
-      const onSigint = () => {
-        void projectWatcher.close();
-        election.release();
-      };
+      const unsubscribe = ledger.onIndexed(async (result: IndexResult) => {
+        // 1. 삭제 파일 제거
+        for (const file of result.deletedFiles) {
+          fileCache.delete(file);
+        }
 
-      process.on('SIGINT', onSigint);
-    } else {
-      console.info(`👁️  Watcher owner detected (pid=${electionRes.ownerPid}). Running in reader mode.`);
-
-      const cacheDir = zipbulCacheDirPath(projectRoot);
-
-      const subscription = await watcher.subscribe(cacheDir, (_err, events) => {
-        void (async () => {
-          const hasChangesetEvent = events.some(
-            evt => evt.path.endsWith('changeset.jsonl') || evt.path.endsWith('changeset.jsonl.1'),
-          );
-          if (!hasChangesetEvent) {
-            return;
-          }
-
-          const previousFileMap = new Map(fileCache.entries());
-
-          // Safe fallback: re-scan & re-analyze all source files.
-          fileCache.clear();
-          const rescanFiles = await scanGlobSorted({ glob: new Glob('**/*.ts'), baseDir: srcDir });
-          for (const file of rescanFiles) {
-            const fullPath = join(srcDir, file);
-            if (!shouldAnalyzeFile(fullPath)) {
-              continue;
-            }
-            await analyzeFile(fullPath);
-          }
-
-          const impactLog = buildDevIncrementalImpactLog({
-            previousFileMap,
-            nextFileMap: new Map(fileCache.entries()),
-            moduleFileName,
-            changedFilePath: srcDir,
-            isDeleted: false,
-            toProjectRelativePath,
+        // 2. 파싱 실패 파일 로깅
+        for (const file of result.failedFiles) {
+          const diagnostic = buildDiagnostic({
+            code: 'GILDASH_PARSE_FAILED',
+            severity: 'warning',
+            summary: 'Gildash parse failed.',
+            reason: `File could not be indexed: ${toProjectRelativePath(file)}`,
+            file: toProjectRelativePath(file),
           });
+          reportDiagnostics({ diagnostics: [diagnostic] });
+        }
 
-          console.info(impactLog.logLine);
+        // 3. 영향 파일 계산 (파일 레벨)
+        const affectedFiles = await ledger.getAffected(result.changedFiles);
 
-          try {
-            await rebuild();
-          } catch (error) {
-            if (error instanceof DiagnosticReportError) {
-              reportDiagnostics({ diagnostics: [error.diagnostic] });
-            }
+        // 4. 영향 파일만 재분석
+        for (const file of affectedFiles) {
+          if (shouldAnalyzeFile(file)) {
+            await analyzeFile(file);
           }
-        })();
+        }
+
+        // 5. 증분 영향 로그 (파일→모듈 매핑)
+        const impactLog = buildDevIncrementalImpactLog({
+          affectedFiles,
+          fileCache,
+          moduleFileName,
+          toProjectRelativePath,
+        });
+        console.info(impactLog.logLine);
+
+        // 6. 재빌드
+        try {
+          await rebuild();
+        } catch (error) {
+          if (error instanceof DiagnosticReportError) {
+            reportDiagnostics({ diagnostics: [error.diagnostic] });
+          }
+        }
       });
 
-      const onSigint = () => {
-        void subscription.unsubscribe();
-      };
+      process.on('SIGINT', () => {
+        unsubscribe();
+        void ledger.close();
+      });
+    } catch (error) {
+      if (error instanceof DiagnosticReportError) {
+        reportDiagnostics({ diagnostics: [error.diagnostic] });
 
-      process.on('SIGINT', onSigint);
-    }
-  } catch (error) {
-    if (error instanceof DiagnosticReportError) {
-      reportDiagnostics({ diagnostics: [error.diagnostic] });
+        throw error;
+      }
+
+      const sourcePath = error instanceof ConfigLoadError ? error.sourcePath : undefined;
+      const file = typeof sourcePath === 'string' && sourcePath.length > 0 ? sourcePath : '.';
+      const reason = error instanceof Error ? error.message : 'Unknown dev error.';
+      const diagnostic = buildDiagnostic({
+        code: 'DEV_FAILED',
+        severity: 'fatal',
+        summary: 'Dev failed.',
+        reason,
+        file,
+      });
+
+      reportDiagnostics({ diagnostics: [diagnostic] });
 
       throw error;
     }
+  };
+}
 
-    const sourcePath = error instanceof ConfigLoadError ? error.sourcePath : undefined;
-    const file = typeof sourcePath === 'string' && sourcePath.length > 0 ? sourcePath : '.';
-    const reason = error instanceof Error ? error.message : 'Unknown dev error.';
-    const diagnostic = buildDiagnostic({
-      code: 'DEV_FAILED',
-      severity: 'fatal',
-      summary: 'Dev failed.',
-      reason,
-      file,
-    });
+export const __testing__ = { createDevCommand };
 
-    reportDiagnostics({ diagnostics: [diagnostic] });
-
-    throw error;
-  }
+export async function dev(commandOptions?: CommandOptions): Promise<void> {
+  const impl = createDevCommand({
+    loadConfig: async () => {
+      const result = await ConfigLoader.load();
+      return { config: result.config, source: result.source };
+    },
+    createParser: () => new AstParser(),
+    createAdapterSpecResolver: () => new AdapterSpecResolver(),
+    scanFiles: ({ glob, baseDir }) => scanGlobSorted({ glob, baseDir }),
+  });
+  await impl(commandOptions);
 }

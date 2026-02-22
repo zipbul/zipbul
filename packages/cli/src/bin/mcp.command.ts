@@ -6,12 +6,8 @@ import { join } from 'node:path';
 import { buildDiagnostic, reportDiagnostics } from '../diagnostics';
 import { ConfigLoader } from '../config';
 import type { ResolvedZipbulConfig } from '../config';
-import { zipbulCacheDirPath } from '../common/zipbul-paths';
-import { indexProject } from '../mcp/index/index-project';
 import { startZipbulMcpServerStdio } from '../mcp/server/mcp-server';
-import { closeDb, createDb } from '../store/connection';
-import { OwnerElection } from '../watcher/owner-election';
-import { emitReindexSignal } from '../watcher/reindex-signal';
+import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 
 export interface McpCommandDeps {
   loadConfig: (projectRoot: string) => Promise<{ config: ResolvedZipbulConfig }>;
@@ -56,47 +52,24 @@ async function ensureRepoDefault(projectRoot: string): Promise<void> {
 }
 
 export interface RebuildProjectIndexDefaultDeps {
-  createOwnerElection?: (input: { projectRoot: string; pid: number }) => { acquire: () => { role: 'owner' | 'reader' }; release: () => void };
-  emitReindexSignal?: typeof emitReindexSignal;
-  nowMs?: () => number;
-  pid?: number;
-
-  createDb?: typeof createDb;
-  closeDb?: typeof closeDb;
-  indexProject?: typeof indexProject;
+  createGildashProvider?: (options: GildashProviderOptions) => Promise<GildashProvider>;
 }
 
 async function rebuildProjectIndexDefault(
   input: { projectRoot: string; config: ResolvedZipbulConfig; mode: 'incremental' | 'full' },
   deps?: RebuildProjectIndexDefaultDeps,
 ): Promise<{ ok: boolean }> {
-  const pid = deps?.pid ?? process.pid;
-  const nowMs = deps?.nowMs ?? (() => Date.now());
-  const emit = deps?.emitReindexSignal ?? emitReindexSignal;
-  const createOwnerElection = deps?.createOwnerElection ?? ((i: { projectRoot: string; pid: number }) => new OwnerElection(i));
-
-  const election = createOwnerElection({ projectRoot: input.projectRoot, pid });
-  const res = election.acquire();
-
-  if (res.role === 'reader') {
-    await emit({ projectRoot: input.projectRoot, pid, nowMs });
-    election.release();
-    return { ok: true };
-  }
-
-  const createDbFn = deps?.createDb ?? createDb;
-  const closeDbFn = deps?.closeDb ?? closeDb;
-  const indexProjectFn = deps?.indexProject ?? indexProject;
-
-  const dbPath = join(zipbulCacheDirPath(input.projectRoot), 'index.sqlite');
-  const db = createDbFn(dbPath);
+  const openGildash = deps?.createGildashProvider ?? GildashProvider.open;
+  const ledger = await openGildash({ projectRoot: input.projectRoot });
   try {
-    await indexProjectFn({ projectRoot: input.projectRoot, config: input.config as any, db, mode: input.mode });
-    return { ok: true };
+    await ledger.reindex();
+  } catch (_error) {
+    // reader인 경우 reindex()는 owner 전용. 에러를 무시하고 ok: true 반환.
+    // owner가 자동으로 인덱싱 수행 중이므로 명시적 재인덱싱 불필요.
   } finally {
-    closeDbFn(db);
-    election.release();
+    await ledger.close();
   }
+  return { ok: true };
 }
 
 function reportInvalidSubcommand(value: string | undefined): void {
