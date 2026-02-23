@@ -1,4 +1,4 @@
-export type { CreateApplicationOptions } from './interfaces';
+export type { CreateApplicationOptions, BootstrapAdapter, AdapterEntry } from './interfaces';
 
 export { ZipbulApplication } from './zipbul-application';
 
