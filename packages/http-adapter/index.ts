@@ -1,5 +1,6 @@
 export { ZipbulHttpAdapter } from './src/zipbul-http-adapter';
 export { zipbulHttpAdapter } from './src/zipbul-http-adapter-factory';
+export { adapterSpec } from './src/adapter-definition';
 
 export { ZipbulHttpContext } from './src/adapter/http-context';
 export { ZipbulHttpContextAdapter } from './src/adapter/zipbul-http-context-adapter';
