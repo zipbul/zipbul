@@ -307,16 +307,10 @@ describe('ManifestGenerator', () => {
       },
       adapterStaticSpecs: {
         test: {
-          pipeline: {
-            middlewares: ['dispatchBefore'],
-            guards: [],
-            pipes: [],
-            handler: 'dispatchHandler',
-          },
+          pipeline: ['Before', 'Guards', 'Pipes', 'Handler'],
           middlewarePhaseOrder: ['Before'],
           supportedMiddlewarePhases: { Before: true },
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
-          runtime: { start: 'startAdapter', stop: 'stopAdapter' },
         },
       },
       handlerIndex: [{ id: 'test:src/controllers.ts#SampleController.handle' }],
@@ -347,28 +341,16 @@ describe('ManifestGenerator', () => {
       },
       adapterStaticSpecs: {
         b: {
-          pipeline: {
-            middlewares: [],
-            guards: [],
-            pipes: [],
-            handler: 'h',
-          },
+          pipeline: ['Guards', 'Pipes', 'Handler'],
           middlewarePhaseOrder: [],
           supportedMiddlewarePhases: {},
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
-          runtime: { start: 'start', stop: 'stop' },
         },
         a: {
-          pipeline: {
-            middlewares: [],
-            guards: [],
-            pipes: [],
-            handler: 'h',
-          },
+          pipeline: ['Guards', 'Pipes', 'Handler'],
           middlewarePhaseOrder: [],
           supportedMiddlewarePhases: {},
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
-          runtime: { start: 'start', stop: 'stop' },
         },
       },
       handlerIndex: [

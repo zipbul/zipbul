@@ -92,24 +92,11 @@ export interface AdapterEntryDecoratorsSpec {
   handler: string[];
 }
 
-export interface AdapterRuntimeSpec {
-  start: string;
-  stop: string;
-}
-
-export interface PipelineSpec {
-  middlewares: string[];
-  guards: string[];
-  pipes: string[];
-  handler: string;
-}
-
 export interface AdapterStaticSpec {
-  pipeline: PipelineSpec;
+  pipeline: string[];
   middlewarePhaseOrder: string[];
   supportedMiddlewarePhases: Record<string, true>;
   entryDecorators: AdapterEntryDecoratorsSpec;
-  runtime: AdapterRuntimeSpec;
 }
 
 export interface AdapterSpecExtraction {

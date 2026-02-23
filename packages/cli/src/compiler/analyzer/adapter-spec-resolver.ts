@@ -1,5 +1,3 @@
-import { parseSync } from 'oxc-parser';
-
 import type { AdapterSpecResolveParams, FileAnalysis } from './graph/interfaces';
 import type {
   AdapterSpecExtraction,
@@ -8,8 +6,6 @@ import type {
   AdapterStaticSpecResult,
   AdapterStaticSpec,
   AdapterEntryDecoratorsSpec,
-  AdapterRuntimeSpec,
-  PipelineSpec,
   HandlerIndexEntry,
 } from './interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord, DecoratorArguments } from './types';
@@ -58,16 +54,13 @@ export class AdapterSpecResolver {
 
       const arg = this.asRecord(args[0]);
 
-      if (arg === null || typeof arg.__zipbul_ref !== 'string') {
-        throw new Error(`[Zipbul AOT] defineAdapter argument must be an Identifier reference in ${resolvedExport.sourceFile}.`);
+      if (arg === null) {
+        throw new Error(`[Zipbul AOT] defineAdapter argument must be an object literal in ${resolvedExport.sourceFile}.`);
       }
 
-      const adapterClassName = arg.__zipbul_ref;
-      const adapterClassSource =
-        typeof arg.__zipbul_import_source === 'string' ? arg.__zipbul_import_source : resolvedExport.sourceFile;
-      const staticSpec = await this.extractAdapterStaticSpec(adapterClassSource, adapterClassName, fileMap);
+      const result = this.extractFromObjectLiteral(arg, resolvedExport.sourceFile);
 
-      adapterSpecs.push({ adapterId: staticSpec.adapterId, staticSpec: staticSpec.staticSpec });
+      adapterSpecs.push({ adapterId: result.adapterId, staticSpec: result.staticSpec });
     }
 
     if (adapterSpecs.length === 0) {
@@ -219,50 +212,98 @@ export class AdapterSpecResolver {
     return analysis;
   }
 
-  private async extractAdapterStaticSpec(
-    classFile: string,
-    className: string,
-    fileMap: Map<string, FileAnalysis>,
-  ): Promise<AdapterStaticSpecResult> {
-    const analysisExists = await this.getFileAnalysis(classFile, fileMap);
+  private extractFromObjectLiteral(arg: AnalyzerValueRecord, sourceFile: string): AdapterStaticSpecResult {
+    const adapterId = arg.name;
 
-    if (analysisExists === null) {
-      throw new Error(`[Zipbul AOT] Adapter class source not found: ${classFile}`);
+    if (typeof adapterId !== 'string' || adapterId.length === 0) {
+      throw new Error(`[Zipbul AOT] defineAdapter.name must be a non-empty string in ${sourceFile}.`);
     }
 
-    const code = await Bun.file(classFile).text();
-    const parsed = parseSync(classFile, code);
-    const program = this.asRecord(parsed.program);
+    const pipelineRaw = arg.pipeline;
 
-    if (program === null) {
-      throw new Error(`[Zipbul AOT] Failed to parse adapter class source: ${classFile}`);
+    if (!Array.isArray(pipelineRaw)) {
+      throw new Error(`[Zipbul AOT] defineAdapter.pipeline must be an array in ${sourceFile}.`);
     }
 
-    const classNode = this.findClassDeclaration(program, className);
+    const pipeline: string[] = [];
 
-    if (classNode === null) {
-      throw new Error(`[Zipbul AOT] Adapter class '${className}' not found in ${classFile}.`);
+    for (const token of pipelineRaw) {
+      if (typeof token !== 'string') {
+        throw new Error(`[Zipbul AOT] defineAdapter.pipeline elements must be strings in ${sourceFile}.`);
+      }
+
+      pipeline.push(token);
     }
 
-    const staticFields = this.extractStaticFields(classNode);
-    const adapterId = this.parseStringLiteral(staticFields.adapterId);
+    const mpoRaw = arg.middlewarePhaseOrder;
 
-    if (!isNonEmptyString(adapterId)) {
-      throw new Error(`[Zipbul AOT] AdapterClass.adapterId must be a string literal (${className}).`);
+    if (!Array.isArray(mpoRaw)) {
+      throw new Error(`[Zipbul AOT] defineAdapter.middlewarePhaseOrder must be an array in ${sourceFile}.`);
     }
 
-    const middlewarePhaseOrder = this.parseStringArray(staticFields.middlewarePhaseOrder, 'middlewarePhaseOrder', className);
-    const supportedMiddlewarePhases = this.parseSupportedPhaseSet(
-      staticFields.supportedMiddlewarePhases,
-      'supportedMiddlewarePhases',
-      className,
-    );
-    const entryDecorators = this.parseEntryDecorators(staticFields.entryDecorators, className);
-    const runtime = this.parseRuntimeSpec(staticFields.runtime, className);
-    const pipeline = this.parsePipelineSpec(staticFields.pipeline, className);
+    const middlewarePhaseOrder: string[] = [];
 
-    this.validatePhaseConsistency(middlewarePhaseOrder, supportedMiddlewarePhases, className);
-    this.validatePipelineConsistency(pipeline, middlewarePhaseOrder, className);
+    for (const phase of mpoRaw) {
+      if (typeof phase !== 'string') {
+        throw new Error(`[Zipbul AOT] defineAdapter.middlewarePhaseOrder elements must be strings in ${sourceFile}.`);
+      }
+
+      this.assertValidPhaseId(phase, sourceFile, 'defineAdapter.middlewarePhaseOrder');
+      middlewarePhaseOrder.push(phase);
+    }
+
+    const smpRaw = this.asRecord(arg.supportedMiddlewarePhases);
+
+    if (smpRaw === null) {
+      throw new Error(`[Zipbul AOT] defineAdapter.supportedMiddlewarePhases must be an object in ${sourceFile}.`);
+    }
+
+    const supportedMiddlewarePhases: Record<string, true> = {};
+
+    for (const [key, value] of Object.entries(smpRaw)) {
+      if (value !== true) {
+        throw new Error(`[Zipbul AOT] defineAdapter.supportedMiddlewarePhases values must be true in ${sourceFile}.`);
+      }
+
+      this.assertValidPhaseId(key, sourceFile, 'defineAdapter.supportedMiddlewarePhases');
+      supportedMiddlewarePhases[key] = true;
+    }
+
+    const decsRaw = this.asRecord(arg.decorators);
+
+    if (decsRaw === null) {
+      throw new Error(`[Zipbul AOT] defineAdapter.decorators must be an object in ${sourceFile}.`);
+    }
+
+    const controllerRaw = this.asRecord(decsRaw.controller);
+
+    if (controllerRaw === null || typeof controllerRaw.__zipbul_ref !== 'string') {
+      throw new Error(`[Zipbul AOT] defineAdapter.decorators.controller must be an Identifier in ${sourceFile}.`);
+    }
+
+    const controller = controllerRaw.__zipbul_ref;
+    const handlerRaw = decsRaw.handler;
+
+    if (!Array.isArray(handlerRaw) || handlerRaw.length === 0) {
+      throw new Error(`[Zipbul AOT] defineAdapter.decorators.handler must be a non-empty Identifier array in ${sourceFile}.`);
+    }
+
+    const handler: string[] = [];
+
+    for (const item of handlerRaw) {
+      const rec = this.asRecord(item);
+
+      if (rec === null || typeof rec.__zipbul_ref !== 'string') {
+        throw new Error(`[Zipbul AOT] defineAdapter.decorators.handler elements must be Identifiers in ${sourceFile}.`);
+      }
+
+      handler.push(rec.__zipbul_ref);
+    }
+
+    const entryDecorators: AdapterEntryDecoratorsSpec = { controller, handler };
+
+    this.validatePhaseConsistency(middlewarePhaseOrder, supportedMiddlewarePhases, sourceFile);
+    this.validatePipelineConsistency(pipeline, middlewarePhaseOrder, sourceFile);
 
     return {
       adapterId,
@@ -271,7 +312,6 @@ export class AdapterSpecResolver {
         middlewarePhaseOrder,
         supportedMiddlewarePhases,
         entryDecorators,
-        runtime,
       },
     };
   }
@@ -556,322 +596,20 @@ export class AdapterSpecResolver {
     return PathResolver.normalize(trimmed || '.');
   }
 
-  private findClassDeclaration(programNode: AnalyzerValueRecord, className: string): AnalyzerValueRecord | null {
-    const statements = isAnalyzerValueArray(programNode.body) ? programNode.body : [];
-
-    for (const stmtValue of statements) {
-      const stmt = this.asRecord(stmtValue);
-
-      if (stmt === null) {
-        continue;
-      }
-
-      const defaultExport = stmt.type === 'ExportDefaultDeclaration' ? this.asRecord(stmt.declaration) : null;
-      const namedExport = stmt.type === 'ExportNamedDeclaration' ? this.asRecord(stmt.declaration) : null;
-      const candidate = defaultExport ?? namedExport ?? stmt;
-
-      if (candidate.type === 'ClassDeclaration') {
-        const id = this.asRecord(candidate.id);
-        const name = id ? this.getString(id, 'name') : null;
-
-        if (name === className) {
-          return candidate;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  private extractStaticFields(classNode: AnalyzerValueRecord): AnalyzerValueRecord {
-    const body = this.asRecord(classNode.body);
-    const members = body && isAnalyzerValueArray(body.body) ? body.body : [];
-    const fields: AnalyzerValueRecord = {};
-
-    for (const memberValue of members) {
-      const member = this.asRecord(memberValue);
-
-      if (member === null) {
-        continue;
-      }
-
-      const isStatic = Boolean(member.static);
-
-      if (!isStatic) {
-        continue;
-      }
-
-      if (member.type === 'PropertyDefinition') {
-        const key = this.asRecord(member.key);
-        const keyName = key ? this.getString(key, 'name') : null;
-
-        if (!isNonEmptyString(keyName)) {
-          continue;
-        }
-
-        fields[keyName] = member.value;
-      }
-
-      if (member.type === 'MethodDefinition') {
-        const key = this.asRecord(member.key);
-        const keyName = key ? this.getString(key, 'name') : null;
-
-        if (!isNonEmptyString(keyName)) {
-          continue;
-        }
-
-        fields[keyName] = member;
-      }
-    }
-
-    return fields;
-  }
-
-  private parseStringLiteral(nodeValue: AnalyzerValue): string | null {
-    const node = this.asRecord(nodeValue);
-
-    if (node === null) {
-      return null;
-    }
-
-    if (node.type === 'Literal') {
-      const value = node.value;
-
-      if (typeof value === 'string') {
-        return value;
-      }
-    }
-
-    return null;
-  }
-
-  private parseIdentifier(nodeValue: AnalyzerValue): string | null {
-    const node = this.asRecord(nodeValue);
-
-    if (node === null) {
-      return null;
-    }
-
-    if (node.type === 'Identifier') {
-      return this.getString(node, 'name');
-    }
-
-    return null;
-  }
-
-  private parseStringArray(nodeValue: AnalyzerValue, field: string, className: string): string[] {
-    const node = this.asRecord(nodeValue);
-
-    if (node?.type !== 'ArrayExpression') {
-      throw new Error(`[Zipbul AOT] AdapterClass.${field} must be an array literal (${className}).`);
-    }
-
-    const elements = isAnalyzerValueArray(node.elements) ? node.elements : [];
-    const values: string[] = [];
-
-    for (const elementValue of elements) {
-      const element = this.asRecord(elementValue);
-
-      if (element === null || element.type === 'SpreadElement') {
-        throw new Error(`[Zipbul AOT] AdapterClass.${field} must be a string literal array (${className}).`);
-      }
-
-      const literal = this.parseStringLiteral(element);
-
-      if (!isNonEmptyString(literal)) {
-        throw new Error(`[Zipbul AOT] AdapterClass.${field} must be a string literal array (${className}).`);
-      }
-
-      this.assertValidPhaseId(literal, className, `AdapterClass.${field}`);
-      values.push(literal);
-    }
-
-    return values;
-  }
-
-  private parseSupportedPhaseSet(nodeValue: AnalyzerValue, field: string, className: string): Record<string, true> {
-    const node = this.asRecord(nodeValue);
-
-    if (node?.type !== 'ObjectExpression') {
-      throw new Error(`[Zipbul AOT] AdapterClass.${field} must be an object literal (${className}).`);
-    }
-
-    const phases: Record<string, true> = {};
-    const properties = isAnalyzerValueArray(node.properties) ? node.properties : [];
-
-    for (const propValue of properties) {
-      const prop = this.asRecord(propValue);
-
-      if (prop === null || (prop.type !== 'Property' && prop.type !== 'ObjectProperty')) {
-        continue;
-      }
-
-      const key = this.getPropertyKey(prop.key);
-
-      if (!isNonEmptyString(key)) {
-        throw new Error(`[Zipbul AOT] AdapterClass.${field} keys must be string literals (${className}).`);
-      }
-
-      this.assertValidPhaseId(key, className, `AdapterClass.${field}`);
-
-      const valueNode = this.asRecord(prop.value);
-      const literalValue = valueNode ? valueNode.value : undefined;
-
-      if (literalValue !== true) {
-        throw new Error(`[Zipbul AOT] AdapterClass.${field} values must be literal true (${className}).`);
-      }
-
-      phases[key] = true;
-    }
-
-    return phases;
-  }
-
-  private parseEntryDecorators(nodeValue: AnalyzerValue, className: string): AdapterEntryDecoratorsSpec {
-    const node = this.asRecord(nodeValue);
-
-    if (node?.type !== 'ObjectExpression') {
-      throw new Error(`[Zipbul AOT] AdapterClass.entryDecorators must be an object literal (${className}).`);
-    }
-
-    const controllerNode = this.getObjectPropertyValue(node, 'controller');
-    const handlerNode = this.getObjectPropertyValue(node, 'handler');
-    const controller = this.parseIdentifier(controllerNode);
-
-    if (!isNonEmptyString(controller)) {
-      throw new Error(`[Zipbul AOT] AdapterClass.entryDecorators.controller must be an Identifier (${className}).`);
-    }
-
-    const handler = this.parseIdentifierArray(handlerNode, 'entryDecorators.handler', className);
-
-    if (handler.length === 0) {
-      throw new Error(`[Zipbul AOT] AdapterClass.entryDecorators.handler must not be empty (${className}).`);
-    }
-
-    return { controller, handler };
-  }
-
-  private parseRuntimeSpec(nodeValue: AnalyzerValue, className: string): AdapterRuntimeSpec {
-    const node = this.asRecord(nodeValue);
-
-    if (node?.type !== 'ObjectExpression') {
-      throw new Error(`[Zipbul AOT] AdapterClass.runtime must be an object literal (${className}).`);
-    }
-
-    const startNode = this.getObjectPropertyValue(node, 'start');
-    const stopNode = this.getObjectPropertyValue(node, 'stop');
-    const start = this.parseIdentifier(startNode);
-    const stop = this.parseIdentifier(stopNode);
-
-    if (!isNonEmptyString(start) || !isNonEmptyString(stop)) {
-      throw new Error(`[Zipbul AOT] AdapterClass.runtime must include start/stop Identifiers (${className}).`);
-    }
-
-    return { start, stop };
-  }
-
-  private parsePipelineSpec(nodeValue: AnalyzerValue, className: string): PipelineSpec {
-    const node = this.asRecord(nodeValue);
-
-    if (node === null) {
-      throw new Error(`[Zipbul AOT] AdapterClass.pipeline must be defined (${className}).`);
-    }
-
-    if (node.type === 'MethodDefinition') {
-      return this.parsePipelineFromMethod(node, className);
-    }
-
-    if (node.type !== 'ObjectExpression') {
-      throw new Error(`[Zipbul AOT] AdapterClass.pipeline must be an object literal or static method (${className}).`);
-    }
-
-    return this.parsePipelineFromObject(node, className);
-  }
-
-  private parsePipelineFromMethod(node: AnalyzerValueRecord, className: string): PipelineSpec {
-    const value = this.asRecord(node.value);
-    const body = value ? this.asRecord(value.body) : null;
-    const statements = body && isAnalyzerValueArray(body.body) ? body.body : [];
-
-    if (statements.length !== 1) {
-      throw new Error(`[Zipbul AOT] AdapterClass.pipeline must return a single object literal (${className}).`);
-    }
-
-    const stmt = this.asRecord(statements[0]);
-
-    if (stmt?.type !== 'ReturnStatement') {
-      throw new Error(`[Zipbul AOT] AdapterClass.pipeline must return a single object literal (${className}).`);
-    }
-
-    const argument = this.asRecord(stmt.argument);
-
-    if (argument?.type !== 'ObjectExpression') {
-      throw new Error(`[Zipbul AOT] AdapterClass.pipeline must return a single object literal (${className}).`);
-    }
-
-    return this.parsePipelineFromObject(argument, className);
-  }
-
-  private parsePipelineFromObject(node: AnalyzerValueRecord, className: string): PipelineSpec {
-    const middlewares = this.parseIdentifierArray(
-      this.getObjectPropertyValue(node, 'middlewares'),
-      'pipeline.middlewares',
-      className,
-    );
-    const guards = this.parseIdentifierArray(this.getObjectPropertyValue(node, 'guards'), 'pipeline.guards', className);
-    const pipes = this.parseIdentifierArray(this.getObjectPropertyValue(node, 'pipes'), 'pipeline.pipes', className);
-    const handler = this.parseIdentifier(this.getObjectPropertyValue(node, 'handler'));
-
-    if (!isNonEmptyString(handler)) {
-      throw new Error(`[Zipbul AOT] AdapterClass.pipeline.handler must be an Identifier (${className}).`);
-    }
-
-    return { middlewares, guards, pipes, handler };
-  }
-
-  private parseIdentifierArray(nodeValue: AnalyzerValue, field: string, className: string): string[] {
-    const node = this.asRecord(nodeValue);
-
-    if (node?.type !== 'ArrayExpression') {
-      throw new Error(`[Zipbul AOT] AdapterClass.${field} must be an array literal (${className}).`);
-    }
-
-    const elements = isAnalyzerValueArray(node.elements) ? node.elements : [];
-    const names: string[] = [];
-
-    for (const elementValue of elements) {
-      const element = this.asRecord(elementValue);
-
-      if (element === null || element.type === 'SpreadElement') {
-        throw new Error(`[Zipbul AOT] AdapterClass.${field} must be an Identifier array (${className}).`);
-      }
-
-      const name = this.parseIdentifier(element);
-
-      if (!isNonEmptyString(name)) {
-        throw new Error(`[Zipbul AOT] AdapterClass.${field} must be an Identifier array (${className}).`);
-      }
-
-      names.push(name);
-    }
-
-    return names;
-  }
-
   private validatePhaseConsistency(
     middlewarePhaseOrder: string[],
     supportedMiddlewarePhases: Record<string, true>,
-    className: string,
+    context: string,
   ): void {
-    if (middlewarePhaseOrder.length === 0) {
-      throw new Error(`[Zipbul AOT] AdapterClass.middlewarePhaseOrder must not be empty (${className}).`);
+    if (middlewarePhaseOrder.length === 0 && Object.keys(supportedMiddlewarePhases).length === 0) {
+      return;
     }
 
     const phaseSet = new Set<string>();
 
     for (const phase of middlewarePhaseOrder) {
       if (phaseSet.has(phase)) {
-        throw new Error(`[Zipbul AOT] AdapterClass.middlewarePhaseOrder must not contain duplicates (${className}).`);
+        throw new Error(`[Zipbul AOT] middlewarePhaseOrder must not contain duplicates (${context}).`);
       }
 
       phaseSet.add(phase);
@@ -881,62 +619,40 @@ export class AdapterSpecResolver {
     const phaseList = Array.from(phaseSet.values()).sort();
 
     if (supportedKeys.length !== phaseList.length) {
-      throw new Error(`[Zipbul AOT] supportedMiddlewarePhases keys must match middlewarePhaseOrder (${className}).`);
+      throw new Error(`[Zipbul AOT] supportedMiddlewarePhases keys must match middlewarePhaseOrder (${context}).`);
     }
 
     for (let index = 0; index < supportedKeys.length; index += 1) {
       if (supportedKeys[index] !== phaseList[index]) {
-        throw new Error(`[Zipbul AOT] supportedMiddlewarePhases keys must match middlewarePhaseOrder (${className}).`);
+        throw new Error(`[Zipbul AOT] supportedMiddlewarePhases keys must match middlewarePhaseOrder (${context}).`);
       }
     }
   }
 
-  private validatePipelineConsistency(pipeline: PipelineSpec, middlewarePhaseOrder: string[], className: string): void {
-    if (pipeline.middlewares.length !== middlewarePhaseOrder.length) {
-      throw new Error(`[Zipbul AOT] pipeline.middlewares length must match middlewarePhaseOrder (${className}).`);
-    }
-  }
+  private validatePipelineConsistency(pipeline: string[], middlewarePhaseOrder: string[], context: string): void {
+    const RESERVED = new Set(['Guards', 'Pipes', 'Handler']);
 
-  private getObjectPropertyValue(node: AnalyzerValueRecord, propName: string): AnalyzerValue | null {
-    const properties = isAnalyzerValueArray(node.properties) ? node.properties : [];
+    for (const reserved of RESERVED) {
+      const count = pipeline.filter(t => t === reserved).length;
 
-    for (const propValue of properties) {
-      const prop = this.asRecord(propValue);
-
-      if (prop === null || (prop.type !== 'Property' && prop.type !== 'ObjectProperty')) {
-        continue;
-      }
-
-      const keyName = this.getPropertyKey(prop.key);
-
-      if (keyName === propName) {
-        return prop.value;
+      if (count !== 1) {
+        throw new Error(`[Zipbul AOT] pipeline must contain '${reserved}' exactly once (${context}).`);
       }
     }
 
-    return null;
-  }
+    const customPhases = pipeline.filter(t => !RESERVED.has(t));
+    const customSet = new Set(customPhases);
+    const orderSet = new Set(middlewarePhaseOrder);
 
-  private getPropertyKey(nodeValue: AnalyzerValue): string | null {
-    const node = this.asRecord(nodeValue);
-
-    if (node === null) {
-      return null;
+    if (customSet.size !== orderSet.size) {
+      throw new Error(`[Zipbul AOT] pipeline custom phases must match middlewarePhaseOrder (${context}).`);
     }
 
-    if (node.type === 'Identifier') {
-      return this.getString(node, 'name');
-    }
-
-    if (node.type === 'Literal') {
-      const value = node.value;
-
-      if (typeof value === 'string') {
-        return value;
+    for (const phase of customSet) {
+      if (!orderSet.has(phase)) {
+        throw new Error(`[Zipbul AOT] pipeline custom phases must match middlewarePhaseOrder (${context}).`);
       }
     }
-
-    return null;
   }
 
   private asRecord(value: AnalyzerValue | undefined): AnalyzerValueRecord | null {
