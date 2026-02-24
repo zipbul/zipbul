@@ -1,11 +1,11 @@
-import { ZipbulErrorFilter, type ZipbulValue, type Context, Catch } from '@zipbul/common';
+import { ExceptionFilter, type ZipbulValue, type Context, Catch } from '@zipbul/common';
 import { ZipbulHttpContext } from '@zipbul/http-adapter';
 import { Logger, type LogMetadataValue } from '@zipbul/logger';
 
 import type { HttpErrorPayload } from './interfaces';
 
 @Catch()
-export class HttpErrorFilter extends ZipbulErrorFilter {
+export class HttpErrorFilter extends ExceptionFilter {
   private logger = new Logger('HttpErrorFilter');
 
   public catch(error: ZipbulValue, ctx: Context): void {

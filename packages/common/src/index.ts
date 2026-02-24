@@ -5,7 +5,7 @@ export * from './types';
 export * from './errors/errors';
 
 export { ZipbulContextError } from './errors/zipbul-context.error';
-export { ZipbulErrorFilter } from './zipbul-error-filter';
+export { ExceptionFilter } from './exception-filter';
 export { ZipbulMiddleware } from './zipbul-middleware';
 
 export * from './decorators/index';

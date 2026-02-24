@@ -1,12 +1,12 @@
 import type {
   ZipbulApplicationOptions,
   ZipbulContainer,
-  ZipbulErrorFilter,
+  ExceptionFilter,
   ZipbulMiddleware,
   ZipbulValue,
   Class,
   Context,
-  ErrorFilterToken,
+  ExceptionFilterToken,
   ProviderToken,
 } from '@zipbul/common';
 
@@ -50,7 +50,7 @@ export interface ZipbulHttpServerOptions extends ZipbulApplicationOptions {
   readonly workers?: number;
   readonly reusePort?: boolean;
   readonly middlewares?: HttpMiddlewareRegistry;
-  readonly errorFilters?: readonly ErrorFilterToken[];
+  readonly errorFilters?: readonly ExceptionFilterToken[];
 }
 
 export type InternalRouteMethod = 'GET';
@@ -69,7 +69,7 @@ export interface ZipbulHttpServerBootOptions extends ZipbulHttpServerOptions {
   readonly scopedKeys?: Map<ProviderToken, string>;
   readonly internalRoutes?: readonly InternalRouteEntry[];
   readonly middlewares?: HttpMiddlewareRegistry;
-  readonly errorFilters?: readonly ErrorFilterToken[];
+  readonly errorFilters?: readonly ExceptionFilterToken[];
   readonly logger?: ZipbulValue;
 }
 
@@ -122,7 +122,7 @@ export interface RouteHandlerEntry {
   readonly controllerClass: ControllerConstructor | null;
   readonly methodName: string;
   readonly middlewares: ZipbulMiddleware[];
-  readonly errorFilters: Array<ZipbulErrorFilter<SystemError>>;
+  readonly errorFilters: Array<ExceptionFilter<SystemError>>;
   readonly paramFactory: (req: ZipbulRequest, res: ZipbulResponse) => Promise<readonly RouteParamValue[]>;
 }
 

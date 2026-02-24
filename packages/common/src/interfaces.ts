@@ -116,7 +116,7 @@ export interface ZipbulContainer {
   keys(): IterableIterator<ProviderToken>;
 }
 
-export type ErrorFilterToken = ProviderToken;
+export type ExceptionFilterToken = ProviderToken;
 
 // Module Interface (Strict Schema Enforcement)
 export interface ZipbulModule {
@@ -135,14 +135,14 @@ export interface AdapterProtocolConfig {
 
 export interface AdapterInstanceConfig {
   middlewares?: MiddlewareConfig;
-  errorFilters?: ErrorFilterConfig[];
-  [key: string]: ZipbulValue | MiddlewareConfig | ErrorFilterConfig[];
+  errorFilters?: ExceptionFilterConfig[];
+  [key: string]: ZipbulValue | MiddlewareConfig | ExceptionFilterConfig[];
 }
 
 export interface MiddlewareConfig {
   [lifecycle: string]: Array<MiddlewareToken | MiddlewareRegistration>;
 }
 
-export type ErrorFilterConfig = ErrorFilterToken;
+export type ExceptionFilterConfig = ExceptionFilterToken;
 
 export type Provider = ProviderUseValue | ProviderUseClass | ProviderUseExisting | ProviderUseFactory | Class;

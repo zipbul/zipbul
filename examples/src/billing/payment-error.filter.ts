@@ -1,11 +1,11 @@
-import { ZipbulErrorFilter, type Context, Catch } from '@zipbul/common';
+import { ExceptionFilter, type Context, Catch } from '@zipbul/common';
 import { ZipbulHttpContext } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 
 import { PaymentFailedError } from './payment-failed.error';
 
 @Catch(PaymentFailedError)
-export class PaymentErrorFilter extends ZipbulErrorFilter<PaymentFailedError> {
+export class PaymentErrorFilter extends ExceptionFilter<PaymentFailedError> {
   private logger = new Logger('PaymentErrorFilter');
 
   public catch(error: PaymentFailedError, ctx: Context): void {

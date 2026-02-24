@@ -1,6 +1,6 @@
 import type { ZipbulContainer, ZipbulValue, ProviderToken } from '@zipbul/common';
 
-import { ZipbulErrorFilter, ZipbulMiddleware } from '@zipbul/common';
+import { ExceptionFilter, ZipbulMiddleware } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 
 import type { ZipbulRequest } from './zipbul-request';
@@ -565,8 +565,8 @@ export class RouteHandler {
     return value instanceof ZipbulMiddleware;
   }
 
-  private isZipbulErrorFilter(value: ContainerInstance): value is ZipbulErrorFilter<SystemError> {
-    return value instanceof ZipbulErrorFilter;
+  private isExceptionFilter(value: ContainerInstance): value is ExceptionFilter<SystemError> {
+    return value instanceof ExceptionFilter;
   }
 
   private isHttpMethod(value: string): value is HttpMethod {
@@ -700,9 +700,9 @@ export class RouteHandler {
     targetClass: ControllerConstructor,
     method: MethodMetadata,
     classMeta: ClassMetadata,
-  ): Array<ZipbulErrorFilter<SystemError>> {
+  ): Array<ExceptionFilter<SystemError>> {
     const tokens: DecoratorArgument[] = [];
-    const methodDecs = (method.decorators ?? []).filter((decorator: DecoratorMetadata) => decorator.name === 'UseErrorFilters');
+    const methodDecs = (method.decorators ?? []).filter((decorator: DecoratorMetadata) => decorator.name === 'UseExceptionFilters');
 
     methodDecs.forEach(decorator => {
       (decorator.arguments ?? []).forEach(arg => {
@@ -712,7 +712,7 @@ export class RouteHandler {
 
     if (classMeta !== undefined) {
       const classDecs = (classMeta.decorators ?? []).filter(
-        (decorator: DecoratorMetadata) => decorator.name === 'UseErrorFilters',
+        (decorator: DecoratorMetadata) => decorator.name === 'UseExceptionFilters',
       );
 
       classDecs.forEach(decorator => {
@@ -732,7 +732,7 @@ export class RouteHandler {
 
       return true;
     });
-    const resolved: Array<ZipbulErrorFilter<SystemError>> = [];
+    const resolved: Array<ExceptionFilter<SystemError>> = [];
 
     for (const token of dedupedTokens) {
       if (token === null || token === undefined) {
@@ -741,7 +741,7 @@ export class RouteHandler {
 
       const instance = this.tryGetFromContainer(token);
 
-      if (instance !== undefined && instance !== null && this.isZipbulErrorFilter(instance)) {
+      if (instance !== undefined && instance !== null && this.isExceptionFilter(instance)) {
         resolved.push(instance);
 
         continue;
@@ -749,7 +749,7 @@ export class RouteHandler {
 
       const created = this.tryCreateControllerInstance(token);
 
-      if (created === undefined || created === null || !this.isZipbulErrorFilter(created)) {
+      if (created === undefined || created === null || !this.isExceptionFilter(created)) {
         throw new Error(
           `Cannot resolve ErrorFilter token for ${targetClass.name}.${method.name}: ${this.formatTokenLabel(token)}`,
         );

@@ -1,6 +1,6 @@
 import type { ZipbulContainer, ZipbulRecord, ZipbulValue, Context } from '@zipbul/common';
 
-import { ZipbulErrorFilter, ZipbulMiddleware } from '@zipbul/common';
+import { ExceptionFilter, ZipbulMiddleware } from '@zipbul/common';
 import { Logger, type LogMetadataValue } from '@zipbul/logger';
 import { StatusCodes } from 'http-status-codes';
 
@@ -39,7 +39,7 @@ export class RequestHandler {
   private globalBeforeRequest: ZipbulMiddleware[] = [];
   private globalBeforeResponse: ZipbulMiddleware[] = [];
   private globalAfterResponse: ZipbulMiddleware[] = [];
-  private globalErrorFilters: Array<ZipbulErrorFilter<SystemError>> = [];
+  private globalErrorFilters: Array<ExceptionFilter<SystemError>> = [];
   private errorFilterEngineHealthy = true;
   private systemErrorHandler: SystemErrorHandlerLike | undefined;
 
@@ -284,7 +284,7 @@ export class RequestHandler {
       throw new Error('ErrorFilter engine failed');
     }
 
-    const filters: Array<ZipbulErrorFilter<SystemError>> = [...(entry?.errorFilters ?? []), ...this.globalErrorFilters];
+    const filters: Array<ExceptionFilter<SystemError>> = [...(entry?.errorFilters ?? []), ...this.globalErrorFilters];
     const originalError = error;
     let currentError: SystemError = error;
 
@@ -453,7 +453,7 @@ export class RequestHandler {
     return this.resolveTokenValues(token, options, value => this.isMiddleware(value));
   }
 
-  private resolveErrorFilters(token: string, options?: ResolveTokenOptions): Array<ZipbulErrorFilter<SystemError>> {
+  private resolveErrorFilters(token: string, options?: ResolveTokenOptions): Array<ExceptionFilter<SystemError>> {
     return this.resolveTokenValues(token, options, value => this.isErrorFilter(value));
   }
 
@@ -461,10 +461,10 @@ export class RequestHandler {
     return this.resolveTokenValues(token, options, value => this.isSystemErrorHandler(value));
   }
 
-  private resolveTokenValues<T extends ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike>(
+  private resolveTokenValues<T extends ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike>(
     token: string,
     options: ResolveTokenOptions | undefined,
-    predicate: (value: ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike) => value is T,
+    predicate: (value: ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike) => value is T,
   ): T[] {
     const results: T[] = [];
     const strict = options?.strict === true;
@@ -496,10 +496,10 @@ export class RequestHandler {
     return results;
   }
 
-  private collectValues<T extends ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike>(
+  private collectValues<T extends ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike>(
     results: T[],
     value: ReturnType<ZipbulContainer['get']>,
-    predicate: (value: ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike) => value is T,
+    predicate: (value: ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike) => value is T,
     options: ResolveTokenContext,
   ): void {
     if (this.isValueArray(value)) {
@@ -535,8 +535,8 @@ export class RequestHandler {
 
   private isTokenValue(
     value: ReturnType<ZipbulContainer['get']>,
-  ): value is ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike {
-    if (value instanceof ZipbulMiddleware || value instanceof ZipbulErrorFilter || value instanceof SystemErrorHandler) {
+  ): value is ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike {
+    if (value instanceof ZipbulMiddleware || value instanceof ExceptionFilter || value instanceof SystemErrorHandler) {
       return true;
     }
 
@@ -544,19 +544,19 @@ export class RequestHandler {
   }
 
   private isMiddleware(
-    value: ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike,
+    value: ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike,
   ): value is ZipbulMiddleware {
     return value instanceof ZipbulMiddleware;
   }
 
   private isErrorFilter(
-    value: ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike,
-  ): value is ZipbulErrorFilter<SystemError> {
-    return value instanceof ZipbulErrorFilter;
+    value: ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike,
+  ): value is ExceptionFilter<SystemError> {
+    return value instanceof ExceptionFilter;
   }
 
   private isSystemErrorHandler(
-    value: ZipbulMiddleware | ZipbulErrorFilter<SystemError> | SystemErrorHandlerLike,
+    value: ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike,
   ): value is SystemErrorHandlerLike {
     if (value instanceof SystemErrorHandler) {
       return true;
@@ -602,7 +602,7 @@ export class RequestHandler {
     return undefined;
   }
 
-  private async invokeErrorFilter(filter: ZipbulErrorFilter<SystemError>, error: SystemError, ctx: Context): Promise<void> {
+  private async invokeErrorFilter(filter: ExceptionFilter<SystemError>, error: SystemError, ctx: Context): Promise<void> {
     const catchHandler = filter.catch.bind(filter);
 
     await catchHandler(error, ctx);

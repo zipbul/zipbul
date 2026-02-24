@@ -1,12 +1,12 @@
 import type { Server } from 'bun';
 
 import {
-  ZipbulErrorFilter,
+  ExceptionFilter,
   type ZipbulArray,
   type ZipbulContainer,
   type ZipbulRecord,
   type ZipbulValue,
-  type ErrorFilterToken,
+  type ExceptionFilterToken,
   type ProviderToken,
 } from '@zipbul/common';
 import { Logger, type LogMetadataValue } from '@zipbul/logger';
@@ -75,12 +75,12 @@ export class ZipbulHttpServer {
     this.logger.info('🚀 ZipbulHttpServer booting...');
 
     if (Array.isArray(this.options.errorFilters) && this.options.errorFilters.length > 0) {
-      const tokens: readonly ErrorFilterToken[] = this.options.errorFilters;
+      const tokens: readonly ExceptionFilterToken[] = this.options.errorFilters;
 
       this.container.set(HTTP_ERROR_FILTER, (c: ZipbulContainer) => {
         const resolved: ZipbulValue[] = tokens.map(token => c.get(token));
 
-        return resolved.filter((value): value is ZipbulErrorFilter => this.isErrorFilter(value));
+        return resolved.filter((value): value is ExceptionFilter => this.isErrorFilter(value));
       });
     }
 
@@ -355,7 +355,7 @@ export class ZipbulHttpServer {
     return typeof value.handle === 'function';
   }
 
-  private isErrorFilter(value: ZipbulValue | ZipbulErrorFilter | null | undefined): value is ZipbulErrorFilter {
+  private isErrorFilter(value: ZipbulValue | ExceptionFilter | null | undefined): value is ExceptionFilter {
     if (!this.isZipbulRecord(value)) {
       return false;
     }

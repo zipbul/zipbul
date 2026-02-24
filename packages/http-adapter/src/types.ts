@@ -1,5 +1,5 @@
 import type {
-  ZipbulErrorFilter,
+  ExceptionFilter,
   ZipbulMiddleware,
   ZipbulRecord,
   ZipbulValue,
@@ -120,7 +120,7 @@ export type ContainerInstance =
   | ZipbulValue
   | ControllerInstance
   | ZipbulMiddleware
-  | ZipbulErrorFilter
+  | ExceptionFilter
   | RouteHandlerValue
   | RouteHandlerFunction
   | null
@@ -227,7 +227,7 @@ export interface ErrorFilterRunResult {
 
 export interface ShouldCatchParams {
   readonly error: SystemError;
-  readonly filter: ZipbulErrorFilter<SystemError>;
+  readonly filter: ExceptionFilter<SystemError>;
 }
 
 export interface MatchCatchArgumentParams {

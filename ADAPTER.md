@@ -28,7 +28,7 @@ Phase 진입 전 결정 필요. 각 항목은 해당 Phase에서 다시 언급�
 |---|---|---|---|
 | ~~D-1~~ | ~~`defineAdapter()` API 형태~~ | ~~ADAPTER-R-001, R-002~~ | ✅ **결정 완료** — `defineAdapter(objectLiteral)` 채택, 전 Phase 반영 완료 |
 | ~~D-2~~ | ~~`dependsOn` 런타임 의미론~~ | ~~ADAPTER-CONFIG-R-009~~ | ✅ **결정 완료** — INVARIANTS §4(역순 해제) 근거로 런타임 반영 채택. Kahn 알고리즘 topological sort + fail-fast + graceful cleanup 패턴 구현 |
-| D-3 | Exception Filter catch target: `ContractData = unknown` — 구체 타입 미정 | ADAPTER-R-009 | Phase 4 |
+| ~~D-3~~ | ~~Exception Filter catch target~~ | ~~ADAPTER-R-009~~ | ✅ **결정 완료** — ContractData = unknown 유지 (스펙 의도). ZipbulErrorFilter → ExceptionFilter<TError = unknown> 리네이밍 + UseErrorFilters → UseExceptionFilters |
 
 ---
 
@@ -447,4 +447,4 @@ Phase 5  AOT Diagnostics 정비  [@zipbul/cli]
 |---|---|---|
 | ~~D-1: defineAdapter API 형태~~ | ~~Phase 0 시작 전~~ | ✅ **결정 완료** — `defineAdapter(objectLiteral)` 채택 |
 | ~~D-2: dependsOn 런타임 의미론~~ | ~~Phase 2 잔여 시작 전~~ | ✅ **결정 완료** — INVARIANTS §4 근거, fail-fast + graceful cleanup 채택, Phase 2 구현 완료 |
-| D-3: Exception Filter catch target | **Phase 4 시작 전** | Phase 4 전체 (Opus) |
+| ~~D-3: Exception Filter catch target~~ | ~~Phase 4 시작 전~~ | ✅ **결정 완료** — ContractData = unknown, ExceptionFilter 리네이밍 완료 |

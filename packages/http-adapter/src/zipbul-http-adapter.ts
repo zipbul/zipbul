@@ -1,4 +1,4 @@
-import type { ZipbulAdapter, ZipbulRecord, Class, Context, ErrorFilterToken } from '@zipbul/common';
+import type { ZipbulAdapter, ZipbulRecord, Class, Context, ExceptionFilterToken } from '@zipbul/common';
 
 import { ClusterManager, getRuntimeContext, type ClusterBaseWorker } from '@zipbul/core';
 
@@ -35,7 +35,7 @@ export class ZipbulHttpAdapter implements ZipbulAdapter {
 
   private middlewareRegistry: HttpMiddlewareRegistry = {};
 
-  private errorFilterTokens: ErrorFilterToken[] = [];
+  private errorFilterTokens: ExceptionFilterToken[] = [];
 
   constructor(options: ZipbulHttpServerOptions = {}) {
     const normalizedOptions: ZipbulHttpServerOptions = {
@@ -65,7 +65,7 @@ export class ZipbulHttpAdapter implements ZipbulAdapter {
     return this;
   }
 
-  public addErrorFilters(filters: readonly ErrorFilterToken[]): this {
+  public addErrorFilters(filters: readonly ExceptionFilterToken[]): this {
     this.errorFilterTokens.push(...filters);
 
     return this;

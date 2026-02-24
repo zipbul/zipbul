@@ -1,4 +1,4 @@
-import { UseMiddlewares, UseErrorFilters } from '@zipbul/common';
+import { UseMiddlewares, UseExceptionFilters } from '@zipbul/common';
 import { Controller, Post, Get, Body } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 
@@ -13,7 +13,7 @@ export class BillingController {
   private logger = new Logger('BillingController');
 
   @Post('charge')
-  @UseErrorFilters(PaymentErrorFilter)
+  @UseExceptionFilters(PaymentErrorFilter)
   charge(@Body() body: ChargeDto) {
     const amount = body.amount || 0;
 
