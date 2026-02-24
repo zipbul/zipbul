@@ -36,3 +36,8 @@ export enum HttpMethod {
   Head = 'HEAD',
   Options = 'OPTIONS',
 }
+
+export enum HttpMiddlewarePhase {
+  BeforeRequest = 'BeforeRequest',
+  AfterRequest = 'AfterRequest',
+}

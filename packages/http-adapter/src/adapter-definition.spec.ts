@@ -1,4 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
+import { ReservedPipeline } from '@zipbul/common';
 
 // Mock @zipbul/core before any transitive import pulls it in.
 // The http-adapter import chain (ZipbulHttpAdapter → ZipbulHttpServer → RouteHandler
@@ -15,6 +16,7 @@ const { adapterSpec } = await import('./adapter-definition');
 const { ZipbulHttpAdapter } = await import('./zipbul-http-adapter');
 const { RestController } = await import('./decorators/class.decorator');
 const { Get, Post, Put, Delete, Patch, Options, Head } = await import('./decorators/method.decorator');
+const { HttpMiddlewarePhase } = await import('./enums');
 
 describe('adapterSpec', () => {
   it('should export adapterSpec with name http and classRef ZipbulHttpAdapter', () => {
@@ -28,59 +30,53 @@ describe('adapterSpec', () => {
     expect(classRef).toBe(ZipbulHttpAdapter);
   });
 
-  it('should define pipeline with Handler exactly once and Guards/Pipes at most once (R-004)', () => {
+  it('should have pipeline equal to [BeforeRequest, Guards, Pipes, Handler, AfterRequest] in order', () => {
+    // Arrange
+    const { pipeline } = adapterSpec;
+
+    // Act & Assert
+    expect(pipeline).toHaveLength(5);
+    expect(pipeline).toEqual([
+      HttpMiddlewarePhase.BeforeRequest,
+      ReservedPipeline.Guards,
+      ReservedPipeline.Pipes,
+      ReservedPipeline.Handler,
+      HttpMiddlewarePhase.AfterRequest,
+    ]);
+  });
+
+  it('should contain Guards, Pipes, Handler each exactly once in pipeline (R-004)', () => {
     // Arrange
     const { pipeline } = adapterSpec;
 
     // Act
-    const handlerCount = pipeline.filter((t) => t === 'Handler').length;
-    const guardsCount = pipeline.filter((t) => t === 'Guards').length;
-    const pipesCount = pipeline.filter((t) => t === 'Pipes').length;
+    const guardsCount = pipeline.filter((t) => t === ReservedPipeline.Guards).length;
+    const pipesCount = pipeline.filter((t) => t === ReservedPipeline.Pipes).length;
+    const handlerCount = pipeline.filter((t) => t === ReservedPipeline.Handler).length;
 
     // Assert
+    expect(guardsCount).toBe(1);
+    expect(pipesCount).toBe(1);
     expect(handlerCount).toBe(1);
-    expect(guardsCount).toBeLessThanOrEqual(1);
-    expect(pipesCount).toBeLessThanOrEqual(1);
   });
 
-  it('should preserve middlewarePhaseOrder relative order in pipeline and include all phases (R-006, R-007)', () => {
+  it('should set controller to RestController', () => {
     // Arrange
-    const { pipeline, middlewarePhaseOrder } = adapterSpec;
-    const reservedTokens = new Set(['Guards', 'Pipes', 'Handler']);
+    const { decorators } = adapterSpec;
 
-    // Act — extract phase ids from pipeline in order
-    const pipelinePhases = pipeline.filter((t) => !reservedTokens.has(t));
-
-    // Assert — every phase in middlewarePhaseOrder appears exactly once in pipeline phases
-    expect(pipelinePhases).toEqual(middlewarePhaseOrder);
+    // Act & Assert
+    expect(decorators.controller).toBe(RestController);
   });
 
-  it('should set controller to RestController and handler to all 7 HTTP method decorators', () => {
+  it('should set decorators.handler to exactly 7 HTTP method decorators', () => {
     // Arrange
     const { decorators } = adapterSpec;
     const expectedHandlers = [Get, Post, Put, Delete, Patch, Options, Head];
 
     // Act & Assert
-    expect(decorators.controller).toBe(RestController);
     expect(decorators.handler).toHaveLength(7);
     for (const expected of expectedHandlers) {
       expect(decorators.handler).toContain(expected);
-    }
-  });
-
-  it('should have supportedMiddlewarePhases keys equal to middlewarePhaseOrder set (R-006)', () => {
-    // Arrange
-    const { middlewarePhaseOrder, supportedMiddlewarePhases } = adapterSpec;
-
-    // Act
-    const supportedKeys = Object.keys(supportedMiddlewarePhases).sort();
-    const phaseOrderSorted = [...middlewarePhaseOrder].sort();
-
-    // Assert
-    expect(supportedKeys).toEqual(phaseOrderSorted);
-    // All values must be true
-    for (const key of supportedKeys) {
-      expect(supportedMiddlewarePhases[key]).toBe(true);
     }
   });
 });

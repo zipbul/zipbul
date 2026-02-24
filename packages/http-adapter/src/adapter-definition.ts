@@ -1,7 +1,8 @@
-import { defineAdapter } from '@zipbul/common';
+import { defineAdapter, ReservedPipeline } from '@zipbul/common';
 import { ZipbulHttpAdapter } from './zipbul-http-adapter';
 import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
+import { HttpMiddlewarePhase } from './enums';
 
 /**
  * HTTP adapter specification.
@@ -13,12 +14,13 @@ import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/metho
 export const adapterSpec = defineAdapter({
   name: 'http',
   classRef: ZipbulHttpAdapter,
-  pipeline: ['BeforeRequest', 'Guards', 'Pipes', 'Handler', 'AfterRequest'],
-  middlewarePhaseOrder: ['BeforeRequest', 'AfterRequest'],
-  supportedMiddlewarePhases: {
-    BeforeRequest: true,
-    AfterRequest: true,
-  },
+  pipeline: [
+    HttpMiddlewarePhase.BeforeRequest,
+    ReservedPipeline.Guards,
+    ReservedPipeline.Pipes,
+    ReservedPipeline.Handler,
+    HttpMiddlewarePhase.AfterRequest,
+  ],
   decorators: {
     controller: RestController,
     handler: [Get, Post, Put, Delete, Patch, Options, Head],
