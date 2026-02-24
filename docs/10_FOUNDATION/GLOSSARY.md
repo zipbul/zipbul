@@ -59,14 +59,15 @@ Zipbul 프로젝트에서 사용되는 주요 기술 용어와 도메인 개념�
 
 - **Pipeline**: 어댑터가 정적으로 선언하는 실행 단계열(순서 포함)이다. 프레임워크/컴파일러는 Pipeline 선언을 인지하여 정적 wiring을 생성한다.
 - **PipelineStep**: Pipeline을 구성하는 단일 실행 단위이다.
+- **ReservedPipeline**: Pipeline 내 예약된 실행 단계를 나타내는 enum이다. 값은 `Guards`, `Pipes`, `Handler`이며 사용자가 재정의할 수 없다.
+- **AdapterPipelines**: 어댑터가 `defineAdapter`에 선언하는 pipeline 배열의 타입이다. `(MiddlewarePhase | ReservedPipeline)[]` 형태이다.
+- **MiddlewarePhase**: 어댑터가 정의하는 미들웨어 실행 단계 식별자. 문자열 타입(`string`)이며 `:` 문자를 포함하지 않아야 한다.
 - **Exception Filter**: throw로 발생한 예외를 입력으로 받아, 표준 Result로 변환하거나(처리) 다음 단계로 전달(통과)하는 실행 단계이다.
 - **Exception Filter Chain**: 순서가 있는 Exception Filter의 리스트이다. 예외는 체인의 앞에서 뒤로 전달되며, 처리되지 않은 예외는 체인의 후단으로 전달된다.
 - **Error**: 도메인 실패로서 Result 경로(값 흐름)로 처리되는 에러.
 - **Panic**: throw로 표현되는 시스템 오류.
 - **Middleware**: 입력/컨텍스트를 전처리하거나 공통 cross-cut을 적용하는 실행 단계이다.
-- **Middleware Phase**: 어댑터가 정의하는 미들웨어 실행 단계 식별자.
-- **Middleware Phase Id**: Middleware Phase를 식별하기 위한 문자열이다.
-- **Middleware Phase Order**: Middleware Phase Id의 순서가 있는 리스트이며, 미들웨어 실행 순서를 결정한다.
+- **Middleware Phase**: 어댑터가 정의하는 미들웨어 실행 단계 식별자. GLOSSARY 항목: `MiddlewarePhase`를 참조.
 - **DecoratorRef**: 엔트리 판정(decorator) 입력으로 사용되는 정적 함수 참조이다.
 - **Adapter Owner Decorator**: 특정 어댑터의 엔트리 선언을 소유하는 class-level 데코레이터.
 - **Adapter Member Decorator**: 특정 어댑터에 종속되는 member/parameter 데코레이터.

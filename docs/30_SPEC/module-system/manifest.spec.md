@@ -135,8 +135,6 @@ export type Pipeline = PipelineStep[];
 
 export type AdapterStaticSpec = {
   pipeline: Pipeline;
-  middlewarePhaseOrder: string[];
-  supportedMiddlewarePhases: Record<string, true>;
   entryDecorators: AdapterEntryDecoratorsSpec;
   runtime: AdapterRuntimeSpec;
 };

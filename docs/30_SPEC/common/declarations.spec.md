@@ -100,7 +100,7 @@ export type MiddlewaresDecoratorName = '@Middlewares';
 
 export type CommonDecoratorTarget = 'controller' | 'handler';
 
-export type MiddlewarePhaseId = string;
+export type MiddlewarePhase = string;
 
 export type CommonDecoratorRefList = FactoryRef[];
 
@@ -113,7 +113,7 @@ export type RefListDecoratorDeclaration = {
 export type MiddlewaresDecoratorDeclaration = {
   name: MiddlewaresDecoratorName;
   target: CommonDecoratorTarget;
-  phaseId: MiddlewarePhaseId;
+  phaseId: MiddlewarePhase;
   refs: CommonDecoratorRefList;
 };
 
