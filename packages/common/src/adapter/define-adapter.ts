@@ -11,9 +11,13 @@ import type { AdapterRegistrationInput } from './types';
  * export const adapterSpec = defineAdapter({
  *   name: 'http',
  *   classRef: ZipbulHttpAdapter,
- *   pipeline: ['BeforeRequest', 'Guards', 'Pipes', 'Handler', 'AfterRequest'],
- *   middlewarePhaseOrder: ['BeforeRequest', 'AfterRequest'],
- *   supportedMiddlewarePhases: { BeforeRequest: true, AfterRequest: true },
+ *   pipeline: [
+ *     HttpMiddlewarePhase.BeforeRequest,
+ *     ReservedPipeline.Guards,
+ *     ReservedPipeline.Pipes,
+ *     ReservedPipeline.Handler,
+ *     HttpMiddlewarePhase.AfterRequest,
+ *   ],
  *   decorators: { controller: RestController, handler: [Get, Post, Put, Delete, Patch, Options, Head] },
  * });
  * ```

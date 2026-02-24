@@ -1,13 +1,11 @@
 export { defineAdapter } from './define-adapter';
+export { ReservedPipeline } from './types';
 export type {
   AdapterContractData,
   AdapterSpecExportName,
-  MiddlewarePhaseId,
+  MiddlewarePhase,
   ClassRef,
-  PipelineToken,
-  Pipeline,
-  MiddlewarePhaseOrder,
-  SupportedMiddlewarePhaseSet,
+  AdapterPipelines,
   AdapterDependsOn,
   DecoratorRef,
   AdapterEntryDecorators,

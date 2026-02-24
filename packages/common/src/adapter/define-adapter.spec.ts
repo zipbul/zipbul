@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { defineAdapter } from './define-adapter';
+import { ReservedPipeline } from './types';
 import type { AdapterRegistrationInput } from './types';
 
 // -- Test fixtures --
@@ -17,9 +18,13 @@ function createValidInput(overrides?: Partial<AdapterRegistrationInput>): Adapte
   return {
     name: 'http',
     classRef: FakeAdapter as any,
-    pipeline: ['BeforeRequest', 'Guards', 'Pipes', 'Handler', 'AfterRequest'],
-    middlewarePhaseOrder: ['BeforeRequest', 'AfterRequest'],
-    supportedMiddlewarePhases: { BeforeRequest: true, AfterRequest: true },
+    pipeline: [
+      'BeforeRequest',
+      ReservedPipeline.Guards,
+      ReservedPipeline.Pipes,
+      ReservedPipeline.Handler,
+      'AfterRequest',
+    ],
     decorators: {
       controller: controllerDeco,
       handler: [getDeco, postDeco],
@@ -39,9 +44,13 @@ describe('defineAdapter', () => {
     // Assert
     expect(result.name).toBe('http');
     expect(result.classRef).toBe(FakeAdapter);
-    expect(result.pipeline).toEqual(['BeforeRequest', 'Guards', 'Pipes', 'Handler', 'AfterRequest']);
-    expect(result.middlewarePhaseOrder).toEqual(['BeforeRequest', 'AfterRequest']);
-    expect(result.supportedMiddlewarePhases).toEqual({ BeforeRequest: true, AfterRequest: true });
+    expect(result.pipeline).toEqual([
+      'BeforeRequest',
+      ReservedPipeline.Guards,
+      ReservedPipeline.Pipes,
+      ReservedPipeline.Handler,
+      'AfterRequest',
+    ]);
     expect(result.decorators.controller).toBe(controllerDeco);
     expect(result.decorators.handler).toEqual([getDeco, postDeco]);
   });
@@ -70,12 +79,10 @@ describe('defineAdapter', () => {
     expect(result1).toBe(input);
   });
 
-  it('should return the input unchanged when middlewarePhaseOrder and handler array are empty', () => {
+  it('should return the input unchanged when pipeline has only Handler and handler array is empty', () => {
     // Arrange
     const input = createValidInput({
-      pipeline: ['Handler'],
-      middlewarePhaseOrder: [],
-      supportedMiddlewarePhases: {},
+      pipeline: [ReservedPipeline.Handler],
       decorators: { controller: controllerDeco, handler: [] },
     });
 
@@ -84,7 +91,7 @@ describe('defineAdapter', () => {
 
     // Assert
     expect(result).toBe(input);
-    expect(result.middlewarePhaseOrder).toEqual([]);
+    expect(result.pipeline).toEqual([ReservedPipeline.Handler]);
     expect(result.decorators.handler).toEqual([]);
   });
 
