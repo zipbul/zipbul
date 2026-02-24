@@ -43,7 +43,7 @@ export class AdapterSpecResolver {
       const defineCall = this.asRecord(resolvedExport.value);
 
       if (defineCall?.__zipbul_call !== 'defineAdapter') {
-        throw new Error(`[Zipbul AOT] adapterSpec must be defineAdapter(<AdapterClassRef>) in ${resolvedExport.sourceFile}.`);
+        throw new Error(`[Zipbul AOT] adapterSpec must be defineAdapter({ name, classRef, pipeline, ... }) in ${resolvedExport.sourceFile}.`);
       }
 
       const args = isAnalyzerValueArray(defineCall.args) ? defineCall.args : [];

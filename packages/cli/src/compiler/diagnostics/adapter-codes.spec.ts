@@ -1,0 +1,61 @@
+import { describe, it, expect } from 'bun:test';
+import {
+  ADAPTER_SPEC_NOT_COLLECTED,
+  ADAPTER_INPUT_UNCOLLECTABLE,
+  ADAPTER_CLASSREF_INVALID,
+  ADAPTER_PIPELINE_TOKEN_INVALID,
+  ADAPTER_PHASE_ID_INVALID,
+  ADAPTER_PHASE_SET_MISMATCH,
+  ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,
+  ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,
+  ADAPTER_EXCEPTION_FILTER_INVALID,
+  ADAPTER_ENTRY_DECORATOR_INVALID,
+  ADAPTER_HANDLER_ID_UNRESOLVABLE,
+  ADAPTER_MIDDLEWARE_ERROR_BYPASS,
+} from './adapter-codes';
+
+describe('adapter diagnostic codes', () => {
+  it('should map each named constant to its ZIPBUL_ADAPTER_NNN string value', () => {
+    // Arrange
+    const expected = [
+      [ADAPTER_SPEC_NOT_COLLECTED,              'ZIPBUL_ADAPTER_001'],
+      [ADAPTER_INPUT_UNCOLLECTABLE,             'ZIPBUL_ADAPTER_002'],
+      [ADAPTER_CLASSREF_INVALID,                'ZIPBUL_ADAPTER_003'],
+      [ADAPTER_PIPELINE_TOKEN_INVALID,          'ZIPBUL_ADAPTER_004'],
+      [ADAPTER_PHASE_ID_INVALID,                'ZIPBUL_ADAPTER_005'],
+      [ADAPTER_PHASE_SET_MISMATCH,              'ZIPBUL_ADAPTER_006'],
+      [ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,   'ZIPBUL_ADAPTER_007'],
+      [ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,    'ZIPBUL_ADAPTER_008'],
+      [ADAPTER_EXCEPTION_FILTER_INVALID,        'ZIPBUL_ADAPTER_009'],
+      [ADAPTER_ENTRY_DECORATOR_INVALID,         'ZIPBUL_ADAPTER_010'],
+      [ADAPTER_HANDLER_ID_UNRESOLVABLE,         'ZIPBUL_ADAPTER_011'],
+      [ADAPTER_MIDDLEWARE_ERROR_BYPASS,         'ZIPBUL_ADAPTER_012'],
+    ] as const;
+
+    // Act & Assert
+    for (const [actual, expected_value] of expected) {
+      expect(actual).toBe(expected_value);
+    }
+  });
+
+  it('should have 12 unique code values across all constants', () => {
+    // Arrange
+    const allValues = [
+      ADAPTER_SPEC_NOT_COLLECTED,
+      ADAPTER_INPUT_UNCOLLECTABLE,
+      ADAPTER_CLASSREF_INVALID,
+      ADAPTER_PIPELINE_TOKEN_INVALID,
+      ADAPTER_PHASE_ID_INVALID,
+      ADAPTER_PHASE_SET_MISMATCH,
+      ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,
+      ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,
+      ADAPTER_EXCEPTION_FILTER_INVALID,
+      ADAPTER_ENTRY_DECORATOR_INVALID,
+      ADAPTER_HANDLER_ID_UNRESOLVABLE,
+      ADAPTER_MIDDLEWARE_ERROR_BYPASS,
+    ];
+
+    // Assert — all unique
+    expect(new Set(allValues).size).toBe(12);
+  });
+});
