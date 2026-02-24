@@ -13,8 +13,8 @@
 | `adapterSpec` export | ✅ **구현 완료** — `http-adapter/src/adapter-definition.ts` |
 | `BootstrapAdapter` 타입 | ✅ **정의됨** — `core/src/application/interfaces.ts` |
 | `ZipbulApplication.addAdapter()` | ✅ **구현됨** — 기본 등록/생명주기 완료 (dependsOn DAG 제외) |
-| 데코레이터 (`RestController`) | 🟡 **AOT 오버로드 추가** — 1 object literal arg 형태 지원 완료 (S-1) |
-| CLI `adapter-spec-resolver.ts` | 🟡 **object literal 파싱 동작 중** — 에러 메시지 정리 완료 (S-3) |
+| 데코레이터 (`RestController`) | ✅ **AOT 검증 완료** — controller/handler 시그니처 정비 (S-1) + CLI AOT 핸들러 제약 및 adapterIds 검증 (P3) |
+| CLI `adapter-spec-resolver.ts` | ✅ **P3 완료** — ADAPTER-R-010 전체 검증 구현 (adapterIds, 핸들러 메서드 제약, 데코레이터 스코프) |
 | 진단 코드 상수 (`compiler/diagnostics/`) | ✅ **생성 완료** — `ZIPBUL_ADAPTER_001~012` (S-2) |
 | `AdapterConfig` (common) | **존재** — 스펙 형상 정렬 필요 |
 
@@ -243,9 +243,9 @@ feat(core): implement adapter registration and lifecycle management
 
 ---
 
-## Phase 3 — Entry Decorators AOT 수집 🟡 부분 완료
+## Phase 3 — Entry Decorators AOT 수집 ✅ 완료
 
-> **담당: Sonnet** | **상태: RestController 오버로드 추가 완료 (S-1), CLI 검증 규칙 미구현**
+> **담당: Sonnet + Opus** | **상태: 완료** — RestController 오버로드 추가 (S-1) + CLI AOT 검증 구현 (P3)
 >
 > 데코레이터가 AOT에서 기계적으로 수집 가능하도록 규칙을 충족시킨다.
 > 데코레이터 자체는 no-op 스텁을 유지한다(AOT-first 원칙).
@@ -265,11 +265,11 @@ feat(core): implement adapter registration and lifecycle management
 ### ADAPTER-R-010 세부 규칙 체크리스트
 
 - [x] controller decorator: call expression, 0 args 또는 1 object literal arg — ✅ 오버로드 추가 완료 (S-1)
-- [ ] `adapterIds` 존재 시: 비어있지 않은 AdapterId 문자열 리터럴 배열 — CLI AOT 검증 필요
-- [ ] handler decorator: controller 클래스 메서드에만 적용 — CLI AOT 검증 필요
-- [ ] handler 메서드 제약: 인스턴스 메서드, identifier name, `#private` 불가 — CLI AOT 검증 필요
-- [ ] adapter member decorator는 owner-decorated 클래스 내부에서만 유효 — CLI AOT 검증 필요
-- [ ] 위반 시 빌드 실패
+- [x] `adapterIds` 존재 시: 비어있지 않은 AdapterId 문자열 리터럴 배열, 각 id가 known adapter set에 존재 — ✅ `extractAdapterIds()` 구현
+- [x] handler decorator: controller 클래스 메서드에만 적용 — ✅ `buildHandlerIndex()` + cross-adapter skip 로직
+- [x] handler 메서드 제약: 인스턴스 메서드, identifier name, `#private` 불가 — ✅ `isStatic`/`isComputed`/`isPrivateName` 검증
+- [x] adapter member decorator는 owner-decorated 클래스 내부에서만 유효 — ✅ `collectDecoratorPhaseIds()` 강화
+- [x] 위반 시 빌드 실패
 
 ### 스펙 규칙 매핑
 
@@ -284,10 +284,10 @@ feat(core): implement adapter registration and lifecycle management
 bun test --filter "decorator"
 ```
 
-### 커밋 단위
+### 실제 커밋
 
 ```
-feat(http-adapter): align entry decorators with AOT collection contract
+feat(cli/analyzer): add entry decorator AOT validation (ADAPTER-R-010)  # 0b77ac4
 ```
 
 ---
