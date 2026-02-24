@@ -1,4 +1,4 @@
-import type { ZipbulAdapter, Context } from '@zipbul/common';
+import type { ZipbulAdapter, Context, AdapterDependsOn } from '@zipbul/common';
 
 import type { ZipbulApplication } from './zipbul-application';
 
@@ -15,12 +15,22 @@ export type BootstrapAdapter = {
 };
 
 /**
+ * Configuration for addAdapter().
+ */
+export type AddAdapterConfig = {
+  name: string;
+  protocol: string;
+  dependsOn?: AdapterDependsOn;
+};
+
+/**
  * Internal adapter registry entry.
  */
 export type AdapterEntry = {
   adapter: ZipbulAdapter;
   name: string;
   protocol: string;
+  dependsOn: AdapterDependsOn;
 };
 
 export type { CreateApplicationOptions };

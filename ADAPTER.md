@@ -9,13 +9,14 @@
 
 | 항목 | 상태 |
 |---|---|
-| `defineAdapter()` 함수 | **미구현** — common/core 어디에도 없음 |
-| `adapterSpec` export | **미구현** — http-adapter index.ts에 없음 |
-| `BootstrapAdapter` 타입 | **미정의** — core에 정의 없이 http-adapter에서 phantom import |
-| `ZipbulApplication.addAdapter()` | **미구현** — 26줄 스텁 |
-| 데코레이터 | **no-op 스텁** — `return () => {}` |
-| CLI `adapter-spec-resolver.ts` | **970줄, 동작** — 단, 현재 static class fields 기반 API를 기대 |
-| `AdapterConfig` (common) | **존재** — 단, 스펙 형상과 차이 있을 수 있음 |
+| `defineAdapter()` 함수 | ✅ **구현 완료** — `packages/common/src/adapter/` |
+| `adapterSpec` export | ✅ **구현 완료** — `http-adapter/src/adapter-definition.ts` |
+| `BootstrapAdapter` 타입 | ✅ **정의됨** — `core/src/application/interfaces.ts` |
+| `ZipbulApplication.addAdapter()` | ✅ **구현됨** — 기본 등록/생명주기 완료 (dependsOn DAG 제외) |
+| 데코레이터 (`RestController`) | 🟡 **AOT 오버로드 추가** — 1 object literal arg 형태 지원 완료 (S-1) |
+| CLI `adapter-spec-resolver.ts` | 🟡 **object literal 파싱 동작 중** — 에러 메시지 정리 완료 (S-3) |
+| 진단 코드 상수 (`compiler/diagnostics/`) | ✅ **생성 완료** — `ZIPBUL_ADAPTER_001~012` (S-2) |
+| `AdapterConfig` (common) | **존재** — 스펙 형상 정렬 필요 |
 
 ---
 
@@ -25,14 +26,16 @@ Phase 진입 전 결정 필요. 각 항목은 해당 Phase에서 다시 언급�
 
 | # | 사항 | 관련 규칙 | 영향 Phase |
 |---|---|---|---|
-| D-1 | `defineAdapter()` API 형태: 스펙은 `defineAdapter(objectLiteral)` 요구, 현재 CLI는 `defineAdapter(ClassRef)` + static fields 기대. 어느 쪽을 정본으로 할지 결정 필요 | ADAPTER-R-001, R-002 | Phase 0, 1, 5 |
-| D-2 | `dependsOn` 런타임 의미론: 스펙은 빌드 타임 DAG 검증만 정의, 런타임 시작 순서/에러 전파 의미론 미정의 | ADAPTER-CONFIG-R-009 | Phase 2 |
+| ~~D-1~~ | ~~`defineAdapter()` API 형태~~ | ~~ADAPTER-R-001, R-002~~ | ✅ **결정 완료** — `defineAdapter(objectLiteral)` 채택, 전 Phase 반영 완료 |
+| ~~D-2~~ | ~~`dependsOn` 런타임 의미론~~ | ~~ADAPTER-CONFIG-R-009~~ | ✅ **결정 완료** — INVARIANTS §4(역순 해제) 근거로 런타임 반영 채택. Kahn 알고리즘 topological sort + fail-fast + graceful cleanup 패턴 구현 |
 | D-3 | Exception Filter catch target: `ContractData = unknown` — 구체 타입 미정 | ADAPTER-R-009 | Phase 4 |
 
 ---
 
-## Phase 0 — Foundation: 타입 + `defineAdapter()` API
+## Phase 0 — Foundation: 타입 + `defineAdapter()` API ✅ 완료
 
+> **담당: Sonnet** | **상태: 완료**
+>
 > `@zipbul/common`에 어댑터 정적 계약 타입과 `defineAdapter()` 함수를 정의한다.
 
 ### 선결 조건
@@ -109,9 +112,12 @@ feat(common): add defineAdapter() and adapter static contract types
 
 ---
 
-## Phase 1 — HTTP Adapter Spec Export
+## Phase 1 — HTTP Adapter Spec Export ✅ 완료
 
+> **담당: Sonnet** | **상태: 완료**
+>
 > `@zipbul/http-adapter`에서 `adapterSpec` named export를 `defineAdapter()` 호출로 선언한다.
+> (구현 파일: `packages/http-adapter/src/adapter-definition.ts`)
 
 ### 선결 조건
 
@@ -174,9 +180,13 @@ feat(http-adapter): add adapterSpec export via defineAdapter()
 
 ---
 
-## Phase 2 — Core Registration & Lifecycle
+## Phase 2 — Core Registration & Lifecycle ✅ 완료
 
+> **담당: Opus** (dependsOn DAG 설계) | **상태: 완료**
+>
 > `@zipbul/core`에서 `ZipbulApplication.addAdapter()`, `BootstrapAdapter` 타입, 어댑터 등록 및 생명주기를 구현한다.
+> D-2 결정 완료 (INVARIANTS §4 근거). dependsOn DAG topological sort (Kahn 알고리즘), fail-fast + graceful cleanup, 역순 stop 구현.
+> 테스트: 47 pass / 0 fail (기존 24 + 신규 23), zipbul-application.ts 커버리지 97.35% lines.
 
 ### 선결 조건
 
@@ -233,8 +243,10 @@ feat(core): implement adapter registration and lifecycle management
 
 ---
 
-## Phase 3 — Entry Decorators AOT 수집
+## Phase 3 — Entry Decorators AOT 수집 🟡 부분 완료
 
+> **담당: Sonnet** | **상태: RestController 오버로드 추가 완료 (S-1), CLI 검증 규칙 미구현**
+>
 > 데코레이터가 AOT에서 기계적으로 수집 가능하도록 규칙을 충족시킨다.
 > 데코레이터 자체는 no-op 스텁을 유지한다(AOT-first 원칙).
 
@@ -252,11 +264,11 @@ feat(core): implement adapter registration and lifecycle management
 
 ### ADAPTER-R-010 세부 규칙 체크리스트
 
-- [ ] controller decorator: call expression, 0 args 또는 1 object literal arg
-- [ ] `adapterIds` 존재 시: 비어있지 않은 AdapterId 문자열 리터럴 배열
-- [ ] handler decorator: controller 클래스 메서드에만 적용
-- [ ] handler 메서드 제약: 인스턴스 메서드, identifier name, `#private` 불가
-- [ ] adapter member decorator는 owner-decorated 클래스 내부에서만 유효
+- [x] controller decorator: call expression, 0 args 또는 1 object literal arg — ✅ 오버로드 추가 완료 (S-1)
+- [ ] `adapterIds` 존재 시: 비어있지 않은 AdapterId 문자열 리터럴 배열 — CLI AOT 검증 필요
+- [ ] handler decorator: controller 클래스 메서드에만 적용 — CLI AOT 검증 필요
+- [ ] handler 메서드 제약: 인스턴스 메서드, identifier name, `#private` 불가 — CLI AOT 검증 필요
+- [ ] adapter member decorator는 owner-decorated 클래스 내부에서만 유효 — CLI AOT 검증 필요
 - [ ] 위반 시 빌드 실패
 
 ### 스펙 규칙 매핑
@@ -280,8 +292,10 @@ feat(http-adapter): align entry decorators with AOT collection contract
 
 ---
 
-## Phase 4 — Pipeline Runtime
+## Phase 4 — Pipeline Runtime ❌ 미구현
 
+> **담당: Opus** | **상태: 미구현 (D-3 결정 + Phase 2/3 완료 선결)**
+>
 > 파이프라인 실행 순서, 미들웨어 배치, 에러 시 조기 종료를 구현한다.
 
 ### 선결 조건
@@ -331,8 +345,10 @@ feat(http-adapter): add middleware Error early-exit (ADAPTER-R-012)
 
 ---
 
-## Phase 5 — AOT Diagnostics 정비
+## Phase 5 — AOT Diagnostics 정비 🟡 부분 완료
 
+> **담당: Sonnet** (S-2: 진단 코드 상수) / **Opus** (resolver 리팩터링) | **상태: S-2, S-3 완료 / resolver 잔여**
+>
 > CLI `adapter-spec-resolver.ts`를 새 `defineAdapter(objectLiteral)` API에 맞추고, 스펙 진단 코드를 구조화한다.
 
 ### 선결 조건
@@ -344,9 +360,9 @@ feat(http-adapter): add middleware Error early-exit (ADAPTER-R-012)
 
 | 파일 | 줄 수 (현재) | 변경 |
 |---|---|---|
-| `packages/cli/src/compiler/analyzer/adapter-spec-resolver.ts` | 970줄 | `defineAdapter(objectLiteral)` 파싱으로 전환, 진단 코드 구조화 |
-| `packages/cli/src/compiler/analyzer/interfaces.ts` | 138줄 | `AdapterStaticSpec` 형상을 `AdapterRegistrationInput` 기반으로 정렬 |
-| `packages/cli/src/compiler/diagnostics/` | 새 파일(들) | 구조화된 진단 코드 상수 |
+| `packages/cli/src/compiler/analyzer/adapter-spec-resolver.ts` | 686줄 | `defineAdapter(objectLiteral)` 파싱으로 전환, 진단 코드 구조화 (Opus 잔여) |
+| `packages/cli/src/compiler/analyzer/interfaces.ts` | 138줄 | `AdapterStaticSpec` 형상을 `AdapterRegistrationInput` 기반으로 정렬 (Opus 잔여) |
+| ~~`packages/cli/src/compiler/diagnostics/`~~ | ~~새 파일(들)~~ | ✅ **완료** (S-2) — `adapter-codes.ts` + `index.ts` 생성 |
 
 ### 진단 코드 매핑 (스펙 섹션 7 기준)
 
@@ -366,24 +382,13 @@ feat(http-adapter): add middleware Error early-exit (ADAPTER-R-012)
 | `ZIPBUL_ADAPTER_012` | R-012 | middleware Error 이후 실행 관측됨 |
 | `ZIPBUL_MODULE_SYSTEM_ADAPTER_CONFIG_001~010` | CONFIG-R-001~010 | adapter-config.spec.md 섹션 7 참조 |
 
-### 현재 CLI 상태와의 차이
+### 현재 CLI 상태
 
-현재 `adapter-spec-resolver.ts`는 `defineAdapter(ClassRef)` + static class fields 패턴을 기대한다:
+`adapter-spec-resolver.ts`는 이미 `defineAdapter(objectLiteral)` 파싱(`extractFromObjectLiteral`)을 사용한다.
 
-```typescript
-// 현재 CLI가 기대하는 형태
-export const adapterSpec = defineAdapter(ZipbulHttpAdapter);
-// → ZipbulHttpAdapter.adapterId, .middlewarePhaseOrder 등 static fields 파싱
-```
-
-스펙은 object literal 형태를 요구한다:
-
-```typescript
-// 스펙이 요구하는 형태
-export const adapterSpec = defineAdapter({ name, classRef, pipeline, ... });
-```
-
-→ **D-1 결정에 따라** resolver 파싱 로직을 수정하거나 스펙을 조정.
+- ✅ **S-3 완료**: 에러 메시지 내 `<AdapterClassRef>` 잔재 → `{ name, classRef, pipeline, ... }` 형태로 정리
+- ✅ **S-2 완료**: 진단 코드 상수 파일 생성 (`packages/cli/src/compiler/diagnostics/adapter-codes.ts`) — `ZIPBUL_ADAPTER_001~012`, 커버리지 100%, 테스트 2개 통과
+- ❌ **잔여 (Opus)**: resolver 구조적 리팩터링 — Phase 0~4 완료 후 착수
 
 ### 검증
 
@@ -440,6 +445,6 @@ Phase 5  AOT Diagnostics 정비  [@zipbul/cli]
 
 | 미결 | 결정 시점 | 차단 대상 |
 |---|---|---|
-| D-1: defineAdapter API 형태 | **Phase 0 시작 전** | Phase 0, 1, 5 전체 |
-| D-2: dependsOn 런타임 의미론 | Phase 2 시작 전 | Phase 2 lifecycle 부분 |
-| D-3: Exception Filter catch target | Phase 4 시작 전 | Phase 4 exception filter 부분 |
+| ~~D-1: defineAdapter API 형태~~ | ~~Phase 0 시작 전~~ | ✅ **결정 완료** — `defineAdapter(objectLiteral)` 채택 |
+| ~~D-2: dependsOn 런타임 의미론~~ | ~~Phase 2 잔여 시작 전~~ | ✅ **결정 완료** — INVARIANTS §4 근거, fail-fast + graceful cleanup 채택, Phase 2 구현 완료 |
+| D-3: Exception Filter catch target | **Phase 4 시작 전** | Phase 4 전체 (Opus) |

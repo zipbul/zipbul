@@ -8,7 +8,7 @@ import type {
 } from '@zipbul/common';
 
 import { Container } from '../injector/container';
-import type { AdapterEntry } from './interfaces';
+import type { AdapterEntry, AddAdapterConfig } from './interfaces';
 
 class AppContext implements Context {
   getType(): string {
@@ -27,6 +27,7 @@ class AppContext implements Context {
 export class ZipbulApplication {
   private readonly container: Container = new Container();
   private readonly adapters: Map<string, AdapterEntry> = new Map();
+  private startOrder: AdapterEntry[] = [];
   private started = false;
   private stopped = false;
 
@@ -38,7 +39,7 @@ export class ZipbulApplication {
     return this.container;
   }
 
-  public addAdapter(adapter: ZipbulAdapter, config: { name: string; protocol: string }): void {
+  public addAdapter(adapter: ZipbulAdapter, config: AddAdapterConfig): void {
     if (!config.name) {
       throw new Error('Adapter name must not be empty');
     }
@@ -55,6 +56,7 @@ export class ZipbulApplication {
       adapter,
       name: config.name,
       protocol: config.protocol,
+      dependsOn: config.dependsOn ?? 'standalone',
     });
   }
 
@@ -65,9 +67,24 @@ export class ZipbulApplication {
 
     this.started = true;
     const context = new AppContext();
+    this.startOrder = this.topologicalSort();
+    const started: AdapterEntry[] = [];
 
-    for (const entry of this.adapters.values()) {
-      await entry.adapter.start(context);
+    try {
+      for (const entry of this.startOrder) {
+        await entry.adapter.start(context);
+        started.push(entry);
+      }
+    } catch (error) {
+      for (const entry of started.reverse()) {
+        try {
+          await entry.adapter.stop();
+        } catch {
+          // best-effort cleanup — suppress to preserve original error
+        }
+      }
+      this.stopped = true;
+      throw error;
     }
   }
 
@@ -81,7 +98,7 @@ export class ZipbulApplication {
     }
 
     this.stopped = true;
-    const entries = Array.from(this.adapters.values()).reverse();
+    const entries = [...this.startOrder].reverse();
 
     for (const entry of entries) {
       await entry.adapter.stop();
@@ -90,6 +107,63 @@ export class ZipbulApplication {
 
   public attach(): void {
     //
+  }
+
+  /**
+   * Topological sort of adapters based on dependsOn DAG (Kahn's algorithm).
+   * Returns adapters in dependency-first order.
+   * Throws if a cycle is detected (defensive — build-time should catch this).
+   */
+  private topologicalSort(): AdapterEntry[] {
+    const entries = Array.from(this.adapters.values());
+    if (entries.length === 0) return [];
+
+    const inDegree = new Map<string, number>();
+    const dependents = new Map<string, string[]>();
+
+    for (const entry of entries) {
+      inDegree.set(entry.name, 0);
+      dependents.set(entry.name, []);
+    }
+
+    for (const entry of entries) {
+      const deps =
+        entry.dependsOn === 'standalone' || !entry.dependsOn
+          ? []
+          : entry.dependsOn;
+      for (const dep of deps) {
+        dependents.get(dep)!.push(entry.name);
+        inDegree.set(entry.name, (inDegree.get(entry.name) ?? 0) + 1);
+      }
+    }
+
+    const queue: string[] = [];
+    for (const entry of entries) {
+      if (inDegree.get(entry.name) === 0) {
+        queue.push(entry.name);
+      }
+    }
+
+    const sorted: AdapterEntry[] = [];
+    while (queue.length > 0) {
+      const name = queue.shift()!;
+      sorted.push(this.adapters.get(name)!);
+      for (const neighbor of dependents.get(name)!) {
+        const newDegree = (inDegree.get(neighbor) ?? 0) - 1;
+        inDegree.set(neighbor, newDegree);
+        if (newDegree === 0) {
+          queue.push(neighbor);
+        }
+      }
+    }
+
+    if (sorted.length !== entries.length) {
+      throw new Error(
+        'Cycle detected in adapter dependency graph',
+      );
+    }
+
+    return sorted;
   }
 }
 
