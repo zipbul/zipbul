@@ -5,7 +5,6 @@ import {
   ADAPTER_CLASSREF_INVALID,
   ADAPTER_PIPELINE_TOKEN_INVALID,
   ADAPTER_PHASE_ID_INVALID,
-  ADAPTER_PHASE_SET_MISMATCH,
   ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,
   ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,
   ADAPTER_EXCEPTION_FILTER_INVALID,
@@ -23,7 +22,6 @@ describe('adapter diagnostic codes', () => {
       [ADAPTER_CLASSREF_INVALID,                'ZIPBUL_ADAPTER_003'],
       [ADAPTER_PIPELINE_TOKEN_INVALID,          'ZIPBUL_ADAPTER_004'],
       [ADAPTER_PHASE_ID_INVALID,                'ZIPBUL_ADAPTER_005'],
-      [ADAPTER_PHASE_SET_MISMATCH,              'ZIPBUL_ADAPTER_006'],
       [ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,   'ZIPBUL_ADAPTER_007'],
       [ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,    'ZIPBUL_ADAPTER_008'],
       [ADAPTER_EXCEPTION_FILTER_INVALID,        'ZIPBUL_ADAPTER_009'],
@@ -38,7 +36,7 @@ describe('adapter diagnostic codes', () => {
     }
   });
 
-  it('should have 12 unique code values across all constants', () => {
+  it('should have 11 unique code values across all constants', () => {
     // Arrange
     const allValues = [
       ADAPTER_SPEC_NOT_COLLECTED,
@@ -46,7 +44,6 @@ describe('adapter diagnostic codes', () => {
       ADAPTER_CLASSREF_INVALID,
       ADAPTER_PIPELINE_TOKEN_INVALID,
       ADAPTER_PHASE_ID_INVALID,
-      ADAPTER_PHASE_SET_MISMATCH,
       ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,
       ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,
       ADAPTER_EXCEPTION_FILTER_INVALID,
@@ -56,6 +53,6 @@ describe('adapter diagnostic codes', () => {
     ];
 
     // Assert — all unique
-    expect(new Set(allValues).size).toBe(12);
+    expect(new Set(allValues).size).toBe(11);
   });
 });

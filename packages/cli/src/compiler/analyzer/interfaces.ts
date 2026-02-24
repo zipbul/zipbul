@@ -97,8 +97,6 @@ export interface AdapterEntryDecoratorsSpec {
 
 export interface AdapterStaticSpec {
   pipeline: string[];
-  middlewarePhaseOrder: string[];
-  supportedMiddlewarePhases: Record<string, true>;
   entryDecorators: AdapterEntryDecoratorsSpec;
 }
 

@@ -43,8 +43,6 @@ const createAdapterValue = (overrides?: Partial<Record<string, AnalyzerValue>>):
   name: 'test',
   classRef: { __zipbul_ref: 'TestAdapter' },
   pipeline: ['Before', 'Guards', 'Pipes', 'Handler'],
-  middlewarePhaseOrder: ['Before'],
-  supportedMiddlewarePhases: { Before: true },
   decorators: {
     controller: { __zipbul_ref: 'Controller' },
     handler: [{ __zipbul_ref: 'Get' }],
@@ -155,8 +153,6 @@ describe('AdapterSpecResolver', () => {
     const spec = result.adapterStaticSpecs.test;
 
     expect(spec?.pipeline).toEqual(['Before', 'Guards', 'Pipes', 'Handler']);
-    expect(spec?.middlewarePhaseOrder).toEqual(['Before']);
-    expect(spec?.supportedMiddlewarePhases).toEqual({ Before: true });
     expect(spec?.entryDecorators).toEqual({ controller: 'Controller', handler: ['Get'] });
   });
 
@@ -535,8 +531,6 @@ describe('AdapterSpecResolver', () => {
     // Arrange
     const adapterValue = createAdapterValue({
       pipeline: ['Init', 'Guards', 'Transform', 'Pipes', 'Handler', 'Finalize'],
-      middlewarePhaseOrder: ['Init', 'Transform', 'Finalize'],
-      supportedMiddlewarePhases: { Init: true, Transform: true, Finalize: true },
     });
     const fileMap = buildStandardFileMap(adapterValue);
     const resolver = new AdapterSpecResolver();
@@ -548,7 +542,28 @@ describe('AdapterSpecResolver', () => {
     const spec = result.adapterStaticSpecs.test;
 
     expect(spec?.pipeline).toEqual(['Init', 'Guards', 'Transform', 'Pipes', 'Handler', 'Finalize']);
-    expect(spec?.middlewarePhaseOrder).toEqual(['Init', 'Transform', 'Finalize']);
+  });
+
+  it('should resolve pipeline enum refs to their string values', async () => {
+    // Arrange — pipeline contains __zipbul_ref objects for reserved tokens
+    const adapterValue = createAdapterValue({
+      pipeline: [
+        'Before',
+        { __zipbul_ref: 'ReservedPipeline.Guards' },
+        { __zipbul_ref: 'ReservedPipeline.Pipes' },
+        { __zipbul_ref: 'ReservedPipeline.Handler' },
+      ],
+    });
+    const fileMap = buildStandardFileMap(adapterValue);
+    const resolver = new AdapterSpecResolver();
+
+    // Act
+    const result = await resolver.resolve({ fileMap, projectRoot });
+
+    // Assert
+    const spec = result.adapterStaticSpecs.test;
+
+    expect(spec?.pipeline).toEqual(['Before', 'Guards', 'Pipes', 'Handler']);
   });
 
   // =======================================================================
@@ -687,32 +702,6 @@ describe('AdapterSpecResolver', () => {
 
     // Act & Assert
     await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/pipeline/);
-  });
-
-  it('should throw when middlewarePhaseOrder is missing or invalid', async () => {
-    // Arrange — missing
-    const fileMap1 = buildStandardFileMap(createAdapterValue({ middlewarePhaseOrder: undefined }));
-    const resolver = new AdapterSpecResolver();
-
-    await expect(resolver.resolve({ fileMap: fileMap1, projectRoot })).rejects.toThrow(/middlewarePhaseOrder/);
-
-    // Arrange — not array
-    const fileMap2 = buildStandardFileMap(createAdapterValue({ middlewarePhaseOrder: 'wrong' }));
-
-    await expect(resolver.resolve({ fileMap: fileMap2, projectRoot })).rejects.toThrow(/middlewarePhaseOrder/);
-  });
-
-  it('should throw when supportedMiddlewarePhases is invalid', async () => {
-    // Arrange — not object
-    const fileMap1 = buildStandardFileMap(createAdapterValue({ supportedMiddlewarePhases: 'wrong' }));
-    const resolver = new AdapterSpecResolver();
-
-    await expect(resolver.resolve({ fileMap: fileMap1, projectRoot })).rejects.toThrow(/supportedMiddlewarePhases/);
-
-    // Arrange — value not true
-    const fileMap2 = buildStandardFileMap(createAdapterValue({ supportedMiddlewarePhases: { Before: false } }));
-
-    await expect(resolver.resolve({ fileMap: fileMap2, projectRoot })).rejects.toThrow(/supportedMiddlewarePhases/);
   });
 
   it('should throw when decorators.controller is not identifier', async () => {
@@ -1033,58 +1022,11 @@ describe('AdapterSpecResolver', () => {
     await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/Unsupported middleware phase/);
   });
 
-  it('should throw when middlewarePhaseOrder is empty but pipeline has custom phases', async () => {
-    // Arrange — pipeline has custom phase but middlewarePhaseOrder is empty
-    const fileMap = buildStandardFileMap(
-      createAdapterValue({
-        pipeline: ['Before', 'Guards', 'Pipes', 'Handler'],
-        middlewarePhaseOrder: [],
-        supportedMiddlewarePhases: {},
-      }),
-    );
-    const resolver = new AdapterSpecResolver();
-
-    // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/middlewarePhaseOrder/);
-  });
-
-  it('should throw when middlewarePhaseOrder has duplicates', async () => {
-    // Arrange
-    const fileMap = buildStandardFileMap(
-      createAdapterValue({
-        pipeline: ['Before', 'Before', 'Guards', 'Pipes', 'Handler'],
-        middlewarePhaseOrder: ['Before', 'Before'],
-        supportedMiddlewarePhases: { Before: true },
-      }),
-    );
-    const resolver = new AdapterSpecResolver();
-
-    // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/duplicates/);
-  });
-
-  it('should throw when supportedMiddlewarePhases keys do not match order', async () => {
-    // Arrange — order has 'Before' but supported has 'After'
-    const fileMap = buildStandardFileMap(
-      createAdapterValue({
-        pipeline: ['Before', 'Guards', 'Pipes', 'Handler'],
-        middlewarePhaseOrder: ['Before'],
-        supportedMiddlewarePhases: { After: true },
-      }),
-    );
-    const resolver = new AdapterSpecResolver();
-
-    // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/must match/);
-  });
-
   it('should throw when pipeline missing required reserved tokens', async () => {
     // Arrange — pipeline missing 'Handler'
     const fileMap = buildStandardFileMap(
       createAdapterValue({
         pipeline: ['Before', 'Guards', 'Pipes'],
-        middlewarePhaseOrder: ['Before'],
-        supportedMiddlewarePhases: { Before: true },
       }),
     );
     const resolver = new AdapterSpecResolver();
@@ -1093,19 +1035,17 @@ describe('AdapterSpecResolver', () => {
     await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/pipeline/i);
   });
 
-  it('should throw when pipeline custom phases do not match middlewarePhaseOrder', async () => {
-    // Arrange — pipeline has 'Before' and 'After' but order only has 'Before'
+  it('should throw when pipeline contains duplicate custom phase', async () => {
+    // Arrange — pipeline has 'Before' twice
     const fileMap = buildStandardFileMap(
       createAdapterValue({
-        pipeline: ['Before', 'Guards', 'Pipes', 'Handler', 'After'],
-        middlewarePhaseOrder: ['Before'],
-        supportedMiddlewarePhases: { Before: true },
+        pipeline: ['Before', 'Before', 'Guards', 'Pipes', 'Handler'],
       }),
     );
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/pipeline/i);
+    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/duplicate/i);
   });
 
   it('should throw when phase id contains colon', async () => {
@@ -1113,8 +1053,6 @@ describe('AdapterSpecResolver', () => {
     const fileMap = buildStandardFileMap(
       createAdapterValue({
         pipeline: ['Be:fore', 'Guards', 'Pipes', 'Handler'],
-        middlewarePhaseOrder: ['Be:fore'],
-        supportedMiddlewarePhases: { 'Be:fore': true },
       }),
     );
     const resolver = new AdapterSpecResolver();
@@ -1223,8 +1161,6 @@ describe('AdapterSpecResolver', () => {
     // Arrange — pipeline = ['Guards', 'Pipes', 'Handler'], no custom phases
     const adapterValue = createAdapterValue({
       pipeline: ['Guards', 'Pipes', 'Handler'],
-      middlewarePhaseOrder: [],
-      supportedMiddlewarePhases: {},
     });
     const fileMap = buildStandardFileMap(adapterValue);
     const resolver = new AdapterSpecResolver();
@@ -1234,20 +1170,6 @@ describe('AdapterSpecResolver', () => {
 
     // Assert
     expect(result.adapterStaticSpecs.test?.pipeline).toEqual(['Guards', 'Pipes', 'Handler']);
-    expect(result.adapterStaticSpecs.test?.middlewarePhaseOrder).toEqual([]);
-  });
-
-  it('should handle single middleware phase order', async () => {
-    // Arrange
-    const fileMap = buildStandardFileMap();
-    const resolver = new AdapterSpecResolver();
-
-    // Act
-    const result = await resolver.resolve({ fileMap, projectRoot });
-
-    // Assert
-    expect(result.adapterStaticSpecs.test?.middlewarePhaseOrder).toEqual(['Before']);
-    expect(result.adapterStaticSpecs.test?.supportedMiddlewarePhases).toEqual({ Before: true });
   });
 
   // =======================================================================
@@ -1323,8 +1245,6 @@ describe('AdapterSpecResolver', () => {
     const adapterA = createAdapterValue();
     const adapterB = createAdapterValue({
       pipeline: ['After', 'Guards', 'Pipes', 'Handler'],
-      middlewarePhaseOrder: ['After'],
-      supportedMiddlewarePhases: { After: true },
     });
 
     for (const [ep, val] of [

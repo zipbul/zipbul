@@ -17,13 +17,10 @@ export const ADAPTER_CLASSREF_INVALID = 'ZIPBUL_ADAPTER_003';
 /** R-004 — pipeline 토큰 형상 또는 예약 토큰 규칙 위반 */
 export const ADAPTER_PIPELINE_TOKEN_INVALID = 'ZIPBUL_ADAPTER_004';
 
-/** R-005 — MiddlewarePhaseId 정규화 규칙 위반 */
+/** R-005 — MiddlewarePhase 정규화 규칙 위반 */
 export const ADAPTER_PHASE_ID_INVALID = 'ZIPBUL_ADAPTER_005';
 
-/** R-006 — middlewarePhaseOrder와 supportedMiddlewarePhases key set 불일치 */
-export const ADAPTER_PHASE_SET_MISMATCH = 'ZIPBUL_ADAPTER_006';
-
-/** R-007 — pipeline 내 phase id와 middlewarePhaseOrder 순서 불일치 */
+/** R-007 — pipeline 내 미들웨어 페이즈 중복 */
 export const ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH = 'ZIPBUL_ADAPTER_007';
 
 /** R-008 — 미들웨어 배치 판정 불가 또는 미지원 phase id */

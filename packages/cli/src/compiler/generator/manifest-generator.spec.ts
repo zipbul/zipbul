@@ -308,8 +308,6 @@ describe('ManifestGenerator', () => {
       adapterStaticSpecs: {
         test: {
           pipeline: ['Before', 'Guards', 'Pipes', 'Handler'],
-          middlewarePhaseOrder: ['Before'],
-          supportedMiddlewarePhases: { Before: true },
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
         },
       },
@@ -342,14 +340,10 @@ describe('ManifestGenerator', () => {
       adapterStaticSpecs: {
         b: {
           pipeline: ['Guards', 'Pipes', 'Handler'],
-          middlewarePhaseOrder: [],
-          supportedMiddlewarePhases: {},
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
         },
         a: {
           pipeline: ['Guards', 'Pipes', 'Handler'],
-          middlewarePhaseOrder: [],
-          supportedMiddlewarePhases: {},
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
         },
       },

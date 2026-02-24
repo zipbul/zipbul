@@ -25,6 +25,12 @@ const isNonEmptyString = (value: string | null | undefined): value is string => 
   return typeof value === 'string' && value.length > 0;
 };
 
+const RESERVED_MAP: Record<string, string> = {
+  'ReservedPipeline.Guards': 'Guards',
+  'ReservedPipeline.Pipes': 'Pipes',
+  'ReservedPipeline.Handler': 'Handler',
+};
+
 export class AdapterSpecResolver {
   private parser = new AstParser();
 
@@ -228,45 +234,15 @@ export class AdapterSpecResolver {
     const pipeline: string[] = [];
 
     for (const token of pipelineRaw) {
-      if (typeof token !== 'string') {
-        throw new Error(`[Zipbul AOT] defineAdapter.pipeline elements must be strings in ${sourceFile}.`);
+      if (typeof token === 'string') {
+        pipeline.push(token);
+      } else if (isRecordValue(token) && typeof token.__zipbul_ref === 'string') {
+        const resolved = RESERVED_MAP[token.__zipbul_ref] ?? token.__zipbul_ref;
+
+        pipeline.push(resolved);
+      } else {
+        throw new Error(`[Zipbul AOT] defineAdapter.pipeline elements must be strings or enum references in ${sourceFile}.`);
       }
-
-      pipeline.push(token);
-    }
-
-    const mpoRaw = arg.middlewarePhaseOrder;
-
-    if (!Array.isArray(mpoRaw)) {
-      throw new Error(`[Zipbul AOT] defineAdapter.middlewarePhaseOrder must be an array in ${sourceFile}.`);
-    }
-
-    const middlewarePhaseOrder: string[] = [];
-
-    for (const phase of mpoRaw) {
-      if (typeof phase !== 'string') {
-        throw new Error(`[Zipbul AOT] defineAdapter.middlewarePhaseOrder elements must be strings in ${sourceFile}.`);
-      }
-
-      this.assertValidPhaseId(phase, sourceFile, 'defineAdapter.middlewarePhaseOrder');
-      middlewarePhaseOrder.push(phase);
-    }
-
-    const smpRaw = this.asRecord(arg.supportedMiddlewarePhases);
-
-    if (smpRaw === null) {
-      throw new Error(`[Zipbul AOT] defineAdapter.supportedMiddlewarePhases must be an object in ${sourceFile}.`);
-    }
-
-    const supportedMiddlewarePhases: Record<string, true> = {};
-
-    for (const [key, value] of Object.entries(smpRaw)) {
-      if (value !== true) {
-        throw new Error(`[Zipbul AOT] defineAdapter.supportedMiddlewarePhases values must be true in ${sourceFile}.`);
-      }
-
-      this.assertValidPhaseId(key, sourceFile, 'defineAdapter.supportedMiddlewarePhases');
-      supportedMiddlewarePhases[key] = true;
     }
 
     const decsRaw = this.asRecord(arg.decorators);
@@ -302,15 +278,12 @@ export class AdapterSpecResolver {
 
     const entryDecorators: AdapterEntryDecoratorsSpec = { controller, handler };
 
-    this.validatePhaseConsistency(middlewarePhaseOrder, supportedMiddlewarePhases, sourceFile);
-    this.validatePipelineConsistency(pipeline, middlewarePhaseOrder, sourceFile);
+    this.validatePipelineConsistency(pipeline, sourceFile);
 
     return {
       adapterId,
       staticSpec: {
         pipeline,
-        middlewarePhaseOrder,
-        supportedMiddlewarePhases,
         entryDecorators,
       },
     };
@@ -501,8 +474,7 @@ export class AdapterSpecResolver {
     controllerAdapterMap: Map<string, string>,
   ): void {
     for (const extraction of extractions) {
-      const supported = extraction.staticSpec.supportedMiddlewarePhases;
-      const supportedKeys = Object.keys(supported);
+      const supported = this.deriveSupportedPhases(extraction.staticSpec.pipeline);
       const modulePhaseIds = this.collectModuleMiddlewarePhaseIds(fileMap, extraction.adapterId);
       const decoratorPhaseIds = this.collectDecoratorPhaseIds(
         fileMap,
@@ -513,7 +485,7 @@ export class AdapterSpecResolver {
       const combinedPhaseIds = [...modulePhaseIds, ...decoratorPhaseIds];
 
       combinedPhaseIds.forEach(phaseId => {
-        if (!supportedKeys.includes(phaseId)) {
+        if (!supported.has(phaseId)) {
           throw new Error(`[Zipbul AOT] Unsupported middleware phase '${phaseId}' for adapter '${extraction.adapterId}'.`);
         }
       });
@@ -681,40 +653,7 @@ export class AdapterSpecResolver {
     return PathResolver.normalize(trimmed || '.');
   }
 
-  private validatePhaseConsistency(
-    middlewarePhaseOrder: string[],
-    supportedMiddlewarePhases: Record<string, true>,
-    context: string,
-  ): void {
-    if (middlewarePhaseOrder.length === 0 && Object.keys(supportedMiddlewarePhases).length === 0) {
-      return;
-    }
-
-    const phaseSet = new Set<string>();
-
-    for (const phase of middlewarePhaseOrder) {
-      if (phaseSet.has(phase)) {
-        throw new Error(`[Zipbul AOT] middlewarePhaseOrder must not contain duplicates (${context}).`);
-      }
-
-      phaseSet.add(phase);
-    }
-
-    const supportedKeys = Object.keys(supportedMiddlewarePhases).sort();
-    const phaseList = Array.from(phaseSet.values()).sort();
-
-    if (supportedKeys.length !== phaseList.length) {
-      throw new Error(`[Zipbul AOT] supportedMiddlewarePhases keys must match middlewarePhaseOrder (${context}).`);
-    }
-
-    for (let index = 0; index < supportedKeys.length; index += 1) {
-      if (supportedKeys[index] !== phaseList[index]) {
-        throw new Error(`[Zipbul AOT] supportedMiddlewarePhases keys must match middlewarePhaseOrder (${context}).`);
-      }
-    }
-  }
-
-  private validatePipelineConsistency(pipeline: string[], middlewarePhaseOrder: string[], context: string): void {
+  private validatePipelineConsistency(pipeline: string[], context: string): void {
     const RESERVED = new Set(['Guards', 'Pipes', 'Handler']);
 
     for (const reserved of RESERVED) {
@@ -726,18 +665,22 @@ export class AdapterSpecResolver {
     }
 
     const customPhases = pipeline.filter(t => !RESERVED.has(t));
-    const customSet = new Set(customPhases);
-    const orderSet = new Set(middlewarePhaseOrder);
+    const seen = new Set<string>();
 
-    if (customSet.size !== orderSet.size) {
-      throw new Error(`[Zipbul AOT] pipeline custom phases must match middlewarePhaseOrder (${context}).`);
-    }
-
-    for (const phase of customSet) {
-      if (!orderSet.has(phase)) {
-        throw new Error(`[Zipbul AOT] pipeline custom phases must match middlewarePhaseOrder (${context}).`);
+    for (const phase of customPhases) {
+      if (seen.has(phase)) {
+        throw new Error(`[Zipbul AOT] pipeline must not contain duplicate middleware phase '${phase}' (${context}).`);
       }
+
+      this.assertValidPhaseId(phase, context, 'defineAdapter.pipeline');
+      seen.add(phase);
     }
+  }
+
+  private deriveSupportedPhases(pipeline: string[]): Set<string> {
+    const RESERVED = new Set(['Guards', 'Pipes', 'Handler']);
+
+    return new Set(pipeline.filter(t => !RESERVED.has(t)));
   }
 
   private asRecord(value: AnalyzerValue | undefined): AnalyzerValueRecord | null {
