@@ -833,12 +833,11 @@ export class AstParser {
           }
 
           if (kind === 'method') {
+            const isStatic = member.static === true;
+            const isComputed = member.computed === true;
             const key = this.asNode(member.key);
-            const methodName = key ? this.getString(key, 'name') : null;
-
-            if (!isNonEmptyString(methodName)) {
-              continue;
-            }
+            const isPrivateName = key?.type === 'PrivateIdentifier';
+            let methodName = key ? (this.getString(key, 'name') ?? this.getString(key, 'value')) : null;
 
             const methodDecoratorValues = asAnalyzerArray(memberDecoratorsValue);
             const methodDecorators = methodDecoratorValues
@@ -846,6 +845,15 @@ export class AstParser {
                   .map(value => this.extractDecorator(value))
                   .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
               : [];
+
+            if (!isNonEmptyString(methodName)) {
+              if (isComputed && methodDecorators.length > 0) {
+                methodName = `__computed_${typeof member.start === 'number' ? member.start : 0}__`;
+              } else {
+                continue;
+              }
+            }
+
             const methodParams: ClassMetadata['methods'][number]['parameters'] = [];
 
             if (valueParams) {
@@ -876,6 +884,9 @@ export class AstParser {
                 name: methodName,
                 decorators: methodDecorators,
                 parameters: methodParams,
+                isStatic: isStatic || undefined,
+                isComputed: isComputed || undefined,
+                isPrivateName: isPrivateName || undefined,
               });
             }
 

@@ -343,9 +343,22 @@ export class AdapterSpecResolver {
 
     for (const analysis of fileMap.values()) {
       for (const cls of analysis.classes) {
-        const controllerAdapters = adapters.filter(adapter =>
+        let controllerAdapters = adapters.filter(adapter =>
           cls.decorators.some(dec => dec.name === adapter.entryDecorators.controller),
         );
+
+        // adapterIds constraint (ADAPTER-R-010): filter by explicit adapterIds if present
+        const controllerDecorator = cls.decorators.find(dec =>
+          adapters.some(a => a.entryDecorators.controller === dec.name),
+        );
+
+        if (controllerDecorator) {
+          const adapterIds = this.extractAdapterIds(controllerDecorator, extractions);
+
+          if (adapterIds !== null) {
+            controllerAdapters = controllerAdapters.filter(a => adapterIds.includes(a.adapterId));
+          }
+        }
 
         if (controllerAdapters.length > 1) {
           const names = controllerAdapters.map(adapter => adapter.adapterId).join(', ');
@@ -364,6 +377,51 @@ export class AdapterSpecResolver {
     }
 
     return adapterByController;
+  }
+
+  private extractAdapterIds(
+    decorator: { name: string; arguments: readonly import('./types').AnalyzerValue[] },
+    extractions: AdapterSpecExtraction[],
+  ): string[] | null {
+    const args = decorator.arguments;
+
+    if (args.length === 0) {
+      return null;
+    }
+
+    const arg = this.asRecord(args[0]);
+
+    if (arg === null) {
+      return null;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(arg, 'adapterIds')) {
+      return null;
+    }
+
+    const adapterIds = arg.adapterIds;
+
+    if (!Array.isArray(adapterIds)) {
+      throw new Error('[Zipbul AOT] adapterIds must be an array.');
+    }
+
+    if (adapterIds.length === 0) {
+      throw new Error('[Zipbul AOT] adapterIds must not be empty.');
+    }
+
+    const knownIds = new Set(extractions.map(e => e.adapterId));
+
+    for (const id of adapterIds) {
+      if (typeof id !== 'string') {
+        throw new Error('[Zipbul AOT] adapterIds elements must be string literals.');
+      }
+
+      if (!knownIds.has(id)) {
+        throw new Error(`[Zipbul AOT] Unknown adapterId '${id}' in adapterIds.`);
+      }
+    }
+
+    return adapterIds as string[];
   }
 
   private buildHandlerIndex(
@@ -388,10 +446,33 @@ export class AdapterSpecResolver {
               continue;
             }
 
-            if (!isNonEmptyString(controllerAdapterId) || controllerAdapterId !== extraction.adapterId) {
+            // Handler method constraints (ADAPTER-R-010)
+            if (method.isStatic) {
+              throw new Error(
+                `[Zipbul AOT] Handler '${cls.className}.${method.name}' must not be a static method.`,
+              );
+            }
+
+            if (method.isComputed) {
+              throw new Error(
+                `[Zipbul AOT] Handler '${cls.className}.${method.name}' must not use a computed property name.`,
+              );
+            }
+
+            if (method.isPrivateName) {
+              throw new Error(
+                `[Zipbul AOT] Handler '${cls.className}.${method.name}' must not be a private method.`,
+              );
+            }
+
+            if (!isNonEmptyString(controllerAdapterId)) {
               throw new Error(
                 `[Zipbul AOT] Handler '${cls.className}.${method.name}' must belong to a controller for adapter '${extraction.adapterId}'.`,
               );
+            }
+
+            if (controllerAdapterId !== extraction.adapterId) {
+              continue;
             }
 
             const file = this.normalizeProjectPath(projectRoot, analysis.filePath);
@@ -523,9 +604,13 @@ export class AdapterSpecResolver {
           }
 
           if (!isAdapterController) {
-            throw new Error(
-              `[Zipbul AOT] @Middlewares handler '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
-            );
+            if (!isNonEmptyString(controllerAdapterId)) {
+              throw new Error(
+                `[Zipbul AOT] @Middlewares handler '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
+              );
+            }
+
+            continue;
           }
 
           for (const decorator of method.decorators) {

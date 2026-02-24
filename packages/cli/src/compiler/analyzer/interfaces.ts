@@ -55,6 +55,9 @@ export interface MethodMetadata {
   name: string;
   decorators: DecoratorMetadata[];
   parameters: MethodParameterMetadata[];
+  isStatic?: boolean | undefined;
+  isComputed?: boolean | undefined;
+  isPrivateName?: boolean | undefined;
 }
 
 export interface PropertyMetadata {

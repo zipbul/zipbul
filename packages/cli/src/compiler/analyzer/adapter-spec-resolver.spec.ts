@@ -1481,4 +1481,259 @@ describe('AdapterSpecResolver', () => {
     expect(ids[0]!.includes('a-controller')).toBe(true);
     expect(ids[1]!.includes('z-controller')).toBe(true);
   });
+
+  // =======================================================================
+  // P3 — Entry Decorator AOT Validation (ADAPTER-R-010)
+  // =======================================================================
+
+  // --- P3 helper ---
+
+  const buildFileMapWithCode = (
+    controllerSource: string,
+    adapterValue: AnalyzerValueRecord = createAdapterValue(),
+  ): Map<string, FileAnalysis> => {
+    const parser = new AstParser();
+    const fileMap = new Map<string, FileAnalysis>();
+
+    const controllerParse = parser.parse(controllerFile, controllerSource);
+    const controllerAnalysis: FileAnalysis = {
+      filePath: controllerFile,
+      classes: controllerParse.classes,
+      reExports: controllerParse.reExports,
+      exports: controllerParse.exports,
+      importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
+    };
+
+    applyParseToAnalysis(controllerAnalysis, controllerParse);
+    fileMap.set(controllerFile, controllerAnalysis);
+
+    const entryParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryAnalysis: FileAnalysis = {
+      filePath: entryFile,
+      classes: entryParse.classes,
+      reExports: entryParse.reExports,
+      exports: entryParse.exports,
+      exportedValues: { adapterSpec: wrapDefineAdapter(adapterValue) },
+    };
+
+    applyParseToAnalysis(entryAnalysis, entryParse);
+    fileMap.set(entryFile, entryAnalysis);
+
+    return fileMap;
+  };
+
+  it('should resolve controller with adapterIds filtering when multiple adapters share decorator name', async () => {
+    // Arrange — two adapters both use 'Controller', adapterIds=['test'] filters to one
+    const parser = new AstParser();
+    const fileMap = new Map<string, FileAnalysis>();
+    const otherEntryFile = join(projectRoot, 'adapters', 'other-adapter', 'index.ts');
+
+    const code = [
+      'function Controller() { return () => {}; }',
+      'function Get() { return () => {}; }',
+      '',
+      '@Controller({ adapterIds: ["test"] })',
+      'class FilteredController {',
+      '  @Get()',
+      '  handle() {}',
+      '}',
+    ].join('\n');
+
+    const ctrlParse = parser.parse(controllerFile, code);
+    const ctrlAnalysis: FileAnalysis = {
+      filePath: controllerFile,
+      classes: ctrlParse.classes,
+      reExports: ctrlParse.reExports,
+      exports: ctrlParse.exports,
+      importEntries: [
+        { source: '@test/adapter', resolvedSource: entryFile, isRelative: false },
+        { source: '@other/adapter', resolvedSource: otherEntryFile, isRelative: false },
+      ],
+    };
+
+    applyParseToAnalysis(ctrlAnalysis, ctrlParse);
+    fileMap.set(controllerFile, ctrlAnalysis);
+
+    // Adapter 'test'
+    const testValue = createAdapterValue();
+    const testParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const testEntry: FileAnalysis = {
+      filePath: entryFile,
+      classes: testParse.classes,
+      reExports: testParse.reExports,
+      exports: testParse.exports,
+      exportedValues: { adapterSpec: wrapDefineAdapter(testValue) },
+    };
+
+    applyParseToAnalysis(testEntry, testParse);
+    fileMap.set(entryFile, testEntry);
+
+    // Adapter 'other' (same controller decorator name 'Controller')
+    const otherValue = createAdapterValue({ name: 'other' });
+    const otherParse = parser.parse(otherEntryFile, 'export const adapterSpec = defineAdapter({});');
+    const otherEntry: FileAnalysis = {
+      filePath: otherEntryFile,
+      classes: otherParse.classes,
+      reExports: otherParse.reExports,
+      exports: otherParse.exports,
+      exportedValues: { adapterSpec: wrapDefineAdapter(otherValue) },
+    };
+
+    applyParseToAnalysis(otherEntry, otherParse);
+    fileMap.set(otherEntryFile, otherEntry);
+
+    const resolver = new AdapterSpecResolver();
+
+    // Act
+    const result = await resolver.resolve({ fileMap, projectRoot });
+
+    // Assert — only 'test' adapter handler should appear
+    expect(result.handlerIndex.length).toBe(1);
+    expect(result.handlerIndex[0]!.id).toContain('test:');
+  });
+
+  it('should throw when handler method is static', async () => {
+    const code = [
+      'function Controller() { return () => {}; }',
+      'function Get() { return () => {}; }',
+      '',
+      '@Controller()',
+      'class StaticController {',
+      '  @Get()',
+      '  static handle() {}',
+      '}',
+    ].join('\n');
+
+    const fileMap = buildFileMapWithCode(code);
+    const resolver = new AdapterSpecResolver();
+
+    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/static/i);
+  });
+
+  it('should throw when handler method uses computed property name', async () => {
+    const code = [
+      'function Controller() { return () => {}; }',
+      'function Get() { return () => {}; }',
+      '',
+      '@Controller()',
+      'class ComputedController {',
+      '  @Get()',
+      '  [Symbol.iterator]() {}',
+      '}',
+    ].join('\n');
+
+    const fileMap = buildFileMapWithCode(code);
+    const resolver = new AdapterSpecResolver();
+
+    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/computed/i);
+  });
+
+  it('should throw when handler method is private (#name)', async () => {
+    const code = [
+      'function Controller() { return () => {}; }',
+      'function Get() { return () => {}; }',
+      '',
+      '@Controller()',
+      'class PrivateController {',
+      '  @Get()',
+      '  #handle() {}',
+      '}',
+    ].join('\n');
+
+    const fileMap = buildFileMapWithCode(code);
+    const resolver = new AdapterSpecResolver();
+
+    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/private/i);
+  });
+
+  it('should throw when adapterIds is not an array', async () => {
+    const code = [
+      'function Controller() { return () => {}; }',
+      'function Get() { return () => {}; }',
+      '',
+      '@Controller({ adapterIds: "test" })',
+      'class BadAdapterIds {',
+      '  @Get()',
+      '  handle() {}',
+      '}',
+    ].join('\n');
+
+    const fileMap = buildFileMapWithCode(code);
+    const resolver = new AdapterSpecResolver();
+
+    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/adapterIds/);
+  });
+
+  it('should throw when adapterIds is empty array', async () => {
+    const code = [
+      'function Controller() { return () => {}; }',
+      'function Get() { return () => {}; }',
+      '',
+      '@Controller({ adapterIds: [] })',
+      'class EmptyAdapterIds {',
+      '  @Get()',
+      '  handle() {}',
+      '}',
+    ].join('\n');
+
+    const fileMap = buildFileMapWithCode(code);
+    const resolver = new AdapterSpecResolver();
+
+    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/adapterIds/);
+  });
+
+  it('should throw when adapterIds element is not a string', async () => {
+    const code = [
+      'function Controller() { return () => {}; }',
+      'function Get() { return () => {}; }',
+      '',
+      '@Controller({ adapterIds: [42] })',
+      'class NumericAdapterId {',
+      '  @Get()',
+      '  handle() {}',
+      '}',
+    ].join('\n');
+
+    const fileMap = buildFileMapWithCode(code);
+    const resolver = new AdapterSpecResolver();
+
+    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/adapterIds/);
+  });
+
+  it('should throw when adapterIds contains unknown adapterId', async () => {
+    const code = [
+      'function Controller() { return () => {}; }',
+      'function Get() { return () => {}; }',
+      '',
+      '@Controller({ adapterIds: ["nonexistent"] })',
+      'class UnknownAdapterId {',
+      '  @Get()',
+      '  handle() {}',
+      '}',
+    ].join('\n');
+
+    const fileMap = buildFileMapWithCode(code);
+    const resolver = new AdapterSpecResolver();
+
+    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/nonexistent/);
+  });
+
+  it('should throw for isStatic before isPrivateName when both are true', async () => {
+    const code = [
+      'function Controller() { return () => {}; }',
+      'function Get() { return () => {}; }',
+      '',
+      '@Controller()',
+      'class DualViolation {',
+      '  @Get()',
+      '  static #handle() {}',
+      '}',
+    ].join('\n');
+
+    const fileMap = buildFileMapWithCode(code);
+    const resolver = new AdapterSpecResolver();
+
+    // isStatic check should fire first, not isPrivateName
+    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/static/i);
+  });
 });
