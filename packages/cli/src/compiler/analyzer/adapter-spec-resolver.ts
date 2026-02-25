@@ -13,10 +13,7 @@ import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../../diagnostics';
 
 import { err, isErr } from '@zipbul/result';
-import {
-  buildDiagnostic,
-  DiagnosticCode,
-} from '../../diagnostics';
+import { buildDiagnostic } from '../../diagnostics';
 import { PathResolver } from '../../common';
 import { AstParser } from './ast-parser';
 
@@ -57,7 +54,6 @@ export class AdapterSpecResolver {
 
       if (defineCall?.__zipbul_call !== 'defineAdapter') {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterSpecNotCollected,
           severity: 'error',
           reason: `adapterSpec must be defineAdapter({ name, classRef, pipeline, ... }) in ${resolvedExport.sourceFile}.`,
           file: resolvedExport.sourceFile,
@@ -68,7 +64,6 @@ export class AdapterSpecResolver {
 
       if (args.length !== 1) {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterInputUncollectable,
           severity: 'error',
           reason: `defineAdapter requires exactly one argument in ${resolvedExport.sourceFile}.`,
           file: resolvedExport.sourceFile,
@@ -79,7 +74,6 @@ export class AdapterSpecResolver {
 
       if (arg === null) {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterInputUncollectable,
           severity: 'error',
           reason: `defineAdapter argument must be an object literal in ${resolvedExport.sourceFile}.`,
           file: resolvedExport.sourceFile,
@@ -94,7 +88,6 @@ export class AdapterSpecResolver {
 
     if (adapterSpecs.length === 0) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.AdapterSpecNotCollected,
         severity: 'error',
         reason: 'No adapterSpec exports found in adapter package entry files.',
       }));
@@ -260,7 +253,6 @@ export class AdapterSpecResolver {
 
     if (typeof adapterId !== 'string' || adapterId.length === 0) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.AdapterInputUncollectable,
         severity: 'error',
         reason: `defineAdapter.name must be a non-empty string in ${sourceFile}.`,
         file: sourceFile,
@@ -271,7 +263,6 @@ export class AdapterSpecResolver {
 
     if (!Array.isArray(pipelineRaw)) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.AdapterInputUncollectable,
         severity: 'error',
         reason: `defineAdapter.pipeline must be an array in ${sourceFile}.`,
         file: sourceFile,
@@ -289,7 +280,6 @@ export class AdapterSpecResolver {
         pipeline.push(resolved);
       } else {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterInputUncollectable,
           severity: 'error',
           reason: `defineAdapter.pipeline elements must be strings or enum references in ${sourceFile}.`,
           file: sourceFile,
@@ -301,7 +291,6 @@ export class AdapterSpecResolver {
 
     if (decsRaw === null) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.AdapterInputUncollectable,
         severity: 'error',
         reason: `defineAdapter.decorators must be an object in ${sourceFile}.`,
         file: sourceFile,
@@ -312,7 +301,6 @@ export class AdapterSpecResolver {
 
     if (controllerRaw === null || typeof controllerRaw.__zipbul_ref !== 'string') {
       return err(buildDiagnostic({
-        code: DiagnosticCode.AdapterInputUncollectable,
         severity: 'error',
         reason: `defineAdapter.decorators.controller must be an Identifier in ${sourceFile}.`,
         file: sourceFile,
@@ -324,7 +312,6 @@ export class AdapterSpecResolver {
 
     if (!Array.isArray(handlerRaw) || handlerRaw.length === 0) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.AdapterInputUncollectable,
         severity: 'error',
         reason: `defineAdapter.decorators.handler must be a non-empty Identifier array in ${sourceFile}.`,
         file: sourceFile,
@@ -338,7 +325,6 @@ export class AdapterSpecResolver {
 
       if (rec === null || typeof rec.__zipbul_ref !== 'string') {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterInputUncollectable,
           severity: 'error',
           reason: `defineAdapter.decorators.handler elements must be Identifiers in ${sourceFile}.`,
           file: sourceFile,
@@ -369,7 +355,6 @@ export class AdapterSpecResolver {
     for (const entry of sorted) {
       if (Object.prototype.hasOwnProperty.call(adapterStaticSpecs, entry.adapterId)) {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterInputUncollectable,
           severity: 'error',
           reason: `Duplicate adapterId detected: ${entry.adapterId}`,
         }));
@@ -415,7 +400,6 @@ export class AdapterSpecResolver {
           const names = controllerAdapters.map(adapter => adapter.adapterId).join(', ');
 
           return err(buildDiagnostic({
-            code: DiagnosticCode.AdapterEntryDecoratorInvalid,
             severity: 'error',
             reason: `Controller '${cls.className}' has multiple adapter owner decorators (${names}).`,
             file: analysis.filePath,
@@ -460,7 +444,6 @@ export class AdapterSpecResolver {
 
     if (!Array.isArray(adapterIds)) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.AdapterInputUncollectable,
         severity: 'error',
         reason: 'adapterIds must be an array.',
       }));
@@ -468,7 +451,6 @@ export class AdapterSpecResolver {
 
     if (adapterIds.length === 0) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.AdapterInputUncollectable,
         severity: 'error',
         reason: 'adapterIds must not be empty.',
       }));
@@ -479,7 +461,6 @@ export class AdapterSpecResolver {
     for (const id of adapterIds) {
       if (typeof id !== 'string') {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterInputUncollectable,
           severity: 'error',
           reason: 'adapterIds elements must be string literals.',
         }));
@@ -487,7 +468,6 @@ export class AdapterSpecResolver {
 
       if (!knownIds.has(id)) {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterInputUncollectable,
           severity: 'error',
           reason: `Unknown adapterId '${id}' in adapterIds.`,
         }));
@@ -522,7 +502,6 @@ export class AdapterSpecResolver {
             // Handler method constraints (ADAPTER-R-010)
             if (method.isStatic) {
               return err(buildDiagnostic({
-                code: DiagnosticCode.AdapterHandlerIdUnresolvable,
                 severity: 'error',
                 reason: `Handler '${cls.className}.${method.name}' must not be a static method.`,
                 file: analysis.filePath,
@@ -532,7 +511,6 @@ export class AdapterSpecResolver {
 
             if (method.isComputed) {
               return err(buildDiagnostic({
-                code: DiagnosticCode.AdapterHandlerIdUnresolvable,
                 severity: 'error',
                 reason: `Handler '${cls.className}.${method.name}' must not use a computed property name.`,
                 file: analysis.filePath,
@@ -542,7 +520,6 @@ export class AdapterSpecResolver {
 
             if (method.isPrivateName) {
               return err(buildDiagnostic({
-                code: DiagnosticCode.AdapterHandlerIdUnresolvable,
                 severity: 'error',
                 reason: `Handler '${cls.className}.${method.name}' must not be a private method.`,
                 file: analysis.filePath,
@@ -552,7 +529,6 @@ export class AdapterSpecResolver {
 
             if (!isNonEmptyString(controllerAdapterId)) {
               return err(buildDiagnostic({
-                code: DiagnosticCode.AdapterHandlerIdUnresolvable,
                 severity: 'error',
                 reason: `Handler '${cls.className}.${method.name}' must belong to a controller for adapter '${extraction.adapterId}'.`,
                 file: analysis.filePath,
@@ -570,7 +546,6 @@ export class AdapterSpecResolver {
 
             if (seen.has(id)) {
               return err(buildDiagnostic({
-                code: DiagnosticCode.AdapterHandlerIdUnresolvable,
                 severity: 'error',
                 reason: `Duplicate handler id detected: ${id}`,
                 file: analysis.filePath,
@@ -614,7 +589,6 @@ export class AdapterSpecResolver {
       for (const phaseId of combinedPhaseIds) {
         if (!supported.has(phaseId)) {
           return err(buildDiagnostic({
-            code: DiagnosticCode.AdapterMiddlewarePlacementInvalid,
             severity: 'error',
             reason: `Unsupported middleware phase '${phaseId}' for adapter '${extraction.adapterId}'.`,
           }));
@@ -647,7 +621,6 @@ export class AdapterSpecResolver {
 
       if (adapterConfig === null) {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterInputUncollectable,
           severity: 'error',
           reason: `Adapter config must be an object literal for '${adapterId}'.`,
           file: analysis.filePath,
@@ -662,7 +635,6 @@ export class AdapterSpecResolver {
 
       if (middlewares === null) {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterInputUncollectable,
           severity: 'error',
           reason: `middlewares must be an object literal for '${adapterId}'.`,
           file: analysis.filePath,
@@ -672,7 +644,6 @@ export class AdapterSpecResolver {
       for (const key of Object.keys(middlewares)) {
         if (key.startsWith('__zipbul_computed_')) {
           return err(buildDiagnostic({
-            code: DiagnosticCode.AdapterPhaseIdInvalid,
             severity: 'error',
             reason: `Middleware phase keys must be string literals for '${adapterId}'.`,
             file: analysis.filePath,
@@ -682,7 +653,6 @@ export class AdapterSpecResolver {
 
         if (key.length === 0) {
           return err(buildDiagnostic({
-            code: DiagnosticCode.AdapterPhaseIdInvalid,
             severity: 'error',
             reason: `Middleware phase keys must be non-empty for '${adapterId}'.`,
             file: analysis.filePath,
@@ -736,7 +706,6 @@ export class AdapterSpecResolver {
           if (!isAdapterController) {
             if (!isNonEmptyString(controllerAdapterId)) {
               return err(buildDiagnostic({
-                code: DiagnosticCode.AdapterHandlerIdUnresolvable,
                 severity: 'error',
                 reason: `@Middlewares handler '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
                 file: analysis.filePath,
@@ -772,7 +741,6 @@ export class AdapterSpecResolver {
 
       if (!isNonEmptyString(phaseId)) {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterPhaseIdInvalid,
           severity: 'error',
           reason: `@Middlewares phaseId must be a string literal for '${adapterId}'.`,
         }));
@@ -789,7 +757,6 @@ export class AdapterSpecResolver {
 
       if (mapping === null) {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterInputUncollectable,
           severity: 'error',
           reason: `@Middlewares map must be an object literal for '${adapterId}'.`,
         }));
@@ -800,7 +767,6 @@ export class AdapterSpecResolver {
       for (const key of Object.keys(mapping)) {
         if (key.startsWith('__zipbul_computed_')) {
           return err(buildDiagnostic({
-            code: DiagnosticCode.AdapterPhaseIdInvalid,
             severity: 'error',
             reason: `@Middlewares phaseId must be a string literal for '${adapterId}'.`,
           }));
@@ -808,7 +774,6 @@ export class AdapterSpecResolver {
 
         if (key.length === 0) {
           return err(buildDiagnostic({
-            code: DiagnosticCode.AdapterPhaseIdInvalid,
             severity: 'error',
             reason: `@Middlewares phaseId must be non-empty for '${adapterId}'.`,
           }));
@@ -824,7 +789,6 @@ export class AdapterSpecResolver {
     }
 
     return err(buildDiagnostic({
-      code: DiagnosticCode.AdapterInputUncollectable,
       severity: 'error',
       reason: `@Middlewares expects (phaseId, refs) or ({ [phaseId]: refs }) for '${adapterId}'.`,
     }));
@@ -852,7 +816,6 @@ export class AdapterSpecResolver {
 
       if (count !== 1) {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterPipelineTokenInvalid,
           severity: 'error',
           reason: `pipeline must contain '${reserved}' exactly once (${context}).`,
           file: context,
@@ -866,7 +829,6 @@ export class AdapterSpecResolver {
     for (const phase of customPhases) {
       if (seen.has(phase)) {
         return err(buildDiagnostic({
-          code: DiagnosticCode.AdapterPipelinePhaseOrderMismatch,
           severity: 'error',
           reason: `pipeline must not contain duplicate middleware phase '${phase}' (${context}).`,
           file: context,
@@ -907,7 +869,6 @@ export class AdapterSpecResolver {
   private assertValidPhaseId(phaseId: string, context: string, field: string): Result<void, Diagnostic> {
     if (phaseId.length === 0) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.AdapterPhaseIdInvalid,
         severity: 'error',
         reason: `${field} phase id must be non-empty (${context}).`,
       }));
@@ -915,7 +876,6 @@ export class AdapterSpecResolver {
 
     if (phaseId.includes(':')) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.AdapterPhaseIdInvalid,
         severity: 'error',
         reason: `${field} phase id must not contain ':' (${context}).`,
       }));

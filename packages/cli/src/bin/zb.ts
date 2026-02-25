@@ -7,7 +7,7 @@ import { Logger } from '@zipbul/logger';
 import { dev } from './dev.command';
 import { build } from './build.command';
 import { mcp } from './mcp.command';
-import { buildDiagnostic, reportDiagnostic, DiagnosticCode } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostic } from '../diagnostics';
 
 Logger.configure({ level: 'info' });
 
@@ -38,7 +38,6 @@ const printUsage = (): void => {
 const reportInvalidCommand = (value: string | undefined): void => {
   const commandValue = value ?? '(missing)';
   const diagnostic = buildDiagnostic({
-    code: DiagnosticCode.CliInvalidCommand,
     severity: 'error',
     reason: `Unsupported command: ${commandValue}.`,
   });

@@ -6,33 +6,28 @@ describe('buildDiagnostic', () => {
   // [HP-1]
   it('should build diagnostic with error severity', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Missing config file',
     });
 
     expect(result.severity).toBe('error');
-    expect(result.code).toBe('ZB_TEST_001');
     expect(result.why).toBe('Missing config file');
   });
 
   // [HP-2]
   it('should build diagnostic with warning severity', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_002',
       severity: 'warning',
       reason: 'Use new API instead',
     });
 
     expect(result.severity).toBe('warning');
-    expect(result.code).toBe('ZB_TEST_002');
     expect(result.why).toBe('Use new API instead');
   });
 
   // [HP-3]
   it('should include where when file is provided', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
@@ -44,7 +39,6 @@ describe('buildDiagnostic', () => {
   // [HP-4]
   it('should include how when how is provided', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       how: 'Remove the duplicate import',
@@ -56,7 +50,6 @@ describe('buildDiagnostic', () => {
   // [HP-5]
   it('should include both where and how when both provided', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
@@ -70,7 +63,6 @@ describe('buildDiagnostic', () => {
   // [HP-6]
   it('should omit where and how when neither provided', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
     });
@@ -82,7 +74,6 @@ describe('buildDiagnostic', () => {
   // [NE-6]
   it('should include where when file is empty string', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       file: '',
@@ -94,7 +85,6 @@ describe('buildDiagnostic', () => {
   // [NE-7]
   it('should include how when how is empty string', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       how: '',
@@ -104,21 +94,18 @@ describe('buildDiagnostic', () => {
   });
 
   // [ED-3]
-  it('should handle empty code string', () => {
+  it('should build diagnostic with minimal required fields only', () => {
     const result = buildDiagnostic({
-      code: '',
       severity: 'error',
       reason: 'Reason',
     });
 
     expect(result.why).toBe('Reason');
-    expect(result.code).toBe('');
   });
 
   // [ED-5]
   it('should handle empty reason string', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: '',
     });
@@ -129,12 +116,10 @@ describe('buildDiagnostic', () => {
   // [CO-1]
   it('should handle all empty required strings with no optionals', () => {
     const result = buildDiagnostic({
-      code: '',
       severity: 'error',
       reason: '',
     });
 
-    expect(result.code).toBe('');
     expect(result.why).toBe('');
     expect(result).not.toHaveProperty('where');
     expect(result).not.toHaveProperty('how');
@@ -143,14 +128,12 @@ describe('buildDiagnostic', () => {
   // [CO-2]
   it('should handle all empty required strings with empty optionals', () => {
     const result = buildDiagnostic({
-      code: '',
       severity: 'error',
       reason: '',
       file: '',
       how: '',
     });
 
-    expect(result.code).toBe('');
     expect(result.why).toBe('');
     expect(result.where).toEqual({ file: '' });
     expect(result.how).toBe('');
@@ -159,7 +142,6 @@ describe('buildDiagnostic', () => {
   // [CO-4]
   it('should include how but omit where when only how provided', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       how: 'Fix it',
@@ -172,7 +154,6 @@ describe('buildDiagnostic', () => {
   // [CO-5]
   it('should include where but omit how when only file provided', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
@@ -185,7 +166,6 @@ describe('buildDiagnostic', () => {
   // [ID-1]
   it('should return identical results for identical params', () => {
     const params = {
-      code: 'ZB_TEST_001',
       severity: 'error' as const,
       reason: 'Reason',
       file: 'src/app.ts',
@@ -201,7 +181,6 @@ describe('buildDiagnostic', () => {
   // [HP-SYM-1]
   it('should include symbol in where when file and symbol are both provided', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
@@ -214,7 +193,6 @@ describe('buildDiagnostic', () => {
   // [HP-SYM-2]
   it('should include where with symbol and how when all three optionals provided', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
@@ -229,7 +207,6 @@ describe('buildDiagnostic', () => {
   // [CO-SYM-1]
   it('should ignore symbol when file is not provided', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       symbol: 'AppController',
@@ -241,7 +218,6 @@ describe('buildDiagnostic', () => {
   // [ED-SYM-1]
   it('should include empty symbol in where when symbol is empty string', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
@@ -254,7 +230,6 @@ describe('buildDiagnostic', () => {
   // [CO-SYM-2]
   it('should handle all empty required and all empty optionals including symbol', () => {
     const result = buildDiagnostic({
-      code: '',
       severity: 'error',
       reason: '',
       file: '',
@@ -262,7 +237,6 @@ describe('buildDiagnostic', () => {
       how: '',
     });
 
-    expect(result.code).toBe('');
     expect(result.why).toBe('');
     expect(result.where).toEqual({ file: '', symbol: '' });
     expect(result.how).toBe('');
@@ -271,7 +245,6 @@ describe('buildDiagnostic', () => {
   // [ID-SYM-1]
   it('should return identical results for identical params including symbol', () => {
     const params = {
-      code: 'ZB_TEST_001',
       severity: 'error' as const,
       reason: 'Reason',
       file: 'src/app.ts',
@@ -288,7 +261,6 @@ describe('buildDiagnostic', () => {
   // [HP-NO-SUMMARY]
   it('should not include summary field in output', () => {
     const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
       severity: 'error',
       reason: 'Reason',
     });

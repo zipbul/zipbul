@@ -13,7 +13,7 @@ import { Logger } from '@zipbul/logger';
 import type { Result } from '@zipbul/result';
 import { isErr } from '@zipbul/result';
 import type { Diagnostic } from '../diagnostics';
-import { buildDiagnostic, reportDiagnostic, DiagnosticCode } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostic } from '../diagnostics';
 import { ManifestGenerator } from '../compiler/generator';
 import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 import type { IndexResult } from '@zipbul/gildash';
@@ -110,7 +110,6 @@ export function createDevCommand(deps: DevCommandDeps) {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown parse error.';
           const diagnostic = buildDiagnostic({
-            code: DiagnosticCode.BuildParseFailed,
             severity: 'error',
             reason,
             file: filePath,
@@ -133,7 +132,7 @@ export function createDevCommand(deps: DevCommandDeps) {
 
           if (isErr(adapterSpecResolution)) {
             reportDiagnostic(adapterSpecResolution.data);
-            throw new Error(adapterSpecResolution.data.reason);
+            throw new Error(adapterSpecResolution.data.why);
           }
 
           const manifestGen = new ManifestGenerator();
@@ -174,7 +173,6 @@ export function createDevCommand(deps: DevCommandDeps) {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown dev error.';
           const diagnostic = buildDiagnostic({
-            code: DiagnosticCode.DevFailed,
             severity: 'error',
             reason,
           });
@@ -213,7 +211,7 @@ export function createDevCommand(deps: DevCommandDeps) {
 
       if (isErr(appEntry)) {
         reportDiagnostic(appEntry.data);
-        throw new Error(appEntry.data.reason);
+        throw new Error(appEntry.data.why);
       }
 
       await rebuild();
@@ -229,7 +227,7 @@ export function createDevCommand(deps: DevCommandDeps) {
 
       if (isErr(ledgerResult)) {
         reportDiagnostic(ledgerResult.data);
-        throw new Error(ledgerResult.data.reason);
+        throw new Error(ledgerResult.data.why);
       }
 
       const ledger = ledgerResult;
@@ -243,7 +241,6 @@ export function createDevCommand(deps: DevCommandDeps) {
         // 2. 파싱 실패 파일 로깅
         for (const file of result.failedFiles) {
           const diagnostic = buildDiagnostic({
-            code: DiagnosticCode.DevGildashParse,
             severity: 'warning',
             reason: `File could not be indexed: ${toProjectRelativePath(file)}`,
             file,
@@ -293,7 +290,6 @@ export function createDevCommand(deps: DevCommandDeps) {
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Unknown dev error.';
       const diagnostic = buildDiagnostic({
-        code: DiagnosticCode.DevFailed,
         severity: 'error',
         reason,
       });

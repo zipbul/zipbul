@@ -15,4 +15,5 @@ bun.lock
 .zipbul/build/
 .lsmcp/cache
 
-coverageexamples/.zipbul/
+coverage
+examples/.zipbul/

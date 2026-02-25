@@ -19,7 +19,7 @@ import {
 } from '../common';
 import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
 import type { ZipbulConfigSource } from '../config/interfaces';
-import { buildDiagnostic, reportDiagnostic, DiagnosticCode } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostic } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 
@@ -207,7 +207,6 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown parse error.';
           const diagnostic = buildDiagnostic({
-            code: DiagnosticCode.BuildParseFailed,
             severity: 'error',
             reason,
             file: filePath,
@@ -223,7 +222,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
       if (isErr(appEntry)) {
         reportDiagnostic(appEntry.data);
-        throw new Error(appEntry.data.reason);
+        throw new Error(appEntry.data.why);
       }
 
       logger.info('🕸️  Building Module Graph...');
@@ -237,7 +236,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
       if (isErr(ledgerResult)) {
         reportDiagnostic(ledgerResult.data);
-        throw new Error(ledgerResult.data.reason);
+        throw new Error(ledgerResult.data.why);
       }
 
       const ledger = ledgerResult;
@@ -247,12 +246,11 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         if (isErr(hasCycleResult)) {
           reportDiagnostic(hasCycleResult.data);
-          throw new Error(hasCycleResult.data.reason);
+          throw new Error(hasCycleResult.data.why);
         }
 
         if (hasCycleResult) {
           const cycleDiagnostic = buildDiagnostic({
-            code: DiagnosticCode.BuildFileCycle,
             severity: 'warning',
             reason: 'gildash detected a circular import chain. Check import graph.',
           });
@@ -267,7 +265,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         if (isErr(adapterSpecResolution)) {
           reportDiagnostic(adapterSpecResolution.data);
-          throw new Error(adapterSpecResolution.data.reason);
+          throw new Error(adapterSpecResolution.data.why);
         }
 
         logger.info('🛠️  Generating intermediate manifests...');
@@ -371,7 +369,6 @@ export function createBuildCommand(deps: BuildCommandDeps) {
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Unknown build error.';
       const diagnostic = buildDiagnostic({
-        code: DiagnosticCode.BuildFailed,
         severity: 'error',
         reason,
       });

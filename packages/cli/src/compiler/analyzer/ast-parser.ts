@@ -17,7 +17,7 @@ import type {
 import type { Result } from '@zipbul/result';
 import { err, isErr } from '@zipbul/result';
 import type { Diagnostic } from '../../diagnostics';
-import { buildDiagnostic, DiagnosticCode } from '../../diagnostics';
+import { buildDiagnostic } from '../../diagnostics';
 import { AstTypeResolver } from './ast-type-resolver';
 import { compareCodePoint } from '../../common';
 
@@ -1176,7 +1176,6 @@ export class AstParser {
       visit(funcNode.body);
     } catch {
       return err(buildDiagnostic({
-        code: DiagnosticCode.BuildParseFailed,
         severity: 'error',
         reason: 'addErrorFilters는 리터럴 배열 + Identifier만 지원합니다.',
       }));
@@ -1313,7 +1312,6 @@ export class AstParser {
       visit(funcNode.body);
     } catch {
       return err(buildDiagnostic({
-        code: DiagnosticCode.BuildParseFailed,
         severity: 'error',
         reason: 'addMiddlewares는 리터럴 배열 + Identifier/withOptions만 지원합니다.',
       }));

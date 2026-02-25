@@ -6,7 +6,7 @@ import type { Diagnostic } from '../../diagnostics';
 import { err, type Err } from '@zipbul/result';
 import { type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint } from '../../common';
-import { buildDiagnostic, DiagnosticCode } from '../../diagnostics';
+import { buildDiagnostic } from '../../diagnostics';
 
 type RecordValue = AnalyzerValueRecord;
 
@@ -329,7 +329,6 @@ export class InjectorGenerator {
 
               if (start === null || end === null || tokenKind === 'invalid' || tokenValue === null) {
                 generateError = err(buildDiagnostic({
-                  code: DiagnosticCode.BuildInjectNotDeterminable,
                   severity: 'error',
                   reason: 'inject() 호출의 토큰을 정적으로 결정할 수 없습니다.',
                 }));
@@ -341,7 +340,6 @@ export class InjectorGenerator {
 
               if (!isNonEmptyString(tokenName)) {
                 generateError = err(buildDiagnostic({
-                  code: DiagnosticCode.BuildInjectNotDeterminable,
                   severity: 'error',
                   reason: 'inject() 호출의 토큰을 정적으로 결정할 수 없습니다.',
                 }));

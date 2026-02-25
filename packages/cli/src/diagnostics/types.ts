@@ -33,7 +33,6 @@ export interface Cycle {
 
 export interface Diagnostic {
   severity: DiagnosticSeverity;
-  code: string;
   why: string;
   where?: Location;
   how?: string;
@@ -41,7 +40,6 @@ export interface Diagnostic {
 }
 
 export interface BuildDiagnosticParams {
-  code: string;
   severity: DiagnosticSeverity;
   reason: string;
   file?: string;

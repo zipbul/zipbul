@@ -1,11 +1,10 @@
 import type { BuildDiagnosticParams, Diagnostic } from './types';
 
 export function buildDiagnostic(params: BuildDiagnosticParams): Diagnostic {
-  const { code, severity, reason } = params;
+  const { severity, reason } = params;
 
   return {
     severity,
-    code,
     why: reason,
     ...(params.file !== undefined && {
       where: {

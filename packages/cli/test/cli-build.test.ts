@@ -326,7 +326,7 @@ describe('createBuildCommand', () => {
     const deps = makeDeps({
       createParser: mock(() => ({
         parse: mock((_filePath: string, _content: string) => {
-          return err({ severity: 'error' as const, code: 'B0001', why: 'test' });
+          return err({ severity: 'error' as const, why: 'test' });
         }),
       }) as unknown as AstParser),
     });

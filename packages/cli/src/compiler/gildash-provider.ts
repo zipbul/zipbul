@@ -5,7 +5,7 @@ import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../diagnostics';
 
 import { err, isErr } from '@zipbul/result';
-import { buildDiagnostic, DiagnosticCode } from '../diagnostics';
+import { buildDiagnostic } from '../diagnostics';
 
 export interface GildashProviderOptions {
   projectRoot: string;
@@ -33,7 +33,6 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
         reason: result.data.message,
       }));
@@ -47,7 +46,6 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
         reason: result.data.message,
       }));
@@ -61,7 +59,6 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
         reason: result.data.message,
       }));
@@ -75,7 +72,6 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
         reason: result.data.message,
       }));
@@ -89,7 +85,6 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
         reason: result.data.message,
       }));
@@ -107,7 +102,6 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
         reason: result.data.message,
       }));
@@ -119,7 +113,6 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
         reason: result.data.message,
       }));
