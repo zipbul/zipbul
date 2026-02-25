@@ -4,8 +4,8 @@
   "type": "module",
   "module": "src/main.ts",
   "scripts": {
-    "build": "zp build",
-    "dev": "zp dev",
+    "build": "zb build",
+    "dev": "zb dev",
     "start": "bun dist/entry.js"
   },
   "dependencies": {
