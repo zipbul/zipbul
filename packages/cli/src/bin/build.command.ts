@@ -13,9 +13,9 @@ import {
   scanGlobSorted,
   writeIfChanged,
 } from '../common';
-import { ConfigLoader, ConfigLoadError, type ResolvedZipbulConfig } from '../config';
+import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
 import type { ZipbulConfigSource } from '../config/interfaces';
-import { buildDiagnostic, DiagnosticReportError, reportDiagnostics } from '../diagnostics';
+import { buildDiagnostic, DiagnosticReportError, reportDiagnostics, BUILD_PARSE_FAILED, BUILD_FILE_CYCLE, BUILD_FAILED } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 
@@ -194,11 +194,10 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown parse error.';
           const diagnostic = buildDiagnostic({
-            code: 'PARSE_FAILED',
-            severity: 'fatal',
+            code: BUILD_PARSE_FAILED,
+            severity: 'error',
             summary: 'Parse failed.',
             reason,
-            file: filePath,
           });
 
           reportDiagnostics({ diagnostics: [diagnostic] });
@@ -222,11 +221,10 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const hasFileCycle = await ledger.hasCycle();
         if (hasFileCycle) {
           const cycleDiagnostic = buildDiagnostic({
-            code: 'FILE_CYCLE_DETECTED',
+            code: BUILD_FILE_CYCLE,
             severity: 'warning',
             summary: 'File-level circular dependency detected.',
             reason: 'gildash detected a circular import chain. Check import graph.',
-            file: '.',
           });
           reportDiagnostics({ diagnostics: [cycleDiagnostic] });
         }
@@ -333,15 +331,12 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         throw error;
       }
 
-      const sourcePath = error instanceof ConfigLoadError ? error.sourcePath : undefined;
-      const file = typeof sourcePath === 'string' && sourcePath.length > 0 ? sourcePath : '.';
       const reason = error instanceof Error ? error.message : 'Unknown build error.';
       const diagnostic = buildDiagnostic({
-        code: 'BUILD_FAILED',
-        severity: 'fatal',
+        code: BUILD_FAILED,
+        severity: 'error',
         summary: 'Build failed.',
         reason,
-        file,
       });
 
       reportDiagnostics({ diagnostics: [diagnostic] });

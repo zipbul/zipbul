@@ -6,7 +6,7 @@ import type { CommandOptions } from './types';
 import { dev } from './dev.command';
 import { build } from './build.command';
 import { mcp } from './mcp.command';
-import { buildDiagnostic, reportDiagnostics } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostics, CLI_INVALID_COMMAND } from '../diagnostics';
 
 const { positionals, values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -33,11 +33,10 @@ const printUsage = (): void => {
 const reportInvalidCommand = (value: string | undefined): void => {
   const commandValue = value ?? '(missing)';
   const diagnostic = buildDiagnostic({
-    code: 'INVALID_COMMAND',
-    severity: 'fatal',
+    code: CLI_INVALID_COMMAND,
+    severity: 'error',
     summary: 'Unknown command.',
     reason: `Unsupported command: ${commandValue}.`,
-    file: '.',
   });
 
   reportDiagnostics({ diagnostics: [diagnostic] });

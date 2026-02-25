@@ -1,4 +1,4 @@
-export type DiagnosticSeverity = 'trace' | 'debug' | 'info' | 'warning' | 'error' | 'fatal';
+export type DiagnosticSeverity = 'error' | 'warning';
 
 export interface SourceRange {
   startLine: number;
@@ -55,5 +55,4 @@ export interface BuildDiagnosticParams {
   severity: DiagnosticSeverity;
   summary: string;
   reason: string;
-  file: string;
 }

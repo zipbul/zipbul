@@ -1,7 +1,7 @@
 import type { FileAnalysis } from './graph/interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord } from './types';
 
-import { buildDiagnostic, DiagnosticReportError } from '../../diagnostics';
+import { buildDiagnostic, DiagnosticReportError, APP_ENTRY_NOT_FOUND, APP_MULTIPLE_ENTRIES } from '../../diagnostics';
 
 export function isAnalyzerRecord(value: AnalyzerValue): value is AnalyzerValueRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -17,11 +17,10 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): v
   if (callEntries.length === 0) {
     throw new DiagnosticReportError(
       buildDiagnostic({
-        code: 'ZIPBUL_APP_002',
-        severity: 'fatal',
+        code: APP_ENTRY_NOT_FOUND,
+        severity: 'error',
         summary: 'createApplication entry module not found.',
         reason: 'createApplication call not found in recognized files.',
-        file: '.',
       }),
     );
   }
@@ -29,11 +28,10 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): v
   if (callEntries.length > 1) {
     throw new DiagnosticReportError(
       buildDiagnostic({
-        code: 'ZIPBUL_APP_018',
-        severity: 'fatal',
+        code: APP_MULTIPLE_ENTRIES,
+        severity: 'error',
         summary: 'Multiple createApplication calls detected.',
         reason: 'Multiple createApplication calls detected in recognized files.',
-        file: callEntries[0]?.filePath ?? '.',
       }),
     );
   }
@@ -49,11 +47,10 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): v
   if (args.length !== 1) {
     throw new DiagnosticReportError(
       buildDiagnostic({
-        code: 'ZIPBUL_APP_002',
-        severity: 'fatal',
+        code: APP_ENTRY_NOT_FOUND,
+        severity: 'error',
         summary: 'Invalid createApplication entry argument.',
         reason: 'createApplication must take exactly one entry module argument.',
-        file: entry.filePath,
       }),
     );
   }
@@ -63,11 +60,10 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): v
   if (!isAnalyzerRecord(entryArg)) {
     throw new DiagnosticReportError(
       buildDiagnostic({
-        code: 'ZIPBUL_APP_002',
-        severity: 'fatal',
+        code: APP_ENTRY_NOT_FOUND,
+        severity: 'error',
         summary: 'Invalid createApplication entry argument.',
         reason: 'createApplication entry module must be a statically resolvable identifier.',
-        file: entry.filePath,
       }),
     );
   }
@@ -77,11 +73,10 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): v
   if (typeof entryRef !== 'string' || entryRef.length === 0) {
     throw new DiagnosticReportError(
       buildDiagnostic({
-        code: 'ZIPBUL_APP_002',
-        severity: 'fatal',
+        code: APP_ENTRY_NOT_FOUND,
+        severity: 'error',
         summary: 'Invalid createApplication entry argument.',
         reason: 'createApplication entry module must be a statically resolvable identifier.',
-        file: entry.filePath,
       }),
     );
   }

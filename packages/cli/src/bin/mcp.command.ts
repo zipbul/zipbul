@@ -3,7 +3,7 @@ import type { CommandOptions } from './types';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { buildDiagnostic, reportDiagnostics } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostics, CLI_INVALID_COMMAND } from '../diagnostics';
 import { ConfigLoader } from '../config';
 import type { ResolvedZipbulConfig } from '../config';
 import { startZipbulMcpServerStdio } from '../mcp/server/mcp-server';
@@ -75,11 +75,10 @@ async function rebuildProjectIndexDefault(
 function reportInvalidSubcommand(value: string | undefined): void {
   const commandValue = value ?? '(missing)';
   const diagnostic = buildDiagnostic({
-    code: 'INVALID_COMMAND',
-    severity: 'fatal',
+    code: CLI_INVALID_COMMAND,
+    severity: 'error',
     summary: 'Unknown command.',
-    reason: `Unsupported mcp subcommand: ${commandValue}. Use: zp mcp | zp mcp verify | zp mcp rebuild.`,
-    file: '.',
+    reason: `Unsupported mcp subcommand: ${commandValue}. Use: zb mcp | zb mcp verify | zb mcp rebuild.`,
   });
 
   reportDiagnostics({ diagnostics: [diagnostic] });

@@ -8,7 +8,7 @@
 ## 목표
 
 0. CLI 바이너리 리네임 — `zp` → `zb`
-1. `@zipbul/result` 외부 라이브러리 도입, 내부 Result 스펙 삭제
+1. `@zipbul/result` 외부 라이브러리 도입
 2. CLI Diagnostics 체계화 — severity 2단계 축소, 진단 코드 전체 상수화(`ZB_` prefix), `DiagnosticReportError` 삭제, `BuildDiagnosticParams.file` 제거
 3. CLI에 Result 패턴 적용 — fail-fast, `Result<T, Diagnostic>` 직접 사용
 4. Logger 전면 개선 + ALS 확장 — Transport 다중화, TestTransport, `child()`, `fn` first-class 필드, `@Trace()` (ALS 기반), `AsyncLocalStorage<string>` → `AsyncLocalStorage<LogContext>`, 요청(프로토콜 무관)/fn 레벨 전파
@@ -34,7 +34,7 @@
 
 ---
 
-## Phase 1: Result 스펙 삭제 + `@zipbul/result` 도입
+## Phase 1: `@zipbul/result` 도입
 
 > 에이전트: **Sonnet**
 > 복잡도: 낮음
@@ -43,40 +43,10 @@
 
 | 파일 | 변경 종류 |
 |------|-----------|
-| `docs/30_SPEC/common/result.spec.md` | **삭제** |
-| `docs/30_SPEC/SPEC.md` | `result.spec.md` 항목 제거 |
-| `docs/30_SPEC/error-handling/error-handling.spec.md` | L118 `result.spec.md` 참조 → `@zipbul/result` 패키지 참조 |
-| `docs/30_SPEC/execution/execution.spec.md` | L121 `result.spec.md` 참조 → `@zipbul/result` 패키지 참조 |
-| `docs/30_SPEC/common/common.spec.md` | L13 Depends-On에서 `result.spec.md` 제거, L81 참조 변경 |
 | `packages/common/package.json` | `@zipbul/result` 의존성 추가 |
 | `packages/common/src/index.ts` | `err`, `isErr`, `safe`, `Result`, `Err`, `ResultAsync` re-export |
 
-### 1.1 스펙 삭제
-
-`docs/30_SPEC/common/result.spec.md` 파일 삭제.
-
-### 1.2 스펙 참조 정리
-
-`SPEC.md`에서 `result.spec.md` 항목 제거.
-
-`error-handling.spec.md` L118:
-
-Before:
-```
-| Result                    | path:docs/30_SPEC/common/result.spec.md |
-```
-
-After:
-```
-| Result                    | url:https://www.npmjs.com/package/@zipbul/result |
-```
-
-`execution.spec.md` L121: 동일 패턴 적용.
-
-`common.spec.md` L13 Depends-On에서 `path:docs/30_SPEC/common/result.spec.md` 제거.
-`common.spec.md` L81: 참조를 `@zipbul/result` 패키지로 변경.
-
-### 1.3 의존성 추가 및 re-export
+### 1.1 의존성 추가 및 re-export
 
 `packages/common/package.json`에 `@zipbul/result` 추가.
 
@@ -114,7 +84,6 @@ export type { Result, Err, ResultAsync } from '@zipbul/result';
 | `packages/cli/src/diagnostics/codes/index.ts` | **신규** — 전체 re-export |
 | `packages/cli/src/compiler/diagnostics/adapter-codes.spec.ts` | import 경로 변경 |
 | `packages/cli/src/compiler/diagnostics/index.ts` | 삭제 또는 re-export 포워딩 |
-| `docs/30_SPEC/common/diagnostics.spec.md` | severity 6단계 → 2단계 |
 
 ### 2.1 severity 2단계 축소
 
@@ -759,7 +728,7 @@ export function reportDiagnostic(diagnostic: Diagnostic): void {
 ```
 Phase 0 ─── Sonnet ─── CLI 바이너리 리네임 (zp → zb)
   │
-  └─── Phase 1 ─── Sonnet ─── Result 스펙 삭제 + @zipbul/result 도입
+  └─── Phase 1 ─── Sonnet ─── @zipbul/result 도입
          │
          └─── Phase 2 ─── Sonnet ─── Diagnostics 체계화 (ZB_ prefix)
                 │
@@ -774,7 +743,7 @@ Phase 3 + Phase 4 완료 후:
 | Phase | 에이전트 | 복잡도 | 배정 이유 |
 |-------|---------|--------|-----------|
 | 0 | Sonnet | 낮음 | 파일 리네임 + 문자열 치환, 기계적 변경 |
-| 1 | Sonnet | 낮음 | 스펙 삭제 + 의존성 추가, 기계적 변경 |
+| 1 | Sonnet | 낮음 | 의존성 추가, 기계적 변경 |
 | 2 | Sonnet | 중간 | 타입 변경 + 파일 이동/생성, 패턴화된 작업 |
 | 3 | Opus | **높음** | adapter-spec-resolver 전면 리팩토링, 에러 흐름 재설계, 대규모 테스트 수정 |
 | 4 | Sonnet | **높음** | Logger 전면 개선 + ALS 확장, child/Trace/TestTransport/LogContext 추가 |
@@ -787,7 +756,7 @@ Phase 3 + Phase 4 완료 후:
 | 순서 | 범위 | 메시지 |
 |------|------|--------|
 | 0 | Phase 0 | `refactor(cli): rename binary from zp to zb` |
-| 1 | Phase 1 | `refactor(common): replace result spec with @zipbul/result package` |
+| 1 | Phase 1 | `refactor(common): introduce @zipbul/result package` |
 | 2 | Phase 2 | `refactor(cli): systematize diagnostic codes with ZB_ prefix and simplify severity` |
 | 3 | Phase 3 | `refactor(cli): apply Result pattern with fail-fast across build pipeline` |
 | 4 | Phase 4 | `feat(logger): add child, Trace, multiple transports, expand ALS to LogContext` |
@@ -801,7 +770,7 @@ Phase 3 + Phase 4 완료 후:
 |--------|------|------|
 | adapter-spec-resolver 반환 타입 변경 파급 | 호출자 전체 수정 필요 | Phase 3에서 Opus가 전체 호출 체인 추적 |
 | `DiagnosticReportError` 삭제 시 dev.command.ts 에러 흐름 변경 | dev 모드 동작 변경 | Phase 3에서 dev.command.ts도 함께 수정 |
-| severity 6→2단계 축소 시 코드/스펙 동기화 | `'fatal'` 사용처 컴파일 에러 | Phase 2에서 severity 변경 시 모든 사용처 일괄 마이그레이션 |
+| severity 6→2단계 축소 시 코드 동기화 | `'fatal'` 사용처 컴파일 에러 | Phase 2에서 severity 변경 시 모든 사용처 일괄 마이그레이션 |
 | Logger static 상태 테스트 오염 | 테스트 간 간섭 | Phase 4에서 TestTransport + 테스트 setUp/tearDown 패턴 확립 |
 | `@Trace()` ALS 기반 — `RequestContext.run` 호출 오버헤드 | 고빈도 메서드에서 미미한 성능 영향 | hot path에서는 `child()` 사용 권장, `@Trace()`는 서비스 레벨 메서드 전용 |
 | ALS `run()` 중첩 시 shallow merge로 부모 키 덮어씀 | 의도치 않은 값 소실 | 동일 키 중첩 금지 컨벤션, 문서화 |

@@ -1,21 +1,11 @@
-import type { Diagnostic, DiagnosticSeverity, ReportDiagnosticsParams } from './types';
+import type { Diagnostic, ReportDiagnosticsParams } from './types';
 
 import { compareCodePoint } from '../common';
 
-const severityOrder: DiagnosticSeverity[] = ['trace', 'debug', 'info', 'warning', 'error', 'fatal'];
-
-const getSeverityIndex = (severity: DiagnosticSeverity): number => {
-  const index = severityOrder.indexOf(severity);
-
-  return index >= 0 ? index : severityOrder.length;
-};
-
 const sortDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
   return diagnostics.slice().sort((left, right) => {
-    const severityDiff = getSeverityIndex(left.severity) - getSeverityIndex(right.severity);
-
-    if (severityDiff !== 0) {
-      return severityDiff;
+    if (left.severity !== right.severity) {
+      return left.severity === 'error' ? -1 : 1;
     }
 
     const codeDiff = compareCodePoint(left.code, right.code);
@@ -24,16 +14,7 @@ const sortDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
       return codeDiff;
     }
 
-    const summaryDiff = compareCodePoint(left.summary, right.summary);
-
-    if (summaryDiff !== 0) {
-      return summaryDiff;
-    }
-
-    const leftFile = left.where[0]?.file ?? '';
-    const rightFile = right.where[0]?.file ?? '';
-
-    return compareCodePoint(leftFile, rightFile);
+    return compareCodePoint(left.summary, right.summary);
   });
 };
 

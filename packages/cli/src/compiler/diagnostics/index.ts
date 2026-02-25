@@ -1,1 +1,2 @@
-export * from './adapter-codes';
+// forwarded to diagnostics/codes/adapter
+export * from '../../diagnostics/codes/adapter';

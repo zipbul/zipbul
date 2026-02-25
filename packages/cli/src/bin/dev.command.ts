@@ -6,10 +6,10 @@ import type { CommandOptions } from './types';
 
 import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
-import { ConfigLoader, ConfigLoadError, type ResolvedZipbulConfig } from '../config';
+import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
 import type { ZipbulConfigSource } from '../config/interfaces';
 import { zipbulDirPath, scanGlobSorted, writeIfChanged } from '../common';
-import { buildDiagnostic, DiagnosticReportError, reportDiagnostics } from '../diagnostics';
+import { buildDiagnostic, DiagnosticReportError, reportDiagnostics, BUILD_PARSE_FAILED, DEV_FAILED, DEV_GILDASH_PARSE } from '../diagnostics';
 import { ManifestGenerator } from '../compiler/generator';
 import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 import type { IndexResult } from '@zipbul/gildash';
@@ -97,11 +97,10 @@ export function createDevCommand(deps: DevCommandDeps) {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown parse error.';
           const diagnostic = buildDiagnostic({
-            code: 'PARSE_FAILED',
-            severity: 'fatal',
+            code: BUILD_PARSE_FAILED,
+            severity: 'error',
             summary: 'Parse failed.',
             reason,
-            file: toProjectRelativePath(filePath),
           });
 
           reportDiagnostics({ diagnostics: [diagnostic] });
@@ -156,11 +155,10 @@ export function createDevCommand(deps: DevCommandDeps) {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown dev error.';
           const diagnostic = buildDiagnostic({
-            code: 'DEV_FAILED',
-            severity: 'fatal',
+            code: DEV_FAILED,
+            severity: 'error',
             summary: 'Dev failed.',
             reason,
-            file: '.',
           });
 
           throw new DiagnosticReportError(diagnostic);
@@ -214,11 +212,10 @@ export function createDevCommand(deps: DevCommandDeps) {
         // 2. 파싱 실패 파일 로깅
         for (const file of result.failedFiles) {
           const diagnostic = buildDiagnostic({
-            code: 'GILDASH_PARSE_FAILED',
+            code: DEV_GILDASH_PARSE,
             severity: 'warning',
             summary: 'Gildash parse failed.',
             reason: `File could not be indexed: ${toProjectRelativePath(file)}`,
-            file: toProjectRelativePath(file),
           });
           reportDiagnostics({ diagnostics: [diagnostic] });
         }
@@ -263,15 +260,12 @@ export function createDevCommand(deps: DevCommandDeps) {
         throw error;
       }
 
-      const sourcePath = error instanceof ConfigLoadError ? error.sourcePath : undefined;
-      const file = typeof sourcePath === 'string' && sourcePath.length > 0 ? sourcePath : '.';
       const reason = error instanceof Error ? error.message : 'Unknown dev error.';
       const diagnostic = buildDiagnostic({
-        code: 'DEV_FAILED',
-        severity: 'fatal',
+        code: DEV_FAILED,
+        severity: 'error',
         summary: 'Dev failed.',
         reason,
-        file,
       });
 
       reportDiagnostics({ diagnostics: [diagnostic] });
