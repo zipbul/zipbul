@@ -1,3 +1,6 @@
+export { err, isErr, safe } from '@zipbul/result';
+export type { Result, Err, ResultAsync } from '@zipbul/result';
+
 export * from './adapter/index';
 export * from './enums';
 export * from './interfaces';
