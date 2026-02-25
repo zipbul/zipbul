@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { join } from 'path';
 
+import { isErr } from '@zipbul/result';
 import type { FileAnalysis } from './graph/interfaces';
 import type { FileSetup } from '../../../test/shared/interfaces';
 import type { AstParseResult } from './test/types';
@@ -600,7 +601,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/adapterSpec must be defineAdapter/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/adapterSpec must be defineAdapter/);
+    }
   });
 
   it('should throw when defineAdapter has wrong argument count', async () => {
@@ -633,7 +638,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/exactly one argument/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/exactly one argument/);
+    }
   });
 
   it('should throw when defineAdapter argument is not object literal', async () => {
@@ -666,7 +675,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/object literal/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/object literal/);
+    }
   });
 
   it('should throw when name is missing or empty', async () => {
@@ -674,12 +687,20 @@ describe('AdapterSpecResolver', () => {
     const fileMap1 = buildStandardFileMap(createAdapterValue({ name: undefined }));
     const resolver = new AdapterSpecResolver();
 
-    await expect(resolver.resolve({ fileMap: fileMap1, projectRoot })).rejects.toThrow(/name/);
+    const result1 = await resolver.resolve({ fileMap: fileMap1, projectRoot });
+    expect(isErr(result1)).toBe(true);
+    if (isErr(result1)) {
+      expect(result1.data.why).toMatch(/name/);
+    }
 
     // Arrange — empty name
     const fileMap2 = buildStandardFileMap(createAdapterValue({ name: '' }));
 
-    await expect(resolver.resolve({ fileMap: fileMap2, projectRoot })).rejects.toThrow(/name/);
+    const result2 = await resolver.resolve({ fileMap: fileMap2, projectRoot });
+    expect(isErr(result2)).toBe(true);
+    if (isErr(result2)) {
+      expect(result2.data.why).toMatch(/name/);
+    }
   });
 
   it('should throw when pipeline is missing or not array', async () => {
@@ -687,12 +708,20 @@ describe('AdapterSpecResolver', () => {
     const fileMap1 = buildStandardFileMap(createAdapterValue({ pipeline: undefined }));
     const resolver = new AdapterSpecResolver();
 
-    await expect(resolver.resolve({ fileMap: fileMap1, projectRoot })).rejects.toThrow(/pipeline/);
+    const result1 = await resolver.resolve({ fileMap: fileMap1, projectRoot });
+    expect(isErr(result1)).toBe(true);
+    if (isErr(result1)) {
+      expect(result1.data.why).toMatch(/pipeline/);
+    }
 
     // Arrange — not array
     const fileMap2 = buildStandardFileMap(createAdapterValue({ pipeline: 'not-array' }));
 
-    await expect(resolver.resolve({ fileMap: fileMap2, projectRoot })).rejects.toThrow(/pipeline/);
+    const result2 = await resolver.resolve({ fileMap: fileMap2, projectRoot });
+    expect(isErr(result2)).toBe(true);
+    if (isErr(result2)) {
+      expect(result2.data.why).toMatch(/pipeline/);
+    }
   });
 
   it('should throw when pipeline element is not string', async () => {
@@ -701,10 +730,14 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/pipeline/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/pipeline/);
+    }
   });
 
-  it('should throw when decorators.controller is not identifier', async () => {
+  it('should throw when decorators.controller is not an array or identifier', async () => {
     // Arrange
     const fileMap = buildStandardFileMap(
       createAdapterValue({
@@ -717,7 +750,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/controller/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/controller/);
+    }
   });
 
   it('should throw when decorators.handler is empty or invalid', async () => {
@@ -732,7 +769,11 @@ describe('AdapterSpecResolver', () => {
     );
     const resolver = new AdapterSpecResolver();
 
-    await expect(resolver.resolve({ fileMap: fileMap1, projectRoot })).rejects.toThrow(/handler/);
+    const result1 = await resolver.resolve({ fileMap: fileMap1, projectRoot });
+    expect(isErr(result1)).toBe(true);
+    if (isErr(result1)) {
+      expect(result1.data.why).toMatch(/handler/);
+    }
 
     // Arrange — handler element not identifier
     const fileMap2 = buildStandardFileMap(
@@ -744,7 +785,11 @@ describe('AdapterSpecResolver', () => {
       }),
     );
 
-    await expect(resolver.resolve({ fileMap: fileMap2, projectRoot })).rejects.toThrow(/handler/);
+    const result2 = await resolver.resolve({ fileMap: fileMap2, projectRoot });
+    expect(isErr(result2)).toBe(true);
+    if (isErr(result2)) {
+      expect(result2.data.why).toMatch(/handler/);
+    }
   });
 
   it('should throw when no adapterSpec found', async () => {
@@ -776,7 +821,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/No adapterSpec exports found/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/No adapterSpec exports found/);
+    }
   });
 
   it('should throw on duplicate adapterId', async () => {
@@ -819,7 +868,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/Duplicate adapterId/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/Duplicate adapterId/);
+    }
   });
 
   it('should throw when controller has multiple adapter owners', async () => {
@@ -887,7 +940,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/multiple adapter owner/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/multiple adapter owner/);
+    }
   });
 
   it('should throw when handler not on adapter controller', async () => {
@@ -931,7 +988,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert — validateMiddlewarePhaseInputs fires before buildHandlerIndex
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/must belong to/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/must belong to/);
+    }
   });
 
   it('should throw on duplicate handler id', async () => {
@@ -970,7 +1031,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/Duplicate handler id/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/Duplicate handler id/);
+    }
   });
 
   it('should throw when middleware phase is unsupported', async () => {
@@ -1019,7 +1084,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/Unsupported middleware phase/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/Unsupported middleware phase/);
+    }
   });
 
   it('should throw when pipeline missing required reserved tokens', async () => {
@@ -1032,7 +1101,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/pipeline/i);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/pipeline/i);
+    }
   });
 
   it('should throw when pipeline contains duplicate custom phase', async () => {
@@ -1045,7 +1118,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/duplicate/i);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/duplicate/i);
+    }
   });
 
   it('should throw when phase id contains colon', async () => {
@@ -1058,7 +1135,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/must not contain/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/must not contain/);
+    }
   });
 
   // =======================================================================
@@ -1129,7 +1210,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert — no adapterSpec found since file doesn't exist
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/No adapterSpec exports found/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/No adapterSpec exports found/);
+    }
   });
 
   it('should handle entry file path normalization (non-.ts ignored)', async () => {
@@ -1154,7 +1239,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert — no .ts entry → no adapterSpec found
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/No adapterSpec exports found/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/No adapterSpec exports found/);
+    }
   });
 
   it('should handle pipeline with exactly reserved tokens only', async () => {
@@ -1216,7 +1305,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert — should not stack overflow, instead throws "No adapterSpec"
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/No adapterSpec exports found/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/No adapterSpec exports found/);
+    }
   });
 
   it('should throw duplicate adapterId before reaching validation', async () => {
@@ -1267,7 +1360,11 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert — duplicate before middleware/controller validation
-    await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/Duplicate adapterId/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/Duplicate adapterId/);
+    }
   });
 
   // =======================================================================
@@ -1527,7 +1624,11 @@ describe('AdapterSpecResolver', () => {
     const fileMap = buildFileMapWithCode(code);
     const resolver = new AdapterSpecResolver();
 
-    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/static/i);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/static/i);
+    }
   });
 
   it('should throw when handler method uses computed property name', async () => {
@@ -1545,7 +1646,11 @@ describe('AdapterSpecResolver', () => {
     const fileMap = buildFileMapWithCode(code);
     const resolver = new AdapterSpecResolver();
 
-    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/computed/i);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/computed/i);
+    }
   });
 
   it('should throw when handler method is private (#name)', async () => {
@@ -1563,7 +1668,11 @@ describe('AdapterSpecResolver', () => {
     const fileMap = buildFileMapWithCode(code);
     const resolver = new AdapterSpecResolver();
 
-    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/private/i);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/private/i);
+    }
   });
 
   it('should throw when adapterIds is not an array', async () => {
@@ -1581,7 +1690,11 @@ describe('AdapterSpecResolver', () => {
     const fileMap = buildFileMapWithCode(code);
     const resolver = new AdapterSpecResolver();
 
-    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/adapterIds/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/adapterIds/);
+    }
   });
 
   it('should throw when adapterIds is empty array', async () => {
@@ -1599,7 +1712,11 @@ describe('AdapterSpecResolver', () => {
     const fileMap = buildFileMapWithCode(code);
     const resolver = new AdapterSpecResolver();
 
-    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/adapterIds/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/adapterIds/);
+    }
   });
 
   it('should throw when adapterIds element is not a string', async () => {
@@ -1617,7 +1734,11 @@ describe('AdapterSpecResolver', () => {
     const fileMap = buildFileMapWithCode(code);
     const resolver = new AdapterSpecResolver();
 
-    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/adapterIds/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/adapterIds/);
+    }
   });
 
   it('should throw when adapterIds contains unknown adapterId', async () => {
@@ -1635,7 +1756,11 @@ describe('AdapterSpecResolver', () => {
     const fileMap = buildFileMapWithCode(code);
     const resolver = new AdapterSpecResolver();
 
-    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/nonexistent/);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/nonexistent/);
+    }
   });
 
   it('should throw for isStatic before isPrivateName when both are true', async () => {
@@ -1654,6 +1779,10 @@ describe('AdapterSpecResolver', () => {
     const resolver = new AdapterSpecResolver();
 
     // isStatic check should fire first, not isPrivateName
-    expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/static/i);
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/static/i);
+    }
   });
 });

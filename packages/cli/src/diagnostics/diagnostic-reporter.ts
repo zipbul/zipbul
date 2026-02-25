@@ -18,6 +18,12 @@ const sortDiagnostics = (diagnostics: Diagnostic[]): Diagnostic[] => {
   });
 };
 
+export function reportDiagnostic(diagnostic: Diagnostic): void {
+  const payload = JSON.stringify(diagnostic, null, 2);
+
+  console.error(payload);
+}
+
 export function reportDiagnostics(params: ReportDiagnosticsParams): void {
   const sorted = sortDiagnostics(params.diagnostics);
   const payload = JSON.stringify(sorted, null, 2);

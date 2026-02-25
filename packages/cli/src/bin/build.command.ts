@@ -4,6 +4,9 @@ import { join, resolve, dirname } from 'path';
 
 import type { CollectedClass, CommandOptions } from './types';
 
+import type { Result } from '@zipbul/result';
+import { isErr } from '@zipbul/result';
+import type { Diagnostic } from '../diagnostics';
 import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import {
@@ -15,7 +18,7 @@ import {
 } from '../common';
 import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
 import type { ZipbulConfigSource } from '../config/interfaces';
-import { buildDiagnostic, DiagnosticReportError, reportDiagnostics, BUILD_PARSE_FAILED, BUILD_FILE_CYCLE, BUILD_FAILED } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostic, reportDiagnostics, BUILD_PARSE_FAILED, BUILD_FILE_CYCLE, BUILD_FAILED } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 
@@ -32,7 +35,7 @@ export interface BuildCommandDeps {
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
   resolveImport: (specifier: string, fromDir: string) => string;
   buildBundle: typeof Bun.build;
-  createGildashProvider?: (opts: GildashProviderOptions) => Promise<GildashProvider>;
+  createGildashProvider?: (opts: GildashProviderOptions) => Promise<Result<GildashProvider, Diagnostic>>;
 }
 
 export function createBuildCommand(deps: BuildCommandDeps) {
@@ -198,6 +201,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
             severity: 'error',
             summary: 'Parse failed.',
             reason,
+            file: filePath,
           });
 
           reportDiagnostics({ diagnostics: [diagnostic] });
@@ -206,20 +210,38 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
       }
 
-      validateCreateApplication(fileMap);
+      const appEntry = validateCreateApplication(fileMap);
+
+      if (isErr(appEntry)) {
+        reportDiagnostic(appEntry.data);
+        throw new Error(appEntry.data.reason);
+      }
 
       console.info('🕸️  Building Module Graph...');
 
       // gildash 파일 레벨 순환 감지 (보강)
       const openGildash = deps.createGildashProvider ?? GildashProvider.open;
-      const ledger = await openGildash({
+      const ledgerResult = await openGildash({
         projectRoot,
         ignorePatterns: ['dist', 'node_modules', '.zipbul'],
       });
 
+      if (isErr(ledgerResult)) {
+        reportDiagnostic(ledgerResult.data);
+        throw new Error(ledgerResult.data.reason);
+      }
+
+      const ledger = ledgerResult;
+
       try {
-        const hasFileCycle = await ledger.hasCycle();
-        if (hasFileCycle) {
+        const hasCycleResult = await ledger.hasCycle();
+
+        if (isErr(hasCycleResult)) {
+          reportDiagnostic(hasCycleResult.data);
+          throw new Error(hasCycleResult.data.reason);
+        }
+
+        if (hasCycleResult) {
           const cycleDiagnostic = buildDiagnostic({
             code: BUILD_FILE_CYCLE,
             severity: 'warning',
@@ -234,6 +256,11 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         graph.build();
 
         const adapterSpecResolution = await adapterSpecResolver.resolve({ fileMap, projectRoot });
+
+        if (isErr(adapterSpecResolution)) {
+          reportDiagnostic(adapterSpecResolution.data);
+          throw new Error(adapterSpecResolution.data.reason);
+        }
 
         console.info('🛠️  Generating intermediate manifests...');
 
@@ -322,15 +349,13 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         console.info(`   Runtime: ${join(outDir, 'runtime.js')}`);
         console.info(`   Manifest: ${manifestFile}`);
       } finally {
-        await ledger.close();
+        const closeResult = await ledger.close();
+
+        if (isErr(closeResult)) {
+          reportDiagnostic(closeResult.data);
+        }
       }
     } catch (error) {
-      if (error instanceof DiagnosticReportError) {
-        reportDiagnostics({ diagnostics: [error.diagnostic] });
-
-        throw error;
-      }
-
       const reason = error instanceof Error ? error.message : 'Unknown build error.';
       const diagnostic = buildDiagnostic({
         code: BUILD_FAILED,

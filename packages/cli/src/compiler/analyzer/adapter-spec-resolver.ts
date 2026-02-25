@@ -9,7 +9,21 @@ import type {
   HandlerIndexEntry,
 } from './interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord, DecoratorArguments } from './types';
+import type { Result } from '@zipbul/result';
+import type { Diagnostic } from '../../diagnostics';
 
+import { err, isErr } from '@zipbul/result';
+import {
+  buildDiagnostic,
+  ADAPTER_SPEC_NOT_COLLECTED,
+  ADAPTER_INPUT_UNCOLLECTABLE,
+  ADAPTER_PIPELINE_TOKEN_INVALID,
+  ADAPTER_PHASE_ID_INVALID,
+  ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,
+  ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,
+  ADAPTER_ENTRY_DECORATOR_INVALID,
+  ADAPTER_HANDLER_ID_UNRESOLVABLE,
+} from '../../diagnostics';
 import { PathResolver } from '../../common';
 import { AstParser } from './ast-parser';
 
@@ -34,7 +48,7 @@ const RESERVED_MAP: Record<string, string> = {
 export class AdapterSpecResolver {
   private parser = new AstParser();
 
-  async resolve(params: AdapterSpecResolveParams): Promise<AdapterSpecResolution> {
+  async resolve(params: AdapterSpecResolveParams): Promise<Result<AdapterSpecResolution, Diagnostic>> {
     const { fileMap, projectRoot } = params;
     const entryFiles = this.collectPackageEntryFiles(fileMap);
     const adapterSpecs: AdapterSpecExtraction[] = [];
@@ -49,36 +63,65 @@ export class AdapterSpecResolver {
       const defineCall = this.asRecord(resolvedExport.value);
 
       if (defineCall?.__zipbul_call !== 'defineAdapter') {
-        throw new Error(`[Zipbul AOT] adapterSpec must be defineAdapter({ name, classRef, pipeline, ... }) in ${resolvedExport.sourceFile}.`);
+        return err(buildDiagnostic({
+          code: ADAPTER_SPEC_NOT_COLLECTED,
+          severity: 'error',
+          summary: 'adapterSpec must be defineAdapter call',
+          reason: `adapterSpec must be defineAdapter({ name, classRef, pipeline, ... }) in ${resolvedExport.sourceFile}.`,
+          file: resolvedExport.sourceFile,
+        }));
       }
 
       const args = isAnalyzerValueArray(defineCall.args) ? defineCall.args : [];
 
       if (args.length !== 1) {
-        throw new Error(`[Zipbul AOT] defineAdapter requires exactly one argument in ${resolvedExport.sourceFile}.`);
+        return err(buildDiagnostic({
+          code: ADAPTER_INPUT_UNCOLLECTABLE,
+          severity: 'error',
+          summary: 'defineAdapter requires exactly one argument',
+          reason: `defineAdapter requires exactly one argument in ${resolvedExport.sourceFile}.`,
+          file: resolvedExport.sourceFile,
+        }));
       }
 
       const arg = this.asRecord(args[0]);
 
       if (arg === null) {
-        throw new Error(`[Zipbul AOT] defineAdapter argument must be an object literal in ${resolvedExport.sourceFile}.`);
+        return err(buildDiagnostic({
+          code: ADAPTER_INPUT_UNCOLLECTABLE,
+          severity: 'error',
+          summary: 'defineAdapter argument must be an object literal',
+          reason: `defineAdapter argument must be an object literal in ${resolvedExport.sourceFile}.`,
+          file: resolvedExport.sourceFile,
+        }));
       }
 
-      const result = this.extractFromObjectLiteral(arg, resolvedExport.sourceFile);
+      const extraction = this.extractFromObjectLiteral(arg, resolvedExport.sourceFile);
+      if (isErr(extraction)) return extraction;
 
-      adapterSpecs.push({ adapterId: result.adapterId, staticSpec: result.staticSpec });
+      adapterSpecs.push({ adapterId: extraction.adapterId, staticSpec: extraction.staticSpec });
     }
 
     if (adapterSpecs.length === 0) {
-      throw new Error('[Zipbul AOT] No adapterSpec exports found in adapter package entry files.');
+      return err(buildDiagnostic({
+        code: ADAPTER_SPEC_NOT_COLLECTED,
+        severity: 'error',
+        summary: 'No adapterSpec exports found',
+        reason: 'No adapterSpec exports found in adapter package entry files.',
+      }));
     }
 
     const adapterStaticSpecs = this.buildAdapterStaticSpecSet(adapterSpecs);
-    const controllerAdapterMap = this.buildControllerAdapterMap(adapterSpecs, fileMap);
+    if (isErr(adapterStaticSpecs)) return adapterStaticSpecs;
 
-    this.validateMiddlewarePhaseInputs(adapterSpecs, fileMap, controllerAdapterMap);
+    const controllerAdapterMap = this.buildControllerAdapterMap(adapterSpecs, fileMap);
+    if (isErr(controllerAdapterMap)) return controllerAdapterMap;
+
+    const middlewareValidation = this.validateMiddlewarePhaseInputs(adapterSpecs, fileMap, controllerAdapterMap);
+    if (isErr(middlewareValidation)) return middlewareValidation;
 
     const handlerIndex = this.buildHandlerIndex(adapterSpecs, fileMap, projectRoot, controllerAdapterMap);
+    if (isErr(handlerIndex)) return handlerIndex;
 
     return { adapterStaticSpecs, handlerIndex };
   }
@@ -218,17 +261,29 @@ export class AdapterSpecResolver {
     return analysis;
   }
 
-  private extractFromObjectLiteral(arg: AnalyzerValueRecord, sourceFile: string): AdapterStaticSpecResult {
+  private extractFromObjectLiteral(arg: AnalyzerValueRecord, sourceFile: string): Result<AdapterStaticSpecResult, Diagnostic> {
     const adapterId = arg.name;
 
     if (typeof adapterId !== 'string' || adapterId.length === 0) {
-      throw new Error(`[Zipbul AOT] defineAdapter.name must be a non-empty string in ${sourceFile}.`);
+      return err(buildDiagnostic({
+        code: ADAPTER_INPUT_UNCOLLECTABLE,
+        severity: 'error',
+        summary: 'defineAdapter.name must be a non-empty string',
+        reason: `defineAdapter.name must be a non-empty string in ${sourceFile}.`,
+        file: sourceFile,
+      }));
     }
 
     const pipelineRaw = arg.pipeline;
 
     if (!Array.isArray(pipelineRaw)) {
-      throw new Error(`[Zipbul AOT] defineAdapter.pipeline must be an array in ${sourceFile}.`);
+      return err(buildDiagnostic({
+        code: ADAPTER_INPUT_UNCOLLECTABLE,
+        severity: 'error',
+        summary: 'defineAdapter.pipeline must be an array',
+        reason: `defineAdapter.pipeline must be an array in ${sourceFile}.`,
+        file: sourceFile,
+      }));
     }
 
     const pipeline: string[] = [];
@@ -241,27 +296,51 @@ export class AdapterSpecResolver {
 
         pipeline.push(resolved);
       } else {
-        throw new Error(`[Zipbul AOT] defineAdapter.pipeline elements must be strings or enum references in ${sourceFile}.`);
+        return err(buildDiagnostic({
+          code: ADAPTER_INPUT_UNCOLLECTABLE,
+          severity: 'error',
+          summary: 'defineAdapter.pipeline elements must be strings or enum references',
+          reason: `defineAdapter.pipeline elements must be strings or enum references in ${sourceFile}.`,
+          file: sourceFile,
+        }));
       }
     }
 
     const decsRaw = this.asRecord(arg.decorators);
 
     if (decsRaw === null) {
-      throw new Error(`[Zipbul AOT] defineAdapter.decorators must be an object in ${sourceFile}.`);
+      return err(buildDiagnostic({
+        code: ADAPTER_INPUT_UNCOLLECTABLE,
+        severity: 'error',
+        summary: 'defineAdapter.decorators must be an object',
+        reason: `defineAdapter.decorators must be an object in ${sourceFile}.`,
+        file: sourceFile,
+      }));
     }
 
     const controllerRaw = this.asRecord(decsRaw.controller);
 
     if (controllerRaw === null || typeof controllerRaw.__zipbul_ref !== 'string') {
-      throw new Error(`[Zipbul AOT] defineAdapter.decorators.controller must be an Identifier in ${sourceFile}.`);
+      return err(buildDiagnostic({
+        code: ADAPTER_INPUT_UNCOLLECTABLE,
+        severity: 'error',
+        summary: 'defineAdapter.decorators.controller must be an Identifier',
+        reason: `defineAdapter.decorators.controller must be an Identifier in ${sourceFile}.`,
+        file: sourceFile,
+      }));
     }
 
     const controller = controllerRaw.__zipbul_ref;
     const handlerRaw = decsRaw.handler;
 
     if (!Array.isArray(handlerRaw) || handlerRaw.length === 0) {
-      throw new Error(`[Zipbul AOT] defineAdapter.decorators.handler must be a non-empty Identifier array in ${sourceFile}.`);
+      return err(buildDiagnostic({
+        code: ADAPTER_INPUT_UNCOLLECTABLE,
+        severity: 'error',
+        summary: 'defineAdapter.decorators.handler must be a non-empty Identifier array',
+        reason: `defineAdapter.decorators.handler must be a non-empty Identifier array in ${sourceFile}.`,
+        file: sourceFile,
+      }));
     }
 
     const handler: string[] = [];
@@ -270,7 +349,13 @@ export class AdapterSpecResolver {
       const rec = this.asRecord(item);
 
       if (rec === null || typeof rec.__zipbul_ref !== 'string') {
-        throw new Error(`[Zipbul AOT] defineAdapter.decorators.handler elements must be Identifiers in ${sourceFile}.`);
+        return err(buildDiagnostic({
+          code: ADAPTER_INPUT_UNCOLLECTABLE,
+          severity: 'error',
+          summary: 'defineAdapter.decorators.handler elements must be Identifiers',
+          reason: `defineAdapter.decorators.handler elements must be Identifiers in ${sourceFile}.`,
+          file: sourceFile,
+        }));
       }
 
       handler.push(rec.__zipbul_ref);
@@ -278,7 +363,8 @@ export class AdapterSpecResolver {
 
     const entryDecorators: AdapterEntryDecoratorsSpec = { controller, handler };
 
-    this.validatePipelineConsistency(pipeline, sourceFile);
+    const pipelineCheck = this.validatePipelineConsistency(pipeline, sourceFile);
+    if (isErr(pipelineCheck)) return pipelineCheck;
 
     return {
       adapterId,
@@ -289,13 +375,18 @@ export class AdapterSpecResolver {
     };
   }
 
-  private buildAdapterStaticSpecSet(extractions: AdapterSpecExtraction[]): Record<string, AdapterStaticSpec> {
+  private buildAdapterStaticSpecSet(extractions: AdapterSpecExtraction[]): Result<Record<string, AdapterStaticSpec>, Diagnostic> {
     const sorted = [...extractions].sort((a, b) => a.adapterId.localeCompare(b.adapterId));
     const adapterStaticSpecs: Record<string, AdapterStaticSpec> = {};
 
     for (const entry of sorted) {
       if (Object.prototype.hasOwnProperty.call(adapterStaticSpecs, entry.adapterId)) {
-        throw new Error(`[Zipbul AOT] Duplicate adapterId detected: ${entry.adapterId}`);
+        return err(buildDiagnostic({
+          code: ADAPTER_INPUT_UNCOLLECTABLE,
+          severity: 'error',
+          summary: 'Duplicate adapterId detected',
+          reason: `Duplicate adapterId detected: ${entry.adapterId}`,
+        }));
       }
 
       adapterStaticSpecs[entry.adapterId] = entry.staticSpec;
@@ -307,7 +398,7 @@ export class AdapterSpecResolver {
   private buildControllerAdapterMap(
     extractions: AdapterSpecExtraction[],
     fileMap: Map<string, FileAnalysis>,
-  ): Map<string, string> {
+  ): Result<Map<string, string>, Diagnostic> {
     const adapterByController = new Map<string, string>();
     const adapters = extractions.map(extraction => ({
       adapterId: extraction.adapterId,
@@ -327,6 +418,7 @@ export class AdapterSpecResolver {
 
         if (controllerDecorator) {
           const adapterIds = this.extractAdapterIds(controllerDecorator, extractions);
+          if (isErr(adapterIds)) return adapterIds;
 
           if (adapterIds !== null) {
             controllerAdapters = controllerAdapters.filter(a => adapterIds.includes(a.adapterId));
@@ -336,7 +428,13 @@ export class AdapterSpecResolver {
         if (controllerAdapters.length > 1) {
           const names = controllerAdapters.map(adapter => adapter.adapterId).join(', ');
 
-          throw new Error(`[Zipbul AOT] Controller '${cls.className}' has multiple adapter owner decorators (${names}).`);
+          return err(buildDiagnostic({
+            code: ADAPTER_ENTRY_DECORATOR_INVALID,
+            severity: 'error',
+            summary: 'Controller has multiple adapter owner decorators',
+            reason: `Controller '${cls.className}' has multiple adapter owner decorators (${names}).`,
+            file: analysis.filePath,
+          }));
         }
 
         if (controllerAdapters.length === 1) {
@@ -355,7 +453,7 @@ export class AdapterSpecResolver {
   private extractAdapterIds(
     decorator: { name: string; arguments: readonly import('./types').AnalyzerValue[] },
     extractions: AdapterSpecExtraction[],
-  ): string[] | null {
+  ): Result<string[] | null, Diagnostic> {
     const args = decorator.arguments;
 
     if (args.length === 0) {
@@ -375,22 +473,42 @@ export class AdapterSpecResolver {
     const adapterIds = arg.adapterIds;
 
     if (!Array.isArray(adapterIds)) {
-      throw new Error('[Zipbul AOT] adapterIds must be an array.');
+      return err(buildDiagnostic({
+        code: ADAPTER_INPUT_UNCOLLECTABLE,
+        severity: 'error',
+        summary: 'adapterIds must be an array',
+        reason: 'adapterIds must be an array.',
+      }));
     }
 
     if (adapterIds.length === 0) {
-      throw new Error('[Zipbul AOT] adapterIds must not be empty.');
+      return err(buildDiagnostic({
+        code: ADAPTER_INPUT_UNCOLLECTABLE,
+        severity: 'error',
+        summary: 'adapterIds must not be empty',
+        reason: 'adapterIds must not be empty.',
+      }));
     }
 
     const knownIds = new Set(extractions.map(e => e.adapterId));
 
     for (const id of adapterIds) {
       if (typeof id !== 'string') {
-        throw new Error('[Zipbul AOT] adapterIds elements must be string literals.');
+        return err(buildDiagnostic({
+          code: ADAPTER_INPUT_UNCOLLECTABLE,
+          severity: 'error',
+          summary: 'adapterIds elements must be string literals',
+          reason: 'adapterIds elements must be string literals.',
+        }));
       }
 
       if (!knownIds.has(id)) {
-        throw new Error(`[Zipbul AOT] Unknown adapterId '${id}' in adapterIds.`);
+        return err(buildDiagnostic({
+          code: ADAPTER_INPUT_UNCOLLECTABLE,
+          severity: 'error',
+          summary: 'Unknown adapterId in adapterIds',
+          reason: `Unknown adapterId '${id}' in adapterIds.`,
+        }));
       }
     }
 
@@ -402,7 +520,7 @@ export class AdapterSpecResolver {
     fileMap: Map<string, FileAnalysis>,
     projectRoot: string,
     controllerAdapterMap: Map<string, string>,
-  ): HandlerIndexEntry[] {
+  ): Result<HandlerIndexEntry[], Diagnostic> {
     const entries: HandlerIndexEntry[] = [];
     const seen = new Set<string>();
 
@@ -421,27 +539,43 @@ export class AdapterSpecResolver {
 
             // Handler method constraints (ADAPTER-R-010)
             if (method.isStatic) {
-              throw new Error(
-                `[Zipbul AOT] Handler '${cls.className}.${method.name}' must not be a static method.`,
-              );
+              return err(buildDiagnostic({
+                code: ADAPTER_HANDLER_ID_UNRESOLVABLE,
+                severity: 'error',
+                summary: 'Handler must not be a static method',
+                reason: `Handler '${cls.className}.${method.name}' must not be a static method.`,
+                file: analysis.filePath,
+              }));
             }
 
             if (method.isComputed) {
-              throw new Error(
-                `[Zipbul AOT] Handler '${cls.className}.${method.name}' must not use a computed property name.`,
-              );
+              return err(buildDiagnostic({
+                code: ADAPTER_HANDLER_ID_UNRESOLVABLE,
+                severity: 'error',
+                summary: 'Handler must not use a computed property name',
+                reason: `Handler '${cls.className}.${method.name}' must not use a computed property name.`,
+                file: analysis.filePath,
+              }));
             }
 
             if (method.isPrivateName) {
-              throw new Error(
-                `[Zipbul AOT] Handler '${cls.className}.${method.name}' must not be a private method.`,
-              );
+              return err(buildDiagnostic({
+                code: ADAPTER_HANDLER_ID_UNRESOLVABLE,
+                severity: 'error',
+                summary: 'Handler must not be a private method',
+                reason: `Handler '${cls.className}.${method.name}' must not be a private method.`,
+                file: analysis.filePath,
+              }));
             }
 
             if (!isNonEmptyString(controllerAdapterId)) {
-              throw new Error(
-                `[Zipbul AOT] Handler '${cls.className}.${method.name}' must belong to a controller for adapter '${extraction.adapterId}'.`,
-              );
+              return err(buildDiagnostic({
+                code: ADAPTER_HANDLER_ID_UNRESOLVABLE,
+                severity: 'error',
+                summary: 'Handler must belong to a controller',
+                reason: `Handler '${cls.className}.${method.name}' must belong to a controller for adapter '${extraction.adapterId}'.`,
+                file: analysis.filePath,
+              }));
             }
 
             if (controllerAdapterId !== extraction.adapterId) {
@@ -453,7 +587,13 @@ export class AdapterSpecResolver {
             const id = `${extraction.adapterId}:${file}#${symbol}`;
 
             if (seen.has(id)) {
-              throw new Error(`[Zipbul AOT] Duplicate handler id detected: ${id}`);
+              return err(buildDiagnostic({
+                code: ADAPTER_HANDLER_ID_UNRESOLVABLE,
+                severity: 'error',
+                summary: 'Duplicate handler id detected',
+                reason: `Duplicate handler id detected: ${id}`,
+                file: analysis.filePath,
+              }));
             }
 
             seen.add(id);
@@ -472,27 +612,37 @@ export class AdapterSpecResolver {
     extractions: AdapterSpecExtraction[],
     fileMap: Map<string, FileAnalysis>,
     controllerAdapterMap: Map<string, string>,
-  ): void {
+  ): Result<void, Diagnostic> {
     for (const extraction of extractions) {
       const supported = this.deriveSupportedPhases(extraction.staticSpec.pipeline);
+
       const modulePhaseIds = this.collectModuleMiddlewarePhaseIds(fileMap, extraction.adapterId);
+      if (isErr(modulePhaseIds)) return modulePhaseIds;
+
       const decoratorPhaseIds = this.collectDecoratorPhaseIds(
         fileMap,
         extraction.adapterId,
         extraction.staticSpec.entryDecorators,
         controllerAdapterMap,
       );
+      if (isErr(decoratorPhaseIds)) return decoratorPhaseIds;
+
       const combinedPhaseIds = [...modulePhaseIds, ...decoratorPhaseIds];
 
-      combinedPhaseIds.forEach(phaseId => {
+      for (const phaseId of combinedPhaseIds) {
         if (!supported.has(phaseId)) {
-          throw new Error(`[Zipbul AOT] Unsupported middleware phase '${phaseId}' for adapter '${extraction.adapterId}'.`);
+          return err(buildDiagnostic({
+            code: ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,
+            severity: 'error',
+            summary: 'Unsupported middleware phase',
+            reason: `Unsupported middleware phase '${phaseId}' for adapter '${extraction.adapterId}'.`,
+          }));
         }
-      });
+      }
     }
   }
 
-  private collectModuleMiddlewarePhaseIds(fileMap: Map<string, FileAnalysis>, adapterId: string): string[] {
+  private collectModuleMiddlewarePhaseIds(fileMap: Map<string, FileAnalysis>, adapterId: string): Result<string[], Diagnostic> {
     const phaseIds: string[] = [];
 
     for (const analysis of fileMap.values()) {
@@ -515,7 +665,13 @@ export class AdapterSpecResolver {
       const adapterConfig = this.asRecord(adaptersRecord[adapterId]);
 
       if (adapterConfig === null) {
-        throw new Error(`[Zipbul AOT] Adapter config must be an object literal for '${adapterId}'.`);
+        return err(buildDiagnostic({
+          code: ADAPTER_INPUT_UNCOLLECTABLE,
+          severity: 'error',
+          summary: 'Adapter config must be an object literal',
+          reason: `Adapter config must be an object literal for '${adapterId}'.`,
+          file: analysis.filePath,
+        }));
       }
 
       if (!Object.prototype.hasOwnProperty.call(adapterConfig, 'middlewares')) {
@@ -525,19 +681,39 @@ export class AdapterSpecResolver {
       const middlewares = this.asRecord(adapterConfig.middlewares);
 
       if (middlewares === null) {
-        throw new Error(`[Zipbul AOT] middlewares must be an object literal for '${adapterId}'.`);
+        return err(buildDiagnostic({
+          code: ADAPTER_INPUT_UNCOLLECTABLE,
+          severity: 'error',
+          summary: 'middlewares must be an object literal',
+          reason: `middlewares must be an object literal for '${adapterId}'.`,
+          file: analysis.filePath,
+        }));
       }
 
       for (const key of Object.keys(middlewares)) {
         if (key.startsWith('__zipbul_computed_')) {
-          throw new Error(`[Zipbul AOT] Middleware phase keys must be string literals for '${adapterId}'.`);
+          return err(buildDiagnostic({
+            code: ADAPTER_PHASE_ID_INVALID,
+            severity: 'error',
+            summary: 'Middleware phase keys must be string literals',
+            reason: `Middleware phase keys must be string literals for '${adapterId}'.`,
+            file: analysis.filePath,
+          }));
         }
 
         if (key.length === 0) {
-          throw new Error(`[Zipbul AOT] Middleware phase keys must be non-empty for '${adapterId}'.`);
+          return err(buildDiagnostic({
+            code: ADAPTER_PHASE_ID_INVALID,
+            severity: 'error',
+            summary: 'Middleware phase keys must be non-empty',
+            reason: `Middleware phase keys must be non-empty for '${adapterId}'.`,
+            file: analysis.filePath,
+          }));
         }
 
-        this.assertValidPhaseId(key, adapterId, 'middlewares');
+        const phaseIdCheck = this.assertValidPhaseId(key, adapterId, 'middlewares');
+        if (isErr(phaseIdCheck)) return phaseIdCheck;
+
         phaseIds.push(key);
       }
     }
@@ -550,7 +726,7 @@ export class AdapterSpecResolver {
     adapterId: string,
     entryDecorators: AdapterEntryDecoratorsSpec,
     controllerAdapterMap: Map<string, string>,
-  ): string[] {
+  ): Result<string[], Diagnostic> {
     const phaseIds: string[] = [];
 
     for (const analysis of fileMap.values()) {
@@ -564,7 +740,10 @@ export class AdapterSpecResolver {
               continue;
             }
 
-            phaseIds.push(...this.extractPhaseIdsFromDecorator(decorator, adapterId));
+            const extracted = this.extractPhaseIdsFromDecorator(decorator, adapterId);
+            if (isErr(extracted)) return extracted;
+
+            phaseIds.push(...extracted);
           }
         }
 
@@ -577,9 +756,13 @@ export class AdapterSpecResolver {
 
           if (!isAdapterController) {
             if (!isNonEmptyString(controllerAdapterId)) {
-              throw new Error(
-                `[Zipbul AOT] @Middlewares handler '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
-              );
+              return err(buildDiagnostic({
+                code: ADAPTER_HANDLER_ID_UNRESOLVABLE,
+                severity: 'error',
+                summary: '@Middlewares handler must belong to adapter',
+                reason: `@Middlewares handler '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
+                file: analysis.filePath,
+              }));
             }
 
             continue;
@@ -590,7 +773,10 @@ export class AdapterSpecResolver {
               continue;
             }
 
-            phaseIds.push(...this.extractPhaseIdsFromDecorator(decorator, adapterId));
+            const extracted = this.extractPhaseIdsFromDecorator(decorator, adapterId);
+            if (isErr(extracted)) return extracted;
+
+            phaseIds.push(...extracted);
           }
         }
       }
@@ -599,17 +785,23 @@ export class AdapterSpecResolver {
     return phaseIds;
   }
 
-  private extractPhaseIdsFromDecorator(decorator: DecoratorArguments, adapterId: string): string[] {
+  private extractPhaseIdsFromDecorator(decorator: DecoratorArguments, adapterId: string): Result<string[], Diagnostic> {
     const args = decorator.arguments;
 
     if (args.length === 2) {
       const phaseId = typeof args[0] === 'string' ? args[0] : null;
 
       if (!isNonEmptyString(phaseId)) {
-        throw new Error(`[Zipbul AOT] @Middlewares phaseId must be a string literal for '${adapterId}'.`);
+        return err(buildDiagnostic({
+          code: ADAPTER_PHASE_ID_INVALID,
+          severity: 'error',
+          summary: '@Middlewares phaseId must be a string literal',
+          reason: `@Middlewares phaseId must be a string literal for '${adapterId}'.`,
+        }));
       }
 
-      this.assertValidPhaseId(phaseId, adapterId, '@Middlewares');
+      const phaseIdCheck = this.assertValidPhaseId(phaseId, adapterId, '@Middlewares');
+      if (isErr(phaseIdCheck)) return phaseIdCheck;
 
       return [phaseId];
     }
@@ -618,25 +810,50 @@ export class AdapterSpecResolver {
       const mapping = this.asRecord(args[0]);
 
       if (mapping === null) {
-        throw new Error(`[Zipbul AOT] @Middlewares map must be an object literal for '${adapterId}'.`);
+        return err(buildDiagnostic({
+          code: ADAPTER_INPUT_UNCOLLECTABLE,
+          severity: 'error',
+          summary: '@Middlewares map must be an object literal',
+          reason: `@Middlewares map must be an object literal for '${adapterId}'.`,
+        }));
       }
 
-      return Object.keys(mapping).map(key => {
+      const keys: string[] = [];
+
+      for (const key of Object.keys(mapping)) {
         if (key.startsWith('__zipbul_computed_')) {
-          throw new Error(`[Zipbul AOT] @Middlewares phaseId must be a string literal for '${adapterId}'.`);
+          return err(buildDiagnostic({
+            code: ADAPTER_PHASE_ID_INVALID,
+            severity: 'error',
+            summary: '@Middlewares phaseId must be a string literal',
+            reason: `@Middlewares phaseId must be a string literal for '${adapterId}'.`,
+          }));
         }
 
         if (key.length === 0) {
-          throw new Error(`[Zipbul AOT] @Middlewares phaseId must be non-empty for '${adapterId}'.`);
+          return err(buildDiagnostic({
+            code: ADAPTER_PHASE_ID_INVALID,
+            severity: 'error',
+            summary: '@Middlewares phaseId must be non-empty',
+            reason: `@Middlewares phaseId must be non-empty for '${adapterId}'.`,
+          }));
         }
 
-        this.assertValidPhaseId(key, adapterId, '@Middlewares');
+        const phaseIdCheck = this.assertValidPhaseId(key, adapterId, '@Middlewares');
+        if (isErr(phaseIdCheck)) return phaseIdCheck;
 
-        return key;
-      });
+        keys.push(key);
+      }
+
+      return keys;
     }
 
-    throw new Error(`[Zipbul AOT] @Middlewares expects (phaseId, refs) or ({ [phaseId]: refs }) for '${adapterId}'.`);
+    return err(buildDiagnostic({
+      code: ADAPTER_INPUT_UNCOLLECTABLE,
+      severity: 'error',
+      summary: '@Middlewares expects (phaseId, refs) or mapping',
+      reason: `@Middlewares expects (phaseId, refs) or ({ [phaseId]: refs }) for '${adapterId}'.`,
+    }));
   }
 
   private normalizeProjectPath(projectRoot: string, filePath: string): string {
@@ -653,14 +870,20 @@ export class AdapterSpecResolver {
     return PathResolver.normalize(trimmed || '.');
   }
 
-  private validatePipelineConsistency(pipeline: string[], context: string): void {
+  private validatePipelineConsistency(pipeline: string[], context: string): Result<void, Diagnostic> {
     const RESERVED = new Set(['Guards', 'Pipes', 'Handler']);
 
     for (const reserved of RESERVED) {
       const count = pipeline.filter(t => t === reserved).length;
 
       if (count !== 1) {
-        throw new Error(`[Zipbul AOT] pipeline must contain '${reserved}' exactly once (${context}).`);
+        return err(buildDiagnostic({
+          code: ADAPTER_PIPELINE_TOKEN_INVALID,
+          severity: 'error',
+          summary: `pipeline must contain '${reserved}' exactly once`,
+          reason: `pipeline must contain '${reserved}' exactly once (${context}).`,
+          file: context,
+        }));
       }
     }
 
@@ -669,10 +892,18 @@ export class AdapterSpecResolver {
 
     for (const phase of customPhases) {
       if (seen.has(phase)) {
-        throw new Error(`[Zipbul AOT] pipeline must not contain duplicate middleware phase '${phase}' (${context}).`);
+        return err(buildDiagnostic({
+          code: ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,
+          severity: 'error',
+          summary: 'pipeline must not contain duplicate middleware phase',
+          reason: `pipeline must not contain duplicate middleware phase '${phase}' (${context}).`,
+          file: context,
+        }));
       }
 
-      this.assertValidPhaseId(phase, context, 'defineAdapter.pipeline');
+      const phaseIdCheck = this.assertValidPhaseId(phase, context, 'defineAdapter.pipeline');
+      if (isErr(phaseIdCheck)) return phaseIdCheck;
+
       seen.add(phase);
     }
   }
@@ -701,13 +932,23 @@ export class AdapterSpecResolver {
     return null;
   }
 
-  private assertValidPhaseId(phaseId: string, context: string, field: string): void {
+  private assertValidPhaseId(phaseId: string, context: string, field: string): Result<void, Diagnostic> {
     if (phaseId.length === 0) {
-      throw new Error(`[Zipbul AOT] ${field} phase id must be non-empty (${context}).`);
+      return err(buildDiagnostic({
+        code: ADAPTER_PHASE_ID_INVALID,
+        severity: 'error',
+        summary: `${field} phase id must be non-empty`,
+        reason: `${field} phase id must be non-empty (${context}).`,
+      }));
     }
 
     if (phaseId.includes(':')) {
-      throw new Error(`[Zipbul AOT] ${field} phase id must not contain ':' (${context}).`);
+      return err(buildDiagnostic({
+        code: ADAPTER_PHASE_ID_INVALID,
+        severity: 'error',
+        summary: `${field} phase id must not contain ':'`,
+        reason: `${field} phase id must not contain ':' (${context}).`,
+      }));
     }
   }
 }

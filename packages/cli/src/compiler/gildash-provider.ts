@@ -1,7 +1,11 @@
 import { Gildash } from '@zipbul/gildash';
 import type { IndexResult } from '@zipbul/gildash';
 
-import { isErr } from '@zipbul/result';
+import type { Result } from '@zipbul/result';
+import type { Diagnostic } from '../diagnostics';
+
+import { err, isErr } from '@zipbul/result';
+import { buildDiagnostic, DEV_GILDASH_PARSE } from '../diagnostics';
 
 export interface GildashProviderOptions {
   projectRoot: string;
@@ -12,7 +16,7 @@ export interface GildashProviderOptions {
 export class GildashProvider {
   private constructor(private readonly ledger: Gildash) {}
 
-  static async open(options: GildashProviderOptions): Promise<GildashProvider> {
+  static async open(options: GildashProviderOptions): Promise<Result<GildashProvider, Diagnostic>> {
     const gildashOptions: Parameters<typeof Gildash.open>[0] = {
       projectRoot: options.projectRoot,
     };
@@ -28,47 +32,72 @@ export class GildashProvider {
     const result = await Gildash.open(gildashOptions);
 
     if (isErr(result)) {
-      throw new Error(result.data.message, { cause: result.data.cause });
+      return err(buildDiagnostic({
+        code: DEV_GILDASH_PARSE,
+        severity: 'error',
+        summary: 'Failed to open gildash',
+        reason: result.data.message,
+      }));
     }
 
     return new GildashProvider(result);
   }
 
-  getDependencies(filePath: string): string[] {
+  getDependencies(filePath: string): Result<string[], Diagnostic> {
     const result = this.ledger.getDependencies(filePath);
 
     if (isErr(result)) {
-      throw new Error(result.data.message, { cause: result.data.cause });
+      return err(buildDiagnostic({
+        code: DEV_GILDASH_PARSE,
+        severity: 'error',
+        summary: 'Failed to get dependencies',
+        reason: result.data.message,
+      }));
     }
 
     return result;
   }
 
-  getDependents(filePath: string): string[] {
+  getDependents(filePath: string): Result<string[], Diagnostic> {
     const result = this.ledger.getDependents(filePath);
 
     if (isErr(result)) {
-      throw new Error(result.data.message, { cause: result.data.cause });
+      return err(buildDiagnostic({
+        code: DEV_GILDASH_PARSE,
+        severity: 'error',
+        summary: 'Failed to get dependents',
+        reason: result.data.message,
+      }));
     }
 
     return result;
   }
 
-  async getAffected(changedFiles: string[]): Promise<string[]> {
+  async getAffected(changedFiles: string[]): Promise<Result<string[], Diagnostic>> {
     const result = await this.ledger.getAffected(changedFiles);
 
     if (isErr(result)) {
-      throw new Error(result.data.message, { cause: result.data.cause });
+      return err(buildDiagnostic({
+        code: DEV_GILDASH_PARSE,
+        severity: 'error',
+        summary: 'Failed to get affected files',
+        reason: result.data.message,
+      }));
     }
 
     return result;
   }
 
-  async hasCycle(): Promise<boolean> {
+  async hasCycle(): Promise<Result<boolean, Diagnostic>> {
     const result = await this.ledger.hasCycle();
 
     if (isErr(result)) {
-      throw new Error(result.data.message, { cause: result.data.cause });
+      return err(buildDiagnostic({
+        code: DEV_GILDASH_PARSE,
+        severity: 'error',
+        summary: 'Failed to check cycle',
+        reason: result.data.message,
+      }));
     }
 
     return result;
@@ -78,19 +107,29 @@ export class GildashProvider {
     return this.ledger.onIndexed(callback);
   }
 
-  async reindex(): Promise<void> {
+  async reindex(): Promise<Result<void, Diagnostic>> {
     const result = await this.ledger.reindex();
 
     if (isErr(result)) {
-      throw new Error(result.data.message, { cause: result.data.cause });
+      return err(buildDiagnostic({
+        code: DEV_GILDASH_PARSE,
+        severity: 'error',
+        summary: 'Failed to reindex',
+        reason: result.data.message,
+      }));
     }
   }
 
-  async close(): Promise<void> {
+  async close(): Promise<Result<void, Diagnostic>> {
     const result = await this.ledger.close();
 
     if (isErr(result)) {
-      throw new Error(result.data.message, { cause: result.data.cause });
+      return err(buildDiagnostic({
+        code: DEV_GILDASH_PARSE,
+        severity: 'error',
+        summary: 'Failed to close gildash',
+        reason: result.data.message,
+      }));
     }
   }
 }

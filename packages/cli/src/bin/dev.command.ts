@@ -9,7 +9,10 @@ import { validateCreateApplication } from '../compiler/analyzer/validation';
 import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
 import type { ZipbulConfigSource } from '../config/interfaces';
 import { zipbulDirPath, scanGlobSorted, writeIfChanged } from '../common';
-import { buildDiagnostic, DiagnosticReportError, reportDiagnostics, BUILD_PARSE_FAILED, DEV_FAILED, DEV_GILDASH_PARSE } from '../diagnostics';
+import type { Result } from '@zipbul/result';
+import { isErr } from '@zipbul/result';
+import type { Diagnostic } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostic, reportDiagnostics, BUILD_PARSE_FAILED, DEV_FAILED, DEV_GILDASH_PARSE } from '../diagnostics';
 import { ManifestGenerator } from '../compiler/generator';
 import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 import type { IndexResult } from '@zipbul/gildash';
@@ -25,7 +28,7 @@ export interface DevCommandDeps {
   createParser: () => AstParser;
   createAdapterSpecResolver: () => AdapterSpecResolver;
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
-  createGildashProvider?: (opts: GildashProviderOptions) => Promise<GildashProvider>;
+  createGildashProvider?: (opts: GildashProviderOptions) => Promise<Result<GildashProvider, Diagnostic>>;
 }
 
 export function createDevCommand(deps: DevCommandDeps) {
@@ -101,6 +104,7 @@ export function createDevCommand(deps: DevCommandDeps) {
             severity: 'error',
             summary: 'Parse failed.',
             reason,
+            file: filePath,
           });
 
           reportDiagnostics({ diagnostics: [diagnostic] });
@@ -117,6 +121,12 @@ export function createDevCommand(deps: DevCommandDeps) {
           graph.build();
 
           const adapterSpecResolution = await adapterSpecResolver.resolve({ fileMap, projectRoot });
+
+          if (isErr(adapterSpecResolution)) {
+            reportDiagnostic(adapterSpecResolution.data);
+            throw new Error(adapterSpecResolution.data.reason);
+          }
+
           const manifestGen = new ManifestGenerator();
           const manifestJson = manifestGen.generateJson({
             graph,
@@ -161,7 +171,8 @@ export function createDevCommand(deps: DevCommandDeps) {
             reason,
           });
 
-          throw new DiagnosticReportError(diagnostic);
+          reportDiagnostic(diagnostic);
+          throw error;
         }
       }
 
@@ -190,7 +201,12 @@ export function createDevCommand(deps: DevCommandDeps) {
         await analyzeFile(fullPath);
       }
 
-      validateCreateApplication(fileCache);
+      const appEntry = validateCreateApplication(fileCache);
+
+      if (isErr(appEntry)) {
+        reportDiagnostic(appEntry.data);
+        throw new Error(appEntry.data.reason);
+      }
 
       await rebuild();
 
@@ -198,10 +214,17 @@ export function createDevCommand(deps: DevCommandDeps) {
       console.info(`   Manifest: ${join(outDir, 'manifest.json')}`);
 
       const openGildash = deps.createGildashProvider ?? GildashProvider.open;
-      const ledger = await openGildash({
+      const ledgerResult = await openGildash({
         projectRoot,
         ignorePatterns: ['dist', 'node_modules', '.zipbul'],
       });
+
+      if (isErr(ledgerResult)) {
+        reportDiagnostic(ledgerResult.data);
+        throw new Error(ledgerResult.data.reason);
+      }
+
+      const ledger = ledgerResult;
 
       const unsubscribe = ledger.onIndexed(async (result: IndexResult) => {
         // 1. 삭제 파일 제거
@@ -216,12 +239,21 @@ export function createDevCommand(deps: DevCommandDeps) {
             severity: 'warning',
             summary: 'Gildash parse failed.',
             reason: `File could not be indexed: ${toProjectRelativePath(file)}`,
+            file,
           });
           reportDiagnostics({ diagnostics: [diagnostic] });
         }
 
         // 3. 영향 파일 계산 (파일 레벨)
-        const affectedFiles = await ledger.getAffected(result.changedFiles);
+        const affectedResult = await ledger.getAffected(result.changedFiles);
+
+        if (isErr(affectedResult)) {
+          reportDiagnostic(affectedResult.data);
+
+          return;
+        }
+
+        const affectedFiles = affectedResult;
 
         // 4. 영향 파일만 재분석
         for (const file of affectedFiles) {
@@ -242,10 +274,8 @@ export function createDevCommand(deps: DevCommandDeps) {
         // 6. 재빌드
         try {
           await rebuild();
-        } catch (error) {
-          if (error instanceof DiagnosticReportError) {
-            reportDiagnostics({ diagnostics: [error.diagnostic] });
-          }
+        } catch {
+          // rebuild() already reports diagnostics internally
         }
       });
 
@@ -254,12 +284,6 @@ export function createDevCommand(deps: DevCommandDeps) {
         void ledger.close();
       });
     } catch (error) {
-      if (error instanceof DiagnosticReportError) {
-        reportDiagnostics({ diagnostics: [error.diagnostic] });
-
-        throw error;
-      }
-
       const reason = error instanceof Error ? error.message : 'Unknown dev error.';
       const diagnostic = buildDiagnostic({
         code: DEV_FAILED,

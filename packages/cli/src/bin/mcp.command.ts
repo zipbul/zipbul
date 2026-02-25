@@ -3,6 +3,9 @@ import type { CommandOptions } from './types';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import type { Result } from '@zipbul/result';
+import { isErr } from '@zipbul/result';
+import type { Diagnostic } from '../diagnostics';
 import { buildDiagnostic, reportDiagnostics, CLI_INVALID_COMMAND } from '../diagnostics';
 import { ConfigLoader } from '../config';
 import type { ResolvedZipbulConfig } from '../config';
@@ -52,7 +55,7 @@ async function ensureRepoDefault(projectRoot: string): Promise<void> {
 }
 
 export interface RebuildProjectIndexDefaultDeps {
-  createGildashProvider?: (options: GildashProviderOptions) => Promise<GildashProvider>;
+  createGildashProvider?: (options: GildashProviderOptions) => Promise<Result<GildashProvider, Diagnostic>>;
 }
 
 async function rebuildProjectIndexDefault(
@@ -60,7 +63,14 @@ async function rebuildProjectIndexDefault(
   deps?: RebuildProjectIndexDefaultDeps,
 ): Promise<{ ok: boolean }> {
   const openGildash = deps?.createGildashProvider ?? GildashProvider.open;
-  const ledger = await openGildash({ projectRoot: input.projectRoot });
+  const ledgerResult = await openGildash({ projectRoot: input.projectRoot });
+
+  if (isErr(ledgerResult)) {
+    return { ok: false };
+  }
+
+  const ledger = ledgerResult;
+
   try {
     await ledger.reindex();
   } catch (_error) {

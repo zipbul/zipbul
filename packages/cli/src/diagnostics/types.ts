@@ -13,11 +13,6 @@ export interface Location {
   range?: SourceRange;
 }
 
-export interface DiagnosticHint {
-  title: string;
-  details?: string;
-}
-
 export interface CycleNode {
   id: string;
   location?: Location;
@@ -41,8 +36,8 @@ export interface Diagnostic {
   code: string;
   summary: string;
   why: string;
-  where: Location[];
-  how: DiagnosticHint[];
+  where?: Location;
+  how?: string;
   cycles?: Cycle[];
 }
 
@@ -55,4 +50,6 @@ export interface BuildDiagnosticParams {
   severity: DiagnosticSeverity;
   summary: string;
   reason: string;
+  file?: string;
+  how?: string;
 }
