@@ -2,12 +2,12 @@
   "name": "@zipbul/cli",
   "private": true,
   "bin": {
-    "zp": "./src/bin/zp.ts"
+    "zb": "./src/bin/zb.ts"
   },
   "type": "module",
   "module": "index.ts",
   "scripts": {
-    "build": "bun build ./src/bin/zp.ts --compile --outfile dist/zp",
+    "build": "bun build ./src/bin/zb.ts --compile --outfile dist/zb",
     "drizzle:generate": "bunx drizzle-kit generate --config packages/cli/drizzle.config.ts",
     "drizzle:migrate": "bunx drizzle-kit migrate --config packages/cli/drizzle.config.ts"
   },
