@@ -10,7 +10,12 @@ export function buildDiagnostic(params: BuildDiagnosticParams): Diagnostic {
     code,
     summary: summaryText,
     why: whyText,
-    ...(params.file !== undefined && { where: { file: params.file } }),
+    ...(params.file !== undefined && {
+      where: {
+        file: params.file,
+        ...(params.symbol !== undefined && { symbol: params.symbol }),
+      },
+    }),
     ...(params.how !== undefined && { how: params.how }),
   };
 }

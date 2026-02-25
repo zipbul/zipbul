@@ -434,6 +434,7 @@ export class AdapterSpecResolver {
             summary: 'Controller has multiple adapter owner decorators',
             reason: `Controller '${cls.className}' has multiple adapter owner decorators (${names}).`,
             file: analysis.filePath,
+            symbol: cls.className,
           }));
         }
 
@@ -545,6 +546,7 @@ export class AdapterSpecResolver {
                 summary: 'Handler must not be a static method',
                 reason: `Handler '${cls.className}.${method.name}' must not be a static method.`,
                 file: analysis.filePath,
+                symbol: `${cls.className}.${method.name}`,
               }));
             }
 
@@ -555,6 +557,7 @@ export class AdapterSpecResolver {
                 summary: 'Handler must not use a computed property name',
                 reason: `Handler '${cls.className}.${method.name}' must not use a computed property name.`,
                 file: analysis.filePath,
+                symbol: `${cls.className}.${method.name}`,
               }));
             }
 
@@ -565,6 +568,7 @@ export class AdapterSpecResolver {
                 summary: 'Handler must not be a private method',
                 reason: `Handler '${cls.className}.${method.name}' must not be a private method.`,
                 file: analysis.filePath,
+                symbol: `${cls.className}.${method.name}`,
               }));
             }
 
@@ -575,6 +579,7 @@ export class AdapterSpecResolver {
                 summary: 'Handler must belong to a controller',
                 reason: `Handler '${cls.className}.${method.name}' must belong to a controller for adapter '${extraction.adapterId}'.`,
                 file: analysis.filePath,
+                symbol: `${cls.className}.${method.name}`,
               }));
             }
 
@@ -593,6 +598,7 @@ export class AdapterSpecResolver {
                 summary: 'Duplicate handler id detected',
                 reason: `Duplicate handler id detected: ${id}`,
                 file: analysis.filePath,
+                symbol: `${cls.className}.${method.name}`,
               }));
             }
 
@@ -698,6 +704,7 @@ export class AdapterSpecResolver {
             summary: 'Middleware phase keys must be string literals',
             reason: `Middleware phase keys must be string literals for '${adapterId}'.`,
             file: analysis.filePath,
+            symbol: adapterId,
           }));
         }
 
@@ -708,6 +715,7 @@ export class AdapterSpecResolver {
             summary: 'Middleware phase keys must be non-empty',
             reason: `Middleware phase keys must be non-empty for '${adapterId}'.`,
             file: analysis.filePath,
+            symbol: adapterId,
           }));
         }
 
@@ -762,6 +770,7 @@ export class AdapterSpecResolver {
                 summary: '@Middlewares handler must belong to adapter',
                 reason: `@Middlewares handler '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
                 file: analysis.filePath,
+                symbol: `${cls.className}.${method.name}`,
               }));
             }
 

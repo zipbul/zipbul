@@ -229,4 +229,98 @@ describe('buildDiagnostic', () => {
 
     expect(result1).toEqual(result2);
   });
+
+  // [HP-SYM-1]
+  it('should include symbol in where when file and symbol are both provided', () => {
+    const result = buildDiagnostic({
+      code: 'ZB_TEST_001',
+      severity: 'error',
+      summary: 'Error',
+      reason: 'Reason',
+      file: 'src/app.ts',
+      symbol: 'AppController.create',
+    });
+
+    expect(result.where).toEqual({ file: 'src/app.ts', symbol: 'AppController.create' });
+  });
+
+  // [HP-SYM-2]
+  it('should include where with symbol and how when all three optionals provided', () => {
+    const result = buildDiagnostic({
+      code: 'ZB_TEST_001',
+      severity: 'error',
+      summary: 'Error',
+      reason: 'Reason',
+      file: 'src/app.ts',
+      symbol: 'AppController',
+      how: 'Fix it',
+    });
+
+    expect(result.where).toEqual({ file: 'src/app.ts', symbol: 'AppController' });
+    expect(result.how).toBe('Fix it');
+  });
+
+  // [CO-SYM-1]
+  it('should ignore symbol when file is not provided', () => {
+    const result = buildDiagnostic({
+      code: 'ZB_TEST_001',
+      severity: 'error',
+      summary: 'Error',
+      reason: 'Reason',
+      symbol: 'AppController',
+    });
+
+    expect(result).not.toHaveProperty('where');
+  });
+
+  // [ED-SYM-1]
+  it('should include empty symbol in where when symbol is empty string', () => {
+    const result = buildDiagnostic({
+      code: 'ZB_TEST_001',
+      severity: 'error',
+      summary: 'Error',
+      reason: 'Reason',
+      file: 'src/app.ts',
+      symbol: '',
+    });
+
+    expect(result.where).toEqual({ file: 'src/app.ts', symbol: '' });
+  });
+
+  // [CO-SYM-2]
+  it('should handle all empty required and all empty optionals including symbol', () => {
+    const result = buildDiagnostic({
+      code: '',
+      severity: 'error',
+      summary: '',
+      reason: '',
+      file: '',
+      symbol: '',
+      how: '',
+    });
+
+    expect(result.code).toBe('');
+    expect(result.summary).toBe('[error/] ');
+    expect(result.why).toBe('[error/] ');
+    expect(result.where).toEqual({ file: '', symbol: '' });
+    expect(result.how).toBe('');
+  });
+
+  // [ID-SYM-1]
+  it('should return identical results for identical params including symbol', () => {
+    const params = {
+      code: 'ZB_TEST_001',
+      severity: 'error' as const,
+      summary: 'Error',
+      reason: 'Reason',
+      file: 'src/app.ts',
+      symbol: 'AppController.create',
+      how: 'Fix it',
+    };
+
+    const result1 = buildDiagnostic(params);
+    const result2 = buildDiagnostic(params);
+
+    expect(result1).toEqual(result2);
+  });
 });

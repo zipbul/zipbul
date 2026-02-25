@@ -51,5 +51,6 @@ export interface BuildDiagnosticParams {
   summary: string;
   reason: string;
   file?: string;
+  symbol?: string;
   how?: string;
 }
