@@ -33,8 +33,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        severity: 'error',
         reason: result.data.message,
+        cause: result.data,
       }));
     }
 
@@ -46,8 +46,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        severity: 'error',
         reason: result.data.message,
+        cause: result.data,
       }));
     }
 
@@ -59,8 +59,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        severity: 'error',
         reason: result.data.message,
+        cause: result.data,
       }));
     }
 
@@ -72,8 +72,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        severity: 'error',
         reason: result.data.message,
+        cause: result.data,
       }));
     }
 
@@ -85,8 +85,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        severity: 'error',
         reason: result.data.message,
+        cause: result.data,
       }));
     }
 
@@ -102,8 +102,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        severity: 'error',
         reason: result.data.message,
+        cause: result.data,
       }));
     }
   }
@@ -113,8 +113,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        severity: 'error',
         reason: result.data.message,
+        cause: result.data,
       }));
     }
   }

@@ -13,7 +13,7 @@ import { Logger } from '@zipbul/logger';
 import type { Result } from '@zipbul/result';
 import { isErr } from '@zipbul/result';
 import type { Diagnostic } from '../diagnostics';
-import { buildDiagnostic, reportDiagnostic } from '../diagnostics';
+import { buildDiagnostic, DiagnosticError, reportDiagnostic } from '../diagnostics';
 import { ManifestGenerator } from '../compiler/generator';
 import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 import type { IndexResult } from '@zipbul/gildash';
@@ -110,9 +110,9 @@ export function createDevCommand(deps: DevCommandDeps) {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown parse error.';
           const diagnostic = buildDiagnostic({
-            severity: 'error',
             reason,
             file: filePath,
+            cause: error,
           });
 
           reportDiagnostic(diagnostic);
@@ -131,8 +131,7 @@ export function createDevCommand(deps: DevCommandDeps) {
           const adapterSpecResolution = await adapterSpecResolver.resolve({ fileMap, projectRoot });
 
           if (isErr(adapterSpecResolution)) {
-            reportDiagnostic(adapterSpecResolution.data);
-            throw new Error(adapterSpecResolution.data.why);
+            throw new DiagnosticError(adapterSpecResolution.data);
           }
 
           const manifestGen = new ManifestGenerator();
@@ -171,13 +170,6 @@ export function createDevCommand(deps: DevCommandDeps) {
             await rm(runtimeReportPath, { force: true });
           }
         } catch (error) {
-          const reason = error instanceof Error ? error.message : 'Unknown dev error.';
-          const diagnostic = buildDiagnostic({
-            severity: 'error',
-            reason,
-          });
-
-          reportDiagnostic(diagnostic);
           throw error;
         }
       }
@@ -210,8 +202,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       const appEntry = validateCreateApplication(fileCache);
 
       if (isErr(appEntry)) {
-        reportDiagnostic(appEntry.data);
-        throw new Error(appEntry.data.why);
+        throw new DiagnosticError(appEntry.data);
       }
 
       await rebuild();
@@ -226,8 +217,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       });
 
       if (isErr(ledgerResult)) {
-        reportDiagnostic(ledgerResult.data);
-        throw new Error(ledgerResult.data.why);
+        throw new DiagnosticError(ledgerResult.data);
       }
 
       const ledger = ledgerResult;
@@ -240,12 +230,7 @@ export function createDevCommand(deps: DevCommandDeps) {
 
         // 2. 파싱 실패 파일 로깅
         for (const file of result.failedFiles) {
-          const diagnostic = buildDiagnostic({
-            severity: 'warning',
-            reason: `File could not be indexed: ${toProjectRelativePath(file)}`,
-            file,
-          });
-          reportDiagnostic(diagnostic);
+          logger.warn(`File could not be indexed: ${toProjectRelativePath(file)}`);
         }
 
         // 3. 영향 파일 계산 (파일 레벨)
@@ -278,8 +263,12 @@ export function createDevCommand(deps: DevCommandDeps) {
         // 6. 재빌드
         try {
           await rebuild();
-        } catch {
-          // rebuild() already reports diagnostics internally
+        } catch (error) {
+          if (error instanceof DiagnosticError) {
+            reportDiagnostic(error.diagnostic);
+          } else {
+            logger.fatal(error instanceof Error ? error.message : 'Unknown rebuild error.');
+          }
         }
       });
 
@@ -288,14 +277,6 @@ export function createDevCommand(deps: DevCommandDeps) {
         void ledger.close();
       });
     } catch (error) {
-      const reason = error instanceof Error ? error.message : 'Unknown dev error.';
-      const diagnostic = buildDiagnostic({
-        severity: 'error',
-        reason,
-      });
-
-      reportDiagnostic(diagnostic);
-
       throw error;
     }
   };

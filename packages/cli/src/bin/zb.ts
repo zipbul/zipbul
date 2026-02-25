@@ -7,7 +7,7 @@ import { Logger } from '@zipbul/logger';
 import { dev } from './dev.command';
 import { build } from './build.command';
 import { mcp } from './mcp.command';
-import { buildDiagnostic, reportDiagnostic } from '../diagnostics';
+import { DiagnosticError, reportDiagnostic } from '../diagnostics';
 
 Logger.configure({ level: 'info' });
 
@@ -37,12 +37,7 @@ const printUsage = (): void => {
 
 const reportInvalidCommand = (value: string | undefined): void => {
   const commandValue = value ?? '(missing)';
-  const diagnostic = buildDiagnostic({
-    severity: 'error',
-    reason: `Unsupported command: ${commandValue}.`,
-  });
-
-  reportDiagnostic(diagnostic);
+  logger.error(`Unsupported command: ${commandValue}.`);
 };
 
 const createCommandOptions = (): CommandOptions => {
@@ -79,6 +74,12 @@ try {
       printUsage();
       process.exitCode = 1;
   }
-} catch (_error) {
+} catch (error) {
+  if (error instanceof DiagnosticError) {
+    reportDiagnostic(error.diagnostic);
+  } else {
+    logger.fatal(error instanceof Error ? error.message : 'Unknown error.');
+  }
+
   process.exitCode = 1;
 }

@@ -614,7 +614,7 @@ describe('AdapterSpecResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(result.data.why).toMatch(/adapterSpec must be defineAdapter/);
+      expect(result.data.why).toMatch(/Adapter definition must use defineAdapter/);
     }
   });
 
@@ -802,7 +802,7 @@ describe('AdapterSpecResolver', () => {
     }
   });
 
-  it('should throw when no adapterSpec found', async () => {
+  it('should throw when no adapter definition found', async () => {
     // Arrange
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
@@ -834,7 +834,7 @@ describe('AdapterSpecResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(result.data.why).toMatch(/No adapterSpec exports found/);
+      expect(result.data.why).toMatch(/No adapter definition found/);
     }
   });
 
@@ -1223,7 +1223,7 @@ describe('AdapterSpecResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(result.data.why).toMatch(/No adapterSpec exports found/);
+      expect(result.data.why).toMatch(/No adapter definition found/);
     }
   });
 
@@ -1252,7 +1252,7 @@ describe('AdapterSpecResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(result.data.why).toMatch(/No adapterSpec exports found/);
+      expect(result.data.why).toMatch(/No adapter definition found/);
     }
   });
 
@@ -1318,7 +1318,7 @@ describe('AdapterSpecResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(result.data.why).toMatch(/No adapterSpec exports found/);
+      expect(result.data.why).toMatch(/No adapter definition found/);
     }
   });
 

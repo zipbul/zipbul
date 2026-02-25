@@ -25,7 +25,6 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (callEntries.length === 0) {
     return err(
       buildDiagnostic({
-        severity: 'error',
         reason: 'createApplication call not found in recognized files.',
       }),
     );
@@ -34,7 +33,6 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (callEntries.length > 1) {
     return err(
       buildDiagnostic({
-        severity: 'error',
         reason: 'Multiple createApplication calls detected in recognized files.',
       }),
     );
@@ -45,7 +43,6 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (entry === undefined) {
     return err(
       buildDiagnostic({
-        severity: 'error',
         reason: 'createApplication call not found in recognized files.',
       }),
     );
@@ -56,7 +53,6 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (args.length !== 1) {
     return err(
       buildDiagnostic({
-        severity: 'error',
         reason: 'createApplication must take exactly one entry module argument.',
         file: entry.filePath,
       }),
@@ -68,7 +64,6 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (!isAnalyzerRecord(entryArg)) {
     return err(
       buildDiagnostic({
-        severity: 'error',
         reason: 'createApplication entry module must be a statically resolvable identifier.',
         file: entry.filePath,
       }),
@@ -80,7 +75,6 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (typeof entryRef !== 'string' || entryRef.length === 0) {
     return err(
       buildDiagnostic({
-        severity: 'error',
         reason: 'createApplication entry module must be a statically resolvable identifier.',
         file: entry.filePath,
       }),

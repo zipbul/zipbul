@@ -1176,7 +1176,6 @@ export class AstParser {
       visit(funcNode.body);
     } catch {
       return err(buildDiagnostic({
-        severity: 'error',
         reason: 'addErrorFilters는 리터럴 배열 + Identifier만 지원합니다.',
       }));
     }
@@ -1312,7 +1311,6 @@ export class AstParser {
       visit(funcNode.body);
     } catch {
       return err(buildDiagnostic({
-        severity: 'error',
         reason: 'addMiddlewares는 리터럴 배열 + Identifier/withOptions만 지원합니다.',
       }));
     }

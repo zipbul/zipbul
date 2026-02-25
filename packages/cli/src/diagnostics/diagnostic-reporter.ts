@@ -20,9 +20,5 @@ export function reportDiagnostic(diagnostic: Diagnostic): void {
 
   const message = parts.join('\n');
 
-  if (diagnostic.severity === 'error') {
-    logger.error(message);
-  } else {
-    logger.warn(message);
-  }
+  logger.fatal(message);
 }

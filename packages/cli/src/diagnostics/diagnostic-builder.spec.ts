@@ -4,31 +4,17 @@ import { buildDiagnostic } from './diagnostic-builder';
 
 describe('buildDiagnostic', () => {
   // [HP-1]
-  it('should build diagnostic with error severity', () => {
+  it('should build diagnostic with reason mapped to why', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Missing config file',
     });
 
-    expect(result.severity).toBe('error');
     expect(result.why).toBe('Missing config file');
-  });
-
-  // [HP-2]
-  it('should build diagnostic with warning severity', () => {
-    const result = buildDiagnostic({
-      severity: 'warning',
-      reason: 'Use new API instead',
-    });
-
-    expect(result.severity).toBe('warning');
-    expect(result.why).toBe('Use new API instead');
   });
 
   // [HP-3]
   it('should include where when file is provided', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
     });
@@ -39,7 +25,6 @@ describe('buildDiagnostic', () => {
   // [HP-4]
   it('should include how when how is provided', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       how: 'Remove the duplicate import',
     });
@@ -50,7 +35,6 @@ describe('buildDiagnostic', () => {
   // [HP-5]
   it('should include both where and how when both provided', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
       how: 'Fix the import',
@@ -63,7 +47,6 @@ describe('buildDiagnostic', () => {
   // [HP-6]
   it('should omit where and how when neither provided', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
     });
 
@@ -74,7 +57,6 @@ describe('buildDiagnostic', () => {
   // [NE-6]
   it('should include where when file is empty string', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       file: '',
     });
@@ -85,7 +67,6 @@ describe('buildDiagnostic', () => {
   // [NE-7]
   it('should include how when how is empty string', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       how: '',
     });
@@ -96,7 +77,6 @@ describe('buildDiagnostic', () => {
   // [ED-3]
   it('should build diagnostic with minimal required fields only', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
     });
 
@@ -106,7 +86,6 @@ describe('buildDiagnostic', () => {
   // [ED-5]
   it('should handle empty reason string', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: '',
     });
 
@@ -116,7 +95,6 @@ describe('buildDiagnostic', () => {
   // [CO-1]
   it('should handle all empty required strings with no optionals', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: '',
     });
 
@@ -128,7 +106,6 @@ describe('buildDiagnostic', () => {
   // [CO-2]
   it('should handle all empty required strings with empty optionals', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: '',
       file: '',
       how: '',
@@ -142,7 +119,6 @@ describe('buildDiagnostic', () => {
   // [CO-4]
   it('should include how but omit where when only how provided', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       how: 'Fix it',
     });
@@ -154,7 +130,6 @@ describe('buildDiagnostic', () => {
   // [CO-5]
   it('should include where but omit how when only file provided', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
     });
@@ -166,7 +141,6 @@ describe('buildDiagnostic', () => {
   // [ID-1]
   it('should return identical results for identical params', () => {
     const params = {
-      severity: 'error' as const,
       reason: 'Reason',
       file: 'src/app.ts',
       how: 'Fix it',
@@ -181,7 +155,6 @@ describe('buildDiagnostic', () => {
   // [HP-SYM-1]
   it('should include symbol in where when file and symbol are both provided', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
       symbol: 'AppController.create',
@@ -193,7 +166,6 @@ describe('buildDiagnostic', () => {
   // [HP-SYM-2]
   it('should include where with symbol and how when all three optionals provided', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
       symbol: 'AppController',
@@ -207,7 +179,6 @@ describe('buildDiagnostic', () => {
   // [CO-SYM-1]
   it('should ignore symbol when file is not provided', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       symbol: 'AppController',
     });
@@ -218,7 +189,6 @@ describe('buildDiagnostic', () => {
   // [ED-SYM-1]
   it('should include empty symbol in where when symbol is empty string', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
       file: 'src/app.ts',
       symbol: '',
@@ -230,7 +200,6 @@ describe('buildDiagnostic', () => {
   // [CO-SYM-2]
   it('should handle all empty required and all empty optionals including symbol', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: '',
       file: '',
       symbol: '',
@@ -245,7 +214,6 @@ describe('buildDiagnostic', () => {
   // [ID-SYM-1]
   it('should return identical results for identical params including symbol', () => {
     const params = {
-      severity: 'error' as const,
       reason: 'Reason',
       file: 'src/app.ts',
       symbol: 'AppController.create',
@@ -261,10 +229,29 @@ describe('buildDiagnostic', () => {
   // [HP-NO-SUMMARY]
   it('should not include summary field in output', () => {
     const result = buildDiagnostic({
-      severity: 'error',
       reason: 'Reason',
     });
 
     expect(result).not.toHaveProperty('summary');
+  });
+
+  // [HP-CAUSE-1]
+  it('should include cause when cause is provided', () => {
+    const originalError = new Error('root cause');
+    const result = buildDiagnostic({
+      reason: 'Reason',
+      cause: originalError,
+    });
+
+    expect(result.cause).toBe(originalError);
+  });
+
+  // [HP-CAUSE-2]
+  it('should omit cause when cause is not provided', () => {
+    const result = buildDiagnostic({
+      reason: 'Reason',
+    });
+
+    expect(result).not.toHaveProperty('cause');
   });
 });

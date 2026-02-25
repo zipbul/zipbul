@@ -19,7 +19,7 @@ import {
 } from '../common';
 import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
 import type { ZipbulConfigSource } from '../config/interfaces';
-import { buildDiagnostic, reportDiagnostic } from '../diagnostics';
+import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 
@@ -108,9 +108,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           const parseResult = parser.parse(filePath, fileContent);
 
           if (isErr(parseResult)) {
-            reportDiagnostic(parseResult.data);
-
-            throw new Error(parseResult.data.why);
+            throw new DiagnosticError(parseResult.data);
           }
 
           const classInfos = parseResult.classes.map(meta => ({ metadata: meta, filePath }));
@@ -205,24 +203,23 @@ export function createBuildCommand(deps: BuildCommandDeps) {
             }
           }
         } catch (error) {
+          if (error instanceof DiagnosticError) {
+            throw error;
+          }
+
           const reason = error instanceof Error ? error.message : 'Unknown parse error.';
-          const diagnostic = buildDiagnostic({
-            severity: 'error',
-            reason,
-            file: filePath,
-          });
 
-          reportDiagnostic(diagnostic);
-
-          throw error;
+          throw new DiagnosticError(
+            buildDiagnostic({ reason, file: filePath }),
+            { cause: error },
+          );
         }
       }
 
       const appEntry = validateCreateApplication(fileMap);
 
       if (isErr(appEntry)) {
-        reportDiagnostic(appEntry.data);
-        throw new Error(appEntry.data.why);
+        throw new DiagnosticError(appEntry.data);
       }
 
       logger.info('🕸️  Building Module Graph...');
@@ -235,8 +232,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       });
 
       if (isErr(ledgerResult)) {
-        reportDiagnostic(ledgerResult.data);
-        throw new Error(ledgerResult.data.why);
+        throw new DiagnosticError(ledgerResult.data);
       }
 
       const ledger = ledgerResult;
@@ -245,16 +241,13 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const hasCycleResult = await ledger.hasCycle();
 
         if (isErr(hasCycleResult)) {
-          reportDiagnostic(hasCycleResult.data);
-          throw new Error(hasCycleResult.data.why);
+          throw new DiagnosticError(hasCycleResult.data);
         }
 
         if (hasCycleResult) {
-          const cycleDiagnostic = buildDiagnostic({
-            severity: 'warning',
-            reason: 'gildash detected a circular import chain. Check import graph.',
-          });
-          reportDiagnostic(cycleDiagnostic);
+          throw new DiagnosticError(
+            buildDiagnostic({ reason: 'Circular import chain detected. Check import graph.' }),
+          );
         }
 
         const graph = new ModuleGraph(fileMap, moduleFileName);
@@ -264,8 +257,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const adapterSpecResolution = await adapterSpecResolver.resolve({ fileMap, projectRoot });
 
         if (isErr(adapterSpecResolution)) {
-          reportDiagnostic(adapterSpecResolution.data);
-          throw new Error(adapterSpecResolution.data.why);
+          throw new DiagnosticError(adapterSpecResolution.data);
         }
 
         logger.info('🛠️  Generating intermediate manifests...');
@@ -289,8 +281,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const runtimeResult = manifestGen.generate(graph, allClasses, buildTempDir);
 
         if (isErr(runtimeResult)) {
-          reportDiagnostic(runtimeResult.data);
-          throw new Error(runtimeResult.data.why);
+          throw new DiagnosticError(runtimeResult.data);
         }
 
         await writeIfChanged(runtimeFile, runtimeResult);
@@ -363,18 +354,10 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const closeResult = await ledger.close();
 
         if (isErr(closeResult)) {
-          reportDiagnostic(closeResult.data);
+          logger.error(closeResult.data.why);
         }
       }
     } catch (error) {
-      const reason = error instanceof Error ? error.message : 'Unknown build error.';
-      const diagnostic = buildDiagnostic({
-        severity: 'error',
-        reason,
-      });
-
-      reportDiagnostic(diagnostic);
-
       throw error;
     }
   };

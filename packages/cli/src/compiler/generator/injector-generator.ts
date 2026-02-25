@@ -329,7 +329,6 @@ export class InjectorGenerator {
 
               if (start === null || end === null || tokenKind === 'invalid' || tokenValue === null) {
                 generateError = err(buildDiagnostic({
-                  severity: 'error',
                   reason: 'inject() 호출의 토큰을 정적으로 결정할 수 없습니다.',
                 }));
 
@@ -340,7 +339,6 @@ export class InjectorGenerator {
 
               if (!isNonEmptyString(tokenName)) {
                 generateError = err(buildDiagnostic({
-                  severity: 'error',
                   reason: 'inject() 호출의 토큰을 정적으로 결정할 수 없습니다.',
                 }));
 
