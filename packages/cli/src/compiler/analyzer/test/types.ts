@@ -1,3 +1,3 @@
-import type { AstParser } from '../index';
+import type { ParseResult } from '../parser-models';
 
-export type AstParseResult = ReturnType<AstParser['parse']>;
+export type AstParseResult = ParseResult;

@@ -4,33 +4,29 @@ import { buildDiagnostic } from './diagnostic-builder';
 
 describe('buildDiagnostic', () => {
   // [HP-1]
-  it('should format summary and why with error severity prefix', () => {
+  it('should build diagnostic with error severity', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Something broke',
       reason: 'Missing config file',
     });
 
     expect(result.severity).toBe('error');
     expect(result.code).toBe('ZB_TEST_001');
-    expect(result.summary).toBe('[error/ZB_TEST_001] Something broke');
-    expect(result.why).toBe('[error/ZB_TEST_001] Missing config file');
+    expect(result.why).toBe('Missing config file');
   });
 
   // [HP-2]
-  it('should format summary and why with warning severity prefix', () => {
+  it('should build diagnostic with warning severity', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_002',
       severity: 'warning',
-      summary: 'Deprecated usage',
       reason: 'Use new API instead',
     });
 
     expect(result.severity).toBe('warning');
     expect(result.code).toBe('ZB_TEST_002');
-    expect(result.summary).toBe('[warning/ZB_TEST_002] Deprecated usage');
-    expect(result.why).toBe('[warning/ZB_TEST_002] Use new API instead');
+    expect(result.why).toBe('Use new API instead');
   });
 
   // [HP-3]
@@ -38,7 +34,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       file: 'src/app.ts',
     });
@@ -51,7 +46,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       how: 'Remove the duplicate import',
     });
@@ -64,7 +58,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       file: 'src/app.ts',
       how: 'Fix the import',
@@ -79,7 +72,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
     });
 
@@ -92,7 +84,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       file: '',
     });
@@ -105,7 +96,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       how: '',
     });
@@ -114,29 +104,15 @@ describe('buildDiagnostic', () => {
   });
 
   // [ED-3]
-  it('should handle empty code string in prefix', () => {
+  it('should handle empty code string', () => {
     const result = buildDiagnostic({
       code: '',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
     });
 
-    expect(result.summary).toBe('[error/] Error');
-    expect(result.why).toBe('[error/] Reason');
+    expect(result.why).toBe('Reason');
     expect(result.code).toBe('');
-  });
-
-  // [ED-4]
-  it('should handle empty summary string', () => {
-    const result = buildDiagnostic({
-      code: 'ZB_TEST_001',
-      severity: 'error',
-      summary: '',
-      reason: 'Reason',
-    });
-
-    expect(result.summary).toBe('[error/ZB_TEST_001] ');
   });
 
   // [ED-5]
@@ -144,11 +120,10 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: '',
     });
 
-    expect(result.why).toBe('[error/ZB_TEST_001] ');
+    expect(result.why).toBe('');
   });
 
   // [CO-1]
@@ -156,13 +131,11 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: '',
       severity: 'error',
-      summary: '',
       reason: '',
     });
 
     expect(result.code).toBe('');
-    expect(result.summary).toBe('[error/] ');
-    expect(result.why).toBe('[error/] ');
+    expect(result.why).toBe('');
     expect(result).not.toHaveProperty('where');
     expect(result).not.toHaveProperty('how');
   });
@@ -172,15 +145,13 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: '',
       severity: 'error',
-      summary: '',
       reason: '',
       file: '',
       how: '',
     });
 
     expect(result.code).toBe('');
-    expect(result.summary).toBe('[error/] ');
-    expect(result.why).toBe('[error/] ');
+    expect(result.why).toBe('');
     expect(result.where).toEqual({ file: '' });
     expect(result.how).toBe('');
   });
@@ -190,7 +161,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       how: 'Fix it',
     });
@@ -204,7 +174,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       file: 'src/app.ts',
     });
@@ -218,7 +187,6 @@ describe('buildDiagnostic', () => {
     const params = {
       code: 'ZB_TEST_001',
       severity: 'error' as const,
-      summary: 'Error',
       reason: 'Reason',
       file: 'src/app.ts',
       how: 'Fix it',
@@ -235,7 +203,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       file: 'src/app.ts',
       symbol: 'AppController.create',
@@ -249,7 +216,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       file: 'src/app.ts',
       symbol: 'AppController',
@@ -265,7 +231,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       symbol: 'AppController',
     });
@@ -278,7 +243,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: 'ZB_TEST_001',
       severity: 'error',
-      summary: 'Error',
       reason: 'Reason',
       file: 'src/app.ts',
       symbol: '',
@@ -292,7 +256,6 @@ describe('buildDiagnostic', () => {
     const result = buildDiagnostic({
       code: '',
       severity: 'error',
-      summary: '',
       reason: '',
       file: '',
       symbol: '',
@@ -300,8 +263,7 @@ describe('buildDiagnostic', () => {
     });
 
     expect(result.code).toBe('');
-    expect(result.summary).toBe('[error/] ');
-    expect(result.why).toBe('[error/] ');
+    expect(result.why).toBe('');
     expect(result.where).toEqual({ file: '', symbol: '' });
     expect(result.how).toBe('');
   });
@@ -311,7 +273,6 @@ describe('buildDiagnostic', () => {
     const params = {
       code: 'ZB_TEST_001',
       severity: 'error' as const,
-      summary: 'Error',
       reason: 'Reason',
       file: 'src/app.ts',
       symbol: 'AppController.create',
@@ -322,5 +283,16 @@ describe('buildDiagnostic', () => {
     const result2 = buildDiagnostic(params);
 
     expect(result1).toEqual(result2);
+  });
+
+  // [HP-NO-SUMMARY]
+  it('should not include summary field in output', () => {
+    const result = buildDiagnostic({
+      code: 'ZB_TEST_001',
+      severity: 'error',
+      reason: 'Reason',
+    });
+
+    expect(result).not.toHaveProperty('summary');
   });
 });

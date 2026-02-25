@@ -3,10 +3,15 @@ import { parseArgs } from 'util';
 
 import type { CommandOptions } from './types';
 
+import { Logger } from '@zipbul/logger';
 import { dev } from './dev.command';
 import { build } from './build.command';
 import { mcp } from './mcp.command';
-import { buildDiagnostic, reportDiagnostics, CLI_INVALID_COMMAND } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostic, DiagnosticCode } from '../diagnostics';
+
+Logger.configure({ level: 'info' });
+
+const logger = new Logger('CLI');
 
 const { positionals, values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -21,25 +26,24 @@ const { positionals, values } = parseArgs({
 const command = positionals[0];
 
 const printUsage = (): void => {
-  console.info('Usage: zb <command>');
-  console.info('Commands:');
-  console.info('  dev    Generate AOT artifacts and watch');
-  console.info('  build  Generate build output');
-  console.info('  mcp    Start MCP server (no args)');
-  console.info('Options:');
-  console.info('  --profile <minimal|standard|full>');
+  logger.info('Usage: zb <command>');
+  logger.info('Commands:');
+  logger.info('  dev    Generate AOT artifacts and watch');
+  logger.info('  build  Generate build output');
+  logger.info('  mcp    Start MCP server (no args)');
+  logger.info('Options:');
+  logger.info('  --profile <minimal|standard|full>');
 };
 
 const reportInvalidCommand = (value: string | undefined): void => {
   const commandValue = value ?? '(missing)';
   const diagnostic = buildDiagnostic({
-    code: CLI_INVALID_COMMAND,
+    code: DiagnosticCode.CliInvalidCommand,
     severity: 'error',
-    summary: 'Unknown command.',
     reason: `Unsupported command: ${commandValue}.`,
   });
 
-  reportDiagnostics({ diagnostics: [diagnostic] });
+  reportDiagnostic(diagnostic);
 };
 
 const createCommandOptions = (): CommandOptions => {

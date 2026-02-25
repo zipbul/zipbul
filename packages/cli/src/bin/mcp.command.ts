@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { Result } from '@zipbul/result';
 import { isErr } from '@zipbul/result';
 import type { Diagnostic } from '../diagnostics';
-import { buildDiagnostic, reportDiagnostics, CLI_INVALID_COMMAND } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostic, DiagnosticCode } from '../diagnostics';
 import { ConfigLoader } from '../config';
 import type { ResolvedZipbulConfig } from '../config';
 import { startZipbulMcpServerStdio } from '../mcp/server/mcp-server';
@@ -85,13 +85,12 @@ async function rebuildProjectIndexDefault(
 function reportInvalidSubcommand(value: string | undefined): void {
   const commandValue = value ?? '(missing)';
   const diagnostic = buildDiagnostic({
-    code: CLI_INVALID_COMMAND,
+    code: DiagnosticCode.CliInvalidCommand,
     severity: 'error',
-    summary: 'Unknown command.',
     reason: `Unsupported mcp subcommand: ${commandValue}. Use: zb mcp | zb mcp verify | zb mcp rebuild.`,
   });
 
-  reportDiagnostics({ diagnostics: [diagnostic] });
+  reportDiagnostic(diagnostic);
 }
 
 export function createMcpCommand(deps: McpCommandDeps) {

@@ -6,6 +6,7 @@ import type { CollectedClass, CommandOptions } from './types';
 
 import type { Result } from '@zipbul/result';
 import { isErr } from '@zipbul/result';
+import { Logger } from '@zipbul/logger';
 import type { Diagnostic } from '../diagnostics';
 import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
@@ -18,7 +19,7 @@ import {
 } from '../common';
 import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
 import type { ZipbulConfigSource } from '../config/interfaces';
-import { buildDiagnostic, reportDiagnostic, reportDiagnostics, BUILD_PARSE_FAILED, BUILD_FILE_CYCLE, BUILD_FAILED } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostic, DiagnosticCode } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 
@@ -39,8 +40,10 @@ export interface BuildCommandDeps {
 }
 
 export function createBuildCommand(deps: BuildCommandDeps) {
+  const logger = new Logger('Build');
+
   return async function build(commandOptions?: CommandOptions): Promise<void> {
-    console.info('🚀 Starting Zipbul Production Build...');
+    logger.info('Starting Zipbul Production Build...');
 
     try {
       const configResult = await deps.loadConfig();
@@ -53,9 +56,9 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const zipbulDir = zipbulDirPath(projectRoot);
       const buildTempDir = zipbulTempDirPath(outDir);
 
-      console.info(`📂 Project Root: ${projectRoot}`);
-      console.info(`📂 Source Dir: ${srcDir}`);
-      console.info(`📂 Output Dir: ${outDir}`);
+      logger.info(`📂 Project Root: ${projectRoot}`);
+      logger.info(`📂 Source Dir: ${srcDir}`);
+      logger.info(`📂 Output Dir: ${outDir}`);
 
       const parser = deps.createParser();
       const manifestGen = deps.createManifestGenerator();
@@ -63,7 +66,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const fileMap = new Map<string, FileAnalysis>();
       const allClasses: CollectedClass[] = [];
 
-      console.info('🔍 Scanning source files...');
+      logger.info('🔍 Scanning source files...');
 
       const userMain = resolve(projectRoot, config.entry);
       const visited = new Set<string>();
@@ -103,6 +106,13 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         try {
           const fileContent = await Bun.file(filePath).text();
           const parseResult = parser.parse(filePath, fileContent);
+
+          if (isErr(parseResult)) {
+            reportDiagnostic(parseResult.data);
+
+            throw new Error(parseResult.data.why);
+          }
+
           const classInfos = parseResult.classes.map(meta => ({ metadata: meta, filePath }));
 
           allClasses.push(...classInfos);
@@ -197,14 +207,13 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown parse error.';
           const diagnostic = buildDiagnostic({
-            code: BUILD_PARSE_FAILED,
+            code: DiagnosticCode.BuildParseFailed,
             severity: 'error',
-            summary: 'Parse failed.',
             reason,
             file: filePath,
           });
 
-          reportDiagnostics({ diagnostics: [diagnostic] });
+          reportDiagnostic(diagnostic);
 
           throw error;
         }
@@ -217,7 +226,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         throw new Error(appEntry.data.reason);
       }
 
-      console.info('🕸️  Building Module Graph...');
+      logger.info('🕸️  Building Module Graph...');
 
       // gildash 파일 레벨 순환 감지 (보강)
       const openGildash = deps.createGildashProvider ?? GildashProvider.open;
@@ -243,12 +252,11 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         if (hasCycleResult) {
           const cycleDiagnostic = buildDiagnostic({
-            code: BUILD_FILE_CYCLE,
+            code: DiagnosticCode.BuildFileCycle,
             severity: 'warning',
-            summary: 'File-level circular dependency detected.',
             reason: 'gildash detected a circular import chain. Check import graph.',
           });
-          reportDiagnostics({ diagnostics: [cycleDiagnostic] });
+          reportDiagnostic(cycleDiagnostic);
         }
 
         const graph = new ModuleGraph(fileMap, moduleFileName);
@@ -262,7 +270,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           throw new Error(adapterSpecResolution.data.reason);
         }
 
-        console.info('🛠️  Generating intermediate manifests...');
+        logger.info('🛠️  Generating intermediate manifests...');
 
         await mkdir(zipbulDir, { recursive: true });
 
@@ -280,9 +288,14 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         await mkdir(buildTempDir, { recursive: true });
 
         const runtimeFile = join(buildTempDir, 'runtime.ts');
-        const runtimeCode = manifestGen.generate(graph, allClasses, buildTempDir);
+        const runtimeResult = manifestGen.generate(graph, allClasses, buildTempDir);
 
-        await writeIfChanged(runtimeFile, runtimeCode);
+        if (isErr(runtimeResult)) {
+          reportDiagnostic(runtimeResult.data);
+          throw new Error(runtimeResult.data.why);
+        }
+
+        await writeIfChanged(runtimeFile, runtimeResult);
 
         const entryPointFile = join(buildTempDir, 'entry.ts');
         const entryGen = deps.createEntryGenerator();
@@ -326,7 +339,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           await rm(runtimeReportFile, { force: true });
         }
 
-        console.info('📦 Bundling application and manifest...');
+        logger.info('📦 Bundling application and manifest...');
 
         const buildResult = await deps.buildBundle({
           entrypoints: [entryPointFile, runtimeFile],
@@ -344,10 +357,10 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           throw new Error(reason);
         }
 
-        console.info('✅ Build Complete!');
-        console.info(`   Entry: ${join(outDir, 'entry.js')}`);
-        console.info(`   Runtime: ${join(outDir, 'runtime.js')}`);
-        console.info(`   Manifest: ${manifestFile}`);
+        logger.info('✅ Build Complete!');
+        logger.info(`   Entry: ${join(outDir, 'entry.js')}`);
+        logger.info(`   Runtime: ${join(outDir, 'runtime.js')}`);
+        logger.info(`   Manifest: ${manifestFile}`);
       } finally {
         const closeResult = await ledger.close();
 
@@ -358,13 +371,12 @@ export function createBuildCommand(deps: BuildCommandDeps) {
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Unknown build error.';
       const diagnostic = buildDiagnostic({
-        code: BUILD_FAILED,
+        code: DiagnosticCode.BuildFailed,
         severity: 'error',
-        summary: 'Build failed.',
         reason,
       });
 
-      reportDiagnostics({ diagnostics: [diagnostic] });
+      reportDiagnostic(diagnostic);
 
       throw error;
     }

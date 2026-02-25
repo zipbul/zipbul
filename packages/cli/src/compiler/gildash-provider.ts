@@ -5,7 +5,7 @@ import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../diagnostics';
 
 import { err, isErr } from '@zipbul/result';
-import { buildDiagnostic, DEV_GILDASH_PARSE } from '../diagnostics';
+import { buildDiagnostic, DiagnosticCode } from '../diagnostics';
 
 export interface GildashProviderOptions {
   projectRoot: string;
@@ -33,9 +33,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DEV_GILDASH_PARSE,
+        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
-        summary: 'Failed to open gildash',
         reason: result.data.message,
       }));
     }
@@ -48,9 +47,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DEV_GILDASH_PARSE,
+        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
-        summary: 'Failed to get dependencies',
         reason: result.data.message,
       }));
     }
@@ -63,9 +61,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DEV_GILDASH_PARSE,
+        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
-        summary: 'Failed to get dependents',
         reason: result.data.message,
       }));
     }
@@ -78,9 +75,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DEV_GILDASH_PARSE,
+        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
-        summary: 'Failed to get affected files',
         reason: result.data.message,
       }));
     }
@@ -93,9 +89,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DEV_GILDASH_PARSE,
+        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
-        summary: 'Failed to check cycle',
         reason: result.data.message,
       }));
     }
@@ -112,9 +107,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DEV_GILDASH_PARSE,
+        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
-        summary: 'Failed to reindex',
         reason: result.data.message,
       }));
     }
@@ -125,9 +119,8 @@ export class GildashProvider {
 
     if (isErr(result)) {
       return err(buildDiagnostic({
-        code: DEV_GILDASH_PARSE,
+        code: DiagnosticCode.DevGildashParse,
         severity: 'error',
-        summary: 'Failed to close gildash',
         reason: result.data.message,
       }));
     }

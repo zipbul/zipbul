@@ -7,6 +7,7 @@ export interface BaseLogMessage {
   msg: string;
   time: number;
   context?: string;
+  fn?: string;
   reqId?: string;
   workerId?: number;
   err?: Error | Loggable;
@@ -35,8 +36,13 @@ export interface LoggerOptions {
 
   format?: 'pretty' | 'json';
   prettyOptions?: LoggerPrettyOptions;
+  transports?: Transport[];
 }
 
 export interface Transport {
   log(message: LogMessage): void;
+}
+
+export interface LogContext {
+  [key: string]: LogMetadataValue;
 }

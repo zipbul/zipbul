@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+import { err } from '@zipbul/result';
+
 import type { BuildCommandDeps } from '../src/bin/build.command';
 import { __testing__ } from '../src/bin/build.command';
 import type { AstParser, AdapterSpecResolver } from '../src/compiler/analyzer';
@@ -319,12 +321,12 @@ describe('createBuildCommand', () => {
     await expect(build({ profile: 'ultra' as any })).rejects.toThrow();
   });
 
-  it('should throw and report PARSE_FAILED when parser.parse() throws during BFS', async () => {
+  it('should throw and report PARSE_FAILED when parser.parse() returns Err during BFS', async () => {
     // Arrange
     const deps = makeDeps({
       createParser: mock(() => ({
         parse: mock((_filePath: string, _content: string) => {
-          throw new Error('parse boom');
+          return err({ severity: 'error' as const, code: 'B0001', why: 'test' });
         }),
       }) as unknown as AstParser),
     });

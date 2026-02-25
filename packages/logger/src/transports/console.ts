@@ -69,7 +69,7 @@ export class ConsoleTransport implements Transport {
   }
 
   private logPretty(message: LogMessage): void {
-    const { level, time, msg, context, reqId, workerId, err, ...rest } = message;
+    const { level, time, msg, context, fn, reqId, workerId, err, ...rest } = message;
     const date = new Date(time);
     const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
     const timeColored = `${COLORS.gray}${timeStr}${RESET}`;
@@ -88,6 +88,10 @@ export class ConsoleTransport implements Transport {
 
     if (typeof context === 'string' && context.length > 0) {
       metaStr += `[${COLORS.cyan}${context}${RESET}] `;
+    }
+
+    if (typeof fn === 'string' && fn.length > 0) {
+      metaStr += `[${COLORS.magenta}${fn}${RESET}] `;
     }
 
     const msgStr = `${levelCode}${msg}${RESET}`;

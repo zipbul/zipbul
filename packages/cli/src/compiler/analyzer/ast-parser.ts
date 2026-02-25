@@ -14,6 +14,10 @@ import type {
   TypeInfo,
 } from './types';
 
+import type { Result } from '@zipbul/result';
+import { err, isErr } from '@zipbul/result';
+import type { Diagnostic } from '../../diagnostics';
+import { buildDiagnostic, DiagnosticCode } from '../../diagnostics';
 import { AstTypeResolver } from './ast-type-resolver';
 import { compareCodePoint } from '../../common';
 
@@ -53,7 +57,7 @@ export class AstParser {
   private currentImportSources: Record<string, string> = {};
   private currentInjectCalls: InjectCall[] = [];
 
-  parse(filename: string, code: string): ParseResult {
+  parse(filename: string, code: string): Result<ParseResult, Diagnostic> {
     this.currentFilePath = filename;
     this.currentCode = code;
     this.currentInjectCalls = [];
@@ -78,8 +82,13 @@ export class AstParser {
     this.currentImportSources = {};
 
     let moduleDefinition: ModuleDefinition | undefined;
+    let parseError: ReturnType<typeof err<Diagnostic>> | null = null;
 
     const traverse = (nodeValue: AnalyzerValue): void => {
+      if (parseError) {
+        return;
+      }
+
       const node = this.asNode(nodeValue);
 
       if (!node) {
@@ -444,11 +453,17 @@ export class AstParser {
       }
 
       if (node.type === 'ClassDeclaration') {
-        const classMeta = this.extractClassMetadata(node);
+        const classResult = this.extractClassMetadata(node);
 
-        classMeta.imports = { ...imports };
+        if (isErr(classResult)) {
+          parseError = classResult;
 
-        classes.push(classMeta);
+          return;
+        }
+
+        classResult.imports = { ...imports };
+
+        classes.push(classResult);
 
         return;
       }
@@ -468,6 +483,10 @@ export class AstParser {
     };
 
     traverse(result.program);
+
+    if (parseError) {
+      return parseError;
+    }
 
     if (defineModuleCalls.length > 0 && exportMappings.length > 0) {
       const exportMap = new Map<string, string[]>();
@@ -784,7 +803,7 @@ export class AstParser {
     return typeInfo.typeName;
   }
 
-  private extractClassMetadata(node: NodeRecord): ClassMetadata {
+  private extractClassMetadata(node: NodeRecord): Result<ClassMetadata, Diagnostic> {
     const id = this.asNode(node.id);
     const className = id ? (this.getString(id, 'name') ?? 'Anonymous') : 'Anonymous';
     const decoratorsValue = node.decorators;
@@ -875,8 +894,21 @@ export class AstParser {
             methodParams.sort((a, b) => a.index - b.index);
 
             if (methodName === 'configure' && value) {
-              middlewares = this.extractMiddlewaresFromConfigure(value);
-              errorFilters = this.extractErrorFiltersFromConfigure(value);
+              const mwResult = this.extractMiddlewaresFromConfigure(value);
+
+              if (isErr(mwResult)) {
+                return mwResult;
+              }
+
+              middlewares = mwResult;
+
+              const efResult = this.extractErrorFiltersFromConfigure(value);
+
+              if (isErr(efResult)) {
+                return efResult;
+              }
+
+              errorFilters = efResult;
             }
 
             if (methodDecorators.length > 0 || methodParams.some(param => param.decorators.length > 0)) {
@@ -1053,7 +1085,7 @@ export class AstParser {
     };
   }
 
-  private extractErrorFiltersFromConfigure(funcNode: NodeRecord): ClassMetadata['errorFilters'] {
+  private extractErrorFiltersFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['errorFilters'], Diagnostic> {
     const errorFilters: ClassMetadata['errorFilters'] = [];
 
     const error = (): never => {
@@ -1140,12 +1172,20 @@ export class AstParser {
       });
     };
 
-    visit(funcNode.body);
+    try {
+      visit(funcNode.body);
+    } catch {
+      return err(buildDiagnostic({
+        code: DiagnosticCode.BuildParseFailed,
+        severity: 'error',
+        reason: 'addErrorFilters는 리터럴 배열 + Identifier만 지원합니다.',
+      }));
+    }
 
     return errorFilters;
   }
 
-  private extractMiddlewaresFromConfigure(funcNode: NodeRecord): ClassMetadata['middlewares'] {
+  private extractMiddlewaresFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['middlewares'], Diagnostic> {
     const middlewares: ClassMetadata['middlewares'] = [];
 
     const error = (): never => {
@@ -1269,7 +1309,15 @@ export class AstParser {
       });
     };
 
-    visit(funcNode.body);
+    try {
+      visit(funcNode.body);
+    } catch {
+      return err(buildDiagnostic({
+        code: DiagnosticCode.BuildParseFailed,
+        severity: 'error',
+        reason: 'addMiddlewares는 리터럴 배열 + Identifier/withOptions만 지원합니다.',
+      }));
+    }
 
     return middlewares;
   }

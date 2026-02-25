@@ -4,7 +4,7 @@ import type { Diagnostic } from '../../diagnostics';
 import type { Result } from '@zipbul/result';
 
 import { err } from '@zipbul/result';
-import { buildDiagnostic, APP_ENTRY_NOT_FOUND, APP_MULTIPLE_ENTRIES } from '../../diagnostics';
+import { buildDiagnostic, DiagnosticCode } from '../../diagnostics';
 
 export interface ApplicationEntry {
   filePath: string;
@@ -25,9 +25,8 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (callEntries.length === 0) {
     return err(
       buildDiagnostic({
-        code: APP_ENTRY_NOT_FOUND,
+        code: DiagnosticCode.AppEntryNotFound,
         severity: 'error',
-        summary: 'createApplication entry module not found.',
         reason: 'createApplication call not found in recognized files.',
       }),
     );
@@ -36,9 +35,8 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (callEntries.length > 1) {
     return err(
       buildDiagnostic({
-        code: APP_MULTIPLE_ENTRIES,
+        code: DiagnosticCode.AppMultipleEntries,
         severity: 'error',
-        summary: 'Multiple createApplication calls detected.',
         reason: 'Multiple createApplication calls detected in recognized files.',
       }),
     );
@@ -49,9 +47,8 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (entry === undefined) {
     return err(
       buildDiagnostic({
-        code: APP_ENTRY_NOT_FOUND,
+        code: DiagnosticCode.AppEntryNotFound,
         severity: 'error',
-        summary: 'createApplication entry module not found.',
         reason: 'createApplication call not found in recognized files.',
       }),
     );
@@ -62,9 +59,8 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (args.length !== 1) {
     return err(
       buildDiagnostic({
-        code: APP_ENTRY_NOT_FOUND,
+        code: DiagnosticCode.AppEntryNotFound,
         severity: 'error',
-        summary: 'Invalid createApplication entry argument.',
         reason: 'createApplication must take exactly one entry module argument.',
         file: entry.filePath,
       }),
@@ -76,9 +72,8 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (!isAnalyzerRecord(entryArg)) {
     return err(
       buildDiagnostic({
-        code: APP_ENTRY_NOT_FOUND,
+        code: DiagnosticCode.AppEntryNotFound,
         severity: 'error',
-        summary: 'Invalid createApplication entry argument.',
         reason: 'createApplication entry module must be a statically resolvable identifier.',
         file: entry.filePath,
       }),
@@ -90,9 +85,8 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
   if (typeof entryRef !== 'string' || entryRef.length === 0) {
     return err(
       buildDiagnostic({
-        code: APP_ENTRY_NOT_FOUND,
+        code: DiagnosticCode.AppEntryNotFound,
         severity: 'error',
-        summary: 'Invalid createApplication entry argument.',
         reason: 'createApplication entry module must be a statically resolvable identifier.',
         file: entry.filePath,
       }),

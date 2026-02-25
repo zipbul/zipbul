@@ -16,6 +16,16 @@ import { AdapterSpecResolver } from './adapter-spec-resolver';
 // Helpers
 // ---------------------------------------------------------------------------
 
+function parseOrFail(parser: AstParser, filename: string, code: string): AstParseResult {
+  const result = parser.parse(filename, code);
+
+  if (isErr(result)) {
+    throw new Error(`Unexpected parse failure: ${result.data.why}`);
+  }
+
+  return result;
+}
+
 const applyParseToAnalysis = (analysis: FileAnalysis, parseResult: AstParseResult): FileAnalysis => {
   if (parseResult.imports !== undefined) {
     analysis.imports = parseResult.imports;
@@ -108,7 +118,7 @@ describe('AdapterSpecResolver', () => {
     const fileMap = new Map<string, FileAnalysis>();
 
     // Controller file
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -121,7 +131,7 @@ describe('AdapterSpecResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     // Entry file (adapter)
-    const entryParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: entryParse.classes,
@@ -165,7 +175,7 @@ describe('AdapterSpecResolver', () => {
     const entryB = join(projectRoot, 'adapters', 'b', 'index.ts');
 
     // Controller that imports both
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -191,7 +201,7 @@ describe('AdapterSpecResolver', () => {
       '  onChat() {}',
       '}',
     ].join('\n');
-    const controllerParseB = parser.parse(controllerFileB, controllerCodeB);
+    const controllerParseB = parseOrFail(parser, controllerFileB, controllerCodeB);
     const controllerAnalysisB: FileAnalysis = {
       filePath: controllerFileB,
       classes: controllerParseB.classes,
@@ -207,7 +217,7 @@ describe('AdapterSpecResolver', () => {
 
     // Adapter A entry
     const adapterAValue = createAdapterValue({ name: 'alpha' });
-    const entryParseA = parser.parse(entryA, 'export const adapterSpec = defineAdapter({});');
+    const entryParseA = parseOrFail(parser, entryA, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysisA: FileAnalysis = {
       filePath: entryA,
       classes: entryParseA.classes,
@@ -227,7 +237,7 @@ describe('AdapterSpecResolver', () => {
         handler: [{ __zipbul_ref: 'OnMessage' }],
       },
     });
-    const entryParseB = parser.parse(entryB, 'export const adapterSpec = defineAdapter({});');
+    const entryParseB = parseOrFail(parser, entryB, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysisB: FileAnalysis = {
       filePath: entryB,
       classes: entryParseB.classes,
@@ -256,7 +266,7 @@ describe('AdapterSpecResolver', () => {
     const specFile = join(adapterDir, 'spec.ts');
 
     // Controller imports barrel
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -305,7 +315,7 @@ describe('AdapterSpecResolver', () => {
     const barrelFile = join(adapterDir, 'index.ts');
     const specFile = join(adapterDir, 'spec.ts');
 
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -381,7 +391,7 @@ describe('AdapterSpecResolver', () => {
       '});',
     ].join('\n');
 
-    const moduleParse = parser.parse(moduleFile, moduleCode);
+    const moduleParse = parseOrFail(parser, moduleFile, moduleCode);
     const moduleAnalysis: FileAnalysis = {
       filePath: moduleFile,
       classes: moduleParse.classes,
@@ -394,7 +404,7 @@ describe('AdapterSpecResolver', () => {
     fileMap.set(moduleFile, moduleAnalysis);
 
     // Controller
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -406,7 +416,7 @@ describe('AdapterSpecResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     // Entry file
-    const entryParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: entryParse.classes,
@@ -445,7 +455,7 @@ describe('AdapterSpecResolver', () => {
       '}',
     ].join('\n');
 
-    const controllerParse = parser.parse(controllerFile, code);
+    const controllerParse = parseOrFail(parser, controllerFile, code);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -457,7 +467,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: entryParse.classes,
@@ -496,7 +506,7 @@ describe('AdapterSpecResolver', () => {
       '}',
     ].join('\n');
 
-    const controllerParse = parser.parse(controllerFile, code);
+    const controllerParse = parseOrFail(parser, controllerFile, code);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -508,7 +518,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: entryParse.classes,
@@ -576,7 +586,7 @@ describe('AdapterSpecResolver', () => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -613,7 +623,7 @@ describe('AdapterSpecResolver', () => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -650,7 +660,7 @@ describe('AdapterSpecResolver', () => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -796,7 +806,7 @@ describe('AdapterSpecResolver', () => {
     // Arrange
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
-    const controllerParse = parser.parse(controllerFile, 'class Empty {}');
+    const controllerParse = parseOrFail(parser, controllerFile, 'class Empty {}');
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -835,7 +845,7 @@ describe('AdapterSpecResolver', () => {
     const entryA = join(projectRoot, 'adapters', 'a', 'index.ts');
     const entryB = join(projectRoot, 'adapters', 'b', 'index.ts');
 
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -852,7 +862,7 @@ describe('AdapterSpecResolver', () => {
 
     // Both adapters use same name 'test'
     for (const ep of [entryA, entryB]) {
-      const parse = parser.parse(ep, 'export const adapterSpec = defineAdapter({});');
+      const parse = parseOrFail(parser, ep, 'export const adapterSpec = defineAdapter({});');
       const analysis: FileAnalysis = {
         filePath: ep,
         classes: parse.classes,
@@ -896,7 +906,7 @@ describe('AdapterSpecResolver', () => {
       '}',
     ].join('\n');
 
-    const controllerParse = parser.parse(controllerFile, code);
+    const controllerParse = parseOrFail(parser, controllerFile, code);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -924,7 +934,7 @@ describe('AdapterSpecResolver', () => {
       [entryA, adapterAValue],
       [entryB, adapterBValue],
     ] as const) {
-      const parse = parser.parse(ep as string, 'export const adapterSpec = defineAdapter({});');
+      const parse = parseOrFail(parser, ep as string, 'export const adapterSpec = defineAdapter({});');
       const analysis: FileAnalysis = {
         filePath: ep as string,
         classes: parse.classes,
@@ -961,7 +971,7 @@ describe('AdapterSpecResolver', () => {
       '}',
     ].join('\n');
 
-    const controllerParse = parser.parse(controllerFile, code);
+    const controllerParse = parseOrFail(parser, controllerFile, code);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -973,7 +983,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: entryParse.classes,
@@ -1057,7 +1067,7 @@ describe('AdapterSpecResolver', () => {
       '}',
     ].join('\n');
 
-    const controllerParse = parser.parse(controllerFile, code);
+    const controllerParse = parseOrFail(parser, controllerFile, code);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1069,7 +1079,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: entryParse.classes,
@@ -1152,7 +1162,7 @@ describe('AdapterSpecResolver', () => {
     const fileMap = new Map<string, FileAnalysis>();
 
     const noClassCode = 'export const nothing = 1;';
-    const noClassParse = parser.parse(controllerFile, noClassCode);
+    const noClassParse = parseOrFail(parser, controllerFile, noClassCode);
     const noClassAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: noClassParse.classes,
@@ -1164,7 +1174,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(noClassAnalysis, noClassParse);
     fileMap.set(controllerFile, noClassAnalysis);
 
-    const entryParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: entryParse.classes,
@@ -1193,7 +1203,7 @@ describe('AdapterSpecResolver', () => {
 
     const nonExistentEntry = join(projectRoot, 'nonexistent', 'index.ts');
 
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1222,7 +1232,7 @@ describe('AdapterSpecResolver', () => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1272,7 +1282,7 @@ describe('AdapterSpecResolver', () => {
     const fileA = join(adapterDir, 'a.ts');
     const fileB = join(adapterDir, 'b.ts');
 
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1319,7 +1329,7 @@ describe('AdapterSpecResolver', () => {
     const entryA = join(projectRoot, 'adapters', 'a', 'index.ts');
     const entryB = join(projectRoot, 'adapters', 'b', 'index.ts');
 
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1344,7 +1354,7 @@ describe('AdapterSpecResolver', () => {
       [entryA, adapterA],
       [entryB, adapterB],
     ] as const) {
-      const parse = parser.parse(ep as string, 'export const adapterSpec = defineAdapter({});');
+      const parse = parseOrFail(parser, ep as string, 'export const adapterSpec = defineAdapter({});');
       const analysis: FileAnalysis = {
         filePath: ep as string,
         classes: parse.classes,
@@ -1379,7 +1389,7 @@ describe('AdapterSpecResolver', () => {
     const entryB = join(projectRoot, 'adapters', 'b', 'index.ts');
 
     // Controller for alpha
-    const controllerParse = parser.parse(controllerFile, controllerCode);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1403,7 +1413,7 @@ describe('AdapterSpecResolver', () => {
       '  onMsg() {}',
       '}',
     ].join('\n');
-    const controllerParseB = parser.parse(controllerFileB, controllerCodeB);
+    const controllerParseB = parseOrFail(parser, controllerFileB, controllerCodeB);
     const controllerAnalysisB: FileAnalysis = {
       filePath: controllerFileB,
       classes: controllerParseB.classes,
@@ -1430,7 +1440,7 @@ describe('AdapterSpecResolver', () => {
       [entryA, adapterAlpha],
       [entryB, adapterBravo],
     ] as const) {
-      const parse = parser.parse(ep as string, 'export const adapterSpec = defineAdapter({});');
+      const parse = parseOrFail(parser, ep as string, 'export const adapterSpec = defineAdapter({});');
       const analysis: FileAnalysis = {
         filePath: ep as string,
         classes: parse.classes,
@@ -1461,7 +1471,7 @@ describe('AdapterSpecResolver', () => {
     const controllerFileA = join(srcDir, 'a-controller.ts');
 
     for (const file of [controllerFileZ, controllerFileA]) {
-      const controllerParse = parser.parse(file, controllerCode);
+      const controllerParse = parseOrFail(parser, file, controllerCode);
       const controllerAnalysis: FileAnalysis = {
         filePath: file,
         classes: controllerParse.classes,
@@ -1474,7 +1484,7 @@ describe('AdapterSpecResolver', () => {
       fileMap.set(file, controllerAnalysis);
     }
 
-    const entryParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: entryParse.classes,
@@ -1512,7 +1522,7 @@ describe('AdapterSpecResolver', () => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parser.parse(controllerFile, controllerSource);
+    const controllerParse = parseOrFail(parser, controllerFile, controllerSource);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1524,7 +1534,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: entryParse.classes,
@@ -1556,7 +1566,7 @@ describe('AdapterSpecResolver', () => {
       '}',
     ].join('\n');
 
-    const ctrlParse = parser.parse(controllerFile, code);
+    const ctrlParse = parseOrFail(parser, controllerFile, code);
     const ctrlAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: ctrlParse.classes,
@@ -1573,7 +1583,7 @@ describe('AdapterSpecResolver', () => {
 
     // Adapter 'test'
     const testValue = createAdapterValue();
-    const testParse = parser.parse(entryFile, 'export const adapterSpec = defineAdapter({});');
+    const testParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
     const testEntry: FileAnalysis = {
       filePath: entryFile,
       classes: testParse.classes,
@@ -1587,7 +1597,7 @@ describe('AdapterSpecResolver', () => {
 
     // Adapter 'other' (same controller decorator name 'Controller')
     const otherValue = createAdapterValue({ name: 'other' });
-    const otherParse = parser.parse(otherEntryFile, 'export const adapterSpec = defineAdapter({});');
+    const otherParse = parseOrFail(parser, otherEntryFile, 'export const adapterSpec = defineAdapter({});');
     const otherEntry: FileAnalysis = {
       filePath: otherEntryFile,
       classes: otherParse.classes,

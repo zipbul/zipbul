@@ -3,6 +3,7 @@ import type {
   LogContextTarget,
   LogLevel,
   LogMessage,
+  LogMetadataRecord,
   LogMetadataValue,
   Loggable,
   LoggerOptions,
@@ -21,11 +22,15 @@ export class Logger {
     level: 'info',
     ...(Bun.env.NODE_ENV === 'production' ? { format: 'json' } : {}),
   };
-  private static transport: Transport = new ConsoleTransport(Logger.globalOptions);
+  private static transports: Transport[] = [new ConsoleTransport(Logger.globalOptions)];
 
   private readonly context?: string;
 
-  constructor(context?: string | LogContextTarget) {
+  private readonly metadata: LogMetadataRecord;
+
+  constructor(context?: string | LogContextTarget, metadata?: LogMetadataRecord) {
+    this.metadata = metadata ?? {};
+
     if (typeof context === 'function') {
       this.context = context.name;
     } else if (typeof context === 'object' && context !== null) {
@@ -41,7 +46,16 @@ export class Logger {
 
   static configure(options: LoggerOptions) {
     this.globalOptions = { ...this.globalOptions, ...options };
-    this.transport = new ConsoleTransport(this.globalOptions);
+
+    if (options.transports) {
+      this.transports = options.transports;
+    } else {
+      this.transports = [new ConsoleTransport(this.globalOptions)];
+    }
+  }
+
+  child(metadata: LogMetadataRecord): Logger {
+    return new Logger(this.context, { ...this.metadata, ...metadata });
   }
 
   trace(msg: string, ...args: ReadonlyArray<LogArgument>) {
@@ -83,11 +97,15 @@ export class Logger {
       logMessage.context = this.context;
     }
 
-    const reqId = RequestContext.getRequestId();
+    // 1. ALS context (lowest priority)
+    const alsContext = RequestContext.getContext();
 
-    if (reqId !== undefined) {
-      logMessage.reqId = reqId;
+    if (alsContext) {
+      Object.assign(logMessage, alsContext);
     }
+
+    // 2. Instance metadata from child() (overrides ALS)
+    Object.assign(logMessage, this.metadata);
 
     const workerId = globalThis.WORKER_ID;
 
@@ -95,6 +113,7 @@ export class Logger {
       logMessage.workerId = workerId;
     }
 
+    // 3. Per-call args (highest priority)
     for (const arg of args) {
       if (arg instanceof Error) {
         logMessage.err = arg;
@@ -105,7 +124,13 @@ export class Logger {
       }
     }
 
-    Logger.transport.log(logMessage);
+    this.emit(logMessage);
+  }
+
+  private emit(message: LogMessage): void {
+    for (const t of Logger.transports) {
+      t.log(message);
+    }
   }
 
   private isLevelEnabled(level: LogLevel): boolean {

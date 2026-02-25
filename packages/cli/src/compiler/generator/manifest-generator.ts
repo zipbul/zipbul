@@ -1,6 +1,8 @@
 import { dirname, relative } from 'path';
 
+import type { Result } from '@zipbul/result';
 import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
+import type { Diagnostic } from '../../diagnostics/types';
 import type {
   ManifestDiNode,
   ManifestJsonModel,
@@ -10,6 +12,7 @@ import type {
   MetadataClassEntry,
 } from './interfaces';
 
+import { isErr } from '@zipbul/result';
 import { type AdapterStaticSpec, type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint, PathResolver } from '../../common';
 import { ImportRegistry } from './import-registry';
@@ -21,7 +24,7 @@ export class ManifestGenerator {
 
   private metadataGen = new MetadataGenerator();
 
-  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string): string {
+  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string): Result<string, Diagnostic> {
     const registry = new ImportRegistry(outputDir);
     const sortedClasses = [...classes].sort((a, b) => {
       const nameDiff = compareCodePoint(a.metadata.className, b.metadata.className);
@@ -37,7 +40,13 @@ export class ManifestGenerator {
       registry.getAlias(c.metadata.className, c.filePath);
     });
 
-    const injectorCode = this.injectorGen.generate(graph, registry);
+    const injectorResult = this.injectorGen.generate(graph, registry);
+
+    if (isErr(injectorResult)) {
+      return injectorResult;
+    }
+
+    const injectorCode = injectorResult;
     const metadataCode = this.metadataGen.generate(classes, registry);
     const scopedKeysEntries: string[] = [];
     const sortedNodes = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));

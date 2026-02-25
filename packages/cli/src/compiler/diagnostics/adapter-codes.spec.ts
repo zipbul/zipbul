@@ -1,33 +1,21 @@
 import { describe, it, expect } from 'bun:test';
-import {
-  ADAPTER_SPEC_NOT_COLLECTED,
-  ADAPTER_INPUT_UNCOLLECTABLE,
-  ADAPTER_CLASSREF_INVALID,
-  ADAPTER_PIPELINE_TOKEN_INVALID,
-  ADAPTER_PHASE_ID_INVALID,
-  ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,
-  ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,
-  ADAPTER_EXCEPTION_FILTER_INVALID,
-  ADAPTER_ENTRY_DECORATOR_INVALID,
-  ADAPTER_HANDLER_ID_UNRESOLVABLE,
-  ADAPTER_MIDDLEWARE_ERROR_BYPASS,
-} from '../../diagnostics/codes/adapter';
+import { DiagnosticCode } from '../../diagnostics';
 
 describe('adapter diagnostic codes', () => {
-  it('should map each named constant to its ZIPBUL_ADAPTER_NNN string value', () => {
+  it('should map each named constant to its self-descriptive string value', () => {
     // Arrange
     const expected = [
-      [ADAPTER_SPEC_NOT_COLLECTED,              'ZB_ADAPTER_001'],
-      [ADAPTER_INPUT_UNCOLLECTABLE,             'ZB_ADAPTER_002'],
-      [ADAPTER_CLASSREF_INVALID,                'ZB_ADAPTER_003'],
-      [ADAPTER_PIPELINE_TOKEN_INVALID,          'ZB_ADAPTER_004'],
-      [ADAPTER_PHASE_ID_INVALID,                'ZB_ADAPTER_005'],
-      [ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,   'ZB_ADAPTER_007'],
-      [ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,    'ZB_ADAPTER_008'],
-      [ADAPTER_EXCEPTION_FILTER_INVALID,        'ZB_ADAPTER_009'],
-      [ADAPTER_ENTRY_DECORATOR_INVALID,         'ZB_ADAPTER_010'],
-      [ADAPTER_HANDLER_ID_UNRESOLVABLE,         'ZB_ADAPTER_011'],
-      [ADAPTER_MIDDLEWARE_ERROR_BYPASS,         'ZB_ADAPTER_012'],
+      [DiagnosticCode.AdapterSpecNotCollected,            'ADAPTER_SPEC_NOT_COLLECTED'],
+      [DiagnosticCode.AdapterInputUncollectable,          'ADAPTER_INPUT_UNCOLLECTABLE'],
+      [DiagnosticCode.AdapterClassrefInvalid,             'ADAPTER_CLASSREF_INVALID'],
+      [DiagnosticCode.AdapterPipelineTokenInvalid,        'ADAPTER_PIPELINE_TOKEN_INVALID'],
+      [DiagnosticCode.AdapterPhaseIdInvalid,              'ADAPTER_PHASE_ID_INVALID'],
+      [DiagnosticCode.AdapterPipelinePhaseOrderMismatch,  'ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH'],
+      [DiagnosticCode.AdapterMiddlewarePlacementInvalid,  'ADAPTER_MIDDLEWARE_PLACEMENT_INVALID'],
+      [DiagnosticCode.AdapterExceptionFilterInvalid,      'ADAPTER_EXCEPTION_FILTER_INVALID'],
+      [DiagnosticCode.AdapterEntryDecoratorInvalid,       'ADAPTER_ENTRY_DECORATOR_INVALID'],
+      [DiagnosticCode.AdapterHandlerIdUnresolvable,       'ADAPTER_HANDLER_ID_UNRESOLVABLE'],
+      [DiagnosticCode.AdapterMiddlewareErrorBypass,       'ADAPTER_MIDDLEWARE_ERROR_BYPASS'],
     ] as const;
 
     // Act & Assert
@@ -39,17 +27,17 @@ describe('adapter diagnostic codes', () => {
   it('should have 11 unique code values across all constants', () => {
     // Arrange
     const allValues = [
-      ADAPTER_SPEC_NOT_COLLECTED,
-      ADAPTER_INPUT_UNCOLLECTABLE,
-      ADAPTER_CLASSREF_INVALID,
-      ADAPTER_PIPELINE_TOKEN_INVALID,
-      ADAPTER_PHASE_ID_INVALID,
-      ADAPTER_PIPELINE_PHASE_ORDER_MISMATCH,
-      ADAPTER_MIDDLEWARE_PLACEMENT_INVALID,
-      ADAPTER_EXCEPTION_FILTER_INVALID,
-      ADAPTER_ENTRY_DECORATOR_INVALID,
-      ADAPTER_HANDLER_ID_UNRESOLVABLE,
-      ADAPTER_MIDDLEWARE_ERROR_BYPASS,
+      DiagnosticCode.AdapterSpecNotCollected,
+      DiagnosticCode.AdapterInputUncollectable,
+      DiagnosticCode.AdapterClassrefInvalid,
+      DiagnosticCode.AdapterPipelineTokenInvalid,
+      DiagnosticCode.AdapterPhaseIdInvalid,
+      DiagnosticCode.AdapterPipelinePhaseOrderMismatch,
+      DiagnosticCode.AdapterMiddlewarePlacementInvalid,
+      DiagnosticCode.AdapterExceptionFilterInvalid,
+      DiagnosticCode.AdapterEntryDecoratorInvalid,
+      DiagnosticCode.AdapterHandlerIdUnresolvable,
+      DiagnosticCode.AdapterMiddlewareErrorBypass,
     ];
 
     // Assert — all unique

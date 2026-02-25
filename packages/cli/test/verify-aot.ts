@@ -1,6 +1,8 @@
 import { Glob } from 'bun';
 import { resolve, join } from 'path';
 
+import { isErr } from '@zipbul/result';
+
 import type { FileAnalysis } from '../src/compiler/analyzer/graph/interfaces';
 
 import { AstParser } from '../src/compiler/analyzer/ast-parser';
@@ -29,7 +31,14 @@ async function run() {
 
   for (const file of files) {
     const code = await Bun.file(file).text();
-    const result = parser.parse(file, code);
+    const parseResult = parser.parse(file, code);
+
+    if (isErr(parseResult)) {
+      console.error(`Parse failed for ${file}: ${parseResult.data.why}`);
+      continue;
+    }
+
+    const result = parseResult;
     const analysis: FileAnalysis = {
       filePath: file,
       classes: result.classes,

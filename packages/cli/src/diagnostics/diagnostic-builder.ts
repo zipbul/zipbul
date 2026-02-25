@@ -1,15 +1,12 @@
 import type { BuildDiagnosticParams, Diagnostic } from './types';
 
 export function buildDiagnostic(params: BuildDiagnosticParams): Diagnostic {
-  const { code, severity, summary, reason } = params;
-  const summaryText = `[${severity}/${code}] ${summary}`;
-  const whyText = `[${severity}/${code}] ${reason}`;
+  const { code, severity, reason } = params;
 
   return {
     severity,
     code,
-    summary: summaryText,
-    why: whyText,
+    why: reason,
     ...(params.file !== undefined && {
       where: {
         file: params.file,

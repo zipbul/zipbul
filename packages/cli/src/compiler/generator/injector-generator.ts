@@ -1,8 +1,12 @@
+import type { Result } from '@zipbul/result';
 import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
 import type { ImportRegistry } from './import-registry';
+import type { Diagnostic } from '../../diagnostics';
 
+import { err, type Err } from '@zipbul/result';
 import { type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint } from '../../common';
+import { buildDiagnostic, DiagnosticCode } from '../../diagnostics';
 
 type RecordValue = AnalyzerValueRecord;
 
@@ -161,9 +165,10 @@ const isClassMetadata = (value: AnalyzerValue | ClassMetadata): value is ClassMe
 };
 
 export class InjectorGenerator {
-  generate(graph: ModuleGraph, registry: ImportRegistry): string {
+  generate(graph: ModuleGraph, registry: ImportRegistry): Result<string, Diagnostic> {
     const factoryEntries: string[] = [];
     const adapterConfigs: string[] = [];
+    let generateError: Err<Diagnostic> | null = null;
 
     const getAlias = (name: string, path?: string): string => {
       if (path === undefined || path.length === 0) {
@@ -307,6 +312,10 @@ export class InjectorGenerator {
                 : [];
 
             injectCalls.forEach(injectEntry => {
+              if (generateError !== null) {
+                return;
+              }
+
               const injectRecord = asRecord(injectEntry);
 
               if (!injectRecord) {
@@ -319,13 +328,25 @@ export class InjectorGenerator {
               const tokenValue = injectRecord.token;
 
               if (start === null || end === null || tokenKind === 'invalid' || tokenValue === null) {
-                throw new Error('[Zipbul AOT] inject() token is not statically determinable.');
+                generateError = err(buildDiagnostic({
+                  code: DiagnosticCode.BuildInjectNotDeterminable,
+                  severity: 'error',
+                  reason: 'inject() 호출의 토큰을 정적으로 결정할 수 없습니다.',
+                }));
+
+                return;
               }
 
               const tokenName = getRefName(tokenValue);
 
               if (!isNonEmptyString(tokenName)) {
-                throw new Error('[Zipbul AOT] inject() token is not statically determinable.');
+                generateError = err(buildDiagnostic({
+                  code: DiagnosticCode.BuildInjectNotDeterminable,
+                  severity: 'error',
+                  reason: 'inject() 호출의 토큰을 정적으로 결정할 수 없습니다.',
+                }));
+
+                return;
               }
 
               const resolvedToken = graph.resolveToken(node.name, tokenName);
@@ -338,6 +359,10 @@ export class InjectorGenerator {
 
               replacements.push({ start, end, content: `c.get('${resolvedKey}')` });
             });
+
+            if (generateError !== null) {
+              return;
+            }
 
             replacements
               .sort((a, b) => b.start - a.start)
@@ -408,6 +433,10 @@ export class InjectorGenerator {
         adapterConfigs.push(`  '${node.name}': ${config},`);
       }
     });
+
+    if (generateError !== null) {
+      return generateError;
+    }
 
     const dynamicEntries: string[] = [];
 

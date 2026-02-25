@@ -9,10 +9,11 @@ import { validateCreateApplication } from '../compiler/analyzer/validation';
 import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
 import type { ZipbulConfigSource } from '../config/interfaces';
 import { zipbulDirPath, scanGlobSorted, writeIfChanged } from '../common';
+import { Logger } from '@zipbul/logger';
 import type { Result } from '@zipbul/result';
 import { isErr } from '@zipbul/result';
 import type { Diagnostic } from '../diagnostics';
-import { buildDiagnostic, reportDiagnostic, reportDiagnostics, BUILD_PARSE_FAILED, DEV_FAILED, DEV_GILDASH_PARSE } from '../diagnostics';
+import { buildDiagnostic, reportDiagnostic, DiagnosticCode } from '../diagnostics';
 import { ManifestGenerator } from '../compiler/generator';
 import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 import type { IndexResult } from '@zipbul/gildash';
@@ -32,8 +33,10 @@ export interface DevCommandDeps {
 }
 
 export function createDevCommand(deps: DevCommandDeps) {
+  const logger = new Logger('Dev');
+
   return async function dev(commandOptions?: CommandOptions): Promise<void> {
-    console.info('🚀 Starting Zipbul Dev...');
+    logger.info('Starting Zipbul Dev...');
 
     try {
       const configResult = await deps.loadConfig();
@@ -55,6 +58,13 @@ export function createDevCommand(deps: DevCommandDeps) {
         try {
           const fileContent = await Bun.file(filePath).text();
           const parseResult = parser.parse(filePath, fileContent);
+
+          if (isErr(parseResult)) {
+            reportDiagnostic(parseResult.data);
+
+            return false;
+          }
+
           const analysis: FileAnalysis = {
             filePath,
             classes: parseResult.classes,
@@ -100,14 +110,13 @@ export function createDevCommand(deps: DevCommandDeps) {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown parse error.';
           const diagnostic = buildDiagnostic({
-            code: BUILD_PARSE_FAILED,
+            code: DiagnosticCode.BuildParseFailed,
             severity: 'error',
-            summary: 'Parse failed.',
             reason,
             file: filePath,
           });
 
-          reportDiagnostics({ diagnostics: [diagnostic] });
+          reportDiagnostic(diagnostic);
 
           return false;
         }
@@ -165,9 +174,8 @@ export function createDevCommand(deps: DevCommandDeps) {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'Unknown dev error.';
           const diagnostic = buildDiagnostic({
-            code: DEV_FAILED,
+            code: DiagnosticCode.DevFailed,
             severity: 'error',
-            summary: 'Dev failed.',
             reason,
           });
 
@@ -210,8 +218,8 @@ export function createDevCommand(deps: DevCommandDeps) {
 
       await rebuild();
 
-      console.info('🛠️  AOT artifacts generated.');
-      console.info(`   Manifest: ${join(outDir, 'manifest.json')}`);
+      logger.info('🛠️  AOT artifacts generated.');
+      logger.info(`   Manifest: ${join(outDir, 'manifest.json')}`);
 
       const openGildash = deps.createGildashProvider ?? GildashProvider.open;
       const ledgerResult = await openGildash({
@@ -235,13 +243,12 @@ export function createDevCommand(deps: DevCommandDeps) {
         // 2. 파싱 실패 파일 로깅
         for (const file of result.failedFiles) {
           const diagnostic = buildDiagnostic({
-            code: DEV_GILDASH_PARSE,
+            code: DiagnosticCode.DevGildashParse,
             severity: 'warning',
-            summary: 'Gildash parse failed.',
             reason: `File could not be indexed: ${toProjectRelativePath(file)}`,
             file,
           });
-          reportDiagnostics({ diagnostics: [diagnostic] });
+          reportDiagnostic(diagnostic);
         }
 
         // 3. 영향 파일 계산 (파일 레벨)
@@ -269,7 +276,7 @@ export function createDevCommand(deps: DevCommandDeps) {
           moduleFileName,
           toProjectRelativePath,
         });
-        console.info(impactLog.logLine);
+        logger.info(impactLog.logLine);
 
         // 6. 재빌드
         try {
@@ -286,13 +293,12 @@ export function createDevCommand(deps: DevCommandDeps) {
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Unknown dev error.';
       const diagnostic = buildDiagnostic({
-        code: DEV_FAILED,
+        code: DiagnosticCode.DevFailed,
         severity: 'error',
-        summary: 'Dev failed.',
         reason,
       });
 
-      reportDiagnostics({ diagnostics: [diagnostic] });
+      reportDiagnostic(diagnostic);
 
       throw error;
     }

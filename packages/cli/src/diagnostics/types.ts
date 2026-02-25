@@ -34,21 +34,15 @@ export interface Cycle {
 export interface Diagnostic {
   severity: DiagnosticSeverity;
   code: string;
-  summary: string;
   why: string;
   where?: Location;
   how?: string;
   cycles?: Cycle[];
 }
 
-export interface ReportDiagnosticsParams {
-  diagnostics: Diagnostic[];
-}
-
 export interface BuildDiagnosticParams {
   code: string;
   severity: DiagnosticSeverity;
-  summary: string;
   reason: string;
   file?: string;
   symbol?: string;

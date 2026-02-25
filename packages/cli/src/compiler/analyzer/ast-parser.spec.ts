@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'bun:test';
+import { isErr } from '@zipbul/result';
+
+import type { ParseResult } from './parser-models';
 
 // MUST: MUST-1 (createApplication 식별)
 
 import { AstParser } from './ast-parser';
+
+function parseOrFail(parser: AstParser, filename: string, code: string): ParseResult {
+  const result = parser.parse(filename, code);
+
+  if (isErr(result)) {
+    throw new Error(`Unexpected parse failure: ${result.data.why}`);
+  }
+
+  return result;
+}
 
 describe('AstParser', () => {
   it('should collect createApplication calls when createApplication is imported from @zipbul/core', () => {
@@ -17,7 +30,7 @@ describe('AstParser', () => {
       'createApplication(AppModule);',
     ].join('\n');
     const parser = new AstParser();
-    const result = parser.parse('/app/src/main.ts', source);
+    const result = parseOrFail(parser, '/app/src/main.ts', source);
     const calls = result.createApplicationCalls ?? [];
 
     expect(calls.map(call => call.callee)).toEqual(['ca', 'zipbul.createApplication']);
@@ -34,7 +47,7 @@ describe('AstParser', () => {
       'export const exportedApp = alias(AppModule);',
     ].join('\n');
     const parser = new AstParser();
-    const result = parser.parse('/app/src/main.ts', source);
+    const result = parseOrFail(parser, '/app/src/main.ts', source);
     const calls = result.createApplicationCalls ?? [];
 
     expect(calls.map(call => call.callee)).toEqual(['createApplication', 'alias']);
@@ -50,7 +63,7 @@ describe('AstParser', () => {
       'export const otherModule = zipbul.defineModule({});',
     ].join('\n');
     const parser = new AstParser();
-    const result = parser.parse('/app/src/__module__.ts', source);
+    const result = parseOrFail(parser, '/app/src/__module__.ts', source);
     const calls = result.defineModuleCalls ?? [];
 
     expect(calls.map(call => call.callee)).toEqual(['defineModule', 'zipbul.defineModule']);
@@ -71,7 +84,7 @@ describe('AstParser', () => {
       'inject(function () { return TokenA; });',
     ].join('\n');
     const parser = new AstParser();
-    const result = parser.parse('/app/src/main.ts', source);
+    const result = parseOrFail(parser, '/app/src/main.ts', source);
     const calls = result.injectCalls ?? [];
 
     expect(calls.map(call => call.callee)).toEqual(['inject', 'zipbul.inject', 'inject', 'inject']);
@@ -88,7 +101,7 @@ describe('AstParser', () => {
       'inject(TokenA, TokenA);',
     ].join('\n');
     const parser = new AstParser();
-    const result = parser.parse('/app/src/main.ts', source);
+    const result = parseOrFail(parser, '/app/src/main.ts', source);
     const calls = result.injectCalls ?? [];
 
     expect(calls).toHaveLength(1);
@@ -105,7 +118,7 @@ describe('AstParser', () => {
       'export class MyService {}',
     ].join('\n');
     const parser = new AstParser();
-    const result = parser.parse('/app/src/service.ts', source);
+    const result = parseOrFail(parser, '/app/src/service.ts', source);
 
     expect(result.classes).toHaveLength(1);
     expect(result.classes[0]?.className).toBe('MyService');
@@ -119,7 +132,7 @@ describe('AstParser', () => {
       "export * from './utils';",
     ].join('\n');
     const parser = new AstParser();
-    const result = parser.parse('/app/src/index.ts', source);
+    const result = parseOrFail(parser, '/app/src/index.ts', source);
 
     expect(result.reExports).toHaveLength(2);
   });
