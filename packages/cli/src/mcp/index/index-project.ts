@@ -4,6 +4,7 @@ import { parseSync } from 'oxc-parser';
 import type { Program } from 'oxc-parser';
 import { stat } from 'node:fs/promises';
 import { join, relative, resolve } from 'path';
+import type { Gildash } from '@zipbul/gildash';
 
 import { eq, inArray, or, sql } from 'drizzle-orm';
 
@@ -25,6 +26,7 @@ export interface IndexProjectInput {
   config: ResolvedZipbulConfig;
   db: StoreDb;
   mode: IndexMode;
+  gildash?: Gildash;
 }
 
 export interface IndexProjectStats {
@@ -510,6 +512,23 @@ export async function indexProject(input: IndexProjectInput): Promise<IndexProje
           }
 
           filteredRelations.push(r);
+        }
+
+        // Semantic post-processing: resolve barrel re-export dstEntityKeys via gildash
+        if (input.gildash) {
+          for (const r of filteredRelations) {
+            if (r.type === 'imports') continue;
+            const match = r.dstEntityKey.match(/^symbol:(.+?)#(.+)$/);
+            if (!match) continue;
+            const [, dstFile, dstName] = match;
+            try {
+              const resolved = input.gildash.resolveSymbol(dstName!, join(projectRoot, dstFile!));
+              if (!resolved.circular && resolved.originalFilePath !== join(projectRoot, dstFile!)) {
+                const newRelFile = toPosixPath(relative(projectRoot, resolved.originalFilePath));
+                r.dstEntityKey = `symbol:${newRelFile}#${resolved.originalName}`;
+              }
+            } catch { /* resolve 실패 시 원본 유지 */ }
+          }
         }
 
         const allEntityKeys = new Set<string>();

@@ -3,10 +3,11 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+import type { Gildash, GildashOptions } from '@zipbul/gildash';
+
 import type { DevCommandDeps } from '../src/bin/dev.command';
 import { __testing__ } from '../src/bin/dev.command';
 import type { AstParser, AdapterSpecResolver } from '../src/compiler/analyzer';
-import type { GildashProvider, GildashProviderOptions } from '../src/compiler/gildash-provider';
 import type { ResolvedZipbulConfig } from '../src/config';
 import { ConfigLoadError } from '../src/config';
 
@@ -76,16 +77,16 @@ const makeGildashLedgerMock = () => ({
   onIndexed: mock((_cb: unknown) => mock(() => {})),
   getAffected: mock(async (_files: string[]) => [] as string[]),
   close: mock(async () => {}),
-}) as unknown as GildashProvider;
+}) as unknown as Gildash;
 
-const makeGildashProviderMock = () => mock(async (_opts: GildashProviderOptions) => makeGildashLedgerMock());
+const makeGildashMock = () => mock(async (_opts: GildashOptions) => makeGildashLedgerMock());
 
 const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
   loadConfig: mock(async () => ({ config: testConfig, source: makeSource() })),
   createParser: mock(() => makeParserMock()),
   createAdapterSpecResolver: mock(() => makeAdapterResolverMock()),
   scanFiles: mock(async () => ['module.ts', 'main.ts']),
-  createGildashProvider: makeGildashProviderMock(),
+  createGildash: makeGildashMock(),
   ...overrides,
 });
 

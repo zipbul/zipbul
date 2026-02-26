@@ -1,5 +1,7 @@
 import { basename, dirname } from 'path';
 
+import type { Gildash, HeritageNode } from '@zipbul/gildash';
+
 import type { ClassMetadata } from '../interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord } from '../types';
 import type { CyclePath, ProviderRef, FileAnalysis } from './interfaces';
@@ -44,14 +46,15 @@ export class ModuleGraph {
   public modules: Map<string, ModuleNode> = new Map();
   public classMap: Map<string, ModuleNode> = new Map();
   public classDefinitions: Map<string, ClassDefinition> = new Map();
+  public warnings: string[] = [];
   private moduleFileSet: Set<string> = new Set();
   private moduleNameByPath: Map<string, string> = new Map();
   private moduleMarkerExports: Map<string, Set<string>> = new Map();
   private moduleInjectDeps: Map<string, string[]> = new Map();
-
   constructor(
     private fileMap: Map<string, FileAnalysis>,
     private moduleFileName: string,
+    private readonly gildash?: Gildash,
   ) {}
 
   build(): Map<string, ModuleNode> {
@@ -238,6 +241,10 @@ export class ModuleGraph {
 
     this.validateVisibilityAndScope();
 
+    if (this.gildash) {
+      this.validateProviderImplementations();
+    }
+
     const cycles = this.detectCycles();
 
     if (cycles.length > 0) {
@@ -407,6 +414,77 @@ export class ModuleGraph {
     });
   }
 
+  private validateProviderImplementations(): void {
+    if (!this.gildash) return;
+
+    for (const node of this.modules.values()) {
+      for (const provider of node.providers.values()) {
+        const lookupPath = provider.filePath ?? this.classDefinitions.get(provider.token)?.filePath;
+        if (!lookupPath) continue;
+
+        try {
+          const sym = this.gildash.getFullSymbol(provider.token, lookupPath);
+          if (!sym || sym.kind !== 'interface') continue;
+
+          const impls = this.gildash.getImplementations(provider.token, lookupPath);
+          if (impls.length === 0) continue;
+
+          const implNames = new Set(impls.map(i => i.symbolName));
+
+          for (const candidate of node.providers.values()) {
+            if (!this.isClassMetadata(candidate.metadata)) continue;
+            const cls = (candidate.metadata as ClassMetadata).className;
+            if (!implNames.has(cls)) {
+              this.warnings.push(
+                `[Zipbul AOT] Provider '${cls}' in module '${node.name}' is registered for interface '${provider.token}' but does not implement it.`,
+              );
+            }
+          }
+        } catch { /* getFullSymbol/getImplementations 실패 시 무시 */ }
+      }
+    }
+  }
+
+  async validateInheritedScopes(): Promise<void> {
+    if (!this.gildash) return;
+
+    for (const node of this.modules.values()) {
+      for (const provider of node.providers.values()) {
+        const sourceScope = provider.scope ?? 'singleton';
+        if (sourceScope !== 'singleton') continue;
+
+        const classDef = this.classDefinitions.get(provider.token);
+        if (!classDef) continue;
+
+        try {
+          const chain = await this.gildash.getHeritageChain(provider.token, classDef.filePath);
+          this.checkHeritageScopes(chain, provider.token, sourceScope);
+        } catch { /* heritage chain 조회 실패 시 무시 */ }
+      }
+    }
+  }
+
+  private checkHeritageScopes(node: HeritageNode, providerToken: string, sourceScope: string): void {
+    for (const child of node.children) {
+      if (child.kind !== 'extends') continue;
+
+      const parentModule = this.classMap.get(child.symbolName);
+      if (!parentModule) continue;
+
+      const parentProvider = parentModule.providers.get(child.symbolName);
+      if (!parentProvider) continue;
+
+      const parentScope = parentProvider.scope ?? 'singleton';
+      if (sourceScope === 'singleton' && parentScope === 'request') {
+        throw new Error(
+          `[Zipbul AOT] Scope Violation: Singleton '${providerToken}' inherits Request-Scoped dependency through '${child.symbolName}'.`,
+        );
+      }
+
+      this.checkHeritageScopes(child, providerToken, sourceScope);
+    }
+  }
+
   private assertVisibility(node: ModuleNode, depToken: string, sourceLabel: string): void {
     const targetModule = this.classMap.get(depToken);
 
@@ -492,6 +570,12 @@ export class ModuleGraph {
       token = p.name;
     } else if (record && typeof record.__zipbul_ref === 'string') {
       token = record.__zipbul_ref;
+      if (this.gildash && typeof record.__zipbul_import_source === 'string') {
+        try {
+          const resolved = this.gildash.resolveSymbol(record.__zipbul_ref, record.__zipbul_import_source);
+          if (!resolved.circular) token = resolved.originalName;
+        } catch { /* resolve 실패 → 기존 ref 이름 유지 */ }
+      }
     }
 
     const metadata = this.isClassMetadata(p) ? p : (record ?? undefined);
@@ -526,6 +610,12 @@ export class ModuleGraph {
     const record = this.asRecord(t);
 
     if (record && typeof record.__zipbul_ref === 'string') {
+      if (this.gildash && typeof record.__zipbul_import_source === 'string') {
+        try {
+          const resolved = this.gildash.resolveSymbol(record.__zipbul_ref, record.__zipbul_import_source);
+          if (!resolved.circular) return resolved.originalName;
+        } catch { /* fallback */ }
+      }
       return record.__zipbul_ref;
     }
 

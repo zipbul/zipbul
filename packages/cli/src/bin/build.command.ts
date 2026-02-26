@@ -4,10 +4,9 @@ import { join, resolve, dirname } from 'path';
 
 import type { CollectedClass, CommandOptions } from './types';
 
-import type { Result } from '@zipbul/result';
 import { isErr } from '@zipbul/result';
 import { Logger } from '@zipbul/logger';
-import type { Diagnostic } from '../diagnostics';
+import { Gildash, type GildashOptions } from '@zipbul/gildash';
 import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import {
@@ -21,7 +20,6 @@ import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
 import type { ZipbulConfigSource } from '../config/interfaces';
 import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
-import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 
 // ---------------------------------------------------------------------------
 // DI factory types
@@ -36,7 +34,7 @@ export interface BuildCommandDeps {
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
   resolveImport: (specifier: string, fromDir: string) => string;
   buildBundle: typeof Bun.build;
-  createGildashProvider?: (opts: GildashProviderOptions) => Promise<Result<GildashProvider, Diagnostic>>;
+  createGildash?: (opts: GildashOptions) => Promise<Gildash>;
 }
 
 export function createBuildCommand(deps: BuildCommandDeps) {
@@ -224,35 +222,34 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
       logger.info('🕸️  Building Module Graph...');
 
-      // gildash 파일 레벨 순환 감지 (보강)
-      const openGildash = deps.createGildashProvider ?? GildashProvider.open;
-      const ledgerResult = await openGildash({
-        projectRoot,
-        ignorePatterns: ['dist', 'node_modules', '.zipbul'],
-      });
-
-      if (isErr(ledgerResult)) {
-        throw new DiagnosticError(ledgerResult.data);
-      }
-
-      const ledger = ledgerResult;
+      // gildash 파일 레벨 순환 감지 + semantic DI 검증
+      const openGildash = deps.createGildash ?? Gildash.open;
+      const ignorePatterns = ['dist', '.zipbul', '.gildash'];
+      let ledger: Gildash;
 
       try {
-        const hasCycleResult = await ledger.hasCycle();
+        ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true });
+      } catch (e) {
+        logger.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
+        ledger = await openGildash({ projectRoot, ignorePatterns });
+      }
 
-        if (isErr(hasCycleResult)) {
-          throw new DiagnosticError(hasCycleResult.data);
-        }
+      try {
+        const hasCycle = await ledger.hasCycle();
 
-        if (hasCycleResult) {
+        if (hasCycle) {
+          const cyclePaths = await ledger.getCyclePaths(undefined, { maxCycles: 5 });
+          const summary = cyclePaths.map(c => c.join(' → ')).join('\n');
+
           throw new DiagnosticError(
-            buildDiagnostic({ reason: 'Circular import chain detected. Check import graph.' }),
+            buildDiagnostic({ reason: `Circular import chain detected:\n${summary}` }),
           );
         }
 
-        const graph = new ModuleGraph(fileMap, moduleFileName);
+        const graph = new ModuleGraph(fileMap, moduleFileName, ledger);
 
         graph.build();
+        await graph.validateInheritedScopes();
 
         const adapterSpecResolution = await adapterSpecResolver.resolve({ fileMap, projectRoot });
 
@@ -351,14 +348,20 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         logger.info(`   Runtime: ${join(outDir, 'runtime.js')}`);
         logger.info(`   Manifest: ${manifestFile}`);
       } finally {
-        const closeResult = await ledger.close();
-
-        if (isErr(closeResult)) {
-          logger.error(closeResult.data.why);
+        try {
+          await ledger.close();
+        } catch (e) {
+          logger.error(e instanceof Error ? e.message : 'Failed to close gildash.');
         }
       }
     } catch (error) {
-      throw error;
+      if (error instanceof DiagnosticError) {
+        throw error;
+      }
+      throw new DiagnosticError(
+        buildDiagnostic({ reason: error instanceof Error ? error.message : 'Unknown build error.' }),
+        { cause: error },
+      );
     }
   };
 }

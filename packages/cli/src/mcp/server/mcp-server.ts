@@ -6,6 +6,7 @@ import { declareTool, ToolRegistry } from './tool-registry';
 
 import * as z from 'zod/v3';
 
+import { Gildash, type GildashOptions } from '@zipbul/gildash';
 import { indexProject } from '../index/index-project';
 import { zipbulCacheDirPath, zipbulCacheFilePath } from '../../common/zipbul-paths';
 import { closeDb, createDb } from '../../store/connection';
@@ -144,6 +145,7 @@ export interface ZipbulMcpDeps {
 
   createDb?: typeof createDb;
   closeDb?: typeof closeDb;
+  createGildash?: (opts: GildashOptions) => Promise<Gildash>;
 }
 
 export function createZipbulToolRegistry(_ctx: ZipbulMcpContext, deps?: ZipbulMcpDeps): ToolRegistry {
@@ -152,6 +154,7 @@ export function createZipbulToolRegistry(_ctx: ZipbulMcpContext, deps?: ZipbulMc
   const ownerOnly = (ctx: ZipbulMcpContext) => ctx.role === 'owner';
 
   const indexProjectFn = deps?.indexProject ?? indexProject;
+  const openGildash = deps?.createGildash ?? Gildash.open;
 
   const createDbFn = deps?.createDb ?? createDb;
   const closeDbFn = deps?.closeDb ?? closeDb;
@@ -163,8 +166,26 @@ export function createZipbulToolRegistry(_ctx: ZipbulMcpContext, deps?: ZipbulMc
     deps?.getCodeEntity ??
     ((input: GetCodeEntityInput) => getCodeEntityDefault(input, { createDb: createDbFn, closeDb: closeDbFn }));
 
-
-
+  const withGildashIndex = async (ctx: ZipbulMcpContext, mode: 'full' | 'incremental') => {
+    const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
+    const db = createDbFn(dbPath);
+    let gildash: Gildash | undefined;
+    try {
+      gildash = await openGildash({ projectRoot: ctx.projectRoot, ignorePatterns: ['dist', '.zipbul', '.gildash'] });
+    } catch { /* gildash 없이 진행 */ }
+    try {
+      return await indexProjectFn({
+        projectRoot: ctx.projectRoot,
+        config: ctx.config,
+        db,
+        mode,
+        ...(gildash ? { gildash } : {}),
+      });
+    } finally {
+      closeDbFn(db);
+      try { await gildash?.close(); } catch { /* ignore */ }
+    }
+  };
 
 
 
@@ -191,18 +212,7 @@ export function createZipbulToolRegistry(_ctx: ZipbulMcpContext, deps?: ZipbulMc
       },
       run: async (ctx, input) => {
         const mode = (input as any)?.mode === 'full' ? 'full' : 'incremental';
-        const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
-        const db = createDbFn(dbPath);
-        try {
-          return await indexProjectFn({
-            projectRoot: ctx.projectRoot,
-            config: ctx.config,
-            db,
-            mode,
-          });
-        } finally {
-          closeDbFn(db);
-        }
+        return withGildashIndex(ctx, mode);
       },
     }),
   );
@@ -218,18 +228,7 @@ export function createZipbulToolRegistry(_ctx: ZipbulMcpContext, deps?: ZipbulMc
       },
       run: async (ctx, input) => {
         const mode = (input as any)?.mode === 'incremental' ? 'incremental' : 'full';
-        const dbPath = zipbulCacheFilePath(ctx.projectRoot, 'index.sqlite');
-        const db = createDbFn(dbPath);
-        try {
-          return await indexProjectFn({
-            projectRoot: ctx.projectRoot,
-            config: ctx.config,
-            db,
-            mode,
-          });
-        } finally {
-          closeDbFn(db);
-        }
+        return withGildashIndex(ctx, mode);
       },
     }),
   );

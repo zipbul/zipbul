@@ -10,13 +10,11 @@ import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
 import type { ZipbulConfigSource } from '../config/interfaces';
 import { zipbulDirPath, scanGlobSorted, writeIfChanged } from '../common';
 import { Logger } from '@zipbul/logger';
-import type { Result } from '@zipbul/result';
 import { isErr } from '@zipbul/result';
-import type { Diagnostic } from '../diagnostics';
 import { buildDiagnostic, DiagnosticError, reportDiagnostic } from '../diagnostics';
 import { ManifestGenerator } from '../compiler/generator';
-import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
-import type { IndexResult } from '@zipbul/gildash';
+import { Gildash, type GildashOptions } from '@zipbul/gildash';
+import type { IndexResult, SymbolSearchResult } from '@zipbul/gildash';
 
 import { buildDevIncrementalImpactLog } from './dev-incremental-impact';
 
@@ -29,7 +27,7 @@ export interface DevCommandDeps {
   createParser: () => AstParser;
   createAdapterSpecResolver: () => AdapterSpecResolver;
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
-  createGildashProvider?: (opts: GildashProviderOptions) => Promise<Result<GildashProvider, Diagnostic>>;
+  createGildash?: (opts: GildashOptions) => Promise<Gildash>;
 }
 
 export function createDevCommand(deps: DevCommandDeps) {
@@ -210,72 +208,98 @@ export function createDevCommand(deps: DevCommandDeps) {
       logger.info('🛠️  AOT artifacts generated.');
       logger.info(`   Manifest: ${join(outDir, 'manifest.json')}`);
 
-      const openGildash = deps.createGildashProvider ?? GildashProvider.open;
-      const ledgerResult = await openGildash({
+      const openGildash = deps.createGildash ?? Gildash.open;
+      const ledger = await openGildash({
         projectRoot,
-        ignorePatterns: ['dist', 'node_modules', '.zipbul'],
+        ignorePatterns: ['dist', '.zipbul', '.gildash'],
       });
 
-      if (isErr(ledgerResult)) {
-        throw new DiagnosticError(ledgerResult.data);
-      }
-
-      const ledger = ledgerResult;
-
-      const unsubscribe = ledger.onIndexed(async (result: IndexResult) => {
-        // 1. 삭제 파일 제거
-        for (const file of result.deletedFiles) {
-          fileCache.delete(file);
+      try {
+        // 심볼 캐시 (diffSymbols용)
+        const symbolCache = new Map<string, SymbolSearchResult[]>();
+        for (const filePath of fileCache.keys()) {
+          try {
+            symbolCache.set(filePath, ledger.getSymbolsByFile(filePath));
+          } catch { /* 인덱싱 전이라 조회 실패 가능 */ }
         }
 
-        // 2. 파싱 실패 파일 로깅
-        for (const file of result.failedFiles) {
-          logger.warn(`File could not be indexed: ${toProjectRelativePath(file)}`);
-        }
+        let indexQueue = Promise.resolve();
+        const unsubscribe = ledger.onIndexed((result: IndexResult) => {
+          indexQueue = indexQueue.then(async () => {
+            // 1. 삭제 파일 제거
+            for (const file of result.deletedFiles) {
+              fileCache.delete(file);
+              symbolCache.delete(file);
+            }
 
-        // 3. 영향 파일 계산 (파일 레벨)
-        const affectedResult = await ledger.getAffected(result.changedFiles);
+            // 2. 파싱 실패 파일 로깅
+            for (const file of result.failedFiles) {
+              logger.warn(`File could not be indexed: ${toProjectRelativePath(file)}`);
+            }
 
-        if (isErr(affectedResult)) {
-          reportDiagnostic(affectedResult.data);
+            // 3. 심볼 레벨 변경 분석 (diffSymbols)
+            for (const file of result.changedFiles) {
+              const before = symbolCache.get(file) ?? [];
+              try {
+                const after = ledger.getSymbolsByFile(file);
+                const diff = ledger.diffSymbols(before, after);
 
-          return;
-        }
+                if (diff.removed.length > 0) {
+                  logger.warn(`Breaking: removed exports in ${toProjectRelativePath(file)}: ${diff.removed.map(s => s.name).join(', ')}`);
+                }
+                if (diff.modified.length > 0) {
+                  logger.info(`Modified: ${diff.modified.map(m => m.after.name).join(', ')} in ${toProjectRelativePath(file)}`);
+                }
+                if (diff.added.length > 0) {
+                  logger.info(`Added: ${diff.added.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
+                }
 
-        const affectedFiles = affectedResult;
+                symbolCache.set(file, after);
+              } catch (e) {
+                logger.warn(`Symbol diff failed for ${toProjectRelativePath(file)}: ${e instanceof Error ? e.message : 'unknown'}`);
+              }
+            }
 
-        // 4. 영향 파일만 재분석
-        for (const file of affectedFiles) {
-          if (shouldAnalyzeFile(file)) {
-            await analyzeFile(file);
-          }
-        }
+            // 4. 영향 파일 계산 (파일 레벨)
+            const affectedFiles = await ledger.getAffected(result.changedFiles);
 
-        // 5. 증분 영향 로그 (파일→모듈 매핑)
-        const impactLog = buildDevIncrementalImpactLog({
-          affectedFiles,
-          fileCache,
-          moduleFileName,
-          toProjectRelativePath,
+            // 5. 영향 파일만 재분석
+            for (const file of affectedFiles) {
+              if (shouldAnalyzeFile(file)) {
+                await analyzeFile(file);
+              }
+            }
+
+            // 6. 증분 영향 로그 (파일→모듈 매핑)
+            const impactLog = buildDevIncrementalImpactLog({
+              affectedFiles,
+              fileCache,
+              moduleFileName,
+              toProjectRelativePath,
+            });
+            logger.info(impactLog.logLine);
+
+            // 7. 재빌드
+            await rebuild();
+          }).catch((error) => {
+            if (error instanceof DiagnosticError) {
+              reportDiagnostic(error.diagnostic);
+            } else {
+              logger.fatal(error instanceof Error ? error.message : 'Unknown index callback error.');
+            }
+          });
         });
-        logger.info(impactLog.logLine);
 
-        // 6. 재빌드
-        try {
-          await rebuild();
-        } catch (error) {
-          if (error instanceof DiagnosticError) {
-            reportDiagnostic(error.diagnostic);
-          } else {
-            logger.fatal(error instanceof Error ? error.message : 'Unknown rebuild error.');
-          }
-        }
-      });
-
-      process.on('SIGINT', () => {
-        unsubscribe();
-        void ledger.close();
-      });
+        process.on('SIGINT', () => {
+          unsubscribe();
+          ledger.close().catch((e) => {
+            logger.error(e instanceof Error ? e.message : 'Failed to close gildash.');
+          });
+        });
+      } catch (error) {
+        try { await ledger.close(); } catch { /* cleanup 실패 무시 */ }
+        throw error;
+      }
     } catch (error) {
       throw error;
     }

@@ -3,14 +3,11 @@ import type { CommandOptions } from './types';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Result } from '@zipbul/result';
-import { isErr } from '@zipbul/result';
-import type { Diagnostic } from '../diagnostics';
 import { Logger } from '@zipbul/logger';
+import { Gildash, type GildashOptions } from '@zipbul/gildash';
 import { ConfigLoader } from '../config';
 import type { ResolvedZipbulConfig } from '../config';
 import { startZipbulMcpServerStdio } from '../mcp/server/mcp-server';
-import { GildashProvider, type GildashProviderOptions } from '../compiler/gildash-provider';
 
 export interface McpCommandDeps {
   loadConfig: (projectRoot: string) => Promise<{ config: ResolvedZipbulConfig }>;
@@ -55,21 +52,21 @@ async function ensureRepoDefault(projectRoot: string): Promise<void> {
 }
 
 export interface RebuildProjectIndexDefaultDeps {
-  createGildashProvider?: (options: GildashProviderOptions) => Promise<Result<GildashProvider, Diagnostic>>;
+  createGildash?: (options: GildashOptions) => Promise<Gildash>;
 }
 
 async function rebuildProjectIndexDefault(
   input: { projectRoot: string; config: ResolvedZipbulConfig; mode: 'incremental' | 'full' },
   deps?: RebuildProjectIndexDefaultDeps,
 ): Promise<{ ok: boolean }> {
-  const openGildash = deps?.createGildashProvider ?? GildashProvider.open;
-  const ledgerResult = await openGildash({ projectRoot: input.projectRoot });
+  const openGildash = deps?.createGildash ?? Gildash.open;
+  let ledger: Gildash;
 
-  if (isErr(ledgerResult)) {
+  try {
+    ledger = await openGildash({ projectRoot: input.projectRoot });
+  } catch {
     return { ok: false };
   }
-
-  const ledger = ledgerResult;
 
   try {
     await ledger.reindex();
