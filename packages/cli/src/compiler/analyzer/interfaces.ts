@@ -65,6 +65,7 @@ export interface PropertyMetadata {
   type: AnalyzerValue;
   typeArgs?: string[] | undefined;
   decorators: DecoratorMetadata[];
+  initializer?: AnalyzerValue | undefined;
   items?: AnalyzerValue | undefined;
   isOptional?: boolean | undefined;
   isArray?: boolean | undefined;

@@ -8,6 +8,7 @@ import type {
   AdapterEntryDecoratorsSpec,
   HandlerIndexEntry,
 } from './interfaces';
+import type { ClassMetadata } from './interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord, DecoratorArguments } from './types';
 import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../../diagnostics';
@@ -54,7 +55,7 @@ export class AdapterSpecResolver {
 
       if (defineCall?.__zipbul_call !== 'defineAdapter') {
         return err(buildDiagnostic({
-          reason: `Adapter definition must use defineAdapter({ name, classRef, pipeline, ... }) in ${resolvedExport.sourceFile}.`,
+          reason: `Adapter definition must use defineAdapter(ClassRef) in ${resolvedExport.sourceFile}.`,
           file: resolvedExport.sourceFile,
         }));
       }
@@ -70,14 +71,26 @@ export class AdapterSpecResolver {
 
       const arg = this.asRecord(args[0]);
 
-      if (arg === null) {
+      if (arg === null || typeof arg.__zipbul_ref !== 'string') {
         return err(buildDiagnostic({
-          reason: `defineAdapter argument must be an object literal in ${resolvedExport.sourceFile}.`,
+          reason: `defineAdapter argument must be a class reference in ${resolvedExport.sourceFile}.`,
           file: resolvedExport.sourceFile,
         }));
       }
 
-      const extraction = this.extractFromObjectLiteral(arg, resolvedExport.sourceFile);
+      const className = arg.__zipbul_ref;
+      const importSource = typeof arg.__zipbul_import_source === 'string' ? arg.__zipbul_import_source : null;
+
+      const classMetadata = await this.findClassMetadata(className, importSource, resolvedExport.sourceFile, fileMap);
+
+      if (classMetadata === null) {
+        return err(buildDiagnostic({
+          reason: `Could not find class '${className}' referenced by defineAdapter in ${resolvedExport.sourceFile}.`,
+          file: resolvedExport.sourceFile,
+        }));
+      }
+
+      const extraction = this.extractFromClassProperties(classMetadata, resolvedExport.sourceFile);
       if (isErr(extraction)) return extraction;
 
       adapterSpecs.push({ adapterId: extraction.adapterId, staticSpec: extraction.staticSpec });
@@ -244,21 +257,56 @@ export class AdapterSpecResolver {
     return analysis;
   }
 
-  private extractFromObjectLiteral(arg: AnalyzerValueRecord, sourceFile: string): Result<AdapterStaticSpecResult, Diagnostic> {
-    const adapterId = arg.name;
+  private async findClassMetadata(
+    className: string,
+    importSource: string | null,
+    sourceFile: string,
+    fileMap: Map<string, FileAnalysis>,
+  ): Promise<ClassMetadata | null> {
+    if (importSource !== null) {
+      const resolvedPath = this.normalizeTsEntry(importSource);
+
+      if (resolvedPath !== null) {
+        const analysis = await this.getFileAnalysis(resolvedPath, fileMap);
+
+        if (analysis !== null) {
+          const cls = analysis.classes.find(c => c.className === className);
+
+          if (cls !== undefined) {
+            return cls;
+          }
+        }
+      }
+    }
+
+    for (const analysis of fileMap.values()) {
+      const cls = analysis.classes.find(c => c.className === className);
+
+      if (cls !== undefined) {
+        return cls;
+      }
+    }
+
+    return null;
+  }
+
+  private extractFromClassProperties(classMetadata: ClassMetadata, sourceFile: string): Result<AdapterStaticSpecResult, Diagnostic> {
+    const nameProperty = classMetadata.properties.find(p => p.name === 'name');
+    const adapterId = nameProperty?.initializer;
 
     if (typeof adapterId !== 'string' || adapterId.length === 0) {
       return err(buildDiagnostic({
-        reason: `defineAdapter.name must be a non-empty string in ${sourceFile}.`,
+        reason: `Adapter class '${classMetadata.className}' must have a 'name' property with a non-empty string initializer in ${sourceFile}.`,
         file: sourceFile,
       }));
     }
 
-    const pipelineRaw = arg.pipeline;
+    const pipelineProperty = classMetadata.properties.find(p => p.name === 'pipeline');
+    const pipelineRaw = pipelineProperty?.initializer;
 
     if (!Array.isArray(pipelineRaw)) {
       return err(buildDiagnostic({
-        reason: `defineAdapter.pipeline must be an array in ${sourceFile}.`,
+        reason: `Adapter class '${classMetadata.className}' must have a 'pipeline' property with an array initializer in ${sourceFile}.`,
         file: sourceFile,
       }));
     }
@@ -274,17 +322,18 @@ export class AdapterSpecResolver {
         pipeline.push(resolved);
       } else {
         return err(buildDiagnostic({
-          reason: `defineAdapter.pipeline elements must be strings or enum references in ${sourceFile}.`,
+          reason: `Adapter class '${classMetadata.className}' pipeline elements must be strings or enum references in ${sourceFile}.`,
           file: sourceFile,
         }));
       }
     }
 
-    const decsRaw = this.asRecord(arg.decorators);
+    const decoratorsProperty = classMetadata.properties.find(p => p.name === 'decorators');
+    const decsRaw = this.asRecord(decoratorsProperty?.initializer);
 
     if (decsRaw === null) {
       return err(buildDiagnostic({
-        reason: `defineAdapter.decorators must be an object in ${sourceFile}.`,
+        reason: `Adapter class '${classMetadata.className}' must have a 'decorators' property with an object initializer in ${sourceFile}.`,
         file: sourceFile,
       }));
     }
@@ -293,7 +342,7 @@ export class AdapterSpecResolver {
 
     if (controllerRaw === null || typeof controllerRaw.__zipbul_ref !== 'string') {
       return err(buildDiagnostic({
-        reason: `defineAdapter.decorators.controller must be an Identifier in ${sourceFile}.`,
+        reason: `Adapter class '${classMetadata.className}' decorators.controller must be an Identifier in ${sourceFile}.`,
         file: sourceFile,
       }));
     }
@@ -303,7 +352,7 @@ export class AdapterSpecResolver {
 
     if (!Array.isArray(handlerRaw) || handlerRaw.length === 0) {
       return err(buildDiagnostic({
-        reason: `defineAdapter.decorators.handler must be a non-empty Identifier array in ${sourceFile}.`,
+        reason: `Adapter class '${classMetadata.className}' decorators.handler must be a non-empty Identifier array in ${sourceFile}.`,
         file: sourceFile,
       }));
     }
@@ -315,7 +364,7 @@ export class AdapterSpecResolver {
 
       if (rec === null || typeof rec.__zipbul_ref !== 'string') {
         return err(buildDiagnostic({
-          reason: `defineAdapter.decorators.handler elements must be Identifiers in ${sourceFile}.`,
+          reason: `Adapter class '${classMetadata.className}' decorators.handler elements must be Identifiers in ${sourceFile}.`,
           file: sourceFile,
         }));
       }
@@ -819,16 +868,6 @@ export class AdapterSpecResolver {
     }
 
     return value;
-  }
-
-  private getString(node: AnalyzerValueRecord, key: string): string | null {
-    const value = node[key];
-
-    if (typeof value === 'string') {
-      return value;
-    }
-
-    return null;
   }
 
   private assertValidPhaseId(phaseId: string, context: string, field: string): Result<void, Diagnostic> {

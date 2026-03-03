@@ -1,118 +1,71 @@
 import { describe, it, expect } from 'bun:test';
 import { defineAdapter } from './define-adapter';
 import { ReservedPipeline } from './types';
-import type { AdapterRegistrationInput } from './types';
+import type { AdapterPipelines, AdapterEntryDecorators } from './types';
+import type { ZipbulAdapter, Context } from '../interfaces';
 
 // -- Test fixtures --
-
-class FakeAdapter {
-  async start(): Promise<void> {}
-  async stop(): Promise<void> {}
-}
 
 const controllerDeco = () => {};
 const getDeco = () => {};
 const postDeco = () => {};
 
-function createValidInput(overrides?: Partial<AdapterRegistrationInput>): AdapterRegistrationInput {
-  return {
-    name: 'http',
-    classRef: FakeAdapter as any,
-    pipeline: [
-      'BeforeRequest',
-      ReservedPipeline.Guards,
-      ReservedPipeline.Pipes,
-      ReservedPipeline.Handler,
-      'AfterRequest',
-    ],
-    decorators: {
-      controller: controllerDeco,
-      handler: [getDeco, postDeco],
-    },
-    ...overrides,
+class FakeAdapter implements ZipbulAdapter {
+  readonly name = 'fake';
+
+  readonly pipeline: AdapterPipelines = [
+    'BeforeRequest',
+    ReservedPipeline.Guards,
+    ReservedPipeline.Pipes,
+    ReservedPipeline.Handler,
+    'AfterRequest',
+  ];
+
+  readonly decorators: AdapterEntryDecorators = {
+    controller: controllerDeco,
+    handler: [getDeco, postDeco],
   };
+
+  async start(_context: Context): Promise<void> {}
+  async stop(): Promise<void> {}
 }
 
 describe('defineAdapter', () => {
-  it('should return the input with all required fields when given a valid AdapterRegistrationInput', () => {
-    // Arrange
-    const input = createValidInput();
-
-    // Act
-    const result = defineAdapter(input);
+  it('should return the exact same class reference (===)', () => {
+    // Arrange & Act
+    const result = defineAdapter(FakeAdapter);
 
     // Assert
-    expect(result.name).toBe('http');
-    expect(result.classRef).toBe(FakeAdapter);
-    expect(result.pipeline).toEqual([
+    expect(result).toBe(FakeAdapter);
+  });
+
+  it('should return identical results when called multiple times', () => {
+    // Arrange & Act
+    const result1 = defineAdapter(FakeAdapter);
+    const result2 = defineAdapter(FakeAdapter);
+
+    // Assert
+    expect(result1).toBe(result2);
+    expect(result1).toBe(FakeAdapter);
+  });
+
+  it('should preserve adapter class instance properties', () => {
+    // Arrange
+    const AdapterClass = defineAdapter(FakeAdapter);
+
+    // Act
+    const instance = new AdapterClass();
+
+    // Assert
+    expect(instance.name).toBe('fake');
+    expect(instance.pipeline).toEqual([
       'BeforeRequest',
       ReservedPipeline.Guards,
       ReservedPipeline.Pipes,
       ReservedPipeline.Handler,
       'AfterRequest',
     ]);
-    expect(result.decorators.controller).toBe(controllerDeco);
-    expect(result.decorators.handler).toEqual([getDeco, postDeco]);
-  });
-
-  it('should return the exact same reference (===) when called with any input', () => {
-    // Arrange
-    const input = createValidInput();
-
-    // Act
-    const result = defineAdapter(input);
-
-    // Assert
-    expect(result).toBe(input);
-  });
-
-  it('should return identical results when called multiple times with the same input', () => {
-    // Arrange
-    const input = createValidInput();
-
-    // Act
-    const result1 = defineAdapter(input);
-    const result2 = defineAdapter(input);
-
-    // Assert
-    expect(result1).toBe(result2);
-    expect(result1).toBe(input);
-  });
-
-  it('should return the input unchanged when pipeline has only Handler and handler array is empty', () => {
-    // Arrange
-    const input = createValidInput({
-      pipeline: [ReservedPipeline.Handler],
-      decorators: { controller: controllerDeco, handler: [] },
-    });
-
-    // Act
-    const result = defineAdapter(input);
-
-    // Assert
-    expect(result).toBe(input);
-    expect(result.pipeline).toEqual([ReservedPipeline.Handler]);
-    expect(result.decorators.handler).toEqual([]);
-  });
-
-  it('should preserve all nested properties of decorators when present', () => {
-    // Arrange
-    const handler1 = () => {};
-    const handler2 = () => {};
-    const handler3 = () => {};
-    const ctrl = () => {};
-    const input = createValidInput({
-      decorators: { controller: ctrl, handler: [handler1, handler2, handler3] },
-    });
-
-    // Act
-    const result = defineAdapter(input);
-
-    // Assert
-    expect(result.decorators.controller).toBe(ctrl);
-    expect(result.decorators.handler).toHaveLength(3);
-    expect(result.decorators.handler[0]).toBe(handler1);
-    expect(result.decorators.handler[1]).toBe(handler2);
-    expect(result.decorators.handler[2]).toBe(handler3);
+    expect(instance.decorators.controller).toBe(controllerDeco);
+    expect(instance.decorators.handler).toEqual([getDeco, postDeco]);
   });
 });

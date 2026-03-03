@@ -19,20 +19,25 @@ const { Get, Post, Put, Delete, Patch, Options, Head } = await import('./decorat
 const { HttpMiddlewarePhase } = await import('./enums');
 
 describe('adapterSpec', () => {
-  it('should export adapterSpec with name http and classRef ZipbulHttpAdapter', () => {
+  it('should export adapterSpec as the ZipbulHttpAdapter class itself', () => {
     // Arrange — adapterSpec is module-level constant
 
-    // Act
-    const { name, classRef } = adapterSpec;
-
-    // Assert
-    expect(name).toBe('http');
-    expect(classRef).toBe(ZipbulHttpAdapter);
+    // Act & Assert
+    expect(adapterSpec).toBe(ZipbulHttpAdapter);
   });
 
-  it('should have pipeline equal to [BeforeRequest, Guards, Pipes, Handler, AfterRequest] in order', () => {
+  it('should have instance name equal to http', () => {
     // Arrange
-    const { pipeline } = adapterSpec;
+    const instance = new adapterSpec();
+
+    // Act & Assert
+    expect(instance.name).toBe('http');
+  });
+
+  it('should have instance pipeline equal to [BeforeRequest, Guards, Pipes, Handler, AfterRequest] in order', () => {
+    // Arrange
+    const instance = new adapterSpec();
+    const { pipeline } = instance;
 
     // Act & Assert
     expect(pipeline).toHaveLength(5);
@@ -47,7 +52,8 @@ describe('adapterSpec', () => {
 
   it('should contain Guards, Pipes, Handler each exactly once in pipeline (R-004)', () => {
     // Arrange
-    const { pipeline } = adapterSpec;
+    const instance = new adapterSpec();
+    const { pipeline } = instance;
 
     // Act
     const guardsCount = pipeline.filter((t) => t === ReservedPipeline.Guards).length;
@@ -62,7 +68,8 @@ describe('adapterSpec', () => {
 
   it('should set controller to RestController', () => {
     // Arrange
-    const { decorators } = adapterSpec;
+    const instance = new adapterSpec();
+    const { decorators } = instance;
 
     // Act & Assert
     expect(decorators.controller).toBe(RestController);
@@ -70,7 +77,8 @@ describe('adapterSpec', () => {
 
   it('should set decorators.handler to exactly 7 HTTP method decorators', () => {
     // Arrange
-    const { decorators } = adapterSpec;
+    const instance = new adapterSpec();
+    const { decorators } = instance;
     const expectedHandlers = [Get, Post, Put, Delete, Patch, Options, Head];
 
     // Act & Assert

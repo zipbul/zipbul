@@ -1,19 +1,7 @@
 import type { ZipbulAdapter } from '../interfaces';
 
-/**
- * Adapter contract data placeholder.
- * Concrete shape is TBD per spec (ContractData = unknown).
- */
-export type AdapterContractData = unknown;
-
-/** The required export name for adapter spec facade. */
-export type AdapterSpecExportName = 'adapterSpec';
-
 /** 어댑터 정의 미들웨어 페이즈 식별자. */
 export type MiddlewarePhase = string;
-
-/** Reference to the adapter class. May be abstract for type constraints. */
-export type ClassRef = abstract new (...args: any[]) => ZipbulAdapter;
 
 /** 파이프라인 예약 토큰. 프레임워크가 소유하는 실행 단위. */
 export enum ReservedPipeline {
@@ -41,11 +29,5 @@ export type AdapterEntryDecorators = {
   handler: DecoratorRef[];
 };
 
-/** Input shape for defineAdapter(). AOT-collectable at build time. */
-export type AdapterRegistrationInput = {
-  name: string;
-  classRef: ClassRef;
-  pipeline: AdapterPipelines;
-  decorators: AdapterEntryDecorators;
-  dependsOn?: AdapterDependsOn;
-};
+/** Adapter class constructor type. Accepts any constructor args and produces a ZipbulAdapter. */
+export type AdapterClass = new (...args: any[]) => ZipbulAdapter;

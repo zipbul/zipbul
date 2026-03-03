@@ -1,4 +1,5 @@
-import type { ZipbulAdapter, ZipbulRecord, Class, Context, ExceptionFilterToken } from '@zipbul/common';
+import type { ZipbulAdapter, ZipbulRecord, Class, Context, ExceptionFilterToken, AdapterPipelines, AdapterEntryDecorators } from '@zipbul/common';
+import { ReservedPipeline } from '@zipbul/common';
 
 import { ClusterManager, getRuntimeContext, type ClusterBaseWorker } from '@zipbul/core';
 
@@ -21,10 +22,28 @@ import type { ClassMetadata, HttpWorkerRpc, MetadataRegistryKey, ParamTypeRefere
 
 import { ZipbulHttpServer } from './zipbul-http-server';
 import { HttpMiddlewareLifecycle } from './interfaces';
+import { HttpMiddlewarePhase } from './enums';
+import { RestController } from './decorators/class.decorator';
+import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
 
 const ZIPBUL_HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
 
 export class ZipbulHttpAdapter implements ZipbulAdapter {
+  readonly name = 'http';
+
+  readonly pipeline: AdapterPipelines = [
+    HttpMiddlewarePhase.BeforeRequest,
+    ReservedPipeline.Guards,
+    ReservedPipeline.Pipes,
+    ReservedPipeline.Handler,
+    HttpMiddlewarePhase.AfterRequest,
+  ];
+
+  readonly decorators: AdapterEntryDecorators = {
+    controller: RestController,
+    handler: [Get, Post, Put, Delete, Patch, Options, Head],
+  };
+
   private options: ZipbulHttpServerOptions;
   private clusterManager: ClusterManager<ClusterBaseWorker & HttpWorkerRpc> | undefined;
   private httpServer: ZipbulHttpServer | undefined;

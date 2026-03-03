@@ -6,6 +6,7 @@ import type { FileAnalysis } from './graph/interfaces';
 import type { FileSetup } from '../../../test/shared/interfaces';
 import type { AstParseResult } from './test/types';
 import type { AnalyzerValue, AnalyzerValueRecord } from './types';
+import type { ClassMetadata, PropertyMetadata } from './interfaces';
 
 import { createBunFileStub } from '../../../test/shared/stubs';
 import { PathResolver } from '../../common';
@@ -47,18 +48,43 @@ const applyParseToAnalysis = (analysis: FileAnalysis, parseResult: AstParseResul
 };
 
 /**
- * Create a standard adapter object literal value as AstParser would evaluate it.
- * Each field mirrors AdapterRegistrationInput after AstParser.parseExpression().
+ * Build PropertyMetadata entries for an adapter class.
+ * Each field mirrors how AstParser extracts property initializers.
  */
-const createAdapterValue = (overrides?: Partial<Record<string, AnalyzerValue>>): AnalyzerValueRecord => ({
-  name: 'test',
-  classRef: { __zipbul_ref: 'TestAdapter' },
-  pipeline: ['Before', 'Guards', 'Pipes', 'Handler'],
-  decorators: {
-    controller: { __zipbul_ref: 'Controller' },
-    handler: [{ __zipbul_ref: 'Get' }],
-  },
-  ...overrides,
+const createAdapterProperties = (overrides?: Partial<Record<string, AnalyzerValue>>): PropertyMetadata[] => {
+  const values: Record<string, AnalyzerValue> = {
+    name: 'test',
+    pipeline: ['Before', 'Guards', 'Pipes', 'Handler'],
+    decorators: {
+      controller: { __zipbul_ref: 'Controller' },
+      handler: [{ __zipbul_ref: 'Get' }],
+    },
+    ...overrides,
+  };
+
+  return Object.entries(values)
+    .filter(([_, value]) => value !== undefined)
+    .map(([propName, value]) => ({
+      name: propName,
+      type: 'any',
+      decorators: [],
+      initializer: value,
+    }));
+};
+
+/**
+ * Build a ClassMetadata for the test adapter class.
+ */
+const createTestAdapterClass = (
+  className: string = 'TestAdapter',
+  propertyOverrides?: Partial<Record<string, AnalyzerValue>>,
+): ClassMetadata => ({
+  className,
+  decorators: [],
+  constructorParams: [],
+  methods: [],
+  properties: createAdapterProperties(propertyOverrides),
+  imports: {},
 });
 
 const wrapDefineAdapter = (...args: AnalyzerValue[]): AnalyzerValueRecord => ({
@@ -112,7 +138,7 @@ describe('AdapterSpecResolver', () => {
   ].join('\n');
 
   const buildStandardFileMap = (
-    adapterValue: AnalyzerValueRecord = createAdapterValue(),
+    adapterClass: ClassMetadata = createTestAdapterClass(),
   ): Map<string, FileAnalysis> => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
@@ -131,13 +157,13 @@ describe('AdapterSpecResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     // Entry file (adapter)
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter(TestAdapter);');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
-      classes: entryParse.classes,
+      classes: [adapterClass],
       reExports: entryParse.reExports,
       exports: entryParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(adapterValue) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: adapterClass.className }) },
     };
 
     applyParseToAnalysis(entryAnalysis, entryParse);
@@ -150,7 +176,7 @@ describe('AdapterSpecResolver', () => {
   // Happy Path (HP)
   // =======================================================================
 
-  it('should resolve adapter with object literal containing all required fields', async () => {
+  it('should resolve adapter with class reference containing all required property initializers', async () => {
     // Arrange
     const fileMap = buildStandardFileMap();
     const resolver = new AdapterSpecResolver();
@@ -216,34 +242,34 @@ describe('AdapterSpecResolver', () => {
     fileMap.set(controllerFileB, controllerAnalysisB);
 
     // Adapter A entry
-    const adapterAValue = createAdapterValue({ name: 'alpha' });
-    const entryParseA = parseOrFail(parser, entryA, 'export const adapterSpec = defineAdapter({});');
+    const adapterAClass = createTestAdapterClass('AdapterA', { name: 'alpha' });
+    const entryParseA = parseOrFail(parser, entryA, 'export const adapterSpec = defineAdapter(AdapterA);');
     const entryAnalysisA: FileAnalysis = {
       filePath: entryA,
-      classes: entryParseA.classes,
+      classes: [adapterAClass],
       reExports: entryParseA.reExports,
       exports: entryParseA.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(adapterAValue) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'AdapterA' }) },
     };
 
     applyParseToAnalysis(entryAnalysisA, entryParseA);
     fileMap.set(entryA, entryAnalysisA);
 
     // Adapter B entry
-    const adapterBValue = createAdapterValue({
+    const adapterBClass = createTestAdapterClass('AdapterB', {
       name: 'beta',
       decorators: {
         controller: { __zipbul_ref: 'WsGateway' },
         handler: [{ __zipbul_ref: 'OnMessage' }],
       },
     });
-    const entryParseB = parseOrFail(parser, entryB, 'export const adapterSpec = defineAdapter({});');
+    const entryParseB = parseOrFail(parser, entryB, 'export const adapterSpec = defineAdapter(AdapterB);');
     const entryAnalysisB: FileAnalysis = {
       filePath: entryB,
-      classes: entryParseB.classes,
+      classes: [adapterBClass],
       reExports: entryParseB.reExports,
       exports: entryParseB.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(adapterBValue) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'AdapterB' }) },
     };
 
     applyParseToAnalysis(entryAnalysisB, entryParseB);
@@ -288,13 +314,14 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(barrelFile, barrelAnalysis);
 
-    // Spec file has actual adapterSpec
+    // Spec file has actual adapterSpec + class
+    const adapterClass = createTestAdapterClass();
     const specAnalysis: FileAnalysis = {
       filePath: specFile,
-      classes: [],
+      classes: [adapterClass],
       reExports: [],
       exports: ['adapterSpec'],
-      exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     fileMap.set(specFile, specAnalysis);
@@ -336,12 +363,13 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(barrelFile, barrelAnalysis);
 
+    const adapterClass = createTestAdapterClass();
     const specAnalysis: FileAnalysis = {
       filePath: specFile,
-      classes: [],
+      classes: [adapterClass],
       reExports: [],
       exports: ['adapterSpec'],
-      exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     fileMap.set(specFile, specAnalysis);
@@ -416,13 +444,14 @@ describe('AdapterSpecResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     // Entry file
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
+    const adapterClass = createTestAdapterClass();
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter(TestAdapter);');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
-      classes: entryParse.classes,
+      classes: [adapterClass],
       reExports: entryParse.reExports,
       exports: entryParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     applyParseToAnalysis(entryAnalysis, entryParse);
@@ -467,13 +496,14 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
+    const adapterClass = createTestAdapterClass();
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter(TestAdapter);');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
-      classes: entryParse.classes,
+      classes: [adapterClass],
       reExports: entryParse.reExports,
       exports: entryParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     applyParseToAnalysis(entryAnalysis, entryParse);
@@ -518,13 +548,14 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
+    const adapterClass = createTestAdapterClass();
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter(TestAdapter);');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
-      classes: entryParse.classes,
+      classes: [adapterClass],
       reExports: entryParse.reExports,
       exports: entryParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     applyParseToAnalysis(entryAnalysis, entryParse);
@@ -540,10 +571,10 @@ describe('AdapterSpecResolver', () => {
 
   it('should parse pipeline with custom phases and reserved tokens', async () => {
     // Arrange
-    const adapterValue = createAdapterValue({
+    const adapterClass = createTestAdapterClass('TestAdapter', {
       pipeline: ['Init', 'Guards', 'Transform', 'Pipes', 'Handler', 'Finalize'],
     });
-    const fileMap = buildStandardFileMap(adapterValue);
+    const fileMap = buildStandardFileMap(adapterClass);
     const resolver = new AdapterSpecResolver();
 
     // Act
@@ -557,7 +588,7 @@ describe('AdapterSpecResolver', () => {
 
   it('should resolve pipeline enum refs to their string values', async () => {
     // Arrange — pipeline contains __zipbul_ref objects for reserved tokens
-    const adapterValue = createAdapterValue({
+    const adapterClass = createTestAdapterClass('TestAdapter', {
       pipeline: [
         'Before',
         { __zipbul_ref: 'ReservedPipeline.Guards' },
@@ -565,7 +596,7 @@ describe('AdapterSpecResolver', () => {
         { __zipbul_ref: 'ReservedPipeline.Handler' },
       ],
     });
-    const fileMap = buildStandardFileMap(adapterValue);
+    const fileMap = buildStandardFileMap(adapterClass);
     const resolver = new AdapterSpecResolver();
 
     // Act
@@ -655,7 +686,7 @@ describe('AdapterSpecResolver', () => {
     }
   });
 
-  it('should throw when defineAdapter argument is not object literal', async () => {
+  it('should throw when defineAdapter argument is not a class reference', async () => {
     // Arrange
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
@@ -677,7 +708,7 @@ describe('AdapterSpecResolver', () => {
       classes: [],
       reExports: [],
       exports: ['adapterSpec'],
-      exportedValues: { adapterSpec: wrapDefineAdapter('not-an-object') },
+      exportedValues: { adapterSpec: wrapDefineAdapter('not-a-class-ref') },
     };
 
     fileMap.set(entryFile, entryAnalysis);
@@ -688,13 +719,50 @@ describe('AdapterSpecResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(result.data.why).toMatch(/object literal/);
+      expect(result.data.why).toMatch(/class reference/);
     }
   });
 
-  it('should throw when name is missing or empty', async () => {
+  it('should throw when referenced class cannot be found', async () => {
+    // Arrange
+    const parser = new AstParser();
+    const fileMap = new Map<string, FileAnalysis>();
+
+    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerAnalysis: FileAnalysis = {
+      filePath: controllerFile,
+      classes: controllerParse.classes,
+      reExports: controllerParse.reExports,
+      exports: controllerParse.exports,
+      importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
+    };
+
+    applyParseToAnalysis(controllerAnalysis, controllerParse);
+    fileMap.set(controllerFile, controllerAnalysis);
+
+    const entryAnalysis: FileAnalysis = {
+      filePath: entryFile,
+      classes: [],
+      reExports: [],
+      exports: ['adapterSpec'],
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'NonExistentClass' }) },
+    };
+
+    fileMap.set(entryFile, entryAnalysis);
+
+    const resolver = new AdapterSpecResolver();
+
+    // Act & Assert
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.data.why).toMatch(/Could not find class/);
+    }
+  });
+
+  it('should throw when name property is missing or empty', async () => {
     // Arrange — missing name
-    const fileMap1 = buildStandardFileMap(createAdapterValue({ name: undefined }));
+    const fileMap1 = buildStandardFileMap(createTestAdapterClass('TestAdapter', { name: undefined }));
     const resolver = new AdapterSpecResolver();
 
     const result1 = await resolver.resolve({ fileMap: fileMap1, projectRoot });
@@ -704,7 +772,7 @@ describe('AdapterSpecResolver', () => {
     }
 
     // Arrange — empty name
-    const fileMap2 = buildStandardFileMap(createAdapterValue({ name: '' }));
+    const fileMap2 = buildStandardFileMap(createTestAdapterClass('TestAdapter', { name: '' }));
 
     const result2 = await resolver.resolve({ fileMap: fileMap2, projectRoot });
     expect(isErr(result2)).toBe(true);
@@ -713,9 +781,9 @@ describe('AdapterSpecResolver', () => {
     }
   });
 
-  it('should throw when pipeline is missing or not array', async () => {
+  it('should throw when pipeline property is missing or not array', async () => {
     // Arrange — missing
-    const fileMap1 = buildStandardFileMap(createAdapterValue({ pipeline: undefined }));
+    const fileMap1 = buildStandardFileMap(createTestAdapterClass('TestAdapter', { pipeline: undefined }));
     const resolver = new AdapterSpecResolver();
 
     const result1 = await resolver.resolve({ fileMap: fileMap1, projectRoot });
@@ -725,7 +793,7 @@ describe('AdapterSpecResolver', () => {
     }
 
     // Arrange — not array
-    const fileMap2 = buildStandardFileMap(createAdapterValue({ pipeline: 'not-array' }));
+    const fileMap2 = buildStandardFileMap(createTestAdapterClass('TestAdapter', { pipeline: 'not-array' }));
 
     const result2 = await resolver.resolve({ fileMap: fileMap2, projectRoot });
     expect(isErr(result2)).toBe(true);
@@ -736,7 +804,7 @@ describe('AdapterSpecResolver', () => {
 
   it('should throw when pipeline element is not string', async () => {
     // Arrange
-    const fileMap = buildStandardFileMap(createAdapterValue({ pipeline: [123, 'Guards', 'Pipes', 'Handler'] }));
+    const fileMap = buildStandardFileMap(createTestAdapterClass('TestAdapter', { pipeline: [123, 'Guards', 'Pipes', 'Handler'] }));
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
@@ -747,10 +815,10 @@ describe('AdapterSpecResolver', () => {
     }
   });
 
-  it('should throw when decorators.controller is not an array or identifier', async () => {
+  it('should throw when decorators.controller is not an identifier', async () => {
     // Arrange
     const fileMap = buildStandardFileMap(
-      createAdapterValue({
+      createTestAdapterClass('TestAdapter', {
         decorators: {
           controller: 'plain-string',
           handler: [{ __zipbul_ref: 'Get' }],
@@ -770,7 +838,7 @@ describe('AdapterSpecResolver', () => {
   it('should throw when decorators.handler is empty or invalid', async () => {
     // Arrange — empty handler array
     const fileMap1 = buildStandardFileMap(
-      createAdapterValue({
+      createTestAdapterClass('TestAdapter', {
         decorators: {
           controller: { __zipbul_ref: 'Controller' },
           handler: [],
@@ -787,7 +855,7 @@ describe('AdapterSpecResolver', () => {
 
     // Arrange — handler element not identifier
     const fileMap2 = buildStandardFileMap(
-      createAdapterValue({
+      createTestAdapterClass('TestAdapter', {
         decorators: {
           controller: { __zipbul_ref: 'Controller' },
           handler: ['plain-string'],
@@ -862,13 +930,14 @@ describe('AdapterSpecResolver', () => {
 
     // Both adapters use same name 'test'
     for (const ep of [entryA, entryB]) {
-      const parse = parseOrFail(parser, ep, 'export const adapterSpec = defineAdapter({});');
+      const adapterClass = createTestAdapterClass(`Adapter_${ep.split('/').pop()}`);
+      const parse = parseOrFail(parser, ep, 'export const adapterSpec = defineAdapter(TestAdapter);');
       const analysis: FileAnalysis = {
         filePath: ep,
-        classes: parse.classes,
+        classes: [adapterClass],
         reExports: parse.reExports,
         exports: parse.exports,
-        exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+        exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: adapterClass.className }) },
       };
 
       applyParseToAnalysis(analysis, parse);
@@ -921,8 +990,8 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const adapterAValue = createAdapterValue({ name: 'alpha' });
-    const adapterBValue = createAdapterValue({
+    const adapterAClass = createTestAdapterClass('AdapterA', { name: 'alpha' });
+    const adapterBClass = createTestAdapterClass('AdapterB', {
       name: 'beta',
       decorators: {
         controller: { __zipbul_ref: 'WsGateway' },
@@ -930,17 +999,17 @@ describe('AdapterSpecResolver', () => {
       },
     });
 
-    for (const [ep, val] of [
-      [entryA, adapterAValue],
-      [entryB, adapterBValue],
+    for (const [ep, cls] of [
+      [entryA, adapterAClass],
+      [entryB, adapterBClass],
     ] as const) {
-      const parse = parseOrFail(parser, ep as string, 'export const adapterSpec = defineAdapter({});');
+      const parse = parseOrFail(parser, ep as string, 'export const adapterSpec = defineAdapter(Adapter);');
       const analysis: FileAnalysis = {
         filePath: ep as string,
-        classes: parse.classes,
+        classes: [cls],
         reExports: parse.reExports,
         exports: parse.exports,
-        exportedValues: { adapterSpec: wrapDefineAdapter(val) },
+        exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: cls.className }) },
       };
 
       applyParseToAnalysis(analysis, parse);
@@ -983,13 +1052,14 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
+    const adapterClass = createTestAdapterClass();
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter(TestAdapter);');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
-      classes: entryParse.classes,
+      classes: [adapterClass],
       reExports: entryParse.reExports,
       exports: entryParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     applyParseToAnalysis(entryAnalysis, entryParse);
@@ -997,7 +1067,7 @@ describe('AdapterSpecResolver', () => {
 
     const resolver = new AdapterSpecResolver();
 
-    // Act & Assert — validateMiddlewarePhaseInputs fires before buildHandlerIndex
+    // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
@@ -1028,12 +1098,13 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(controllerFile, controllerAnalysis);
 
+    const adapterClass = createTestAdapterClass();
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
-      classes: [],
+      classes: [adapterClass],
       reExports: [],
       exports: ['adapterSpec'],
-      exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     fileMap.set(entryFile, entryAnalysis);
@@ -1079,13 +1150,14 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
+    const adapterClass = createTestAdapterClass();
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter(TestAdapter);');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
-      classes: entryParse.classes,
+      classes: [adapterClass],
       reExports: entryParse.reExports,
       exports: entryParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     applyParseToAnalysis(entryAnalysis, entryParse);
@@ -1104,7 +1176,7 @@ describe('AdapterSpecResolver', () => {
   it('should throw when pipeline missing required reserved tokens', async () => {
     // Arrange — pipeline missing 'Handler'
     const fileMap = buildStandardFileMap(
-      createAdapterValue({
+      createTestAdapterClass('TestAdapter', {
         pipeline: ['Before', 'Guards', 'Pipes'],
       }),
     );
@@ -1121,7 +1193,7 @@ describe('AdapterSpecResolver', () => {
   it('should throw when pipeline contains duplicate custom phase', async () => {
     // Arrange — pipeline has 'Before' twice
     const fileMap = buildStandardFileMap(
-      createAdapterValue({
+      createTestAdapterClass('TestAdapter', {
         pipeline: ['Before', 'Before', 'Guards', 'Pipes', 'Handler'],
       }),
     );
@@ -1138,7 +1210,7 @@ describe('AdapterSpecResolver', () => {
   it('should throw when phase id contains colon', async () => {
     // Arrange
     const fileMap = buildStandardFileMap(
-      createAdapterValue({
+      createTestAdapterClass('TestAdapter', {
         pipeline: ['Be:fore', 'Guards', 'Pipes', 'Handler'],
       }),
     );
@@ -1174,13 +1246,14 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(noClassAnalysis, noClassParse);
     fileMap.set(controllerFile, noClassAnalysis);
 
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
+    const adapterClass = createTestAdapterClass();
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter(TestAdapter);');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
-      classes: entryParse.classes,
+      classes: [adapterClass],
       reExports: entryParse.reExports,
       exports: entryParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     applyParseToAnalysis(entryAnalysis, entryParse);
@@ -1258,10 +1331,10 @@ describe('AdapterSpecResolver', () => {
 
   it('should handle pipeline with exactly reserved tokens only', async () => {
     // Arrange — pipeline = ['Guards', 'Pipes', 'Handler'], no custom phases
-    const adapterValue = createAdapterValue({
+    const adapterClass = createTestAdapterClass('TestAdapter', {
       pipeline: ['Guards', 'Pipes', 'Handler'],
     });
-    const fileMap = buildStandardFileMap(adapterValue);
+    const fileMap = buildStandardFileMap(adapterClass);
     const resolver = new AdapterSpecResolver();
 
     // Act
@@ -1345,22 +1418,22 @@ describe('AdapterSpecResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     // Same name 'test' for both
-    const adapterA = createAdapterValue();
-    const adapterB = createAdapterValue({
+    const adapterA = createTestAdapterClass('AdapterA');
+    const adapterB = createTestAdapterClass('AdapterB', {
       pipeline: ['After', 'Guards', 'Pipes', 'Handler'],
     });
 
-    for (const [ep, val] of [
+    for (const [ep, cls] of [
       [entryA, adapterA],
       [entryB, adapterB],
     ] as const) {
-      const parse = parseOrFail(parser, ep as string, 'export const adapterSpec = defineAdapter({});');
+      const parse = parseOrFail(parser, ep as string, 'export const adapterSpec = defineAdapter(Adapter);');
       const analysis: FileAnalysis = {
         filePath: ep as string,
-        classes: parse.classes,
+        classes: [cls],
         reExports: parse.reExports,
         exports: parse.exports,
-        exportedValues: { adapterSpec: wrapDefineAdapter(val) },
+        exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: cls.className }) },
       };
 
       applyParseToAnalysis(analysis, parse);
@@ -1426,27 +1499,27 @@ describe('AdapterSpecResolver', () => {
     fileMap.set(controllerFileB, controllerAnalysisB);
 
     // Adapter 'bravo' registered first alphabetically in entry paths, but name starts with 'b'
-    const adapterBravo = createAdapterValue({
+    const adapterBravo = createTestAdapterClass('AdapterBravo', {
       name: 'bravo',
       decorators: {
         controller: { __zipbul_ref: 'WsGateway' },
         handler: [{ __zipbul_ref: 'OnMessage' }],
       },
     });
-    const adapterAlpha = createAdapterValue({ name: 'alpha' });
+    const adapterAlpha = createTestAdapterClass('AdapterAlpha', { name: 'alpha' });
 
     // entryA → alpha, entryB → bravo
-    for (const [ep, val] of [
+    for (const [ep, cls] of [
       [entryA, adapterAlpha],
       [entryB, adapterBravo],
     ] as const) {
-      const parse = parseOrFail(parser, ep as string, 'export const adapterSpec = defineAdapter({});');
+      const parse = parseOrFail(parser, ep as string, 'export const adapterSpec = defineAdapter(Adapter);');
       const analysis: FileAnalysis = {
         filePath: ep as string,
-        classes: parse.classes,
+        classes: [cls],
         reExports: parse.reExports,
         exports: parse.exports,
-        exportedValues: { adapterSpec: wrapDefineAdapter(val) },
+        exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: cls.className }) },
       };
 
       applyParseToAnalysis(analysis, parse);
@@ -1484,13 +1557,14 @@ describe('AdapterSpecResolver', () => {
       fileMap.set(file, controllerAnalysis);
     }
 
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
+    const adapterClass = createTestAdapterClass();
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter(TestAdapter);');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
-      classes: entryParse.classes,
+      classes: [adapterClass],
       reExports: entryParse.reExports,
       exports: entryParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(createAdapterValue()) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     applyParseToAnalysis(entryAnalysis, entryParse);
@@ -1517,7 +1591,7 @@ describe('AdapterSpecResolver', () => {
 
   const buildFileMapWithCode = (
     controllerSource: string,
-    adapterValue: AnalyzerValueRecord = createAdapterValue(),
+    adapterClass: ClassMetadata = createTestAdapterClass(),
   ): Map<string, FileAnalysis> => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
@@ -1534,13 +1608,13 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
+    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter(TestAdapter);');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
-      classes: entryParse.classes,
+      classes: [adapterClass],
       reExports: entryParse.reExports,
       exports: entryParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(adapterValue) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: adapterClass.className }) },
     };
 
     applyParseToAnalysis(entryAnalysis, entryParse);
@@ -1582,28 +1656,28 @@ describe('AdapterSpecResolver', () => {
     fileMap.set(controllerFile, ctrlAnalysis);
 
     // Adapter 'test'
-    const testValue = createAdapterValue();
-    const testParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({});');
+    const testClass = createTestAdapterClass();
+    const testParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter(TestAdapter);');
     const testEntry: FileAnalysis = {
       filePath: entryFile,
-      classes: testParse.classes,
+      classes: [testClass],
       reExports: testParse.reExports,
       exports: testParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(testValue) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
     };
 
     applyParseToAnalysis(testEntry, testParse);
     fileMap.set(entryFile, testEntry);
 
     // Adapter 'other' (same controller decorator name 'Controller')
-    const otherValue = createAdapterValue({ name: 'other' });
-    const otherParse = parseOrFail(parser, otherEntryFile, 'export const adapterSpec = defineAdapter({});');
+    const otherClass = createTestAdapterClass('OtherAdapter', { name: 'other' });
+    const otherParse = parseOrFail(parser, otherEntryFile, 'export const adapterSpec = defineAdapter(OtherAdapter);');
     const otherEntry: FileAnalysis = {
       filePath: otherEntryFile,
-      classes: otherParse.classes,
+      classes: [otherClass],
       reExports: otherParse.reExports,
       exports: otherParse.exports,
-      exportedValues: { adapterSpec: wrapDefineAdapter(otherValue) },
+      exportedValues: { adapterSpec: wrapDefineAdapter({ __zipbul_ref: 'OtherAdapter' }) },
     };
 
     applyParseToAnalysis(otherEntry, otherParse);

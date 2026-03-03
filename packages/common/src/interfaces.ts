@@ -1,7 +1,12 @@
 import type { ZipbulMiddleware } from './zipbul-middleware';
 import type { ZipbulFunction, ZipbulValue, Class, ClassToken, ValueLike } from './types';
+import type { AdapterPipelines, AdapterEntryDecorators, AdapterDependsOn } from './adapter/types';
 
 export interface ZipbulAdapter {
+  readonly name: string;
+  readonly pipeline: AdapterPipelines;
+  readonly decorators: AdapterEntryDecorators;
+  readonly dependsOn?: AdapterDependsOn | undefined;
   start(context: Context): Promise<void>;
   stop(): Promise<void>;
 }

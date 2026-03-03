@@ -943,6 +943,10 @@ export class AstParser {
                 .map(value => this.extractDecorator(value))
                 .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
             : [];
+
+          const memberValue = this.asNode(member.value);
+          const initializer = memberValue !== null ? this.parseExpression(memberValue) : null;
+
           let typeInfo: TypeInfo = { typeName: 'any' };
           const typeAnnotation = this.asNode(member.typeAnnotation);
           const nestedTypeAnnotation = typeAnnotation ? this.asNode(typeAnnotation.typeAnnotation) : null;
@@ -951,7 +955,7 @@ export class AstParser {
             typeInfo = this.typeResolver.resolve(nestedTypeAnnotation);
           }
 
-          if (propDecorators.length > 0) {
+          if (propDecorators.length > 0 || initializer !== null) {
             const optional = Boolean(member.optional) || this.getString(member, 'accessibility') === 'protected';
 
             properties.push({
@@ -959,6 +963,7 @@ export class AstParser {
               type: this.resolveTypeValue(typeInfo),
               typeArgs: typeInfo.typeArgs,
               decorators: propDecorators,
+              initializer: initializer ?? undefined,
               isOptional: optional,
               isArray: typeInfo.isArray,
               isEnum: typeInfo.isEnum,
@@ -1547,6 +1552,27 @@ export class AstParser {
           __zipbul_factory_injects: injectCalls,
         };
       }
+
+      case 'MemberExpression': {
+        const obj = this.asNode(expr.object);
+        const prop = this.asNode(expr.property);
+        const objName = obj?.type === 'Identifier' ? this.getString(obj, 'name') : null;
+        const propName = prop ? this.getString(prop, 'name') : null;
+
+        if (isNonEmptyString(objName) && isNonEmptyString(propName)) {
+          const importSource = this.currentImports[objName];
+
+          return {
+            __zipbul_ref: `${objName}.${propName}`,
+            __zipbul_import_source: importSource,
+          };
+        }
+
+        return null;
+      }
+
+      case 'TSAsExpression':
+        return this.parseExpression(expr.expression);
 
       case 'SpreadElement':
         return { __zipbul_spread: this.parseExpression(expr.argument) };
