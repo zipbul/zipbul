@@ -63,7 +63,6 @@ const testConfig: ResolvedZipbulConfig = {
   module: { fileName: 'module.ts' },
   sourceDir: 'src',
   entry: './src/main.ts',
-  mcp: { exclude: [] },
 };
 
 const makeSource = () => ({ path: 'zipbul.jsonc', format: 'jsonc' as const });

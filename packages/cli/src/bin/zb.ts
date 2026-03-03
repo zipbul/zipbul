@@ -6,7 +6,6 @@ import type { CommandOptions } from './types';
 import { Logger } from '@zipbul/logger';
 import { dev } from './dev.command';
 import { build } from './build.command';
-import { mcp } from './mcp.command';
 import { DiagnosticError, reportDiagnostic } from '../diagnostics';
 
 Logger.configure({ level: 'info' });
@@ -30,7 +29,6 @@ const printUsage = (): void => {
   logger.info('Commands:');
   logger.info('  dev    Generate AOT artifacts and watch');
   logger.info('  build  Generate build output');
-  logger.info('  mcp    Start MCP server (no args)');
   logger.info('Options:');
   logger.info('  --profile <minimal|standard|full>');
 };
@@ -60,9 +58,6 @@ try {
       break;
     case 'build':
       await build(commandOptions);
-      break;
-    case 'mcp':
-      await mcp(positionals.slice(1), commandOptions);
       break;
     case undefined:
       reportInvalidCommand(command);

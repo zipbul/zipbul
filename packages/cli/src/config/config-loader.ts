@@ -1,6 +1,6 @@
 import { basename, join, relative, resolve, sep } from 'path';
 
-import type { ConfigLoadResult, JsonRecord, JsonValue, ResolvedZipbulConfig, ResolvedZipbulConfigMcp } from './interfaces';
+import type { ConfigLoadResult, JsonRecord, JsonValue, ResolvedZipbulConfig } from './interfaces';
 
 import { ConfigLoadError } from './errors';
 
@@ -110,38 +110,13 @@ export class ConfigLoader {
       throw new ConfigLoadError('Invalid zipbul config: entry must be within sourceDir.', sourcePath);
     }
 
-    const mcp = this.toResolvedMcpConfig(value.mcp, sourcePath);
-
     const config: ResolvedZipbulConfig = {
       module: { fileName },
       sourceDir,
       entry,
-      mcp,
     };
 
     return config;
-  }
-
-  private static toResolvedMcpConfig(value: JsonValue | undefined, sourcePath: string): ResolvedZipbulConfigMcp {
-    if (value === undefined || value === null) {
-      return { exclude: [] };
-    }
-
-    if (!this.isRecord(value)) {
-      throw new ConfigLoadError('Invalid zipbul config: mcp must be an object.', sourcePath);
-    }
-
-    let exclude: string[] = [];
-
-    if (value.exclude !== undefined) {
-      if (!Array.isArray(value.exclude) || !value.exclude.every((item) => typeof item === 'string')) {
-        throw new ConfigLoadError('Invalid zipbul config: mcp.exclude must be a string array.', sourcePath);
-      }
-
-      exclude = value.exclude as string[];
-    }
-
-    return { exclude };
   }
 
   private static async loadJsonConfig(

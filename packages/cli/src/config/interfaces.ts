@@ -9,15 +9,10 @@ export interface ResolvedZipbulConfigModule {
   fileName: string;
 }
 
-export interface ResolvedZipbulConfigMcp {
-  exclude: string[];
-}
-
 export interface ResolvedZipbulConfig {
   module: ResolvedZipbulConfigModule;
   sourceDir: string;
   entry: string;
-  mcp: ResolvedZipbulConfigMcp;
 }
 
 export interface ConfigLoadResult {
