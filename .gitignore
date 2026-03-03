@@ -17,3 +17,4 @@ bun.lock
 
 coverage
 examples/.zipbul/
+.gildash

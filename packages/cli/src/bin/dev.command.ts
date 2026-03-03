@@ -122,7 +122,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       async function rebuild() {
         try {
           const fileMap = new Map(fileCache.entries());
-          const graph = new ModuleGraph(fileMap, moduleFileName);
+          const graph = new ModuleGraph(fileMap, moduleFileName, srcDir);
 
           graph.build();
 

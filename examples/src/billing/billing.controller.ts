@@ -1,5 +1,5 @@
 import { UseMiddlewares, UseExceptionFilters } from '@zipbul/common';
-import { Controller, Post, Get, Body } from '@zipbul/http-adapter';
+import { RestController, Post, Get, Body } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 
 import { AuditMiddleware } from './audit.middleware';
@@ -7,7 +7,7 @@ import { ChargeDto } from './charge.dto';
 import { PaymentErrorFilter } from './payment-error.filter';
 import { PaymentFailedError } from './payment-failed.error';
 
-@Controller('billing')
+@RestController('billing')
 @UseMiddlewares(AuditMiddleware)
 export class BillingController {
   private logger = new Logger('BillingController');

@@ -54,11 +54,15 @@ export class ModuleGraph {
   constructor(
     private fileMap: Map<string, FileAnalysis>,
     private moduleFileName: string,
+    private readonly sourceDir?: string,
     private readonly gildash?: Gildash,
   ) {}
 
   build(): Map<string, ModuleNode> {
-    const allFiles = Array.from(this.fileMap.keys()).sort(compareCodePoint);
+    const sourceDir = this.sourceDir;
+    const allFiles = Array.from(this.fileMap.keys())
+      .filter(filePath => sourceDir === undefined || filePath.startsWith(sourceDir))
+      .sort(compareCodePoint);
     const discovery = new ModuleDiscovery(allFiles, this.moduleFileName);
     const moduleMap = discovery.discover();
     const orphans = discovery.getOrphans();

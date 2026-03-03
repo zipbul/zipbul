@@ -246,7 +246,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           );
         }
 
-        const graph = new ModuleGraph(fileMap, moduleFileName, ledger);
+        const graph = new ModuleGraph(fileMap, moduleFileName, srcDir, ledger);
 
         graph.build();
         await graph.validateInheritedScopes();

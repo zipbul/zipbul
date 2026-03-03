@@ -136,4 +136,110 @@ describe('AstParser', () => {
 
     expect(result.reExports).toHaveLength(2);
   });
+
+  it('should resolve aliased decorator to original export name', () => {
+    const source = [
+      "import { Injectable as Inj } from '@zipbul/common';",
+      '',
+      "@Inj({ visibility: 'module', scope: 'singleton' })",
+      'export class MyService {}',
+    ].join('\n');
+    const parser = new AstParser();
+    const result = parseOrFail(parser, '/app/src/service.ts', source);
+
+    expect(result.classes).toHaveLength(1);
+    expect(result.classes[0]?.decorators[0]?.name).toBe('Injectable');
+  });
+
+  it('should resolve aliased identifier to original export name in __zipbul_ref', () => {
+    const source = [
+      "import { MyClass as Alias } from './my-class';",
+      '',
+      'export const ref = Alias;',
+    ].join('\n');
+    const parser = new AstParser();
+    const result = parseOrFail(parser, '/app/src/consumer.ts', source);
+    const refValue = result.exportedValues['ref'] as Record<string, unknown> | undefined;
+
+    expect(refValue?.__zipbul_ref).toBe('MyClass');
+  });
+
+  it('should not alter non-aliased import identifier names', () => {
+    const source = [
+      "import { Injectable } from '@zipbul/common';",
+      '',
+      '@Injectable()',
+      'export class MyService {}',
+    ].join('\n');
+    const parser = new AstParser();
+    const result = parseOrFail(parser, '/app/src/service.ts', source);
+
+    expect(result.classes[0]?.decorators[0]?.name).toBe('Injectable');
+  });
+
+  it('should resolve aliased forwardRef target to original export name', () => {
+    const source = [
+      "import { forwardRef } from '@zipbul/common';",
+      "import { MyService as Svc } from './my-service';",
+      "import { Injectable } from '@zipbul/common';",
+      '',
+      '@Injectable()',
+      'export class Consumer {',
+      '  constructor(private dep: any) {}',
+      '}',
+      '',
+      'const ref = forwardRef(() => Svc);',
+    ].join('\n');
+    const parser = new AstParser();
+    const result = parseOrFail(parser, '/app/src/consumer.ts', source);
+    const exportedValues = result.exportedValues;
+    const localValues = result.localValues;
+    const refValue = localValues['ref'] as Record<string, unknown> | undefined;
+
+    expect(refValue?.__zipbul_forward_ref).toBe('MyService');
+  });
+
+  it('should resolve aliased inject callee to original name', () => {
+    const source = [
+      "import { inject as inj } from '@zipbul/common';",
+      '',
+      'const TokenA = 1;',
+      '',
+      'inj(TokenA);',
+    ].join('\n');
+    const parser = new AstParser();
+    const result = parseOrFail(parser, '/app/src/main.ts', source);
+    const calls = result.injectCalls ?? [];
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.callee).toBe('inject');
+    expect(calls[0]?.importSource).toBe('@zipbul/common');
+  });
+
+  it('should keep localName for default import identifiers', () => {
+    const source = [
+      "import DefaultClass from './default-class';",
+      '',
+      'export const ref = DefaultClass;',
+    ].join('\n');
+    const parser = new AstParser();
+    const result = parseOrFail(parser, '/app/src/service.ts', source);
+    const refValue = result.exportedValues['ref'] as Record<string, unknown> | undefined;
+
+    expect(refValue?.__zipbul_ref).toBe('DefaultClass');
+  });
+
+  it('should keep localName for namespace import identifiers', () => {
+    const source = [
+      "import * as ns from './my-module';",
+      '',
+      'const val = ns.something;',
+    ].join('\n');
+    const parser = new AstParser();
+    const result = parseOrFail(parser, '/app/src/main.ts', source);
+    const localValues = result.localValues;
+    const valRef = localValues['val'] as Record<string, unknown> | undefined;
+
+    expect(valRef?.__zipbul_ref).toBe('ns.something');
+  });
 });

@@ -210,11 +210,18 @@ export class AdapterSpecResolver {
       return cached;
     }
 
-    if (!(await Bun.file(filePath).exists())) {
+    const normalizedPath = filePath.endsWith('.ts') ? filePath : filePath + '.ts';
+    const normalized = fileMap.get(normalizedPath);
+
+    if (normalized) {
+      return normalized;
+    }
+
+    if (!(await Bun.file(normalizedPath).exists())) {
       return null;
     }
 
-    const fileContent = await Bun.file(filePath).text();
+    const fileContent = await Bun.file(normalizedPath).text();
     const parseResult = this.parser.parse(filePath, fileContent);
 
     if (isErr(parseResult)) {
@@ -252,7 +259,7 @@ export class AdapterSpecResolver {
       analysis.moduleDefinition = parseResult.moduleDefinition;
     }
 
-    fileMap.set(filePath, analysis);
+    fileMap.set(normalizedPath, analysis);
 
     return analysis;
   }

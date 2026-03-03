@@ -55,6 +55,7 @@ export class AstParser {
   private typeResolver = new AstTypeResolver();
   private currentImports: Record<string, string> = {};
   private currentImportSources: Record<string, string> = {};
+  private currentOriginalNames: Record<string, string> = {};
   private currentInjectCalls: InjectCall[] = [];
 
   parse(filename: string, code: string): Result<ParseResult, Diagnostic> {
@@ -80,6 +81,7 @@ export class AstParser {
 
     this.currentImports = {};
     this.currentImportSources = {};
+    this.currentOriginalNames = {};
 
     let moduleDefinition: ModuleDefinition | undefined;
     let parseError: ReturnType<typeof err<Diagnostic>> | null = null;
@@ -145,18 +147,17 @@ export class AstParser {
           this.currentImports[localName] = resolvedSource;
           this.currentImportSources[localName] = sourceValue;
 
-          if (isCoreImport) {
-            if (spec.type === 'ImportNamespaceSpecifier') {
-              createApplicationNamespaces.add(localName);
-              defineModuleNamespaces.add(localName);
+          if (spec.type === 'ImportSpecifier') {
+            const importedNode = this.asNode((spec).imported);
+            const importedName = importedNode
+              ? this.getString(importedNode, 'name') ?? this.getString(importedNode, 'value')
+              : null;
+
+            if (isNonEmptyString(importedName) && importedName !== localName) {
+              this.currentOriginalNames[localName] = importedName;
             }
 
-            if (spec.type === 'ImportSpecifier') {
-              const importedNode = this.asNode((spec).imported);
-              const importedName = importedNode
-                ? this.getString(importedNode, 'name') ?? this.getString(importedNode, 'value')
-                : null;
-
+            if (isCoreImport) {
               if (importedName === 'createApplication') {
                 createApplicationAliases.add(localName);
               }
@@ -165,6 +166,11 @@ export class AstParser {
                 defineModuleAliases.add(localName);
               }
             }
+          }
+
+          if (isCoreImport && spec.type === 'ImportNamespaceSpecifier') {
+            createApplicationNamespaces.add(localName);
+            defineModuleNamespaces.add(localName);
           }
         }
 
@@ -772,6 +778,10 @@ export class AstParser {
     };
   }
 
+  private resolveOriginalName(localName: string): string {
+    return this.currentOriginalNames[localName] ?? localName;
+  }
+
   private resolvePath(sourcePath: string, importPath: string): string {
     if (importPath.startsWith('.')) {
       const absolute = resolve(dirname(sourcePath), importPath);
@@ -792,7 +802,7 @@ export class AstParser {
 
       if (isNonEmptyString(importSource)) {
         return {
-          __zipbul_ref: typeInfo.typeName,
+          __zipbul_ref: this.resolveOriginalName(typeInfo.typeName),
           __zipbul_import_source: importSource,
         };
       }
@@ -1346,7 +1356,7 @@ export class AstParser {
         return null;
       }
 
-      name = calleeName;
+      name = this.resolveOriginalName(calleeName);
 
       const argsValue = asAnalyzerArray(expression.arguments);
       const argsList = argsValue ?? [];
@@ -1359,7 +1369,7 @@ export class AstParser {
         return null;
       }
 
-      name = calleeName;
+      name = this.resolveOriginalName(calleeName);
     }
 
     return { name, arguments: args };
@@ -1459,7 +1469,7 @@ export class AstParser {
         const importSource = this.currentImports[name];
 
         return {
-          __zipbul_ref: name,
+          __zipbul_ref: this.resolveOriginalName(name),
           __zipbul_import_source: importSource,
         };
       }
@@ -1473,9 +1483,10 @@ export class AstParser {
 
         const argsValue = asAnalyzerArray(expr.arguments);
         const args = argsValue ?? [];
+        const newCalleeName = this.getString(callee, 'name') ?? UNKNOWN_TYPE_NAME;
 
         return {
-          __zipbul_new: this.getString(callee, 'name') ?? UNKNOWN_TYPE_NAME,
+          __zipbul_new: this.resolveOriginalName(newCalleeName),
           args: args.map(arg => this.parseExpression(arg)),
         };
       }
@@ -1492,14 +1503,14 @@ export class AstParser {
           const propName = calleeProp ? this.getString(calleeProp, 'name') : null;
 
           if (isNonEmptyString(objectName) && isNonEmptyString(propName)) {
-            calleeName = `${objectName}.${propName}`;
+            calleeName = `${this.resolveOriginalName(objectName)}.${propName}`;
             importSource = this.currentImports[objectName];
           }
         } else if (callee?.type === 'Identifier') {
           const name = this.getString(callee, 'name');
 
           if (isNonEmptyString(name)) {
-            calleeName = name;
+            calleeName = this.resolveOriginalName(name);
             importSource = this.currentImports[name];
           }
         }
@@ -1526,7 +1537,7 @@ export class AstParser {
             const refName = this.getString(argBody, 'name');
 
             if (isNonEmptyString(refName)) {
-              return { __zipbul_forward_ref: refName };
+              return { __zipbul_forward_ref: this.resolveOriginalName(refName) };
             }
           }
         }
@@ -1563,7 +1574,7 @@ export class AstParser {
           const importSource = this.currentImports[objName];
 
           return {
-            __zipbul_ref: `${objName}.${propName}`,
+            __zipbul_ref: `${this.resolveOriginalName(objName)}.${propName}`,
             __zipbul_import_source: importSource,
           };
         }
@@ -1601,7 +1612,7 @@ export class AstParser {
 
         if (isNonEmptyString(name) && isNonEmptyString(path) && start !== null && end !== null && !defined.has(name)) {
           deps.push({
-            name,
+            name: this.resolveOriginalName(name),
             path,
             start: start - offset,
             end: end - offset,
@@ -1672,7 +1683,7 @@ export class AstParser {
           const name = this.getString(callee, 'name');
 
           if (isNonEmptyString(name)) {
-            calleeName = name;
+            calleeName = this.resolveOriginalName(name);
             importSource = this.currentImports[name];
           }
         }
@@ -1684,7 +1695,7 @@ export class AstParser {
           const propertyName = propertyNode ? this.getString(propertyNode, 'name') : null;
 
           if (isNonEmptyString(objectName) && isNonEmptyString(propertyName)) {
-            calleeName = `${objectName}.${propertyName}`;
+            calleeName = `${this.resolveOriginalName(objectName)}.${propertyName}`;
             importSource = this.currentImports[objectName];
           }
         }

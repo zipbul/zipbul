@@ -72,7 +72,7 @@ async function run() {
   console.log('Building Module Graph...');
 
   const moduleFileName = '__module__.ts';
-  const graph = new ModuleGraph(fileMap, moduleFileName);
+  const graph = new ModuleGraph(fileMap, moduleFileName, appDir);
 
   try {
     const modules = graph.build();
