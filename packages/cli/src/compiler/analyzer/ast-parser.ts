@@ -1529,7 +1529,7 @@ export class AstParser {
           };
         }
 
-        if (calleeName === 'forwardRef' && args.length > 0) {
+        if (calleeName === 'lazy' && args.length > 0) {
           const arg = this.asNode(args[0]);
           const argBody = arg ? this.asNode(arg.body) : null;
 
@@ -1537,7 +1537,7 @@ export class AstParser {
             const refName = this.getString(argBody, 'name');
 
             if (isNonEmptyString(refName)) {
-              return { __zipbul_forward_ref: this.resolveOriginalName(refName) };
+              return { __zipbul_lazy_ref: this.resolveOriginalName(refName) };
             }
           }
         }

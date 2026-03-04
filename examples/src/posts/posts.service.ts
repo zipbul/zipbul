@@ -1,4 +1,4 @@
-import { Injectable } from '@zipbul/common';
+import { inject, Injectable } from '@zipbul/common';
 
 import type { PostCommentInput } from './comments/interfaces';
 import type { CreatePostDto } from './dto/create-post.dto';
@@ -10,8 +10,8 @@ import { PostsRepository } from './posts.repository';
 
 @Injectable()
 export class PostsService {
-  private readonly postRepo = new PostsRepository();
-  private readonly commentsService = new CommentsService();
+  private readonly postRepo = inject(PostsRepository);
+  private readonly commentsService = inject(CommentsService);
 
   findAll(): ReadonlyArray<Post> {
     return this.postRepo.findAll();

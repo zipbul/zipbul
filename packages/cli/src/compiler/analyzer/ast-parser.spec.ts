@@ -177,9 +177,9 @@ describe('AstParser', () => {
     expect(result.classes[0]?.decorators[0]?.name).toBe('Injectable');
   });
 
-  it('should resolve aliased forwardRef target to original export name', () => {
+  it('should resolve aliased lazy target to original export name', () => {
     const source = [
-      "import { forwardRef } from '@zipbul/common';",
+      "import { lazy } from '@zipbul/common';",
       "import { MyService as Svc } from './my-service';",
       "import { Injectable } from '@zipbul/common';",
       '',
@@ -188,15 +188,14 @@ describe('AstParser', () => {
       '  constructor(private dep: any) {}',
       '}',
       '',
-      'const ref = forwardRef(() => Svc);',
+      'const ref = lazy(() => Svc);',
     ].join('\n');
     const parser = new AstParser();
     const result = parseOrFail(parser, '/app/src/consumer.ts', source);
-    const exportedValues = result.exportedValues;
     const localValues = result.localValues;
     const refValue = localValues['ref'] as Record<string, unknown> | undefined;
 
-    expect(refValue?.__zipbul_forward_ref).toBe('MyService');
+    expect(refValue?.__zipbul_lazy_ref).toBe('MyService');
   });
 
   it('should resolve aliased inject callee to original name', () => {

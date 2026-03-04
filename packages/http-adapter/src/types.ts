@@ -147,7 +147,7 @@ export type MetadataRegistryKey = ClassToken;
 
 export interface TokenRecord {
   readonly __zipbul_ref?: string;
-  readonly __zipbul_forward_ref?: string;
+  readonly __zipbul_lazy_ref?: string;
   readonly name?: string;
 }
 

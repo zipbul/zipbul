@@ -1,11 +1,15 @@
-import { Injectable } from '@zipbul/common';
+import { Injectable, type OnInit } from '@zipbul/common';
 
 import type { CreatePostDto } from './dto/create-post.dto';
 import type { UpdatePostDto } from './dto/update-post.dto';
 import type { Post } from './interfaces';
 
 @Injectable()
-export class PostsRepository {
+export class PostsRepository implements OnInit {
+  onInit(): void {
+    console.log(`[PostsRepository] initialized with ${this.posts.length} seed posts`);
+  }
+
   private posts: Post[] = [
     {
       id: 1,

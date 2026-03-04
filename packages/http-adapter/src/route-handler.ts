@@ -313,7 +313,7 @@ export class RouteHandler {
     return (
       typeof value === 'object' &&
       value !== null &&
-      ('__zipbul_ref' in value || '__zipbul_forward_ref' in value || 'name' in value)
+      ('__zipbul_ref' in value || '__zipbul_lazy_ref' in value || 'name' in value)
     );
   }
 
@@ -328,10 +328,10 @@ export class RouteHandler {
       return ref;
     }
 
-    const forward = token.__zipbul_forward_ref;
+    const lazyRef = token.__zipbul_lazy_ref;
 
-    if (typeof forward === 'string' && forward.length > 0) {
-      return forward;
+    if (typeof lazyRef === 'string' && lazyRef.length > 0) {
+      return lazyRef;
     }
 
     return undefined;

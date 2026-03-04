@@ -4,6 +4,8 @@ import type {
   Class,
   Provider,
   ProviderToken,
+  ProviderScope,
+  ProviderVisibleTo,
   ProviderUseClass,
   ProviderUseExisting,
   ProviderUseFactory,
@@ -17,62 +19,123 @@ import type {
   DecoratorMetadata,
   FactoryFn,
   ModuleObject,
+  ProviderRegistration,
+  ProviderRegistrationOptions,
   Token,
-  TokenRecord,
 } from './types';
 
 import { getRuntimeContext } from '../runtime/runtime-context';
+import {
+  normalizeToken,
+  formatToken,
+  coerceToken,
+  resolveTokenRecord,
+} from './token-resolver';
 
 export class Container implements ZipbulContainer {
-  private factories = new Map<Token, FactoryFn>();
-  private instances = new Map<Token, ContainerValue>();
+  private registrations = new Map<Token, ProviderRegistration>();
+  private singletons = new Map<Token, ContainerValue>();
+  private registrationOrder: Token[] = [];
+  private scopedKeys?: Map<ProviderToken, string>;
 
   constructor(initialFactories?: Map<Token, FactoryFn>) {
     if (initialFactories) {
-      this.factories = initialFactories;
+      for (const [token, factory] of initialFactories) {
+        this.set(token, factory);
+      }
     }
   }
 
-  set<TValue extends ContainerValue = ContainerValue>(token: Token, factory: ZipbulFactory<TValue>): void;
-  set(token: Token, factory: FactoryFn): void;
-  set<TValue extends ContainerValue = ContainerValue>(token: Token, factory: ZipbulFactory<TValue> | FactoryFn): void {
-    const wrapped: FactoryFn = c => factory(c);
+  /**
+   * Sets the scoped keys map for resolving class/symbol tokens to scoped string keys.
+   * Called exclusively by {@link registerRuntimeContext} during AOT bootstrap.
+   *
+   * @param keys - Map of ProviderToken to scoped key string
+   * @internal
+   */
+  setScopedKeys(keys: Map<ProviderToken, string>): void {
+    this.scopedKeys = keys;
+  }
 
-    this.factories.set(token, wrapped);
+  set<TValue extends ContainerValue = ContainerValue>(
+    token: Token,
+    factory: ZipbulFactory<TValue> | FactoryFn,
+    options?: ProviderRegistrationOptions,
+  ): void {
+    const wrapped: FactoryFn = c => factory(c);
+    const scope: ProviderScope = options?.scope ?? 'singleton';
+    const visibleTo: ProviderVisibleTo = options?.visibleTo ?? 'module';
+
+    this.registrations.set(token, { factory: wrapped, scope, visibleTo });
+    this.registrationOrder.push(token);
   }
 
   get(token: Token): ContainerValue {
-    const existing = this.instances.get(token);
+    const resolvedToken = this.resolveToken(token);
 
-    if (this.instances.has(token)) {
-      return existing;
+    if (this.singletons.has(resolvedToken)) {
+      return this.singletons.get(resolvedToken);
     }
 
-    const factory = this.factories.get(token);
+    const registration = this.registrations.get(resolvedToken);
 
-    if (!factory) {
-      const tokenLabel = this.formatToken(token);
+    if (!registration) {
+      const tokenLabel = formatToken(token);
 
       throw new Error(`No provider for token: ${tokenLabel}`);
     }
 
-    const instance = factory(this);
+    if (registration.scope === 'request') {
+      const tokenLabel = formatToken(token);
 
-    this.instances.set(token, instance);
+      throw new Error(
+        `[Zipbul DI] Cannot resolve request-scoped provider '${tokenLabel}' from the root container. Use RequestScopeContainer.`,
+      );
+    }
+
+    const instance = registration.factory(this);
+
+    if (registration.scope === 'singleton') {
+      this.singletons.set(resolvedToken, instance);
+    }
 
     return instance;
   }
 
   keys(): IterableIterator<Token> {
-    return this.factories.keys();
+    return this.registrations.keys();
   }
 
   has(token: Token): boolean {
-    return this.factories.has(token);
+    return this.registrations.has(token);
   }
 
   getInstances(): IterableIterator<ContainerValue> {
-    return this.instances.values();
+    return this.singletons.values();
+  }
+
+  /**
+   * Returns the registration metadata for a given token.
+   * Resolves scoped keys internally before lookup.
+   *
+   * @param token - The provider token to look up
+   * @returns The provider registration, or undefined if not found
+   * @public
+   */
+  getRegistration(token: Token): ProviderRegistration | undefined {
+    const resolvedToken = this.resolveToken(token);
+
+    return this.registrations.get(resolvedToken);
+  }
+
+  /**
+   * Returns the tokens in registration order (used for lifecycle hook ordering).
+   *
+   * @returns An array of tokens in the order they were registered
+   * @public
+   */
+  getRegistrationOrder(): readonly Token[] {
+    return this.registrationOrder;
   }
 
   async loadDynamicModule(scope: string, dynamicModule: ModuleObject | null | undefined): Promise<void> {
@@ -100,7 +163,7 @@ export class Container implements ZipbulContainer {
           factory = c => new provider.useClass(...this.resolveDepsFor(provider.useClass, scope, c));
         } else if (this.isProviderUseExisting(provider)) {
           factory = c => {
-            const existingKey = this.normalizeToken(provider.useExisting);
+            const existingKey = normalizeToken(provider.useExisting);
             const hasExistingKey = typeof existingKey === 'string' && existingKey.length > 0;
             const scopedKey = hasExistingKey ? `${scope}::${existingKey}` : '';
 
@@ -112,7 +175,7 @@ export class Container implements ZipbulContainer {
               return c.get(existingKey);
             }
 
-            throw new Error(`No existing provider found for alias token: ${this.formatToken(provider.useExisting)}`);
+            throw new Error(`No existing provider found for alias token: ${formatToken(provider.useExisting)}`);
           };
         } else if (this.isProviderUseFactory(provider)) {
           factory = c => {
@@ -128,7 +191,7 @@ export class Container implements ZipbulContainer {
         }
       }
 
-      const normalizedToken = this.normalizeToken(token);
+      const normalizedToken = normalizeToken(token);
       const keyStr = normalizedToken !== undefined ? `${scope}::${normalizedToken}` : '';
 
       if (keyStr.length > 0 && factory !== undefined) {
@@ -157,20 +220,20 @@ export class Container implements ZipbulContainer {
     return meta.constructorParams.map((param: ConstructorParamMetadata) => {
       let token = param.type;
 
-      token = this.resolveTokenRecord(token);
+      token = resolveTokenRecord(token);
 
       const injectDec = param.decorators?.find((decorator: DecoratorMetadata) => decorator.name === 'Inject');
       const injectArgs = injectDec?.arguments ?? [];
 
       if (injectArgs.length > 0) {
-        const injectedToken = this.coerceToken(injectArgs[0]);
+        const injectedToken = coerceToken(injectArgs[0] as DecoratorArgument);
 
         if (injectedToken !== undefined) {
-          token = this.resolveTokenRecord(injectedToken);
+          token = resolveTokenRecord(injectedToken);
         }
       }
 
-      const tokenName = this.normalizeToken(token);
+      const tokenName = normalizeToken(token);
       const key = tokenName !== undefined ? `${scope}::${tokenName}` : '';
 
       if (key.length > 0 && this.has(key)) {
@@ -187,123 +250,6 @@ export class Container implements ZipbulContainer {
         return undefined;
       }
     });
-  }
-
-  private normalizeToken(token: Token | TokenRecord | undefined): string | undefined {
-    if (token === null || token === undefined) {
-      return undefined;
-    }
-
-    if (typeof token === 'string') {
-      return token;
-    }
-
-    if (typeof token === 'symbol') {
-      return token.description ?? token.toString();
-    }
-
-    if (typeof token === 'function') {
-      const tokenName = token.name;
-
-      if (tokenName.length > 0) {
-        return tokenName;
-      }
-    }
-
-    if (this.isTokenRecord(token)) {
-      const ref = token.__zipbul_ref;
-      const forwardRef = token.__zipbul_forward_ref;
-
-      if (typeof ref === 'string') {
-        return ref;
-      }
-
-      if (typeof forwardRef === 'string') {
-        return forwardRef;
-      }
-
-      const tokenName = token.name;
-
-      if (typeof tokenName === 'string' && tokenName.length > 0) {
-        return tokenName;
-      }
-    }
-
-    return undefined;
-  }
-
-  private formatToken(token: Token | TokenRecord | undefined, normalized?: string): string {
-    if (typeof normalized === 'string' && normalized.length > 0) {
-      return normalized;
-    }
-
-    if (typeof token === 'string') {
-      return token;
-    }
-
-    if (typeof token === 'symbol') {
-      return token.description ?? token.toString();
-    }
-
-    if (typeof token === 'function') {
-      return token.name.length > 0 ? token.name : 'AnonymousToken';
-    }
-
-    if (this.isTokenRecord(token)) {
-      const tokenName = token.name;
-
-      return typeof tokenName === 'string' && tokenName.length > 0 ? tokenName : 'TokenRecord';
-    }
-
-    return 'UnknownToken';
-  }
-
-  private coerceToken(value: DecoratorArgument | undefined): Token | TokenRecord | undefined {
-    if (this.isProviderToken(value) || this.isTokenRecord(value)) {
-      return value;
-    }
-
-    return undefined;
-  }
-
-  private isProviderToken(value: DecoratorArgument | Token | TokenRecord | undefined): value is Token {
-    return typeof value === 'string' || typeof value === 'symbol' || typeof value === 'function';
-  }
-
-  private isTokenRecord(value: DecoratorArgument | Token | TokenRecord | undefined): value is TokenRecord {
-    if (typeof value !== 'object' || value === null) {
-      return false;
-    }
-
-    if ('__zipbul_ref' in value && typeof value.__zipbul_ref === 'string') {
-      return true;
-    }
-
-    if ('__zipbul_forward_ref' in value && typeof value.__zipbul_forward_ref === 'string') {
-      return true;
-    }
-
-    if ('name' in value && typeof value.name === 'string') {
-      return true;
-    }
-
-    return false;
-  }
-
-  private resolveTokenRecord(token: Token | TokenRecord | undefined): Token | TokenRecord | undefined {
-    if (!this.isTokenRecord(token)) {
-      return token;
-    }
-
-    if (typeof token.__zipbul_ref === 'string') {
-      return token.__zipbul_ref;
-    }
-
-    if (typeof token.__zipbul_forward_ref === 'string') {
-      return token.__zipbul_forward_ref;
-    }
-
-    return token;
   }
 
   private isClassProvider(provider: Provider): provider is Class {
@@ -330,5 +276,27 @@ export class Container implements ZipbulContainer {
 
   private isProviderUseFactory(provider: Provider): provider is ProviderUseFactory {
     return this.isProviderRecord(provider) && Object.prototype.hasOwnProperty.call(provider, 'useFactory');
+  }
+
+  private resolveToken(token: Token): Token {
+    if (!this.scopedKeys) {
+      return token;
+    }
+
+    const scoped = this.scopedKeys.get(token);
+
+    if (scoped !== undefined) {
+      return scoped;
+    }
+
+    if (typeof token === 'function' && token.name.length > 0) {
+      const scopedByName = this.scopedKeys.get(token.name);
+
+      if (scopedByName !== undefined) {
+        return scopedByName;
+      }
+    }
+
+    return token;
   }
 }

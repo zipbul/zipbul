@@ -1,12 +1,7 @@
-import type { ForwardRef } from './interfaces';
-import type { ZipbulValue, Callable, Constructor, ForwardRefFactory, PrimitiveArray, PrimitiveRecord, ValueLike } from './types';
+import type { ZipbulValue, Callable, Constructor, PrimitiveArray, PrimitiveRecord, ValueLike } from './types';
 
 export function isClass(target: ZipbulValue): target is Constructor {
   return typeof target === 'function' && 'prototype' in target;
-}
-
-export function forwardRef(fn: ForwardRefFactory): ForwardRef {
-  return { forwardRef: fn };
 }
 
 export function isUndefined(obj: ValueLike): obj is undefined {

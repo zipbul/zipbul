@@ -1,15 +1,16 @@
-import { Inject, Injectable } from '@zipbul/common';
+import { inject, Injectable } from '@zipbul/common';
 import { Logger, type LogMetadataValue } from '@zipbul/logger';
 
 import type { User } from './interfaces';
 
+import { UserRepository } from './users.repository';
 
 @Injectable({
   scope: 'singleton',
   visibleTo: 'all',
 })
 export class UsersService {
-  private readonly userRepository = Inject;
+  private readonly userRepository = inject(UserRepository);
   private readonly logger = new Logger('UsersService');
 
   findAll(): ReadonlyArray<User> {

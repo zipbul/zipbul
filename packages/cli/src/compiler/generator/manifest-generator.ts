@@ -81,6 +81,7 @@ export class ManifestGenerator {
 
     return `
 ${imports}
+import { registerRuntimeContext } from "@zipbul/core";
 
 const deepFreeze = (obj: unknown, visited = new WeakSet<object>()): unknown => {
   if (!obj || typeof obj !== 'object') {
@@ -154,6 +155,15 @@ ${scopedKeysEntries.join('\n')}
 export const metadataRegistry = createMetadataRegistry();
 export const scopedKeysMap = createScopedKeysMap();
 
+const __container__ = createContainer();
+
+registerRuntimeContext({
+  container: __container__,
+  metadataRegistry,
+  scopedKeys: scopedKeysMap,
+  isAotRuntime: true,
+});
+
 `;
   }
 
@@ -214,8 +224,8 @@ export const scopedKeysMap = createScopedKeysMap();
         return record.__zipbul_ref;
       }
 
-      if (typeof record.__zipbul_forward_ref === 'string') {
-        return record.__zipbul_forward_ref;
+      if (typeof record.__zipbul_lazy_ref === 'string') {
+        return record.__zipbul_lazy_ref;
       }
 
       return undefined;
@@ -261,7 +271,7 @@ export const scopedKeysMap = createScopedKeysMap();
     };
 
     const normalizeScope = (scope: string | undefined): string => {
-      if (scope === 'request-context' || scope === 'request') {
+      if (scope === 'request') {
         return 'request';
       }
 

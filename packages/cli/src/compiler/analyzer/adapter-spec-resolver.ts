@@ -131,6 +131,10 @@ export class AdapterSpecResolver {
 
         if (resolved !== null) {
           entryFiles.add(resolved);
+
+          if (!entry.resolvedSource.endsWith('.ts')) {
+            entryFiles.add(`${entry.resolvedSource}/index.ts`);
+          }
         }
       }
     }
@@ -147,7 +151,7 @@ export class AdapterSpecResolver {
       return rawPath;
     }
 
-    return null;
+    return `${rawPath}.ts`;
   }
 
   private async resolveAdapterSpecExport(
@@ -280,6 +284,19 @@ export class AdapterSpecResolver {
 
           if (cls !== undefined) {
             return cls;
+          }
+        }
+
+        if (analysis === null && !importSource.endsWith('.ts')) {
+          const indexPath = `${importSource}/index.ts`;
+          const indexAnalysis = await this.getFileAnalysis(indexPath, fileMap);
+
+          if (indexAnalysis !== null) {
+            const cls = indexAnalysis.classes.find(c => c.className === className);
+
+            if (cls !== undefined) {
+              return cls;
+            }
           }
         }
       }

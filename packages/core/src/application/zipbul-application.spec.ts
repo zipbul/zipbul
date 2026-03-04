@@ -127,12 +127,12 @@ describe('ZipbulApplication', () => {
   // ── get ──────────────────────────────────────────────────────
 
   describe('get', () => {
-    it('should delegate to container.get with the given token', () => {
+    it('should delegate to container.get with the given token when visibleTo is all', () => {
       // Arrange
       const token: ProviderToken = 'MY_TOKEN';
       const container = app.getContainer();
       const expectedValue = { foo: 'bar' };
-      container.set(token, () => expectedValue);
+      container.set(token, () => expectedValue, { scope: 'singleton', visibleTo: 'all' });
 
       // Act
       const result = app.get(token);
@@ -144,6 +144,24 @@ describe('ZipbulApplication', () => {
     it('should propagate container error when token is not found', () => {
       // Act & Assert
       expect(() => app.get('NONEXISTENT_TOKEN')).toThrow();
+    });
+
+    it('should throw when accessing non-singleton provider via app.get', () => {
+      // Arrange
+      const container = app.getContainer();
+      container.set('TRANSIENT_TOKEN', () => 'value', { scope: 'transient', visibleTo: 'all' });
+
+      // Act & Assert
+      expect(() => app.get('TRANSIENT_TOKEN')).toThrow(/singleton/i);
+    });
+
+    it('should throw when accessing module-scoped provider via app.get', () => {
+      // Arrange
+      const container = app.getContainer();
+      container.set('MODULE_TOKEN', () => 'value', { scope: 'singleton', visibleTo: 'module' });
+
+      // Act & Assert
+      expect(() => app.get('MODULE_TOKEN')).toThrow(/visibleTo/i);
     });
   });
 

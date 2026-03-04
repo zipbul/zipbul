@@ -112,15 +112,15 @@ const getRefName = (value: AnalyzerValue): string | null => {
   return null;
 };
 
-const getForwardRefName = (value: AnalyzerValue): string | null => {
+const getLazyRefName = (value: AnalyzerValue): string | null => {
   const record = asRecord(value);
 
   if (record === null) {
     return null;
   }
 
-  if (typeof record.__zipbul_forward_ref === 'string') {
-    return record.__zipbul_forward_ref;
+  if (typeof record.__zipbul_lazy_ref === 'string') {
+    return record.__zipbul_lazy_ref;
   }
 
   return null;
@@ -178,6 +178,14 @@ export class InjectorGenerator {
       return registry.getAlias(name, path);
     };
 
+    const serializeProviderOptions = (ref: { scope?: string; visibility?: string; visibleTo?: string[] }): string => {
+      const scope = ref.scope ?? 'singleton';
+      const visibleTo = ref.visibility === 'all' ? 'all' : ref.visibility === 'allowlist' && ref.visibleTo ? JSON.stringify(ref.visibleTo) : 'module';
+      const visibleToStr = typeof visibleTo === 'string' ? `'${visibleTo}'` : visibleTo;
+
+      return `{ scope: '${scope}', visibleTo: ${visibleToStr} }`;
+    };
+
     const sortedNodes = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));
 
     sortedNodes.forEach((node: ModuleNode) => {
@@ -190,13 +198,14 @@ export class InjectorGenerator {
           return;
         }
 
+        const opts = serializeProviderOptions(ref);
         const providerRecord = asRecord(ref.metadata);
 
         if (providerRecord) {
           if (Object.prototype.hasOwnProperty.call(providerRecord, 'useValue')) {
             const val = this.serializeValue(providerRecord.useValue, registry);
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', () => ${val});`);
+            factoryEntries.push(`  container.set('${node.name}::${token}', () => ${val}, ${opts});`);
 
             return;
           }
@@ -224,7 +233,7 @@ export class InjectorGenerator {
             });
             const factoryBody = Array.isArray(useClass) ? `[${instances.join(', ')}]` : instances[0];
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => ${factoryBody});`);
+            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => { setInjectionContext(c); try { return ${factoryBody}; } finally { setInjectionContext(null); } }, ${opts});`);
 
             return;
           }
@@ -232,7 +241,7 @@ export class InjectorGenerator {
           if (providerRecord.useExisting !== undefined) {
             const existingToken = this.serializeValue(providerRecord.useExisting, registry);
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => c.get(${existingToken}));`);
+            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => c.get(${existingToken}), ${opts});`);
 
             return;
           }
@@ -382,7 +391,7 @@ export class InjectorGenerator {
             factoryEntries.push(`  container.set('${node.name}::${token}', (c) => {`);
             factoryEntries.push(`    const factory = ${factoryFn};`);
             factoryEntries.push(`    return factory(${injectedArgs.join(', ')});`);
-            factoryEntries.push('  });');
+            factoryEntries.push(`  }, ${opts});`);
 
             return;
           }
@@ -393,7 +402,7 @@ export class InjectorGenerator {
           const alias = getAlias(clsMeta.className, ref.filePath);
           const deps = this.resolveConstructorDeps(clsMeta, node, graph);
 
-          factoryEntries.push(`  container.set('${node.name}::${token}', (c) => new ${alias}(${deps.join(', ')}));`);
+          factoryEntries.push(`  container.set('${node.name}::${token}', (c) => { setInjectionContext(c); try { return new ${alias}(${deps.join(', ')}); } finally { setInjectionContext(null); } }, ${opts});`);
         }
       });
 
@@ -481,6 +490,7 @@ export class InjectorGenerator {
 
     return `
 import { Container } from "@zipbul/core";
+import { setInjectionContext } from "@zipbul/common";
 
 export function createContainer() {
   const container = new Container();
@@ -576,12 +586,12 @@ ${dynamicEntries.join('\n')}
     return meta.constructorParams.map(param => {
       let token: AnalyzerValue = param.type;
       const refName = getRefName(token);
-      const forwardRefName = getForwardRefName(token);
+      const lazyRefName = getLazyRefName(token);
 
       if (isNonEmptyString(refName)) {
         token = refName;
-      } else if (isNonEmptyString(forwardRefName)) {
-        token = forwardRefName;
+      } else if (isNonEmptyString(lazyRefName)) {
+        token = lazyRefName;
       }
 
       const injectDec = param.decorators.find(d => d.name === 'Inject');
@@ -594,12 +604,12 @@ ${dynamicEntries.join('\n')}
           token = arg;
         } else {
           const argRefName = getRefName(arg);
-          const argForwardRefName = getForwardRefName(arg);
+          const argLazyRefName = getLazyRefName(arg);
 
           if (isNonEmptyString(argRefName)) {
             token = argRefName;
-          } else if (isNonEmptyString(argForwardRefName)) {
-            token = argForwardRefName;
+          } else if (isNonEmptyString(argLazyRefName)) {
+            token = argLazyRefName;
           }
         }
       }

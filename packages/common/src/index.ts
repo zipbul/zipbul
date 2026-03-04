@@ -13,6 +13,7 @@ export { ZipbulMiddleware } from './zipbul-middleware';
 
 export * from './decorators/index';
 export * from './utils';
+export * from './helpers';
 export * from './constants';
 
 export {

@@ -1,37 +1,41 @@
 import type { RuntimeContext } from './interfaces';
 
-let runtimeContext: RuntimeContext = {};
+let currentContext: RuntimeContext = {};
 
 export function registerRuntimeContext(context: RuntimeContext): void {
   const nextContext: RuntimeContext = {};
 
   if (context.metadataRegistry !== undefined) {
     nextContext.metadataRegistry = context.metadataRegistry;
-  } else if (runtimeContext.metadataRegistry !== undefined) {
-    nextContext.metadataRegistry = runtimeContext.metadataRegistry;
+  } else if (currentContext.metadataRegistry !== undefined) {
+    nextContext.metadataRegistry = currentContext.metadataRegistry;
   }
 
   if (context.scopedKeys !== undefined) {
     nextContext.scopedKeys = context.scopedKeys;
-  } else if (runtimeContext.scopedKeys !== undefined) {
-    nextContext.scopedKeys = runtimeContext.scopedKeys;
+  } else if (currentContext.scopedKeys !== undefined) {
+    nextContext.scopedKeys = currentContext.scopedKeys;
   }
 
   if (context.container !== undefined) {
     nextContext.container = context.container;
-  } else if (runtimeContext.container !== undefined) {
-    nextContext.container = runtimeContext.container;
+  } else if (currentContext.container !== undefined) {
+    nextContext.container = currentContext.container;
   }
 
   if (context.isAotRuntime !== undefined) {
     nextContext.isAotRuntime = context.isAotRuntime;
-  } else if (runtimeContext.isAotRuntime !== undefined) {
-    nextContext.isAotRuntime = runtimeContext.isAotRuntime;
+  } else if (currentContext.isAotRuntime !== undefined) {
+    nextContext.isAotRuntime = currentContext.isAotRuntime;
   }
 
-  runtimeContext = nextContext;
+  if (nextContext.container && nextContext.scopedKeys) {
+    nextContext.container.setScopedKeys(nextContext.scopedKeys);
+  }
+
+  currentContext = nextContext;
 }
 
 export function getRuntimeContext(): RuntimeContext {
-  return runtimeContext;
+  return currentContext;
 }

@@ -1,9 +1,17 @@
-import { Injectable } from '@zipbul/common';
+import { Injectable, type OnInit, type OnDestroy } from '@zipbul/common';
 
 import type { User } from './interfaces';
 
 @Injectable()
-export class UserRepository {
+export class UserRepository implements OnInit, OnDestroy {
+  onInit(): void {
+    console.log(`[UserRepository] initialized with ${this.users.length} users`);
+  }
+
+  onDestroy(): void {
+    console.log('[UserRepository] destroyed');
+  }
+
   private users: User[] = [
     { id: 1, name: 'John Doe' },
     { id: 2, name: 'Jane Doe' },

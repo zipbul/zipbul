@@ -23,6 +23,14 @@ import type {
 } from './types';
 
 import { getRuntimeContext } from '../runtime/runtime-context';
+import {
+  normalizeToken,
+  formatToken,
+  coerceToken,
+  isProviderToken,
+  isTokenRecord,
+  resolveTokenRecord,
+} from './token-resolver';
 
 export class ZipbulScanner {
   constructor(
@@ -137,10 +145,6 @@ export class ZipbulScanner {
     }
   }
 
-  // Duplicate logic from Container.resolveDepsFor but adapted?
-  // Container.resolveDepsFor was private. I can't access it.
-  // I must implement it here or expose it in Container.
-  // Implementing here is fine.
   private resolveDepsFor(ctor: Class, c: Container): ContainerValue[] {
     const runtimeContext = getRuntimeContext();
     const registry = this.registry ?? runtimeContext.metadataRegistry;
@@ -163,21 +167,21 @@ export class ZipbulScanner {
     return meta.constructorParams.map((param: ConstructorParamMetadata) => {
       let token = param.type;
 
-      token = this.resolveTokenRecord(token);
+      token = resolveTokenRecord(token);
 
       const injectDec = param.decorators?.find((decorator: DecoratorMetadata) => decorator.name === 'Inject');
       const injectArgs = injectDec?.arguments ?? [];
 
       if (injectArgs.length > 0) {
-        const injectedToken = this.coerceToken(injectArgs[0]);
+        const injectedToken = coerceToken(injectArgs[0] as DecoratorArgument);
 
         if (injectedToken !== undefined) {
-          token = this.resolveTokenRecord(injectedToken);
+          token = resolveTokenRecord(injectedToken);
         }
       }
 
-      const normalizedToken = this.normalizeToken(token);
-      const directScopedKey = this.isProviderToken(token) ? scopedKeys?.get(token) : undefined;
+      const normalizedToken = normalizeToken(token);
+      const directScopedKey = isProviderToken(token) ? scopedKeys?.get(token) : undefined;
       const normalizedScopedKey = normalizedToken !== undefined ? scopedKeys?.get(normalizedToken) : undefined;
       const scopedKey = directScopedKey ?? normalizedScopedKey;
 
@@ -186,19 +190,19 @@ export class ZipbulScanner {
           return c.get(scopedKey);
         } catch (_e) {
           console.warn(
-            `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${this.formatToken(token, normalizedToken)}`,
+            `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
           );
 
           return undefined;
         }
       }
 
-      const fallbackToken = this.isProviderToken(token) ? token : undefined;
+      const fallbackToken = isProviderToken(token) ? token : undefined;
       const resolvedToken = normalizedToken ?? fallbackToken;
 
       if (resolvedToken === undefined) {
         console.warn(
-          `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${this.formatToken(token, normalizedToken)}`,
+          `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
         );
 
         return undefined;
@@ -208,51 +212,12 @@ export class ZipbulScanner {
         return c.get(resolvedToken);
       } catch (_e) {
         console.warn(
-          `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${this.formatToken(token, normalizedToken)}`,
+          `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
         );
 
         return undefined;
       }
     });
-  }
-
-  private normalizeToken(token: ProviderToken | TokenRecord | undefined): string | undefined {
-    if (token === undefined || token === null) {
-      return undefined;
-    }
-
-    if (typeof token === 'string') {
-      return token;
-    }
-
-    if (typeof token === 'function') {
-      const tokenName = token.name;
-
-      if (tokenName.length > 0) {
-        return tokenName;
-      }
-    }
-
-    if (this.isTokenRecord(token)) {
-      const ref = token.__zipbul_ref;
-      const forwardRef = token.__zipbul_forward_ref;
-
-      if (typeof ref === 'string') {
-        return ref;
-      }
-
-      if (typeof forwardRef === 'string') {
-        return forwardRef;
-      }
-
-      const tokenName = token.name;
-
-      if (typeof tokenName === 'string') {
-        return tokenName;
-      }
-    }
-
-    return undefined;
   }
 
   private async scanModuleObject(moduleObj: ModuleObject, visited: Set<ModuleImport>): Promise<void> {
@@ -303,46 +268,6 @@ export class ZipbulScanner {
     return this.isProviderRecord(provider) && Object.prototype.hasOwnProperty.call(provider, 'useExisting');
   }
 
-  private isProviderToken(value: DecoratorArgument | ProviderToken | TokenRecord | undefined): value is ProviderToken {
-    return typeof value === 'string' || typeof value === 'symbol' || typeof value === 'function';
-  }
-
-  private isTokenRecord(value: DecoratorArgument | ProviderToken | TokenRecord | undefined): value is TokenRecord {
-    if (typeof value !== 'object' || value === null) {
-      return false;
-    }
-
-    if ('__zipbul_ref' in value && typeof value.__zipbul_ref === 'string') {
-      return true;
-    }
-
-    if ('__zipbul_forward_ref' in value && typeof value.__zipbul_forward_ref === 'string') {
-      return true;
-    }
-
-    if ('name' in value && typeof value.name === 'string') {
-      return true;
-    }
-
-    return false;
-  }
-
-  private resolveTokenRecord(token: ProviderToken | TokenRecord | undefined): ProviderToken | TokenRecord | undefined {
-    if (!this.isTokenRecord(token)) {
-      return token;
-    }
-
-    if (typeof token.__zipbul_ref === 'string') {
-      return token.__zipbul_ref;
-    }
-
-    if (typeof token.__zipbul_forward_ref === 'string') {
-      return token.__zipbul_forward_ref;
-    }
-
-    return token;
-  }
-
   private resolveModuleOptions(decorator: DecoratorMetadata): ModuleMetadata {
     const args = decorator.arguments ?? [];
     const candidate = args[0];
@@ -368,43 +293,9 @@ export class ZipbulScanner {
     }
 
     if (this.isProviderRecord(provider)) {
-      return this.formatToken(provider.provide);
+      return formatToken(provider.provide);
     }
 
     return 'UnknownProvider';
-  }
-
-  private formatToken(token: ProviderToken | TokenRecord | undefined, normalized?: string): string {
-    if (typeof normalized === 'string' && normalized.length > 0) {
-      return normalized;
-    }
-
-    if (typeof token === 'string') {
-      return token;
-    }
-
-    if (typeof token === 'symbol') {
-      return token.description ?? token.toString();
-    }
-
-    if (typeof token === 'function') {
-      return token.name.length > 0 ? token.name : 'AnonymousToken';
-    }
-
-    if (this.isTokenRecord(token)) {
-      const tokenName = token.name;
-
-      return typeof tokenName === 'string' && tokenName.length > 0 ? tokenName : 'TokenRecord';
-    }
-
-    return 'UnknownToken';
-  }
-
-  private coerceToken(value: DecoratorArgument | undefined): ProviderToken | TokenRecord | undefined {
-    if (this.isProviderToken(value) || this.isTokenRecord(value)) {
-      return value;
-    }
-
-    return undefined;
   }
 }

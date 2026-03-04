@@ -1,14 +1,25 @@
-import type { ZipbulValue, Class, ForwardRef, PrimitiveRecord, Provider, ProviderToken } from '@zipbul/common';
+import type {
+  ZipbulValue,
+  Class,
+  PrimitiveRecord,
+  Provider,
+  ProviderToken,
+  ProviderScope,
+  ProviderVisibleTo,
+  ProviderRegistrationOptions,
+} from '@zipbul/common';
 
 import type { Container } from './container';
 
-export type DependencyProvider = ProviderToken | ForwardRef;
+export type { ProviderRegistrationOptions };
+
+export type DependencyProvider = ProviderToken;
 
 export type Token = ProviderToken;
 
 export interface TokenRecord {
   readonly __zipbul_ref?: string;
-  readonly __zipbul_forward_ref?: string;
+  readonly __zipbul_lazy_ref?: string;
   readonly name?: string;
 }
 
@@ -29,6 +40,12 @@ export type ContainerValue = ZipbulValue;
 export type FactoryFn<T = ContainerValue> = (container: Container) => T;
 
 export type ProviderFactory<T = ContainerValue> = (container: Container) => T;
+
+export interface ProviderRegistration {
+  readonly factory: FactoryFn;
+  readonly scope: ProviderScope;
+  readonly visibleTo: ProviderVisibleTo;
+}
 
 export interface DecoratorMetadata {
   readonly name: string;

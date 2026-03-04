@@ -762,7 +762,7 @@ export class ModuleGraph {
       return raw;
     }
 
-    if (raw === 'request' || raw === 'request-context') {
+    if (raw === 'request') {
       return 'request';
     }
 

@@ -10,9 +10,11 @@ import type {
 import { seal } from '@zipbul/baker';
 
 import { Container } from '../injector/container';
+import { runInitHooks, runDestroyHooks } from '../injector/lifecycle-runner';
+import { formatToken } from '../injector/token-resolver';
 import type { AdapterEntry, AddAdapterConfig } from './interfaces';
 
-class AppContext implements Context {
+export class AppContext implements Context {
   getType(): string {
     return 'application';
   }
@@ -27,13 +29,48 @@ class AppContext implements Context {
 }
 
 export class ZipbulApplication {
-  private readonly container: Container = new Container();
+  private readonly container: Container;
   private readonly adapters: Map<string, AdapterEntry> = new Map();
   private startOrder: AdapterEntry[] = [];
   private started = false;
   private stopped = false;
 
+  constructor(container?: Container) {
+    this.container = container ?? new Container();
+  }
+
+  /**
+   * Retrieves a provider instance from the root container.
+   * Accepts class references, symbols, or string tokens.
+   * Only singleton providers with visibleTo='all' are accessible.
+   *
+   * @param token - The provider token to look up (e.g. `UsersService` class)
+   * @returns The resolved provider instance
+   * @throws When the provider is not singleton or not visibleTo='all'
+   * @public
+   */
   public get(token: ProviderToken): ZipbulValue {
+    const registration = this.container.getRegistration(token);
+
+    if (registration) {
+      if (registration.scope !== 'singleton') {
+        const label = formatToken(token);
+
+        throw new Error(
+          `[Zipbul DI] app.get('${label}') is restricted to singleton providers. Provider scope: '${registration.scope}'.`,
+        );
+      }
+
+      if (registration.visibleTo !== 'all') {
+        const label = formatToken(token);
+        const visibility = typeof registration.visibleTo === 'string' ? registration.visibleTo : 'allowlist';
+
+        throw new Error(
+          `[Zipbul DI] app.get('${label}') is restricted to providers with visibleTo='all'. Current visibility: '${visibility}'.`,
+        );
+      }
+    }
+
     return this.container.get(token);
   }
 
@@ -71,6 +108,7 @@ export class ZipbulApplication {
     const context = new AppContext();
     this.startOrder = this.topologicalSort();
     seal();
+    await runInitHooks(this.container);
     const started: AdapterEntry[] = [];
 
     try {
@@ -106,6 +144,8 @@ export class ZipbulApplication {
     for (const entry of entries) {
       await entry.adapter.stop();
     }
+
+    await runDestroyHooks(this.container);
   }
 
   public attach(): void {
@@ -169,4 +209,3 @@ export class ZipbulApplication {
     return sorted;
   }
 }
-

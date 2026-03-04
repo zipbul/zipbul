@@ -1,10 +1,10 @@
 import type { Class, PrimitiveArray, PrimitiveRecord, PrimitiveValue } from '@zipbul/common';
 
-export type MetadataForwardRef = () => Class;
+export type MetadataLazyRef = () => Class;
 
 export type MetadataTypeReference =
   | Class
-  | MetadataForwardRef
+  | MetadataLazyRef
   | string
   | NumberConstructor
   | StringConstructor

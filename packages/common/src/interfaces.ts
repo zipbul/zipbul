@@ -20,7 +20,7 @@ export interface Context {
 // DI Interfaces
 export type ProviderToken = string | symbol | ClassToken | Class;
 
-export type ProviderScope = 'singleton' | 'request-context' | 'transient';
+export type ProviderScope = 'singleton' | 'request' | 'transient';
 
 export type ProviderVisibility = 'internal' | 'exported';
 
@@ -43,10 +43,6 @@ export interface ProviderUseExisting extends ProviderBase {
 export interface ProviderUseFactory extends ProviderBase {
   useFactory: ZipbulFunction;
   inject?: ProviderToken[];
-}
-
-export interface ForwardRef {
-  forwardRef: () => ZipbulValue;
 }
 
 // Lifecycle Interfaces
@@ -113,9 +109,16 @@ export interface MiddlewareRegistration<TOptions = ZipbulValue> {
 
 export type ZipbulFactory<TValue = ZipbulValue> = (container: ZipbulContainer) => TValue;
 
+export interface ProviderRegistrationOptions {
+  readonly scope?: ProviderScope;
+  readonly visibleTo?: ProviderVisibleTo;
+}
+
+export type ProviderVisibleTo = 'all' | 'module' | string[];
+
 export interface ZipbulContainer {
   get(token: ProviderToken): ZipbulValue;
-  set<TValue = ZipbulValue>(token: ProviderToken, factory: ZipbulFactory<TValue>): void;
+  set<TValue = ZipbulValue>(token: ProviderToken, factory: ZipbulFactory<TValue>, options?: ProviderRegistrationOptions): void;
   has(token: ProviderToken): boolean;
   getInstances(): IterableIterator<ZipbulValue>;
   keys(): IterableIterator<ProviderToken>;

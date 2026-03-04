@@ -1,4 +1,4 @@
-import { Injectable } from '@zipbul/common';
+import { inject, Injectable } from '@zipbul/common';
 
 import type { PostCommentInput } from './interfaces';
 
@@ -8,7 +8,7 @@ import { CommentRepository } from './comments.repository';
   visibility: 'exported',
 })
 export class CommentsService {
-  private readonly commentsRepo = new CommentRepository();
+  private readonly commentsRepo = inject(CommentRepository);
 
   create(id: number, body: PostCommentInput): void {
     this.commentsRepo.create(id, body);

@@ -104,7 +104,7 @@ export type Constructor<T = ZipbulValue> = new (...args: ReadonlyArray<ZipbulVal
 
 export type ValueLike = PrimitiveValue | PrimitiveArray | PrimitiveRecord | Callable;
 
-export type ForwardRefFactory = () => ZipbulValue;
+export type LazyRefFactory = () => ZipbulValue;
 
 export type DecoratorTarget = Class | Record<string, ValueLike>;
 

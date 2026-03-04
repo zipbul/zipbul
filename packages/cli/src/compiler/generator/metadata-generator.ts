@@ -197,8 +197,8 @@ export class MetadataGenerator {
           return `new ${record.__zipbul_new}(${args})`;
         }
 
-        if (typeof record.__zipbul_forward_ref === 'string') {
-          return `forwardRef(() => ${record.__zipbul_forward_ref})`;
+        if (typeof record.__zipbul_lazy_ref === 'string') {
+          return `lazy(() => ${record.__zipbul_lazy_ref})`;
         }
 
         const entries = Object.entries(record).map(([k, v]) => {

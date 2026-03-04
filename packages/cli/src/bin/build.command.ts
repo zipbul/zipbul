@@ -331,6 +331,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           entrypoints: [entryPointFile, runtimeFile],
           outdir: outDir,
           target: 'bun',
+          splitting: true,
           minify: false,
           sourcemap: 'external',
           naming: '[name].js',
