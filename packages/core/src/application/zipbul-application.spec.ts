@@ -1,6 +1,11 @@
 import { describe, it, expect, mock, beforeEach, type Mock } from 'bun:test';
 import type { ZipbulAdapter, Context, ZipbulContainer, ProviderToken } from '@zipbul/common';
-import { ZipbulApplication } from './zipbul-application';
+
+mock.module('@zipbul/baker', () => ({
+  seal: () => {},
+}));
+
+const { ZipbulApplication } = await import('./zipbul-application');
 
 /**
  * Factory to create a mock ZipbulAdapter with spied start/stop.

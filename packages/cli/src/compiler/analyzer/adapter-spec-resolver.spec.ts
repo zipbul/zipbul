@@ -54,7 +54,7 @@ const applyParseToAnalysis = (analysis: FileAnalysis, parseResult: AstParseResul
 const createAdapterProperties = (overrides?: Partial<Record<string, AnalyzerValue>>): PropertyMetadata[] => {
   const values: Record<string, AnalyzerValue> = {
     name: 'test',
-    pipeline: ['Before', 'Guards', 'Pipes', 'Handler'],
+    pipeline: ['Before', 'Guards', 'Handler'],
     decorators: {
       controller: { __zipbul_ref: 'Controller' },
       handler: [{ __zipbul_ref: 'Get' }],
@@ -189,7 +189,7 @@ describe('AdapterSpecResolver', () => {
 
     const spec = result.adapterStaticSpecs.test;
 
-    expect(spec?.pipeline).toEqual(['Before', 'Guards', 'Pipes', 'Handler']);
+    expect(spec?.pipeline).toEqual(['Before', 'Guards', 'Handler']);
     expect(spec?.entryDecorators).toEqual({ controller: 'Controller', handler: ['Get'] });
   });
 
@@ -572,7 +572,7 @@ describe('AdapterSpecResolver', () => {
   it('should parse pipeline with custom phases and reserved tokens', async () => {
     // Arrange
     const adapterClass = createTestAdapterClass('TestAdapter', {
-      pipeline: ['Init', 'Guards', 'Transform', 'Pipes', 'Handler', 'Finalize'],
+      pipeline: ['Init', 'Guards', 'Transform', 'Handler', 'Finalize'],
     });
     const fileMap = buildStandardFileMap(adapterClass);
     const resolver = new AdapterSpecResolver();
@@ -583,7 +583,7 @@ describe('AdapterSpecResolver', () => {
     // Assert
     const spec = result.adapterStaticSpecs.test;
 
-    expect(spec?.pipeline).toEqual(['Init', 'Guards', 'Transform', 'Pipes', 'Handler', 'Finalize']);
+    expect(spec?.pipeline).toEqual(['Init', 'Guards', 'Transform', 'Handler', 'Finalize']);
   });
 
   it('should resolve pipeline enum refs to their string values', async () => {
@@ -592,7 +592,6 @@ describe('AdapterSpecResolver', () => {
       pipeline: [
         'Before',
         { __zipbul_ref: 'ReservedPipeline.Guards' },
-        { __zipbul_ref: 'ReservedPipeline.Pipes' },
         { __zipbul_ref: 'ReservedPipeline.Handler' },
       ],
     });
@@ -605,7 +604,7 @@ describe('AdapterSpecResolver', () => {
     // Assert
     const spec = result.adapterStaticSpecs.test;
 
-    expect(spec?.pipeline).toEqual(['Before', 'Guards', 'Pipes', 'Handler']);
+    expect(spec?.pipeline).toEqual(['Before', 'Guards', 'Handler']);
   });
 
   // =======================================================================
@@ -804,7 +803,7 @@ describe('AdapterSpecResolver', () => {
 
   it('should throw when pipeline element is not string', async () => {
     // Arrange
-    const fileMap = buildStandardFileMap(createTestAdapterClass('TestAdapter', { pipeline: [123, 'Guards', 'Pipes', 'Handler'] }));
+    const fileMap = buildStandardFileMap(createTestAdapterClass('TestAdapter', { pipeline: [123, 'Guards', 'Handler'] }));
     const resolver = new AdapterSpecResolver();
 
     // Act & Assert
@@ -1177,7 +1176,7 @@ describe('AdapterSpecResolver', () => {
     // Arrange — pipeline missing 'Handler'
     const fileMap = buildStandardFileMap(
       createTestAdapterClass('TestAdapter', {
-        pipeline: ['Before', 'Guards', 'Pipes'],
+        pipeline: ['Before', 'Guards'],
       }),
     );
     const resolver = new AdapterSpecResolver();
@@ -1194,7 +1193,7 @@ describe('AdapterSpecResolver', () => {
     // Arrange — pipeline has 'Before' twice
     const fileMap = buildStandardFileMap(
       createTestAdapterClass('TestAdapter', {
-        pipeline: ['Before', 'Before', 'Guards', 'Pipes', 'Handler'],
+        pipeline: ['Before', 'Before', 'Guards', 'Handler'],
       }),
     );
     const resolver = new AdapterSpecResolver();
@@ -1211,7 +1210,7 @@ describe('AdapterSpecResolver', () => {
     // Arrange
     const fileMap = buildStandardFileMap(
       createTestAdapterClass('TestAdapter', {
-        pipeline: ['Be:fore', 'Guards', 'Pipes', 'Handler'],
+        pipeline: ['Be:fore', 'Guards', 'Handler'],
       }),
     );
     const resolver = new AdapterSpecResolver();
@@ -1330,9 +1329,9 @@ describe('AdapterSpecResolver', () => {
   });
 
   it('should handle pipeline with exactly reserved tokens only', async () => {
-    // Arrange — pipeline = ['Guards', 'Pipes', 'Handler'], no custom phases
+    // Arrange — pipeline = ['Guards', 'Handler'], no custom phases
     const adapterClass = createTestAdapterClass('TestAdapter', {
-      pipeline: ['Guards', 'Pipes', 'Handler'],
+      pipeline: ['Guards', 'Handler'],
     });
     const fileMap = buildStandardFileMap(adapterClass);
     const resolver = new AdapterSpecResolver();
@@ -1341,7 +1340,7 @@ describe('AdapterSpecResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert
-    expect(result.adapterStaticSpecs.test?.pipeline).toEqual(['Guards', 'Pipes', 'Handler']);
+    expect(result.adapterStaticSpecs.test?.pipeline).toEqual(['Guards', 'Handler']);
   });
 
   // =======================================================================
@@ -1420,7 +1419,7 @@ describe('AdapterSpecResolver', () => {
     // Same name 'test' for both
     const adapterA = createTestAdapterClass('AdapterA');
     const adapterB = createTestAdapterClass('AdapterB', {
-      pipeline: ['After', 'Guards', 'Pipes', 'Handler'],
+      pipeline: ['After', 'Guards', 'Handler'],
     });
 
     for (const [ep, cls] of [

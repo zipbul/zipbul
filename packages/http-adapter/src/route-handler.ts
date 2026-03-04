@@ -6,7 +6,7 @@ import { Logger } from '@zipbul/logger';
 import type { ZipbulRequest } from './zipbul-request';
 import type { ZipbulResponse } from './zipbul-response';
 import type { RouteHandlerParamType } from './decorators';
-import type { ArgumentMetadata, RouteHandlerEntry } from './interfaces';
+import type { RouteHandlerEntry } from './interfaces';
 import type { RouterOptions } from './router/types';
 import type {
   ClassMetadata,
@@ -33,7 +33,8 @@ import type {
   TokenRecord,
 } from './types';
 
-import { ValidationPipe } from './pipes/validation.pipe';
+import { deserialize } from '@zipbul/baker';
+
 import { Router } from './router';
 
 export class RouteHandler {
@@ -42,7 +43,6 @@ export class RouteHandler {
   private scopedKeys: Map<ProviderToken, string>;
   private router: Router;
   private readonly logger = new Logger(RouteHandler.name);
-  private validationPipe = new ValidationPipe();
 
   constructor(
     container: ZipbulContainer,
@@ -244,14 +244,8 @@ export class RouteHandler {
               }
             }
 
-            if (metatype !== undefined && (typeToUse === 'body' || typeToUse === 'query')) {
-              const validationType: 'body' | 'query' | 'param' | 'custom' = typeToUse === 'body' ? 'body' : 'query';
-              const metadata: ArgumentMetadata = {
-                type: validationType,
-                metatype,
-              };
-
-              paramValue = this.validationPipe.transform(paramValue, metadata);
+            if (metatype !== undefined && !this.isPrimitiveMetatype(metatype) && (typeToUse === 'body' || typeToUse === 'query')) {
+              paramValue = await deserialize(metatype as new (...args: unknown[]) => RouteParamValue, paramValue);
             }
 
             params.push(paramValue);
@@ -579,6 +573,10 @@ export class RouteHandler {
       value === 'OPTIONS' ||
       value === 'HEAD'
     );
+  }
+
+  private isPrimitiveMetatype(metatype: RouteParamType): boolean {
+    return metatype === String || metatype === Boolean || metatype === Number || metatype === Array || metatype === Object;
   }
 
   private normalizeParamKind(value: string | undefined): RouteParamKind | undefined {

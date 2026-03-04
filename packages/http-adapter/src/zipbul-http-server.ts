@@ -37,6 +37,7 @@ import { ZipbulResponse } from './zipbul-response';
 import { HTTP_ERROR_FILTER } from './constants';
 import { HttpMethod } from './enums';
 import { HttpMiddlewareLifecycle } from './interfaces';
+import { BakerValidationExceptionFilter } from './baker-validation-exception-filter';
 import { RequestHandler } from './request-handler';
 import { RouteHandler } from './route-handler';
 import { getIps } from './utils';
@@ -74,14 +75,19 @@ export class ZipbulHttpServer {
 
     this.logger.info('🚀 ZipbulHttpServer booting...');
 
+    const builtinErrorFilter = new BakerValidationExceptionFilter();
+
     if (Array.isArray(this.options.errorFilters) && this.options.errorFilters.length > 0) {
       const tokens: readonly ExceptionFilterToken[] = this.options.errorFilters;
 
       this.container.set(HTTP_ERROR_FILTER, (c: ZipbulContainer) => {
         const resolved: ZipbulValue[] = tokens.map(token => c.get(token));
+        const userFilters = resolved.filter((value): value is ExceptionFilter => this.isErrorFilter(value));
 
-        return resolved.filter((value): value is ExceptionFilter => this.isErrorFilter(value));
+        return [builtinErrorFilter, ...userFilters];
       });
+    } else {
+      this.container.set(HTTP_ERROR_FILTER, () => [builtinErrorFilter]);
     }
 
     const metadataRegistry = options.metadata ?? new Map<MetadataRegistryKey, ClassMetadata>();

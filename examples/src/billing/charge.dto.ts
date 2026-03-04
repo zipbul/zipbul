@@ -1,4 +1,4 @@
-import { IsNumber, Min } from '@zipbul/core';
+import { IsNumber, Min } from '@zipbul/common';
 
 export class ChargeDto {
   @IsNumber()

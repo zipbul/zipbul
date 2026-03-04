@@ -131,7 +131,3 @@ export interface ArgumentMetadata {
   metatype?: RouteParamType;
   data?: string;
 }
-
-export interface PipeTransform<T = RouteParamValue, R = RouteParamValue> {
-  transform(value: T, metadata: ArgumentMetadata): R | Promise<R>;
-}

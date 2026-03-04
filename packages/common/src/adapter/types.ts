@@ -6,7 +6,6 @@ export type MiddlewarePhase = string;
 /** 파이프라인 예약 토큰. 프레임워크가 소유하는 실행 단위. */
 export enum ReservedPipeline {
   Guards = 'Guards',
-  Pipes = 'Pipes',
   Handler = 'Handler',
 }
 

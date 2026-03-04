@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsString } from '@zipbul/core';
+import { IsBoolean, IsNumber, IsString } from '@zipbul/common';
 
 export class AddressDto {
   @IsString()

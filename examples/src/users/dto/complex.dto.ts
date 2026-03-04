@@ -1,4 +1,4 @@
-import { IsArray, IsOptional, IsString, Max, Min, ValidateNested } from '@zipbul/core';
+import { IsArray, IsOptional, IsString, Max, Min, Nested } from '@zipbul/common';
 
 import { AddressDto } from './address.dto';
 import { SocialDto } from './social.dto';
@@ -11,10 +11,10 @@ export class CreateUserComplexDto {
   @Max(99)
   age: number;
 
-  @ValidateNested()
+  @Nested(() => AddressDto, { each: true })
   addresses: AddressDto[];
 
-  @ValidateNested()
+  @Nested(() => SocialDto)
   social: SocialDto;
 
   @IsArray()

@@ -15,11 +15,11 @@ export {
   type ZipbulHttpServerOptions,
   type HttpWorkerResponse,
   type RouteHandlerEntry,
-  type PipeTransform,
   type ArgumentMetadata,
 } from './src/interfaces';
 
 export { SystemErrorHandler } from './src/system-error-handler';
+export { BakerValidationExceptionFilter } from './src/baker-validation-exception-filter';
 
 export { CorsMiddleware } from './src/middlewares/cors/cors.middleware';
 export type { CorsOptions } from './src/middlewares/cors/interfaces';

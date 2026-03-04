@@ -1,15 +1,18 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { ReservedPipeline } from '@zipbul/common';
 
-// Mock @zipbul/core before any transitive import pulls it in.
-// The http-adapter import chain (ZipbulHttpAdapter → ZipbulHttpServer → RouteHandler
-// → ValidationPipe) requires TransformerCompiler/ValidatorCompiler from core,
-// which are not exported in the current dev state.
 mock.module('@zipbul/core', () => ({
   ClusterManager: class {},
   getRuntimeContext: () => ({}),
-  TransformerCompiler: { compilePlainToInstance: () => () => ({}) },
-  ValidatorCompiler: { compile: () => () => [] },
+}));
+
+mock.module('@zipbul/baker', () => ({
+  seal: () => {},
+  deserialize: async () => ({}),
+  BakerValidationError: class BakerValidationError extends Error {
+    errors = [];
+    constructor() { super('mock'); }
+  },
 }));
 
 const { adapterSpec } = await import('./adapter-definition');
@@ -34,35 +37,32 @@ describe('adapterSpec', () => {
     expect(instance.name).toBe('http');
   });
 
-  it('should have instance pipeline equal to [BeforeRequest, Guards, Pipes, Handler, AfterRequest] in order', () => {
+  it('should have instance pipeline equal to [BeforeRequest, Guards, Handler, AfterRequest] in order', () => {
     // Arrange
     const instance = new adapterSpec();
     const { pipeline } = instance;
 
     // Act & Assert
-    expect(pipeline).toHaveLength(5);
+    expect(pipeline).toHaveLength(4);
     expect(pipeline).toEqual([
       HttpMiddlewarePhase.BeforeRequest,
       ReservedPipeline.Guards,
-      ReservedPipeline.Pipes,
       ReservedPipeline.Handler,
       HttpMiddlewarePhase.AfterRequest,
     ]);
   });
 
-  it('should contain Guards, Pipes, Handler each exactly once in pipeline (R-004)', () => {
+  it('should contain Guards, Handler each exactly once in pipeline (R-004)', () => {
     // Arrange
     const instance = new adapterSpec();
     const { pipeline } = instance;
 
     // Act
     const guardsCount = pipeline.filter((t) => t === ReservedPipeline.Guards).length;
-    const pipesCount = pipeline.filter((t) => t === ReservedPipeline.Pipes).length;
     const handlerCount = pipeline.filter((t) => t === ReservedPipeline.Handler).length;
 
     // Assert
     expect(guardsCount).toBe(1);
-    expect(pipesCount).toBe(1);
     expect(handlerCount).toBe(1);
   });
 

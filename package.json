@@ -36,7 +36,9 @@
     "kb:http": "bun tooling/mcp/src/http-server.ts",
     "kb:http:verify": "bun --env-file=.env tooling/mcp/test/integration/tools/_http-verify-all.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@zipbul/baker": "^0.1.2"
+  },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",

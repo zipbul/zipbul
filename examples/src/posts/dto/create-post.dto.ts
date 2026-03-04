@@ -1,4 +1,4 @@
-import { IsString } from '@zipbul/core';
+import { IsString } from '@zipbul/common';
 import { ApiProperty } from '@zipbul/scalar';
 
 export class CreatePostDto {

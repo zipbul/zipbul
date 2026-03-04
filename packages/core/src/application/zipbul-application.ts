@@ -7,6 +7,8 @@ import type {
   ClassToken,
 } from '@zipbul/common';
 
+import { seal } from '@zipbul/baker';
+
 import { Container } from '../injector/container';
 import type { AdapterEntry, AddAdapterConfig } from './interfaces';
 
@@ -68,6 +70,7 @@ export class ZipbulApplication {
     this.started = true;
     const context = new AppContext();
     this.startOrder = this.topologicalSort();
+    seal();
     const started: AdapterEntry[] = [];
 
     try {

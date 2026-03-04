@@ -34,7 +34,6 @@ export class ZipbulHttpAdapter implements ZipbulAdapter {
   readonly pipeline: AdapterPipelines = [
     HttpMiddlewarePhase.BeforeRequest,
     ReservedPipeline.Guards,
-    ReservedPipeline.Pipes,
     ReservedPipeline.Handler,
     HttpMiddlewarePhase.AfterRequest,
   ];

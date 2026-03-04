@@ -32,7 +32,6 @@ const isNonEmptyString = (value: string | null | undefined): value is string => 
 
 const RESERVED_MAP: Record<string, string> = {
   'ReservedPipeline.Guards': 'Guards',
-  'ReservedPipeline.Pipes': 'Pipes',
   'ReservedPipeline.Handler': 'Handler',
 };
 
@@ -832,7 +831,7 @@ export class AdapterSpecResolver {
   }
 
   private validatePipelineConsistency(pipeline: string[], context: string): Result<void, Diagnostic> {
-    const RESERVED = new Set(['Guards', 'Pipes', 'Handler']);
+    const RESERVED = new Set(['Guards', 'Handler']);
 
     for (const reserved of RESERVED) {
       const count = pipeline.filter(t => t === reserved).length;
@@ -864,7 +863,7 @@ export class AdapterSpecResolver {
   }
 
   private deriveSupportedPhases(pipeline: string[]): Set<string> {
-    const RESERVED = new Set(['Guards', 'Pipes', 'Handler']);
+    const RESERVED = new Set(['Guards', 'Handler']);
 
     return new Set(pipeline.filter(t => !RESERVED.has(t)));
   }

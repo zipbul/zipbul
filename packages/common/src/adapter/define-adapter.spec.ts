@@ -16,7 +16,6 @@ class FakeAdapter implements ZipbulAdapter {
   readonly pipeline: AdapterPipelines = [
     'BeforeRequest',
     ReservedPipeline.Guards,
-    ReservedPipeline.Pipes,
     ReservedPipeline.Handler,
     'AfterRequest',
   ];
@@ -61,7 +60,6 @@ describe('defineAdapter', () => {
     expect(instance.pipeline).toEqual([
       'BeforeRequest',
       ReservedPipeline.Guards,
-      ReservedPipeline.Pipes,
       ReservedPipeline.Handler,
       'AfterRequest',
     ]);

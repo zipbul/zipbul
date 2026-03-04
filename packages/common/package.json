@@ -4,6 +4,7 @@
   "module": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@zipbul/baker": "^0.1.0",
     "@zipbul/result": "^0.1.4"
   },
   "devDependencies": {

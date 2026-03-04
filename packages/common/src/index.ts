@@ -14,3 +14,17 @@ export { ZipbulMiddleware } from './zipbul-middleware';
 export * from './decorators/index';
 export * from './utils';
 export * from './constants';
+
+export {
+  IsString,
+  IsNumber,
+  IsInt,
+  IsBoolean,
+  IsArray,
+  IsOptional,
+  IsIn,
+  Min,
+  Max,
+  Nested,
+  ValidateNested,
+} from '@zipbul/baker/decorators';
