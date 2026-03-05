@@ -3,11 +3,11 @@ import type { BootstrapAdapter } from '@zipbul/core';
 
 import { CONFIG_SERVICE } from '@zipbul/common';
 
-import type { ZipbulHttpServerOptions } from './interfaces';
+import type { HttpServerOptions } from './interfaces';
 
-import { ZipbulHttpAdapter } from './zipbul-http-adapter';
+import { HttpAdapter } from './http-adapter';
 
-interface ZipbulHttpAdapterBootstrapConfig extends ZipbulHttpServerOptions {
+interface HttpAdapterBootstrapConfig extends HttpServerOptions {
   readonly name: string;
   readonly protocol?: string;
 }
@@ -28,7 +28,7 @@ function isConfigService(value: ZipbulValue): value is ConfigService {
   return typeof value.get === 'function';
 }
 
-export function zipbulHttpAdapter(resolve: (configService: ConfigService) => ZipbulHttpAdapterBootstrapConfig): BootstrapAdapter {
+export function httpAdapter(resolve: (configService: ConfigService) => HttpAdapterBootstrapConfig): BootstrapAdapter {
   return {
     install(app) {
       const container = app.getContainer();
@@ -74,7 +74,7 @@ export function zipbulHttpAdapter(resolve: (configService: ConfigService) => Zip
 
       const config = resolve(configService);
       const { name, protocol, ...serverOptions } = config;
-      const adapter = new ZipbulHttpAdapter(serverOptions);
+      const adapter = new HttpAdapter(serverOptions);
 
       app.addAdapter(adapter, {
         name,
@@ -84,4 +84,4 @@ export function zipbulHttpAdapter(resolve: (configService: ConfigService) => Zip
   };
 }
 
-export type { ZipbulHttpAdapterBootstrapConfig };
+export type { HttpAdapterBootstrapConfig };

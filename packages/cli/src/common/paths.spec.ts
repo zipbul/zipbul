@@ -4,11 +4,11 @@ import {
   ZIPBUL_DIRNAME,
   ZIPBUL_CACHE_DIRNAME,
   ZIPBUL_TEMP_DIRNAME,
-  zipbulDirPath,
-  zipbulCacheDirPath,
-  zipbulCacheFilePath,
-  zipbulTempDirPath,
-} from './zipbul-paths';
+  outputDirPath,
+  cacheDirPath,
+  cacheFilePath,
+  tempDirPath,
+} from './paths';
 
 describe('zipbul-paths', () => {
   it('should expose reserved directory names as constants', () => {
@@ -21,10 +21,10 @@ describe('zipbul-paths', () => {
     const projectRoot = '/repo';
     const outDir = '/repo/dist';
 
-    const zipbulDir = zipbulDirPath(projectRoot);
-    const cacheDir = zipbulCacheDirPath(projectRoot);
-    const signalPath = zipbulCacheFilePath(projectRoot, 'reindex.signal');
-    const tempDir = zipbulTempDirPath(outDir);
+    const zipbulDir = outputDirPath(projectRoot);
+    const cacheDir = cacheDirPath(projectRoot);
+    const signalPath = cacheFilePath(projectRoot, 'reindex.signal');
+    const tempDir = tempDirPath(outDir);
 
     expect(zipbulDir).toBe('/repo/.zipbul');
     expect(cacheDir).toBe('/repo/.zipbul/cache');

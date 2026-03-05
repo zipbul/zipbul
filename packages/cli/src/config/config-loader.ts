@@ -1,6 +1,6 @@
 import { basename, join, relative, resolve, sep } from 'path';
 
-import type { ConfigLoadResult, JsonRecord, JsonValue, ResolvedZipbulConfig } from './interfaces';
+import type { ConfigLoadResult, JsonRecord, JsonValue, ResolvedConfig } from './interfaces';
 
 import { ConfigLoadError } from './errors';
 
@@ -73,7 +73,7 @@ export class ConfigLoader {
     return typeof value === 'string' && value.length > 0;
   }
 
-  private static toResolvedConfig(value: JsonValue, sourcePath: string, projectRoot: string): ResolvedZipbulConfig {
+  private static toResolvedConfig(value: JsonValue, sourcePath: string, projectRoot: string): ResolvedConfig {
     if (!this.isRecord(value)) {
       throw new ConfigLoadError('Invalid zipbul config: must be an object.', sourcePath);
     }
@@ -110,7 +110,7 @@ export class ConfigLoader {
       throw new ConfigLoadError('Invalid zipbul config: entry must be within sourceDir.', sourcePath);
     }
 
-    const config: ResolvedZipbulConfig = {
+    const config: ResolvedConfig = {
       module: { fileName },
       sourceDir,
       entry,
@@ -123,7 +123,7 @@ export class ConfigLoader {
     path: string,
     cwd: string,
     format: 'json' | 'jsonc',
-  ): Promise<ResolvedZipbulConfig> {
+  ): Promise<ResolvedConfig> {
     const sourcePath = relative(cwd, path);
     const rawText = await Bun.file(path).text();
     let parsed: JsonValue;

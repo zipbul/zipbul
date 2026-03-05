@@ -1,10 +1,10 @@
-import type { ZipbulContainer, ZipbulValue, ProviderToken } from '@zipbul/common';
+import type { ZipbulContainer, ZipbulValue, ProviderToken, MiddlewareDefinition } from '@zipbul/common';
 
-import { ExceptionFilter, ZipbulMiddleware } from '@zipbul/common';
+import { ExceptionFilter } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 
-import type { ZipbulRequest } from './zipbul-request';
-import type { ZipbulResponse } from './zipbul-response';
+import type { HttpRequest } from './http-request';
+import type { HttpResponse } from './http-response';
 import type { RouteHandlerParamType } from './decorators';
 import type { RouteHandlerEntry } from './interfaces';
 import type { RouterOptions } from './router/types';
@@ -115,7 +115,7 @@ export class RouteHandler {
         methodName: '__internal__',
         middlewares: [],
         errorFilters: [],
-        paramFactory: async (req: ZipbulRequest, res: ZipbulResponse) => {
+        paramFactory: async (req: HttpRequest, res: HttpResponse) => {
           const arity = typeof route.handler === 'function' ? route.handler.length : 0;
           const args: readonly RouteParamValue[] = arity >= 2 ? [req, res] : [req];
 
@@ -193,7 +193,7 @@ export class RouteHandler {
           };
         });
 
-        const paramFactory = async (req: ZipbulRequest, res: ZipbulResponse): Promise<readonly RouteParamValue[]> => {
+        const paramFactory = async (req: HttpRequest, res: HttpResponse): Promise<readonly RouteParamValue[]> => {
           const params: RouteParamValue[] = [];
 
           for (const config of paramsConfig) {
@@ -555,8 +555,8 @@ export class RouteHandler {
     return 'unknown-token';
   }
 
-  private isZipbulMiddleware(value: ContainerInstance): value is ZipbulMiddleware {
-    return value instanceof ZipbulMiddleware;
+  private isMiddlewareDefinition(value: DecoratorArgument): value is MiddlewareDefinition {
+    return typeof value === 'object' && value !== null && 'handler' in value && typeof (value as MiddlewareDefinition).handler === 'function';
   }
 
   private isExceptionFilter(value: ContainerInstance): value is ExceptionFilter<SystemError> {
@@ -643,30 +643,10 @@ export class RouteHandler {
     _targetClass: ControllerConstructor,
     method: MethodMetadata,
     classMeta: ClassMetadata,
-  ): ZipbulMiddleware[] {
-    const middlewares: ZipbulMiddleware[] = [];
-    // Method Level
-    const decs = (method.decorators ?? []).filter((decorator: DecoratorMetadata) => decorator.name === 'UseMiddlewares');
+  ): MiddlewareDefinition[] {
+    const middlewares: MiddlewareDefinition[] = [];
 
-    decs.forEach(decorator => {
-      (decorator.arguments ?? []).forEach(arg => {
-        const resolved = this.tryGetFromContainer(arg);
-
-        if (resolved !== undefined && resolved !== null && this.isZipbulMiddleware(resolved)) {
-          middlewares.push(resolved);
-
-          return;
-        }
-
-        const created = this.tryCreateControllerInstance(arg);
-
-        if (created !== undefined && created !== null && this.isZipbulMiddleware(created)) {
-          middlewares.push(created);
-        }
-      });
-    });
-
-    // Controller Level
+    // Controller Level first (outer scope)
     if (classMeta !== undefined) {
       const controllerDecs = (classMeta.decorators ?? []).filter(
         (decorator: DecoratorMetadata) => decorator.name === 'UseMiddlewares',
@@ -674,22 +654,23 @@ export class RouteHandler {
 
       controllerDecs.forEach(decorator => {
         (decorator.arguments ?? []).forEach(arg => {
-          const resolved = this.tryGetFromContainer(arg);
-
-          if (resolved !== undefined && resolved !== null && this.isZipbulMiddleware(resolved)) {
-            middlewares.push(resolved);
-
-            return;
-          }
-
-          const created = this.tryCreateControllerInstance(arg);
-
-          if (created !== undefined && created !== null && this.isZipbulMiddleware(created)) {
-            middlewares.push(created);
+          if (this.isMiddlewareDefinition(arg)) {
+            middlewares.push(arg);
           }
         });
       });
     }
+
+    // Method Level (inner scope)
+    const decs = (method.decorators ?? []).filter((decorator: DecoratorMetadata) => decorator.name === 'UseMiddlewares');
+
+    decs.forEach(decorator => {
+      (decorator.arguments ?? []).forEach(arg => {
+        if (this.isMiddlewareDefinition(arg)) {
+          middlewares.push(arg);
+        }
+      });
+    });
 
     return middlewares;
   }
@@ -767,8 +748,6 @@ export class RouteHandler {
     if (typeof type !== 'string') {
       if (typeof type === 'function' && !('prototype' in type)) {
         const resolved = (type as LazyParamTypeFactory)();
-
-        console.log(`[RouteHandler] Resolved Lazy Type: ${String(type)} ->`, resolved);
 
         return resolved;
       }

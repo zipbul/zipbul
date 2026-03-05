@@ -6,7 +6,7 @@ import { StatusCodes } from 'http-status-codes';
 
 import type { RequestBodyValue } from './types';
 
-import { ZipbulHttpContext } from './adapter/http-context';
+import { HttpContext } from './adapter/http-context';
 
 /**
  * Global exception filter that converts `BakerValidationError` into an HTTP 400 response.
@@ -20,7 +20,7 @@ export class BakerValidationExceptionFilter extends ExceptionFilter {
       return;
     }
 
-    const http = context.to(ZipbulHttpContext);
+    const http = context.to(HttpContext);
     const response = http.response;
 
     const body: RequestBodyValue = {

@@ -14,9 +14,15 @@ import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../../diagnostics';
 
 import { err, isErr } from '@zipbul/result';
+import { MiddlewareHook } from '@zipbul/common';
+import { Logger } from '@zipbul/logger';
 import { buildDiagnostic } from '../../diagnostics';
 import { PathResolver } from '../../common';
 import { AstParser } from './ast-parser';
+
+const logger = new Logger('AdapterSpecResolver');
+
+const VALID_HOOKS = new Set<string>(Object.values(MiddlewareHook));
 
 const isRecordValue = (value: AnalyzerValue): value is AnalyzerValueRecord => {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -30,11 +36,6 @@ const isNonEmptyString = (value: string | null | undefined): value is string => 
   return typeof value === 'string' && value.length > 0;
 };
 
-const RESERVED_MAP: Record<string, string> = {
-  'ReservedPipeline.Guards': 'Guards',
-  'ReservedPipeline.Handler': 'Handler',
-};
-
 export class AdapterSpecResolver {
   private parser = new AstParser();
 
@@ -44,7 +45,7 @@ export class AdapterSpecResolver {
     const adapterSpecs: AdapterSpecExtraction[] = [];
 
     for (const entryFile of entryFiles) {
-      const resolvedExport = await this.resolveAdapterSpecExport(entryFile, fileMap, new Set());
+      const resolvedExport = await this.resolveAdapterDefinitionExport(entryFile, fileMap, new Set());
 
       if (resolvedExport === null) {
         continue;
@@ -97,7 +98,7 @@ export class AdapterSpecResolver {
 
     if (adapterSpecs.length === 0) {
       return err(buildDiagnostic({
-        reason: 'No adapter definition found. Export an adapterSpec from your adapter package entry file.',
+        reason: 'No adapter definition found. Export an adapterDefinition from your adapter package entry file.',
       }));
     }
 
@@ -154,7 +155,7 @@ export class AdapterSpecResolver {
     return `${rawPath}.ts`;
   }
 
-  private async resolveAdapterSpecExport(
+  private async resolveAdapterDefinitionExport(
     filePath: string,
     fileMap: Map<string, FileAnalysis>,
     visited: Set<string>,
@@ -173,7 +174,17 @@ export class AdapterSpecResolver {
 
     const exportedValues = analysis.exportedValues ?? {};
 
+    if (Object.prototype.hasOwnProperty.call(exportedValues, 'adapterDefinition')) {
+      if (Object.prototype.hasOwnProperty.call(exportedValues, 'adapterSpec')) {
+        logger.warn(`Both 'adapterDefinition' and deprecated 'adapterSpec' found in ${filePath}. Remove 'adapterSpec'.`);
+      }
+
+      return { value: exportedValues.adapterDefinition, sourceFile: filePath };
+    }
+
+    // Backward compatibility: also search for legacy 'adapterSpec' export name
     if (Object.prototype.hasOwnProperty.call(exportedValues, 'adapterSpec')) {
+      logger.warn(`'adapterSpec' is deprecated. Rename to 'adapterDefinition' in ${filePath}.`);
       return { value: exportedValues.adapterSpec, sourceFile: filePath };
     }
 
@@ -181,7 +192,7 @@ export class AdapterSpecResolver {
 
     for (const entry of reExports) {
       if (entry.exportAll) {
-        const result = await this.resolveAdapterSpecExport(entry.module, fileMap, visited);
+        const result = await this.resolveAdapterDefinitionExport(entry.module, fileMap, visited);
 
         if (result) {
           return result;
@@ -193,8 +204,8 @@ export class AdapterSpecResolver {
       const names = entry.names ?? [];
 
       for (const nameEntry of names) {
-        if (nameEntry.exported === 'adapterSpec') {
-          const result = await this.resolveAdapterSpecExport(entry.module, fileMap, visited);
+        if (nameEntry.exported === 'adapterDefinition' || nameEntry.exported === 'adapterSpec') {
+          const result = await this.resolveAdapterDefinitionExport(entry.module, fileMap, visited);
 
           if (result) {
             return result;
@@ -324,33 +335,6 @@ export class AdapterSpecResolver {
       }));
     }
 
-    const pipelineProperty = classMetadata.properties.find(p => p.name === 'pipeline');
-    const pipelineRaw = pipelineProperty?.initializer;
-
-    if (!Array.isArray(pipelineRaw)) {
-      return err(buildDiagnostic({
-        reason: `Adapter class '${classMetadata.className}' must have a 'pipeline' property with an array initializer in ${sourceFile}.`,
-        file: sourceFile,
-      }));
-    }
-
-    const pipeline: string[] = [];
-
-    for (const token of pipelineRaw) {
-      if (typeof token === 'string') {
-        pipeline.push(token);
-      } else if (isRecordValue(token) && typeof token.__zipbul_ref === 'string') {
-        const resolved = RESERVED_MAP[token.__zipbul_ref] ?? token.__zipbul_ref;
-
-        pipeline.push(resolved);
-      } else {
-        return err(buildDiagnostic({
-          reason: `Adapter class '${classMetadata.className}' pipeline elements must be strings or enum references in ${sourceFile}.`,
-          file: sourceFile,
-        }));
-      }
-    }
-
     const decoratorsProperty = classMetadata.properties.find(p => p.name === 'decorators');
     const decsRaw = this.asRecord(decoratorsProperty?.initializer);
 
@@ -397,13 +381,9 @@ export class AdapterSpecResolver {
 
     const entryDecorators: AdapterEntryDecoratorsSpec = { controller, handler };
 
-    const pipelineCheck = this.validatePipelineConsistency(pipeline, sourceFile);
-    if (isErr(pipelineCheck)) return pipelineCheck;
-
     return {
       adapterId,
       staticSpec: {
-        pipeline,
         entryDecorators,
       },
     };
@@ -514,6 +494,7 @@ export class AdapterSpecResolver {
     }
 
     const knownIds = new Set(extractions.map(e => e.adapterId));
+    const validated: string[] = [];
 
     for (const id of adapterIds) {
       if (typeof id !== 'string') {
@@ -527,9 +508,11 @@ export class AdapterSpecResolver {
           reason: `Unknown adapterId '${id}' in adapterIds.`,
         }));
       }
+
+      validated.push(id);
     }
 
-    return adapterIds as string[];
+    return validated;
   }
 
   private buildHandlerIndex(
@@ -621,8 +604,6 @@ export class AdapterSpecResolver {
     controllerAdapterMap: Map<string, string>,
   ): Result<void, Diagnostic> {
     for (const extraction of extractions) {
-      const supported = this.deriveSupportedPhases(extraction.staticSpec.pipeline);
-
       const modulePhaseIds = this.collectModuleMiddlewarePhaseIds(fileMap, extraction.adapterId);
       if (isErr(modulePhaseIds)) return modulePhaseIds;
 
@@ -637,13 +618,15 @@ export class AdapterSpecResolver {
       const combinedPhaseIds = [...modulePhaseIds, ...decoratorPhaseIds];
 
       for (const phaseId of combinedPhaseIds) {
-        if (!supported.has(phaseId)) {
+        if (!VALID_HOOKS.has(phaseId)) {
           return err(buildDiagnostic({
-            reason: `Unsupported middleware phase '${phaseId}' for adapter '${extraction.adapterId}'.`,
+            reason: `Unsupported middleware hook '${phaseId}' for adapter '${extraction.adapterId}'. Valid hooks: ${[...VALID_HOOKS].join(', ')}.`,
           }));
         }
       }
     }
+
+    return undefined;
   }
 
   private collectModuleMiddlewarePhaseIds(fileMap: Map<string, FileAnalysis>, adapterId: string): Result<string[], Diagnostic> {
@@ -847,44 +830,6 @@ export class AdapterSpecResolver {
     return PathResolver.normalize(trimmed || '.');
   }
 
-  private validatePipelineConsistency(pipeline: string[], context: string): Result<void, Diagnostic> {
-    const RESERVED = new Set(['Guards', 'Handler']);
-
-    for (const reserved of RESERVED) {
-      const count = pipeline.filter(t => t === reserved).length;
-
-      if (count !== 1) {
-        return err(buildDiagnostic({
-          reason: `pipeline must contain '${reserved}' exactly once (${context}).`,
-          file: context,
-        }));
-      }
-    }
-
-    const customPhases = pipeline.filter(t => !RESERVED.has(t));
-    const seen = new Set<string>();
-
-    for (const phase of customPhases) {
-      if (seen.has(phase)) {
-        return err(buildDiagnostic({
-          reason: `pipeline must not contain duplicate middleware phase '${phase}' (${context}).`,
-          file: context,
-        }));
-      }
-
-      const phaseIdCheck = this.assertValidPhaseId(phase, context, 'defineAdapter.pipeline');
-      if (isErr(phaseIdCheck)) return phaseIdCheck;
-
-      seen.add(phase);
-    }
-  }
-
-  private deriveSupportedPhases(pipeline: string[]): Set<string> {
-    const RESERVED = new Set(['Guards', 'Handler']);
-
-    return new Set(pipeline.filter(t => !RESERVED.has(t)));
-  }
-
   private asRecord(value: AnalyzerValue | undefined): AnalyzerValueRecord | null {
     if (value === undefined || !isRecordValue(value)) {
       return null;
@@ -905,5 +850,7 @@ export class AdapterSpecResolver {
         reason: `${field} phase id must not contain ':' (${context}).`,
       }));
     }
+
+    return undefined;
   }
 }

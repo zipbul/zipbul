@@ -1,13 +1,13 @@
-import { ZipbulContextError, type ZipbulValue, type ClassToken } from '@zipbul/common';
+import { ContextError, type ZipbulValue, type ClassToken } from '@zipbul/common';
 
-import type { ZipbulRequest } from '../zipbul-request';
-import type { ZipbulResponse } from '../zipbul-response';
+import type { HttpRequest } from '../http-request';
+import type { HttpResponse } from '../http-response';
 import type { HttpAdapter } from './http-adapter';
-import type { HttpContext } from './interfaces';
+import type { HttpContextContract } from './interfaces';
 
 import { HTTP_CONTEXT_TYPE } from '../constants';
 
-export class ZipbulHttpContext implements HttpContext {
+export class HttpContext implements HttpContextContract {
   private adapter: HttpAdapter;
 
   constructor(adapter: ZipbulValue) {
@@ -23,21 +23,21 @@ export class ZipbulHttpContext implements HttpContext {
     return undefined;
   }
 
-  to(ctor: typeof ZipbulHttpContext): ZipbulHttpContext;
+  to(ctor: typeof HttpContext): HttpContext;
   to<TContext>(ctor: ClassToken<TContext>): TContext;
-  to<TContext>(ctor: ClassToken<TContext> | typeof ZipbulHttpContext): TContext | this {
-    if (ctor === ZipbulHttpContext || ctor?.name === ZipbulHttpContext.name) {
+  to<TContext>(ctor: ClassToken<TContext> | typeof HttpContext): TContext | this {
+    if (ctor === HttpContext || ctor?.name === HttpContext.name) {
       return this;
     }
 
-    throw new ZipbulContextError(`Context cast failed: ${ctor.name || 'UnknownContext'}`);
+    throw new ContextError(`Context cast failed: ${ctor.name || 'UnknownContext'}`);
   }
 
-  get request(): ZipbulRequest {
+  get request(): HttpRequest {
     return this.adapter.getRequest();
   }
 
-  get response(): ZipbulResponse {
+  get response(): HttpResponse {
     return this.adapter.getResponse();
   }
 
@@ -46,7 +46,7 @@ export class ZipbulHttpContext implements HttpContext {
       return value;
     }
 
-    throw new ZipbulContextError('Invalid HTTP adapter provided to ZipbulHttpContext');
+    throw new ContextError('Invalid HTTP adapter provided to HttpContext');
   }
 
   private isHttpAdapter(value: ZipbulValue): value is HttpAdapter {

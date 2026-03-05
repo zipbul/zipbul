@@ -1,22 +1,31 @@
-import { Middleware, ZipbulMiddleware, type Context } from '@zipbul/common';
+import { defineMiddleware, type MiddlewareDefinition } from '@zipbul/common';
 
 import type { QueryParserOptions } from './interfaces';
 
-import { ZipbulHttpContext } from '../../adapter';
+import { HttpContext } from '../../adapter';
 import { QueryParser } from './query-parser';
 
-@Middleware()
-export class QueryParserMiddleware extends ZipbulMiddleware<QueryParserOptions> {
-  private readonly parser: QueryParser;
+/**
+ * Creates a query string parser middleware definition.
+ *
+ * @param options - Query parser configuration.
+ * @returns A frozen {@link MiddlewareDefinition} that parses the request
+ *   query string into `req.query`.
+ *
+ * @example
+ * ```ts
+ * adapter.addMiddlewares(MiddlewareHook.PostParseData, [
+ *   queryParserMiddleware({ parseArrays: true, depth: 3 }),
+ * ]);
+ * ```
+ *
+ * @public
+ */
+export function queryParserMiddleware(options: QueryParserOptions = {}): MiddlewareDefinition {
+  const parser = new QueryParser(options);
 
-  constructor(options: QueryParserOptions = {}) {
-    super();
-
-    this.parser = new QueryParser(options);
-  }
-
-  public handle(context: Context): void {
-    const http = this.assertHttpContext(context);
+  return defineMiddleware((ctx) => {
+    const http = ctx.to(HttpContext);
     const req = http.request;
     const questionIndex = req.url.indexOf('?');
 
@@ -34,14 +43,6 @@ export class QueryParserMiddleware extends ZipbulMiddleware<QueryParserOptions> 
       return;
     }
 
-    req.query = this.parser.parse(queryString);
-  }
-
-  private assertHttpContext(context: Context): ZipbulHttpContext {
-    if (context instanceof ZipbulHttpContext) {
-      return context;
-    }
-
-    throw new Error('Expected ZipbulHttpContext');
-  }
+    req.query = parser.parse(queryString);
+  });
 }

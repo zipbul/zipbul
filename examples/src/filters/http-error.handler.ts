@@ -1,5 +1,5 @@
 import { type ZipbulValue, type Context, Catch } from '@zipbul/common';
-import { ZipbulHttpContext } from '@zipbul/http-adapter';
+import { HttpContext } from '@zipbul/http-adapter';
 import { Logger, type LogMetadataValue } from '@zipbul/logger';
 
 import type { HttpErrorPayload, HttpErrorResponse } from './interfaces';
@@ -9,7 +9,7 @@ export class HttpErrorHandler {
   private logger = new Logger('HttpErrorHandler');
 
   catch(error: ZipbulValue, ctx: Context): HttpErrorResponse {
-    const http = ctx.to(ZipbulHttpContext);
+    const http = ctx.to(HttpContext);
     const res = http.response;
     const req = http.request;
     const errorPayload = this.getHttpErrorPayload(error);

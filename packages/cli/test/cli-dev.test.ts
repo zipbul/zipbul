@@ -8,7 +8,7 @@ import type { Gildash, GildashOptions } from '@zipbul/gildash';
 import type { DevCommandDeps } from '../src/bin/dev.command';
 import { __testing__ } from '../src/bin/dev.command';
 import type { AstParser, AdapterSpecResolver } from '../src/compiler/analyzer';
-import type { ResolvedZipbulConfig } from '../src/config';
+import type { ResolvedConfig } from '../src/config';
 import { ConfigLoadError } from '../src/config';
 
 const { createDevCommand } = __testing__;
@@ -56,7 +56,7 @@ afterAll(async () => {
   await rm(tmpDir, { recursive: true, force: true });
 });
 
-const testConfig: ResolvedZipbulConfig = {
+const testConfig: ResolvedConfig = {
   module: { fileName: 'module.ts' },
   sourceDir: 'src',
   entry: './src/main.ts',

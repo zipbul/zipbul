@@ -1,30 +1,42 @@
-import { ZipbulMiddleware, type Context } from '@zipbul/common';
+import { defineMiddleware, type MiddlewareDefinition } from '@zipbul/common';
 
 import type { CorsOptions } from './interfaces';
 
-import { ZipbulHttpContext } from '../../adapter';
+import { HttpContext } from '../../adapter';
 import { HeaderField, HttpMethod } from '../../enums';
 import { CORS_DEFAULT_METHODS, CORS_DEFAULT_OPTIONS_SUCCESS_STATUS } from './constants';
 
-export class CorsMiddleware extends ZipbulMiddleware<CorsOptions> {
-  constructor(private readonly options: CorsOptions = {}) {
-    super();
-  }
-
-  public async handle(context: Context): Promise<void | boolean> {
-    const http = this.assertHttpContext(context);
+/**
+ * Creates a CORS middleware definition with the given options.
+ *
+ * @param options - CORS configuration. Defaults to allow-all.
+ * @returns A frozen {@link MiddlewareDefinition} that handles CORS headers
+ *   and preflight requests.
+ *
+ * @example
+ * ```ts
+ * adapter.addMiddlewares(MiddlewareHook.OnReceive, [
+ *   corsMiddleware({ origin: 'https://example.com', credentials: true }),
+ * ]);
+ * ```
+ *
+ * @public
+ */
+export function corsMiddleware(options: CorsOptions = {}): MiddlewareDefinition {
+  return defineMiddleware(async (ctx) => {
+    const http = ctx.to(HttpContext);
     const req = http.request;
     const res = http.response;
     const origin = req.headers.get(HeaderField.Origin);
     const method = req.method;
     // Set defaults
-    const allowedMethods = this.options.methods ?? CORS_DEFAULT_METHODS;
-    const allowedHeaders = this.options.allowedHeaders;
-    const exposedHeaders = this.options.exposedHeaders;
-    const allowCredentials = this.options.credentials;
-    const maxAge = this.options.maxAge;
-    const preflightContinue = this.options.preflightContinue ?? false;
-    const optionsSuccessStatus = this.options.optionsSuccessStatus ?? CORS_DEFAULT_OPTIONS_SUCCESS_STATUS;
+    const allowedMethods = options.methods ?? CORS_DEFAULT_METHODS;
+    const allowedHeaders = options.allowedHeaders;
+    const exposedHeaders = options.exposedHeaders;
+    const allowCredentials = options.credentials;
+    const maxAge = options.maxAge;
+    const preflightContinue = options.preflightContinue ?? false;
+    const optionsSuccessStatus = options.optionsSuccessStatus ?? CORS_DEFAULT_OPTIONS_SUCCESS_STATUS;
 
     // Handle Origin
     if (origin === null || origin.length === 0) {
@@ -32,7 +44,7 @@ export class CorsMiddleware extends ZipbulMiddleware<CorsOptions> {
     }
 
     // Validate Origin and set header
-    const allowedOrigin = await this.matchOrigin(origin, this.options);
+    const allowedOrigin = await matchOrigin(origin, options);
 
     if (allowedOrigin === undefined) {
       return;
@@ -60,7 +72,7 @@ export class CorsMiddleware extends ZipbulMiddleware<CorsOptions> {
     }
 
     // Handle Preflight
-    if (method === (HttpMethod.Options as string)) {
+    if (method === HttpMethod.Options) {
       // Access-Control-Request-Method
       const requestMethod = req.headers.get(HeaderField.AccessControlRequestMethod);
 
@@ -111,63 +123,55 @@ export class CorsMiddleware extends ZipbulMiddleware<CorsOptions> {
 
       return false;
     }
+  });
+}
+
+function matchOrigin(origin: string, options: CorsOptions): Promise<string | undefined> {
+  if (options.origin === false) {
+    return Promise.resolve(undefined);
   }
 
-  private assertHttpContext(context: Context): ZipbulHttpContext {
-    if (context instanceof ZipbulHttpContext) {
-      return context;
-    }
+  const originOption = options.origin;
 
-    throw new Error('Expected ZipbulHttpContext');
+  if (originOption === undefined || originOption === '*') {
+    return Promise.resolve(options.credentials === true ? origin : '*');
   }
 
-  private async matchOrigin(origin: string, options: CorsOptions): Promise<string | undefined> {
-    if (options.origin === false) {
-      return undefined;
-    }
+  if (typeof originOption === 'string') {
+    return Promise.resolve(originOption === origin ? originOption : undefined);
+  }
 
-    const originOption = options.origin;
+  if (typeof originOption === 'boolean') {
+    return Promise.resolve(originOption ? origin : undefined);
+  }
 
-    if (originOption === undefined || originOption === '*') {
-      return options.credentials === true ? origin : '*';
-    }
+  if (originOption instanceof RegExp) {
+    return Promise.resolve(originOption.test(origin) ? origin : undefined);
+  }
 
-    if (typeof originOption === 'string') {
-      return originOption === origin ? originOption : undefined;
-    }
+  if (Array.isArray(originOption)) {
+    const matched = originOption.some(candidate => {
+      if (candidate instanceof RegExp) {
+        return candidate.test(origin);
+      }
 
-    if (typeof originOption === 'boolean') {
-      return originOption ? origin : undefined;
-    }
+      return candidate === origin;
+    });
 
-    if (originOption instanceof RegExp) {
-      return originOption.test(origin) ? origin : undefined;
-    }
+    return Promise.resolve(matched ? origin : undefined);
+  }
 
-    if (Array.isArray(originOption)) {
-      const matched = originOption.some(o => {
-        if (o instanceof RegExp) {
-          return o.test(origin);
+  if (typeof originOption === 'function') {
+    return new Promise<string | undefined>(resolve => {
+      originOption(origin, (err, allow) => {
+        if (err !== null || allow !== true) {
+          resolve(undefined);
+        } else {
+          resolve(origin);
         }
-
-        return o === origin;
       });
-
-      return matched ? origin : undefined;
-    }
-
-    if (typeof originOption === 'function') {
-      return new Promise<string | undefined>(resolve => {
-        originOption(origin, (err, allow) => {
-          if (err !== null || allow !== true) {
-            resolve(undefined);
-          } else {
-            resolve(origin);
-          }
-        });
-      });
-    }
-
-    return undefined;
+    });
   }
+
+  return Promise.resolve(undefined);
 }

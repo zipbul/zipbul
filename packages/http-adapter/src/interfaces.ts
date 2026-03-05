@@ -1,8 +1,8 @@
 import type {
-  ZipbulApplicationOptions,
+  ApplicationOptions,
   ZipbulContainer,
   ExceptionFilter,
-  ZipbulMiddleware,
+  MiddlewareDefinition,
   ZipbulValue,
   Class,
   Context,
@@ -10,46 +10,28 @@ import type {
   ProviderToken,
 } from '@zipbul/common';
 
-import type { ZipbulRequest } from './zipbul-request';
-import type { ZipbulResponse } from './zipbul-response';
+import type { HttpRequest } from './http-request';
+import type { HttpResponse } from './http-response';
 import type { RouteHandlerParamType } from './decorators';
 import type {
   ClassMetadata,
   ControllerConstructor,
-  HttpMiddlewareRegistration,
-  HttpMiddlewareToken,
   RouteHandlerArgument,
   RouteHandlerResult,
   HttpWorkerResponseBody,
   MetadataRegistryKey,
-  MiddlewareOptions,
   RouteHandlerFunction,
   RouteParamType,
   RouteParamValue,
   SystemError,
 } from './types';
 
-export enum HttpMiddlewareLifecycle {
-  BeforeRequest = 'BeforeRequest',
-  AfterRequest = 'AfterRequest',
-  BeforeHandler = 'BeforeHandler',
-  BeforeResponse = 'BeforeResponse',
-  AfterResponse = 'AfterResponse',
-}
-
-export type MiddlewareRegistrationInput<TOptions = MiddlewareOptions> =
-  | HttpMiddlewareRegistration<TOptions>
-  | HttpMiddlewareToken<TOptions>;
-
-export type HttpMiddlewareRegistry = Partial<Record<string, readonly MiddlewareRegistrationInput[]>>;
-
-export interface ZipbulHttpServerOptions extends ZipbulApplicationOptions {
+export interface HttpServerOptions extends ApplicationOptions {
   readonly port?: number;
   readonly bodyLimit?: number;
   readonly trustProxy?: boolean;
   readonly workers?: number;
   readonly reusePort?: boolean;
-  readonly middlewares?: HttpMiddlewareRegistry;
   readonly errorFilters?: readonly ExceptionFilterToken[];
 }
 
@@ -63,12 +45,11 @@ export interface InternalRouteEntry {
   readonly handler: InternalRouteHandler;
 }
 
-export interface ZipbulHttpServerBootOptions extends ZipbulHttpServerOptions {
-  readonly options?: ZipbulHttpServerOptions;
+export interface HttpServerBootOptions extends HttpServerOptions {
+  readonly options?: HttpServerOptions;
   readonly metadata?: Map<MetadataRegistryKey, ClassMetadata>;
   readonly scopedKeys?: Map<ProviderToken, string>;
   readonly internalRoutes?: readonly InternalRouteEntry[];
-  readonly middlewares?: HttpMiddlewareRegistry;
   readonly errorFilters?: readonly ExceptionFilterToken[];
   readonly logger?: ZipbulValue;
 }
@@ -78,11 +59,11 @@ export interface HttpAdapterStartContext extends Context {
   readonly entryModule?: Class;
 }
 
-export interface ZipbulHttpInternalChannel {
+export interface HttpInternalChannel {
   get(path: string, handler: InternalRouteHandler): void;
 }
 
-export type ZipbulHttpInternalHost = Record<symbol, ZipbulHttpInternalChannel | undefined>;
+export type HttpInternalHost = Record<symbol, HttpInternalChannel | undefined>;
 
 export interface WorkerInitParams {
   rootModuleClassName: string;
@@ -100,7 +81,7 @@ export interface HttpWorkerEntryModule {
 
 export interface HttpWorkerInitParams {
   readonly entryModule: HttpWorkerEntryModule;
-  readonly options: ZipbulHttpServerOptions;
+  readonly options: HttpServerOptions;
 }
 
 export interface HttpWorkerManifest {
@@ -121,9 +102,9 @@ export interface RouteHandlerEntry {
   readonly paramRefs: readonly RouteParamType[];
   readonly controllerClass: ControllerConstructor | null;
   readonly methodName: string;
-  readonly middlewares: ZipbulMiddleware[];
+  readonly middlewares: MiddlewareDefinition[];
   readonly errorFilters: Array<ExceptionFilter<SystemError>>;
-  readonly paramFactory: (req: ZipbulRequest, res: ZipbulResponse) => Promise<readonly RouteParamValue[]>;
+  readonly paramFactory: (req: HttpRequest, res: HttpResponse) => Promise<readonly RouteParamValue[]>;
 }
 
 export interface ArgumentMetadata {

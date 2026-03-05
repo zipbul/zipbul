@@ -1,62 +1,50 @@
-import type { ZipbulAdapter, ZipbulRecord, Class, Context, ExceptionFilterToken, AdapterPipelines, AdapterEntryDecorators } from '@zipbul/common';
-import { ReservedPipeline } from '@zipbul/common';
+import type { ZipbulRecord, Class, Context, AdapterEntryDecorators } from '@zipbul/common';
+import { Adapter, MiddlewareHook } from '@zipbul/common';
 
-import { ClusterManager, getRuntimeContext, type ClusterBaseWorker } from '@zipbul/core';
-
+import {
+  ClusterManager,
+  getRuntimeContext,
+  type ClusterBaseWorker,
+  type ClassMetadata as CoreClassMetadata,
+  type ConstructorParamMetadata as CoreConstructorParamMetadata,
+  type DecoratorMetadata as CoreDecoratorMetadata,
+} from '@zipbul/core';
 import type {
-  ClassMetadata as CoreClassMetadata,
-  ConstructorParamMetadata as CoreConstructorParamMetadata,
-  DecoratorMetadata as CoreDecoratorMetadata,
-} from '../../core/src/injector/types';
-import type {
-  ZipbulHttpInternalChannel,
-  ZipbulHttpServerBootOptions,
-  ZipbulHttpServerOptions,
+  HttpInternalChannel,
+  HttpServerBootOptions,
+  HttpServerOptions,
   HttpAdapterStartContext,
-  HttpMiddlewareRegistry,
   InternalRouteHandler,
   InternalRouteEntry,
-  MiddlewareRegistrationInput,
 } from './interfaces';
 import type { ClassMetadata, HttpWorkerRpc, MetadataRegistryKey, ParamTypeReference } from './types';
 
-import { ZipbulHttpServer } from './zipbul-http-server';
-import { HttpMiddlewareLifecycle } from './interfaces';
-import { HttpMiddlewarePhase } from './enums';
+import { HttpServer } from './http-server';
 import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
 
-const ZIPBUL_HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
+const HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
 
-export class ZipbulHttpAdapter implements ZipbulAdapter {
+export class HttpAdapter extends Adapter {
   readonly name = 'http';
-
-  readonly pipeline: AdapterPipelines = [
-    HttpMiddlewarePhase.BeforeRequest,
-    ReservedPipeline.Guards,
-    ReservedPipeline.Handler,
-    HttpMiddlewarePhase.AfterRequest,
-  ];
 
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
     handler: [Get, Post, Put, Delete, Patch, Options, Head],
   };
 
-  private options: ZipbulHttpServerOptions;
+  private options: HttpServerOptions;
   private clusterManager: ClusterManager<ClusterBaseWorker & HttpWorkerRpc> | undefined;
-  private httpServer: ZipbulHttpServer | undefined;
+  private httpServer: HttpServer | undefined;
 
-  private [ZIPBUL_HTTP_INTERNAL]?: ZipbulHttpInternalChannel;
+  private [HTTP_INTERNAL]?: HttpInternalChannel;
 
   private internalRoutes: InternalRouteEntry[] = [];
 
-  private middlewareRegistry: HttpMiddlewareRegistry = {};
+  constructor(options: HttpServerOptions = {}) {
+    super();
 
-  private errorFilterTokens: ExceptionFilterToken[] = [];
-
-  constructor(options: ZipbulHttpServerOptions = {}) {
-    const normalizedOptions: ZipbulHttpServerOptions = {
+    const normalizedOptions: HttpServerOptions = {
       port: 5000,
       bodyLimit: 10 * 1024 * 1024,
       trustProxy: false,
@@ -67,26 +55,11 @@ export class ZipbulHttpAdapter implements ZipbulAdapter {
 
     this.options = normalizedOptions;
 
-    this[ZIPBUL_HTTP_INTERNAL] = {
+    this[HTTP_INTERNAL] = {
       get: (path: string, handler: InternalRouteHandler) => {
         this.internalRoutes.push({ method: 'GET', path, handler });
       },
     };
-  }
-
-  public addMiddlewares(lifecycle: HttpMiddlewareLifecycle, middlewares: readonly MiddlewareRegistrationInput[]): this {
-    const current = this.middlewareRegistry[lifecycle];
-    const updated = current ? [...current, ...middlewares] : [...middlewares];
-
-    this.middlewareRegistry[lifecycle] = updated;
-
-    return this;
-  }
-
-  public addErrorFilters(filters: readonly ExceptionFilterToken[]): this {
-    this.errorFilterTokens.push(...filters);
-
-    return this;
   }
 
   async start(context: Context): Promise<void> {
@@ -95,21 +68,20 @@ export class ZipbulHttpAdapter implements ZipbulAdapter {
     const isSingleProcess = workers === undefined || workers === 1;
 
     if (isSingleProcess) {
-      this.httpServer = new ZipbulHttpServer();
+      this.httpServer = new HttpServer();
 
       const runtimeContext = getRuntimeContext();
       const metadata = this.normalizeMetadataRegistry(runtimeContext.metadataRegistry);
       const scopedKeys = runtimeContext.scopedKeys;
-      const bootOptions: ZipbulHttpServerBootOptions = {
+      const bootOptions: HttpServerBootOptions = {
         ...this.options,
         ...(metadata !== undefined ? { metadata } : {}),
         ...(scopedKeys !== undefined ? { scopedKeys } : {}),
-        middlewares: this.middlewareRegistry,
         errorFilters: this.errorFilterTokens,
         internalRoutes: this.internalRoutes,
       };
 
-      await this.httpServer.boot(startContext.container, bootOptions);
+      await this.httpServer.boot(startContext.container, bootOptions, this);
 
       return;
     }
@@ -139,7 +111,6 @@ export class ZipbulHttpAdapter implements ZipbulAdapter {
       },
       options: {
         ...this.options,
-        middlewares: this.middlewareRegistry,
         errorFilters: this.errorFilterTokens,
       },
     };
@@ -154,15 +125,15 @@ export class ZipbulHttpAdapter implements ZipbulAdapter {
     }
   }
 
-  public getInternalChannel(): ZipbulHttpInternalChannel | undefined {
-    return this[ZIPBUL_HTTP_INTERNAL];
+  public getInternalChannel(): HttpInternalChannel | undefined {
+    return this[HTTP_INTERNAL];
   }
 
   protected resolveWorkerScript(): URL {
     const isAotRuntime = getRuntimeContext().isAotRuntime === true;
 
     if (isAotRuntime) {
-      return new URL('./zipbul-http-worker.ts', import.meta.url);
+      return new URL('./http-worker.ts', import.meta.url);
     }
 
     return new URL(Bun.argv[1] ?? '', 'file://');

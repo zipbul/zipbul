@@ -1,6 +1,6 @@
-import type { ZipbulAdapter, Context, AdapterDependsOn } from '@zipbul/common';
+import type { Adapter, Context, AdapterDependsOn } from '@zipbul/common';
 
-import type { ZipbulApplication } from './zipbul-application';
+import type { Application } from './application';
 
 interface CreateApplicationOptions {
   //
@@ -11,7 +11,7 @@ interface CreateApplicationOptions {
  * Installs an adapter instance into the application.
  */
 export type BootstrapAdapter = {
-  install(app: ZipbulApplication): Promise<void> | void;
+  install(app: Application): Promise<void> | void;
 };
 
 /**
@@ -27,7 +27,7 @@ export type AddAdapterConfig = {
  * Internal adapter registry entry.
  */
 export type AdapterEntry = {
-  adapter: ZipbulAdapter;
+  adapter: Adapter;
   name: string;
   protocol: string;
   dependsOn: AdapterDependsOn;

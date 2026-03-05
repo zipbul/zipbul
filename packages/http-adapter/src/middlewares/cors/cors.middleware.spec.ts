@@ -3,12 +3,12 @@ import { StatusCodes } from 'http-status-codes';
 
 import type { HttpAdapter } from '../../adapter/http-adapter';
 
-import { ZipbulHttpContext } from '../../adapter';
-import { ZipbulRequest } from '../../zipbul-request';
-import { ZipbulResponse } from '../../zipbul-response';
+import { HttpContext } from '../../adapter';
+import { HttpRequest } from '../../http-request';
+import { HttpResponse } from '../../http-response';
 import { HeaderField, HttpMethod } from '../../enums';
 import { CORS_DEFAULT_METHODS } from './constants';
-import { CorsMiddleware } from './cors.middleware';
+import { corsMiddleware } from './cors.middleware';
 
 /**
  * Comprehensive CORS Middleware Test Suite
@@ -43,9 +43,9 @@ describe('cors.middleware', () => {
     return HttpMethod.Get;
   };
 
-  const createMockContext = (method: HttpMethod | string, headers: Record<string, string> = {}): ZipbulHttpContext => {
+  const createMockContext = (method: HttpMethod | string, headers: Record<string, string> = {}): HttpContext => {
     const reqHeaders = new Headers(headers);
-    const request = new ZipbulRequest({
+    const request = new HttpRequest({
       url: 'http://example.test',
       httpMethod: normalizeHttpMethod(method),
       headers: reqHeaders,
@@ -56,7 +56,7 @@ describe('cors.middleware', () => {
       ip: null,
       ips: [],
     });
-    const response = new ZipbulResponse(request, new Headers());
+    const response = new HttpResponse(request, new Headers());
     const adapter: HttpAdapter = {
       getRequest: () => request,
       getResponse: () => response,
@@ -74,10 +74,10 @@ describe('cors.middleware', () => {
       },
     };
 
-    return new ZipbulHttpContext(adapter);
+    return new HttpContext(adapter);
   };
 
-  const getResHeader = (ctx: ZipbulHttpContext, name: string): string | null => {
+  const getResHeader = (ctx: HttpContext, name: string): string | null => {
     return ctx.response.getHeader(name);
   };
 
@@ -94,11 +94,11 @@ describe('cors.middleware', () => {
   describe('Origin Header Handling', () => {
     it('should skip CORS processing when no Origin header is present', async () => {
       // Arrange
-      const middleware = new CorsMiddleware();
+      const middleware = corsMiddleware();
       const ctx = createMockContext(HttpMethod.Get);
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -106,11 +106,11 @@ describe('cors.middleware', () => {
 
     it('should set Access-Control-Allow-Origin to * when using defaults', async () => {
       // Arrange
-      const middleware = new CorsMiddleware();
+      const middleware = corsMiddleware();
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('*');
@@ -118,11 +118,11 @@ describe('cors.middleware', () => {
 
     it('should not set Vary when using wildcard origin', async () => {
       // Arrange
-      const middleware = new CorsMiddleware();
+      const middleware = corsMiddleware();
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.Vary)).toBeNull();
@@ -130,11 +130,11 @@ describe('cors.middleware', () => {
 
     it('should handle null origin when origin is allowed', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: true });
+      const middleware = corsMiddleware({ origin: true });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'null' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('null');
@@ -142,11 +142,11 @@ describe('cors.middleware', () => {
 
     it('should block null origin when using strict origin string', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: 'https://example.com' });
+      const middleware = corsMiddleware({ origin: 'https://example.com' });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'null' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -160,11 +160,11 @@ describe('cors.middleware', () => {
     describe('Boolean origin', () => {
       it('should reflect origin when configured as true', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: true });
+        const middleware = corsMiddleware({ origin: true });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('https://example.com');
@@ -173,11 +173,11 @@ describe('cors.middleware', () => {
 
       it('should block all origins when configured as false', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: false });
+        const middleware = corsMiddleware({ origin: false });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -187,11 +187,11 @@ describe('cors.middleware', () => {
     describe('String origin', () => {
       it('should match exact string origin when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: 'https://allowed.com' });
+        const middleware = corsMiddleware({ origin: 'https://allowed.com' });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://allowed.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('https://allowed.com');
@@ -200,11 +200,11 @@ describe('cors.middleware', () => {
 
       it('should reject non-matching string origin when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: 'https://allowed.com' });
+        const middleware = corsMiddleware({ origin: 'https://allowed.com' });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://forbidden.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -212,11 +212,11 @@ describe('cors.middleware', () => {
 
       it('should be case-sensitive for origin matching when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: 'https://Example.com' });
+        const middleware = corsMiddleware({ origin: 'https://Example.com' });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -224,11 +224,11 @@ describe('cors.middleware', () => {
 
       it('should not match partial origin strings when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: 'https://example.com' });
+        const middleware = corsMiddleware({ origin: 'https://example.com' });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com.evil.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -238,11 +238,11 @@ describe('cors.middleware', () => {
     describe('Regex origin', () => {
       it('should match regex origin pattern when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: /\.example\.com$/ });
+        const middleware = corsMiddleware({ origin: /\.example\.com$/ });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://sub.example.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('https://sub.example.com');
@@ -250,11 +250,11 @@ describe('cors.middleware', () => {
 
       it('should match regex with protocol and port when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: /^https:\/\/.*\.example\.com(:\d+)?$/ });
+        const middleware = corsMiddleware({ origin: /^https:\/\/.*\.example\.com(:\d+)?$/ });
         const ctx1 = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://api.example.com' });
 
         // Act
-        await middleware.handle(ctx1);
+        await middleware.handler(ctx1);
 
         // Assert
         expect(getResHeader(ctx1, HeaderField.AccessControlAllowOrigin)).toBe('https://api.example.com');
@@ -262,7 +262,7 @@ describe('cors.middleware', () => {
         const ctx2 = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://api.example.com:8080' });
 
         // Act
-        await middleware.handle(ctx2);
+        await middleware.handler(ctx2);
 
         // Assert
         expect(getResHeader(ctx2, HeaderField.AccessControlAllowOrigin)).toBe('https://api.example.com:8080');
@@ -270,11 +270,11 @@ describe('cors.middleware', () => {
 
       it('should reject regex non-match when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: /^https:\/\/.*\.example\.com$/ });
+        const middleware = corsMiddleware({ origin: /^https:\/\/.*\.example\.com$/ });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'http://sub.example.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -284,11 +284,11 @@ describe('cors.middleware', () => {
     describe('Array origin', () => {
       it('should match any origin in array when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: ['https://a.com', 'https://b.com', /\.c\.com$/] });
+        const middleware = corsMiddleware({ origin: ['https://a.com', 'https://b.com', /\.c\.com$/] });
         const ctx1 = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://a.com' });
 
         // Act
-        await middleware.handle(ctx1);
+        await middleware.handler(ctx1);
 
         // Assert
         expect(getResHeader(ctx1, HeaderField.AccessControlAllowOrigin)).toBe('https://a.com');
@@ -296,7 +296,7 @@ describe('cors.middleware', () => {
         const ctx2 = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://sub.c.com' });
 
         // Act
-        await middleware.handle(ctx2);
+        await middleware.handler(ctx2);
 
         // Assert
         expect(getResHeader(ctx2, HeaderField.AccessControlAllowOrigin)).toBe('https://sub.c.com');
@@ -304,11 +304,11 @@ describe('cors.middleware', () => {
 
       it('should reject origin not in array when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: ['https://a.com', 'https://b.com'] });
+        const middleware = corsMiddleware({ origin: ['https://a.com', 'https://b.com'] });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://evil.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -316,11 +316,11 @@ describe('cors.middleware', () => {
 
       it('should handle empty origin array when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ origin: [] });
+        const middleware = corsMiddleware({ origin: [] });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://any.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -336,11 +336,11 @@ describe('cors.middleware', () => {
           }, 10);
         };
 
-        const middleware = new CorsMiddleware({ origin: customOrigin });
+        const middleware = corsMiddleware({ origin: customOrigin });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://allowed.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('https://allowed.com');
@@ -352,11 +352,11 @@ describe('cors.middleware', () => {
           cb(null, false);
         };
 
-        const middleware = new CorsMiddleware({ origin: customOrigin });
+        const middleware = corsMiddleware({ origin: customOrigin });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://any.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -368,11 +368,11 @@ describe('cors.middleware', () => {
           cb(new Error('Database lookup failed'));
         };
 
-        const middleware = new CorsMiddleware({ origin: errorOrigin });
+        const middleware = corsMiddleware({ origin: errorOrigin });
         const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -386,11 +386,11 @@ describe('cors.middleware', () => {
   describe('Credentials Handling', () => {
     it('should set Access-Control-Allow-Credentials when enabled', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ credentials: true });
+      const middleware = corsMiddleware({ credentials: true });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowCredentials)).toBe('true');
@@ -398,11 +398,11 @@ describe('cors.middleware', () => {
 
     it('should not set credentials header when disabled', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ credentials: false });
+      const middleware = corsMiddleware({ credentials: false });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowCredentials)).toBeNull();
@@ -417,11 +417,11 @@ describe('cors.middleware', () => {
      */
     it('should reflect origin when credentials is true and origin is wildcard', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: '*', credentials: true });
+      const middleware = corsMiddleware({ origin: '*', credentials: true });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('https://example.com');
@@ -430,11 +430,11 @@ describe('cors.middleware', () => {
 
     it('should reflect origin when credentials is true and origin is default', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ credentials: true });
+      const middleware = corsMiddleware({ credentials: true });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('https://example.com');
@@ -448,11 +448,11 @@ describe('cors.middleware', () => {
   describe('Exposed Headers', () => {
     it('should set Access-Control-Expose-Headers when exposedHeaders is array', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ exposedHeaders: ['X-Custom', 'X-Request-Id'] });
+      const middleware = corsMiddleware({ exposedHeaders: ['X-Custom', 'X-Request-Id'] });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlExposeHeaders)).toBe('X-Custom,X-Request-Id');
@@ -460,11 +460,11 @@ describe('cors.middleware', () => {
 
     it('should handle single exposed header string when provided', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ exposedHeaders: 'X-Single' });
+      const middleware = corsMiddleware({ exposedHeaders: 'X-Single' });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlExposeHeaders)).toBe('X-Single');
@@ -472,11 +472,11 @@ describe('cors.middleware', () => {
 
     it('should not set header when exposedHeaders is empty array', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ exposedHeaders: [] });
+      const middleware = corsMiddleware({ exposedHeaders: [] });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlExposeHeaders)).toBeNull();
@@ -484,11 +484,11 @@ describe('cors.middleware', () => {
 
     it('should not set header when exposedHeaders is not specified', async () => {
       // Arrange
-      const middleware = new CorsMiddleware();
+      const middleware = corsMiddleware();
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlExposeHeaders)).toBeNull();
@@ -502,13 +502,13 @@ describe('cors.middleware', () => {
     describe('Basic Preflight Handling', () => {
       it('should handle OPTIONS preflight request when method is OPTIONS', async () => {
         // Arrange
-        const middleware = new CorsMiddleware();
+        const middleware = corsMiddleware();
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
         });
         // Act
-        const result = await middleware.handle(ctx);
+        const result = await middleware.handler(ctx);
 
         // Assert
         expect(result).toBe(false);
@@ -519,13 +519,13 @@ describe('cors.middleware', () => {
 
       it('should use custom optionsSuccessStatus when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ optionsSuccessStatus: 200 });
+        const middleware = corsMiddleware({ optionsSuccessStatus: 200 });
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
         });
         // Act
-        const result = await middleware.handle(ctx);
+        const result = await middleware.handler(ctx);
 
         // Assert
         expect(result).toBe(false);
@@ -534,13 +534,13 @@ describe('cors.middleware', () => {
 
       it('should skip preflight when Access-Control-Request-Method is missing', async () => {
         // Arrange
-        const middleware = new CorsMiddleware();
+        const middleware = corsMiddleware();
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           // Access-Control-Request-Method intentionally omitted
         });
         // Act
-        const result = await middleware.handle(ctx);
+        const result = await middleware.handler(ctx);
 
         // Assert
         expect(result).toBeUndefined();
@@ -550,13 +550,13 @@ describe('cors.middleware', () => {
 
       it('should continue to next handler when preflightContinue is true', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ preflightContinue: true });
+        const middleware = corsMiddleware({ preflightContinue: true });
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
         });
         // Act
-        const result = await middleware.handle(ctx);
+        const result = await middleware.handler(ctx);
 
         // Assert
         expect(result).toBeUndefined();
@@ -567,13 +567,13 @@ describe('cors.middleware', () => {
     describe('Allowed Methods', () => {
       it('should use custom methods array when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ methods: ['GET', 'POST', 'CUSTOM'] });
+        const middleware = corsMiddleware({ methods: ['GET', 'POST', 'CUSTOM'] });
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: 'CUSTOM',
         });
         // Act
-        const result = await middleware.handle(ctx);
+        const result = await middleware.handler(ctx);
 
         // Assert
         expect(result).toBe(false);
@@ -582,14 +582,14 @@ describe('cors.middleware', () => {
 
       it('should use methods as single string when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ methods: 'GET,POST' });
+        const middleware = corsMiddleware({ methods: 'GET,POST' });
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
         });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowMethods)).toBe('GET,POST');
@@ -597,14 +597,14 @@ describe('cors.middleware', () => {
 
       it('should handle empty methods array when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ methods: [] });
+        const middleware = corsMiddleware({ methods: [] });
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
         });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowMethods)).toBe('');
@@ -614,7 +614,7 @@ describe('cors.middleware', () => {
     describe('Allowed Headers', () => {
       it('should reflect request headers when allowedHeaders not specified', async () => {
         // Arrange
-        const middleware = new CorsMiddleware();
+        const middleware = corsMiddleware();
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
@@ -622,7 +622,7 @@ describe('cors.middleware', () => {
         });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowHeaders)).toBe('X-Custom-Header,Authorization');
@@ -631,7 +631,7 @@ describe('cors.middleware', () => {
 
       it('should use specified allowedHeaders array when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ allowedHeaders: ['Content-Type', 'Authorization'] });
+        const middleware = corsMiddleware({ allowedHeaders: ['Content-Type', 'Authorization'] });
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
@@ -639,7 +639,7 @@ describe('cors.middleware', () => {
         });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowHeaders)).toBe('Content-Type,Authorization');
@@ -647,14 +647,14 @@ describe('cors.middleware', () => {
 
       it('should use allowedHeaders as single string when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ allowedHeaders: 'Content-Type,X-Api-Key' });
+        const middleware = corsMiddleware({ allowedHeaders: 'Content-Type,X-Api-Key' });
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
         });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowHeaders)).toBe('Content-Type,X-Api-Key');
@@ -662,7 +662,7 @@ describe('cors.middleware', () => {
 
       it('should not set Access-Control-Allow-Headers when no request headers and no config', async () => {
         // Arrange
-        const middleware = new CorsMiddleware();
+        const middleware = corsMiddleware();
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
@@ -670,7 +670,7 @@ describe('cors.middleware', () => {
         });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlAllowHeaders)).toBeNull();
@@ -680,14 +680,14 @@ describe('cors.middleware', () => {
     describe('Max Age', () => {
       it('should set Access-Control-Max-Age when maxAge is set', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ maxAge: 86400 });
+        const middleware = corsMiddleware({ maxAge: 86400 });
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
         });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlMaxAge)).toBe('86400');
@@ -695,14 +695,14 @@ describe('cors.middleware', () => {
 
       it('should handle maxAge 0 when configured', async () => {
         // Arrange
-        const middleware = new CorsMiddleware({ maxAge: 0 });
+        const middleware = corsMiddleware({ maxAge: 0 });
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
         });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlMaxAge)).toBe('0');
@@ -710,14 +710,14 @@ describe('cors.middleware', () => {
 
       it('should not set maxAge when not specified', async () => {
         // Arrange
-        const middleware = new CorsMiddleware();
+        const middleware = corsMiddleware();
         const ctx = createMockContext(HttpMethod.Options, {
           [HeaderField.Origin]: 'https://example.com',
           [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
         });
 
         // Act
-        await middleware.handle(ctx);
+        await middleware.handler(ctx);
 
         // Assert
         expect(getResHeader(ctx, HeaderField.AccessControlMaxAge)).toBeNull();
@@ -731,10 +731,10 @@ describe('cors.middleware', () => {
   describe('Simple/Actual Requests', () => {
     it('should handle GET request when CORS headers are enabled', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: true, credentials: true });
+      const middleware = corsMiddleware({ origin: true, credentials: true });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
       // Act
-      const result = await middleware.handle(ctx);
+      const result = await middleware.handler(ctx);
 
       // Assert
       expect(result).toBeUndefined();
@@ -744,11 +744,11 @@ describe('cors.middleware', () => {
 
     it('should handle HEAD request when method is HEAD', async () => {
       // Arrange
-      const middleware = new CorsMiddleware();
+      const middleware = corsMiddleware();
       const ctx = createMockContext(HttpMethod.Head, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('*');
@@ -756,11 +756,11 @@ describe('cors.middleware', () => {
 
     it('should handle POST request when method is POST', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: 'https://api.example.com' });
+      const middleware = corsMiddleware({ origin: 'https://api.example.com' });
       const ctx = createMockContext(HttpMethod.Post, { [HeaderField.Origin]: 'https://api.example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('https://api.example.com');
@@ -768,11 +768,11 @@ describe('cors.middleware', () => {
 
     it('should handle PUT request when method is PUT', async () => {
       // Arrange
-      const middleware = new CorsMiddleware();
+      const middleware = corsMiddleware();
       const ctx = createMockContext(HttpMethod.Put, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('*');
@@ -780,11 +780,11 @@ describe('cors.middleware', () => {
 
     it('should handle DELETE request when method is DELETE', async () => {
       // Arrange
-      const middleware = new CorsMiddleware();
+      const middleware = corsMiddleware();
       const ctx = createMockContext(HttpMethod.Delete, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('*');
@@ -792,11 +792,11 @@ describe('cors.middleware', () => {
 
     it('should handle PATCH request when method is PATCH', async () => {
       // Arrange
-      const middleware = new CorsMiddleware();
+      const middleware = corsMiddleware();
       const ctx = createMockContext(HttpMethod.Patch, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('*');
@@ -809,11 +809,11 @@ describe('cors.middleware', () => {
   describe('Vary Header Handling', () => {
     it('should set Vary: Origin when reflecting specific origin', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: true });
+      const middleware = corsMiddleware({ origin: true });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.Vary)).toBe(HeaderField.Origin);
@@ -821,7 +821,7 @@ describe('cors.middleware', () => {
 
     it('should append to Vary header when preflight has reflected headers', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: true });
+      const middleware = corsMiddleware({ origin: true });
       const ctx = createMockContext(HttpMethod.Options, {
         [HeaderField.Origin]: 'https://example.com',
         [HeaderField.AccessControlRequestMethod]: HttpMethod.Post,
@@ -829,7 +829,7 @@ describe('cors.middleware', () => {
       });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       const vary = getResHeader(ctx, HeaderField.Vary);
 
@@ -840,11 +840,11 @@ describe('cors.middleware', () => {
 
     it('should not set Vary when origin is wildcard', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: '*' });
+      const middleware = corsMiddleware({ origin: '*' });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.Vary)).toBeNull();
@@ -857,11 +857,11 @@ describe('cors.middleware', () => {
   describe('Edge Cases and Security', () => {
     it('should handle origin with port when port matches', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: 'http://localhost:3000' });
+      const middleware = corsMiddleware({ origin: 'http://localhost:3000' });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'http://localhost:3000' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('http://localhost:3000');
@@ -869,11 +869,11 @@ describe('cors.middleware', () => {
 
     it('should treat different ports as different origins when configured', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: 'http://localhost:3000' });
+      const middleware = corsMiddleware({ origin: 'http://localhost:3000' });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'http://localhost:4000' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -881,11 +881,11 @@ describe('cors.middleware', () => {
 
     it('should reject origin with trailing slash when configured strictly', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: 'https://example.com' });
+      const middleware = corsMiddleware({ origin: 'https://example.com' });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://example.com/' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -893,11 +893,11 @@ describe('cors.middleware', () => {
 
     it('should reject protocol mismatch when origin differs by protocol', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: 'https://example.com' });
+      const middleware = corsMiddleware({ origin: 'https://example.com' });
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'http://example.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -905,13 +905,13 @@ describe('cors.middleware', () => {
 
     it('should handle uppercase method in request when preflight is OPTIONS', async () => {
       // Arrange
-      const middleware = new CorsMiddleware();
+      const middleware = corsMiddleware();
       const ctx = createMockContext('OPTIONS', {
         [HeaderField.Origin]: 'https://example.com',
         [HeaderField.AccessControlRequestMethod]: 'POST',
       });
       // Act
-      const result = await middleware.handle(ctx);
+      const result = await middleware.handler(ctx);
 
       // Assert
       expect(result).toBe(false);
@@ -919,11 +919,11 @@ describe('cors.middleware', () => {
 
     it('should handle multiple origins in sequence when middleware is reused', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({ origin: ['https://a.com', 'https://b.com'] });
+      const middleware = corsMiddleware({ origin: ['https://a.com', 'https://b.com'] });
       const ctx1 = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://a.com' });
 
       // Act
-      await middleware.handle(ctx1);
+      await middleware.handler(ctx1);
 
       // Assert
       expect(getResHeader(ctx1, HeaderField.AccessControlAllowOrigin)).toBe('https://a.com');
@@ -931,7 +931,7 @@ describe('cors.middleware', () => {
       const ctx2 = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://b.com' });
 
       // Act
-      await middleware.handle(ctx2);
+      await middleware.handler(ctx2);
 
       // Assert
       expect(getResHeader(ctx2, HeaderField.AccessControlAllowOrigin)).toBe('https://b.com');
@@ -939,7 +939,7 @@ describe('cors.middleware', () => {
       const ctx3 = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://c.com' });
 
       // Act
-      await middleware.handle(ctx3);
+      await middleware.handler(ctx3);
 
       // Assert
       expect(getResHeader(ctx3, HeaderField.AccessControlAllowOrigin)).toBeNull();
@@ -952,7 +952,7 @@ describe('cors.middleware', () => {
   describe('Complete Configuration Scenarios', () => {
     it('should handle full production-like configuration when configured', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({
+      const middleware = corsMiddleware({
         origin: ['https://app.example.com', /\.example\.com$/],
         methods: ['GET', 'POST', 'PUT', 'DELETE'],
         allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
@@ -968,7 +968,7 @@ describe('cors.middleware', () => {
         [HeaderField.AccessControlRequestHeaders]: 'Content-Type,Authorization',
       });
       // Act
-      const preflightResult = await middleware.handle(preflightCtx);
+      const preflightResult = await middleware.handler(preflightCtx);
 
       // Assert
       expect(preflightResult).toBe(false);
@@ -984,7 +984,7 @@ describe('cors.middleware', () => {
         [HeaderField.Origin]: 'https://api.example.com',
       });
       // Act
-      const actualResult = await middleware.handle(actualCtx);
+      const actualResult = await middleware.handler(actualCtx);
 
       // Assert
       expect(actualResult).toBeUndefined();
@@ -995,11 +995,11 @@ describe('cors.middleware', () => {
 
     it('should handle minimal configuration when defaults are used', async () => {
       // Arrange
-      const middleware = new CorsMiddleware();
+      const middleware = corsMiddleware();
       const ctx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://any.com' });
 
       // Act
-      await middleware.handle(ctx);
+      await middleware.handler(ctx);
 
       // Assert
       expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('*');
@@ -1009,7 +1009,7 @@ describe('cors.middleware', () => {
 
     it('should handle strict single-origin configuration when configured', async () => {
       // Arrange
-      const middleware = new CorsMiddleware({
+      const middleware = corsMiddleware({
         origin: 'https://trusted.com',
         credentials: true,
         maxAge: 3600,
@@ -1017,7 +1017,7 @@ describe('cors.middleware', () => {
       const allowedCtx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://trusted.com' });
 
       // Act
-      await middleware.handle(allowedCtx);
+      await middleware.handler(allowedCtx);
 
       // Assert
       expect(getResHeader(allowedCtx, HeaderField.AccessControlAllowOrigin)).toBe('https://trusted.com');
@@ -1025,7 +1025,7 @@ describe('cors.middleware', () => {
       const blockedCtx = createMockContext(HttpMethod.Get, { [HeaderField.Origin]: 'https://untrusted.com' });
 
       // Act
-      await middleware.handle(blockedCtx);
+      await middleware.handler(blockedCtx);
 
       // Assert
       expect(getResHeader(blockedCtx, HeaderField.AccessControlAllowOrigin)).toBeNull();

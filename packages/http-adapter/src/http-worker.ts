@@ -4,14 +4,14 @@ import type { RpcArgs, RpcCallable } from '@zipbul/core/src/cluster/types';
 import { ClusterBaseWorker, Container, type ClusterWorkerId, expose } from '@zipbul/core';
 import { Logger } from '@zipbul/logger';
 
-import type { ZipbulHttpServerBootOptions, HttpWorkerInitParams, HttpWorkerManifest } from './interfaces';
+import type { HttpServerBootOptions, HttpWorkerInitParams, HttpWorkerManifest } from './interfaces';
 import type { ClassMetadata, ControllerConstructor } from './types';
 
-import { ZipbulHttpServer } from './zipbul-http-server';
+import { HttpServer } from './http-server';
 
-class ZipbulHttpWorker extends ClusterBaseWorker {
-  private logger = new Logger(ZipbulHttpWorker.name);
-  private httpServer: ZipbulHttpServer;
+class HttpWorker extends ClusterBaseWorker {
+  private logger = new Logger(HttpWorker.name);
+  private httpServer: HttpServer;
 
   constructor() {
     super();
@@ -27,7 +27,7 @@ class ZipbulHttpWorker extends ClusterBaseWorker {
     this.logger.info(`🔧 Zipbul HTTP Worker #${workerId} is initializing...`);
 
     if (!this.isHttpWorkerInitParams(params)) {
-      throw new Error('Invalid worker init params for ZipbulHttpWorker.');
+      throw new Error('Invalid worker init params for HttpWorker.');
     }
 
     const { options, entryModule } = params;
@@ -49,10 +49,10 @@ class ZipbulHttpWorker extends ClusterBaseWorker {
         await manifest.registerDynamicModules(container);
       }
 
-      this.httpServer = new ZipbulHttpServer();
+      this.httpServer = new HttpServer();
 
       // Pass combined options including metadata for Runtime to use
-      const bootOptions: ZipbulHttpServerBootOptions = {
+      const bootOptions: HttpServerBootOptions = {
         ...options,
         metadata: metadataRegistry,
         scopedKeys: scopedKeysMap,
@@ -69,7 +69,7 @@ class ZipbulHttpWorker extends ClusterBaseWorker {
       // Basic JIT Container Setup
       const container = new Container();
 
-      this.httpServer = new ZipbulHttpServer();
+      this.httpServer = new HttpServer();
 
       // Boot without pre-compiled metadata - Runtime will rely on what's available
       await this.httpServer.boot(container, options);
@@ -118,7 +118,7 @@ class ZipbulHttpWorker extends ClusterBaseWorker {
   }
 }
 
-const worker = new ZipbulHttpWorker();
+const worker = new HttpWorker();
 
 const initWorker: RpcCallable = async (...args: RpcArgs) => {
   const workerId = typeof args[0] === 'number' ? args[0] : 0;
@@ -158,4 +158,4 @@ function isZipbulRecord(value: ZipbulValue): value is ZipbulRecord {
   return typeof value === 'object' && value !== null;
 }
 
-export { ZipbulHttpWorker };
+export { HttpWorker };

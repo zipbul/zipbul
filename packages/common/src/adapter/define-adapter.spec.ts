@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { defineAdapter } from './define-adapter';
-import { ReservedPipeline } from './types';
-import type { AdapterPipelines, AdapterEntryDecorators } from './types';
-import type { ZipbulAdapter, Context } from '../interfaces';
+import type { AdapterEntryDecorators } from './types';
+import { Adapter, type Context } from '../interfaces';
 
 // -- Test fixtures --
 
@@ -10,15 +9,8 @@ const controllerDeco = () => {};
 const getDeco = () => {};
 const postDeco = () => {};
 
-class FakeAdapter implements ZipbulAdapter {
+class FakeAdapter extends Adapter {
   readonly name = 'fake';
-
-  readonly pipeline: AdapterPipelines = [
-    'BeforeRequest',
-    ReservedPipeline.Guards,
-    ReservedPipeline.Handler,
-    'AfterRequest',
-  ];
 
   readonly decorators: AdapterEntryDecorators = {
     controller: controllerDeco,
@@ -57,12 +49,6 @@ describe('defineAdapter', () => {
 
     // Assert
     expect(instance.name).toBe('fake');
-    expect(instance.pipeline).toEqual([
-      'BeforeRequest',
-      ReservedPipeline.Guards,
-      ReservedPipeline.Handler,
-      'AfterRequest',
-    ]);
     expect(instance.decorators.controller).toBe(controllerDeco);
     expect(instance.decorators.handler).toEqual([getDeco, postDeco]);
   });

@@ -1,18 +1,16 @@
-export { ZipbulHttpAdapter } from './src/zipbul-http-adapter';
-export { zipbulHttpAdapter } from './src/zipbul-http-adapter-factory';
-export { adapterSpec } from './src/adapter-definition';
+export { HttpAdapter } from './src/http-adapter';
+export { httpAdapter } from './src/http-adapter-factory';
+export { adapterDefinition } from './src/adapter-definition';
 
-export { ZipbulHttpContext } from './src/adapter/http-context';
-export { ZipbulHttpContextAdapter } from './src/adapter/zipbul-http-context-adapter';
-export type { HttpAdapter } from './src/adapter/http-adapter';
+export { HttpContext } from './src/adapter/http-context';
+export { HttpContextAdapter } from './src/adapter/http-context-adapter';
 
-export { ZipbulRequest } from './src/zipbul-request';
-export { ZipbulResponse } from './src/zipbul-response';
+export { HttpRequest } from './src/http-request';
+export { HttpResponse } from './src/http-response';
 
 export { HttpMethod, ContentType, HeaderField, HttpProtocol } from './src/enums';
 export {
-  HttpMiddlewareLifecycle,
-  type ZipbulHttpServerOptions,
+  type HttpServerOptions,
   type HttpWorkerResponse,
   type RouteHandlerEntry,
   type ArgumentMetadata,
@@ -21,11 +19,11 @@ export {
 export { SystemErrorHandler } from './src/system-error-handler';
 export { BakerValidationExceptionFilter } from './src/baker-validation-exception-filter';
 
-export { CorsMiddleware } from './src/middlewares/cors/cors.middleware';
+export { corsMiddleware } from './src/middlewares/cors/cors.middleware';
 export type { CorsOptions } from './src/middlewares/cors/interfaces';
 
 export { QueryParser } from './src/middlewares/query-parser/query-parser';
-export { QueryParserMiddleware } from './src/middlewares/query-parser/query-parser.middleware';
+export { queryParserMiddleware } from './src/middlewares/query-parser/query-parser.middleware';
 export type { QueryParserOptions } from './src/middlewares/query-parser/interfaces';
 
 export { RestController, Controller } from './src/decorators/class.decorator';

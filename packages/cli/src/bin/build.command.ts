@@ -10,14 +10,14 @@ import { Gildash, type GildashOptions } from '@zipbul/gildash';
 import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import {
-  zipbulDirPath,
-  zipbulTempDirPath,
+  outputDirPath,
+  tempDirPath,
   compareCodePoint,
   scanGlobSorted,
   writeIfChanged,
 } from '../common';
-import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
-import type { ZipbulConfigSource } from '../config/interfaces';
+import { ConfigLoader, type ResolvedConfig } from '../config';
+import type { ConfigSource } from '../config/interfaces';
 import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 
@@ -26,7 +26,7 @@ import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 // ---------------------------------------------------------------------------
 
 export interface BuildCommandDeps {
-  loadConfig: () => Promise<{ config: ResolvedZipbulConfig; source: ZipbulConfigSource }>;
+  loadConfig: () => Promise<{ config: ResolvedConfig; source: ConfigSource }>;
   createParser: () => AstParser;
   createManifestGenerator: () => ManifestGenerator;
   createEntryGenerator: () => EntryGenerator;
@@ -51,8 +51,8 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const projectRoot = process.cwd();
       const srcDir = resolve(projectRoot, config.sourceDir);
       const outDir = resolve(projectRoot, 'dist');
-      const zipbulDir = zipbulDirPath(projectRoot);
-      const buildTempDir = zipbulTempDirPath(outDir);
+      const zipbulDir = outputDirPath(projectRoot);
+      const buildTempDir = tempDirPath(outDir);
 
       logger.info(`📂 Project Root: ${projectRoot}`);
       logger.info(`📂 Source Dir: ${srcDir}`);

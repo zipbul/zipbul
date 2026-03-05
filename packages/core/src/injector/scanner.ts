@@ -32,7 +32,7 @@ import {
   resolveTokenRecord,
 } from './token-resolver';
 
-export class ZipbulScanner {
+export class Scanner {
   constructor(
     private readonly container: Container,
     private readonly registry?: Map<Class, ClassMetadata>,

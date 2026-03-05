@@ -1,23 +1,23 @@
-export type ZipbulConfigSourceFormat = 'json' | 'jsonc';
+export type ConfigSourceFormat = 'json' | 'jsonc';
 
-export interface ZipbulConfigSource {
+export interface ConfigSource {
   path: string;
-  format: ZipbulConfigSourceFormat;
+  format: ConfigSourceFormat;
 }
 
-export interface ResolvedZipbulConfigModule {
+export interface ResolvedConfigModule {
   fileName: string;
 }
 
-export interface ResolvedZipbulConfig {
-  module: ResolvedZipbulConfigModule;
+export interface ResolvedConfig {
+  module: ResolvedConfigModule;
   sourceDir: string;
   entry: string;
 }
 
 export interface ConfigLoadResult {
-  config: ResolvedZipbulConfig;
-  source: ZipbulConfigSource;
+  config: ResolvedConfig;
+  source: ConfigSource;
 }
 
 export type JsonPrimitive = string | number | boolean | null;

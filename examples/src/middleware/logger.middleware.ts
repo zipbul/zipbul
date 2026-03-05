@@ -1,14 +1,11 @@
-import { Middleware, ZipbulMiddleware, type Context } from '@zipbul/common';
-import { ZipbulHttpContext } from '@zipbul/http-adapter';
+import { defineMiddleware } from '@zipbul/common';
+import { HttpContext } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 
-@Middleware()
-export class LoggerMiddleware extends ZipbulMiddleware {
-  private logger = new Logger('LoggerMiddleware');
+const logger = new Logger('LoggerMiddleware');
 
-  handle(ctx: Context) {
-    const http = ctx.to(ZipbulHttpContext);
+export const loggerMiddleware = defineMiddleware((ctx) => {
+  const http = ctx.to(HttpContext);
 
-    this.logger.info(`[${http.request.method}] ${http.request.url}`);
-  }
-}
+  logger.info(`[${http.request.method}] ${http.request.url}`);
+});

@@ -97,7 +97,6 @@ export interface AdapterEntryDecoratorsSpec {
 }
 
 export interface AdapterStaticSpec {
-  pipeline: string[];
   entryDecorators: AdapterEntryDecoratorsSpec;
 }
 

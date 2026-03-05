@@ -1,22 +1,19 @@
-import { Middleware, ZipbulMiddleware, type Context } from '@zipbul/common';
-import { ZipbulHttpContext } from '@zipbul/http-adapter';
+import { defineMiddleware } from '@zipbul/common';
+import { HttpContext } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 
-@Middleware()
-export class AuditMiddleware extends ZipbulMiddleware {
-  private logger = new Logger('AuditMiddleware');
+const logger = new Logger('AuditMiddleware');
 
-  handle(ctx: Context) {
-    const http = ctx.to(ZipbulHttpContext);
+export const auditMiddleware = defineMiddleware((ctx) => {
+  const http = ctx.to(HttpContext);
 
-    this.logger.info(`[AUDIT] Billing Action Attempted: ${http.request.method} ${http.request.url}`);
+  logger.info(`[AUDIT] Billing Action Attempted: ${http.request.method} ${http.request.url}`);
 
-    // Simulate auditing check
-    const headers = http.request.headers;
-    const transactionId = headers.get('x-transaction-id');
+  // Simulate auditing check
+  const headers = http.request.headers;
+  const transactionId = headers.get('x-transaction-id');
 
-    if (transactionId === null || transactionId.trim().length === 0) {
-      this.logger.warn('[AUDIT] Missing Transaction ID');
-    }
+  if (transactionId === null || transactionId.trim().length === 0) {
+    logger.warn('[AUDIT] Missing Transaction ID');
   }
-}
+});

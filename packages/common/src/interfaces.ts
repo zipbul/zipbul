@@ -1,15 +1,6 @@
-import type { ZipbulMiddleware } from './zipbul-middleware';
 import type { ZipbulFunction, ZipbulValue, Class, ClassToken, ValueLike } from './types';
-import type { AdapterPipelines, AdapterEntryDecorators, AdapterDependsOn } from './adapter/types';
 
-export interface ZipbulAdapter {
-  readonly name: string;
-  readonly pipeline: AdapterPipelines;
-  readonly decorators: AdapterEntryDecorators;
-  readonly dependsOn?: AdapterDependsOn | undefined;
-  start(context: Context): Promise<void>;
-  stop(): Promise<void>;
-}
+export { Adapter } from './adapter/adapter';
 
 export interface Context {
   getType(): string;
@@ -21,8 +12,6 @@ export interface Context {
 export type ProviderToken = string | symbol | ClassToken | Class;
 
 export type ProviderScope = 'singleton' | 'request' | 'transient';
-
-export type ProviderVisibility = 'internal' | 'exported';
 
 export interface ProviderBase {
   provide: ProviderToken;
@@ -73,14 +62,14 @@ export interface AdapterGroup<T> {
 }
 
 export interface AdapterCollection {
-  [protocol: string]: AdapterGroup<ZipbulAdapter>;
+  [protocol: string]: AdapterGroup<Adapter>;
 }
 
 export interface Configurer {
   configure(app: Context, adapters: AdapterCollection): void;
 }
 
-export interface ZipbulApplicationOptions {
+export interface ApplicationOptions {
   //
 }
 
@@ -98,13 +87,6 @@ export interface EnvService {
 export interface EnvSource {
   readonly name?: string;
   load(): Promise<Readonly<Record<string, string>>> | Readonly<Record<string, string>>;
-}
-
-export type MiddlewareToken<TOptions = ZipbulValue> = Class<ZipbulMiddleware<TOptions>> | symbol;
-
-export interface MiddlewareRegistration<TOptions = ZipbulValue> {
-  token: MiddlewareToken<TOptions>;
-  options?: TOptions;
 }
 
 export type ZipbulFactory<TValue = ZipbulValue> = (container: ZipbulContainer) => TValue;
@@ -127,7 +109,7 @@ export interface ZipbulContainer {
 export type ExceptionFilterToken = ProviderToken;
 
 // Module Interface (Strict Schema Enforcement)
-export interface ZipbulModule {
+export interface Module {
   name?: string;
   providers?: Provider[];
   adapters?: AdapterConfig;
@@ -148,7 +130,7 @@ export interface AdapterInstanceConfig {
 }
 
 export interface MiddlewareConfig {
-  [lifecycle: string]: Array<MiddlewareToken | MiddlewareRegistration>;
+  [lifecycle: string]: readonly MiddlewareDefinition[];
 }
 
 export type ExceptionFilterConfig = ExceptionFilterToken;

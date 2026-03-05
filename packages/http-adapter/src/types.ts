@@ -1,21 +1,19 @@
 import type {
   ExceptionFilter,
-  ZipbulMiddleware,
+  MiddlewareDefinition,
   ZipbulRecord,
   ZipbulValue,
   Class,
   ClassToken,
   Context,
-  MiddlewareRegistration,
-  MiddlewareToken,
   PrimitiveArray,
   PrimitiveRecord,
   ProviderToken,
 } from '@zipbul/common';
 import type { CookieMap } from 'bun';
 
-import type { ZipbulRequest } from './zipbul-request';
-import type { ZipbulResponse } from './zipbul-response';
+import type { HttpRequest } from './http-request';
+import type { HttpResponse } from './http-response';
 import type { RouteHandlerEntry } from './interfaces';
 
 export type RouteKey = number;
@@ -52,22 +50,7 @@ export type RequestBodyValue = JsonValue;
 
 export type ResponseBodyValue = RequestBodyValue | string | Uint8Array | ArrayBuffer | null;
 
-export interface HttpMiddlewareInstance extends ZipbulRecord {
-  handle(context: Context, options?: MiddlewareOptions): void | boolean | Promise<void | boolean>;
-}
-
-export interface HttpMiddlewareConstructor<TOptions = MiddlewareOptions> extends Class<HttpMiddlewareInstance> {
-  new (options?: TOptions): HttpMiddlewareInstance;
-}
-
-export type HttpMiddlewareToken<_TOptions = MiddlewareOptions> = Class<HttpMiddlewareInstance> | symbol;
-
-export interface HttpMiddlewareRegistration<TOptions = MiddlewareOptions> {
-  token: HttpMiddlewareToken<TOptions>;
-  options?: TOptions;
-}
-
-export interface ZipbulRequestInit {
+export interface HttpRequestInit {
   readonly url: string;
   readonly httpMethod: HttpMethod;
   readonly headers: HeadersInit;
@@ -96,8 +79,8 @@ export interface AdaptiveRequest {
 export type HttpWorkerResponseBody = string | Uint8Array | ArrayBuffer | null;
 
 export type RouteHandlerArgument =
-  | ZipbulRequest
-  | ZipbulResponse
+  | HttpRequest
+  | HttpResponse
   | RequestBodyValue
   | RequestParamMap
   | RequestQueryMap
@@ -108,7 +91,7 @@ export type RouteHandlerArgument =
   | null
   | undefined;
 
-export type RouteHandlerResult = ZipbulResponse | Response | RequestBodyValue | bigint | null | undefined | void;
+export type RouteHandlerResult = HttpResponse | Response | RequestBodyValue | bigint | null | undefined | void;
 
 export type RouteHandlerValue = RouteHandlerArgument;
 
@@ -119,7 +102,6 @@ export type ControllerInstance = Record<string, RouteHandlerValue | RouteHandler
 export type ContainerInstance =
   | ZipbulValue
   | ControllerInstance
-  | ZipbulMiddleware
   | ExceptionFilter
   | RouteHandlerValue
   | RouteHandlerFunction
@@ -129,8 +111,8 @@ export type ContainerInstance =
 export type ControllerConstructor = Class<ControllerInstance>;
 
 export type HttpContextValue =
-  | ZipbulRequest
-  | ZipbulResponse
+  | HttpRequest
+  | HttpResponse
   | RequestBodyValue
   | RequestParamMap
   | RequestQueryMap
@@ -159,8 +141,7 @@ export type DecoratorArgument =
   | ProviderToken
   | TokenRecord
   | TokenCarrier
-  | MiddlewareToken
-  | MiddlewareRegistration
+  | MiddlewareDefinition
   | ErrorConstructor
   | PrimitiveArray
   | PrimitiveRecord

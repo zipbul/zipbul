@@ -3,15 +3,15 @@ import { describe, expect, it } from 'bun:test';
 import type { HttpAdapter } from '../../adapter/http-adapter';
 import type { RequestQueryMap } from '../../types';
 
-import { ZipbulHttpContext } from '../../adapter';
-import { ZipbulRequest } from '../../zipbul-request';
-import { ZipbulResponse } from '../../zipbul-response';
+import { HttpContext } from '../../adapter';
+import { HttpRequest } from '../../http-request';
+import { HttpResponse } from '../../http-response';
 import { BadRequestError } from '../../errors/errors';
-import { QueryParserMiddleware } from './query-parser.middleware';
+import { queryParserMiddleware } from './query-parser.middleware';
 
 describe('query-parser.middleware', () => {
-  const createContext = (url: string): ZipbulHttpContext => {
-    const request = new ZipbulRequest({
+  const createContext = (url: string): HttpContext => {
+    const request = new HttpRequest({
       url,
       httpMethod: 'GET',
       headers: {},
@@ -22,7 +22,7 @@ describe('query-parser.middleware', () => {
       ip: null,
       ips: [],
     });
-    const response = new ZipbulResponse(request, new Response());
+    const response = new HttpResponse(request, new Response());
     const adapter: HttpAdapter = {
       getRequest: () => request,
       getResponse: () => response,
@@ -30,7 +30,7 @@ describe('query-parser.middleware', () => {
       setStatus: () => {},
     };
 
-    return new ZipbulHttpContext(adapter);
+    return new HttpContext(adapter);
   };
 
   // ============================================
@@ -39,11 +39,11 @@ describe('query-parser.middleware', () => {
   describe('Basic Parsing', () => {
     it('should parse simple query string when parameters are present', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({});
+      const middleware = queryParserMiddleware({});
       const ctx = createContext('http://localhost/path?name=value&age=30');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(ctx.request.query).toEqual({ name: 'value', age: '30' });
@@ -51,11 +51,11 @@ describe('query-parser.middleware', () => {
 
     it('should return empty object when query string is missing', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({});
+      const middleware = queryParserMiddleware({});
       const ctx = createContext('http://localhost/path');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(ctx.request.query).toEqual({});
@@ -63,11 +63,11 @@ describe('query-parser.middleware', () => {
 
     it('should return empty object when query string is empty after ?', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({});
+      const middleware = queryParserMiddleware({});
       const ctx = createContext('http://localhost/path?');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(ctx.request.query).toEqual({});
@@ -80,11 +80,11 @@ describe('query-parser.middleware', () => {
   describe('Option Passthrough', () => {
     it('should parse nested objects when parseArrays is true', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({ parseArrays: true });
+      const middleware = queryParserMiddleware({ parseArrays: true });
       const ctx = createContext('http://localhost/?user[name]=alice&user[age]=30');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(ctx.request.query).toEqual({ user: { name: 'alice', age: '30' } });
@@ -92,11 +92,11 @@ describe('query-parser.middleware', () => {
 
     it('should respect depth option when parseArrays is true', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({ parseArrays: true, depth: 1 });
+      const middleware = queryParserMiddleware({ parseArrays: true, depth: 1 });
       const ctx = createContext('http://localhost/?a[b][c]=d');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(ctx.request.query).toEqual({ a: { b: {} } });
@@ -104,11 +104,11 @@ describe('query-parser.middleware', () => {
 
     it('should respect parameterLimit option when limit is exceeded', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({ parameterLimit: 2 });
+      const middleware = queryParserMiddleware({ parameterLimit: 2 });
       const ctx = createContext('http://localhost/?a=1&b=2&c=3&d=4');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(ctx.request.query).toEqual({ a: '1', b: '2' });
@@ -116,11 +116,11 @@ describe('query-parser.middleware', () => {
 
     it('should respect hppMode option when duplicate keys are present', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({ hppMode: 'last' });
+      const middleware = queryParserMiddleware({ hppMode: 'last' });
       const ctx = createContext('http://localhost/?id=1&id=2&id=3');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(ctx.request.query).toEqual({ id: '3' });
@@ -133,11 +133,11 @@ describe('query-parser.middleware', () => {
   describe('Strict Mode Error Handling', () => {
     it('should throw on unbalanced brackets when strictMode is true', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({ strictMode: true });
+      const middleware = queryParserMiddleware({ strictMode: true });
       const ctx = createContext('http://localhost/?a[b=1');
 
       const act = () => {
-        middleware.handle(ctx);
+        middleware.handler(ctx);
       };
 
       // Act
@@ -149,11 +149,11 @@ describe('query-parser.middleware', () => {
 
     it('should throw on mixed scalar and nested keys when strictMode is true', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({ strictMode: true, parseArrays: true });
+      const middleware = queryParserMiddleware({ strictMode: true, parseArrays: true });
       const ctx = createContext('http://localhost/?a=1&a[b]=2');
 
       const act = () => {
-        middleware.handle(ctx);
+        middleware.handler(ctx);
       };
 
       // Act
@@ -165,11 +165,11 @@ describe('query-parser.middleware', () => {
 
     it('should not throw on malformed query when strictMode is false', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({ strictMode: false });
+      const middleware = queryParserMiddleware({ strictMode: false });
       const ctx = createContext('http://localhost/?a[b=1');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(ctx.request.query).toEqual({ 'a[b': '1' });
@@ -182,11 +182,11 @@ describe('query-parser.middleware', () => {
   describe('Security', () => {
     it('should block __proto__ pollution when parsing query', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({ parseArrays: true });
+      const middleware = queryParserMiddleware({ parseArrays: true });
       const ctx = createContext('http://localhost/?__proto__[polluted]=true');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       const query = ctx.request.query;
 
@@ -197,11 +197,11 @@ describe('query-parser.middleware', () => {
 
     it('should block constructor pollution when parsing query', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({ parseArrays: true });
+      const middleware = queryParserMiddleware({ parseArrays: true });
       const ctx = createContext('http://localhost/?constructor[prototype][foo]=bar');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(Object.prototype.hasOwnProperty.call(ctx.request.query, 'constructor')).toBe(false);
@@ -214,11 +214,11 @@ describe('query-parser.middleware', () => {
   describe('Encoding', () => {
     it('should decode percent-encoded keys and values when present', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({});
+      const middleware = queryParserMiddleware({});
       const ctx = createContext('http://localhost/?%ED%95%9C%EA%B8%80=%ED%85%8C%EC%8A%A4%ED%8A%B8');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(ctx.request.query).toEqual({ 한글: '테스트' });
@@ -226,11 +226,11 @@ describe('query-parser.middleware', () => {
 
     it('should handle special characters when decoding values', () => {
       // Arrange
-      const middleware = new QueryParserMiddleware({});
+      const middleware = queryParserMiddleware({});
       const ctx = createContext('http://localhost/?eq=%3D&amp=%26');
 
       // Act
-      middleware.handle(ctx);
+      middleware.handler(ctx);
 
       // Assert
       expect(ctx.request.query).toEqual({ eq: '=', amp: '&' });

@@ -7,9 +7,10 @@ export * from './interfaces';
 export * from './types';
 export * from './errors/errors';
 
-export { ZipbulContextError } from './errors/zipbul-context.error';
+export { ContextError } from './errors/context.error';
 export { ExceptionFilter } from './exception-filter';
-export { ZipbulMiddleware } from './zipbul-middleware';
+export { defineMiddleware } from './define-middleware';
+export type { MiddlewareHandlerFn, MiddlewareDefinition } from './define-middleware';
 
 export * from './decorators/index';
 export * from './utils';

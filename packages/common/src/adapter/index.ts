@@ -1,8 +1,8 @@
+export { Adapter } from './adapter';
 export { defineAdapter } from './define-adapter';
-export { ReservedPipeline } from './types';
+export { MiddlewareHook } from './types';
 export type {
-  MiddlewarePhase,
-  AdapterPipelines,
+  MiddlewareRegistry,
   AdapterDependsOn,
   DecoratorRef,
   AdapterEntryDecorators,

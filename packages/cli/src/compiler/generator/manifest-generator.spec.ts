@@ -307,7 +307,6 @@ describe('ManifestGenerator', () => {
       },
       adapterStaticSpecs: {
         test: {
-          pipeline: ['Before', 'Guards', 'Pipes', 'Handler'],
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
         },
       },
@@ -339,11 +338,9 @@ describe('ManifestGenerator', () => {
       },
       adapterStaticSpecs: {
         b: {
-          pipeline: ['Guards', 'Pipes', 'Handler'],
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
         },
         a: {
-          pipeline: ['Guards', 'Pipes', 'Handler'],
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
         },
       },

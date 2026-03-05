@@ -1,14 +1,14 @@
 import { CookieMap, type CookieInit } from 'bun';
 import { StatusCodes, getReasonPhrase } from 'http-status-codes';
 
-import type { ZipbulRequest } from './zipbul-request';
+import type { HttpRequest } from './http-request';
 import type { HttpWorkerResponse } from './interfaces';
 import type { HeadersInit, ResponseBodyValue } from './types';
 
 import { ContentType, HeaderField, HttpMethod } from './enums';
 
-export class ZipbulResponse {
-  private readonly req: ZipbulRequest;
+export class HttpResponse {
+  private readonly req: HttpRequest;
   private _body: ResponseBodyValue | undefined;
   private _cookies: CookieMap;
   private _headers: Headers;
@@ -16,7 +16,7 @@ export class ZipbulResponse {
   private _statusText: string | undefined;
   private _workerResponse: HttpWorkerResponse;
 
-  constructor(req: ZipbulRequest, res: Response | Headers) {
+  constructor(req: HttpRequest, res: Response | Headers) {
     this.req = req;
 
     if (res instanceof Headers) {

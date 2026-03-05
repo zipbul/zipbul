@@ -37,7 +37,3 @@ export enum HttpMethod {
   Options = 'OPTIONS',
 }
 
-export enum HttpMiddlewarePhase {
-  BeforeRequest = 'BeforeRequest',
-  AfterRequest = 'AfterRequest',
-}

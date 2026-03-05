@@ -1,16 +1,27 @@
-import type { ZipbulAdapter } from '../interfaces';
+import type { Adapter } from './adapter';
+import type { MiddlewareDefinition } from '../define-middleware';
 
-/** 어댑터 정의 미들웨어 페이즈 식별자. */
-export type MiddlewarePhase = string;
-
-/** 파이프라인 예약 토큰. 프레임워크가 소유하는 실행 단위. */
-export enum ReservedPipeline {
-  Guards = 'Guards',
-  Handler = 'Handler',
+/**
+ * Fixed pipeline hooks provided by the framework.
+ *
+ * The pipeline execution order is:
+ * `OnReceive → [parseInput] → PostParseData → Guards → PreHandle → Handler → [sendResult] → OnComplete`
+ *
+ * @public
+ */
+export enum MiddlewareHook {
+  /** Runs immediately when a request is received, before any parsing. */
+  OnReceive = 'OnReceive',
+  /** Runs after the request body and query string have been parsed. */
+  PostParseData = 'PostParseData',
+  /** Runs just before the route handler is invoked, after guards pass. */
+  PreHandle = 'PreHandle',
+  /** Runs after the response has been sent; errors are suppressed. */
+  OnComplete = 'OnComplete',
 }
 
-/** 파이프라인 선언 배열. 미들웨어 페이즈와 예약 토큰의 순서 있는 시퀀스. */
-export type AdapterPipelines = (MiddlewarePhase | ReservedPipeline)[];
+/** Registry mapping each middleware hook to its ordered middleware list. */
+export type MiddlewareRegistry = Partial<Record<MiddlewareHook, MiddlewareDefinition[]>>;
 
 /**
  * Adapter dependency declaration.
@@ -19,7 +30,15 @@ export type AdapterPipelines = (MiddlewarePhase | ReservedPipeline)[];
  */
 export type AdapterDependsOn = 'standalone' | string[];
 
-/** Reference to a decorator function. */
+/**
+ * Reference to a decorator function.
+ *
+ * `any` is intentional here: decorator factories accept heterogeneous
+ * argument lists whose shapes are defined by each adapter, so a
+ * single generic signature cannot capture all variants without
+ * resorting to complex conditional types that provide no safety
+ * benefit at the framework boundary.
+ */
 export type DecoratorRef = (...args: any[]) => any;
 
 /** Adapter-specific entry decorators provided to user code. */
@@ -28,5 +47,5 @@ export type AdapterEntryDecorators = {
   handler: DecoratorRef[];
 };
 
-/** Adapter class constructor type. Accepts any constructor args and produces a ZipbulAdapter. */
-export type AdapterClass = new (...args: any[]) => ZipbulAdapter;
+/** Adapter class constructor type. Accepts any constructor args and produces an Adapter. */
+export type AdapterClass = new (...args: any[]) => Adapter;

@@ -14,7 +14,7 @@ import { indexResponse } from './index-html';
 import { resolveDocFromPath } from './routing';
 import { uiResponse } from './ui';
 
-const ZIPBUL_HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
+const HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
 const boundAdapters = new WeakSet<ScalarKeyedRecord>();
 
 function isKeyedRecord(value: AdapterGroupGetResult): value is ScalarKeyedRecord {
@@ -138,7 +138,7 @@ export function setupScalar(adapters: AdapterCollectionLike, options?: ScalarSet
       continue;
     }
 
-    const internalValue: ScalarInput | InternalRouter = adapter[ZIPBUL_HTTP_INTERNAL];
+    const internalValue: ScalarInput | InternalRouter = adapter[HTTP_INTERNAL];
 
     if (!hasInternalRouter(internalValue)) {
       throw new Error('Scalar: selected http adapter does not support internal route binding (upgrade http-adapter).');

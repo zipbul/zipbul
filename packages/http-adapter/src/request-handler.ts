@@ -1,6 +1,6 @@
-import type { ZipbulContainer, ZipbulRecord, ZipbulValue, Context } from '@zipbul/common';
+import type { ZipbulContainer, ZipbulRecord, ZipbulValue, Context, MiddlewareDefinition, Adapter } from '@zipbul/common';
 
-import { ExceptionFilter, ZipbulMiddleware } from '@zipbul/common';
+import { ExceptionFilter, MiddlewareHook } from '@zipbul/common';
 import { Logger, type LogMetadataValue } from '@zipbul/logger';
 import { StatusCodes } from 'http-status-codes';
 
@@ -20,13 +20,12 @@ import type {
   SystemErrorHandlerLike,
 } from './types';
 
-import { ZipbulHttpContext, ZipbulHttpContextAdapter } from './adapter';
-import { ZipbulRequest } from './zipbul-request';
-import { ZipbulResponse } from './zipbul-response';
+import { HttpContext, HttpContextAdapter } from './adapter';
+import { HttpRequest } from './http-request';
+import { HttpResponse } from './http-response';
 import {
-  HTTP_AFTER_RESPONSE,
-  HTTP_BEFORE_REQUEST,
-  HTTP_BEFORE_RESPONSE,
+  HTTP_ON_COMPLETE,
+  HTTP_PRE_HANDLE,
   HTTP_ERROR_FILTER,
   HTTP_SYSTEM_ERROR_HANDLER,
 } from './constants';
@@ -36,9 +35,6 @@ import { SystemErrorHandler } from './system-error-handler';
 
 export class RequestHandler {
   private readonly logger = new Logger(RequestHandler.name);
-  private globalBeforeRequest: ZipbulMiddleware[] = [];
-  private globalBeforeResponse: ZipbulMiddleware[] = [];
-  private globalAfterResponse: ZipbulMiddleware[] = [];
   private globalErrorFilters: Array<ExceptionFilter<SystemError>> = [];
   private errorFilterEngineHealthy = true;
   private systemErrorHandler: SystemErrorHandlerLike | undefined;
@@ -47,18 +43,20 @@ export class RequestHandler {
     private readonly container: ZipbulContainer,
     private readonly routeHandler: RouteHandler,
     private readonly metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
+    private readonly adapter: Adapter,
   ) {
-    this.loadMiddlewares();
+    this.bridgeMiddlewares();
+    this.loadErrorHandlers();
   }
 
   public async handle(
-    req: ZipbulRequest,
-    res: ZipbulResponse,
+    req: HttpRequest,
+    res: HttpResponse,
     method: HttpMethod,
     path: string,
-    context?: ZipbulHttpContext,
+    context?: HttpContext,
   ): Promise<HttpWorkerResponse> {
-    const ctx: Context = context ?? new ZipbulHttpContext(new ZipbulHttpContextAdapter(req, res));
+    const ctx: Context = context ?? new HttpContext(new HttpContextAdapter(req, res));
     let matchResult: MatchResult | undefined = undefined;
     let systemErrorHandlerCalled = false;
     let errorFiltersCalled = false;
@@ -118,8 +116,8 @@ export class RequestHandler {
     };
 
     try {
-      // 1. Global Before Request
-      const shouldContinue = await this.runMiddlewares(this.globalBeforeRequest, ctx);
+      // 1. PreHandle (delegated to adapter)
+      const shouldContinue = await this.adapter.runMiddlewares(MiddlewareHook.PreHandle, ctx);
 
       if (shouldContinue) {
         // 2. Routing
@@ -133,7 +131,7 @@ export class RequestHandler {
 
         // 3. Scoped Middlewares (Before Handler) - Pre-calculated
         const scopedMiddlewares = matchResult.entry.middlewares;
-        const scopedContinue = await this.runMiddlewares(scopedMiddlewares, ctx);
+        const scopedContinue = await this.runScopedMiddlewares(scopedMiddlewares, ctx);
 
         if (scopedContinue) {
           this.logger.debug(`Matched Route: ${method}:${path}`);
@@ -150,7 +148,7 @@ export class RequestHandler {
             };
           }
 
-          if (result instanceof ZipbulResponse) {
+          if (result instanceof HttpResponse) {
             return result.end();
           }
 
@@ -213,27 +211,6 @@ export class RequestHandler {
       applyDefaultErrorHandler({ error: currentError, stage: 'afterErrorFilters:default', allowBody: true });
     }
 
-    // 5. Before Response
-    try {
-      await this.runMiddlewares(this.globalBeforeResponse, ctx);
-    } catch {
-      const normalizedError = new Error('beforeResponse failed');
-
-      this.logger.error('Error in beforeResponse', normalizedError);
-
-      await tryRunSystemErrorHandler({ error: normalizedError, stage: 'beforeResponse:error', allowBody: false });
-      applyDefaultErrorHandler({ error: normalizedError, stage: 'beforeResponse:error', allowBody: false });
-    }
-
-    // 6. After Response
-    try {
-      await this.runMiddlewares(this.globalAfterResponse, ctx);
-    } catch {
-      const normalizedError = new Error('afterResponse failed');
-
-      this.logger.error('Error in afterResponse', normalizedError);
-    }
-
     if (processingError !== undefined) {
       applyDefaultErrorHandler({ error: processingError, stage: 'processingError:finalize', allowBody: true });
     }
@@ -245,9 +222,13 @@ export class RequestHandler {
     return res.end();
   }
 
-  private async runMiddlewares(middlewares: ZipbulMiddleware[], ctx: Context): Promise<boolean> {
-    for (const mw of middlewares) {
-      const result = await mw.handle(ctx);
+  /**
+   * Runs scoped (route-level) middlewares. These are not managed by the adapter
+   * registry — they are attached per handler via `@UseMiddlewares`.
+   */
+  private async runScopedMiddlewares(middlewares: MiddlewareDefinition[], ctx: Context): Promise<boolean> {
+    for (const def of middlewares) {
+      const result = await def.handler(ctx);
 
       if (result === false) {
         return false;
@@ -434,11 +415,24 @@ export class RequestHandler {
     return new Error('Processing failed');
   }
 
-  private loadMiddlewares() {
-    this.globalBeforeRequest = this.resolveMiddlewares(HTTP_BEFORE_REQUEST);
-    this.globalBeforeResponse = this.resolveMiddlewares(HTTP_BEFORE_RESPONSE);
-    this.globalAfterResponse = this.resolveMiddlewares(HTTP_AFTER_RESPONSE);
+  /**
+   * Bridges DI-loaded middlewares into the adapter's middleware registry.
+   * This is a transitional pattern until AOT emits `adapter.addMiddlewares()` calls directly.
+   */
+  private bridgeMiddlewares(): void {
+    const preHandle = this.resolveMiddlewares(HTTP_PRE_HANDLE);
+    const onComplete = this.resolveMiddlewares(HTTP_ON_COMPLETE);
 
+    if (preHandle.length > 0) {
+      this.adapter.addMiddlewares(MiddlewareHook.PreHandle, preHandle);
+    }
+
+    if (onComplete.length > 0) {
+      this.adapter.addMiddlewares(MiddlewareHook.OnComplete, onComplete);
+    }
+  }
+
+  private loadErrorHandlers(): void {
     try {
       this.globalErrorFilters = this.resolveErrorFilters(HTTP_ERROR_FILTER, { strict: true });
     } catch {
@@ -449,7 +443,7 @@ export class RequestHandler {
     this.systemErrorHandler = this.resolveSystemErrorHandlers(HTTP_SYSTEM_ERROR_HANDLER, { strict: true })[0];
   }
 
-  private resolveMiddlewares(token: string, options?: ResolveTokenOptions): ZipbulMiddleware[] {
+  private resolveMiddlewares(token: string, options?: ResolveTokenOptions): MiddlewareDefinition[] {
     return this.resolveTokenValues(token, options, value => this.isMiddleware(value));
   }
 
@@ -461,10 +455,10 @@ export class RequestHandler {
     return this.resolveTokenValues(token, options, value => this.isSystemErrorHandler(value));
   }
 
-  private resolveTokenValues<T extends ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike>(
+  private resolveTokenValues<T extends MiddlewareDefinition | ExceptionFilter<SystemError> | SystemErrorHandlerLike>(
     token: string,
     options: ResolveTokenOptions | undefined,
-    predicate: (value: ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike) => value is T,
+    predicate: (value: MiddlewareDefinition | ExceptionFilter<SystemError> | SystemErrorHandlerLike) => value is T,
   ): T[] {
     const results: T[] = [];
     const strict = options?.strict === true;
@@ -496,10 +490,10 @@ export class RequestHandler {
     return results;
   }
 
-  private collectValues<T extends ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike>(
+  private collectValues<T extends MiddlewareDefinition | ExceptionFilter<SystemError> | SystemErrorHandlerLike>(
     results: T[],
     value: ReturnType<ZipbulContainer['get']>,
-    predicate: (value: ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike) => value is T,
+    predicate: (value: MiddlewareDefinition | ExceptionFilter<SystemError> | SystemErrorHandlerLike) => value is T,
     options: ResolveTokenContext,
   ): void {
     if (this.isValueArray(value)) {
@@ -535,28 +529,38 @@ export class RequestHandler {
 
   private isTokenValue(
     value: ReturnType<ZipbulContainer['get']>,
-  ): value is ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike {
-    if (value instanceof ZipbulMiddleware || value instanceof ExceptionFilter || value instanceof SystemErrorHandler) {
+  ): value is MiddlewareDefinition | ExceptionFilter<SystemError> | SystemErrorHandlerLike {
+    if (this.isMiddlewareDefinition(value)) {
+      return true;
+    }
+
+    if (value instanceof ExceptionFilter || value instanceof SystemErrorHandler) {
       return true;
     }
 
     return this.isSystemErrorHandlerLike(value);
   }
 
+  private isMiddlewareDefinition(
+    value: ReturnType<ZipbulContainer['get']>,
+  ): value is MiddlewareDefinition {
+    return typeof value === 'object' && value !== null && 'handler' in value && typeof (value as MiddlewareDefinition).handler === 'function';
+  }
+
   private isMiddleware(
-    value: ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike,
-  ): value is ZipbulMiddleware {
-    return value instanceof ZipbulMiddleware;
+    value: MiddlewareDefinition | ExceptionFilter<SystemError> | SystemErrorHandlerLike,
+  ): value is MiddlewareDefinition {
+    return this.isMiddlewareDefinition(value);
   }
 
   private isErrorFilter(
-    value: ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike,
+    value: MiddlewareDefinition | ExceptionFilter<SystemError> | SystemErrorHandlerLike,
   ): value is ExceptionFilter<SystemError> {
     return value instanceof ExceptionFilter;
   }
 
   private isSystemErrorHandler(
-    value: ZipbulMiddleware | ExceptionFilter<SystemError> | SystemErrorHandlerLike,
+    value: MiddlewareDefinition | ExceptionFilter<SystemError> | SystemErrorHandlerLike,
   ): value is SystemErrorHandlerLike {
     if (value instanceof SystemErrorHandler) {
       return true;

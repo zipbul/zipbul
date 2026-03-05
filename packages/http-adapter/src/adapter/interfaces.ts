@@ -1,9 +1,9 @@
 import type { Context } from '@zipbul/common';
 
-import type { ZipbulRequest } from '../zipbul-request';
-import type { ZipbulResponse } from '../zipbul-response';
+import type { HttpRequest } from '../http-request';
+import type { HttpResponse } from '../http-response';
 
-export interface HttpContext extends Context {
-  readonly request: ZipbulRequest;
-  readonly response: ZipbulResponse;
+export interface HttpContextContract extends Context {
+  readonly request: HttpRequest;
+  readonly response: HttpResponse;
 }

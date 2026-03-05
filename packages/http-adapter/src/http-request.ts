@@ -1,8 +1,8 @@
 import { CookieMap } from 'bun';
 
-import type { ZipbulRequestInit, HttpMethod, RequestBodyValue, RequestParamMap, RequestQueryMap } from './types';
+import type { HttpRequestInit, HttpMethod, RequestBodyValue, RequestParamMap, RequestQueryMap } from './types';
 
-export class ZipbulRequest {
+export class HttpRequest {
   public readonly requestId: string;
   public readonly httpMethod: HttpMethod;
   public readonly url: string;
@@ -25,7 +25,7 @@ export class ZipbulRequest {
   public readonly subdomains: string[];
   public query: RequestQueryMap;
 
-  constructor(req: ZipbulRequestInit) {
+  constructor(req: HttpRequestInit) {
     const urlObj = new URL(req.url);
 
     this.requestId = req.requestId ?? Math.random().toString(36).substring(7);

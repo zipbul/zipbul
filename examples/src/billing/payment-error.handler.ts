@@ -1,5 +1,5 @@
 import { type Context, Catch } from '@zipbul/common';
-import { ZipbulHttpContext } from '@zipbul/http-adapter';
+import { HttpContext } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 
 import { PaymentFailedError } from './payment-failed.error';
@@ -11,7 +11,7 @@ export class PaymentErrorHandler {
   catch(error: PaymentFailedError, ctx: Context) {
     this.logger.error(`[BILLING ERROR] ${error.message}`);
 
-    const http = ctx.to(ZipbulHttpContext);
+    const http = ctx.to(HttpContext);
     const res = http.response;
 
     res.setStatus(402); // Payment Required

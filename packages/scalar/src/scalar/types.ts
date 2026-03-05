@@ -1,4 +1,4 @@
-import type { AdapterCollection, AdapterGroup, ZipbulAdapter, ZipbulRecord, Class } from '@zipbul/common';
+import type { AdapterCollection, AdapterGroup, Adapter, ZipbulRecord, Class } from '@zipbul/common';
 
 export type DocumentTargets = 'all' | DocumentTarget[];
 
@@ -17,14 +17,14 @@ export interface AdapterGroupWithName {
   forEach: AdapterGroupForEach;
 }
 
-export type AdapterGroupGetResult = ScalarInput | ZipbulAdapter | ScalarKeyedRecord;
+export type AdapterGroupGetResult = ScalarInput | Adapter | ScalarKeyedRecord;
 
 export interface AdapterGroupWithGet {
   get: (name: string) => AdapterGroupGetResult | undefined;
 }
 
 export type AdapterGroupLike =
-  | AdapterGroup<ZipbulAdapter>
+  | AdapterGroup<Adapter>
   | Map<string, ScalarInput>
   | AdapterGroupWithGet
   | AdapterGroupWithName;

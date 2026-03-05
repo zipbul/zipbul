@@ -1,6 +1,6 @@
 import type {
   BeforeStart,
-  ZipbulAdapter,
+  Adapter,
   ConfigService,
   Configurer,
   EnvService,
@@ -41,7 +41,7 @@ export type ZipbulValue =
   | ZipbulInstance
   | ClassToken
   | Callable
-  | ZipbulAdapter
+  | Adapter
   | ConfigService
   | Configurer
   | EnvService

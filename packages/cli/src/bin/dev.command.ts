@@ -6,9 +6,9 @@ import type { CommandOptions } from './types';
 
 import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
-import { ConfigLoader, type ResolvedZipbulConfig } from '../config';
-import type { ZipbulConfigSource } from '../config/interfaces';
-import { zipbulDirPath, scanGlobSorted, writeIfChanged } from '../common';
+import { ConfigLoader, type ResolvedConfig } from '../config';
+import type { ConfigSource } from '../config/interfaces';
+import { outputDirPath, scanGlobSorted, writeIfChanged } from '../common';
 import { Logger } from '@zipbul/logger';
 import { isErr } from '@zipbul/result';
 import { buildDiagnostic, DiagnosticError, reportDiagnostic } from '../diagnostics';
@@ -23,7 +23,7 @@ import { buildDevIncrementalImpactLog } from './dev-incremental-impact';
 // ---------------------------------------------------------------------------
 
 export interface DevCommandDeps {
-  loadConfig: () => Promise<{ config: ResolvedZipbulConfig; source: ZipbulConfigSource }>;
+  loadConfig: () => Promise<{ config: ResolvedConfig; source: ConfigSource }>;
   createParser: () => AstParser;
   createAdapterSpecResolver: () => AdapterSpecResolver;
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
@@ -43,7 +43,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       const buildProfile = commandOptions?.profile ?? 'full';
       const projectRoot = process.cwd();
       const srcDir = resolve(projectRoot, config.sourceDir);
-      const outDir = zipbulDirPath(projectRoot);
+      const outDir = outputDirPath(projectRoot);
       const parser = deps.createParser();
       const adapterSpecResolver = deps.createAdapterSpecResolver();
       const fileCache = new Map<string, FileAnalysis>();

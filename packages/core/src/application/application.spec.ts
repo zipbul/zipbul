@@ -1,16 +1,16 @@
 import { describe, it, expect, mock, beforeEach, type Mock } from 'bun:test';
-import type { ZipbulAdapter, Context, ZipbulContainer, ProviderToken } from '@zipbul/common';
+import type { Adapter, Context, ZipbulContainer, ProviderToken } from '@zipbul/common';
 
 mock.module('@zipbul/baker', () => ({
   seal: () => {},
 }));
 
-const { ZipbulApplication } = await import('./zipbul-application');
+const { Application } = await import('./application');
 
 /**
- * Factory to create a mock ZipbulAdapter with spied start/stop.
+ * Factory to create a mock Adapter with spied start/stop.
  */
-function createMockAdapter(): ZipbulAdapter & {
+function createMockAdapter(): Adapter & {
   start: Mock<(ctx: Context) => Promise<void>>;
   stop: Mock<() => Promise<void>>;
 } {
@@ -20,11 +20,11 @@ function createMockAdapter(): ZipbulAdapter & {
   };
 }
 
-describe('ZipbulApplication', () => {
-  let app: ZipbulApplication;
+describe('Application', () => {
+  let app: Application;
 
   beforeEach(() => {
-    app = new ZipbulApplication();
+    app = new Application();
   });
 
   // ── addAdapter ───────────────────────────────────────────────

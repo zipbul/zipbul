@@ -14,7 +14,7 @@ import type {
 
 import { setupScalar } from './setup';
 
-const ZIPBUL_HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
+const HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
 
 function createHttpAdapterSpy(): HttpAdapterSpy {
   const calls: InternalRouteCall[] = [];
@@ -24,7 +24,7 @@ function createHttpAdapterSpy(): HttpAdapterSpy {
     },
   };
   const adapter: HttpAdapter = {
-    [ZIPBUL_HTTP_INTERNAL]: internalAdapter,
+    [HTTP_INTERNAL]: internalAdapter,
     start: async () => {},
     stop: async () => {},
   };

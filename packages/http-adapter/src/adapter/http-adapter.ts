@@ -1,9 +1,9 @@
-import type { ZipbulRequest } from '../zipbul-request';
-import type { ZipbulResponse } from '../zipbul-response';
+import type { HttpRequest } from '../http-request';
+import type { HttpResponse } from '../http-response';
 
 export interface HttpAdapter {
-  getRequest(): ZipbulRequest;
-  getResponse(): ZipbulResponse;
+  getRequest(): HttpRequest;
+  getResponse(): HttpResponse;
   setHeader(name: string, value: string): void;
   setStatus(status: number): void;
 }
