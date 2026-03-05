@@ -1,4 +1,4 @@
-import type { Class, ProviderToken } from '@zipbul/common';
+import type { Adapter, Class, ProviderToken } from '@zipbul/common';
 
 import type { Container } from '../injector/container';
 import type { ClassMetadata } from '../injector/types';
@@ -8,4 +8,5 @@ export interface RuntimeContext {
   scopedKeys?: Map<ProviderToken, string>;
   container?: Container;
   isAotRuntime?: boolean;
+  wireAdapterMiddlewares?: (adapterId: string, adapter: Adapter) => void;
 }

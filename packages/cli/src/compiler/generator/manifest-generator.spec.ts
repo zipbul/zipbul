@@ -291,7 +291,7 @@ describe('ManifestGenerator', () => {
     }).toThrow();
   });
 
-  it('should include adapterStaticSpecs and handlerIndex in JSON output when generated', () => {
+  it('should include adapterStaticSchemas and handlerIndex in JSON output when generated', () => {
     // Arrange
     const graph = createSingleModuleGraph();
     const gen = new ManifestGenerator();
@@ -305,7 +305,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {
+      adapterStaticSchemas: {
         test: {
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
         },
@@ -315,11 +315,11 @@ describe('ManifestGenerator', () => {
     // Act
     const parsed = JSON.parse(json);
     const parsedRecord = assertRecordValue(parsed);
-    const adapterSpecs = assertRecordValue(parsedRecord.adapterStaticSpecs);
+    const adapterSchemas = assertRecordValue(parsedRecord.adapterStaticSchemas);
     const handlerIndex = assertArrayValue(parsedRecord.handlerIndex);
 
     // Assert
-    expect(adapterSpecs.test).toBeDefined();
+    expect(adapterSchemas.test).toBeDefined();
     expect(handlerIndex).toEqual([{ id: 'test:src/controllers.ts#SampleController.handle' }]);
   });
 
@@ -336,7 +336,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {
+      adapterStaticSchemas: {
         b: {
           entryDecorators: { controller: 'Controller', handler: ['Get'] },
         },
@@ -355,11 +355,11 @@ describe('ManifestGenerator', () => {
     const diGraph = assertRecordValue(parsedRecord.diGraph);
     const nodes = assertArrayValue(diGraph.nodes);
     const handlerIndex = assertArrayValue(parsedRecord.handlerIndex);
-    const adapterSpecs = assertRecordValue(parsedRecord.adapterStaticSpecs);
+    const adapterSchemas = assertRecordValue(parsedRecord.adapterStaticSchemas);
 
     expect(modules.map(entry => assertRecordValue(entry).id)).toEqual(['src/a', 'src/b']);
     expect(nodes.map(entry => assertRecordValue(entry).id)).toEqual(['AModule::AService', 'BModule::BService']);
-    expect(Object.keys(adapterSpecs)).toEqual(['a', 'b']);
+    expect(Object.keys(adapterSchemas)).toEqual(['a', 'b']);
     expect(handlerIndex.map(entry => assertRecordValue(entry).id)).toEqual([
       'a:src/controllers.ts#AController.handle',
       'b:src/controllers.ts#BController.handle',
@@ -410,7 +410,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     });
     const parsed = JSON.parse(json);
@@ -436,7 +436,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     };
     const json1 = gen.generateJson({ graph: graph1, ...params });
@@ -461,7 +461,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     });
 
@@ -509,7 +509,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     });
     const parsed = JSON.parse(json);
@@ -539,7 +539,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     });
 
@@ -562,7 +562,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     });
     const parsed = JSON.parse(json);
@@ -579,7 +579,7 @@ describe('ManifestGenerator', () => {
     expect(() => JSON.parse(json)).not.toThrow();
   });
 
-  it('should generate parseable JSON when adapterStaticSpecs is empty', () => {
+  it('should generate parseable JSON when adapterStaticSchemas is empty', () => {
     // Arrange
     const graph = createSingleModuleGraph();
     const gen = new ManifestGenerator();
@@ -594,7 +594,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     });
 
@@ -617,7 +617,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     });
 
@@ -640,7 +640,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     });
 
@@ -663,7 +663,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     });
 
@@ -686,7 +686,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     });
 
@@ -707,7 +707,7 @@ describe('ManifestGenerator', () => {
         entry: 'src/main.ts',
         mcp: { exclude: [] },
       },
-      adapterStaticSpecs: {},
+      adapterStaticSchemas: {},
       handlerIndex: [],
     };
     // Act

@@ -4,7 +4,7 @@ import { join, resolve, relative } from 'path';
 
 import type { CommandOptions } from './types';
 
-import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
+import { AdapterDefinitionResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import { ConfigLoader, type ResolvedConfig } from '../config';
 import type { ConfigSource } from '../config/interfaces';
@@ -25,7 +25,7 @@ import { buildDevIncrementalImpactLog } from './dev-incremental-impact';
 export interface DevCommandDeps {
   loadConfig: () => Promise<{ config: ResolvedConfig; source: ConfigSource }>;
   createParser: () => AstParser;
-  createAdapterSpecResolver: () => AdapterSpecResolver;
+  createAdapterDefinitionResolver: () => AdapterDefinitionResolver;
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
   createGildash?: (opts: GildashOptions) => Promise<Gildash>;
 }
@@ -45,7 +45,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       const srcDir = resolve(projectRoot, config.sourceDir);
       const outDir = outputDirPath(projectRoot);
       const parser = deps.createParser();
-      const adapterSpecResolver = deps.createAdapterSpecResolver();
+      const adapterDefinitionResolver = deps.createAdapterDefinitionResolver();
       const fileCache = new Map<string, FileAnalysis>();
 
       const toProjectRelativePath = (filePath: string): string => {
@@ -126,10 +126,10 @@ export function createDevCommand(deps: DevCommandDeps) {
 
           graph.build();
 
-          const adapterSpecResolution = await adapterSpecResolver.resolve({ fileMap, projectRoot });
+          const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot });
 
-          if (isErr(adapterSpecResolution)) {
-            throw new DiagnosticError(adapterSpecResolution.data);
+          if (isErr(adapterResolution)) {
+            throw new DiagnosticError(adapterResolution.data);
           }
 
           const manifestGen = new ManifestGenerator();
@@ -138,8 +138,8 @@ export function createDevCommand(deps: DevCommandDeps) {
             projectRoot,
             source: configResult.source,
             resolvedConfig: config,
-            adapterStaticSpecs: adapterSpecResolution.adapterStaticSpecs,
-            handlerIndex: adapterSpecResolution.handlerIndex,
+            adapterStaticSchemas: adapterResolution.adapterStaticSchemas,
+            handlerIndex: adapterResolution.handlerIndex,
           });
 
           await mkdir(outDir, { recursive: true });
@@ -315,7 +315,7 @@ export async function dev(commandOptions?: CommandOptions): Promise<void> {
       return { config: result.config, source: result.source };
     },
     createParser: () => new AstParser(),
-    createAdapterSpecResolver: () => new AdapterSpecResolver(),
+    createAdapterDefinitionResolver: () => new AdapterDefinitionResolver(),
     scanFiles: ({ glob, baseDir }) => scanGlobSorted({ glob, baseDir }),
   });
   await impl(commandOptions);

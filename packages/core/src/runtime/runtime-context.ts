@@ -29,6 +29,12 @@ export function registerRuntimeContext(context: RuntimeContext): void {
     nextContext.isAotRuntime = currentContext.isAotRuntime;
   }
 
+  if (context.wireAdapterMiddlewares !== undefined) {
+    nextContext.wireAdapterMiddlewares = context.wireAdapterMiddlewares;
+  } else if (currentContext.wireAdapterMiddlewares !== undefined) {
+    nextContext.wireAdapterMiddlewares = currentContext.wireAdapterMiddlewares;
+  }
+
   if (nextContext.container && nextContext.scopedKeys) {
     nextContext.container.setScopedKeys(nextContext.scopedKeys);
   }

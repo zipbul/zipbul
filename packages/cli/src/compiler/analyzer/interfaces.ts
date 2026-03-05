@@ -91,35 +91,35 @@ export interface ImportEntry {
   isRelative: boolean;
 }
 
-export interface AdapterEntryDecoratorsSpec {
+export interface AdapterEntryDecoratorsSchema {
   controller: string;
   handler: string[];
 }
 
-export interface AdapterStaticSpec {
-  entryDecorators: AdapterEntryDecoratorsSpec;
+export interface AdapterStaticSchema {
+  entryDecorators: AdapterEntryDecoratorsSchema;
 }
 
-export interface AdapterSpecExtraction {
+export interface AdapterExtraction {
   adapterId: string;
-  staticSpec: AdapterStaticSpec;
+  staticSchema: AdapterStaticSchema;
 }
 
-export interface AdapterSpecExportResolution {
+export interface AdapterExportResolution {
   value: AnalyzerValue;
   sourceFile: string;
 }
 
-export interface AdapterStaticSpecResult {
+export interface AdapterStaticSchemaResult {
   adapterId: string;
-  staticSpec: AdapterStaticSpec;
+  staticSchema: AdapterStaticSchema;
 }
 
 export interface HandlerIndexEntry {
   id: string;
 }
 
-export interface AdapterSpecResolution {
-  adapterStaticSpecs: Record<string, AdapterStaticSpec>;
+export interface AdapterResolution {
+  adapterStaticSchemas: Record<string, AdapterStaticSchema>;
   handlerIndex: HandlerIndexEntry[];
 }

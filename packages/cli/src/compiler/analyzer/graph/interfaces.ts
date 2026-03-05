@@ -26,7 +26,7 @@ export interface FileAnalysis {
   injectCalls?: InjectCall[];
 }
 
-export interface AdapterSpecResolveParams {
+export interface AdapterResolveParams {
   fileMap: Map<string, FileAnalysis>;
   projectRoot: string;
 }

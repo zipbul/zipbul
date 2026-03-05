@@ -18,6 +18,7 @@ export abstract class Adapter {
 
   protected middlewareRegistry: MiddlewareRegistry = {};
   protected errorFilterTokens: ExceptionFilterToken[] = [];
+  middlewareWired = false;
 
   /**
    * Registers middlewares for a given pipeline hook.
@@ -32,6 +33,16 @@ export abstract class Adapter {
     const current = this.middlewareRegistry[hook];
     this.middlewareRegistry[hook] = current ? [...current, ...middlewares] : [...middlewares];
     return this;
+  }
+
+  /**
+   * Marks that AOT has completed adapter-level middleware wiring.
+   * Once marked, runtime DI bridge should skip redundant registration.
+   *
+   * @public
+   */
+  markMiddlewareWired(): void {
+    this.middlewareWired = true;
   }
 
   /**

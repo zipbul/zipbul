@@ -67,10 +67,17 @@ export class HttpAdapter extends Adapter {
     const workers = this.options.workers;
     const isSingleProcess = workers === undefined || workers === 1;
 
+    const runtimeCtx = getRuntimeContext();
+
+    if (runtimeCtx.wireAdapterMiddlewares) {
+      runtimeCtx.wireAdapterMiddlewares(this.name, this);
+      this.markMiddlewareWired();
+    }
+
     if (isSingleProcess) {
       this.httpServer = new HttpServer();
 
-      const runtimeContext = getRuntimeContext();
+      const runtimeContext = runtimeCtx;
       const metadata = this.normalizeMetadataRegistry(runtimeContext.metadataRegistry);
       const scopedKeys = runtimeContext.scopedKeys;
       const bootOptions: HttpServerBootOptions = {

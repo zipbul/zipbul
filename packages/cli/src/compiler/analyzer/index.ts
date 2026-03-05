@@ -5,6 +5,6 @@ export * from './validation';
 export { AstParser } from './ast-parser';
 export { AstTypeResolver } from './ast-type-resolver';
 export { ModuleDiscovery } from './module-discovery';
-export { AdapterSpecResolver } from './adapter-spec-resolver';
+export { AdapterDefinitionResolver } from './adapter-definition-resolver';
 
 export * from './graph';

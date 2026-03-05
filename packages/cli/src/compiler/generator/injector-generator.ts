@@ -488,6 +488,8 @@ export class InjectorGenerator {
       });
     });
 
+    const hasMiddlewares = adapterConfigs.length > 0;
+
     return `
 import { Container } from "@zipbul/core";
 import { setInjectionContext } from "@zipbul/common";
@@ -501,7 +503,21 @@ ${factoryEntries.join('\n')}
 export const adapterConfig = deepFreeze({
 ${adapterConfigs.join('\n')}
 });
-
+${hasMiddlewares ? `
+export function wireAdapterMiddlewares(adapterId: string, adapter: { addMiddlewares: (hook: string, list: readonly unknown[]) => unknown }) {
+  const config = (adapterConfig as Record<string, Record<string, unknown>>)[adapterId];
+  if (!config) return;
+  const middlewares = config.middlewares as Record<string, readonly unknown[]> | undefined;
+  if (!middlewares) return;
+  for (const [hook, list] of Object.entries(middlewares)) {
+    if (Array.isArray(list) && list.length > 0) {
+      adapter.addMiddlewares(hook, list);
+    }
+  }
+}
+` : `
+export function wireAdapterMiddlewares(_adapterId: string, _adapter: { addMiddlewares: (hook: string, list: readonly unknown[]) => unknown }) {}
+`}
 export async function registerDynamicModules(container: { loadDynamicModule: (name: string, module: unknown) => Promise<void> }) {
 ${dynamicEntries.join('\n')}
 }

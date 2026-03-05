@@ -8,7 +8,7 @@ import type { Gildash, GildashOptions } from '@zipbul/gildash';
 
 import type { BuildCommandDeps } from '../src/bin/build.command';
 import { __testing__ } from '../src/bin/build.command';
-import type { AstParser, AdapterSpecResolver } from '../src/compiler/analyzer';
+import type { AstParser, AdapterDefinitionResolver } from '../src/compiler/analyzer';
 import type { ResolvedConfig } from '../src/config';
 import { ConfigLoadError } from '../src/config';
 
@@ -80,8 +80,8 @@ const makeEntryGenMock = () => ({
 });
 
 const makeAdapterResolverMock = () => ({
-  resolve: mock(async () => ({ adapterStaticSpecs: [], handlerIndex: [] })),
-}) as unknown as AdapterSpecResolver;
+  resolve: mock(async () => ({ adapterStaticSchemas: [], handlerIndex: [] })),
+}) as unknown as AdapterDefinitionResolver;
 
 const makeGildashLedgerMock = () => ({
   hasCycle: mock(async () => false),
@@ -100,7 +100,7 @@ const makeDeps = (overrides?: Partial<BuildCommandDeps>): BuildCommandDeps => ({
   createParser: mock(() => makeParserMock()),
   createManifestGenerator: mock(() => makeManifestGenMock()) as unknown as BuildCommandDeps['createManifestGenerator'],
   createEntryGenerator: mock(() => makeEntryGenMock()),
-  createAdapterSpecResolver: mock(() => makeAdapterResolverMock()),
+  createAdapterDefinitionResolver: mock(() => makeAdapterResolverMock()),
   scanFiles: mock(async () => ['module.ts']),
   resolveImport: mock((_spec: string, _from: string) => { throw new Error('resolve'); }),
   buildBundle: mock(async () => ({ success: true as const, outputs: [], logs: [] })) as unknown as BuildCommandDeps['buildBundle'],
@@ -172,7 +172,7 @@ describe('createBuildCommand', () => {
     expect(deps.createEntryGenerator).toHaveBeenCalledTimes(1);
   });
 
-  it('should call createAdapterSpecResolver once when build() is invoked', async () => {
+  it('should call createAdapterDefinitionResolver once when build() is invoked', async () => {
     // Arrange
     const deps = makeDeps();
     const build = createBuildCommand(deps);
@@ -181,7 +181,7 @@ describe('createBuildCommand', () => {
     await build();
 
     // Assert
-    expect(deps.createAdapterSpecResolver).toHaveBeenCalledTimes(1);
+    expect(deps.createAdapterDefinitionResolver).toHaveBeenCalledTimes(1);
   });
 
   it('should call scanFiles with the resolved srcDir as baseDir when build() is invoked', async () => {

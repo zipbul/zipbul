@@ -7,7 +7,7 @@ import type { CollectedClass, CommandOptions } from './types';
 import { isErr } from '@zipbul/result';
 import { Logger } from '@zipbul/logger';
 import { Gildash, type GildashOptions } from '@zipbul/gildash';
-import { AdapterSpecResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
+import { AdapterDefinitionResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import {
   outputDirPath,
@@ -30,7 +30,7 @@ export interface BuildCommandDeps {
   createParser: () => AstParser;
   createManifestGenerator: () => ManifestGenerator;
   createEntryGenerator: () => EntryGenerator;
-  createAdapterSpecResolver: () => AdapterSpecResolver;
+  createAdapterDefinitionResolver: () => AdapterDefinitionResolver;
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
   resolveImport: (specifier: string, fromDir: string) => string;
   buildBundle: typeof Bun.build;
@@ -60,7 +60,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
       const parser = deps.createParser();
       const manifestGen = deps.createManifestGenerator();
-      const adapterSpecResolver = deps.createAdapterSpecResolver();
+      const adapterDefinitionResolver = deps.createAdapterDefinitionResolver();
       const fileMap = new Map<string, FileAnalysis>();
       const allClasses: CollectedClass[] = [];
 
@@ -251,10 +251,10 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         graph.build();
         await graph.validateInheritedScopes();
 
-        const adapterSpecResolution = await adapterSpecResolver.resolve({ fileMap, projectRoot });
+        const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot });
 
-        if (isErr(adapterSpecResolution)) {
-          throw new DiagnosticError(adapterSpecResolution.data);
+        if (isErr(adapterResolution)) {
+          throw new DiagnosticError(adapterResolution.data);
         }
 
         logger.info('🛠️  Generating intermediate manifests...');
@@ -267,8 +267,8 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           projectRoot,
           source: configResult.source,
           resolvedConfig: config,
-          adapterStaticSpecs: adapterSpecResolution.adapterStaticSpecs,
-          handlerIndex: adapterSpecResolution.handlerIndex,
+          adapterStaticSchemas: adapterResolution.adapterStaticSchemas,
+          handlerIndex: adapterResolution.handlerIndex,
         });
 
         await writeIfChanged(manifestFile, manifestJson);
@@ -294,8 +294,8 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           projectRoot,
           source: configResult.source,
           resolvedConfig: config,
-          adapterStaticSpecs: adapterSpecResolution.adapterStaticSpecs,
-          handlerIndex: adapterSpecResolution.handlerIndex,
+          adapterStaticSchemas: adapterResolution.adapterStaticSchemas,
+          handlerIndex: adapterResolution.handlerIndex,
         });
 
         if (manifestJsonGuard !== manifestJson) {
@@ -382,7 +382,7 @@ export async function build(commandOptions?: CommandOptions): Promise<void> {
     createParser: () => new AstParser(),
     createManifestGenerator: () => new ManifestGenerator(),
     createEntryGenerator: () => new EntryGenerator(),
-    createAdapterSpecResolver: () => new AdapterSpecResolver(),
+    createAdapterDefinitionResolver: () => new AdapterDefinitionResolver(),
     scanFiles: ({ glob, baseDir }) => scanGlobSorted({ glob, baseDir }),
     resolveImport: (specifier, fromDir) => Bun.resolveSync(specifier, fromDir),
     buildBundle: (...args) => Bun.build(...args),

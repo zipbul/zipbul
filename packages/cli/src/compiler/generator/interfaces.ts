@@ -1,6 +1,6 @@
 import type { ClassMetadata } from '../analyzer';
 import type { ModuleGraph } from '../analyzer/graph/module-graph';
-import type { AdapterStaticSpec, HandlerIndexEntry } from '../analyzer/interfaces';
+import type { AdapterStaticSchema, HandlerIndexEntry } from '../analyzer/interfaces';
 import type { AnalyzerValue } from '../analyzer/types';
 import type { ConfigSource, ResolvedConfig } from '../../config/interfaces';
 
@@ -9,7 +9,7 @@ export interface ManifestJsonParams {
   projectRoot: string;
   source: ConfigSource;
   resolvedConfig: ResolvedConfig;
-  adapterStaticSpecs: Record<string, AdapterStaticSpec>;
+  adapterStaticSchemas: Record<string, AdapterStaticSchema>;
   handlerIndex: HandlerIndexEntry[];
 }
 
@@ -55,7 +55,7 @@ export interface ManifestJsonModel {
   schemaVersion: string;
   config: ManifestConfig;
   modules: ManifestModuleDescriptor[];
-  adapterStaticSpecs: Record<string, AdapterStaticSpec>;
+  adapterStaticSchemas: Record<string, AdapterStaticSchema>;
   diGraph: ManifestDiGraph;
   handlerIndex: HandlerIndexEntry[];
 }

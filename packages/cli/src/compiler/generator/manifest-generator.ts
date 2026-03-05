@@ -13,7 +13,7 @@ import type {
 } from './interfaces';
 
 import { isErr } from '@zipbul/result';
-import { type AdapterStaticSpec, type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
+import { type AdapterStaticSchema, type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint, PathResolver } from '../../common';
 import { ImportRegistry } from './import-registry';
 import { InjectorGenerator } from './injector-generator';
@@ -162,6 +162,7 @@ registerRuntimeContext({
   metadataRegistry,
   scopedKeys: scopedKeysMap,
   isAotRuntime: true,
+  wireAdapterMiddlewares,
 });
 
 `;
@@ -174,7 +175,7 @@ registerRuntimeContext({
   }
 
   private buildJsonModel(params: ManifestJsonParams): ManifestJsonModel {
-    const { graph, projectRoot, source, resolvedConfig, adapterStaticSpecs, handlerIndex } = params;
+    const { graph, projectRoot, source, resolvedConfig, adapterStaticSchemas, handlerIndex } = params;
     const sortedModules = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));
     const moduleDescriptors = sortedModules.map(node => {
       const moduleRoot = dirname(node.filePath);
@@ -305,21 +306,21 @@ registerRuntimeContext({
     });
 
     const sortedDiNodes = diNodes.sort((a, b) => compareCodePoint(a.id, b.id));
-    const sortedAdapterStaticSpecs: Record<string, AdapterStaticSpec> = {};
-    const sortedAdapterIds = Object.keys(adapterStaticSpecs).sort(compareCodePoint);
+    const sortedAdapterStaticSchemas: Record<string, AdapterStaticSchema> = {};
+    const sortedAdapterIds = Object.keys(adapterStaticSchemas).sort(compareCodePoint);
 
     sortedAdapterIds.forEach(adapterId => {
-      const spec = adapterStaticSpecs[adapterId];
+      const schema = adapterStaticSchemas[adapterId];
 
-      if (spec) {
-        sortedAdapterStaticSpecs[adapterId] = spec;
+      if (schema) {
+        sortedAdapterStaticSchemas[adapterId] = schema;
       }
     });
 
     const sortedHandlerIndex = [...handlerIndex].sort((a, b) => compareCodePoint(a.id, b.id));
 
     return {
-      schemaVersion: '3',
+      schemaVersion: '4',
       config: {
         sourcePath: PathResolver.normalize(source.path),
         sourceFormat: source.format,
@@ -328,7 +329,7 @@ registerRuntimeContext({
         },
       },
       modules: sortedModuleDescriptors,
-      adapterStaticSpecs: sortedAdapterStaticSpecs,
+      adapterStaticSchemas: sortedAdapterStaticSchemas,
       diGraph: {
         nodes: sortedDiNodes,
       },

@@ -11,7 +11,7 @@ import type { ClassMetadata, PropertyMetadata } from './interfaces';
 import { createBunFileStub } from '../../../test/shared/stubs';
 import { PathResolver } from '../../common';
 import { AstParser } from './ast-parser';
-import { AdapterSpecResolver } from './adapter-spec-resolver';
+import { AdapterDefinitionResolver } from './adapter-definition-resolver';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,7 +95,7 @@ const wrapDefineAdapter = (...args: AnalyzerValue[]): AnalyzerValueRecord => ({
 // Test suite
 // ---------------------------------------------------------------------------
 
-describe('AdapterSpecResolver', () => {
+describe('AdapterDefinitionResolver', () => {
   const projectRoot = '/project';
   const srcDir = join(projectRoot, 'src');
   const adapterDir = join(projectRoot, 'adapters', 'test-adapter');
@@ -178,15 +178,15 @@ describe('AdapterSpecResolver', () => {
   it('should resolve adapter with class reference containing all required property initializers', async () => {
     // Arrange
     const fileMap = buildStandardFileMap();
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert
-    expect(Object.keys(result.adapterStaticSpecs)).toEqual(['test']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['test']);
 
-    const spec = result.adapterStaticSpecs.test;
+    const spec = result.adapterStaticSchemas.test;
 
     expect(spec?.entryDecorators).toEqual({ controller: 'Controller', handler: ['Get'] });
   });
@@ -273,13 +273,13 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(entryAnalysisB, entryParseB);
     fileMap.set(entryB, entryAnalysisB);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert
-    expect(Object.keys(result.adapterStaticSpecs)).toEqual(['alpha', 'beta']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['alpha', 'beta']);
   });
 
   it('should resolve adapterDefinition via re-export barrel (export all)', async () => {
@@ -324,13 +324,13 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(specFile, specAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert
-    expect(Object.keys(result.adapterStaticSpecs)).toEqual(['test']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['test']);
   });
 
   it('should resolve adapterDefinition via named re-export', async () => {
@@ -372,19 +372,19 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(specFile, specAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert
-    expect(Object.keys(result.adapterStaticSpecs)).toEqual(['test']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['test']);
   });
 
   it('should build handlerIndex with correct id format', async () => {
     // Arrange
     const fileMap = buildStandardFileMap();
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -455,12 +455,12 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert — should not throw (module middleware hook 'OnReceive' is valid)
     const result = await resolver.resolve({ fileMap, projectRoot });
 
-    expect(Object.keys(result.adapterStaticSpecs)).toEqual(['test']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['test']);
   });
 
   it('should collect middleware phase ids from @Middlewares decorator (string form)', async () => {
@@ -507,7 +507,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -559,7 +559,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -598,7 +598,7 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -635,7 +635,7 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -672,7 +672,7 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -709,7 +709,7 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -722,7 +722,7 @@ describe('AdapterSpecResolver', () => {
   it('should throw when name property is missing or empty', async () => {
     // Arrange — missing name
     const fileMap1 = buildStandardFileMap(createTestAdapterClass('TestAdapter', { name: undefined }));
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     const result1 = await resolver.resolve({ fileMap: fileMap1, projectRoot });
     expect(isErr(result1)).toBe(true);
@@ -750,7 +750,7 @@ describe('AdapterSpecResolver', () => {
         },
       }),
     );
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -770,7 +770,7 @@ describe('AdapterSpecResolver', () => {
         },
       }),
     );
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     const result1 = await resolver.resolve({ fileMap: fileMap1, projectRoot });
     expect(isErr(result1)).toBe(true);
@@ -821,7 +821,7 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -869,7 +869,7 @@ describe('AdapterSpecResolver', () => {
       fileMap.set(ep, analysis);
     }
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -941,7 +941,7 @@ describe('AdapterSpecResolver', () => {
       fileMap.set(ep as string, analysis);
     }
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -990,7 +990,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1034,7 +1034,7 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1088,7 +1088,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1133,14 +1133,14 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert
     expect(result.handlerIndex).toEqual([]);
-    expect(Object.keys(result.adapterStaticSpecs)).toEqual(['test']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['test']);
   });
 
   it('should handle file not found on disk when resolving entry', async () => {
@@ -1164,7 +1164,7 @@ describe('AdapterSpecResolver', () => {
 
     setup.existsByPath.set(nonExistentEntry, false);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert — no adapterDefinition found since file doesn't exist
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1193,7 +1193,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert — no .ts entry → no adapterDefinition found
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1244,7 +1244,7 @@ describe('AdapterSpecResolver', () => {
 
     fileMap.set(fileB, analysisB);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert — should not stack overflow, instead throws "No adapterDefinition"
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1297,7 +1297,7 @@ describe('AdapterSpecResolver', () => {
       fileMap.set(ep as string, analysis);
     }
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert — duplicate before middleware/controller validation
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1311,7 +1311,7 @@ describe('AdapterSpecResolver', () => {
   // Ordering (OR)
   // =======================================================================
 
-  it('should sort adapterStaticSpecs alphabetically', async () => {
+  it('should sort adapterStaticSchemas alphabetically', async () => {
     // Arrange
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
@@ -1383,13 +1383,13 @@ describe('AdapterSpecResolver', () => {
       fileMap.set(ep as string, analysis);
     }
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert — alphabetical order
-    expect(Object.keys(result.adapterStaticSpecs)).toEqual(['alpha', 'bravo']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['alpha', 'bravo']);
   });
 
   it('should sort handler index alphabetically', async () => {
@@ -1427,7 +1427,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1540,7 +1540,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(otherEntry, otherParse);
     fileMap.set(otherEntryFile, otherEntry);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // Act
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1563,7 +1563,7 @@ describe('AdapterSpecResolver', () => {
     ].join('\n');
 
     const fileMap = buildFileMapWithCode(code);
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
@@ -1585,7 +1585,7 @@ describe('AdapterSpecResolver', () => {
     ].join('\n');
 
     const fileMap = buildFileMapWithCode(code);
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
@@ -1607,7 +1607,7 @@ describe('AdapterSpecResolver', () => {
     ].join('\n');
 
     const fileMap = buildFileMapWithCode(code);
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
@@ -1629,7 +1629,7 @@ describe('AdapterSpecResolver', () => {
     ].join('\n');
 
     const fileMap = buildFileMapWithCode(code);
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
@@ -1651,7 +1651,7 @@ describe('AdapterSpecResolver', () => {
     ].join('\n');
 
     const fileMap = buildFileMapWithCode(code);
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
@@ -1673,7 +1673,7 @@ describe('AdapterSpecResolver', () => {
     ].join('\n');
 
     const fileMap = buildFileMapWithCode(code);
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
@@ -1695,7 +1695,7 @@ describe('AdapterSpecResolver', () => {
     ].join('\n');
 
     const fileMap = buildFileMapWithCode(code);
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
@@ -1735,7 +1735,7 @@ describe('AdapterSpecResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     expect(isErr(result)).toBe(false);
@@ -1754,7 +1754,7 @@ describe('AdapterSpecResolver', () => {
     ].join('\n');
 
     const fileMap = buildFileMapWithCode(code);
-    const resolver = new AdapterSpecResolver();
+    const resolver = new AdapterDefinitionResolver();
 
     // isStatic check should fire first, not isPrivateName
     const result = await resolver.resolve({ fileMap, projectRoot });

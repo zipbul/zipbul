@@ -1,11 +1,11 @@
-import type { AdapterSpecResolveParams, FileAnalysis } from './graph/interfaces';
+import type { AdapterResolveParams, FileAnalysis } from './graph/interfaces';
 import type {
-  AdapterSpecExtraction,
-  AdapterSpecExportResolution,
-  AdapterSpecResolution,
-  AdapterStaticSpecResult,
-  AdapterStaticSpec,
-  AdapterEntryDecoratorsSpec,
+  AdapterExtraction,
+  AdapterExportResolution,
+  AdapterResolution,
+  AdapterStaticSchemaResult,
+  AdapterStaticSchema,
+  AdapterEntryDecoratorsSchema,
   HandlerIndexEntry,
 } from './interfaces';
 import type { ClassMetadata } from './interfaces';
@@ -20,7 +20,7 @@ import { buildDiagnostic } from '../../diagnostics';
 import { PathResolver } from '../../common';
 import { AstParser } from './ast-parser';
 
-const logger = new Logger('AdapterSpecResolver');
+const logger = new Logger('AdapterDefinitionResolver');
 
 const VALID_HOOKS = new Set<string>(Object.values(MiddlewareHook));
 
@@ -36,13 +36,13 @@ const isNonEmptyString = (value: string | null | undefined): value is string => 
   return typeof value === 'string' && value.length > 0;
 };
 
-export class AdapterSpecResolver {
+export class AdapterDefinitionResolver {
   private parser = new AstParser();
 
-  async resolve(params: AdapterSpecResolveParams): Promise<Result<AdapterSpecResolution, Diagnostic>> {
+  async resolve(params: AdapterResolveParams): Promise<Result<AdapterResolution, Diagnostic>> {
     const { fileMap, projectRoot } = params;
     const entryFiles = this.collectPackageEntryFiles(fileMap);
-    const adapterSpecs: AdapterSpecExtraction[] = [];
+    const adapterExtractions: AdapterExtraction[] = [];
 
     for (const entryFile of entryFiles) {
       const resolvedExport = await this.resolveAdapterDefinitionExport(entryFile, fileMap, new Set());
@@ -93,28 +93,28 @@ export class AdapterSpecResolver {
       const extraction = this.extractFromClassProperties(classMetadata, resolvedExport.sourceFile);
       if (isErr(extraction)) return extraction;
 
-      adapterSpecs.push({ adapterId: extraction.adapterId, staticSpec: extraction.staticSpec });
+      adapterExtractions.push({ adapterId: extraction.adapterId, staticSchema: extraction.staticSchema });
     }
 
-    if (adapterSpecs.length === 0) {
+    if (adapterExtractions.length === 0) {
       return err(buildDiagnostic({
         reason: 'No adapter definition found. Export an adapterDefinition from your adapter package entry file.',
       }));
     }
 
-    const adapterStaticSpecs = this.buildAdapterStaticSpecSet(adapterSpecs);
-    if (isErr(adapterStaticSpecs)) return adapterStaticSpecs;
+    const adapterStaticSchemas = this.buildAdapterStaticSchemaSet(adapterExtractions);
+    if (isErr(adapterStaticSchemas)) return adapterStaticSchemas;
 
-    const controllerAdapterMap = this.buildControllerAdapterMap(adapterSpecs, fileMap);
+    const controllerAdapterMap = this.buildControllerAdapterMap(adapterExtractions, fileMap);
     if (isErr(controllerAdapterMap)) return controllerAdapterMap;
 
-    const middlewareValidation = this.validateMiddlewarePhaseInputs(adapterSpecs, fileMap, controllerAdapterMap);
+    const middlewareValidation = this.validateMiddlewarePhaseInputs(adapterExtractions, fileMap, controllerAdapterMap);
     if (isErr(middlewareValidation)) return middlewareValidation;
 
-    const handlerIndex = this.buildHandlerIndex(adapterSpecs, fileMap, projectRoot, controllerAdapterMap);
+    const handlerIndex = this.buildHandlerIndex(adapterExtractions, fileMap, projectRoot, controllerAdapterMap);
     if (isErr(handlerIndex)) return handlerIndex;
 
-    return { adapterStaticSpecs, handlerIndex };
+    return { adapterStaticSchemas, handlerIndex };
   }
 
   private collectPackageEntryFiles(fileMap: Map<string, FileAnalysis>): string[] {
@@ -159,7 +159,7 @@ export class AdapterSpecResolver {
     filePath: string,
     fileMap: Map<string, FileAnalysis>,
     visited: Set<string>,
-  ): Promise<AdapterSpecExportResolution | null> {
+  ): Promise<AdapterExportResolution | null> {
     if (visited.has(filePath)) {
       return null;
     }
@@ -324,7 +324,7 @@ export class AdapterSpecResolver {
     return null;
   }
 
-  private extractFromClassProperties(classMetadata: ClassMetadata, sourceFile: string): Result<AdapterStaticSpecResult, Diagnostic> {
+  private extractFromClassProperties(classMetadata: ClassMetadata, sourceFile: string): Result<AdapterStaticSchemaResult, Diagnostic> {
     const nameProperty = classMetadata.properties.find(p => p.name === 'name');
     const adapterId = nameProperty?.initializer;
 
@@ -379,41 +379,41 @@ export class AdapterSpecResolver {
       handler.push(rec.__zipbul_ref);
     }
 
-    const entryDecorators: AdapterEntryDecoratorsSpec = { controller, handler };
+    const entryDecorators: AdapterEntryDecoratorsSchema = { controller, handler };
 
     return {
       adapterId,
-      staticSpec: {
+      staticSchema: {
         entryDecorators,
       },
     };
   }
 
-  private buildAdapterStaticSpecSet(extractions: AdapterSpecExtraction[]): Result<Record<string, AdapterStaticSpec>, Diagnostic> {
+  private buildAdapterStaticSchemaSet(extractions: AdapterExtraction[]): Result<Record<string, AdapterStaticSchema>, Diagnostic> {
     const sorted = [...extractions].sort((a, b) => a.adapterId.localeCompare(b.adapterId));
-    const adapterStaticSpecs: Record<string, AdapterStaticSpec> = {};
+    const adapterStaticSchemas: Record<string, AdapterStaticSchema> = {};
 
     for (const entry of sorted) {
-      if (Object.prototype.hasOwnProperty.call(adapterStaticSpecs, entry.adapterId)) {
+      if (Object.prototype.hasOwnProperty.call(adapterStaticSchemas, entry.adapterId)) {
         return err(buildDiagnostic({
           reason: `Duplicate adapterId detected: ${entry.adapterId}`,
         }));
       }
 
-      adapterStaticSpecs[entry.adapterId] = entry.staticSpec;
+      adapterStaticSchemas[entry.adapterId] = entry.staticSchema;
     }
 
-    return adapterStaticSpecs;
+    return adapterStaticSchemas;
   }
 
   private buildControllerAdapterMap(
-    extractions: AdapterSpecExtraction[],
+    extractions: AdapterExtraction[],
     fileMap: Map<string, FileAnalysis>,
   ): Result<Map<string, string>, Diagnostic> {
     const adapterByController = new Map<string, string>();
     const adapters = extractions.map(extraction => ({
       adapterId: extraction.adapterId,
-      entryDecorators: extraction.staticSpec.entryDecorators,
+      entryDecorators: extraction.staticSchema.entryDecorators,
     }));
 
     for (const analysis of fileMap.values()) {
@@ -461,7 +461,7 @@ export class AdapterSpecResolver {
 
   private extractAdapterIds(
     decorator: { name: string; arguments: readonly import('./types').AnalyzerValue[] },
-    extractions: AdapterSpecExtraction[],
+    extractions: AdapterExtraction[],
   ): Result<string[] | null, Diagnostic> {
     const args = decorator.arguments;
 
@@ -516,7 +516,7 @@ export class AdapterSpecResolver {
   }
 
   private buildHandlerIndex(
-    extractions: AdapterSpecExtraction[],
+    extractions: AdapterExtraction[],
     fileMap: Map<string, FileAnalysis>,
     projectRoot: string,
     controllerAdapterMap: Map<string, string>,
@@ -530,7 +530,7 @@ export class AdapterSpecResolver {
 
         for (const method of cls.methods) {
           for (const extraction of extractions) {
-            const handlerDecorators = extraction.staticSpec.entryDecorators.handler;
+            const handlerDecorators = extraction.staticSchema.entryDecorators.handler;
             const hasHandlerDecorator = method.decorators.some(dec => handlerDecorators.includes(dec.name));
 
             if (!hasHandlerDecorator) {
@@ -599,7 +599,7 @@ export class AdapterSpecResolver {
   }
 
   private validateMiddlewarePhaseInputs(
-    extractions: AdapterSpecExtraction[],
+    extractions: AdapterExtraction[],
     fileMap: Map<string, FileAnalysis>,
     controllerAdapterMap: Map<string, string>,
   ): Result<void, Diagnostic> {
@@ -610,7 +610,7 @@ export class AdapterSpecResolver {
       const decoratorPhaseIds = this.collectDecoratorPhaseIds(
         fileMap,
         extraction.adapterId,
-        extraction.staticSpec.entryDecorators,
+        extraction.staticSchema.entryDecorators,
         controllerAdapterMap,
       );
       if (isErr(decoratorPhaseIds)) return decoratorPhaseIds;
@@ -701,7 +701,7 @@ export class AdapterSpecResolver {
   private collectDecoratorPhaseIds(
     fileMap: Map<string, FileAnalysis>,
     adapterId: string,
-    entryDecorators: AdapterEntryDecoratorsSpec,
+    entryDecorators: AdapterEntryDecoratorsSchema,
     controllerAdapterMap: Map<string, string>,
   ): Result<string[], Diagnostic> {
     const phaseIds: string[] = [];

@@ -417,9 +417,13 @@ export class RequestHandler {
 
   /**
    * Bridges DI-loaded middlewares into the adapter's middleware registry.
-   * This is a transitional pattern until AOT emits `adapter.addMiddlewares()` calls directly.
+   * Skipped when AOT has already wired middlewares via `wireAdapterMiddlewares`.
    */
   private bridgeMiddlewares(): void {
+    if (this.adapter.middlewareWired) {
+      return;
+    }
+
     const preHandle = this.resolveMiddlewares(HTTP_PRE_HANDLE);
     const onComplete = this.resolveMiddlewares(HTTP_ON_COMPLETE);
 

@@ -7,7 +7,7 @@ import type { Gildash, GildashOptions } from '@zipbul/gildash';
 
 import type { DevCommandDeps } from '../src/bin/dev.command';
 import { __testing__ } from '../src/bin/dev.command';
-import type { AstParser, AdapterSpecResolver } from '../src/compiler/analyzer';
+import type { AstParser, AdapterDefinitionResolver } from '../src/compiler/analyzer';
 import type { ResolvedConfig } from '../src/config';
 import { ConfigLoadError } from '../src/config';
 
@@ -69,8 +69,8 @@ const makeParserMock = () => ({
 }) as unknown as AstParser;
 
 const makeAdapterResolverMock = () => ({
-  resolve: mock(async () => ({ adapterStaticSpecs: [], handlerIndex: [] })),
-}) as unknown as AdapterSpecResolver;
+  resolve: mock(async () => ({ adapterStaticSchemas: [], handlerIndex: [] })),
+}) as unknown as AdapterDefinitionResolver;
 
 const makeGildashLedgerMock = () => ({
   onIndexed: mock((_cb: unknown) => mock(() => {})),
@@ -83,7 +83,7 @@ const makeGildashMock = () => mock(async (_opts: GildashOptions) => makeGildashL
 const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
   loadConfig: mock(async () => ({ config: testConfig, source: makeSource() })),
   createParser: mock(() => makeParserMock()),
-  createAdapterSpecResolver: mock(() => makeAdapterResolverMock()),
+  createAdapterDefinitionResolver: mock(() => makeAdapterResolverMock()),
   scanFiles: mock(async () => ['module.ts', 'main.ts']),
   createGildash: makeGildashMock(),
   ...overrides,
@@ -129,7 +129,7 @@ describe('createDevCommand', () => {
     expect(deps.createParser).toHaveBeenCalledTimes(1);
   });
 
-  it('should call createAdapterSpecResolver once when dev() is invoked', async () => {
+  it('should call createAdapterDefinitionResolver once when dev() is invoked', async () => {
     // Arrange
     const deps = makeDeps();
     const dev = createDevCommand(deps);
@@ -138,7 +138,7 @@ describe('createDevCommand', () => {
     await dev();
 
     // Assert
-    expect(deps.createAdapterSpecResolver).toHaveBeenCalledTimes(1);
+    expect(deps.createAdapterDefinitionResolver).toHaveBeenCalledTimes(1);
   });
 
   it('should call scanFiles with the resolved srcDir as baseDir when dev() is invoked', async () => {
