@@ -10,7 +10,7 @@ export * from './errors/errors';
 export { ContextError } from './errors/context.error';
 export { ExceptionFilter } from './exception-filter';
 export { defineMiddleware } from './define-middleware';
-export type { MiddlewareHandlerFn, MiddlewareDefinition } from './define-middleware';
+export type { MiddlewareHandlerFn, MiddlewareDefinition, MiddlewareHalt } from './define-middleware';
 
 export * from './decorators/index';
 export * from './utils';

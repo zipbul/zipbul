@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { StatusCodes } from 'http-status-codes';
+import { isErr } from '@zipbul/common';
 
 import type { HttpAdapter } from '../../adapter/http-adapter';
 
@@ -511,7 +512,7 @@ describe('cors.middleware', () => {
         const result = await middleware.handler(ctx);
 
         // Assert
-        expect(result).toBe(false);
+        expect(isErr(result)).toBe(true);
         expect(getResHeader(ctx, HeaderField.AccessControlAllowOrigin)).toBe('*');
         expect(getResHeader(ctx, HeaderField.AccessControlAllowMethods)).toBe(CORS_DEFAULT_METHODS.join(','));
         expect(ctx.response.getStatus()).toBe(StatusCodes.NO_CONTENT);
@@ -528,7 +529,7 @@ describe('cors.middleware', () => {
         const result = await middleware.handler(ctx);
 
         // Assert
-        expect(result).toBe(false);
+        expect(isErr(result)).toBe(true);
         expect(ctx.response.getStatus()).toBe(StatusCodes.OK);
       });
 
@@ -576,7 +577,7 @@ describe('cors.middleware', () => {
         const result = await middleware.handler(ctx);
 
         // Assert
-        expect(result).toBe(false);
+        expect(isErr(result)).toBe(true);
         expect(getResHeader(ctx, HeaderField.AccessControlAllowMethods)).toBe('GET,POST,CUSTOM');
       });
 
@@ -914,7 +915,7 @@ describe('cors.middleware', () => {
       const result = await middleware.handler(ctx);
 
       // Assert
-      expect(result).toBe(false);
+      expect(isErr(result)).toBe(true);
     });
 
     it('should handle multiple origins in sequence when middleware is reused', async () => {
@@ -971,7 +972,7 @@ describe('cors.middleware', () => {
       const preflightResult = await middleware.handler(preflightCtx);
 
       // Assert
-      expect(preflightResult).toBe(false);
+      expect(isErr(preflightResult)).toBe(true);
       expect(getResHeader(preflightCtx, HeaderField.AccessControlAllowOrigin)).toBe('https://app.example.com');
       expect(getResHeader(preflightCtx, HeaderField.AccessControlAllowMethods)).toBe('GET,POST,PUT,DELETE');
       expect(getResHeader(preflightCtx, HeaderField.AccessControlAllowHeaders)).toBe('Content-Type,Authorization,X-Request-Id');

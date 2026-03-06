@@ -69,11 +69,6 @@ export class HttpAdapter extends Adapter {
 
     const runtimeCtx = getRuntimeContext();
 
-    if (runtimeCtx.wireAdapterMiddlewares) {
-      runtimeCtx.wireAdapterMiddlewares(this.name, this);
-      this.markMiddlewareWired();
-    }
-
     if (isSingleProcess) {
       this.httpServer = new HttpServer();
 

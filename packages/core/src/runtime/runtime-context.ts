@@ -29,10 +29,10 @@ export function registerRuntimeContext(context: RuntimeContext): void {
     nextContext.isAotRuntime = currentContext.isAotRuntime;
   }
 
-  if (context.wireAdapterMiddlewares !== undefined) {
-    nextContext.wireAdapterMiddlewares = context.wireAdapterMiddlewares;
-  } else if (currentContext.wireAdapterMiddlewares !== undefined) {
-    nextContext.wireAdapterMiddlewares = currentContext.wireAdapterMiddlewares;
+  if (context.adapterConfig !== undefined) {
+    nextContext.adapterConfig = context.adapterConfig;
+  } else if (currentContext.adapterConfig !== undefined) {
+    nextContext.adapterConfig = currentContext.adapterConfig;
   }
 
   if (nextContext.container && nextContext.scopedKeys) {

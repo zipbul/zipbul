@@ -1,4 +1,4 @@
-import { defineMiddleware, type MiddlewareDefinition } from '@zipbul/common';
+import { defineMiddleware, err, type MiddlewareDefinition } from '@zipbul/common';
 
 import type { CorsOptions } from './interfaces';
 
@@ -121,7 +121,7 @@ export function corsMiddleware(options: CorsOptions = {}): MiddlewareDefinition 
       // End response with success status
       res.setStatus(optionsSuccessStatus);
 
-      return false;
+      return err({ reason: 'cors_preflight' });
     }
   });
 }

@@ -1,16 +1,29 @@
+import type { Result, ResultAsync } from '@zipbul/result';
 import type { Context } from './interfaces';
 
 /**
- * Handler function for a middleware definition.
- * Receives the current execution context and optionally returns
- * `false` to abort the pipeline, or `void` to continue.
- *
- * @param ctx - The execution context for the current request.
- * @returns `void` to continue, `false` to halt the pipeline.
+ * Structured reason for a middleware halting the pipeline.
  *
  * @public
  */
-export type MiddlewareHandlerFn = (ctx: Context) => void | boolean | Promise<void | boolean>;
+export interface MiddlewareHalt {
+  readonly reason: string;
+  readonly message?: string;
+}
+
+/**
+ * Handler function for a middleware definition.
+ * Receives the current execution context and returns a {@link Result}
+ * indicating whether to continue (`void`) or halt (`Err<MiddlewareHalt>`).
+ *
+ * @param ctx - The execution context for the current request.
+ * @returns `void` to continue, `Err<MiddlewareHalt>` to halt the pipeline.
+ *
+ * @public
+ */
+export type MiddlewareHandlerFn = (
+  ctx: Context,
+) => Result<void, MiddlewareHalt> | ResultAsync<void, MiddlewareHalt>;
 
 /**
  * Immutable middleware definition produced by {@link defineMiddleware}.

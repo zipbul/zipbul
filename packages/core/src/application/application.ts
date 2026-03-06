@@ -7,6 +7,7 @@ import type {
   ClassToken,
   ModuleMarker,
 } from '@zipbul/common';
+import { MiddlewareHook } from '@zipbul/common';
 
 import { seal } from '@zipbul/baker';
 
@@ -17,6 +18,12 @@ import { getRuntimeContext } from '../runtime/runtime-context';
 import type { AdapterEntry, AddAdapterConfig, CreateApplicationOptions } from './interfaces';
 
 export class AppContext implements Context {
+  readonly container: ZipbulContainer;
+
+  constructor(container: ZipbulContainer) {
+    this.container = container;
+  }
+
   getType(): string {
     return 'application';
   }
@@ -107,10 +114,27 @@ export class Application {
     }
 
     this.started = true;
-    const context = new AppContext();
+    const context = new AppContext(this.container);
     this.startOrder = this.topologicalSort();
     seal();
     await runInitHooks(this.container);
+
+    const runtimeCtx = getRuntimeContext();
+
+    for (const entry of this.startOrder) {
+      const config = runtimeCtx.adapterConfig?.[entry.name];
+
+      if (config?.middlewares) {
+        for (const hook of Object.values(MiddlewareHook)) {
+          const middlewares = config.middlewares[hook];
+
+          if (middlewares !== undefined && middlewares.length > 0) {
+            entry.adapter.addMiddlewares(hook, middlewares);
+          }
+        }
+      }
+    }
+
     const started: AdapterEntry[] = [];
 
     try {

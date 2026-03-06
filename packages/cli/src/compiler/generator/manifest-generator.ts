@@ -162,7 +162,7 @@ registerRuntimeContext({
   metadataRegistry,
   scopedKeys: scopedKeysMap,
   isAotRuntime: true,
-  wireAdapterMiddlewares,
+  adapterConfig,
 });
 
 `;

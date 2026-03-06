@@ -4,6 +4,7 @@ import {
   ExceptionFilter,
   MiddlewareHook,
   Adapter,
+  isErr,
   type ZipbulArray,
   type ZipbulContainer,
   type ZipbulRecord,
@@ -133,9 +134,9 @@ export class HttpServer {
       const context = new HttpContext(adapter);
 
       // 1. OnReceive
-      const continueOnReceive = await this.adapter.runMiddlewares(MiddlewareHook.OnReceive, context);
+      const onReceiveResult = await this.adapter.runMiddlewares(MiddlewareHook.OnReceive, context);
 
-      if (!continueOnReceive) {
+      if (isErr(onReceiveResult)) {
         return this.toResponse(zipbulRes.end());
       }
 
@@ -180,9 +181,9 @@ export class HttpServer {
       zipbulReq.query = queryParams;
 
       // 2. PostParseData
-      const continuePostParseData = await this.adapter.runMiddlewares(MiddlewareHook.PostParseData, context);
+      const postParseResult = await this.adapter.runMiddlewares(MiddlewareHook.PostParseData, context);
 
-      if (!continuePostParseData) {
+      if (isErr(postParseResult)) {
         return this.toResponse(zipbulRes.end());
       }
 
@@ -194,7 +195,11 @@ export class HttpServer {
 
       // 4. OnComplete (post-response, errors suppressed)
       try {
-        await this.adapter.runMiddlewares(MiddlewareHook.OnComplete, context);
+        const onCompleteResult = await this.adapter.runMiddlewares(MiddlewareHook.OnComplete, context);
+
+        if (isErr(onCompleteResult)) {
+          this.logger.debug(`OnComplete halted: ${onCompleteResult.data.reason}`);
+        }
       } catch (error) {
         const logValue: LogMetadataValue =
           error instanceof Error

@@ -1,9 +1,15 @@
 import { createApplication } from '@zipbul/core';
+import { HttpAdapter } from '@zipbul/http-adapter';
 
 import { appModule } from './module';
 import { UsersService } from './users/users.service';
 
 const app = createApplication(appModule);
+
+app.addAdapter(new HttpAdapter({ port: 5000 }), {
+  name: 'http',
+  protocol: 'http',
+});
 
 await app.start();
 

@@ -1,8 +1,15 @@
 import { describe, it, expect, mock, beforeEach, type Mock } from 'bun:test';
 import type { Adapter, Context, ZipbulContainer, ProviderToken } from '@zipbul/common';
+import { MiddlewareHook, defineMiddleware } from '@zipbul/common';
+
+let mockAdapterConfig: Record<string, unknown> | undefined;
 
 mock.module('@zipbul/baker', () => ({
   seal: () => {},
+}));
+
+mock.module('../runtime/runtime-context', () => ({
+  getRuntimeContext: () => ({ adapterConfig: mockAdapterConfig }),
 }));
 
 const { Application } = await import('./application');
@@ -24,6 +31,7 @@ describe('Application', () => {
   let app: Application;
 
   beforeEach(() => {
+    mockAdapterConfig = undefined;
     app = new Application();
   });
 
@@ -799,6 +807,287 @@ describe('Application', () => {
 
       // Assert — stop should throw because app is in failed state
       await expect(app.stop()).rejects.toThrow(/already stopped/i);
+    });
+  });
+
+  // ── Middleware Wiring via adapterConfig ──────────────────
+
+  describe('middleware wiring', () => {
+    function createWirableAdapter(): Adapter & {
+      start: Mock<(ctx: Context) => Promise<void>>;
+      stop: Mock<() => Promise<void>>;
+      addMiddlewares: Mock<(hook: MiddlewareHook, middlewares: readonly ReturnType<typeof defineMiddleware>[]) => Adapter>;
+    } {
+      const self = {
+        start: mock(() => Promise.resolve()),
+        stop: mock(() => Promise.resolve()),
+        addMiddlewares: mock(function () { return self; }),
+      };
+
+      return self;
+    }
+
+    function createMiddleware() {
+      return defineMiddleware(() => undefined);
+    }
+
+    it('should call addMiddlewares on adapter when adapterConfig has matching middleware', async () => {
+      // Arrange
+      const adapter = createWirableAdapter();
+      const middlewareDef = createMiddleware();
+      mockAdapterConfig = {
+        http: {
+          middlewares: {
+            [MiddlewareHook.OnReceive]: [middlewareDef],
+          },
+        },
+      };
+      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(adapter.addMiddlewares).toHaveBeenCalledTimes(1);
+      expect(adapter.addMiddlewares).toHaveBeenCalledWith(
+        MiddlewareHook.OnReceive,
+        [middlewareDef],
+      );
+    });
+
+    it('should call addMiddlewares for each hook when adapter has multiple hooks in config', async () => {
+      // Arrange
+      const adapter = createWirableAdapter();
+      const mwOnReceive = createMiddleware();
+      const mwPreHandle = createMiddleware();
+      mockAdapterConfig = {
+        http: {
+          middlewares: {
+            [MiddlewareHook.OnReceive]: [mwOnReceive],
+            [MiddlewareHook.PreHandle]: [mwPreHandle],
+          },
+        },
+      };
+      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(adapter.addMiddlewares).toHaveBeenCalledTimes(2);
+    });
+
+    it('should wire both adapters when adapterConfig has entries for each', async () => {
+      // Arrange
+      const httpAdapter = createWirableAdapter();
+      const wsAdapter = createWirableAdapter();
+      const httpMw = createMiddleware();
+      const wsMw = createMiddleware();
+      mockAdapterConfig = {
+        http: { middlewares: { [MiddlewareHook.OnReceive]: [httpMw] } },
+        ws: { middlewares: { [MiddlewareHook.OnReceive]: [wsMw] } },
+      };
+      app.addAdapter(httpAdapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(wsAdapter, { name: 'ws', protocol: 'ws' });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(httpAdapter.addMiddlewares).toHaveBeenCalledTimes(1);
+      expect(wsAdapter.addMiddlewares).toHaveBeenCalledTimes(1);
+    });
+
+    it('should start without wiring when adapterConfig is undefined', async () => {
+      // Arrange
+      const adapter = createWirableAdapter();
+      mockAdapterConfig = undefined;
+      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(adapter.addMiddlewares).not.toHaveBeenCalled();
+      expect(adapter.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('should skip adapter when its name is not in adapterConfig', async () => {
+      // Arrange
+      const adapter = createWirableAdapter();
+      mockAdapterConfig = {
+        ws: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
+      };
+      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(adapter.addMiddlewares).not.toHaveBeenCalled();
+    });
+
+    it('should skip hook when middleware array is empty', async () => {
+      // Arrange
+      const adapter = createWirableAdapter();
+      mockAdapterConfig = {
+        http: { middlewares: { [MiddlewareHook.OnReceive]: [] } },
+      };
+      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(adapter.addMiddlewares).not.toHaveBeenCalled();
+    });
+
+    it('should skip middleware field when it is undefined in config', async () => {
+      // Arrange
+      const adapter = createWirableAdapter();
+      mockAdapterConfig = {
+        http: {},
+      };
+      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(adapter.addMiddlewares).not.toHaveBeenCalled();
+    });
+
+    it('should not wire when no adapters registered and config exists', async () => {
+      // Arrange
+      mockAdapterConfig = {
+        http: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
+      };
+
+      // Act & Assert — no throw, no wiring
+      await expect(app.start()).resolves.toBeUndefined();
+    });
+
+    it('should not wire when config middlewares is empty object', async () => {
+      // Arrange
+      const adapter = createWirableAdapter();
+      mockAdapterConfig = {
+        http: { middlewares: {} },
+      };
+      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(adapter.addMiddlewares).not.toHaveBeenCalled();
+    });
+
+    it('should wire only matching adapter when one matches config and another does not', async () => {
+      // Arrange
+      const httpAdapter = createWirableAdapter();
+      const wsAdapter = createWirableAdapter();
+      mockAdapterConfig = {
+        http: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
+      };
+      app.addAdapter(httpAdapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(wsAdapter, { name: 'ws', protocol: 'ws' });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(httpAdapter.addMiddlewares).toHaveBeenCalledTimes(1);
+      expect(wsAdapter.addMiddlewares).not.toHaveBeenCalled();
+    });
+
+    it('should wire adapters in topological order', async () => {
+      // Arrange — B depends on A, so A wires first
+      const wireOrder: string[] = [];
+      const adapterA = createWirableAdapter();
+      adapterA.addMiddlewares.mockImplementation(function () {
+        wireOrder.push('A');
+        return adapterA;
+      });
+      const adapterB = createWirableAdapter();
+      adapterB.addMiddlewares.mockImplementation(function () {
+        wireOrder.push('B');
+        return adapterB;
+      });
+      mockAdapterConfig = {
+        a: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
+        b: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
+      };
+      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
+      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(wireOrder).toEqual(['A', 'B']);
+    });
+
+    it('should complete all wiring before any adapter.start is called', async () => {
+      // Arrange
+      const timeline: string[] = [];
+      const adapter = createWirableAdapter();
+      adapter.addMiddlewares.mockImplementation(function () {
+        timeline.push('wire');
+        return adapter;
+      });
+      adapter.start.mockImplementation(async () => { timeline.push('start'); });
+      mockAdapterConfig = {
+        http: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
+      };
+      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+
+      // Act
+      await app.start();
+
+      // Assert — wire happened and came before start
+      expect(adapter.addMiddlewares).toHaveBeenCalledTimes(1);
+      expect(timeline).toContain('wire');
+      expect(timeline.indexOf('wire')).toBeLessThan(timeline.indexOf('start'));
+    });
+
+    it('should complete full lifecycle when wiring succeeds', async () => {
+      // Arrange
+      const adapter = createWirableAdapter();
+      mockAdapterConfig = {
+        http: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
+      };
+      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+
+      // Act
+      await app.start();
+      await app.stop();
+
+      // Assert
+      expect(adapter.addMiddlewares).toHaveBeenCalledTimes(1);
+      expect(adapter.start).toHaveBeenCalledTimes(1);
+      expect(adapter.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('should cleanup already-started adapters when start fails after wiring', async () => {
+      // Arrange — A wires+starts ok, B wires+starts throws
+      const adapterA = createWirableAdapter();
+      const adapterB = createWirableAdapter();
+      adapterB.start.mockImplementation(async () => { throw new Error('B failed'); });
+      mockAdapterConfig = {
+        a: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
+        b: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
+      };
+      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
+      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
+
+      // Act
+      await expect(app.start()).rejects.toThrow('B failed');
+
+      // Assert — A was started and cleaned up
+      expect(adapterA.start).toHaveBeenCalledTimes(1);
+      expect(adapterA.stop).toHaveBeenCalledTimes(1);
+      expect(adapterA.addMiddlewares).toHaveBeenCalledTimes(1);
+      expect(adapterB.addMiddlewares).toHaveBeenCalledTimes(1);
     });
   });
 });

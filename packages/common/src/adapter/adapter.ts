@@ -1,4 +1,7 @@
+import { isErr } from '@zipbul/result';
+import type { ResultAsync } from '@zipbul/result';
 import type { MiddlewareDefinition } from '../define-middleware';
+import type { MiddlewareHalt } from '../define-middleware';
 import type { AdapterEntryDecorators, AdapterDependsOn, MiddlewareRegistry } from './types';
 import { MiddlewareHook } from './types';
 import type { Context, ExceptionFilterToken } from '../interfaces';
@@ -18,7 +21,6 @@ export abstract class Adapter {
 
   protected middlewareRegistry: MiddlewareRegistry = {};
   protected errorFilterTokens: ExceptionFilterToken[] = [];
-  middlewareWired = false;
 
   /**
    * Registers middlewares for a given pipeline hook.
@@ -36,16 +38,6 @@ export abstract class Adapter {
   }
 
   /**
-   * Marks that AOT has completed adapter-level middleware wiring.
-   * Once marked, runtime DI bridge should skip redundant registration.
-   *
-   * @public
-   */
-  markMiddlewareWired(): void {
-    this.middlewareWired = true;
-  }
-
-  /**
    * Registers error filter tokens.
    *
    * @param filters - Error filter tokens to append.
@@ -59,26 +51,31 @@ export abstract class Adapter {
   }
 
   /**
-   * Executes middlewares registered for a given hook.
+   * Executes middlewares registered for a given hook or from a direct list.
    *
-   * @param hook - The pipeline hook to execute.
+   * @param hookOrList - A pipeline hook to look up, or a direct array of middleware definitions.
    * @param context - The current execution context.
-   * @returns `true` to continue the pipeline, `false` to abort.
+   * @returns `void` on success, `Err<MiddlewareHalt>` when a middleware halts the pipeline.
    *
    * @public
    */
-  async runMiddlewares(hook: MiddlewareHook, context: Context): Promise<boolean> {
-    const list = this.middlewareRegistry[hook] ?? [];
+  async runMiddlewares(
+    hookOrList: MiddlewareHook | readonly MiddlewareDefinition[],
+    context: Context,
+  ): ResultAsync<void, MiddlewareHalt> {
+    const list = Array.isArray(hookOrList)
+      ? hookOrList
+      : (this.middlewareRegistry[hookOrList] ?? []);
 
     for (const def of list) {
       const result = await def.handler(context);
 
-      if (result === false) {
-        return false;
+      if (isErr(result)) {
+        return result;
       }
     }
 
-    return true;
+    return undefined;
   }
 
   abstract start(context: Context): Promise<void>;
