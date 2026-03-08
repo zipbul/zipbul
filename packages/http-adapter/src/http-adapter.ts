@@ -26,8 +26,6 @@ import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/metho
 const HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
 
 export class HttpAdapter extends Adapter {
-  readonly name = 'http';
-
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
     handler: [Get, Post, Put, Delete, Patch, Options, Head],

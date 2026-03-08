@@ -433,20 +433,37 @@ export class InjectorGenerator {
       });
 
       if (node.moduleDefinition?.adapters !== undefined) {
-        const adaptersRecord = asRecord(node.moduleDefinition.adapters);
+        const adaptersArray = Array.isArray(node.moduleDefinition.adapters) ? node.moduleDefinition.adapters : null;
 
-        if (adaptersRecord !== null) {
-          for (const [, protocolValue] of Object.entries(adaptersRecord)) {
-            const protocolRecord = asRecord(protocolValue);
+        if (adaptersArray !== null) {
+          for (const item of adaptersArray) {
+            const itemRecord = asRecord(item);
 
-            if (protocolRecord === null) {
+            if (itemRecord === null) {
               continue;
             }
 
-            for (const [instanceName, instanceConfig] of Object.entries(protocolRecord)) {
-              const config = this.serializeValue(instanceConfig, registry);
+            const adapterRef = asRecord(itemRecord.adapter);
+            const adapterClassName = typeof adapterRef?.__zipbul_ref === 'string' ? adapterRef.__zipbul_ref : null;
+            const nameValue = typeof itemRecord.name === 'string' ? itemRecord.name : null;
+            const configKey = nameValue ?? adapterClassName;
 
-              adapterConfigs.push(`  '${instanceName}': ${config},`);
+            if (configKey === null || configKey.length === 0) {
+              continue;
+            }
+
+            const configParts: string[] = [];
+
+            if (itemRecord.middlewares !== undefined) {
+              configParts.push(`'middlewares': ${this.serializeValue(itemRecord.middlewares, registry)}`);
+            }
+
+            if (itemRecord.errorFilters !== undefined) {
+              configParts.push(`'errorFilters': ${this.serializeValue(itemRecord.errorFilters, registry)}`);
+            }
+
+            if (configParts.length > 0) {
+              adapterConfigs.push(`  '${configKey}': { ${configParts.join(', ')} },`);
             }
           }
         }

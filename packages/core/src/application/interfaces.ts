@@ -1,4 +1,4 @@
-import type { Adapter, Context, AdapterDependsOn } from '@zipbul/common';
+import type { Adapter, AdapterClass, AdapterDependsOn } from '@zipbul/common';
 
 import type { Application } from './application';
 
@@ -16,10 +16,15 @@ export type BootstrapAdapter = {
 
 /**
  * Configuration for addAdapter().
+ *
+ * `name` is optional for single-instance registration.
+ * When the same adapter class is registered multiple times, `name` is required
+ * to distinguish instances.
+ *
+ * @public
  */
 export type AddAdapterConfig = {
-  name: string;
-  protocol: string;
+  name?: string;
   dependsOn?: AdapterDependsOn;
 };
 
@@ -28,8 +33,8 @@ export type AddAdapterConfig = {
  */
 export type AdapterEntry = {
   adapter: Adapter;
-  name: string;
-  protocol: string;
+  adapterClass: AdapterClass;
+  name?: string;
   dependsOn: AdapterDependsOn;
 };
 

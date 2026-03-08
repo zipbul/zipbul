@@ -18,17 +18,17 @@ describe('RestController', () => {
     expect(typeof decorator).toBe('function');
   });
 
-  it('should return ClassDecorator when called with path and adapterIds option', () => {
+  it('should return ClassDecorator when called with path and adapterNames option', () => {
     // Act
-    const decorator = RestController('api', { adapterIds: ['http'] });
+    const decorator = RestController('api', { adapterNames: ['http'] });
 
     // Assert
     expect(typeof decorator).toBe('function');
   });
 
-  it('should return ClassDecorator when called with path and full options (version + adapterIds)', () => {
+  it('should return ClassDecorator when called with path and full options (version + adapterNames)', () => {
     // Act
-    const decorator = RestController('api', { version: '1', adapterIds: ['http', 'ws'] });
+    const decorator = RestController('api', { version: '1', adapterNames: ['http', 'ws'] });
 
     // Assert
     expect(typeof decorator).toBe('function');

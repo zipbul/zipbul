@@ -6,10 +6,7 @@ import { UsersService } from './users/users.service';
 
 const app = createApplication(appModule);
 
-app.addAdapter(new HttpAdapter({ port: 5000 }), {
-  name: 'http',
-  protocol: 'http',
-});
+app.addAdapter(new HttpAdapter({ port: 5000 }));
 
 await app.start();
 

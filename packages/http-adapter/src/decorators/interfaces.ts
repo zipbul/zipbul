@@ -3,7 +3,7 @@ import type { RouteHandlerParamType } from './types';
 
 export interface RestControllerDecoratorOptions {
   version?: string;
-  adapterIds?: string[];
+  adapterNames?: string[];
 }
 
 export interface ControllerOptions {

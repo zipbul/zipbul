@@ -7,11 +7,18 @@ import { defineMiddleware } from '../define-middleware';
 import { Adapter } from './adapter';
 
 class TestAdapter extends Adapter {
-  readonly name = 'test';
   readonly decorators = { controller: () => {}, handler: [] };
   async start() {}
   async stop() {}
 }
+
+class AnotherAdapter extends Adapter {
+  readonly decorators = { controller: () => {}, handler: [] };
+  async start() {}
+  async stop() {}
+}
+
+class ChildAdapter extends TestAdapter {}
 
 function createContext(): Context {
   return {
@@ -391,6 +398,99 @@ describe('Adapter', () => {
       // Assert
       expect(h1.mock.calls[0]![0]).toBe(ctx);
       expect(h2.mock.calls[0]![0]).toBe(ctx);
+    });
+  });
+
+  describe('addMiddlewares - adapter compatibility', () => {
+    // ── Happy Path ──────────────────────────────────────────
+
+    it('should accept middleware without adapters field (universal)', () => {
+      // Arrange
+      const def = defineMiddleware((_ctx: Context) => {});
+
+      // Act & Assert
+      expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [def])).not.toThrow();
+    });
+
+    it('should accept middleware when adapter class matches', () => {
+      // Arrange
+      const def = defineMiddleware([TestAdapter], (_ctx: Context) => {});
+
+      // Act & Assert
+      expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [def])).not.toThrow();
+    });
+
+    it('should accept middleware when one of multiple adapter classes matches', () => {
+      // Arrange
+      const def = defineMiddleware([AnotherAdapter, TestAdapter], (_ctx: Context) => {});
+
+      // Act & Assert
+      expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [def])).not.toThrow();
+    });
+
+    it('should accept middleware on child adapter when parent class is declared', () => {
+      // Arrange
+      const child = new ChildAdapter();
+      const def = defineMiddleware([TestAdapter], (_ctx: Context) => {});
+
+      // Act & Assert
+      expect(() => child.addMiddlewares(MiddlewareHook.OnReceive, [def])).not.toThrow();
+    });
+
+    // ── Negative / Error ────────────────────────────────────
+
+    it('should throw when middleware declares incompatible adapter class', () => {
+      // Arrange
+      const def = defineMiddleware([AnotherAdapter], (_ctx: Context) => {});
+
+      // Act & Assert
+      expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [def])).toThrow(
+        /AnotherAdapter.*TestAdapter/,
+      );
+    });
+
+    it('should throw when none of multiple declared adapter classes match', () => {
+      // Arrange
+      const another = new AnotherAdapter();
+      const def = defineMiddleware([TestAdapter], (_ctx: Context) => {});
+
+      // Act & Assert
+      expect(() => another.addMiddlewares(MiddlewareHook.OnReceive, [def])).toThrow(
+        /TestAdapter.*AnotherAdapter/,
+      );
+    });
+
+    it('should throw on first incompatible middleware when batch contains mixed compatibility', () => {
+      // Arrange
+      const compatible = defineMiddleware([TestAdapter], (_ctx: Context) => {});
+      const incompatible = defineMiddleware([AnotherAdapter], (_ctx: Context) => {});
+
+      // Act & Assert
+      expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [incompatible, compatible])).toThrow(
+        /AnotherAdapter/,
+      );
+    });
+
+    // ── Edge ────────────────────────────────────────────────
+
+    it('should accept middleware with empty adapters array', () => {
+      // Arrange
+      const def = defineMiddleware([], (_ctx: Context) => {});
+
+      // Act & Assert
+      expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [def])).not.toThrow();
+    });
+
+    it('should not modify registry when validation fails', () => {
+      // Arrange
+      const def = defineMiddleware([AnotherAdapter], (_ctx: Context) => {});
+
+      // Act
+      try { adapter.addMiddlewares(MiddlewareHook.OnReceive, [def]); } catch { /* expected */ }
+
+      // Assert — registry should remain empty for this hook
+      const result = adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
+      expect(result).resolves.toBeUndefined();
     });
   });
 });

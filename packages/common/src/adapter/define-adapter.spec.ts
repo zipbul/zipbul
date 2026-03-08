@@ -10,8 +10,6 @@ const getDeco = () => {};
 const postDeco = () => {};
 
 class FakeAdapter extends Adapter {
-  readonly name = 'fake';
-
   readonly decorators: AdapterEntryDecorators = {
     controller: controllerDeco,
     handler: [getDeco, postDeco],
@@ -48,7 +46,6 @@ describe('defineAdapter', () => {
     const instance = new AdapterClass();
 
     // Assert
-    expect(instance.name).toBe('fake');
     expect(instance.decorators.controller).toBe(controllerDeco);
     expect(instance.decorators.handler).toEqual([getDeco, postDeco]);
   });

@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, type Mock } from 'bun:test';
-import type { Adapter, Context, ZipbulContainer, ProviderToken } from '@zipbul/common';
+import type { Adapter, AdapterClass, Context, ZipbulContainer, ProviderToken } from '@zipbul/common';
 import { MiddlewareHook, defineMiddleware } from '@zipbul/common';
 
 let mockAdapterConfig: Record<string, unknown> | undefined;
@@ -15,16 +15,43 @@ mock.module('../runtime/runtime-context', () => ({
 const { Application } = await import('./application');
 
 /**
- * Factory to create a mock Adapter with spied start/stop.
+ * Creates a unique adapter class with spied start/stop.
+ * Each call produces a distinct class so class-reference identity works.
+ */
+function createMockAdapterClass(): {
+  AdapterClass: AdapterClass;
+  instance: Adapter & {
+    start: Mock<(ctx: Context) => Promise<void>>;
+    stop: Mock<() => Promise<void>>;
+  };
+} {
+  const startFn = mock(() => Promise.resolve());
+  const stopFn = mock(() => Promise.resolve());
+
+  class MockAdapter {
+    start = startFn;
+    stop = stopFn;
+  }
+
+  const instance = new MockAdapter() as Adapter & {
+    start: Mock<(ctx: Context) => Promise<void>>;
+    stop: Mock<() => Promise<void>>;
+  };
+
+  return {
+    AdapterClass: MockAdapter as unknown as AdapterClass,
+    instance,
+  };
+}
+
+/**
+ * Simple mock adapter for tests that don't need class identity.
  */
 function createMockAdapter(): Adapter & {
   start: Mock<(ctx: Context) => Promise<void>>;
   stop: Mock<() => Promise<void>>;
 } {
-  return {
-    start: mock(() => Promise.resolve()),
-    stop: mock(() => Promise.resolve()),
-  };
+  return createMockAdapterClass().instance;
 }
 
 describe('Application', () => {
@@ -38,70 +65,96 @@ describe('Application', () => {
   // ── addAdapter ───────────────────────────────────────────────
 
   describe('addAdapter', () => {
-    it('should register a single adapter with correct name, protocol, and adapter reference', () => {
+    it('should register a single adapter without config', () => {
       // Arrange
       const adapter = createMockAdapter();
-      const config = { name: 'http', protocol: 'http' };
 
-      // Act
-      app.addAdapter(adapter, config);
-
-      // Assert — adapter was registered (verifiable via start calling it)
-      // We confirm registration is stored; indirect verification via start().
-      expect(() => app.addAdapter(createMockAdapter(), { name: 'http', protocol: 'http' })).toThrow();
+      // Act & Assert — no throw
+      expect(() => app.addAdapter(adapter)).not.toThrow();
     });
 
-    it('should register multiple adapters with different names', () => {
+    it('should register a single adapter with name', () => {
+      // Arrange
+      const adapter = createMockAdapter();
+
+      // Act & Assert — no throw
+      expect(() => app.addAdapter(adapter, { name: 'http' })).not.toThrow();
+    });
+
+    it('should throw when same class registered twice without name', () => {
+      // Arrange
+      const { AdapterClass, instance: instanceA } = createMockAdapterClass();
+      const instanceB = new AdapterClass() as unknown as Adapter;
+
+      app.addAdapter(instanceA);
+
+      // Act & Assert
+      expect(() => app.addAdapter(instanceB)).toThrow(/registered multiple times/i);
+    });
+
+    it('should allow same class registered twice with different names', () => {
+      // Arrange
+      const { AdapterClass, instance: instanceA } = createMockAdapterClass();
+      const instanceB = new AdapterClass() as unknown as Adapter;
+
+      // Act & Assert
+      app.addAdapter(instanceA, { name: 'api' });
+      expect(() => app.addAdapter(instanceB, { name: 'admin' })).not.toThrow();
+    });
+
+    it('should throw when same class registered twice with duplicate name', () => {
+      // Arrange
+      const { AdapterClass, instance: instanceA } = createMockAdapterClass();
+      const instanceB = new AdapterClass() as unknown as Adapter;
+
+      app.addAdapter(instanceA, { name: 'api' });
+
+      // Act & Assert
+      expect(() => app.addAdapter(instanceB, { name: 'api' })).toThrow(/already registered/i);
+    });
+
+    it('should throw when second registration of same class omits name while first has name', () => {
+      // Arrange
+      const { AdapterClass, instance: instanceA } = createMockAdapterClass();
+      const instanceB = new AdapterClass() as unknown as Adapter;
+
+      app.addAdapter(instanceA, { name: 'api' });
+
+      // Act & Assert — unnamed second registration is ambiguous
+      expect(() => app.addAdapter(instanceB)).toThrow(/registered multiple times/i);
+    });
+
+    it('should register multiple adapters of different classes without names', () => {
       // Arrange
       const adapterA = createMockAdapter();
       const adapterB = createMockAdapter();
 
-      // Act
-      app.addAdapter(adapterA, { name: 'http', protocol: 'http' });
-      app.addAdapter(adapterB, { name: 'ws', protocol: 'ws' });
-
-      // Assert — both registered (duplicate of either would throw)
-      expect(() => app.addAdapter(createMockAdapter(), { name: 'http', protocol: 'http' })).toThrow();
-      expect(() => app.addAdapter(createMockAdapter(), { name: 'ws', protocol: 'ws' })).toThrow();
-    });
-
-    it('should throw when registering adapter with duplicate name', () => {
-      // Arrange
-      const adapter = createMockAdapter();
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
-
       // Act & Assert
-      expect(() => app.addAdapter(createMockAdapter(), { name: 'http', protocol: 'http' })).toThrow(
-        /already registered|duplicate/i,
-      );
-    });
-
-    it('should throw when name is empty string', () => {
-      // Arrange
-      const adapter = createMockAdapter();
-
-      // Act & Assert
-      expect(() => app.addAdapter(adapter, { name: '', protocol: 'http' })).toThrow();
+      app.addAdapter(adapterA);
+      expect(() => app.addAdapter(adapterB)).not.toThrow();
     });
 
     it('should not corrupt state when duplicate add throws — next add succeeds', () => {
       // Arrange
-      app.addAdapter(createMockAdapter(), { name: 'http', protocol: 'http' });
+      const { AdapterClass, instance: instanceA } = createMockAdapterClass();
+      const instanceB = new AdapterClass() as unknown as Adapter;
+
+      app.addAdapter(instanceA);
 
       // Act — duplicate throws
-      expect(() => app.addAdapter(createMockAdapter(), { name: 'http', protocol: 'http' })).toThrow();
+      expect(() => app.addAdapter(instanceB)).toThrow();
 
-      // Assert — different name still works
-      expect(() => app.addAdapter(createMockAdapter(), { name: 'ws', protocol: 'ws' })).not.toThrow();
+      // Assert — different class still works
+      expect(() => app.addAdapter(createMockAdapter())).not.toThrow();
     });
 
     it('should throw when called after start', async () => {
       // Arrange
-      app.addAdapter(createMockAdapter(), { name: 'http', protocol: 'http' });
+      app.addAdapter(createMockAdapter());
       await app.start();
 
       // Act & Assert
-      expect(() => app.addAdapter(createMockAdapter(), { name: 'ws', protocol: 'ws' })).toThrow(
+      expect(() => app.addAdapter(createMockAdapter())).toThrow(
         /started|running|cannot add/i,
       );
     });
@@ -184,7 +237,7 @@ describe('Application', () => {
     it('should call adapter.start with context for single adapter', async () => {
       // Arrange
       const adapter = createMockAdapter();
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter);
 
       // Act
       await app.start();
@@ -205,9 +258,9 @@ describe('Application', () => {
       const adapterC = createMockAdapter();
       adapterC.start.mockImplementation(async () => { callOrder.push('C'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'http' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'ws' });
-      app.addAdapter(adapterC, { name: 'c', protocol: 'grpc' });
+      app.addAdapter(adapterA);
+      app.addAdapter(adapterB);
+      app.addAdapter(adapterC);
 
       // Act
       await app.start();
@@ -220,7 +273,7 @@ describe('Application', () => {
       // Arrange
       const adapter = createMockAdapter();
       adapter.start.mockImplementation(async () => { throw new Error('start failed'); });
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter);
 
       // Act & Assert
       await expect(app.start()).rejects.toThrow('start failed');
@@ -232,8 +285,8 @@ describe('Application', () => {
       const adapterB = createMockAdapter();
       adapterB.start.mockImplementation(async () => { throw new Error('B failed'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'http' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'ws' });
+      app.addAdapter(adapterA);
+      app.addAdapter(adapterB);
 
       // Act
       try { await app.start(); } catch { /* expected */ }
@@ -245,7 +298,7 @@ describe('Application', () => {
 
     it('should throw when start is called twice', async () => {
       // Arrange
-      app.addAdapter(createMockAdapter(), { name: 'http', protocol: 'http' });
+      app.addAdapter(createMockAdapter());
       await app.start();
 
       // Act & Assert
@@ -267,7 +320,7 @@ describe('Application', () => {
     it('should call adapter.stop for single adapter', async () => {
       // Arrange
       const adapter = createMockAdapter();
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter);
       await app.start();
 
       // Act
@@ -287,9 +340,9 @@ describe('Application', () => {
       const adapterC = createMockAdapter();
       adapterC.stop.mockImplementation(async () => { callOrder.push('C'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'http' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'ws' });
-      app.addAdapter(adapterC, { name: 'c', protocol: 'grpc' });
+      app.addAdapter(adapterA);
+      app.addAdapter(adapterB);
+      app.addAdapter(adapterC);
       await app.start();
 
       // Act
@@ -303,7 +356,7 @@ describe('Application', () => {
       // Arrange
       const adapter = createMockAdapter();
       adapter.stop.mockImplementation(async () => { throw new Error('stop failed'); });
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter);
       await app.start();
 
       // Act & Assert
@@ -316,8 +369,8 @@ describe('Application', () => {
       adapterA.stop.mockImplementation(async () => { throw new Error('A stop failed'); });
       const adapterB = createMockAdapter();
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'http' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'ws' });
+      app.addAdapter(adapterA);
+      app.addAdapter(adapterB);
       await app.start();
 
       // Act — stop reverses: B first (succeeds), then A (throws)
@@ -335,7 +388,7 @@ describe('Application', () => {
 
     it('should throw when stop is called twice', async () => {
       // Arrange
-      app.addAdapter(createMockAdapter(), { name: 'http', protocol: 'http' });
+      app.addAdapter(createMockAdapter());
       await app.start();
       await app.stop();
 
@@ -350,7 +403,7 @@ describe('Application', () => {
     it('should complete full lifecycle: addAdapter → start → stop', async () => {
       // Arrange
       const adapter = createMockAdapter();
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter);
 
       // Act
       await app.start();
@@ -364,7 +417,7 @@ describe('Application', () => {
     it('should return same container reference before and after start/stop', async () => {
       // Arrange
       const before = app.getContainer();
-      app.addAdapter(createMockAdapter(), { name: 'http', protocol: 'http' });
+      app.addAdapter(createMockAdapter());
 
       // Act
       const afterAdd = app.getContainer();
@@ -386,13 +439,13 @@ describe('Application', () => {
     it('should start adapters in dependency order when A→B chain exists', async () => {
       // Arrange
       const callOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.start.mockImplementation(async () => { callOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
+      const classA = createMockAdapterClass();
+      classA.instance.start.mockImplementation(async () => { callOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { callOrder.push('B'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'http' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'ws', dependsOn: ['a'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
 
       // Act
       await app.start();
@@ -404,16 +457,16 @@ describe('Application', () => {
     it('should start adapters in correct order for linear chain A→B→C', async () => {
       // Arrange
       const callOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.start.mockImplementation(async () => { callOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
-      const adapterC = createMockAdapter();
-      adapterC.start.mockImplementation(async () => { callOrder.push('C'); });
+      const classA = createMockAdapterClass();
+      classA.instance.start.mockImplementation(async () => { callOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { callOrder.push('B'); });
+      const classC = createMockAdapterClass();
+      classC.instance.start.mockImplementation(async () => { callOrder.push('C'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'http' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'ws', dependsOn: ['a'] });
-      app.addAdapter(adapterC, { name: 'c', protocol: 'grpc', dependsOn: ['b'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classC.instance, { dependsOn: [classB.AdapterClass] });
 
       // Act
       await app.start();
@@ -425,19 +478,19 @@ describe('Application', () => {
     it('should start adapters in correct order for diamond DAG', async () => {
       // Arrange — A → {B, C} → D
       const callOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.start.mockImplementation(async () => { callOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
-      const adapterC = createMockAdapter();
-      adapterC.start.mockImplementation(async () => { callOrder.push('C'); });
-      const adapterD = createMockAdapter();
-      adapterD.start.mockImplementation(async () => { callOrder.push('D'); });
+      const classA = createMockAdapterClass();
+      classA.instance.start.mockImplementation(async () => { callOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { callOrder.push('B'); });
+      const classC = createMockAdapterClass();
+      classC.instance.start.mockImplementation(async () => { callOrder.push('C'); });
+      const classD = createMockAdapterClass();
+      classD.instance.start.mockImplementation(async () => { callOrder.push('D'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(adapterC, { name: 'c', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(adapterD, { name: 'd', protocol: 'p', dependsOn: ['b', 'c'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classC.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classD.instance, { dependsOn: [classB.AdapterClass, classC.AdapterClass] });
 
       // Act
       await app.start();
@@ -452,16 +505,16 @@ describe('Application', () => {
     it('should start fan-out dependencies with root first', async () => {
       // Arrange — A → {B, C}
       const callOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.start.mockImplementation(async () => { callOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
-      const adapterC = createMockAdapter();
-      adapterC.start.mockImplementation(async () => { callOrder.push('C'); });
+      const classA = createMockAdapterClass();
+      classA.instance.start.mockImplementation(async () => { callOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { callOrder.push('B'); });
+      const classC = createMockAdapterClass();
+      classC.instance.start.mockImplementation(async () => { callOrder.push('C'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(adapterC, { name: 'c', protocol: 'p', dependsOn: ['a'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classC.instance, { dependsOn: [classA.AdapterClass] });
 
       // Act
       await app.start();
@@ -475,16 +528,16 @@ describe('Application', () => {
     it('should start fan-in dependencies with sink last', async () => {
       // Arrange — {A, B} → C
       const callOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.start.mockImplementation(async () => { callOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
-      const adapterC = createMockAdapter();
-      adapterC.start.mockImplementation(async () => { callOrder.push('C'); });
+      const classA = createMockAdapterClass();
+      classA.instance.start.mockImplementation(async () => { callOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { callOrder.push('B'); });
+      const classC = createMockAdapterClass();
+      classC.instance.start.mockImplementation(async () => { callOrder.push('C'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p' });
-      app.addAdapter(adapterC, { name: 'c', protocol: 'p', dependsOn: ['a', 'b'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance);
+      app.addAdapter(classC.instance, { dependsOn: [classA.AdapterClass, classB.AdapterClass] });
 
       // Act
       await app.start();
@@ -503,8 +556,8 @@ describe('Application', () => {
       const adapterB = createMockAdapter();
       adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p' });
+      app.addAdapter(adapterA);
+      app.addAdapter(adapterB);
 
       // Act
       await app.start();
@@ -513,7 +566,7 @@ describe('Application', () => {
       expect(callOrder).toEqual(['A', 'B']);
     });
 
-    it('should treat explicit standalone dependsOn as no dependencies', async () => {
+    it('should treat empty dependsOn array as standalone', async () => {
       // Arrange
       const callOrder: string[] = [];
       const adapterA = createMockAdapter();
@@ -521,8 +574,8 @@ describe('Application', () => {
       const adapterB = createMockAdapter();
       adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p', dependsOn: 'standalone' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: 'standalone' });
+      app.addAdapter(adapterA, { dependsOn: [] });
+      app.addAdapter(adapterB, { dependsOn: [] });
 
       // Act
       await app.start();
@@ -534,19 +587,19 @@ describe('Application', () => {
     it('should preserve registration order within same topological level', async () => {
       // Arrange — B, C, D all depend on A; registered as B, C, D
       const callOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.start.mockImplementation(async () => { callOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
-      const adapterC = createMockAdapter();
-      adapterC.start.mockImplementation(async () => { callOrder.push('C'); });
-      const adapterD = createMockAdapter();
-      adapterD.start.mockImplementation(async () => { callOrder.push('D'); });
+      const classA = createMockAdapterClass();
+      classA.instance.start.mockImplementation(async () => { callOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { callOrder.push('B'); });
+      const classC = createMockAdapterClass();
+      classC.instance.start.mockImplementation(async () => { callOrder.push('C'); });
+      const classD = createMockAdapterClass();
+      classD.instance.start.mockImplementation(async () => { callOrder.push('D'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(adapterC, { name: 'c', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(adapterD, { name: 'd', protocol: 'p', dependsOn: ['a'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classC.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classD.instance, { dependsOn: [classA.AdapterClass] });
 
       // Act
       await app.start();
@@ -558,19 +611,85 @@ describe('Application', () => {
     it('should reorder adapters when registration order differs from topological order', async () => {
       // Arrange — register B(depends on A) first, then A
       const callOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.start.mockImplementation(async () => { callOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
+      const classA = createMockAdapterClass();
+      classA.instance.start.mockImplementation(async () => { callOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { callOrder.push('B'); });
 
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classA.instance);
 
       // Act
       await app.start();
 
       // Assert — topological order overrides registration: A before B
       expect(callOrder).toEqual(['A', 'B']);
+    });
+
+    it('should resolve string-based dependsOn by adapter name', async () => {
+      // Arrange
+      const callOrder: string[] = [];
+      const adapterA = createMockAdapter();
+      adapterA.start.mockImplementation(async () => { callOrder.push('A'); });
+      const adapterB = createMockAdapter();
+      adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
+
+      app.addAdapter(adapterA, { name: 'api' });
+      app.addAdapter(adapterB, { dependsOn: ['api'] });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(callOrder).toEqual(['A', 'B']);
+    });
+
+    it('should support mixed class-reference and string dependsOn', async () => {
+      // Arrange
+      const callOrder: string[] = [];
+      const classA = createMockAdapterClass();
+      classA.instance.start.mockImplementation(async () => { callOrder.push('A'); });
+      const adapterB = createMockAdapter();
+      adapterB.start.mockImplementation(async () => { callOrder.push('B'); });
+      const adapterC = createMockAdapter();
+      adapterC.start.mockImplementation(async () => { callOrder.push('C'); });
+
+      app.addAdapter(classA.instance);
+      app.addAdapter(adapterB, { name: 'named-b' });
+      app.addAdapter(adapterC, { dependsOn: [classA.AdapterClass, 'named-b'] });
+
+      // Act
+      await app.start();
+
+      // Assert — C must be last
+      expect(callOrder.indexOf('A')).toBeLessThan(callOrder.indexOf('C'));
+      expect(callOrder.indexOf('B')).toBeLessThan(callOrder.indexOf('C'));
+    });
+
+    it('should depend on all instances when class-reference used for multi-instance adapter', async () => {
+      // Arrange — two instances of same class, third depends on class ref
+      const callOrder: string[] = [];
+      const { AdapterClass, instance: instanceA } = createMockAdapterClass();
+      instanceA.start.mockImplementation(async () => { callOrder.push('A'); });
+      const instanceB = new AdapterClass() as unknown as Adapter & {
+        start: Mock<(ctx: Context) => Promise<void>>;
+        stop: Mock<() => Promise<void>>;
+      };
+      instanceB.start = mock(async () => { callOrder.push('B'); });
+      instanceB.stop = mock(() => Promise.resolve());
+      const adapterC = createMockAdapter();
+      adapterC.start.mockImplementation(async () => { callOrder.push('C'); });
+
+      app.addAdapter(instanceA, { name: 'api' });
+      app.addAdapter(instanceB as Adapter, { name: 'admin' });
+      app.addAdapter(adapterC, { dependsOn: [AdapterClass] });
+
+      // Act
+      await app.start();
+
+      // Assert — both A and B started before C
+      expect(callOrder.indexOf('A')).toBeLessThan(callOrder.indexOf('C'));
+      expect(callOrder.indexOf('B')).toBeLessThan(callOrder.indexOf('C'));
     });
   });
 
@@ -579,8 +698,11 @@ describe('Application', () => {
   describe('dependsOn - cycle detection', () => {
     it('should detect cycle between two adapters', async () => {
       // Arrange
-      app.addAdapter(createMockAdapter(), { name: 'a', protocol: 'p', dependsOn: ['b'] });
-      app.addAdapter(createMockAdapter(), { name: 'b', protocol: 'p', dependsOn: ['a'] });
+      const classA = createMockAdapterClass();
+      const classB = createMockAdapterClass();
+
+      app.addAdapter(classA.instance, { dependsOn: [classB.AdapterClass] });
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
 
       // Act & Assert
       await expect(app.start()).rejects.toThrow(/cycle/i);
@@ -588,7 +710,9 @@ describe('Application', () => {
 
     it('should detect self-referencing cycle', async () => {
       // Arrange
-      app.addAdapter(createMockAdapter(), { name: 'a', protocol: 'p', dependsOn: ['a'] });
+      const classA = createMockAdapterClass();
+
+      app.addAdapter(classA.instance, { dependsOn: [classA.AdapterClass] });
 
       // Act & Assert
       await expect(app.start()).rejects.toThrow(/cycle/i);
@@ -596,9 +720,13 @@ describe('Application', () => {
 
     it('should detect cycle in 3-node graph', async () => {
       // Arrange — A→B→C→A
-      app.addAdapter(createMockAdapter(), { name: 'a', protocol: 'p', dependsOn: ['c'] });
-      app.addAdapter(createMockAdapter(), { name: 'b', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(createMockAdapter(), { name: 'c', protocol: 'p', dependsOn: ['b'] });
+      const classA = createMockAdapterClass();
+      const classB = createMockAdapterClass();
+      const classC = createMockAdapterClass();
+
+      app.addAdapter(classA.instance, { dependsOn: [classC.AdapterClass] });
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classC.instance, { dependsOn: [classB.AdapterClass] });
 
       // Act & Assert
       await expect(app.start()).rejects.toThrow(/cycle/i);
@@ -611,16 +739,16 @@ describe('Application', () => {
     it('should cleanup already-started adapters in reverse order when later adapter fails', async () => {
       // Arrange
       const stopOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.stop.mockImplementation(async () => { stopOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.stop.mockImplementation(async () => { stopOrder.push('B'); });
-      const adapterC = createMockAdapter();
-      adapterC.start.mockImplementation(async () => { throw new Error('C failed'); });
+      const classA = createMockAdapterClass();
+      classA.instance.stop.mockImplementation(async () => { stopOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.stop.mockImplementation(async () => { stopOrder.push('B'); });
+      const classC = createMockAdapterClass();
+      classC.instance.start.mockImplementation(async () => { throw new Error('C failed'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(adapterC, { name: 'c', protocol: 'p', dependsOn: ['b'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classC.instance, { dependsOn: [classB.AdapterClass] });
 
       // Act
       try { await app.start(); } catch { /* expected */ }
@@ -631,31 +759,31 @@ describe('Application', () => {
 
     it('should not cleanup any adapter when first adapter in topological order fails', async () => {
       // Arrange
-      const adapterA = createMockAdapter();
-      adapterA.start.mockImplementation(async () => { throw new Error('A failed'); });
-      const adapterB = createMockAdapter();
+      const classA = createMockAdapterClass();
+      classA.instance.start.mockImplementation(async () => { throw new Error('A failed'); });
+      const classB = createMockAdapterClass();
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
 
       // Act
       try { await app.start(); } catch { /* expected */ }
 
       // Assert — no cleanup calls
-      expect(adapterA.stop).not.toHaveBeenCalled();
-      expect(adapterB.stop).not.toHaveBeenCalled();
-      expect(adapterB.start).not.toHaveBeenCalled();
+      expect(classA.instance.stop).not.toHaveBeenCalled();
+      expect(classB.instance.stop).not.toHaveBeenCalled();
+      expect(classB.instance.start).not.toHaveBeenCalled();
     });
 
     it('should suppress cleanup errors and propagate original start error', async () => {
       // Arrange
-      const adapterA = createMockAdapter();
-      adapterA.stop.mockImplementation(async () => { throw new Error('cleanup failed'); });
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { throw new Error('B start failed'); });
+      const classA = createMockAdapterClass();
+      classA.instance.stop.mockImplementation(async () => { throw new Error('cleanup failed'); });
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { throw new Error('B start failed'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
 
       // Act & Assert — original error propagated, cleanup error suppressed
       await expect(app.start()).rejects.toThrow('B start failed');
@@ -664,34 +792,34 @@ describe('Application', () => {
     it('should cleanup only started adapters in dependency chain when last fails', async () => {
       // Arrange — A→B→C, C fails; A and B were started
       const stopOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.stop.mockImplementation(async () => { stopOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.stop.mockImplementation(async () => { stopOrder.push('B'); });
-      const adapterC = createMockAdapter();
-      adapterC.start.mockImplementation(async () => { throw new Error('C failed'); });
-      adapterC.stop.mockImplementation(async () => { stopOrder.push('C'); });
+      const classA = createMockAdapterClass();
+      classA.instance.stop.mockImplementation(async () => { stopOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.stop.mockImplementation(async () => { stopOrder.push('B'); });
+      const classC = createMockAdapterClass();
+      classC.instance.start.mockImplementation(async () => { throw new Error('C failed'); });
+      classC.instance.stop.mockImplementation(async () => { stopOrder.push('C'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(adapterC, { name: 'c', protocol: 'p', dependsOn: ['b'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classC.instance, { dependsOn: [classB.AdapterClass] });
 
       // Act
       try { await app.start(); } catch { /* expected */ }
 
       // Assert — only A and B cleaned up (reverse), C never started so not cleaned
       expect(stopOrder).toEqual(['B', 'A']);
-      expect(adapterC.stop).not.toHaveBeenCalled();
+      expect(classC.instance.stop).not.toHaveBeenCalled();
     });
 
     it('should set started and stopped flags after start failure with cleanup', async () => {
       // Arrange
-      const adapterA = createMockAdapter();
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { throw new Error('B failed'); });
+      const classA = createMockAdapterClass();
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { throw new Error('B failed'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
 
       // Act
       try { await app.start(); } catch { /* expected */ }
@@ -699,7 +827,7 @@ describe('Application', () => {
       // Assert — cannot start again (started=true)
       await expect(app.start()).rejects.toThrow(/already started/i);
       // Assert — cannot add adapter (started=true)
-      expect(() => app.addAdapter(createMockAdapter(), { name: 'c', protocol: 'p' })).toThrow(/started/i);
+      expect(() => app.addAdapter(createMockAdapter())).toThrow(/started/i);
     });
   });
 
@@ -709,13 +837,13 @@ describe('Application', () => {
     it('should stop adapters in reverse topological order for A→B chain', async () => {
       // Arrange
       const stopOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.stop.mockImplementation(async () => { stopOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.stop.mockImplementation(async () => { stopOrder.push('B'); });
+      const classA = createMockAdapterClass();
+      classA.instance.stop.mockImplementation(async () => { stopOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.stop.mockImplementation(async () => { stopOrder.push('B'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
       await app.start();
 
       // Act
@@ -728,16 +856,16 @@ describe('Application', () => {
     it('should stop adapters in reverse topological order for A→B→C chain', async () => {
       // Arrange
       const stopOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.stop.mockImplementation(async () => { stopOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.stop.mockImplementation(async () => { stopOrder.push('B'); });
-      const adapterC = createMockAdapter();
-      adapterC.stop.mockImplementation(async () => { stopOrder.push('C'); });
+      const classA = createMockAdapterClass();
+      classA.instance.stop.mockImplementation(async () => { stopOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.stop.mockImplementation(async () => { stopOrder.push('B'); });
+      const classC = createMockAdapterClass();
+      classC.instance.stop.mockImplementation(async () => { stopOrder.push('C'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(adapterC, { name: 'c', protocol: 'p', dependsOn: ['b'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classC.instance, { dependsOn: [classB.AdapterClass] });
       await app.start();
 
       // Act
@@ -750,13 +878,13 @@ describe('Application', () => {
     it('should use topological reverse for stop even when it differs from registration reverse', async () => {
       // Arrange — register B first (depends on A), then A
       const stopOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.stop.mockImplementation(async () => { stopOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.stop.mockImplementation(async () => { stopOrder.push('B'); });
+      const classA = createMockAdapterClass();
+      classA.instance.stop.mockImplementation(async () => { stopOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.stop.mockImplementation(async () => { stopOrder.push('B'); });
 
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
+      app.addAdapter(classA.instance);
       await app.start();
 
       // Act
@@ -774,15 +902,15 @@ describe('Application', () => {
       // Arrange
       const startOrder: string[] = [];
       const stopOrder: string[] = [];
-      const adapterA = createMockAdapter();
-      adapterA.start.mockImplementation(async () => { startOrder.push('A'); });
-      adapterA.stop.mockImplementation(async () => { stopOrder.push('A'); });
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { startOrder.push('B'); });
-      adapterB.stop.mockImplementation(async () => { stopOrder.push('B'); });
+      const classA = createMockAdapterClass();
+      classA.instance.start.mockImplementation(async () => { startOrder.push('A'); });
+      classA.instance.stop.mockImplementation(async () => { stopOrder.push('A'); });
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { startOrder.push('B'); });
+      classB.instance.stop.mockImplementation(async () => { stopOrder.push('B'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
 
       // Act
       await app.start();
@@ -795,12 +923,12 @@ describe('Application', () => {
 
     it('should throw on stop() after failed start with cleanup', async () => {
       // Arrange
-      const adapterA = createMockAdapter();
-      const adapterB = createMockAdapter();
-      adapterB.start.mockImplementation(async () => { throw new Error('B failed'); });
+      const classA = createMockAdapterClass();
+      const classB = createMockAdapterClass();
+      classB.instance.start.mockImplementation(async () => { throw new Error('B failed'); });
 
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
+      app.addAdapter(classA.instance);
+      app.addAdapter(classB.instance, { dependsOn: [classA.AdapterClass] });
 
       // Act
       try { await app.start(); } catch { /* expected */ }
@@ -827,6 +955,36 @@ describe('Application', () => {
       return self;
     }
 
+    function createWirableAdapterClass(): {
+      AdapterClass: AdapterClass;
+      instance: Adapter & {
+        start: Mock<(ctx: Context) => Promise<void>>;
+        stop: Mock<() => Promise<void>>;
+        addMiddlewares: Mock<(hook: MiddlewareHook, middlewares: readonly ReturnType<typeof defineMiddleware>[]) => Adapter>;
+      };
+    } {
+      const startFn = mock(() => Promise.resolve());
+      const stopFn = mock(() => Promise.resolve());
+      const addMiddlewaresFn = mock(function () { return instance; });
+
+      class WirableMockAdapter {
+        start = startFn;
+        stop = stopFn;
+        addMiddlewares = addMiddlewaresFn;
+      }
+
+      const instance = new WirableMockAdapter() as Adapter & {
+        start: Mock<(ctx: Context) => Promise<void>>;
+        stop: Mock<() => Promise<void>>;
+        addMiddlewares: Mock<(hook: MiddlewareHook, middlewares: readonly ReturnType<typeof defineMiddleware>[]) => Adapter>;
+      };
+
+      return {
+        AdapterClass: WirableMockAdapter as unknown as AdapterClass,
+        instance,
+      };
+    }
+
     function createMiddleware() {
       return defineMiddleware(() => undefined);
     }
@@ -836,13 +994,14 @@ describe('Application', () => {
       const adapter = createWirableAdapter();
       const middlewareDef = createMiddleware();
       mockAdapterConfig = {
-        http: {
+        // config key resolves to class name (Object) since no name provided
+        [adapter.constructor.name]: {
           middlewares: {
             [MiddlewareHook.OnReceive]: [middlewareDef],
           },
         },
       };
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter);
 
       // Act
       await app.start();
@@ -861,20 +1020,36 @@ describe('Application', () => {
       const mwOnReceive = createMiddleware();
       const mwPreHandle = createMiddleware();
       mockAdapterConfig = {
-        http: {
+        [adapter.constructor.name]: {
           middlewares: {
             [MiddlewareHook.OnReceive]: [mwOnReceive],
             [MiddlewareHook.PreHandle]: [mwPreHandle],
           },
         },
       };
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter);
 
       // Act
       await app.start();
 
       // Assert
       expect(adapter.addMiddlewares).toHaveBeenCalledTimes(2);
+    });
+
+    it('should wire adapter by name when name is provided', async () => {
+      // Arrange
+      const adapter = createWirableAdapter();
+      const mwDef = createMiddleware();
+      mockAdapterConfig = {
+        myhttp: { middlewares: { [MiddlewareHook.OnReceive]: [mwDef] } },
+      };
+      app.addAdapter(adapter, { name: 'myhttp' });
+
+      // Act
+      await app.start();
+
+      // Assert
+      expect(adapter.addMiddlewares).toHaveBeenCalledTimes(1);
     });
 
     it('should wire both adapters when adapterConfig has entries for each', async () => {
@@ -887,8 +1062,8 @@ describe('Application', () => {
         http: { middlewares: { [MiddlewareHook.OnReceive]: [httpMw] } },
         ws: { middlewares: { [MiddlewareHook.OnReceive]: [wsMw] } },
       };
-      app.addAdapter(httpAdapter, { name: 'http', protocol: 'http' });
-      app.addAdapter(wsAdapter, { name: 'ws', protocol: 'ws' });
+      app.addAdapter(httpAdapter, { name: 'http' });
+      app.addAdapter(wsAdapter, { name: 'ws' });
 
       // Act
       await app.start();
@@ -902,7 +1077,7 @@ describe('Application', () => {
       // Arrange
       const adapter = createWirableAdapter();
       mockAdapterConfig = undefined;
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter);
 
       // Act
       await app.start();
@@ -912,13 +1087,13 @@ describe('Application', () => {
       expect(adapter.start).toHaveBeenCalledTimes(1);
     });
 
-    it('should skip adapter when its name is not in adapterConfig', async () => {
+    it('should skip adapter when its config key is not in adapterConfig', async () => {
       // Arrange
       const adapter = createWirableAdapter();
       mockAdapterConfig = {
         ws: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
       };
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter, { name: 'http' });
 
       // Act
       await app.start();
@@ -933,7 +1108,7 @@ describe('Application', () => {
       mockAdapterConfig = {
         http: { middlewares: { [MiddlewareHook.OnReceive]: [] } },
       };
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter, { name: 'http' });
 
       // Act
       await app.start();
@@ -948,7 +1123,7 @@ describe('Application', () => {
       mockAdapterConfig = {
         http: {},
       };
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter, { name: 'http' });
 
       // Act
       await app.start();
@@ -973,7 +1148,7 @@ describe('Application', () => {
       mockAdapterConfig = {
         http: { middlewares: {} },
       };
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter, { name: 'http' });
 
       // Act
       await app.start();
@@ -989,8 +1164,8 @@ describe('Application', () => {
       mockAdapterConfig = {
         http: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
       };
-      app.addAdapter(httpAdapter, { name: 'http', protocol: 'http' });
-      app.addAdapter(wsAdapter, { name: 'ws', protocol: 'ws' });
+      app.addAdapter(httpAdapter, { name: 'http' });
+      app.addAdapter(wsAdapter, { name: 'ws' });
 
       // Act
       await app.start();
@@ -1003,22 +1178,22 @@ describe('Application', () => {
     it('should wire adapters in topological order', async () => {
       // Arrange — B depends on A, so A wires first
       const wireOrder: string[] = [];
-      const adapterA = createWirableAdapter();
-      adapterA.addMiddlewares.mockImplementation(function () {
+      const classA = createWirableAdapterClass();
+      classA.instance.addMiddlewares.mockImplementation(function () {
         wireOrder.push('A');
-        return adapterA;
+        return classA.instance;
       });
-      const adapterB = createWirableAdapter();
-      adapterB.addMiddlewares.mockImplementation(function () {
+      const classB = createWirableAdapterClass();
+      classB.instance.addMiddlewares.mockImplementation(function () {
         wireOrder.push('B');
-        return adapterB;
+        return classB.instance;
       });
       mockAdapterConfig = {
         a: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
         b: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
       };
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
+      app.addAdapter(classA.instance, { name: 'a' });
+      app.addAdapter(classB.instance, { name: 'b', dependsOn: [classA.AdapterClass] });
 
       // Act
       await app.start();
@@ -1039,7 +1214,7 @@ describe('Application', () => {
       mockAdapterConfig = {
         http: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
       };
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter, { name: 'http' });
 
       // Act
       await app.start();
@@ -1056,7 +1231,7 @@ describe('Application', () => {
       mockAdapterConfig = {
         http: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
       };
-      app.addAdapter(adapter, { name: 'http', protocol: 'http' });
+      app.addAdapter(adapter, { name: 'http' });
 
       // Act
       await app.start();
@@ -1070,24 +1245,24 @@ describe('Application', () => {
 
     it('should cleanup already-started adapters when start fails after wiring', async () => {
       // Arrange — A wires+starts ok, B wires+starts throws
-      const adapterA = createWirableAdapter();
-      const adapterB = createWirableAdapter();
-      adapterB.start.mockImplementation(async () => { throw new Error('B failed'); });
+      const classA = createWirableAdapterClass();
+      const classB = createWirableAdapterClass();
+      classB.instance.start.mockImplementation(async () => { throw new Error('B failed'); });
       mockAdapterConfig = {
         a: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
         b: { middlewares: { [MiddlewareHook.OnReceive]: [createMiddleware()] } },
       };
-      app.addAdapter(adapterA, { name: 'a', protocol: 'p' });
-      app.addAdapter(adapterB, { name: 'b', protocol: 'p', dependsOn: ['a'] });
+      app.addAdapter(classA.instance, { name: 'a' });
+      app.addAdapter(classB.instance, { name: 'b', dependsOn: [classA.AdapterClass] });
 
       // Act
       await expect(app.start()).rejects.toThrow('B failed');
 
       // Assert — A was started and cleaned up
-      expect(adapterA.start).toHaveBeenCalledTimes(1);
-      expect(adapterA.stop).toHaveBeenCalledTimes(1);
-      expect(adapterA.addMiddlewares).toHaveBeenCalledTimes(1);
-      expect(adapterB.addMiddlewares).toHaveBeenCalledTimes(1);
+      expect(classA.instance.start).toHaveBeenCalledTimes(1);
+      expect(classA.instance.stop).toHaveBeenCalledTimes(1);
+      expect(classA.instance.addMiddlewares).toHaveBeenCalledTimes(1);
+      expect(classB.instance.addMiddlewares).toHaveBeenCalledTimes(1);
     });
   });
 });

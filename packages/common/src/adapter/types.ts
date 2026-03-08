@@ -25,10 +25,14 @@ export type MiddlewareRegistry = Partial<Record<MiddlewareHook, MiddlewareDefini
 
 /**
  * Adapter dependency declaration.
- * 'standalone' = no dependency on other adapters.
- * string[] = list of adapter names this adapter depends on.
+ *
+ * - `AdapterClass` — depends on **all** instances of that adapter class.
+ * - `string` — depends on the specific adapter instance registered with that `name`.
+ * - Empty array = standalone (no dependency on other adapters).
+ *
+ * @public
  */
-export type AdapterDependsOn = 'standalone' | string[];
+export type AdapterDependsOn = readonly (AdapterClass | string)[];
 
 /**
  * Reference to a decorator function.

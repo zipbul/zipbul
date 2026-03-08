@@ -1,4 +1,5 @@
 import type { Result, ResultAsync } from '@zipbul/result';
+import type { AdapterClass } from './adapter/types';
 import type { Context } from './interfaces';
 
 /**
@@ -28,40 +29,59 @@ export type MiddlewareHandlerFn = (
 /**
  * Immutable middleware definition produced by {@link defineMiddleware}.
  *
+ * When `adapters` is provided, the middleware is only compatible with
+ * the listed adapter classes. When omitted, the middleware is universal
+ * (compatible with all adapters).
+ *
  * @public
  */
 export interface MiddlewareDefinition {
   readonly handler: MiddlewareHandlerFn;
+  readonly adapters?: readonly AdapterClass[];
 }
 
 /**
  * Declares a middleware. This is an identity wrapper — it freezes
- * the handler into a `{ handler }` object. Its purpose is to serve
+ * the definition into an immutable object. Its purpose is to serve
  * as a static marker for the AOT compiler and to provide a
  * type-safe, immutable middleware reference.
  *
- * @param handler - The middleware handler function.
+ * @param handler - The middleware handler function (universal middleware).
  * @returns A frozen {@link MiddlewareDefinition}.
  *
  * @example
  * ```ts
- * // Option-less middleware
- * export const loggerMiddleware = defineMiddleware((ctx) => {
- *   const http = ctx.to(HttpContext);
- *   console.log(`[${http.request.method}] ${http.request.url}`);
+ * // Universal middleware (all adapters)
+ * export const timingMiddleware = defineMiddleware((ctx) => {
+ *   console.log('timing');
  * });
  *
- * // Middleware with options (factory pattern)
- * export function corsMiddleware(options: CorsOptions): MiddlewareDefinition {
- *   return defineMiddleware((ctx) => {
- *     const http = ctx.to(HttpContext);
- *     handleCors(http, options);
- *   });
+ * // Adapter-specific middleware
+ * export const corsMiddleware = defineMiddleware([HttpAdapter], (ctx) => {
+ *   const http = ctx.to(HttpContext);
+ *   handleCors(http);
+ * });
+ *
+ * // Factory pattern with adapter constraint
+ * export function rateLimitMiddleware(opts: RateLimitOptions): MiddlewareDefinition {
+ *   return defineMiddleware([HttpAdapter], (ctx) => { ... });
  * }
  * ```
  *
  * @public
  */
-export function defineMiddleware(handler: MiddlewareHandlerFn): MiddlewareDefinition {
-  return Object.freeze({ handler });
+export function defineMiddleware(handler: MiddlewareHandlerFn): MiddlewareDefinition;
+export function defineMiddleware(adapters: readonly AdapterClass[], handler: MiddlewareHandlerFn): MiddlewareDefinition;
+export function defineMiddleware(
+  adaptersOrHandler: readonly AdapterClass[] | MiddlewareHandlerFn,
+  maybeHandler?: MiddlewareHandlerFn,
+): MiddlewareDefinition {
+  if (typeof adaptersOrHandler === 'function') {
+    return Object.freeze({ handler: adaptersOrHandler });
+  }
+
+  return Object.freeze({
+    handler: maybeHandler!,
+    adapters: Object.freeze([...adaptersOrHandler]),
+  });
 }

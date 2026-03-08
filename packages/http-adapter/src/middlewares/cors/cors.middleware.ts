@@ -2,6 +2,7 @@ import { defineMiddleware, err, type MiddlewareDefinition } from '@zipbul/common
 
 import type { CorsOptions } from './interfaces';
 
+import { HttpAdapter } from '../../http-adapter';
 import { HttpContext } from '../../adapter';
 import { HeaderField, HttpMethod } from '../../enums';
 import { CORS_DEFAULT_METHODS, CORS_DEFAULT_OPTIONS_SUCCESS_STATUS } from './constants';
@@ -23,7 +24,7 @@ import { CORS_DEFAULT_METHODS, CORS_DEFAULT_OPTIONS_SUCCESS_STATUS } from './con
  * @public
  */
 export function corsMiddleware(options: CorsOptions = {}): MiddlewareDefinition {
-  return defineMiddleware(async (ctx) => {
+  return defineMiddleware([HttpAdapter], async (ctx) => {
     const http = ctx.to(HttpContext);
     const req = http.request;
     const res = http.response;

@@ -1,6 +1,7 @@
 import type {
   ProviderToken,
   Adapter,
+  AdapterClass,
   Context,
   ZipbulContainer,
   ZipbulValue,
@@ -39,7 +40,7 @@ export class AppContext implements Context {
 
 export class Application {
   private readonly container: Container;
-  private readonly adapters: Map<string, AdapterEntry> = new Map();
+  private readonly adapters: AdapterEntry[] = [];
   private startOrder: AdapterEntry[] = [];
   private started = false;
   private stopped = false;
@@ -87,24 +88,60 @@ export class Application {
     return this.container;
   }
 
-  public addAdapter(adapter: Adapter, config: AddAdapterConfig): void {
-    if (!config.name) {
-      throw new Error('Adapter name must not be empty');
-    }
-
+  /**
+   * Registers an adapter instance into the application.
+   *
+   * When registering a single instance of a given adapter class, `config` (and `name`)
+   * may be omitted. When registering multiple instances of the same class, a unique
+   * `name` is required on each to distinguish them.
+   *
+   * @param adapter - The adapter instance to register.
+   * @param config - Optional configuration (name, dependsOn).
+   *
+   * @public
+   */
+  public addAdapter(adapter: Adapter, config?: AddAdapterConfig): void {
     if (this.started) {
       throw new Error('Cannot add adapter after application has started');
     }
 
-    if (this.adapters.has(config.name)) {
-      throw new Error(`Adapter "${config.name}" is already registered`);
+    const adapterClass = adapter.constructor as AdapterClass;
+    const name = config?.name;
+    const dependsOn = config?.dependsOn ?? [];
+
+    const existingWithSameClass = this.adapters.filter(
+      (entry) => entry.adapterClass === adapterClass,
+    );
+
+    if (existingWithSameClass.length > 0) {
+      if (name === undefined) {
+        throw new Error(
+          `${adapterClass.name} is registered multiple times. Provide a 'name' to distinguish each instance.`,
+        );
+      }
+
+      const hasUnnamed = existingWithSameClass.some((entry) => entry.name === undefined);
+
+      if (hasUnnamed) {
+        throw new Error(
+          `${adapterClass.name} is registered multiple times. Provide a 'name' to distinguish each instance.`,
+        );
+      }
+
+      const hasDuplicateName = existingWithSameClass.some((entry) => entry.name === name);
+
+      if (hasDuplicateName) {
+        throw new Error(
+          `Adapter "${name}" is already registered for ${adapterClass.name}.`,
+        );
+      }
     }
 
-    this.adapters.set(config.name, {
+    this.adapters.push({
       adapter,
-      name: config.name,
-      protocol: config.protocol,
-      dependsOn: config.dependsOn ?? 'standalone',
+      adapterClass,
+      name,
+      dependsOn,
     });
   }
 
@@ -122,7 +159,8 @@ export class Application {
     const runtimeCtx = getRuntimeContext();
 
     for (const entry of this.startOrder) {
-      const config = runtimeCtx.adapterConfig?.[entry.name];
+      const configKey = this.resolveAdapterConfigKey(entry);
+      const config = runtimeCtx.adapterConfig?.[configKey];
 
       if (config?.middlewares) {
         for (const hook of Object.values(MiddlewareHook)) {
@@ -179,47 +217,64 @@ export class Application {
   }
 
   /**
+   * Resolves the adapter config key for runtime context lookup.
+   * Uses `name` if provided, otherwise falls back to the class name.
+   */
+  private resolveAdapterConfigKey(entry: AdapterEntry): string {
+    return entry.name ?? entry.adapterClass.name;
+  }
+
+  /**
    * Topological sort of adapters based on dependsOn DAG (Kahn's algorithm).
+   * Uses adapter class references as node identifiers.
    * Returns adapters in dependency-first order.
    * Throws if a cycle is detected (defensive — build-time should catch this).
    */
   private topologicalSort(): AdapterEntry[] {
-    const entries = Array.from(this.adapters.values());
+    const entries = this.adapters;
     if (entries.length === 0) return [];
 
-    const inDegree = new Map<string, number>();
-    const dependents = new Map<string, string[]>();
+    const entryIndex = new Map<AdapterEntry, number>();
+    const inDegree = new Map<AdapterEntry, number>();
+    const dependents = new Map<AdapterEntry, AdapterEntry[]>();
 
-    for (const entry of entries) {
-      inDegree.set(entry.name, 0);
-      dependents.set(entry.name, []);
+    for (const [index, entry] of entries.entries()) {
+      entryIndex.set(entry, index);
+      inDegree.set(entry, 0);
+      dependents.set(entry, []);
     }
 
     for (const entry of entries) {
-      const deps =
-        entry.dependsOn === 'standalone' || !entry.dependsOn
-          ? []
-          : entry.dependsOn;
-      for (const dep of deps) {
-        dependents.get(dep)!.push(entry.name);
-        inDegree.set(entry.name, (inDegree.get(entry.name) ?? 0) + 1);
+      for (const dep of entry.dependsOn) {
+        const depEntries = typeof dep === 'string'
+          ? entries.filter((candidate) => candidate.name === dep)
+          : entries.filter((candidate) => candidate.adapterClass === dep);
+
+        for (const depEntry of depEntries) {
+          dependents.get(depEntry)!.push(entry);
+          inDegree.set(entry, (inDegree.get(entry) ?? 0) + 1);
+        }
       }
     }
 
-    const queue: string[] = [];
+    const queue: AdapterEntry[] = [];
+
     for (const entry of entries) {
-      if (inDegree.get(entry.name) === 0) {
-        queue.push(entry.name);
+      if (inDegree.get(entry) === 0) {
+        queue.push(entry);
       }
     }
 
     const sorted: AdapterEntry[] = [];
+
     while (queue.length > 0) {
-      const name = queue.shift()!;
-      sorted.push(this.adapters.get(name)!);
-      for (const neighbor of dependents.get(name)!) {
+      const current = queue.shift()!;
+      sorted.push(current);
+
+      for (const neighbor of dependents.get(current)!) {
         const newDegree = (inDegree.get(neighbor) ?? 0) - 1;
         inDegree.set(neighbor, newDegree);
+
         if (newDegree === 0) {
           queue.push(neighbor);
         }

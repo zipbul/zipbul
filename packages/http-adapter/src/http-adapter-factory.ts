@@ -8,8 +8,7 @@ import type { HttpServerOptions } from './interfaces';
 import { HttpAdapter } from './http-adapter';
 
 interface HttpAdapterBootstrapConfig extends HttpServerOptions {
-  readonly name: string;
-  readonly protocol?: string;
+  readonly name?: string;
 }
 
 function isConfigService(value: ZipbulValue): value is ConfigService {
@@ -73,13 +72,10 @@ export function httpAdapter(resolve: (configService: ConfigService) => HttpAdapt
       }
 
       const config = resolve(configService);
-      const { name, protocol, ...serverOptions } = config;
+      const { name, ...serverOptions } = config;
       const adapter = new HttpAdapter(serverOptions);
 
-      app.addAdapter(adapter, {
-        name,
-        protocol: protocol ?? 'http',
-      });
+      app.addAdapter(adapter, name !== undefined ? { name } : undefined);
     },
   };
 }

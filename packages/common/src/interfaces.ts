@@ -1,4 +1,6 @@
 import type { ZipbulFunction, ZipbulValue, Class, ClassToken, ValueLike } from './types';
+import type { AdapterClass } from './adapter/types';
+import type { MiddlewareDefinition } from './define-middleware';
 
 export { Adapter } from './adapter/adapter';
 
@@ -112,21 +114,19 @@ export type ExceptionFilterToken = ProviderToken;
 export interface Module {
   name?: string;
   providers?: Provider[];
-  adapters?: AdapterConfig;
+  adapters?: AdapterModuleConfig[];
 }
 
-export interface AdapterConfig {
-  [protocol: string]: AdapterProtocolConfig;
-}
-
-export interface AdapterProtocolConfig {
-  [instanceName: string]: AdapterInstanceConfig;
-}
-
-export interface AdapterInstanceConfig {
+/**
+ * Per-adapter configuration within a module.
+ *
+ * @public
+ */
+export interface AdapterModuleConfig {
+  adapter: AdapterClass;
+  name?: string;
   middlewares?: MiddlewareConfig;
   errorFilters?: ExceptionFilterConfig[];
-  [key: string]: ZipbulValue | MiddlewareConfig | ExceptionFilterConfig[];
 }
 
 export interface MiddlewareConfig {

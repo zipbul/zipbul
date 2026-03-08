@@ -27,14 +27,6 @@ describe('adapterDefinition', () => {
     expect(adapterDefinition).toBe(HttpAdapter);
   });
 
-  it('should have instance name equal to http', () => {
-    // Arrange
-    const instance = new adapterDefinition();
-
-    // Act & Assert
-    expect(instance.name).toBe('http');
-  });
-
   it('should set controller to RestController', () => {
     // Arrange
     const instance = new adapterDefinition();

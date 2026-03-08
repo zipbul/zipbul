@@ -2,7 +2,7 @@ import { isErr } from '@zipbul/result';
 import type { ResultAsync } from '@zipbul/result';
 import type { MiddlewareDefinition } from '../define-middleware';
 import type { MiddlewareHalt } from '../define-middleware';
-import type { AdapterEntryDecorators, AdapterDependsOn, MiddlewareRegistry } from './types';
+import type { AdapterEntryDecorators, MiddlewareRegistry } from './types';
 import { MiddlewareHook } from './types';
 import type { Context, ExceptionFilterToken } from '../interfaces';
 
@@ -15,9 +15,7 @@ import type { Context, ExceptionFilterToken } from '../interfaces';
  * @public
  */
 export abstract class Adapter {
-  abstract readonly name: string;
   abstract readonly decorators: AdapterEntryDecorators;
-  readonly dependsOn?: AdapterDependsOn | undefined;
 
   protected middlewareRegistry: MiddlewareRegistry = {};
   protected errorFilterTokens: ExceptionFilterToken[] = [];
@@ -32,6 +30,22 @@ export abstract class Adapter {
    * @public
    */
   addMiddlewares(hook: MiddlewareHook, middlewares: readonly MiddlewareDefinition[]): this {
+    for (const def of middlewares) {
+      if (def.adapters !== undefined && def.adapters.length > 0) {
+        const compatible = def.adapters.some((adapterClass) => this instanceof adapterClass);
+
+        if (!compatible) {
+          const adapterNames = def.adapters.map((cls) => cls.name).join(', ');
+          const thisName = this.constructor.name;
+
+          throw new Error(
+            `Middleware is declared for [${adapterNames}] but was registered on ${thisName}. ` +
+            'Check the adapter compatibility of your middleware definition.',
+          );
+        }
+      }
+    }
+
     const current = this.middlewareRegistry[hook];
     this.middlewareRegistry[hook] = current ? [...current, ...middlewares] : [...middlewares];
     return this;
