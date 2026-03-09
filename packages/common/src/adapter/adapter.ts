@@ -1,5 +1,8 @@
+import { isErr } from '@zipbul/result';
+import type { ResultAsync } from '@zipbul/result';
 import type { MiddlewareDefinition } from '../define-middleware';
-import type { AdapterEntryDecorators, AdapterDependsOn, MiddlewareRegistry } from './types';
+import type { MiddlewareHalt } from '../define-middleware';
+import type { AdapterEntryDecorators, MiddlewareRegistry } from './types';
 import { MiddlewareHook } from './types';
 import type { Context, ExceptionFilterToken } from '../interfaces';
 
@@ -12,13 +15,10 @@ import type { Context, ExceptionFilterToken } from '../interfaces';
  * @public
  */
 export abstract class Adapter {
-  abstract readonly name: string;
   abstract readonly decorators: AdapterEntryDecorators;
-  readonly dependsOn?: AdapterDependsOn | undefined;
 
   protected middlewareRegistry: MiddlewareRegistry = {};
   protected errorFilterTokens: ExceptionFilterToken[] = [];
-  middlewareWired = false;
 
   /**
    * Registers middlewares for a given pipeline hook.
@@ -30,19 +30,25 @@ export abstract class Adapter {
    * @public
    */
   addMiddlewares(hook: MiddlewareHook, middlewares: readonly MiddlewareDefinition[]): this {
+    for (const def of middlewares) {
+      if (def.adapters !== undefined && def.adapters.length > 0) {
+        const compatible = def.adapters.some((adapterClass) => this instanceof adapterClass);
+
+        if (!compatible) {
+          const adapterNames = def.adapters.map((cls) => cls.name).join(', ');
+          const thisName = this.constructor.name;
+
+          throw new Error(
+            `Middleware is declared for [${adapterNames}] but was registered on ${thisName}. ` +
+            'Check the adapter compatibility of your middleware definition.',
+          );
+        }
+      }
+    }
+
     const current = this.middlewareRegistry[hook];
     this.middlewareRegistry[hook] = current ? [...current, ...middlewares] : [...middlewares];
     return this;
-  }
-
-  /**
-   * Marks that AOT has completed adapter-level middleware wiring.
-   * Once marked, runtime DI bridge should skip redundant registration.
-   *
-   * @public
-   */
-  markMiddlewareWired(): void {
-    this.middlewareWired = true;
   }
 
   /**
@@ -59,26 +65,31 @@ export abstract class Adapter {
   }
 
   /**
-   * Executes middlewares registered for a given hook.
+   * Executes middlewares registered for a given hook or from a direct list.
    *
-   * @param hook - The pipeline hook to execute.
+   * @param hookOrList - A pipeline hook to look up, or a direct array of middleware definitions.
    * @param context - The current execution context.
-   * @returns `true` to continue the pipeline, `false` to abort.
+   * @returns `void` on success, `Err<MiddlewareHalt>` when a middleware halts the pipeline.
    *
    * @public
    */
-  async runMiddlewares(hook: MiddlewareHook, context: Context): Promise<boolean> {
-    const list = this.middlewareRegistry[hook] ?? [];
+  async runMiddlewares(
+    hookOrList: MiddlewareHook | MiddlewareDefinition[],
+    context: Context,
+  ): ResultAsync<void, MiddlewareHalt> {
+    const list = Array.isArray(hookOrList)
+      ? hookOrList
+      : (this.middlewareRegistry[hookOrList] ?? []);
 
     for (const def of list) {
       const result = await def.handler(context);
 
-      if (result === false) {
-        return false;
+      if (isErr<MiddlewareHalt>(result)) {
+        return result;
       }
     }
 
-    return true;
+    return undefined;
   }
 
   abstract start(context: Context): Promise<void>;

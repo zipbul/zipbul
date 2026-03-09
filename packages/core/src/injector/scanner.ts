@@ -8,6 +8,7 @@ import type {
   ProviderUseValue,
 } from '@zipbul/common';
 
+import type { ZipbulContainer } from '@zipbul/common';
 import type { Container } from './container';
 import type {
   ClassMetadata,
@@ -19,7 +20,6 @@ import type {
   ModuleMetadata,
   ModuleObject,
   ProviderFactory,
-  TokenRecord,
 } from './types';
 
 import { getRuntimeContext } from '../runtime/runtime-context';
@@ -28,7 +28,6 @@ import {
   formatToken,
   coerceToken,
   isProviderToken,
-  isTokenRecord,
   resolveTokenRecord,
 } from './token-resolver';
 
@@ -112,14 +111,14 @@ export class Scanner {
 
     if (this.isClassProvider(provider)) {
       token = provider;
-      factory = (c: Container) => new provider(...this.resolveDepsFor(provider, c));
+      factory = (c: ZipbulContainer) => new provider(...this.resolveDepsFor(provider, c));
     } else if (this.isProviderRecord(provider)) {
       token = provider.provide;
 
       if (this.isProviderUseValue(provider)) {
         factory = () => provider.useValue;
       } else if (this.isProviderUseFactory(provider)) {
-        factory = (c: Container) => {
+        factory = (c: ZipbulContainer) => {
           const args = Array.isArray(provider.inject) ? provider.inject.map(dep => c.get(dep)) : [];
           const result = provider.useFactory(...args);
 
@@ -130,9 +129,9 @@ export class Scanner {
           return result;
         };
       } else if (this.isProviderUseClass(provider)) {
-        factory = (c: Container) => new provider.useClass(...this.resolveDepsFor(provider.useClass, c));
+        factory = (c: ZipbulContainer) => new provider.useClass(...this.resolveDepsFor(provider.useClass, c));
       } else if (this.isProviderUseExisting(provider)) {
-        factory = (c: Container) => c.get(provider.useExisting);
+        factory = (c: ZipbulContainer) => c.get(provider.useExisting);
       } else {
         factory = () => null;
       }
@@ -145,7 +144,7 @@ export class Scanner {
     }
   }
 
-  private resolveDepsFor(ctor: Class, c: Container): ContainerValue[] {
+  private resolveDepsFor(ctor: Class, c: ZipbulContainer): ContainerValue[] {
     const runtimeContext = getRuntimeContext();
     const registry = this.registry ?? runtimeContext.metadataRegistry;
     const scopedKeys = runtimeContext.scopedKeys;

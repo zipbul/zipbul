@@ -1,5 +1,6 @@
 {
   "name": "@zipbul/scalar",
+  "private": true,
   "version": "0.0.1",
   "description": "Scalar API Documentation integration for Zipbul",
   "main": "index.ts",

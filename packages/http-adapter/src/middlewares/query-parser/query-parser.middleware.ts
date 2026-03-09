@@ -2,6 +2,7 @@ import { defineMiddleware, type MiddlewareDefinition } from '@zipbul/common';
 
 import type { QueryParserOptions } from './interfaces';
 
+import { HttpAdapter } from '../../http-adapter';
 import { HttpContext } from '../../adapter';
 import { QueryParser } from './query-parser';
 
@@ -24,7 +25,7 @@ import { QueryParser } from './query-parser';
 export function queryParserMiddleware(options: QueryParserOptions = {}): MiddlewareDefinition {
   const parser = new QueryParser(options);
 
-  return defineMiddleware((ctx) => {
+  return defineMiddleware([HttpAdapter], (ctx) => {
     const http = ctx.to(HttpContext);
     const req = http.request;
     const questionIndex = req.url.indexOf('?');

@@ -325,15 +325,7 @@ export class AdapterDefinitionResolver {
   }
 
   private extractFromClassProperties(classMetadata: ClassMetadata, sourceFile: string): Result<AdapterStaticSchemaResult, Diagnostic> {
-    const nameProperty = classMetadata.properties.find(p => p.name === 'name');
-    const adapterId = nameProperty?.initializer;
-
-    if (typeof adapterId !== 'string' || adapterId.length === 0) {
-      return err(buildDiagnostic({
-        reason: `Adapter class '${classMetadata.className}' must have a 'name' property with a non-empty string initializer in ${sourceFile}.`,
-        file: sourceFile,
-      }));
-    }
+    const adapterId = classMetadata.className;
 
     const decoratorsProperty = classMetadata.properties.find(p => p.name === 'decorators');
     const decsRaw = this.asRecord(decoratorsProperty?.initializer);
@@ -422,17 +414,17 @@ export class AdapterDefinitionResolver {
           cls.decorators.some(dec => dec.name === adapter.entryDecorators.controller),
         );
 
-        // adapterIds constraint (ADAPTER-R-010): filter by explicit adapterIds if present
+        // adapterNames constraint (ADAPTER-R-010): filter by explicit adapterNames if present
         const controllerDecorator = cls.decorators.find(dec =>
           adapters.some(a => a.entryDecorators.controller === dec.name),
         );
 
         if (controllerDecorator) {
-          const adapterIds = this.extractAdapterIds(controllerDecorator, extractions);
-          if (isErr(adapterIds)) return adapterIds;
+          const adapterNames = this.extractAdapterNames(controllerDecorator, extractions);
+          if (isErr(adapterNames)) return adapterNames;
 
-          if (adapterIds !== null) {
-            controllerAdapters = controllerAdapters.filter(a => adapterIds.includes(a.adapterId));
+          if (adapterNames !== null) {
+            controllerAdapters = controllerAdapters.filter(a => adapterNames.includes(a.adapterId));
           }
         }
 
@@ -459,7 +451,7 @@ export class AdapterDefinitionResolver {
     return adapterByController;
   }
 
-  private extractAdapterIds(
+  private extractAdapterNames(
     decorator: { name: string; arguments: readonly import('./types').AnalyzerValue[] },
     extractions: AdapterExtraction[],
   ): Result<string[] | null, Diagnostic> {
@@ -475,37 +467,37 @@ export class AdapterDefinitionResolver {
       return null;
     }
 
-    if (!Object.prototype.hasOwnProperty.call(arg, 'adapterIds')) {
+    if (!Object.prototype.hasOwnProperty.call(arg, 'adapterNames')) {
       return null;
     }
 
-    const adapterIds = arg.adapterIds;
+    const adapterNames = arg.adapterNames;
 
-    if (!Array.isArray(adapterIds)) {
+    if (!Array.isArray(adapterNames)) {
       return err(buildDiagnostic({
-        reason: 'adapterIds must be an array.',
+        reason: 'adapterNames must be an array.',
       }));
     }
 
-    if (adapterIds.length === 0) {
+    if (adapterNames.length === 0) {
       return err(buildDiagnostic({
-        reason: 'adapterIds must not be empty.',
+        reason: 'adapterNames must not be empty.',
       }));
     }
 
     const knownIds = new Set(extractions.map(e => e.adapterId));
     const validated: string[] = [];
 
-    for (const id of adapterIds) {
+    for (const id of adapterNames) {
       if (typeof id !== 'string') {
         return err(buildDiagnostic({
-          reason: 'adapterIds elements must be string literals.',
+          reason: 'adapterNames elements must be string literals.',
         }));
       }
 
       if (!knownIds.has(id)) {
         return err(buildDiagnostic({
-          reason: `Unknown adapterId '${id}' in adapterIds.`,
+          reason: `Unknown adapter name '${id}' in adapterNames.`,
         }));
       }
 
@@ -639,59 +631,61 @@ export class AdapterDefinitionResolver {
         continue;
       }
 
-      const adaptersRecord = this.asRecord(moduleDefinition.adapters);
+      const adaptersArray = isAnalyzerValueArray(moduleDefinition.adapters) ? moduleDefinition.adapters : null;
 
-      if (adaptersRecord === null) {
+      if (adaptersArray === null) {
         continue;
       }
 
-      if (!Object.prototype.hasOwnProperty.call(adaptersRecord, adapterId)) {
-        continue;
-      }
+      for (const item of adaptersArray) {
+        const itemRecord = this.asRecord(item);
 
-      const adapterConfig = this.asRecord(adaptersRecord[adapterId]);
+        if (itemRecord === null) {
+          continue;
+        }
 
-      if (adapterConfig === null) {
-        return err(buildDiagnostic({
-          reason: `Adapter config must be an object literal for '${adapterId}'.`,
-          file: analysis.filePath,
-        }));
-      }
+        const adapterRef = this.asRecord(itemRecord.adapter);
+        const adapterClassName = typeof adapterRef?.__zipbul_ref === 'string' ? adapterRef.__zipbul_ref : null;
 
-      if (!Object.prototype.hasOwnProperty.call(adapterConfig, 'middlewares')) {
-        continue;
-      }
+        if (adapterClassName !== adapterId) {
+          continue;
+        }
 
-      const middlewares = this.asRecord(adapterConfig.middlewares);
+        if (!Object.prototype.hasOwnProperty.call(itemRecord, 'middlewares')) {
+          continue;
+        }
 
-      if (middlewares === null) {
-        return err(buildDiagnostic({
-          reason: `middlewares must be an object literal for '${adapterId}'.`,
-          file: analysis.filePath,
-        }));
-      }
+        const middlewares = this.asRecord(itemRecord.middlewares);
 
-      for (const key of Object.keys(middlewares)) {
-        if (key.startsWith('__zipbul_computed_')) {
+        if (middlewares === null) {
           return err(buildDiagnostic({
-            reason: `Middleware phase keys must be string literals for '${adapterId}'.`,
+            reason: `middlewares must be an object literal for '${adapterId}'.`,
             file: analysis.filePath,
-            symbol: adapterId,
           }));
         }
 
-        if (key.length === 0) {
-          return err(buildDiagnostic({
-            reason: `Middleware phase keys must be non-empty for '${adapterId}'.`,
-            file: analysis.filePath,
-            symbol: adapterId,
-          }));
+        for (const key of Object.keys(middlewares)) {
+          if (key.startsWith('__zipbul_computed_')) {
+            return err(buildDiagnostic({
+              reason: `Middleware phase keys must be string literals for '${adapterId}'.`,
+              file: analysis.filePath,
+              symbol: adapterId,
+            }));
+          }
+
+          if (key.length === 0) {
+            return err(buildDiagnostic({
+              reason: `Middleware phase keys must be non-empty for '${adapterId}'.`,
+              file: analysis.filePath,
+              symbol: adapterId,
+            }));
+          }
+
+          const phaseIdCheck = this.assertValidPhaseId(key, adapterId, 'middlewares');
+          if (isErr(phaseIdCheck)) return phaseIdCheck;
+
+          phaseIds.push(key);
         }
-
-        const phaseIdCheck = this.assertValidPhaseId(key, adapterId, 'middlewares');
-        if (isErr(phaseIdCheck)) return phaseIdCheck;
-
-        phaseIds.push(key);
       }
     }
 

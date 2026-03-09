@@ -162,7 +162,7 @@ registerRuntimeContext({
   metadataRegistry,
   scopedKeys: scopedKeysMap,
   isAotRuntime: true,
-  wireAdapterMiddlewares,
+  adapterConfig,
 });
 
 `;
@@ -320,7 +320,7 @@ registerRuntimeContext({
     const sortedHandlerIndex = [...handlerIndex].sort((a, b) => compareCodePoint(a.id, b.id));
 
     return {
-      schemaVersion: '4',
+      schemaVersion: '5',
       config: {
         sourcePath: PathResolver.normalize(source.path),
         sourceFormat: source.format,

@@ -1,8 +1,26 @@
 {
   "name": "@zipbul/http-adapter",
+  "version": "0.1.0",
+  "description": "HTTP server adapter with routing and middleware for Zipbul",
+  "license": "MIT",
   "type": "module",
-  "module": "index.ts",
-  "scripts": {},
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/parkrevil/zipbul",
+    "directory": "packages/http-adapter"
+  },
   "dependencies": {
     "http-status-codes": "^2.3"
   },

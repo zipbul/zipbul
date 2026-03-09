@@ -53,7 +53,6 @@ const applyParseToAnalysis = (analysis: FileAnalysis, parseResult: AstParseResul
  */
 const createAdapterProperties = (overrides?: Partial<Record<string, AnalyzerValue>>): PropertyMetadata[] => {
   const values: Record<string, AnalyzerValue> = {
-    name: 'test',
     decorators: {
       controller: { __zipbul_ref: 'Controller' },
       handler: [{ __zipbul_ref: 'Get' }],
@@ -184,9 +183,9 @@ describe('AdapterDefinitionResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert
-    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['test']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['TestAdapter']);
 
-    const spec = result.adapterStaticSchemas.test;
+    const spec = result.adapterStaticSchemas.TestAdapter;
 
     expect(spec?.entryDecorators).toEqual({ controller: 'Controller', handler: ['Get'] });
   });
@@ -240,7 +239,7 @@ describe('AdapterDefinitionResolver', () => {
     fileMap.set(controllerFileB, controllerAnalysisB);
 
     // Adapter A entry
-    const adapterAClass = createTestAdapterClass('AdapterA', { name: 'alpha' });
+    const adapterAClass = createTestAdapterClass('AdapterA');
     const entryParseA = parseOrFail(parser, entryA, 'export const adapterDefinition = defineAdapter(AdapterA);');
     const entryAnalysisA: FileAnalysis = {
       filePath: entryA,
@@ -255,7 +254,6 @@ describe('AdapterDefinitionResolver', () => {
 
     // Adapter B entry
     const adapterBClass = createTestAdapterClass('AdapterB', {
-      name: 'beta',
       decorators: {
         controller: { __zipbul_ref: 'WsGateway' },
         handler: [{ __zipbul_ref: 'OnMessage' }],
@@ -279,7 +277,7 @@ describe('AdapterDefinitionResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert
-    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['alpha', 'beta']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['AdapterA', 'AdapterB']);
   });
 
   it('should resolve adapterDefinition via re-export barrel (export all)', async () => {
@@ -330,7 +328,7 @@ describe('AdapterDefinitionResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert
-    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['test']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['TestAdapter']);
   });
 
   it('should resolve adapterDefinition via named re-export', async () => {
@@ -378,7 +376,7 @@ describe('AdapterDefinitionResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert
-    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['test']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['TestAdapter']);
   });
 
   it('should build handlerIndex with correct id format', async () => {
@@ -391,7 +389,7 @@ describe('AdapterDefinitionResolver', () => {
 
     // Assert
     const expectedFile = PathResolver.normalize('src/controllers.ts');
-    const expectedId = `test:${expectedFile}#SampleController.handle`;
+    const expectedId = `TestAdapter:${expectedFile}#SampleController.handle`;
 
     expect(result.handlerIndex.map(e => e.id)).toEqual([expectedId]);
   });
@@ -404,16 +402,18 @@ describe('AdapterDefinitionResolver', () => {
     const moduleFile = join(srcDir, 'app.module.ts');
     const moduleCode = [
       "import { defineModule } from '@zipbul/common';",
+      "import { TestAdapter } from '@test/adapter';",
       '',
       'export default defineModule({',
       "  name: 'app',",
-      '  adapters: {',
-      '    test: {',
+      '  adapters: [',
+      '    {',
+      '      adapter: TestAdapter,',
       '      middlewares: {',
       '        OnReceive: [],',
       '      },',
       '    },',
-      '  },',
+      '  ],',
       '});',
     ].join('\n');
 
@@ -460,7 +460,7 @@ describe('AdapterDefinitionResolver', () => {
     // Act & Assert — should not throw (module middleware hook 'OnReceive' is valid)
     const result = await resolver.resolve({ fileMap, projectRoot });
 
-    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['test']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['TestAdapter']);
   });
 
   it('should collect middleware phase ids from @Middlewares decorator (string form)', async () => {
@@ -719,25 +719,13 @@ describe('AdapterDefinitionResolver', () => {
     }
   });
 
-  it('should throw when name property is missing or empty', async () => {
-    // Arrange — missing name
-    const fileMap1 = buildStandardFileMap(createTestAdapterClass('TestAdapter', { name: undefined }));
+  it('should use class name as adapterId (name property not required)', async () => {
+    // Arrange — no name property, adapterId derives from className
+    const fileMap = buildStandardFileMap(createTestAdapterClass('MyCustomAdapter'));
     const resolver = new AdapterDefinitionResolver();
 
-    const result1 = await resolver.resolve({ fileMap: fileMap1, projectRoot });
-    expect(isErr(result1)).toBe(true);
-    if (isErr(result1)) {
-      expect(result1.data.why).toMatch(/name/);
-    }
-
-    // Arrange — empty name
-    const fileMap2 = buildStandardFileMap(createTestAdapterClass('TestAdapter', { name: '' }));
-
-    const result2 = await resolver.resolve({ fileMap: fileMap2, projectRoot });
-    expect(isErr(result2)).toBe(true);
-    if (isErr(result2)) {
-      expect(result2.data.why).toMatch(/name/);
-    }
+    const result = await resolver.resolve({ fileMap, projectRoot });
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['MyCustomAdapter']);
   });
 
   it('should throw when decorators.controller is not an identifier', async () => {
@@ -853,7 +841,7 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    // Both adapters use same name 'test'
+    // Both adapters use same className → same adapterId
     for (const ep of [entryA, entryB]) {
       const adapterClass = createTestAdapterClass(`Adapter_${ep.split('/').pop()}`);
       const parse = parseOrFail(parser, ep, 'export const adapterDefinition = defineAdapter(TestAdapter);');
@@ -915,9 +903,8 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const adapterAClass = createTestAdapterClass('AdapterA', { name: 'alpha' });
+    const adapterAClass = createTestAdapterClass('AdapterA');
     const adapterBClass = createTestAdapterClass('AdapterB', {
-      name: 'beta',
       decorators: {
         controller: { __zipbul_ref: 'WsGateway' },
         handler: [{ __zipbul_ref: 'OnMessage' }],
@@ -1140,7 +1127,7 @@ describe('AdapterDefinitionResolver', () => {
 
     // Assert
     expect(result.handlerIndex).toEqual([]);
-    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['test']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['TestAdapter']);
   });
 
   it('should handle file not found on disk when resolving entry', async () => {
@@ -1276,9 +1263,9 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    // Same name 'test' for both
-    const adapterA = createTestAdapterClass('AdapterA');
-    const adapterB = createTestAdapterClass('AdapterB');
+    // Same className → same adapterId → duplicate
+    const adapterA = createTestAdapterClass('DuplicateAdapter');
+    const adapterB = createTestAdapterClass('DuplicateAdapter');
 
     for (const [ep, cls] of [
       [entryA, adapterA],
@@ -1355,15 +1342,14 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(controllerAnalysisB, controllerParseB);
     fileMap.set(controllerFileB, controllerAnalysisB);
 
-    // Adapter 'bravo' registered first alphabetically in entry paths, but name starts with 'b'
-    const adapterBravo = createTestAdapterClass('AdapterBravo', {
-      name: 'bravo',
+    // Adapter 'Bravo' registered first alphabetically in entry paths, but className starts with 'B'
+    const adapterBravo = createTestAdapterClass('BravoAdapter', {
       decorators: {
         controller: { __zipbul_ref: 'WsGateway' },
         handler: [{ __zipbul_ref: 'OnMessage' }],
       },
     });
-    const adapterAlpha = createTestAdapterClass('AdapterAlpha', { name: 'alpha' });
+    const adapterAlpha = createTestAdapterClass('AlphaAdapter');
 
     // entryA → alpha, entryB → bravo
     for (const [ep, cls] of [
@@ -1389,7 +1375,7 @@ describe('AdapterDefinitionResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
 
     // Assert — alphabetical order
-    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['alpha', 'bravo']);
+    expect(Object.keys(result.adapterStaticSchemas)).toEqual(['AlphaAdapter', 'BravoAdapter']);
   });
 
   it('should sort handler index alphabetically', async () => {
@@ -1480,8 +1466,8 @@ describe('AdapterDefinitionResolver', () => {
     return fileMap;
   };
 
-  it('should resolve controller with adapterIds filtering when multiple adapters share decorator name', async () => {
-    // Arrange — two adapters both use 'Controller', adapterIds=['test'] filters to one
+  it('should resolve controller with adapterNames filtering when multiple adapters share decorator name', async () => {
+    // Arrange — two adapters both use 'Controller', adapterNames=['TestAdapter'] filters to one
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
     const otherEntryFile = join(projectRoot, 'adapters', 'other-adapter', 'index.ts');
@@ -1490,7 +1476,7 @@ describe('AdapterDefinitionResolver', () => {
       'function Controller() { return () => {}; }',
       'function Get() { return () => {}; }',
       '',
-      '@Controller({ adapterIds: ["test"] })',
+      '@Controller({ adapterNames: ["TestAdapter"] })',
       'class FilteredController {',
       '  @Get()',
       '  handle() {}',
@@ -1527,7 +1513,7 @@ describe('AdapterDefinitionResolver', () => {
     fileMap.set(entryFile, testEntry);
 
     // Adapter 'other' (same controller decorator name 'Controller')
-    const otherClass = createTestAdapterClass('OtherAdapter', { name: 'other' });
+    const otherClass = createTestAdapterClass('OtherAdapter');
     const otherParse = parseOrFail(parser, otherEntryFile, 'export const adapterDefinition = defineAdapter(OtherAdapter);');
     const otherEntry: FileAnalysis = {
       filePath: otherEntryFile,
@@ -1545,9 +1531,9 @@ describe('AdapterDefinitionResolver', () => {
     // Act
     const result = await resolver.resolve({ fileMap, projectRoot });
 
-    // Assert — only 'test' adapter handler should appear
+    // Assert — only 'TestAdapter' adapter handler should appear
     expect(result.handlerIndex.length).toBe(1);
-    expect(result.handlerIndex[0]!.id).toContain('test:');
+    expect(result.handlerIndex[0]!.id).toContain('TestAdapter:');
   });
 
   it('should throw when handler method is static', async () => {
@@ -1616,13 +1602,13 @@ describe('AdapterDefinitionResolver', () => {
     }
   });
 
-  it('should throw when adapterIds is not an array', async () => {
+  it('should throw when adapterNames is not an array', async () => {
     const code = [
       'function Controller() { return () => {}; }',
       'function Get() { return () => {}; }',
       '',
-      '@Controller({ adapterIds: "test" })',
-      'class BadAdapterIds {',
+      '@Controller({ adapterNames: "TestAdapter" })',
+      'class BadAdapterNames {',
       '  @Get()',
       '  handle() {}',
       '}',
@@ -1634,17 +1620,17 @@ describe('AdapterDefinitionResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(result.data.why).toMatch(/adapterIds/);
+      expect(result.data.why).toMatch(/adapterNames/);
     }
   });
 
-  it('should throw when adapterIds is empty array', async () => {
+  it('should throw when adapterNames is empty array', async () => {
     const code = [
       'function Controller() { return () => {}; }',
       'function Get() { return () => {}; }',
       '',
-      '@Controller({ adapterIds: [] })',
-      'class EmptyAdapterIds {',
+      '@Controller({ adapterNames: [] })',
+      'class EmptyAdapterNames {',
       '  @Get()',
       '  handle() {}',
       '}',
@@ -1656,17 +1642,17 @@ describe('AdapterDefinitionResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(result.data.why).toMatch(/adapterIds/);
+      expect(result.data.why).toMatch(/adapterNames/);
     }
   });
 
-  it('should throw when adapterIds element is not a string', async () => {
+  it('should throw when adapterNames element is not a string', async () => {
     const code = [
       'function Controller() { return () => {}; }',
       'function Get() { return () => {}; }',
       '',
-      '@Controller({ adapterIds: [42] })',
-      'class NumericAdapterId {',
+      '@Controller({ adapterNames: [42] })',
+      'class NumericAdapterName {',
       '  @Get()',
       '  handle() {}',
       '}',
@@ -1678,17 +1664,17 @@ describe('AdapterDefinitionResolver', () => {
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(result.data.why).toMatch(/adapterIds/);
+      expect(result.data.why).toMatch(/adapterNames/);
     }
   });
 
-  it('should throw when adapterIds contains unknown adapterId', async () => {
+  it('should throw when adapterNames contains unknown adapter name', async () => {
     const code = [
       'function Controller() { return () => {}; }',
       'function Get() { return () => {}; }',
       '',
-      '@Controller({ adapterIds: ["nonexistent"] })',
-      'class UnknownAdapterId {',
+      '@Controller({ adapterNames: ["nonexistent"] })',
+      'class UnknownAdapterName {',
       '  @Get()',
       '  handle() {}',
       '}',

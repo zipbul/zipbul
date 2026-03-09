@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'bun:test';
 import { defineAdapter } from './define-adapter';
 import type { AdapterEntryDecorators } from './types';
-import { Adapter, type Context } from '../interfaces';
+import { Adapter } from './adapter';
+import type { Context } from '../interfaces';
 
 // -- Test fixtures --
 
@@ -10,8 +11,6 @@ const getDeco = () => {};
 const postDeco = () => {};
 
 class FakeAdapter extends Adapter {
-  readonly name = 'fake';
-
   readonly decorators: AdapterEntryDecorators = {
     controller: controllerDeco,
     handler: [getDeco, postDeco],
@@ -48,7 +47,6 @@ describe('defineAdapter', () => {
     const instance = new AdapterClass();
 
     // Assert
-    expect(instance.name).toBe('fake');
     expect(instance.decorators.controller).toBe(controllerDeco);
     expect(instance.decorators.handler).toEqual([getDeco, postDeco]);
   });

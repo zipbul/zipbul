@@ -1,3 +1,4 @@
+import { UseMiddlewares } from '@zipbul/common';
 import { RestController, Delete, Get, Param, Post, Put, Body } from '@zipbul/http-adapter';
 
 import type { PostCommentInput } from './comments/interfaces';
@@ -5,6 +6,7 @@ import type { Post as PostEntity } from './interfaces';
 
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
+import { loggerMiddleware } from '../middleware/logger.middleware';
 import { PostsService } from './posts.service';
 
 @RestController('posts')
@@ -22,6 +24,7 @@ export class PostsController {
   }
 
   @Post()
+  @UseMiddlewares(loggerMiddleware)
   create(@Body() body: CreatePostDto): number {
     return this.postsService.create(body);
   }

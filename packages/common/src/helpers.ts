@@ -1,4 +1,5 @@
-import type { ProviderToken, ZipbulContainer, ZipbulValue } from './interfaces';
+import type { ProviderToken, ZipbulContainer } from './interfaces';
+import type { ZipbulValue } from './types';
 import type { LazyRefFactory } from './types';
 
 let activeContext: ZipbulContainer | null = null;

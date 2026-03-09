@@ -33,6 +33,8 @@ export interface HttpServerOptions extends ApplicationOptions {
   readonly workers?: number;
   readonly reusePort?: boolean;
   readonly errorFilters?: readonly ExceptionFilterToken[];
+  readonly name?: string;
+  readonly logLevel?: string;
 }
 
 export type InternalRouteMethod = 'GET';
