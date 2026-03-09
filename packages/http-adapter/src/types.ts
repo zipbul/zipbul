@@ -4,7 +4,6 @@ import type {
   ZipbulValue,
   Class,
   ClassToken,
-  Context,
   PrimitiveArray,
   PrimitiveRecord,
   ProviderToken,
@@ -175,54 +174,6 @@ export type RouteParamKind =
   | 'response'
   | 'res'
   | 'ip';
-
-export interface ErrorLike {
-  readonly name?: string;
-  readonly message?: string;
-  readonly stack?: string;
-}
-
-export type SystemError = Error | ErrorLike | string | number | boolean;
-
-export interface SystemErrorHandlerLike {
-  handle(error: SystemError, ctx: Context): void | Promise<void>;
-}
-
-export interface ErrorHandlingStageParams {
-  readonly error: SystemError;
-  readonly stage: string;
-  readonly allowBody: boolean;
-}
-
-export interface ErrorFilterRunParams {
-  readonly error: SystemError;
-  readonly ctx: Context;
-  readonly entry?: RouteHandlerEntry;
-}
-
-export interface ErrorFilterRunResult {
-  readonly originalError: SystemError;
-  readonly currentError: SystemError;
-}
-
-export interface ShouldCatchParams {
-  readonly error: SystemError;
-  readonly filter: ExceptionFilter<SystemError>;
-}
-
-export interface MatchCatchArgumentParams {
-  readonly error: SystemError;
-  readonly arg: DecoratorArgument;
-}
-
-export interface ResolveTokenOptions {
-  readonly strict?: boolean;
-}
-
-export interface ResolveTokenContext {
-  readonly strict: boolean;
-  readonly token: string;
-}
 
 export type MiddlewareOptions = Record<string, string | number | boolean | null | undefined>;
 

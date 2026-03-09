@@ -6,4 +6,5 @@ export interface HttpAdapter {
   getResponse(): HttpResponse;
   setHeader(name: string, value: string): void;
   setStatus(status: number): void;
+  getRawRequest(): Request | undefined;
 }

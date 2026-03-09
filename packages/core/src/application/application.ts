@@ -9,6 +9,7 @@ import type {
   ModuleMarker,
 } from '@zipbul/common';
 import { MiddlewareHook } from '@zipbul/common';
+import { Logger } from '@zipbul/logger';
 
 import { seal } from '@zipbul/baker';
 
@@ -40,10 +41,12 @@ export class AppContext implements Context {
 
 export class Application {
   private readonly container: Container;
+  private readonly logger = new Logger(Application.name);
   private readonly adapters: AdapterEntry[] = [];
   private startOrder: AdapterEntry[] = [];
   private started = false;
   private stopped = false;
+  private startPromise: Promise<void> | undefined;
 
   constructor(container?: Container) {
     this.container = container ?? new Container();
@@ -151,6 +154,16 @@ export class Application {
     }
 
     this.started = true;
+    this.startPromise = this.executeStart();
+
+    try {
+      await this.startPromise;
+    } finally {
+      this.startPromise = undefined;
+    }
+  }
+
+  private async executeStart(): Promise<void> {
     const context = new AppContext(this.container);
     this.startOrder = this.topologicalSort();
     seal();
@@ -171,6 +184,10 @@ export class Application {
           }
         }
       }
+
+      if (config?.errorFilters !== undefined && config.errorFilters.length > 0) {
+        entry.adapter.addExceptionFilterEntries(config.errorFilters);
+      }
     }
 
     const started: AdapterEntry[] = [];
@@ -188,28 +205,58 @@ export class Application {
           // best-effort cleanup — suppress to preserve original error
         }
       }
+
+      try {
+        await runDestroyHooks(this.container);
+      } catch {
+        // best-effort cleanup — suppress to preserve original error
+      }
+
       this.stopped = true;
       throw error;
     }
   }
 
+  /**
+   * Gracefully stops the application.
+   * Idempotent — safe to call multiple times or before start.
+   * Never throws — all errors are logged and swallowed.
+   *
+   * @public
+   */
   public async stop(): Promise<void> {
-    if (!this.started) {
-      throw new Error('Application has not been started');
+    if (!this.started || this.stopped) {
+      return;
+    }
+
+    if (this.startPromise !== undefined) {
+      try {
+        await this.startPromise;
+      } catch {
+        // start failed — cleanup already happened in executeStart
+      }
     }
 
     if (this.stopped) {
-      throw new Error('Application has already stopped');
+      return;
     }
 
     this.stopped = true;
     const entries = [...this.startOrder].reverse();
 
     for (const entry of entries) {
-      await entry.adapter.stop();
+      try {
+        await entry.adapter.stop();
+      } catch (error) {
+        this.logger.error(`Adapter stop failed: ${entry.adapterClass.name}`, error instanceof Error ? error : undefined);
+      }
     }
 
-    await runDestroyHooks(this.container);
+    try {
+      await runDestroyHooks(this.container);
+    } catch (error) {
+      this.logger.error('Destroy hooks failed', error instanceof Error ? error : undefined);
+    }
   }
 
   public attach(): void {

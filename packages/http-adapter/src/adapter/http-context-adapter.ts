@@ -6,6 +6,7 @@ export class HttpContextAdapter implements HttpAdapter {
   constructor(
     private req: HttpRequest,
     private res: HttpResponse,
+    private rawReq?: Request,
   ) {}
 
   getRequest(): HttpRequest {
@@ -22,5 +23,9 @@ export class HttpContextAdapter implements HttpAdapter {
 
   setStatus(status: number): void {
     this.res.setStatus(status);
+  }
+
+  getRawRequest(): Request | undefined {
+    return this.rawReq;
   }
 }

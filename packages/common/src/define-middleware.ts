@@ -3,28 +3,18 @@ import type { AdapterClass } from './adapter/types';
 import type { Context } from './interfaces';
 
 /**
- * Structured reason for a middleware halting the pipeline.
- *
- * @public
- */
-export interface MiddlewareHalt {
-  readonly reason: string;
-  readonly message?: string;
-}
-
-/**
  * Handler function for a middleware definition.
  * Receives the current execution context and returns a {@link Result}
- * indicating whether to continue (`void`) or halt (`Err<MiddlewareHalt>`).
+ * indicating whether to continue (`void`) or halt (`Err<unknown>`).
  *
  * @param ctx - The execution context for the current request.
- * @returns `void` to continue, `Err<MiddlewareHalt>` to halt the pipeline.
+ * @returns `void` to continue, `Err<unknown>` to halt the pipeline.
  *
  * @public
  */
 export type MiddlewareHandlerFn = (
   ctx: Context,
-) => Result<void, MiddlewareHalt> | ResultAsync<void, MiddlewareHalt>;
+) => Result<void, unknown> | ResultAsync<void, unknown>;
 
 /**
  * Immutable middleware definition produced by {@link defineMiddleware}.
@@ -80,8 +70,12 @@ export function defineMiddleware(
     return Object.freeze({ handler: adaptersOrHandler });
   }
 
+  if (maybeHandler === undefined) {
+    throw new Error('Handler function is required when adapters are specified.');
+  }
+
   return Object.freeze({
-    handler: maybeHandler!,
+    handler: maybeHandler,
     adapters: Object.freeze([...adaptersOrHandler]),
   });
 }

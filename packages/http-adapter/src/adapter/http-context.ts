@@ -1,4 +1,4 @@
-import { ContextError, type ZipbulValue, type ClassToken } from '@zipbul/common';
+import { ContextError, type ZipbulValue, type ClassToken, type ExceptionFilterEntry } from '@zipbul/common';
 
 import type { HttpRequest } from '../http-request';
 import type { HttpResponse } from '../http-response';
@@ -9,6 +9,7 @@ import { HTTP_CONTEXT_TYPE } from '../constants';
 
 export class HttpContext implements HttpContextContract {
   private adapter: HttpAdapter;
+  private _routeErrorFilters: readonly ExceptionFilterEntry[] | undefined;
 
   constructor(adapter: ZipbulValue) {
     this.adapter = this.assertHttpAdapter(adapter);
@@ -19,7 +20,6 @@ export class HttpContext implements HttpContextContract {
   }
 
   get(_key: string): ZipbulValue | undefined {
-    // Basic implementation for now, can be expanded later
     return undefined;
   }
 
@@ -39,6 +39,18 @@ export class HttpContext implements HttpContextContract {
 
   get response(): HttpResponse {
     return this.adapter.getResponse();
+  }
+
+  get rawRequest(): Request | undefined {
+    return this.adapter.getRawRequest();
+  }
+
+  get routeErrorFilters(): readonly ExceptionFilterEntry[] | undefined {
+    return this._routeErrorFilters;
+  }
+
+  setRouteErrorFilters(filters: readonly ExceptionFilterEntry[]): void {
+    this._routeErrorFilters = filters;
   }
 
   private assertHttpAdapter(value: ZipbulValue): HttpAdapter {

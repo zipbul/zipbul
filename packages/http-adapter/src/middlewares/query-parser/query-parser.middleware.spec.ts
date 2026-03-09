@@ -26,6 +26,7 @@ describe('query-parser.middleware', () => {
     const adapter: HttpAdapter = {
       getRequest: () => request,
       getResponse: () => response,
+      getRawRequest: () => undefined,
       setHeader: () => {},
       setStatus: () => {},
     };

@@ -16,8 +16,7 @@ export {
   type ArgumentMetadata,
 } from './src/interfaces';
 
-export { SystemErrorHandler } from './src/system-error-handler';
-export { BakerValidationExceptionFilter } from './src/baker-validation-exception-filter';
+export { HttpError } from './src/errors/http-error';
 
 export { corsMiddleware } from './src/middlewares/cors/cors.middleware';
 export type { CorsOptions } from './src/middlewares/cors/interfaces';

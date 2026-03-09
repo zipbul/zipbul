@@ -352,15 +352,15 @@ describe('Application', () => {
       expect(callOrder).toEqual(['C', 'B', 'A']);
     });
 
-    it('should propagate error when adapter.stop rejects', async () => {
+    it('should swallow error when adapter.stop rejects and continue cleanup', async () => {
       // Arrange
       const adapter = createMockAdapter();
       adapter.stop.mockImplementation(async () => { throw new Error('stop failed'); });
       app.addAdapter(adapter);
       await app.start();
 
-      // Act & Assert
-      await expect(app.stop()).rejects.toThrow('stop failed');
+      // Act & Assert — stop swallows errors, never throws
+      await expect(app.stop()).resolves.toBeUndefined();
     });
 
     it('should have already called earlier stop (reverse) before a later one rejects', async () => {
@@ -381,19 +381,19 @@ describe('Application', () => {
       expect(adapterA.stop).toHaveBeenCalledTimes(1);
     });
 
-    it('should throw when stop is called before start', async () => {
-      // Act & Assert
-      await expect(app.stop()).rejects.toThrow(/not.+started|not running/i);
+    it('should silently return when stop is called before start', async () => {
+      // Act & Assert — no throw, idempotent
+      await expect(app.stop()).resolves.toBeUndefined();
     });
 
-    it('should throw when stop is called twice', async () => {
+    it('should silently return when stop is called twice', async () => {
       // Arrange
       app.addAdapter(createMockAdapter());
       await app.start();
       await app.stop();
 
-      // Act & Assert
-      await expect(app.stop()).rejects.toThrow(/already stopped|double stop/i);
+      // Act & Assert — no throw, idempotent
+      await expect(app.stop()).resolves.toBeUndefined();
     });
   });
 
@@ -921,7 +921,7 @@ describe('Application', () => {
       expect(stopOrder).toEqual(['B', 'A']);
     });
 
-    it('should throw on stop() after failed start with cleanup', async () => {
+    it('should silently return on stop() after failed start with cleanup', async () => {
       // Arrange
       const classA = createMockAdapterClass();
       const classB = createMockAdapterClass();
@@ -933,8 +933,8 @@ describe('Application', () => {
       // Act
       try { await app.start(); } catch { /* expected */ }
 
-      // Assert — stop should throw because app is in failed state
-      await expect(app.stop()).rejects.toThrow(/already stopped/i);
+      // Assert — stop should return silently because app is already in stopped state
+      await expect(app.stop()).resolves.toBeUndefined();
     });
   });
 

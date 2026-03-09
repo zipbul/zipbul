@@ -236,7 +236,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
             if (resolvedPath && !visited.has(resolvedPath)) {
               if (!resolvedPath.endsWith('.d.ts') && resolvedPath.endsWith('.ts')) {
                 const normalizedPath = resolvedPath.replaceAll('\\', '/');
-                if (normalizedPath.includes('/node_modules/@types/')) {
+                if (normalizedPath.includes('/node_modules/')) {
                   continue;
                 }
 

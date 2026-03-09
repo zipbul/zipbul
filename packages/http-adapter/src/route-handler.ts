@@ -1,4 +1,4 @@
-import type { ZipbulContainer, ZipbulValue, ProviderToken, MiddlewareDefinition } from '@zipbul/common';
+import type { ZipbulContainer, ZipbulValue, ProviderToken, MiddlewareDefinition, ExceptionFilterEntry, ErrorConstructorLike } from '@zipbul/common';
 
 import { ExceptionFilter } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
@@ -28,7 +28,6 @@ import type {
   RouteParamKind,
   RouteParamType,
   RouteParamValue,
-  SystemError,
   TokenCarrier,
   TokenRecord,
 } from './types';
@@ -38,10 +37,10 @@ import { deserialize } from '@zipbul/baker';
 import { Router } from './router';
 
 export class RouteHandler {
-  private container: ZipbulContainer;
-  private metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>;
-  private scopedKeys: Map<ProviderToken, string>;
-  private router: Router;
+  private readonly container: ZipbulContainer;
+  private readonly metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>;
+  private readonly scopedKeys: Map<ProviderToken, string>;
+  private readonly router: Router;
   private readonly logger = new Logger(RouteHandler.name);
 
   constructor(
@@ -251,13 +250,11 @@ export class RouteHandler {
             params.push(paramValue);
           }
 
-          const resolvedParams = await Promise.resolve(params);
-
-          return resolvedParams;
+                return params;
         };
 
         const middlewares = this.resolveMiddlewares(targetClass, method, meta);
-        const errorFilters = this.resolveErrorFilters(targetClass, method, meta);
+        const errorFilters = this.resolveErrorFilterEntries(targetClass, method, meta);
         const handler = this.resolveHandler(instance, method.name);
         const entry: RouteHandlerEntry = {
           handler,
@@ -418,27 +415,11 @@ export class RouteHandler {
 
       return this.tryGetFromContainer(token);
     });
-    const ctorArgs = deps.map(dep => (this.isZipbulValue(dep) ? dep : undefined));
-
     try {
-      return new constructor(...ctorArgs);
+      return new constructor(...(deps as readonly ZipbulValue[]));
     } catch {
       return undefined;
     }
-  }
-
-  private isZipbulValue(value: ZipbulValue | ContainerInstance): value is ZipbulValue {
-    return (
-      value === null ||
-      value === undefined ||
-      typeof value === 'string' ||
-      typeof value === 'number' ||
-      typeof value === 'boolean' ||
-      typeof value === 'bigint' ||
-      typeof value === 'symbol' ||
-      typeof value === 'function' ||
-      typeof value === 'object'
-    );
   }
 
   private isErrorConstructor(value: DecoratorArgument): value is ErrorConstructor {
@@ -556,10 +537,10 @@ export class RouteHandler {
   }
 
   private isMiddlewareDefinition(value: DecoratorArgument): value is MiddlewareDefinition {
-    return typeof value === 'object' && value !== null && 'handler' in value && typeof (value as MiddlewareDefinition).handler === 'function';
+    return typeof value === 'object' && value !== null && 'handler' in value && typeof value.handler === 'function';
   }
 
-  private isExceptionFilter(value: ContainerInstance): value is ExceptionFilter<SystemError> {
+  private isExceptionFilter(value: ContainerInstance): value is ExceptionFilter {
     return value instanceof ExceptionFilter;
   }
 
@@ -675,11 +656,11 @@ export class RouteHandler {
     return middlewares;
   }
 
-  private resolveErrorFilters(
+  private resolveErrorFilterEntries(
     targetClass: ControllerConstructor,
     method: MethodMetadata,
     classMeta: ClassMetadata,
-  ): Array<ExceptionFilter<SystemError>> {
+  ): ExceptionFilterEntry[] {
     const tokens: DecoratorArgument[] = [];
     const methodDecs = (method.decorators ?? []).filter((decorator: DecoratorMetadata) => decorator.name === 'UseExceptionFilters');
 
@@ -711,7 +692,7 @@ export class RouteHandler {
 
       return true;
     });
-    const resolved: Array<ExceptionFilter<SystemError>> = [];
+    const entries: ExceptionFilterEntry[] = [];
 
     for (const token of dedupedTokens) {
       if (token === null || token === undefined) {
@@ -721,7 +702,7 @@ export class RouteHandler {
       const instance = this.tryGetFromContainer(token);
 
       if (instance !== undefined && instance !== null && this.isExceptionFilter(instance)) {
-        resolved.push(instance);
+        entries.push({ filter: instance, catchTypes: this.resolveCatchTypes(instance) });
 
         continue;
       }
@@ -734,10 +715,43 @@ export class RouteHandler {
         );
       }
 
-      resolved.push(created);
+      entries.push({ filter: created, catchTypes: this.resolveCatchTypes(created) });
     }
 
-    return resolved;
+    return entries;
+  }
+
+  private resolveCatchTypes(filter: ExceptionFilter): readonly ErrorConstructorLike[] {
+    const meta = this.findMetadataByClassName(filter.constructor?.name);
+    const catchDec = (meta?.decorators ?? []).find((decorator: DecoratorMetadata) => decorator.name === 'Catch');
+
+    if (!catchDec || !catchDec.arguments || catchDec.arguments.length === 0) {
+      return [];
+    }
+
+    const catchTypes: ErrorConstructorLike[] = [];
+
+    for (const arg of catchDec.arguments) {
+      if (typeof arg === 'function' && 'prototype' in arg && arg.prototype instanceof Error) {
+        catchTypes.push(arg as ErrorConstructorLike);
+      }
+    }
+
+    return catchTypes;
+  }
+
+  private findMetadataByClassName(name: string | undefined): ClassMetadata | undefined {
+    if (typeof name !== 'string' || name.length === 0) {
+      return undefined;
+    }
+
+    for (const meta of this.metadataRegistry.values()) {
+      if (meta.className === name) {
+        return meta;
+      }
+    }
+
+    return undefined;
   }
 
   private resolveParamType(type: ParamTypeReference | undefined): RouteParamType | undefined {
@@ -747,9 +761,7 @@ export class RouteHandler {
 
     if (typeof type !== 'string') {
       if (typeof type === 'function' && !('prototype' in type)) {
-        const resolved = (type as LazyParamTypeFactory)();
-
-        return resolved;
+        return type();
       }
 
       return type;

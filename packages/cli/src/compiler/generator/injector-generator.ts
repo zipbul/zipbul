@@ -233,7 +233,7 @@ export class InjectorGenerator {
             });
             const factoryBody = Array.isArray(useClass) ? `[${instances.join(', ')}]` : instances[0];
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => { setInjectionContext(c); try { return ${factoryBody}; } finally { setInjectionContext(null); } }, ${opts});`);
+            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => runInInjectionContext(c, () => ${factoryBody}), ${opts});`);
 
             return;
           }
@@ -402,7 +402,7 @@ export class InjectorGenerator {
           const alias = getAlias(clsMeta.className, ref.filePath);
           const deps = this.resolveConstructorDeps(clsMeta, node, graph);
 
-          factoryEntries.push(`  container.set('${node.name}::${token}', (c) => { setInjectionContext(c); try { return new ${alias}(${deps.join(', ')}); } finally { setInjectionContext(null); } }, ${opts});`);
+          factoryEntries.push(`  container.set('${node.name}::${token}', (c) => runInInjectionContext(c, () => new ${alias}(${deps.join(', ')})), ${opts});`);
         }
       });
 
@@ -521,7 +521,7 @@ export class InjectorGenerator {
 
     return `
 import { Container } from "@zipbul/core";
-import { setInjectionContext } from "@zipbul/common";
+import { runInInjectionContext } from "@zipbul/common";
 
 export function createContainer() {
   const container = new Container();

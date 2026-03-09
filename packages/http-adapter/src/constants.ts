@@ -1,4 +1,1 @@
-export const HTTP_ERROR_FILTER = 'HTTP_ERROR_FILTER';
-export const HTTP_SYSTEM_ERROR_HANDLER = 'HTTP_SYSTEM_ERROR_HANDLER';
-
 export const HTTP_CONTEXT_TYPE = 'http';

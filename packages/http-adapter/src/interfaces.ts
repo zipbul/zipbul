@@ -1,7 +1,7 @@
 import type {
   ApplicationOptions,
   ZipbulContainer,
-  ExceptionFilter,
+  ExceptionFilterEntry,
   MiddlewareDefinition,
   ZipbulValue,
   Class,
@@ -23,7 +23,6 @@ import type {
   RouteHandlerFunction,
   RouteParamType,
   RouteParamValue,
-  SystemError,
 } from './types';
 
 export interface HttpServerOptions extends ApplicationOptions {
@@ -105,7 +104,7 @@ export interface RouteHandlerEntry {
   readonly controllerClass: ControllerConstructor | null;
   readonly methodName: string;
   readonly middlewares: MiddlewareDefinition[];
-  readonly errorFilters: Array<ExceptionFilter<SystemError>>;
+  readonly errorFilters: readonly ExceptionFilterEntry[];
   readonly paramFactory: (req: HttpRequest, res: HttpResponse) => Promise<readonly RouteParamValue[]>;
 }
 

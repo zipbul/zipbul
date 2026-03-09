@@ -12,7 +12,7 @@ import type { Adapter } from './adapter/adapter';
 
 export type ZipbulPrimitive = string | number | boolean | bigint | symbol | null | undefined;
 
-export type ErrorConstructorLike = new (...args: ReadonlyArray<ZipbulValue>) => Error;
+export type ErrorConstructorLike = abstract new (...args: any[]) => Error;
 
 export type ErrorToken =
   | ErrorConstructorLike

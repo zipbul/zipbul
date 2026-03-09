@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import type { Context } from './interfaces';
 import type { AdapterClass } from './adapter/types';
 import { Adapter } from './adapter/adapter';
-import { defineMiddleware } from './define-middleware';
+import { defineGuard } from './define-guard';
 
 class FakeAdapterA extends Adapter {
   readonly decorators = { controller: () => {}, handler: [] };
@@ -28,12 +28,12 @@ class FakeAdapterB extends Adapter {
 
 function noopHandler(_ctx: Context) {}
 
-describe('defineMiddleware', () => {
+describe('defineGuard', () => {
   // ── Handler-only overload ───────────────────────────────────
 
-  it('should return a MiddlewareDefinition with handler when called with handler only', () => {
+  it('should return a GuardDefinition with handler when called with handler only', () => {
     // Arrange & Act
-    const def = defineMiddleware(noopHandler);
+    const def = defineGuard(noopHandler);
 
     // Assert
     expect(def.handler).toBe(noopHandler);
@@ -41,7 +41,7 @@ describe('defineMiddleware', () => {
 
   it('should not set adapters when called with handler only', () => {
     // Arrange & Act
-    const def = defineMiddleware(noopHandler);
+    const def = defineGuard(noopHandler);
 
     // Assert
     expect(def.adapters).toBeUndefined();
@@ -49,7 +49,7 @@ describe('defineMiddleware', () => {
 
   it('should return a frozen object when called with handler only', () => {
     // Arrange & Act
-    const def = defineMiddleware(noopHandler);
+    const def = defineGuard(noopHandler);
 
     // Assert
     expect(Object.isFrozen(def)).toBe(true);
@@ -57,12 +57,12 @@ describe('defineMiddleware', () => {
 
   // ── Adapter + handler overload ──────────────────────────────
 
-  it('should return a MiddlewareDefinition with handler and adapters when called with adapters and handler', () => {
+  it('should return a GuardDefinition with handler and adapters when called with adapters and handler', () => {
     // Arrange
     const adapters: readonly AdapterClass[] = [FakeAdapterA];
 
     // Act
-    const def = defineMiddleware(adapters, noopHandler);
+    const def = defineGuard(adapters, noopHandler);
 
     // Assert
     expect(def.handler).toBe(noopHandler);
@@ -71,7 +71,7 @@ describe('defineMiddleware', () => {
 
   it('should freeze the adapters array', () => {
     // Arrange & Act
-    const def = defineMiddleware([FakeAdapterA, FakeAdapterB], noopHandler);
+    const def = defineGuard([FakeAdapterA, FakeAdapterB], noopHandler);
 
     // Assert
     expect(Object.isFrozen(def.adapters)).toBe(true);
@@ -79,7 +79,7 @@ describe('defineMiddleware', () => {
 
   it('should return a frozen definition when called with adapters and handler', () => {
     // Arrange & Act
-    const def = defineMiddleware([FakeAdapterA], noopHandler);
+    const def = defineGuard([FakeAdapterA], noopHandler);
 
     // Assert
     expect(Object.isFrozen(def)).toBe(true);
@@ -90,7 +90,7 @@ describe('defineMiddleware', () => {
     const adapters: AdapterClass[] = [FakeAdapterA];
 
     // Act
-    const def = defineMiddleware(adapters, noopHandler);
+    const def = defineGuard(adapters, noopHandler);
     adapters.push(FakeAdapterB);
 
     // Assert
@@ -100,7 +100,7 @@ describe('defineMiddleware', () => {
 
   it('should support multiple adapter classes', () => {
     // Arrange & Act
-    const def = defineMiddleware([FakeAdapterA, FakeAdapterB], noopHandler);
+    const def = defineGuard([FakeAdapterA, FakeAdapterB], noopHandler);
 
     // Assert
     expect(def.adapters).toEqual([FakeAdapterA, FakeAdapterB]);
@@ -108,7 +108,7 @@ describe('defineMiddleware', () => {
 
   it('should accept empty adapters array', () => {
     // Arrange & Act
-    const def = defineMiddleware([], noopHandler);
+    const def = defineGuard([], noopHandler);
 
     // Assert
     expect(def.adapters).toEqual([]);

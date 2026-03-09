@@ -1,6 +1,7 @@
-import type { ZipbulFunction, ZipbulValue, Class, ClassToken, ValueLike } from './types';
+import type { ZipbulFunction, ZipbulValue, Class, ClassToken, ValueLike, ErrorConstructorLike } from './types';
 import type { AdapterClass } from './adapter/types';
 import type { MiddlewareDefinition } from './define-middleware';
+import type { ExceptionFilter } from './exception-filter';
 
 import type { Adapter } from './adapter/adapter';
 
@@ -119,6 +120,17 @@ export interface ZipbulContainer {
 }
 
 export type ExceptionFilterToken = ProviderToken;
+
+/**
+ * Pairs an exception filter instance with the error types it catches.
+ * Empty `catchTypes` = catch-all.
+ *
+ * @public
+ */
+export interface ExceptionFilterEntry {
+  readonly filter: ExceptionFilter;
+  readonly catchTypes: readonly ErrorConstructorLike[];
+}
 
 // Module Interface (Strict Schema Enforcement)
 export interface Module {

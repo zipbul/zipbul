@@ -1,16 +1,17 @@
-import type { Class, MiddlewareDefinition, ProviderToken } from '@zipbul/common';
+import type { Class, MiddlewareDefinition, ProviderToken, ExceptionFilterEntry } from '@zipbul/common';
 import type { MiddlewareHook } from '@zipbul/common';
 
 import type { Container } from '../injector/container';
 import type { ClassMetadata } from '../injector/types';
 
 /**
- * Per-adapter middleware configuration produced by AOT.
+ * Per-adapter configuration produced by AOT.
  *
  * @public
  */
 export interface AdapterMiddlewareConfig {
   middlewares?: Partial<Record<MiddlewareHook, readonly MiddlewareDefinition[]>>;
+  errorFilters?: readonly ExceptionFilterEntry[];
 }
 
 export interface RuntimeContext {
