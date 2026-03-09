@@ -7,6 +7,6 @@ export enum LogLevel {
   Fatal = 'fatal',
 }
 
-export const enum ZipbulSymbol {
+export enum ZipbulSymbol {
   Module = 'zipbul.module',
 }

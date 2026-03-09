@@ -74,7 +74,7 @@ export abstract class Adapter {
    * @public
    */
   async runMiddlewares(
-    hookOrList: MiddlewareHook | readonly MiddlewareDefinition[],
+    hookOrList: MiddlewareHook | MiddlewareDefinition[],
     context: Context,
   ): ResultAsync<void, MiddlewareHalt> {
     const list = Array.isArray(hookOrList)
@@ -84,7 +84,7 @@ export abstract class Adapter {
     for (const def of list) {
       const result = await def.handler(context);
 
-      if (isErr(result)) {
+      if (isErr<MiddlewareHalt>(result)) {
         return result;
       }
     }

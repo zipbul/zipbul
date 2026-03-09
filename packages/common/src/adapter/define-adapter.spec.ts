@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'bun:test';
 import { defineAdapter } from './define-adapter';
 import type { AdapterEntryDecorators } from './types';
-import { Adapter, type Context } from '../interfaces';
+import { Adapter } from './adapter';
+import type { Context } from '../interfaces';
 
 // -- Test fixtures --
 

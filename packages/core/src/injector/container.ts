@@ -1,6 +1,7 @@
 import type {
   ZipbulContainer,
   ZipbulFactory,
+  ZipbulValue,
   Class,
   Provider,
   ProviderToken,
@@ -57,7 +58,7 @@ export class Container implements ZipbulContainer {
     this.scopedKeys = keys;
   }
 
-  set<TValue extends ContainerValue = ContainerValue>(
+  set<TValue extends ZipbulValue = ZipbulValue>(
     token: Token,
     factory: ZipbulFactory<TValue> | FactoryFn,
     options?: ProviderRegistrationOptions,
@@ -153,14 +154,14 @@ export class Container implements ZipbulContainer {
 
       if (this.isClassProvider(provider)) {
         token = provider;
-        factory = c => new provider(...this.resolveDepsFor(provider, scope, c));
+        factory = _c => new provider(...this.resolveDepsFor(provider, scope));
       } else if (this.isProviderRecord(provider)) {
         token = provider.provide;
 
         if (this.isProviderUseValue(provider)) {
           factory = () => provider.useValue;
         } else if (this.isProviderUseClass(provider)) {
-          factory = c => new provider.useClass(...this.resolveDepsFor(provider.useClass, scope, c));
+          factory = _c => new provider.useClass(...this.resolveDepsFor(provider.useClass, scope));
         } else if (this.isProviderUseExisting(provider)) {
           factory = c => {
             const existingKey = normalizeToken(provider.useExisting);
@@ -200,7 +201,7 @@ export class Container implements ZipbulContainer {
     }
   }
 
-  private resolveDepsFor(ctor: Class, scope: string, _c: Container): ContainerValue[] {
+  private resolveDepsFor(ctor: Class, scope: string): ContainerValue[] {
     const registry = getRuntimeContext().metadataRegistry;
 
     if (!registry || !registry.has(ctor)) {

@@ -1,4 +1,4 @@
-import type { Color, LogLevel, LogMessage, LogMetadataRecord } from './types';
+import type { Color, LogLevel, LogMessage, LogMetadataRecord, LogMetadataValue } from './types';
 
 export type { Color, LogArgument, LogLevel, LogMessage, LogMetadataRecord, LogMetadataValue } from './types';
 

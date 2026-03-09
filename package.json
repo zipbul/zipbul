@@ -1,7 +1,7 @@
 {
   "name": "zipbul",
   "version": "0.0.1",
-  "private": false,
+  "private": true,
   "description": "Zipbul is a web server framework for building web applications with Bun.",
   "keywords": [
     "api",

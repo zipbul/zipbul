@@ -1,7 +1,26 @@
 {
   "name": "@zipbul/core",
+  "version": "0.1.0",
+  "description": "DI container, application bootstrap and module system for Zipbul",
+  "license": "MIT",
   "type": "module",
-  "module": "index.ts",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/parkrevil/zipbul",
+    "directory": "packages/core"
+  },
   "dependencies": {
     "@zipbul/baker": "^0.1.0",
     "@zipbul/common": "workspace:*",

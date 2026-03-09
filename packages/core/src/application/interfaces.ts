@@ -34,7 +34,7 @@ export type AddAdapterConfig = {
 export type AdapterEntry = {
   adapter: Adapter;
   adapterClass: AdapterClass;
-  name?: string;
+  name?: string | undefined;
   dependsOn: AdapterDependsOn;
 };
 

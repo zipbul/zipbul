@@ -1,3 +1,1 @@
-export function Context(): ParameterDecorator {
-  return () => {};
-}
+export { Context } from '../interfaces';

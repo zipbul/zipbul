@@ -1,6 +1,5 @@
 import type {
   BeforeStart,
-  Adapter,
   ConfigService,
   Configurer,
   EnvService,
@@ -9,6 +8,7 @@ import type {
   OnShutdown,
   OnStart,
 } from './interfaces';
+import type { Adapter } from './adapter/adapter';
 
 export type ZipbulPrimitive = string | number | boolean | bigint | symbol | null | undefined;
 

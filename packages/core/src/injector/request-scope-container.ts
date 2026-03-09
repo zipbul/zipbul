@@ -43,7 +43,7 @@ export class RequestScopeContainer implements ZipbulContainer {
     return instance;
   }
 
-  set<TValue = ContainerValue>(token: ProviderToken, factory: (container: ZipbulContainer) => TValue): void {
+  set<TValue extends ContainerValue = ContainerValue>(token: ProviderToken, factory: (container: ZipbulContainer) => TValue): void {
     this.parent.set(token, factory);
   }
 

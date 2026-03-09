@@ -1,7 +1,6 @@
 import type {
   ExceptionFilter,
   MiddlewareDefinition,
-  ZipbulRecord,
   ZipbulValue,
   Class,
   ClassToken,

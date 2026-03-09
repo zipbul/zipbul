@@ -9,7 +9,7 @@ import type {
   ProviderRegistrationOptions,
 } from '@zipbul/common';
 
-import type { Container } from './container';
+import type { ZipbulContainer } from '@zipbul/common';
 
 export type { ProviderRegistrationOptions };
 
@@ -37,9 +37,9 @@ export type DecoratorArgument =
 
 export type ContainerValue = ZipbulValue;
 
-export type FactoryFn<T = ContainerValue> = (container: Container) => T;
+export type FactoryFn<T = ContainerValue> = (container: ZipbulContainer) => T;
 
-export type ProviderFactory<T = ContainerValue> = (container: Container) => T;
+export type ProviderFactory<T = ContainerValue> = (container: ZipbulContainer) => T;
 
 export interface ProviderRegistration {
   readonly factory: FactoryFn;

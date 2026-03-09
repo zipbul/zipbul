@@ -2,7 +2,7 @@ import { RequestContext } from './async-storage';
 
 export function Trace() {
   return function (
-    target: any,
+    _target: any,
     propertyKey: string | symbol,
     descriptor: PropertyDescriptor,
   ) {

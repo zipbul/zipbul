@@ -2,12 +2,22 @@ import type { ZipbulFunction, ZipbulValue, Class, ClassToken, ValueLike } from '
 import type { AdapterClass } from './adapter/types';
 import type { MiddlewareDefinition } from './define-middleware';
 
-export { Adapter } from './adapter/adapter';
+import type { Adapter } from './adapter/adapter';
 
 export interface Context {
   getType(): string;
   get(key: string): ZipbulValue | undefined;
   to<TContext extends ZipbulValue>(ctor: ClassToken<TContext>): TContext;
+}
+
+/**
+ * Parameter decorator marking a constructor parameter for context injection.
+ * This is a no-op at runtime — actual resolution happens at AOT build time.
+ *
+ * @public
+ */
+export function Context(): ParameterDecorator {
+  return () => {};
 }
 
 // DI Interfaces
@@ -102,7 +112,7 @@ export type ProviderVisibleTo = 'all' | 'module' | string[];
 
 export interface ZipbulContainer {
   get(token: ProviderToken): ZipbulValue;
-  set<TValue = ZipbulValue>(token: ProviderToken, factory: ZipbulFactory<TValue>, options?: ProviderRegistrationOptions): void;
+  set<TValue extends ZipbulValue = ZipbulValue>(token: ProviderToken, factory: ZipbulFactory<TValue>, options?: ProviderRegistrationOptions): void;
   has(token: ProviderToken): boolean;
   getInstances(): IterableIterator<ZipbulValue>;
   keys(): IterableIterator<ProviderToken>;

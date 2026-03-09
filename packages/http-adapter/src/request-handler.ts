@@ -503,7 +503,7 @@ export class RequestHandler {
   private isMiddlewareDefinition(
     value: ReturnType<ZipbulContainer['get']>,
   ): value is MiddlewareDefinition {
-    return typeof value === 'object' && value !== null && 'handler' in value && typeof (value as MiddlewareDefinition).handler === 'function';
+    return typeof value === 'object' && value !== null && 'handler' in value && typeof (value as Record<string, unknown>).handler === 'function';
   }
 
   private isErrorFilter(

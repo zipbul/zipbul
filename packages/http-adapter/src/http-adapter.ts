@@ -1,5 +1,5 @@
 import type { ZipbulRecord, Class, Context, AdapterEntryDecorators } from '@zipbul/common';
-import { Adapter, MiddlewareHook } from '@zipbul/common';
+import { Adapter } from '@zipbul/common';
 
 import {
   ClusterManager,
