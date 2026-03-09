@@ -87,7 +87,7 @@ for (const entry of entries) {
 
 // ── 3. Run changeset publish ────────────────────────────────
 
-const proc = Bun.spawn(['npx', 'changeset', 'publish'], {
+const proc = Bun.spawn(['bunx', 'changeset', 'publish'], {
   cwd: root,
   stdout: 'inherit',
   stderr: 'inherit',
