@@ -1,15 +1,18 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import type { Subprocess } from 'bun';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import type { Gildash, GildashOptions } from '@zipbul/gildash';
+import type { Gildash, GildashOptions, IndexResult } from '@zipbul/gildash';
 
 import type { DevCommandDeps } from '../src/bin/dev.command';
 import { __testing__ } from '../src/bin/dev.command';
 import type { AstParser, AdapterDefinitionResolver } from '../src/compiler/analyzer';
 import type { ResolvedConfig } from '../src/config';
 import { ConfigLoadError } from '../src/config';
+import type { ManifestGenerator } from '../src/compiler/generator/manifest-generator';
+import type { EntryGenerator } from '../src/compiler/generator/entry-generator';
 
 const { createDevCommand } = __testing__;
 
@@ -36,6 +39,24 @@ const makeParseResult = (filePath: string) => {
     injectCalls: [],
   };
 };
+
+// ---------------------------------------------------------------------------
+// Mock subprocess factory
+// ---------------------------------------------------------------------------
+const mockSubprocess = (): Subprocess => ({
+  pid: 12345,
+  kill: mock(() => {}),
+  exited: Promise.resolve(0),
+  exitCode: null,
+  signalCode: null,
+  killed: false,
+  stdin: null,
+  stdout: null,
+  stderr: null,
+  ref: mock(() => {}),
+  unref: mock(() => {}),
+  [Symbol.dispose]: mock(() => {}),
+}) as unknown as Subprocess;
 
 // ---------------------------------------------------------------------------
 // Test fixture
@@ -72,9 +93,20 @@ const makeAdapterResolverMock = () => ({
   resolve: mock(async () => ({ adapterStaticSchemas: [], handlerIndex: [] })),
 }) as unknown as AdapterDefinitionResolver;
 
+const makeManifestGeneratorMock = () => ({
+  generateJson: mock(() => '{}'),
+  generate: mock(() => '// runtime'),
+}) as unknown as ManifestGenerator;
+
+const makeEntryGeneratorMock = () => ({
+  generate: mock(() => '// entry'),
+}) as unknown as EntryGenerator;
+
 const makeGildashLedgerMock = () => ({
   onIndexed: mock((_cb: unknown) => mock(() => {})),
   getAffected: mock(async (_files: string[]) => [] as string[]),
+  getSymbolsByFile: mock((_file: string) => []),
+  diffSymbols: mock((_before: unknown, _after: unknown) => ({ added: [], removed: [], modified: [] })),
   close: mock(async () => {}),
 }) as unknown as Gildash;
 
@@ -84,8 +116,11 @@ const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
   loadConfig: mock(async () => ({ config: testConfig, source: makeSource() })),
   createParser: mock(() => makeParserMock()),
   createAdapterDefinitionResolver: mock(() => makeAdapterResolverMock()),
+  createManifestGenerator: mock(() => makeManifestGeneratorMock()),
+  createEntryGenerator: mock(() => makeEntryGeneratorMock()),
   scanFiles: mock(async () => ['module.ts', 'main.ts']),
   createGildash: makeGildashMock(),
+  spawnProcess: mock(() => mockSubprocess()),
   ...overrides,
 });
 
@@ -94,13 +129,16 @@ const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
 // ---------------------------------------------------------------------------
 describe('createDevCommand', () => {
   let cwdSpy: ReturnType<typeof spyOn>;
+  let processOnSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     cwdSpy = spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    processOnSpy = spyOn(process, 'on').mockImplementation(() => process);
   });
 
   afterEach(() => {
     cwdSpy.mockRestore();
+    processOnSpy.mockRestore();
   });
 
   // -- Happy Path --
@@ -342,5 +380,320 @@ describe('createDevCommand', () => {
 
     // Assert: parse calls happen before watch setup (which requires rebuild to have completed)
     expect(order.some(e => e.startsWith('analyze:'))).toBe(true);
+  });
+
+  // -- runtime.ts / entry.ts 생성 --
+
+  it('should generate runtime.ts in .zipbul/ on initial build', async () => {
+    // Arrange
+    const deps = makeDeps();
+    const dev = createDevCommand(deps);
+
+    // Act
+    await dev();
+
+    // Assert
+    const outDir = join(tmpDir, '.zipbul');
+    const runtimeContent = await readFile(join(outDir, 'runtime.ts'), 'utf-8');
+    expect(runtimeContent).toBe('// runtime');
+  });
+
+  it('should generate entry.ts in .zipbul/ on initial build', async () => {
+    // Arrange
+    const deps = makeDeps();
+    const dev = createDevCommand(deps);
+
+    // Act
+    await dev();
+
+    // Assert
+    const outDir = join(tmpDir, '.zipbul');
+    const entryContent = await readFile(join(outDir, 'entry.ts'), 'utf-8');
+    expect(entryContent).toBe('// entry');
+  });
+
+  // -- 프로세스 관리 --
+
+  it('should spawn app process after initial build', async () => {
+    // Arrange
+    const spawnFn = mock(() => mockSubprocess());
+    const deps = makeDeps({ spawnProcess: spawnFn });
+    const dev = createDevCommand(deps);
+
+    // Act
+    await dev();
+
+    // Assert
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+    const callArgs = spawnFn.mock.calls[0] as unknown as [string[], string];
+    expect(callArgs[0]).toEqual(['bun', join(tmpDir, '.zipbul', 'entry.ts')]);
+    expect(callArgs[1]).toBe(tmpDir);
+  });
+
+  // -- 워치 콜백 관련 --
+
+  it('should re-analyze changedFiles before affectedFiles in watch callback', async () => {
+    // Arrange
+    const analyzeOrder: string[] = [];
+    const changedFile = join(tmpDir, 'src', 'main.ts');
+    const affectedFile = join(tmpDir, 'src', 'module.ts');
+
+    let onIndexedCallback: ((result: IndexResult) => void) | null = null;
+    const ledgerMock = {
+      onIndexed: mock((cb: (result: IndexResult) => void) => {
+        onIndexedCallback = cb;
+        return mock(() => {});
+      }),
+      getAffected: mock(async (_files: string[]) => [affectedFile]),
+      getSymbolsByFile: mock(() => []),
+      diffSymbols: mock(() => ({ added: [], removed: [], modified: [] })),
+      close: mock(async () => {}),
+    } as unknown as Gildash;
+
+    const deps = makeDeps({
+      createParser: mock(() => ({
+        parse: mock((filePath: string, _content: string) => {
+          analyzeOrder.push(filePath);
+          return makeParseResult(filePath);
+        }),
+      }) as unknown as AstParser),
+      createGildash: mock(async () => ledgerMock),
+    });
+
+    const dev = createDevCommand(deps);
+    await dev();
+
+    // Clear initial parse calls
+    analyzeOrder.length = 0;
+
+    // Act: simulate file change
+    expect(onIndexedCallback).not.toBeNull();
+    onIndexedCallback!({
+      changedFiles: [changedFile],
+      deletedFiles: [],
+      failedFiles: [],
+      indexedFiles: 1,
+      removedFiles: 0,
+      totalSymbols: 0,
+      totalRelations: 0,
+      durationMs: 0,
+      changedSymbols: { added: [], modified: [], removed: [] },
+    } satisfies IndexResult);
+
+    // Wait for the async queue to process
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Assert: changedFile re-analyzed before affectedFile
+    const changedIdx = analyzeOrder.indexOf(changedFile);
+    const affectedIdx = analyzeOrder.indexOf(affectedFile);
+    expect(changedIdx).toBeGreaterThanOrEqual(0);
+    expect(affectedIdx).toBeGreaterThanOrEqual(0);
+    expect(changedIdx).toBeLessThan(affectedIdx);
+  });
+
+  it('should restart process after successful rebuild on file change', async () => {
+    // Arrange
+    const subprocess = mockSubprocess();
+    const spawnFn = mock(() => subprocess);
+    const changedFile = join(tmpDir, 'src', 'main.ts');
+
+    let onIndexedCallback: ((result: IndexResult) => void) | null = null;
+    const ledgerMock = {
+      onIndexed: mock((cb: (result: IndexResult) => void) => {
+        onIndexedCallback = cb;
+        return mock(() => {});
+      }),
+      getAffected: mock(async () => []),
+      getSymbolsByFile: mock(() => []),
+      diffSymbols: mock(() => ({ added: [], removed: [], modified: [] })),
+      close: mock(async () => {}),
+    } as unknown as Gildash;
+
+    const deps = makeDeps({
+      createGildash: mock(async () => ledgerMock),
+      spawnProcess: spawnFn,
+    });
+
+    const dev = createDevCommand(deps);
+    await dev();
+
+    // Initial spawn
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+
+    // Act: simulate file change
+    onIndexedCallback!({
+      changedFiles: [changedFile],
+      deletedFiles: [],
+      failedFiles: [],
+      indexedFiles: 1,
+      removedFiles: 0,
+      totalSymbols: 0,
+      totalRelations: 0,
+      durationMs: 0,
+      changedSymbols: { added: [], modified: [], removed: [] },
+    } satisfies IndexResult);
+
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Assert: process restarted (stop old + start new = 2 total spawns)
+    expect(spawnFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('should NOT restart process when rebuild fails', async () => {
+    // Arrange
+    const subprocess = mockSubprocess();
+    const spawnFn = mock(() => subprocess);
+    const changedFile = join(tmpDir, 'src', 'main.ts');
+    let rebuildCount = 0;
+
+    const manifestGenMock = {
+      generateJson: mock(() => {
+        rebuildCount++;
+        // Fail on second call (during watch callback rebuild)
+        if (rebuildCount > 1) {
+          throw new Error('rebuild fail');
+        }
+        return '{}';
+      }),
+      generate: mock(() => '// runtime'),
+    } as unknown as ManifestGenerator;
+
+    let onIndexedCallback: ((result: IndexResult) => void) | null = null;
+    const ledgerMock = {
+      onIndexed: mock((cb: (result: IndexResult) => void) => {
+        onIndexedCallback = cb;
+        return mock(() => {});
+      }),
+      getAffected: mock(async () => []),
+      getSymbolsByFile: mock(() => []),
+      diffSymbols: mock(() => ({ added: [], removed: [], modified: [] })),
+      close: mock(async () => {}),
+    } as unknown as Gildash;
+
+    const deps = makeDeps({
+      createManifestGenerator: mock(() => manifestGenMock),
+      createGildash: mock(async () => ledgerMock),
+      spawnProcess: spawnFn,
+    });
+
+    const dev = createDevCommand(deps);
+    await dev();
+
+    // Initial spawn
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+
+    // Act: simulate file change that triggers a failing rebuild
+    onIndexedCallback!({
+      changedFiles: [changedFile],
+      deletedFiles: [],
+      failedFiles: [],
+      indexedFiles: 1,
+      removedFiles: 0,
+      totalSymbols: 0,
+      totalRelations: 0,
+      durationMs: 0,
+      changedSymbols: { added: [], modified: [], removed: [] },
+    } satisfies IndexResult);
+
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Assert: still only 1 spawn (no restart on failure)
+    expect(spawnFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('should log recovery message when rebuild succeeds after previous failure', async () => {
+    // Arrange
+    const logMessages: string[] = [];
+    const subprocess = mockSubprocess();
+    const spawnFn = mock(() => subprocess);
+    const changedFile = join(tmpDir, 'src', 'main.ts');
+    let rebuildCount = 0;
+
+    const manifestGenMock = {
+      generateJson: mock(() => {
+        rebuildCount++;
+        // Fail on 2nd call (first watch rebuild), succeed on 3rd (second watch rebuild)
+        if (rebuildCount === 2) {
+          throw new Error('transient fail');
+        }
+        return '{}';
+      }),
+      generate: mock(() => '// runtime'),
+    } as unknown as ManifestGenerator;
+
+    let onIndexedCallback: ((result: IndexResult) => void) | null = null;
+    const ledgerMock = {
+      onIndexed: mock((cb: (result: IndexResult) => void) => {
+        onIndexedCallback = cb;
+        return mock(() => {});
+      }),
+      getAffected: mock(async () => []),
+      getSymbolsByFile: mock(() => []),
+      diffSymbols: mock(() => ({ added: [], removed: [], modified: [] })),
+      close: mock(async () => {}),
+    } as unknown as Gildash;
+
+    // Spy on Logger to capture messages
+    const { Logger } = await import('@zipbul/logger');
+    const infoSpy = spyOn(Logger.prototype, 'info').mockImplementation((message: string) => {
+      logMessages.push(message);
+    });
+    const warnSpy = spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    const errorSpy = spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+
+    try {
+      const deps = makeDeps({
+        createManifestGenerator: mock(() => manifestGenMock),
+        createGildash: mock(async () => ledgerMock),
+        spawnProcess: spawnFn,
+      });
+
+      const dev = createDevCommand(deps);
+      await dev();
+
+      const indexEvent = {
+        changedFiles: [changedFile],
+        deletedFiles: [],
+        failedFiles: [],
+        indexedFiles: 1,
+        removedFiles: 0,
+        totalSymbols: 0,
+        totalRelations: 0,
+        durationMs: 0,
+        changedSymbols: { added: [], modified: [], removed: [] },
+      } satisfies IndexResult;
+
+      // 1st watch event: rebuild fails
+      onIndexedCallback!(indexEvent);
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // 2nd watch event: rebuild succeeds → should log recovery
+      logMessages.length = 0;
+      onIndexedCallback!(indexEvent);
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // Assert
+      expect(logMessages).toContain('Build recovered.');
+    } finally {
+      infoSpy.mockRestore();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  // -- 시그널 핸들링 --
+
+  it('should register SIGINT and SIGTERM handlers', async () => {
+    // Arrange
+    const deps = makeDeps();
+    const dev = createDevCommand(deps);
+
+    // Act
+    await dev();
+
+    // Assert
+    const signalCalls = processOnSpy.mock.calls.map((call: unknown[]) => call[0]);
+    expect(signalCalls).toContain('SIGINT');
+    expect(signalCalls).toContain('SIGTERM');
   });
 });
