@@ -11,15 +11,15 @@
     "framework",
     "restful"
   ],
-  "homepage": "https://github.com/parkrevil/zipbul",
+  "homepage": "https://github.com/zipbul/zipbul",
   "bugs": {
-    "url": "https://github.com/parkrevil/zipbul/issues"
+    "url": "https://github.com/zipbul/zipbul/issues"
   },
   "license": "MIT",
   "author": "revil <revil.com@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/parkrevil/zipbul"
+    "url": "https://github.com/zipbul/zipbul"
   },
   "workspaces": [
     "packages/**/*",
