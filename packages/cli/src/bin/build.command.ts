@@ -1,4 +1,5 @@
 import { Glob } from 'bun';
+import { existsSync } from 'node:fs';
 import { mkdir, rm } from 'fs/promises';
 import { join, resolve, dirname } from 'path';
 
@@ -20,6 +21,43 @@ import { ConfigLoader, type ResolvedConfig } from '../config';
 import type { ConfigSource } from '../config/interfaces';
 import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
+
+// ---------------------------------------------------------------------------
+// dist → source resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps a dist/ build output path back to the original TypeScript source.
+ *
+ * When a package.json `exports` field points to `./dist/index.js`,
+ * `Bun.resolveSync` returns the dist path. The AOT compiler needs
+ * the TypeScript source, so we check the package root and `src/`
+ * for a matching `.ts` file.
+ */
+function resolveDistToSource(resolvedPath: string): string | null {
+  const distSegmentIndex = resolvedPath.lastIndexOf('/dist/');
+
+  if (distSegmentIndex === -1) {
+    return null;
+  }
+
+  const packageRoot = resolvedPath.slice(0, distSegmentIndex);
+  const relative = resolvedPath.slice(distSegmentIndex + 6).replace(/\.js$/, '.ts');
+
+  const rootCandidate = join(packageRoot, relative);
+
+  if (existsSync(rootCandidate)) {
+    return rootCandidate;
+  }
+
+  const srcCandidate = join(packageRoot, 'src', relative);
+
+  if (existsSync(srcCandidate)) {
+    return srcCandidate;
+  }
+
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // DI factory types
@@ -186,6 +224,12 @@ export function createBuildCommand(deps: BuildCommandDeps) {
                 resolvedPath += '.ts';
               } else if (await Bun.file(resolvedPath + '/index.ts').exists()) {
                 resolvedPath += '/index.ts';
+              } else {
+                const sourceCandidate = resolveDistToSource(resolvedPath);
+
+                if (sourceCandidate !== null) {
+                  resolvedPath = sourceCandidate;
+                }
               }
             }
 

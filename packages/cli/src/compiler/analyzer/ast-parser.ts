@@ -1,5 +1,6 @@
+import { existsSync } from 'node:fs';
 import { parseSync } from 'oxc-parser';
-import { dirname, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 
 import type { ClassMetadata, DecoratorMetadata, ImportEntry } from './interfaces';
 import type { CreateApplicationCall, DefineModuleCall, InjectCall, ModuleDefinition, ParseResult, ReExport } from './parser-models';
@@ -790,10 +791,52 @@ export class AstParser {
     }
 
     try {
-      return Bun.resolveSync(importPath, dirname(sourcePath));
+      const resolved = Bun.resolveSync(importPath, dirname(sourcePath));
+
+      return this.resolveDistToSource(resolved) ?? resolved;
     } catch (_e) {
       return importPath;
     }
+  }
+
+  /**
+   * Maps a dist/ build output path back to the original TypeScript source.
+   *
+   * When a package.json `exports` field points to `./dist/index.js`,
+   * `Bun.resolveSync` returns the dist path. The AOT compiler needs
+   * the TypeScript source, so we check the package root and `src/`
+   * for a matching `.ts` file.
+   *
+   * @param resolvedPath - Absolute path returned by Bun.resolveSync
+   * @returns The source `.ts` path if found, or `null`
+   */
+  private resolveDistToSource(resolvedPath: string): string | null {
+    if (resolvedPath.endsWith('.ts') || resolvedPath.endsWith('.d.ts')) {
+      return null;
+    }
+
+    const distSegmentIndex = resolvedPath.lastIndexOf('/dist/');
+
+    if (distSegmentIndex === -1) {
+      return null;
+    }
+
+    const packageRoot = resolvedPath.slice(0, distSegmentIndex);
+    const relative = resolvedPath.slice(distSegmentIndex + 6).replace(/\.js$/, '.ts');
+
+    const rootCandidate = join(packageRoot, relative);
+
+    if (existsSync(rootCandidate)) {
+      return rootCandidate;
+    }
+
+    const srcCandidate = join(packageRoot, 'src', relative);
+
+    if (existsSync(srcCandidate)) {
+      return srcCandidate;
+    }
+
+    return null;
   }
 
   private resolveTypeValue(typeInfo: TypeInfo): AnalyzerValue {
