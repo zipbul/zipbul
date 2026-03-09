@@ -1,6 +1,6 @@
 {
   "name": "@zipbul/common",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared types, interfaces, decorators and base classes for Zipbul",
   "license": "MIT",
   "type": "module",
@@ -12,7 +12,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json"
   },
