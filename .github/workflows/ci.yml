@@ -19,12 +19,6 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - name: Lint
-        run: bunx oxlint --type-aware
-
-      - name: Test
-        run: bun test
-
       - name: Build common
         run: bun run build
         working-directory: packages/common
@@ -40,3 +34,9 @@ jobs:
       - name: Build http-adapter
         run: bun run build
         working-directory: packages/http-adapter
+
+      - name: Lint
+        run: bunx oxlint --type-aware
+
+      - name: Test
+        run: bun test
