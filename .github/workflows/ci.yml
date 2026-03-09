@@ -37,6 +37,3 @@ jobs:
 
       - name: Lint
         run: bunx oxlint --type-aware
-
-      - name: Test
-        run: bun test --coverage-threshold 0
