@@ -1,15 +1,18 @@
 import { Injectable, type OnInit, type OnDestroy } from '@zipbul/common';
+import { Logger } from '@zipbul/logger';
 
 import type { User } from './interfaces';
 
 @Injectable()
 export class UserRepository implements OnInit, OnDestroy {
+  private readonly logger = new Logger('UserRepository');
+
   onInit(): void {
-    console.log(`[UserRepository] initialized with ${this.users.length} users`);
+    this.logger.info(`Initialized with ${this.users.length} users`);
   }
 
   onDestroy(): void {
-    console.log('[UserRepository] destroyed');
+    this.logger.info('Destroyed');
   }
 
   private users: User[] = [
