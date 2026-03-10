@@ -10,6 +10,8 @@
     "build": "bun build ./src/bin/zb.ts --compile --outfile dist/zb"
   },
   "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "picocolors": "^1.1.0",
     "@zipbul/gildash": "0.8.0",
     "@zipbul/logger": "workspace:*",
     "@zipbul/result": "^0.1.4",

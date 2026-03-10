@@ -8,6 +8,7 @@ import type { Gildash, GildashOptions, IndexResult } from '@zipbul/gildash';
 
 import type { DevCommandDeps } from '../src/bin/dev.command';
 import { __testing__ } from '../src/bin/dev.command';
+import type { CliRendererLike } from '../src/bin/interfaces';
 import type { AstParser, AdapterDefinitionResolver } from '../src/compiler/analyzer';
 import type { ResolvedConfig } from '../src/config';
 import { ConfigLoadError } from '../src/config';
@@ -112,6 +113,22 @@ const makeGildashLedgerMock = () => ({
 
 const makeGildashMock = () => mock(async (_opts: GildashOptions) => makeGildashLedgerMock());
 
+const makeRendererMock = (): CliRendererLike => ({
+  intro: mock(() => {}),
+  outro: mock(() => {}),
+  cancelled: mock(() => {}),
+  step: mock(() => {}),
+  info: mock(() => {}),
+  success: mock(() => {}),
+  warn: mock(() => {}),
+  error: mock(() => {}),
+  startSpinner: mock(() => ({ stop: mock(() => {}) })),
+  outputPaths: mock(() => {}),
+  outputFiles: mock(() => {}),
+  diagnostic: mock(() => {}),
+  separator: mock(() => {}),
+});
+
 const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
   loadConfig: mock(async () => ({ config: testConfig, source: makeSource() })),
   createParser: mock(() => makeParserMock()),
@@ -121,6 +138,7 @@ const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
   scanFiles: mock(async () => ['module.ts', 'main.ts']),
   createGildash: makeGildashMock(),
   spawnProcess: mock(() => mockSubprocess()),
+  renderer: makeRendererMock(),
   ...overrides,
 });
 
@@ -603,7 +621,6 @@ describe('createDevCommand', () => {
 
   it('should log recovery message when rebuild succeeds after previous failure', async () => {
     // Arrange
-    const logMessages: string[] = [];
     const subprocess = mockSubprocess();
     const spawnFn = mock(() => subprocess);
     const changedFile = join(tmpDir, 'src', 'main.ts');
@@ -633,52 +650,41 @@ describe('createDevCommand', () => {
       close: mock(async () => {}),
     } as unknown as Gildash;
 
-    // Spy on Logger to capture messages
-    const { Logger } = await import('@zipbul/logger');
-    const infoSpy = spyOn(Logger.prototype, 'info').mockImplementation((message: string) => {
-      logMessages.push(message);
+    const renderer = makeRendererMock();
+    const deps = makeDeps({
+      createManifestGenerator: mock(() => manifestGenMock),
+      createGildash: mock(async () => ledgerMock),
+      spawnProcess: spawnFn,
+      renderer,
     });
-    const warnSpy = spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
-    const errorSpy = spyOn(Logger.prototype, 'error').mockImplementation(() => {});
 
-    try {
-      const deps = makeDeps({
-        createManifestGenerator: mock(() => manifestGenMock),
-        createGildash: mock(async () => ledgerMock),
-        spawnProcess: spawnFn,
-      });
+    const dev = createDevCommand(deps);
+    await dev();
 
-      const dev = createDevCommand(deps);
-      await dev();
+    const indexEvent = {
+      changedFiles: [changedFile],
+      deletedFiles: [],
+      failedFiles: [],
+      indexedFiles: 1,
+      removedFiles: 0,
+      totalSymbols: 0,
+      totalRelations: 0,
+      durationMs: 0,
+      changedSymbols: { added: [], modified: [], removed: [] },
+    } satisfies IndexResult;
 
-      const indexEvent = {
-        changedFiles: [changedFile],
-        deletedFiles: [],
-        failedFiles: [],
-        indexedFiles: 1,
-        removedFiles: 0,
-        totalSymbols: 0,
-        totalRelations: 0,
-        durationMs: 0,
-        changedSymbols: { added: [], modified: [], removed: [] },
-      } satisfies IndexResult;
+    // 1st watch event: rebuild fails
+    onIndexedCallback!(indexEvent);
+    await new Promise(resolve => setTimeout(resolve, 50));
 
-      // 1st watch event: rebuild fails
-      onIndexedCallback!(indexEvent);
-      await new Promise(resolve => setTimeout(resolve, 50));
+    // 2nd watch event: rebuild succeeds → should log recovery
+    onIndexedCallback!(indexEvent);
+    await new Promise(resolve => setTimeout(resolve, 50));
 
-      // 2nd watch event: rebuild succeeds → should log recovery
-      logMessages.length = 0;
-      onIndexedCallback!(indexEvent);
-      await new Promise(resolve => setTimeout(resolve, 50));
-
-      // Assert
-      expect(logMessages).toContain('Build recovered.');
-    } finally {
-      infoSpy.mockRestore();
-      warnSpy.mockRestore();
-      errorSpy.mockRestore();
-    }
+    // Assert
+    const successCalls = (renderer.success as ReturnType<typeof mock>).mock.calls;
+    const recoveryCall = successCalls.find((call: unknown[]) => call[0] === 'Build recovered');
+    expect(recoveryCall).toBeDefined();
   });
 
   // -- 시그널 핸들링 --

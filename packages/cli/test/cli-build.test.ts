@@ -8,6 +8,7 @@ import type { Gildash, GildashOptions } from '@zipbul/gildash';
 
 import type { BuildCommandDeps } from '../src/bin/build.command';
 import { __testing__ } from '../src/bin/build.command';
+import type { CliRendererLike } from '../src/bin/interfaces';
 import type { AstParser, AdapterDefinitionResolver } from '../src/compiler/analyzer';
 import type { ResolvedConfig } from '../src/config';
 import { ConfigLoadError } from '../src/config';
@@ -91,6 +92,22 @@ const makeGildashLedgerMock = () => ({
 
 const makeGildashMock = () => mock(async (_opts: GildashOptions) => makeGildashLedgerMock());
 
+const makeRendererMock = (): CliRendererLike => ({
+  intro: mock(() => {}),
+  outro: mock(() => {}),
+  cancelled: mock(() => {}),
+  step: mock(() => {}),
+  info: mock(() => {}),
+  success: mock(() => {}),
+  warn: mock(() => {}),
+  error: mock(() => {}),
+  startSpinner: mock(() => ({ stop: mock(() => {}) })),
+  outputPaths: mock(() => {}),
+  outputFiles: mock(() => {}),
+  diagnostic: mock(() => {}),
+  separator: mock(() => {}),
+});
+
 const makeParserMock = () => ({
   parse: mock((filePath: string, _content: string) => makeParseResult(filePath)),
 }) as unknown as AstParser;
@@ -103,8 +120,13 @@ const makeDeps = (overrides?: Partial<BuildCommandDeps>): BuildCommandDeps => ({
   createAdapterDefinitionResolver: mock(() => makeAdapterResolverMock()),
   scanFiles: mock(async () => ['module.ts']),
   resolveImport: mock((_spec: string, _from: string) => { throw new Error('resolve'); }),
-  buildBundle: mock(async () => ({ success: true as const, outputs: [], logs: [] })) as unknown as BuildCommandDeps['buildBundle'],
+  buildBundle: mock(async (opts: { outdir: string }) => {
+    await Bun.write(join(opts.outdir, 'entry.js'), '// entry');
+    await Bun.write(join(opts.outdir, 'runtime.js'), '// runtime');
+    return { success: true as const, outputs: [], logs: [] };
+  }) as unknown as BuildCommandDeps['buildBundle'],
   createGildash: makeGildashMock(),
+  renderer: makeRendererMock(),
   ...overrides,
 });
 

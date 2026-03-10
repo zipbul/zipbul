@@ -1,23 +1,24 @@
 import { Glob, type Subprocess } from 'bun';
 import { mkdir, rm } from 'fs/promises';
-import { join, resolve, relative } from 'path';
+import { join, resolve, dirname, relative } from 'path';
 
-import type { CollectedClass, CommandOptions } from './types';
+import type { CliRendererLike, CollectedClass, CommandOptions } from './interfaces';
 
 import { AdapterDefinitionResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
+import type { ModuleNode } from '../compiler/analyzer/graph/module-node';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import { ConfigLoader, type ResolvedConfig } from '../config';
 import type { ConfigSource } from '../config/interfaces';
 import { outputDirPath, scanGlobSorted, writeIfChanged } from '../common';
-import { Logger } from '@zipbul/logger';
 import { isErr } from '@zipbul/result';
-import { buildDiagnostic, DiagnosticError, reportDiagnostic } from '../diagnostics';
+import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 import { Gildash, type GildashOptions } from '@zipbul/gildash';
 import type { IndexResult, SymbolSearchResult } from '@zipbul/gildash';
 
 import { buildDevIncrementalImpactLog } from './dev-incremental-impact';
 import { DevProcessManager } from './dev-process-manager';
+import { CliRenderer } from './cli-renderer';
 
 // ---------------------------------------------------------------------------
 // DI factory types
@@ -32,13 +33,14 @@ export interface DevCommandDeps {
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
   createGildash?: (opts: GildashOptions) => Promise<Gildash>;
   spawnProcess?: (command: string[], cwd: string) => Subprocess;
+  renderer: CliRendererLike;
 }
 
 export function createDevCommand(deps: DevCommandDeps) {
-  const logger = new Logger('Dev');
+  const { renderer } = deps;
 
   return async function dev(commandOptions?: CommandOptions): Promise<void> {
-    logger.info('Starting Zipbul Dev...');
+    renderer.intro('dev');
 
     const configResult = await deps.loadConfig();
     const config = configResult.config;
@@ -63,7 +65,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         const parseResult = parser.parse(filePath, fileContent);
 
         if (isErr(parseResult)) {
-          reportDiagnostic(parseResult.data);
+          renderer.diagnostic(parseResult.data);
 
           return false;
         }
@@ -118,13 +120,18 @@ export function createDevCommand(deps: DevCommandDeps) {
           cause: error,
         });
 
-        reportDiagnostic(diagnostic);
+        renderer.diagnostic(diagnostic);
 
         return false;
       }
     }
 
-    async function rebuild() {
+    interface RebuildResult {
+      graph: ModuleGraph;
+      handlerIndex: readonly { id: string }[];
+    }
+
+    async function rebuild(): Promise<RebuildResult> {
       const fileMap = new Map(fileCache.entries());
       const graph = new ModuleGraph(fileMap, moduleFileName, srcDir);
 
@@ -192,6 +199,8 @@ export function createDevCommand(deps: DevCommandDeps) {
       } else {
         await rm(runtimeReportPath, { force: true });
       }
+
+      return { graph, handlerIndex: adapterResolution.handlerIndex };
     }
 
     function shouldAnalyzeFile(filePath: string): boolean {
@@ -206,8 +215,22 @@ export function createDevCommand(deps: DevCommandDeps) {
       return true;
     }
 
+    const fmt = (value: number): string => value.toLocaleString('en-US');
+    const pluralize = (count: number, singular: string): string =>
+      `${fmt(count)} ${count === 1 ? singular : singular + 's'}`;
+
+    renderer.outputPaths('📂 Project', [
+      { label: 'Root', value: projectRoot },
+      { label: 'Source', value: relative(projectRoot, srcDir) || '.' },
+      { label: 'Output', value: relative(projectRoot, outDir) || '.' },
+    ]);
+
+    // ── 1. Scan ──
+    const scanSpinner = renderer.startSpinner('🔍 Scanning source files');
+
     const glob = new Glob('**/*.ts');
     const srcFiles = await deps.scanFiles({ glob, baseDir: srcDir });
+    let classCount = 0;
 
     for (const file of srcFiles) {
       const fullPath = join(srcDir, file);
@@ -219,27 +242,159 @@ export function createDevCommand(deps: DevCommandDeps) {
       await analyzeFile(fullPath);
     }
 
+    for (const analysis of fileCache.values()) {
+      classCount += analysis.classes.length;
+    }
+
+    scanSpinner.stop(`🔍 Scanned ${fmt(fileCache.size)} files (${fmt(classCount)} classes)`);
+
     const appEntry = validateCreateApplication(fileCache);
 
     if (isErr(appEntry)) {
       throw new DiagnosticError(appEntry.data);
     }
 
-    await rebuild();
+    // ── 2. Build + Generate ──
+    const buildSpinner = renderer.startSpinner('🧩 Building AOT artifacts');
+    const bootStartedAt = performance.now();
 
-    logger.info('AOT artifacts generated.');
-    logger.info(`   Manifest:  ${join(outDir, 'manifest.json')}`);
-    logger.info(`   Runtime:   ${join(outDir, 'runtime.ts')}`);
-    logger.info(`   Entry:     ${join(outDir, 'entry.ts')}`);
+    const initialResult = await rebuild();
+
+    const bootDuration = ((performance.now() - bootStartedAt) / 1000).toFixed(1);
+    const { graph, handlerIndex } = initialResult;
+
+    let providerCount = 0;
+    for (const mod of graph.modules.values()) {
+      providerCount += mod.providers.size;
+    }
+
+    buildSpinner.stop(`🧩 AOT artifacts generated in ${bootDuration}s (${fmt(graph.modules.size)} modules, ${fmt(providerCount)} providers)`);
+
+    // ── Application tree ──
+    const handlersByController = new Map<string, number>();
+    for (const handler of handlerIndex) {
+      const hashIndex = handler.id.indexOf('#');
+      if (hashIndex !== -1) {
+        const className = handler.id.slice(hashIndex + 1).split('.')[0];
+        handlersByController.set(className, (handlersByController.get(className) ?? 0) + 1);
+      }
+    }
+
+    const scopeCounts = { singleton: 0, request: 0, transient: 0 };
+    for (const mod of graph.modules.values()) {
+      for (const provider of mod.providers.values()) {
+        scopeCounts[provider.scope ?? 'singleton']++;
+      }
+    }
+
+    const adapterIds = new Set<string>();
+    for (const handler of handlerIndex) {
+      adapterIds.add(handler.id.slice(0, handler.id.indexOf(':')));
+    }
+
+    const treeLines: Array<{ label: string; value: string }> = [];
+
+    const buildModuleStats = (mod: ModuleNode): string => {
+      const parts: string[] = [];
+      if (mod.providers.size > 0) {
+        parts.push(pluralize(mod.providers.size, 'provider'));
+      }
+      if (mod.controllers.size > 0) {
+        let totalHandlers = 0;
+        for (const ctrl of mod.controllers) {
+          totalHandlers += handlersByController.get(ctrl) ?? 0;
+        }
+        parts.push(pluralize(mod.controllers.size, 'controller'));
+        if (totalHandlers > 0) {
+          parts.push(pluralize(totalHandlers, 'handler'));
+        }
+      }
+      return parts.join(', ');
+    };
+
+    const moduleEntries = Array.from(graph.modules.entries())
+      .map(([path, mod]) => ({ path, dir: dirname(path), mod }))
+      .sort((entryA, entryB) => entryA.dir.length - entryB.dir.length);
+
+    const childrenOf = new Map<string, ModuleNode[]>();
+
+    for (const entry of moduleEntries) {
+      childrenOf.set(entry.path, []);
+    }
+
+    for (let index = 1; index < moduleEntries.length; index++) {
+      const entry = moduleEntries[index];
+      let parentPath: string | undefined;
+
+      for (let parentIndex = index - 1; parentIndex >= 0; parentIndex--) {
+        const candidate = moduleEntries[parentIndex];
+        if (entry.dir.startsWith(candidate.dir + '/') || entry.dir === candidate.dir) {
+          parentPath = candidate.path;
+          break;
+        }
+      }
+
+      if (parentPath !== undefined) {
+        childrenOf.get(parentPath)?.push(entry.mod);
+      }
+    }
+
+    const walkTree = (mod: ModuleNode, modPath: string, prefix: string, isLast: boolean, isRoot: boolean): void => {
+      const connector = isRoot ? '' : (isLast ? '└── ' : '├── ');
+      const stats = buildModuleStats(mod);
+      const label = `${prefix}${connector}${mod.name}`;
+      treeLines.push({ label, value: stats });
+
+      const children = (childrenOf.get(modPath) ?? [])
+        .sort((childA, childB) => childA.name.localeCompare(childB.name));
+      const childPrefix = isRoot ? '' : prefix + (isLast ? '    ' : '│   ');
+
+      children.forEach((child, childIndex) => {
+        walkTree(child, child.filePath, childPrefix, childIndex === children.length - 1, false);
+      });
+    };
+
+    if (moduleEntries.length > 0) {
+      const root = moduleEntries[0];
+      walkTree(root.mod, root.path, '', true, true);
+    }
+
+    const scopeParts = Object.entries(scopeCounts)
+      .filter(([, count]) => count > 0)
+      .map(([scope, count]) => `${fmt(count)} ${scope}`);
+    const adapterParts = Array.from(adapterIds)
+      .sort()
+      .map(id => `${id} (${fmt(handlerIndex.filter(h => h.id.startsWith(id + ':')).length)} handlers)`);
+
+    const summaryParts: string[] = [];
+    if (scopeParts.length > 0) {
+      summaryParts.push(`💉 ${scopeParts.join(', ')}`);
+    }
+    if (adapterParts.length > 0) {
+      summaryParts.push(`🔌 ${adapterParts.join(', ')}`);
+    }
+    if (summaryParts.length > 0) {
+      treeLines.push({ label: '', value: '' });
+      treeLines.push({ label: summaryParts.join(' · '), value: '' });
+    }
+
+    renderer.outputPaths('🧱 Application', treeLines);
+
+    renderer.outputPaths('📋 Artifacts', [
+      { label: 'Manifest', value: toProjectRelativePath(join(outDir, 'manifest.json')) },
+      { label: 'Runtime', value: toProjectRelativePath(join(outDir, 'runtime.ts')) },
+      { label: 'Entry', value: toProjectRelativePath(join(outDir, 'entry.ts')) },
+    ]);
 
     // 앱 프로세스 시작
     const processManager = new DevProcessManager({
       entryPath: join(outDir, 'entry.ts'),
       cwd: projectRoot,
-      logger,
-      spawnProcess: deps.spawnProcess ?? ((command, cwd) => Bun.spawn(command, { cwd, stdout: 'inherit', stderr: 'inherit' })),
+      renderer,
+      spawnProcess: deps.spawnProcess ?? ((command, cwd) => Bun.spawn(command, { cwd, stdout: 'pipe', stderr: 'pipe', env: { ...process.env } })),
     });
     processManager.start();
+    renderer.step('Watching for changes...');
 
     let ledger: Gildash;
     try {
@@ -266,15 +421,21 @@ export function createDevCommand(deps: DevCommandDeps) {
       let indexQueue = Promise.resolve();
       const unsubscribe = ledger.onIndexed((result: IndexResult) => {
         indexQueue = indexQueue.then(async () => {
+          renderer.separator();
+
           // 1. 삭제 파일 제거
           for (const file of result.deletedFiles) {
             fileCache.delete(file);
             symbolCache.delete(file);
           }
 
+          if (result.deletedFiles.length > 0) {
+            renderer.info(`Deleted: ${result.deletedFiles.map(toProjectRelativePath).join(', ')}`);
+          }
+
           // 2. 파싱 실패 파일 로깅
           for (const file of result.failedFiles) {
-            logger.warn(`File could not be indexed: ${toProjectRelativePath(file)}`);
+            renderer.warn(`File could not be indexed: ${toProjectRelativePath(file)}`);
           }
 
           // 3. 심볼 레벨 변경 분석 (diffSymbols)
@@ -285,18 +446,18 @@ export function createDevCommand(deps: DevCommandDeps) {
               const diff = ledger.diffSymbols(before, after);
 
               if (diff.removed.length > 0) {
-                logger.warn(`Breaking: removed exports in ${toProjectRelativePath(file)}: ${diff.removed.map(s => s.name).join(', ')}`);
+                renderer.warn(`Removed: ${diff.removed.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
               }
               if (diff.modified.length > 0) {
-                logger.info(`Modified: ${diff.modified.map(m => m.after.name).join(', ')} in ${toProjectRelativePath(file)}`);
+                renderer.info(`Modified: ${diff.modified.map(m => m.after.name).join(', ')} in ${toProjectRelativePath(file)}`);
               }
               if (diff.added.length > 0) {
-                logger.info(`Added: ${diff.added.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
+                renderer.info(`Added: ${diff.added.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
               }
 
               symbolCache.set(file, after);
             } catch (e) {
-              logger.warn(`Symbol diff failed for ${toProjectRelativePath(file)}: ${e instanceof Error ? e.message : 'unknown'}`);
+              renderer.warn(`Symbol diff failed for ${toProjectRelativePath(file)}: ${e instanceof Error ? e.message : 'unknown'}`);
             }
           }
 
@@ -317,7 +478,8 @@ export function createDevCommand(deps: DevCommandDeps) {
             }
           }
 
-          // 7. 증분 영향 로그 (파일→모듈 매핑)
+          // 7. 증분 영향 로그 (파일→모듈 매핑) + 재빌드
+          const rebuildStartedAt = performance.now();
           const allAffected = [...result.changedFiles, ...affectedFiles];
           const impactLog = buildDevIncrementalImpactLog({
             affectedFiles: allAffected,
@@ -325,13 +487,22 @@ export function createDevCommand(deps: DevCommandDeps) {
             moduleFileName,
             toProjectRelativePath,
           });
-          logger.info(impactLog.logLine);
 
           // 8. 재빌드 + 프로세스 재시작
           await rebuild();
 
+          const rebuildDuration = ((performance.now() - rebuildStartedAt) / 1000).toFixed(1);
+
+          // 영향 모듈명 요약 (파일 경로 대신 디렉토리 기반 모듈명)
+          const moduleNames = Array.from(impactLog.affectedModules)
+            .map(toProjectRelativePath)
+            .map(p => p.replace(/\/module\.ts$/, '').replace(/\/__module__\.ts$/, ''))
+            .sort();
+          const moduleSummary = moduleNames.length > 0 ? moduleNames.join(', ') : '(none)';
+          renderer.step(`🧭 ${moduleSummary} → rebuilt (${rebuildDuration}s)`);
+
           if (lastRebuildFailed) {
-            logger.info('Build recovered.');
+            renderer.success('Build recovered');
             lastRebuildFailed = false;
           }
 
@@ -340,12 +511,12 @@ export function createDevCommand(deps: DevCommandDeps) {
           lastRebuildFailed = true;
 
           if (error instanceof DiagnosticError) {
-            reportDiagnostic(error.diagnostic);
+            renderer.diagnostic(error.diagnostic);
           } else {
-            logger.error(error instanceof Error ? error.message : 'Unknown index callback error.');
+            renderer.error(error instanceof Error ? error.message : 'Unknown index callback error.');
           }
 
-          logger.warn('Rebuild failed. Keeping previous process running.');
+          renderer.warn('Rebuild failed. Keeping previous process running.');
         });
       });
 
@@ -358,7 +529,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         }
         shuttingDown = true;
 
-        logger.info(`${signal} received. Shutting down...`);
+        renderer.cancelled(`${signal} received. Stopped`);
         await processManager.stop();
         unsubscribe();
         try { await ledger.close(); } catch { /* cleanup 실패 무시 */ }
@@ -388,6 +559,7 @@ export async function dev(commandOptions?: CommandOptions): Promise<void> {
     createManifestGenerator: () => new ManifestGenerator(),
     createEntryGenerator: () => new EntryGenerator(),
     scanFiles: ({ glob, baseDir }) => scanGlobSorted({ glob, baseDir }),
+    renderer: new CliRenderer(),
   });
   await impl(commandOptions);
 }

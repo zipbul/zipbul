@@ -1,14 +1,15 @@
 import { Glob } from 'bun';
 import { existsSync } from 'node:fs';
 import { mkdir, rm } from 'fs/promises';
-import { join, resolve, dirname } from 'path';
+import { join, resolve, dirname, relative } from 'path';
+import { gzipSync } from 'node:zlib';
 
-import type { CollectedClass, CommandOptions } from './types';
+import type { CliRendererLike, CollectedClass, CommandOptions } from './interfaces';
 
 import { isErr } from '@zipbul/result';
-import { Logger } from '@zipbul/logger';
 import { Gildash, type GildashOptions } from '@zipbul/gildash';
 import { AdapterDefinitionResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
+import type { ModuleNode } from '../compiler/analyzer/graph/module-node';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import {
   outputDirPath,
@@ -21,6 +22,7 @@ import { ConfigLoader, type ResolvedConfig } from '../config';
 import type { ConfigSource } from '../config/interfaces';
 import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
+import { CliRenderer } from './cli-renderer';
 
 // ---------------------------------------------------------------------------
 // dist → source resolution
@@ -73,28 +75,35 @@ export interface BuildCommandDeps {
   resolveImport: (specifier: string, fromDir: string) => string;
   buildBundle: typeof Bun.build;
   createGildash?: (opts: GildashOptions) => Promise<Gildash>;
+  renderer: CliRendererLike;
 }
 
 export function createBuildCommand(deps: BuildCommandDeps) {
-  const logger = new Logger('Build');
+  const { renderer } = deps;
+
+  const fmt = (value: number): string => value.toLocaleString('en-US');
 
   return async function build(commandOptions?: CommandOptions): Promise<void> {
-    logger.info('Starting Zipbul Production Build...');
+    renderer.intro('build');
+    const buildStartedAt = performance.now();
 
     try {
       const configResult = await deps.loadConfig();
       const config = configResult.config;
       const moduleFileName = config.module.fileName;
       const buildProfile = commandOptions?.profile ?? 'full';
+      const verbose = commandOptions?.verbose === true;
       const projectRoot = process.cwd();
       const srcDir = resolve(projectRoot, config.sourceDir);
       const outDir = resolve(projectRoot, 'dist');
       const zipbulDir = outputDirPath(projectRoot);
       const buildTempDir = tempDirPath(outDir);
 
-      logger.info(`📂 Project Root: ${projectRoot}`);
-      logger.info(`📂 Source Dir: ${srcDir}`);
-      logger.info(`📂 Output Dir: ${outDir}`);
+      renderer.outputPaths('📂 Project', [
+        { label: 'Root', value: projectRoot },
+        { label: 'Source', value: relative(projectRoot, srcDir) || '.' },
+        { label: 'Output', value: relative(projectRoot, outDir) || '.' },
+      ]);
 
       const parser = deps.createParser();
       const manifestGen = deps.createManifestGenerator();
@@ -102,7 +111,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const fileMap = new Map<string, FileAnalysis>();
       const allClasses: CollectedClass[] = [];
 
-      logger.info('🔍 Scanning source files...');
+      const scanSpinner = renderer.startSpinner('[1/4] 🔍 Scanning source files');
 
       const userMain = resolve(projectRoot, config.entry);
       const visited = new Set<string>();
@@ -258,13 +267,15 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
       }
 
+      scanSpinner.stop(`[1/4] 🔍 Scanned ${fmt(fileMap.size)} files (${fmt(allClasses.length)} classes)`);
+
       const appEntry = validateCreateApplication(fileMap);
 
       if (isErr(appEntry)) {
         throw new DiagnosticError(appEntry.data);
       }
 
-      logger.info('🕸️  Building Module Graph...');
+      const graphSpinner = renderer.startSpinner('[2/4] 🧩 Building module graph');
 
       // gildash 파일 레벨 순환 감지 + semantic DI 검증
       const openGildash = deps.createGildash ?? Gildash.open;
@@ -274,7 +285,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       try {
         ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true });
       } catch (e) {
-        logger.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
+        renderer.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
         ledger = await openGildash({ projectRoot, ignorePatterns });
       }
 
@@ -301,7 +312,13 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           throw new DiagnosticError(adapterResolution.data);
         }
 
-        logger.info('🛠️  Generating intermediate manifests...');
+        let providerCount = 0;
+        for (const mod of graph.modules.values()) {
+          providerCount += mod.providers.size;
+        }
+        graphSpinner.stop(`[2/4] 🧩 Module graph built (${fmt(graph.modules.size)} modules, ${fmt(providerCount)} providers)`);
+
+        const manifestSpinner = renderer.startSpinner('[3/4] 📋 Generating manifests');
 
         await mkdir(zipbulDir, { recursive: true });
 
@@ -369,7 +386,9 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           await rm(runtimeReportFile, { force: true });
         }
 
-        logger.info('📦 Bundling application and manifest...');
+        manifestSpinner.stop('[3/4] 📋 Manifests generated');
+
+        const bundleSpinner = renderer.startSpinner('[4/4] 📦 Bundling application');
 
         const buildResult = await deps.buildBundle({
           entrypoints: [entryPointFile, runtimeFile],
@@ -388,15 +407,192 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           throw new Error(reason);
         }
 
-        logger.info('✅ Build Complete!');
-        logger.info(`   Entry: ${join(outDir, 'entry.js')}`);
-        logger.info(`   Runtime: ${join(outDir, 'runtime.js')}`);
-        logger.info(`   Manifest: ${manifestFile}`);
+        bundleSpinner.stop('[4/4] 📦 Application bundled');
+
+        const pluralize = (count: number, singular: string): string =>
+          `${fmt(count)} ${count === 1 ? singular : singular + 's'}`;
+
+        // ── Handlers per controller ──
+        const handlersByController = new Map<string, number>();
+        for (const handler of adapterResolution.handlerIndex) {
+          const hashIndex = handler.id.indexOf('#');
+          if (hashIndex !== -1) {
+            const className = handler.id.slice(hashIndex + 1).split('.')[0];
+            handlersByController.set(className, (handlersByController.get(className) ?? 0) + 1);
+          }
+        }
+
+        // ── Scope counts ──
+        const scopeCounts = { singleton: 0, request: 0, transient: 0 };
+        for (const mod of graph.modules.values()) {
+          for (const provider of mod.providers.values()) {
+            scopeCounts[provider.scope ?? 'singleton']++;
+          }
+        }
+
+        // ── Adapter summary ──
+        const adapterIds = new Set<string>();
+        for (const handler of adapterResolution.handlerIndex) {
+          adapterIds.add(handler.id.slice(0, handler.id.indexOf(':')));
+        }
+
+        // ── Module tree builder (directory-based hierarchy) ──
+        const treeLines: Array<{ label: string; value: string }> = [];
+
+        const buildModuleStats = (mod: ModuleNode): string => {
+          const parts: string[] = [];
+          if (mod.providers.size > 0) {
+            parts.push(pluralize(mod.providers.size, 'provider'));
+          }
+          if (mod.controllers.size > 0) {
+            let totalHandlers = 0;
+            for (const ctrl of mod.controllers) {
+              totalHandlers += handlersByController.get(ctrl) ?? 0;
+            }
+            parts.push(pluralize(mod.controllers.size, 'controller'));
+            if (totalHandlers > 0) {
+              parts.push(pluralize(totalHandlers, 'handler'));
+            }
+          }
+          return parts.join(', ');
+        };
+
+        // Build parent-child map from directory containment
+        const moduleEntries = Array.from(graph.modules.entries())
+          .map(([path, mod]) => ({ path, dir: dirname(path), mod }))
+          .sort((entryA, entryB) => entryA.dir.length - entryB.dir.length);
+
+        const childrenOf = new Map<string, ModuleNode[]>();
+
+        for (const entry of moduleEntries) {
+          childrenOf.set(entry.path, []);
+        }
+
+        for (let index = 1; index < moduleEntries.length; index++) {
+          const entry = moduleEntries[index];
+          let parentPath: string | undefined;
+
+          // Find closest ancestor module by directory containment
+          for (let parentIndex = index - 1; parentIndex >= 0; parentIndex--) {
+            const candidate = moduleEntries[parentIndex];
+            if (entry.dir.startsWith(candidate.dir + '/') || entry.dir === candidate.dir) {
+              parentPath = candidate.path;
+              break;
+            }
+          }
+
+          if (parentPath !== undefined) {
+            childrenOf.get(parentPath)?.push(entry.mod);
+          }
+        }
+
+        const walkTree = (mod: ModuleNode, modPath: string, prefix: string, isLast: boolean, isRoot: boolean): void => {
+          const connector = isRoot ? '' : (isLast ? '└── ' : '├── ');
+          const stats = buildModuleStats(mod);
+          const label = `${prefix}${connector}${mod.name}`;
+          treeLines.push({ label, value: stats });
+
+          const children = (childrenOf.get(modPath) ?? [])
+            .sort((childA, childB) => childA.name.localeCompare(childB.name));
+          const childPrefix = isRoot ? '' : prefix + (isLast ? '    ' : '│   ');
+
+          children.forEach((child, childIndex) => {
+            walkTree(child, child.filePath, childPrefix, childIndex === children.length - 1, false);
+          });
+        };
+
+        // Root = shallowest directory module
+        if (moduleEntries.length > 0) {
+          const root = moduleEntries[0];
+          walkTree(root.mod, root.path, '', true, true);
+        }
+
+        // ── Summary line ──
+        const scopeParts = Object.entries(scopeCounts)
+          .filter(([, count]) => count > 0)
+          .map(([scope, count]) => `${fmt(count)} ${scope}`);
+        const adapterParts = Array.from(adapterIds)
+          .sort()
+          .map(id => `${id} (${fmt(handlersByController.size > 0 ? adapterResolution.handlerIndex.filter(h => h.id.startsWith(id + ':')).length : 0)} handlers)`);
+
+        const summaryParts: string[] = [];
+        if (scopeParts.length > 0) {
+          summaryParts.push(`💉 ${scopeParts.join(', ')}`);
+        }
+        if (adapterParts.length > 0) {
+          summaryParts.push(`🔌 ${adapterParts.join(', ')}`);
+        }
+
+        if (verbose) {
+          // Verbose: expand providers per module under the tree
+          const verboseLines: Array<{ label: string; value: string }> = [...treeLines];
+
+          verboseLines.push({ label: '', value: '' });
+          for (const mod of graph.modules.values()) {
+            if (mod.providers.size === 0 && mod.controllers.size === 0) {
+              continue;
+            }
+            const items: Array<{ label: string; value: string }> = [];
+            for (const [token, provider] of [...mod.providers.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+              items.push({ label: `  ${token}`, value: provider.scope ?? 'singleton' });
+            }
+            for (const ctrl of [...mod.controllers].sort()) {
+              const count = handlersByController.get(ctrl) ?? 0;
+              items.push({ label: `  ${ctrl}`, value: count > 0 ? pluralize(count, 'handler') : 'controller' });
+            }
+            verboseLines.push({ label: `${mod.name}`, value: '' });
+            verboseLines.push(...items);
+          }
+
+          if (summaryParts.length > 0) {
+            verboseLines.push({ label: '', value: '' });
+            verboseLines.push({ label: summaryParts.join(' · '), value: '' });
+          }
+
+          renderer.outputPaths('🧱 Application', verboseLines);
+        } else {
+          if (summaryParts.length > 0) {
+            treeLines.push({ label: '', value: '' });
+            treeLines.push({ label: summaryParts.join(' · '), value: '' });
+          }
+
+          renderer.outputPaths('🧱 Application', treeLines);
+        }
+
+        // ── Output file sizes + gzip ──
+        const entryOutputFile = join(outDir, 'entry.js');
+        const runtimeOutputFile = join(outDir, 'runtime.js');
+        const [entryBuffer, runtimeBuffer] = await Promise.all([
+          Bun.file(entryOutputFile).arrayBuffer(),
+          Bun.file(runtimeOutputFile).arrayBuffer(),
+        ]);
+        const manifestBuffer = Buffer.from(manifestJson, 'utf-8');
+
+        const entrySize = entryBuffer.byteLength;
+        const runtimeSize = runtimeBuffer.byteLength;
+        const manifestSize = manifestBuffer.byteLength;
+
+        const entryGzip = gzipSync(Buffer.from(entryBuffer)).byteLength;
+        const runtimeGzip = gzipSync(Buffer.from(runtimeBuffer)).byteLength;
+        const manifestGzip = gzipSync(manifestBuffer).byteLength;
+
+        const buildDuration = ((performance.now() - buildStartedAt) / 1000).toFixed(1);
+        const warningCount = graph.warnings.length;
+
+        renderer.success(`Build complete in ${buildDuration}s`);
+        renderer.outputFiles('📦 Output', [
+          { name: relative(projectRoot, entryOutputFile), size: entrySize, gzipSize: entryGzip },
+          { name: relative(projectRoot, runtimeOutputFile), size: runtimeSize, gzipSize: runtimeGzip },
+          { name: relative(projectRoot, manifestFile), size: manifestSize, gzipSize: manifestGzip },
+        ]);
+
+        const outroSuffix = warningCount > 0 ? ` with ${String(warningCount)} warnings` : '';
+        renderer.outro(`Ready to deploy (profile: ${buildProfile})${outroSuffix}`);
       } finally {
         try {
           await ledger.close();
         } catch (e) {
-          logger.error(e instanceof Error ? e.message : 'Failed to close gildash.');
+          renderer.warn(e instanceof Error ? e.message : 'Failed to close gildash.');
         }
       }
     } catch (error) {
@@ -430,6 +626,7 @@ export async function build(commandOptions?: CommandOptions): Promise<void> {
     scanFiles: ({ glob, baseDir }) => scanGlobSorted({ glob, baseDir }),
     resolveImport: (specifier, fromDir) => Bun.resolveSync(specifier, fromDir),
     buildBundle: (...args) => Bun.build(...args),
+    renderer: new CliRenderer(),
   });
 
   await impl(commandOptions);
