@@ -7,7 +7,7 @@ import { START_ANCHOR_PATTERN, END_ANCHOR_PATTERN } from './constants';
 export class PatternUtils {
   private readonly compiledPatternCache = new Map<string, RegExp>();
   private readonly config: BuilderConfig;
-  private readonly logger = new Logger(PatternUtils.name);
+  private readonly logger = Logger.inherit();
 
   constructor(config: BuilderConfig) {
     this.config = config;

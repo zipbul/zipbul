@@ -52,7 +52,7 @@ export class HttpAdapter extends Adapter {
   private clusterManager: ClusterManager<ClusterBaseWorker & HttpWorkerRpc> | undefined;
   private httpServer: HttpServer | undefined;
   private routeHandler: RouteHandler | undefined;
-  private readonly logger = new Logger(HttpAdapter.name);
+  private readonly logger = new Logger('HttpAdapter');
 
   private [HTTP_INTERNAL]?: HttpInternalChannel;
 
@@ -272,6 +272,10 @@ export class HttpAdapter extends Adapter {
   // ── Lifecycle ──────────────────────────────────────────────
 
   async start(context: Context): Promise<void> {
+    await Logger.runScoped(this.logger, () => this.startInternal(context));
+  }
+
+  private async startInternal(context: Context): Promise<void> {
     const startContext = this.toStartContext(context);
     const workers = this.options.workers;
     const isSingleProcess = workers === undefined || workers === 1;

@@ -41,7 +41,7 @@ export class RouteHandler {
   private readonly metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>;
   private readonly scopedKeys: Map<ProviderToken, string>;
   private readonly router: Router;
-  private readonly logger = new Logger(RouteHandler.name);
+  private readonly logger = Logger.inherit();
 
   constructor(
     container: ZipbulContainer,
@@ -70,7 +70,7 @@ export class RouteHandler {
   }
 
   register() {
-    this.logger.debug('🔍 Registering routes from metadata...');
+    let routeCount = 0;
 
     for (const [targetClass, meta] of this.metadataRegistry.entries()) {
       if (!this.isControllerConstructor(targetClass)) {
@@ -82,10 +82,12 @@ export class RouteHandler {
       );
 
       if (controllerDec) {
-        this.logger.debug(`FOUND Controller: ${meta.className}`);
-
-        this.registerController(targetClass, meta, controllerDec);
+        routeCount += this.registerController(targetClass, meta, controllerDec);
       }
+    }
+
+    if (routeCount > 0) {
+      this.logger.info(`${routeCount} routes registered`);
     }
   }
 
@@ -127,11 +129,11 @@ export class RouteHandler {
         params,
       }));
 
-      this.logger.info(`🛣️  Internal Route Registered: [${method}] ${fullPath}`);
+      this.logger.debug(`${method} ${fullPath} (internal)`);
     }
   }
 
-  private registerController(targetClass: ControllerConstructor, meta: ClassMetadata, controllerDec: DecoratorMetadata): void {
+  private registerController(targetClass: ControllerConstructor, meta: ClassMetadata, controllerDec: DecoratorMetadata): number {
     const rawPrefix = controllerDec.arguments?.[0];
     const prefix = typeof rawPrefix === 'string' ? rawPrefix : '';
     const scopedKey = this.scopedKeys.get(targetClass);
@@ -152,10 +154,12 @@ export class RouteHandler {
     if (instance === undefined || instance === null) {
       const keyLabel = typeof scopedKey === 'string' && scopedKey.length > 0 ? scopedKey : targetClass.name;
 
-      this.logger.warn(`⚠️  Cannot resolve controller instance: ${meta.className} (Key: ${keyLabel})`);
+      this.logger.warn(`Cannot resolve controller instance: ${meta.className} (Key: ${keyLabel})`);
 
-      return;
+      return 0;
     }
+
+    let count = 0;
 
     (meta.methods ?? []).forEach(method => {
       const routeDec = (method.decorators ?? []).find(d =>
@@ -272,9 +276,12 @@ export class RouteHandler {
           params,
         }));
 
-        this.logger.info(`🛣️  Route Registered: [${httpMethod}] ${fullPath} -> ${targetClass.name}.${method.name}`);
+        this.logger.debug(`${httpMethod} ${fullPath} → ${targetClass.name}.${method.name}`);
+        count++;
       }
     });
+
+    return count;
   }
 
   private isControllerInstance(value: ContainerInstance): value is ControllerInstance {

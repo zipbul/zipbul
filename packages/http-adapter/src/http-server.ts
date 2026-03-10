@@ -41,7 +41,7 @@ const normalizeHttpMethod = (value: string): HttpMethod | undefined => {
 export class HttpServer {
   private container: ZipbulContainer;
   private adapter: HttpAdapter;
-  private readonly logger = new Logger(HttpServer.name);
+  private readonly logger = Logger.inherit();
 
   private options: HttpServerOptions;
   private server: Server<ZipbulValue>;
@@ -51,7 +51,7 @@ export class HttpServer {
     this.adapter = adapter;
     this.options = options.options ?? options;
 
-    this.logger.info('🚀 HttpServer booting...');
+    this.logger.debug('Booting...');
 
     const metadataRegistry = options.metadata ?? new Map<MetadataRegistryKey, ClassMetadata>();
     const scopedKeysMap: Map<ProviderToken, string> = options.scopedKeys ?? new Map<ProviderToken, string>();
@@ -81,7 +81,7 @@ export class HttpServer {
 
     this.server = Bun.serve<ZipbulValue>(serveOptions);
 
-    this.logger.info(`✨ Server listening on port ${this.options.port}`);
+    this.logger.info(`Listening on :${this.options.port}`);
   }
 
   async fetch(req: Request): Promise<Response> {

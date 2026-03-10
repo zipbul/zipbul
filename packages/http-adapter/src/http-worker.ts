@@ -10,7 +10,7 @@ import type { ClassMetadata, ControllerConstructor } from './types';
 import { HttpServer } from './http-server';
 
 class HttpWorker extends ClusterBaseWorker {
-  private logger = new Logger(HttpWorker.name);
+  private readonly logger = new Logger('HttpAdapter');
   private httpServer: HttpServer;
 
   constructor() {
@@ -23,7 +23,10 @@ class HttpWorker extends ClusterBaseWorker {
 
   override async init(workerId: ClusterWorkerId, params: Parameters<ClusterBaseWorker['init']>[1]) {
     await super.init(workerId, params);
+    await Logger.runScoped(this.logger, () => this.initInternal(workerId, params));
+  }
 
+  private async initInternal(workerId: ClusterWorkerId, params: Parameters<ClusterBaseWorker['init']>[1]): Promise<void> {
     this.logger.info(`🔧 Zipbul HTTP Worker #${workerId} is initializing...`);
 
     if (!this.isHttpWorkerInitParams(params)) {
