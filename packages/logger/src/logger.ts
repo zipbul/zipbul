@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 import type {
   LogArgument,
   LogContextTarget,
@@ -17,12 +19,25 @@ declare global {
   var WORKER_ID: number | undefined;
 }
 
+const LOG_LEVELS: readonly string[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
+
+const resolveEnvLogLevel = (): LogLevel | undefined => {
+  const envLevel = Bun.env.LOG_LEVEL;
+
+  if (typeof envLevel === 'string' && LOG_LEVELS.includes(envLevel)) {
+    return envLevel as LogLevel;
+  }
+
+  return undefined;
+};
+
 export class Logger {
   private static globalOptions: LoggerOptions = {
-    level: 'info',
+    level: resolveEnvLogLevel() ?? 'info',
     ...(Bun.env.NODE_ENV === 'production' ? { format: 'json' } : {}),
   };
   private static transports: Transport[] = [new ConsoleTransport(Logger.globalOptions)];
+  private static scopeStore = new AsyncLocalStorage<Logger>();
 
   private readonly context?: string;
 
@@ -42,6 +57,49 @@ export class Logger {
     } else if (typeof context === 'string') {
       this.context = context;
     }
+  }
+
+  /**
+   * Executes `fn` within an ALS scope that makes `logger` available
+   * to any code that calls `Logger.inherit()` during the callback.
+   *
+   * @param logger - The Logger instance to propagate.
+   * @param fn - The callback to execute within the scope.
+   * @returns The return value of `fn`.
+   *
+   * @example
+   * ```ts
+   * const adapterLogger = new Logger('HttpAdapter');
+   * await Logger.runScoped(adapterLogger, async () => {
+   *   const server = new HttpServer(); // can call Logger.inherit() internally
+   * });
+   * ```
+   *
+   * @public
+   */
+  static runScoped<T>(logger: Logger, fn: () => T): T {
+    return Logger.scopeStore.run(logger, fn);
+  }
+
+  /**
+   * Returns the Logger instance from the current ALS scope.
+   *
+   * Must be called inside a `Logger.runScoped()` callback.
+   * Throws if no scope is active — use `new Logger('scope')` for
+   * standalone usage instead.
+   *
+   * @returns The scoped Logger instance.
+   *
+   * @public
+   */
+  static inherit(): Logger {
+    const parent = Logger.scopeStore.getStore();
+
+    if (!parent) {
+      throw new Error('Logger.inherit() called outside Logger.runScoped()');
+    }
+
+    return parent;
   }
 
   static configure(options: LoggerOptions) {
