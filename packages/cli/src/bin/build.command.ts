@@ -180,7 +180,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
             if (!resolvedPath.startsWith('/') && !resolvedPath.match(/^[a-zA-Z]:/)) {
               try {
                 resolvedPath = deps.resolveImport(resolvedPath, dirname(filePath));
-              } catch (_e) {
+              } catch {
                 continue;
               }
             }
@@ -239,7 +239,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const graphSpinner = renderer.startSpinner('[2/4] 🧩 Building module graph');
 
       // gildash 파일 레벨 순환 감지 + semantic DI 검증
-      const openGildash = deps.createGildash ?? Gildash.open;
+      const openGildash = deps.createGildash ?? ((opts: GildashOptions) => Gildash.open(opts));
       const ignorePatterns = ['dist', '.zipbul', '.gildash'];
       let ledger: Gildash;
       let semanticAvailable = true;
@@ -412,7 +412,8 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           const metricsResults = await Promise.all(
             filePaths.map(async (filePath) => {
               try {
-                return { filePath, ...await ledger.getFanMetrics(filePath) };
+                const metrics = await ledger.getFanMetrics(filePath);
+                return { filePath, fanIn: metrics.fanIn, fanOut: metrics.fanOut };
               } catch {
                 return null;
               }
@@ -454,7 +455,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
           try {
             const stats = ledger.getStats();
-            renderer.info(`Project: ${stats.totalFiles} files, ${stats.totalSymbols} symbols, ${stats.totalRelations} relations`);
+            renderer.info(`Project: ${stats.fileCount} files, ${stats.symbolCount} symbols`);
           } catch { /* stats failure ignored */ }
         }
 

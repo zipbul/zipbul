@@ -236,7 +236,7 @@ export function createDevCommand(deps: DevCommandDeps) {
     // ── 2. Gildash init ──
     const gildashSpinner = renderer.startSpinner('Initializing code intelligence');
     const ignorePatterns = ['dist', '.zipbul', '.gildash'];
-    const openGildash = deps.createGildash ?? Gildash.open;
+    const openGildash = deps.createGildash ?? ((opts: GildashOptions) => Gildash.open(opts));
     let ledger: Gildash;
     let semanticAvailable = true;
     try {

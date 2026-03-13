@@ -1922,44 +1922,51 @@ export class AstParser {
     }
 
     if (paramNode.type === 'AssignmentPattern') {
-      const node = paramNode.type === 'AssignmentPattern' ? this.asNode(paramNode.left) : paramNode;
+      const node = this.asNode(paramNode.left);
 
       if (node?.type !== 'Identifier') {
         return null;
       }
 
-      const name = this.getString(node, 'name');
+      return this.extractIdentifierParam(node, paramNode.decorators);
+    }
 
-      if (!isNonEmptyString(name)) {
-        return null;
-      }
-
-      const decoratorsValue = paramNode.decorators;
-      const decoratorValues = asAnalyzerArray(decoratorsValue);
-      const decorators = decoratorValues
-        ? decoratorValues
-            .map(value => this.extractDecorator(value))
-            .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
-        : [];
-      let typeInfo: TypeInfo = { typeName: 'any' };
-      const typeAnnotation = this.asNode(node.typeAnnotation);
-      const nestedTypeAnnotation = typeAnnotation ? this.asNode(typeAnnotation.typeAnnotation) : null;
-
-      if (nestedTypeAnnotation) {
-        typeInfo = this.typeResolver.resolve(nestedTypeAnnotation);
-      }
-
-      const typeValue = this.resolveTypeValue(typeInfo);
-
-      return {
-        name,
-        type: typeValue,
-        typeArgs: typeInfo.typeArgs,
-        decorators,
-      };
+    if (paramNode.type === 'Identifier') {
+      return this.extractIdentifierParam(paramNode, paramNode.decorators);
     }
 
     return null;
+  }
+
+  private extractIdentifierParam(identifierNode: NodeRecord, decoratorsValue: AnalyzerValue): ExtractedParam | null {
+    const name = this.getString(identifierNode, 'name');
+
+    if (!isNonEmptyString(name)) {
+      return null;
+    }
+
+    const decoratorValues = asAnalyzerArray(decoratorsValue);
+    const decorators = decoratorValues
+      ? decoratorValues
+          .map(value => this.extractDecorator(value))
+          .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
+      : [];
+    let typeInfo: TypeInfo = { typeName: 'any' };
+    const typeAnnotation = this.asNode(identifierNode.typeAnnotation);
+    const nestedTypeAnnotation = typeAnnotation ? this.asNode(typeAnnotation.typeAnnotation) : null;
+
+    if (nestedTypeAnnotation) {
+      typeInfo = this.typeResolver.resolve(nestedTypeAnnotation);
+    }
+
+    const typeValue = this.resolveTypeValue(typeInfo);
+
+    return {
+      name,
+      type: typeValue,
+      typeArgs: typeInfo.typeArgs,
+      decorators,
+    };
   }
 
   private asNode(value: AnalyzerValue): NodeRecord | null {
