@@ -87,6 +87,12 @@ const makeAdapterResolverMock = () => ({
 const makeGildashLedgerMock = () => ({
   hasCycle: mock(async () => false),
   getCyclePaths: mock(async () => []),
+  onError: mock((_cb: unknown) => mock(() => {})),
+  getFanMetrics: mock(async (_file: string) => ({ filePath: _file, fanIn: 0, fanOut: 0 })),
+  getFileStats: mock((_file: string) => ({ filePath: _file, lineCount: 0, symbolCount: 0, relationCount: 0, size: 0, exportedSymbolCount: 0 })),
+  getStats: mock(() => ({ totalFiles: 0, totalSymbols: 0, totalRelations: 0 })),
+  getModuleInterface: mock((_file: string) => ({ exports: [] })),
+  getSemanticModuleInterface: mock((_file: string) => ({ exports: [] })),
   close: mock(async () => {}),
 }) as unknown as Gildash;
 

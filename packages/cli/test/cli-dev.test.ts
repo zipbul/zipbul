@@ -105,9 +105,13 @@ const makeEntryGeneratorMock = () => ({
 
 const makeGildashLedgerMock = () => ({
   onIndexed: mock((_cb: unknown) => mock(() => {})),
+  onError: mock((_cb: unknown) => mock(() => {})),
+  onRoleChanged: mock((_cb: unknown) => mock(() => {})),
+  hasCycle: mock(async () => false),
+  getCyclePaths: mock(async () => []),
   getAffected: mock(async (_files: string[]) => [] as string[]),
-  getSymbolsByFile: mock((_file: string) => []),
-  diffSymbols: mock((_before: unknown, _after: unknown) => ({ added: [], removed: [], modified: [] })),
+  getModuleInterface: mock((_file: string) => ({ exports: [] })),
+  getSemanticModuleInterface: mock((_file: string) => ({ exports: [] })),
   close: mock(async () => {}),
 }) as unknown as Gildash;
 
@@ -458,14 +462,12 @@ describe('createDevCommand', () => {
 
     let onIndexedCallback: ((result: IndexResult) => void) | null = null;
     const ledgerMock = {
+      ...makeGildashLedgerMock(),
       onIndexed: mock((cb: (result: IndexResult) => void) => {
         onIndexedCallback = cb;
         return mock(() => {});
       }),
       getAffected: mock(async (_files: string[]) => [affectedFile]),
-      getSymbolsByFile: mock(() => []),
-      diffSymbols: mock(() => ({ added: [], removed: [], modified: [] })),
-      close: mock(async () => {}),
     } as unknown as Gildash;
 
     const deps = makeDeps({
@@ -517,14 +519,11 @@ describe('createDevCommand', () => {
 
     let onIndexedCallback: ((result: IndexResult) => void) | null = null;
     const ledgerMock = {
+      ...makeGildashLedgerMock(),
       onIndexed: mock((cb: (result: IndexResult) => void) => {
         onIndexedCallback = cb;
         return mock(() => {});
       }),
-      getAffected: mock(async () => []),
-      getSymbolsByFile: mock(() => []),
-      diffSymbols: mock(() => ({ added: [], removed: [], modified: [] })),
-      close: mock(async () => {}),
     } as unknown as Gildash;
 
     const deps = makeDeps({
@@ -578,14 +577,11 @@ describe('createDevCommand', () => {
 
     let onIndexedCallback: ((result: IndexResult) => void) | null = null;
     const ledgerMock = {
+      ...makeGildashLedgerMock(),
       onIndexed: mock((cb: (result: IndexResult) => void) => {
         onIndexedCallback = cb;
         return mock(() => {});
       }),
-      getAffected: mock(async () => []),
-      getSymbolsByFile: mock(() => []),
-      diffSymbols: mock(() => ({ added: [], removed: [], modified: [] })),
-      close: mock(async () => {}),
     } as unknown as Gildash;
 
     const deps = makeDeps({
@@ -601,12 +597,13 @@ describe('createDevCommand', () => {
     expect(spawnFn).toHaveBeenCalledTimes(1);
 
     // Act: simulate file change that triggers a failing rebuild
+    // deletedFiles forces needsRebuild = true, so rebuild() is called and throws
     onIndexedCallback!({
       changedFiles: [changedFile],
-      deletedFiles: [],
+      deletedFiles: ['/tmp/nonexistent-deleted.ts'],
       failedFiles: [],
       indexedFiles: 1,
-      removedFiles: 0,
+      removedFiles: 1,
       totalSymbols: 0,
       totalRelations: 0,
       durationMs: 0,
@@ -640,14 +637,11 @@ describe('createDevCommand', () => {
 
     let onIndexedCallback: ((result: IndexResult) => void) | null = null;
     const ledgerMock = {
+      ...makeGildashLedgerMock(),
       onIndexed: mock((cb: (result: IndexResult) => void) => {
         onIndexedCallback = cb;
         return mock(() => {});
       }),
-      getAffected: mock(async () => []),
-      getSymbolsByFile: mock(() => []),
-      diffSymbols: mock(() => ({ added: [], removed: [], modified: [] })),
-      close: mock(async () => {}),
     } as unknown as Gildash;
 
     const renderer = makeRendererMock();
@@ -663,21 +657,21 @@ describe('createDevCommand', () => {
 
     const indexEvent = {
       changedFiles: [changedFile],
-      deletedFiles: [],
+      deletedFiles: ['/tmp/nonexistent-deleted.ts'],
       failedFiles: [],
       indexedFiles: 1,
-      removedFiles: 0,
+      removedFiles: 1,
       totalSymbols: 0,
       totalRelations: 0,
       durationMs: 0,
       changedSymbols: { added: [], modified: [], removed: [] },
     } satisfies IndexResult;
 
-    // 1st watch event: rebuild fails
+    // 1st watch event: rebuild fails (rebuildCount=2, throws)
     onIndexedCallback!(indexEvent);
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    // 2nd watch event: rebuild succeeds → should log recovery
+    // 2nd watch event: rebuild succeeds (rebuildCount=3, no throw) → should log recovery
     onIndexedCallback!(indexEvent);
     await new Promise(resolve => setTimeout(resolve, 50));
 

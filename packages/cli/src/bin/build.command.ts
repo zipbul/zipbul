@@ -1,6 +1,5 @@
 import { Glob } from 'bun';
-import { existsSync } from 'node:fs';
-import { mkdir, rm } from 'fs/promises';
+import { mkdir } from 'fs/promises';
 import { join, resolve, dirname, relative } from 'path';
 import { gzipSync } from 'node:zlib';
 
@@ -9,7 +8,6 @@ import type { CliRendererLike, CollectedClass, CommandOptions } from './interfac
 import { isErr } from '@zipbul/result';
 import { Gildash, type GildashOptions } from '@zipbul/gildash';
 import { AdapterDefinitionResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
-import type { ModuleNode } from '../compiler/analyzer/graph/module-node';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import {
   outputDirPath,
@@ -23,6 +21,9 @@ import type { ConfigSource } from '../config/interfaces';
 import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 import { CliRenderer } from './cli-renderer';
+import { buildFileAnalysis } from './build-analysis';
+import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from './build-artifact-writer';
+import { formatCount, buildModuleTree } from './module-tree-renderer';
 
 // ---------------------------------------------------------------------------
 // dist → source resolution
@@ -36,7 +37,7 @@ import { CliRenderer } from './cli-renderer';
  * the TypeScript source, so we check the package root and `src/`
  * for a matching `.ts` file.
  */
-function resolveDistToSource(resolvedPath: string): string | null {
+async function resolveDistToSource(resolvedPath: string): Promise<string | null> {
   const distSegmentIndex = resolvedPath.lastIndexOf('/dist/');
 
   if (distSegmentIndex === -1) {
@@ -48,13 +49,13 @@ function resolveDistToSource(resolvedPath: string): string | null {
 
   const rootCandidate = join(packageRoot, relative);
 
-  if (existsSync(rootCandidate)) {
+  if (await Bun.file(rootCandidate).exists()) {
     return rootCandidate;
   }
 
   const srcCandidate = join(packageRoot, 'src', relative);
 
-  if (existsSync(srcCandidate)) {
+  if (await Bun.file(srcCandidate).exists()) {
     return srcCandidate;
   }
 
@@ -80,8 +81,6 @@ export interface BuildCommandDeps {
 
 export function createBuildCommand(deps: BuildCommandDeps) {
   const { renderer } = deps;
-
-  const fmt = (value: number): string => value.toLocaleString('en-US');
 
   return async function build(commandOptions?: CommandOptions): Promise<void> {
     renderer.intro('build');
@@ -127,12 +126,11 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
       }
 
-      while (queue.length > 0) {
-        const filePath = queue.shift();
+      let queueIndex = 0;
 
-        if (filePath === undefined) {
-          continue;
-        }
+      while (queueIndex < queue.length) {
+        const filePath = queue[queueIndex] as string;
+        queueIndex++;
 
         if (visited.has(filePath)) {
           continue;
@@ -160,44 +158,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
           allClasses.push(...classInfos);
 
-          const analysis: FileAnalysis = {
-            filePath,
-            classes: parseResult.classes,
-            reExports: parseResult.reExports,
-            exports: parseResult.exports,
-          };
-
-          if (parseResult.createApplicationCalls !== undefined) {
-            analysis.createApplicationCalls = parseResult.createApplicationCalls;
-          }
-
-          if (parseResult.defineModuleCalls !== undefined) {
-            analysis.defineModuleCalls = parseResult.defineModuleCalls;
-          }
-
-          if (parseResult.injectCalls !== undefined) {
-            analysis.injectCalls = parseResult.injectCalls;
-          }
-
-          if (parseResult.imports !== undefined) {
-            analysis.imports = parseResult.imports;
-          }
-
-          if (parseResult.importEntries !== undefined) {
-            analysis.importEntries = parseResult.importEntries;
-          }
-
-          if (parseResult.exportedValues !== undefined) {
-            analysis.exportedValues = parseResult.exportedValues;
-          }
-
-          if (parseResult.localValues !== undefined) {
-            analysis.localValues = parseResult.localValues;
-          }
-
-          if (parseResult.moduleDefinition !== undefined) {
-            analysis.moduleDefinition = parseResult.moduleDefinition;
-          }
+          const analysis = buildFileAnalysis(filePath, parseResult);
 
           fileMap.set(filePath, analysis);
 
@@ -234,7 +195,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
               } else if (await Bun.file(resolvedPath + '/index.ts').exists()) {
                 resolvedPath += '/index.ts';
               } else {
-                const sourceCandidate = resolveDistToSource(resolvedPath);
+                const sourceCandidate = await resolveDistToSource(resolvedPath);
 
                 if (sourceCandidate !== null) {
                   resolvedPath = sourceCandidate;
@@ -267,7 +228,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
       }
 
-      scanSpinner.stop(`[1/4] 🔍 Scanned ${fmt(fileMap.size)} files (${fmt(allClasses.length)} classes)`);
+      scanSpinner.stop(`[1/4] 🔍 Scanned ${formatCount(fileMap.size)} files (${formatCount(allClasses.length)} classes)`);
 
       const appEntry = validateCreateApplication(fileMap);
 
@@ -281,13 +242,19 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const openGildash = deps.createGildash ?? Gildash.open;
       const ignorePatterns = ['dist', '.zipbul', '.gildash'];
       let ledger: Gildash;
+      let semanticAvailable = true;
 
       try {
-        ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true });
+        ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true, watchMode: false });
       } catch (e) {
+        semanticAvailable = false;
         renderer.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
-        ledger = await openGildash({ projectRoot, ignorePatterns });
+        ledger = await openGildash({ projectRoot, ignorePatterns, watchMode: false });
       }
+
+      const unsubscribeError = ledger.onError((error) => {
+        renderer.warn(`Gildash: ${error.message}`);
+      });
 
       try {
         const hasCycle = await ledger.hasCycle();
@@ -316,7 +283,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         for (const mod of graph.modules.values()) {
           providerCount += mod.providers.size;
         }
-        graphSpinner.stop(`[2/4] 🧩 Module graph built (${fmt(graph.modules.size)} modules, ${fmt(providerCount)} providers)`);
+        graphSpinner.stop(`[2/4] 🧩 Module graph built (${formatCount(graph.modules.size)} modules, ${formatCount(providerCount)} providers)`);
 
         const manifestSpinner = renderer.startSpinner('[3/4] 📋 Generating manifests');
 
@@ -371,19 +338,21 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const runtimeReportFile = join(zipbulDir, 'runtime-report.json');
 
         if (buildProfile === 'standard' || buildProfile === 'full') {
-          const interfaceCatalogJson = JSON.stringify({ schemaVersion: '1', entries: [] }, null, 2);
-
-          await writeIfChanged(interfaceCatalogFile, interfaceCatalogJson);
+          await writeInterfaceCatalog({
+            modules: graph.modules,
+            ledger,
+            semanticAvailable,
+            projectRoot,
+            catalogFilePath: interfaceCatalogFile,
+          });
         } else {
-          await rm(interfaceCatalogFile, { force: true });
+          await removeInterfaceCatalog(interfaceCatalogFile);
         }
 
         if (buildProfile === 'full') {
-          const runtimeReportJson = JSON.stringify({ schemaVersion: '1', adapters: [] }, null, 2);
-
-          await writeIfChanged(runtimeReportFile, runtimeReportJson);
+          await writeRuntimeReport(runtimeReportFile);
         } else {
-          await rm(runtimeReportFile, { force: true });
+          await removeRuntimeReport(runtimeReportFile);
         }
 
         manifestSpinner.stop('[3/4] 📋 Manifests generated');
@@ -409,155 +378,12 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         bundleSpinner.stop('[4/4] 📦 Application bundled');
 
-        const pluralize = (count: number, singular: string): string =>
-          `${fmt(count)} ${count === 1 ? singular : singular + 's'}`;
+        const moduleTreeResult = buildModuleTree(
+          { modules: graph.modules, handlerIndex: adapterResolution.handlerIndex },
+          { verbose },
+        );
 
-        // ── Handlers per controller ──
-        const handlersByController = new Map<string, number>();
-        for (const handler of adapterResolution.handlerIndex) {
-          const hashIndex = handler.id.indexOf('#');
-          if (hashIndex !== -1) {
-            const className = handler.id.slice(hashIndex + 1).split('.')[0];
-            handlersByController.set(className, (handlersByController.get(className) ?? 0) + 1);
-          }
-        }
-
-        // ── Scope counts ──
-        const scopeCounts = { singleton: 0, request: 0, transient: 0 };
-        for (const mod of graph.modules.values()) {
-          for (const provider of mod.providers.values()) {
-            scopeCounts[provider.scope ?? 'singleton']++;
-          }
-        }
-
-        // ── Adapter summary ──
-        const adapterIds = new Set<string>();
-        for (const handler of adapterResolution.handlerIndex) {
-          adapterIds.add(handler.id.slice(0, handler.id.indexOf(':')));
-        }
-
-        // ── Module tree builder (directory-based hierarchy) ──
-        const treeLines: Array<{ label: string; value: string }> = [];
-
-        const buildModuleStats = (mod: ModuleNode): string => {
-          const parts: string[] = [];
-          if (mod.providers.size > 0) {
-            parts.push(pluralize(mod.providers.size, 'provider'));
-          }
-          if (mod.controllers.size > 0) {
-            let totalHandlers = 0;
-            for (const ctrl of mod.controllers) {
-              totalHandlers += handlersByController.get(ctrl) ?? 0;
-            }
-            parts.push(pluralize(mod.controllers.size, 'controller'));
-            if (totalHandlers > 0) {
-              parts.push(pluralize(totalHandlers, 'handler'));
-            }
-          }
-          return parts.join(', ');
-        };
-
-        // Build parent-child map from directory containment
-        const moduleEntries = Array.from(graph.modules.entries())
-          .map(([path, mod]) => ({ path, dir: dirname(path), mod }))
-          .sort((entryA, entryB) => entryA.dir.length - entryB.dir.length);
-
-        const childrenOf = new Map<string, ModuleNode[]>();
-
-        for (const entry of moduleEntries) {
-          childrenOf.set(entry.path, []);
-        }
-
-        for (let index = 1; index < moduleEntries.length; index++) {
-          const entry = moduleEntries[index];
-          let parentPath: string | undefined;
-
-          // Find closest ancestor module by directory containment
-          for (let parentIndex = index - 1; parentIndex >= 0; parentIndex--) {
-            const candidate = moduleEntries[parentIndex];
-            if (entry.dir.startsWith(candidate.dir + '/') || entry.dir === candidate.dir) {
-              parentPath = candidate.path;
-              break;
-            }
-          }
-
-          if (parentPath !== undefined) {
-            childrenOf.get(parentPath)?.push(entry.mod);
-          }
-        }
-
-        const walkTree = (mod: ModuleNode, modPath: string, prefix: string, isLast: boolean, isRoot: boolean): void => {
-          const connector = isRoot ? '' : (isLast ? '└── ' : '├── ');
-          const stats = buildModuleStats(mod);
-          const label = `${prefix}${connector}${mod.name}`;
-          treeLines.push({ label, value: stats });
-
-          const children = (childrenOf.get(modPath) ?? [])
-            .sort((childA, childB) => childA.name.localeCompare(childB.name));
-          const childPrefix = isRoot ? '' : prefix + (isLast ? '    ' : '│   ');
-
-          children.forEach((child, childIndex) => {
-            walkTree(child, child.filePath, childPrefix, childIndex === children.length - 1, false);
-          });
-        };
-
-        // Root = shallowest directory module
-        if (moduleEntries.length > 0) {
-          const root = moduleEntries[0];
-          walkTree(root.mod, root.path, '', true, true);
-        }
-
-        // ── Summary line ──
-        const scopeParts = Object.entries(scopeCounts)
-          .filter(([, count]) => count > 0)
-          .map(([scope, count]) => `${fmt(count)} ${scope}`);
-        const adapterParts = Array.from(adapterIds)
-          .sort()
-          .map(id => `${id} (${fmt(handlersByController.size > 0 ? adapterResolution.handlerIndex.filter(h => h.id.startsWith(id + ':')).length : 0)} handlers)`);
-
-        const summaryParts: string[] = [];
-        if (scopeParts.length > 0) {
-          summaryParts.push(`💉 ${scopeParts.join(', ')}`);
-        }
-        if (adapterParts.length > 0) {
-          summaryParts.push(`🔌 ${adapterParts.join(', ')}`);
-        }
-
-        if (verbose) {
-          // Verbose: expand providers per module under the tree
-          const verboseLines: Array<{ label: string; value: string }> = [...treeLines];
-
-          verboseLines.push({ label: '', value: '' });
-          for (const mod of graph.modules.values()) {
-            if (mod.providers.size === 0 && mod.controllers.size === 0) {
-              continue;
-            }
-            const items: Array<{ label: string; value: string }> = [];
-            for (const [token, provider] of [...mod.providers.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-              items.push({ label: `  ${token}`, value: provider.scope ?? 'singleton' });
-            }
-            for (const ctrl of [...mod.controllers].sort()) {
-              const count = handlersByController.get(ctrl) ?? 0;
-              items.push({ label: `  ${ctrl}`, value: count > 0 ? pluralize(count, 'handler') : 'controller' });
-            }
-            verboseLines.push({ label: `${mod.name}`, value: '' });
-            verboseLines.push(...items);
-          }
-
-          if (summaryParts.length > 0) {
-            verboseLines.push({ label: '', value: '' });
-            verboseLines.push({ label: summaryParts.join(' · '), value: '' });
-          }
-
-          renderer.outputPaths('🧱 Application', verboseLines);
-        } else {
-          if (summaryParts.length > 0) {
-            treeLines.push({ label: '', value: '' });
-            treeLines.push({ label: summaryParts.join(' · '), value: '' });
-          }
-
-          renderer.outputPaths('🧱 Application', treeLines);
-        }
+        renderer.outputPaths('🧱 Application', moduleTreeResult.treeLines);
 
         // ── Output file sizes + gzip ──
         const entryOutputFile = join(outDir, 'entry.js');
@@ -580,6 +406,58 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const warningCount = graph.warnings.length;
 
         renderer.success(`Build complete in ${buildDuration}s`);
+
+        if (buildProfile === 'full') {
+          const filePaths = Array.from(fileMap.keys());
+          const metricsResults = await Promise.all(
+            filePaths.map(async (filePath) => {
+              try {
+                return { filePath, ...await ledger.getFanMetrics(filePath) };
+              } catch {
+                return null;
+              }
+            })
+          );
+
+          const highCoupling = metricsResults
+            .filter((m): m is NonNullable<typeof m> => m !== null)
+            .filter(m => m.fanIn > 10 || m.fanOut > 8)
+            .sort((a, b) => (b.fanIn + b.fanOut) - (a.fanIn + a.fanOut))
+            .slice(0, 5);
+
+          if (highCoupling.length > 0) {
+            renderer.outputPaths('High Coupling', highCoupling.map(m => ({
+              label: relative(projectRoot, m.filePath),
+              value: `fan-in: ${m.fanIn}, fan-out: ${m.fanOut}`,
+            })));
+          }
+
+          const complexFiles = filePaths
+            .map((filePath) => {
+              try {
+                return { filePath, stats: ledger.getFileStats(filePath) };
+              } catch {
+                return null;
+              }
+            })
+            .filter((f): f is NonNullable<typeof f> => f !== null)
+            .filter(f => f.stats.symbolCount > 20 || f.stats.lineCount > 500)
+            .sort((a, b) => b.stats.symbolCount - a.stats.symbolCount)
+            .slice(0, 5);
+
+          if (complexFiles.length > 0) {
+            renderer.outputPaths('Complex Files', complexFiles.map(f => ({
+              label: relative(projectRoot, f.filePath),
+              value: `${f.stats.symbolCount} symbols, ${f.stats.lineCount} lines, ${f.stats.exportedSymbolCount} exports`,
+            })));
+          }
+
+          try {
+            const stats = ledger.getStats();
+            renderer.info(`Project: ${stats.totalFiles} files, ${stats.totalSymbols} symbols, ${stats.totalRelations} relations`);
+          } catch { /* stats failure ignored */ }
+        }
+
         renderer.outputFiles('📦 Output', [
           { name: relative(projectRoot, entryOutputFile), size: entrySize, gzipSize: entryGzip },
           { name: relative(projectRoot, runtimeOutputFile), size: runtimeSize, gzipSize: runtimeGzip },
@@ -589,6 +467,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const outroSuffix = warningCount > 0 ? ` with ${String(warningCount)} warnings` : '';
         renderer.outro(`Ready to deploy (profile: ${buildProfile})${outroSuffix}`);
       } finally {
+        unsubscribeError();
         try {
           await ledger.close();
         } catch (e) {

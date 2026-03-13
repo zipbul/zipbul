@@ -1,11 +1,10 @@
 import { Glob, type Subprocess } from 'bun';
-import { mkdir, rm } from 'fs/promises';
-import { join, resolve, dirname, relative } from 'path';
+import { mkdir } from 'fs/promises';
+import { join, resolve, relative } from 'path';
 
 import type { CliRendererLike, CollectedClass, CommandOptions } from './interfaces';
 
 import { AdapterDefinitionResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
-import type { ModuleNode } from '../compiler/analyzer/graph/module-node';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import { ConfigLoader, type ResolvedConfig } from '../config';
 import type { ConfigSource } from '../config/interfaces';
@@ -14,8 +13,11 @@ import { isErr } from '@zipbul/result';
 import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 import { Gildash, type GildashOptions } from '@zipbul/gildash';
-import type { IndexResult, SymbolSearchResult } from '@zipbul/gildash';
+import type { IndexResult } from '@zipbul/gildash';
 
+import { buildFileAnalysis } from './build-analysis';
+import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from './build-artifact-writer';
+import { formatCount, buildModuleTree } from './module-tree-renderer';
 import { buildDevIncrementalImpactLog } from './dev-incremental-impact';
 import { DevProcessManager } from './dev-process-manager';
 import { CliRenderer } from './cli-renderer';
@@ -54,6 +56,12 @@ export function createDevCommand(deps: DevCommandDeps) {
     const manifestGen = deps.createManifestGenerator();
     const entryGen = deps.createEntryGenerator();
     const fileCache = new Map<string, FileAnalysis>();
+    const fingerprintCache = new Map<string, string>();
+
+    function computeStructuralFingerprint(analysis: FileAnalysis): string {
+      const { filePath: _, ...structural } = analysis;
+      return JSON.stringify(structural);
+    }
 
     const toProjectRelativePath = (filePath: string): string => {
       return relative(projectRoot, filePath) || '.';
@@ -70,46 +78,10 @@ export function createDevCommand(deps: DevCommandDeps) {
           return false;
         }
 
-        const analysis: FileAnalysis = {
-          filePath,
-          classes: parseResult.classes,
-          reExports: parseResult.reExports,
-          exports: parseResult.exports,
-        };
-
-        if (parseResult.createApplicationCalls !== undefined) {
-          analysis.createApplicationCalls = parseResult.createApplicationCalls;
-        }
-
-        if (parseResult.defineModuleCalls !== undefined) {
-          analysis.defineModuleCalls = parseResult.defineModuleCalls;
-        }
-
-        if (parseResult.injectCalls !== undefined) {
-          analysis.injectCalls = parseResult.injectCalls;
-        }
-
-        if (parseResult.imports !== undefined) {
-          analysis.imports = parseResult.imports;
-        }
-
-        if (parseResult.importEntries !== undefined) {
-          analysis.importEntries = parseResult.importEntries;
-        }
-
-        if (parseResult.exportedValues !== undefined) {
-          analysis.exportedValues = parseResult.exportedValues;
-        }
-
-        if (parseResult.localValues !== undefined) {
-          analysis.localValues = parseResult.localValues;
-        }
-
-        if (parseResult.moduleDefinition !== undefined) {
-          analysis.moduleDefinition = parseResult.moduleDefinition;
-        }
+        const analysis = buildFileAnalysis(filePath, parseResult);
 
         fileCache.set(filePath, analysis);
+        fingerprintCache.set(filePath, computeStructuralFingerprint(analysis));
 
         return true;
       } catch (error) {
@@ -133,9 +105,16 @@ export function createDevCommand(deps: DevCommandDeps) {
 
     async function rebuild(): Promise<RebuildResult> {
       const fileMap = new Map(fileCache.entries());
-      const graph = new ModuleGraph(fileMap, moduleFileName, srcDir);
+      const graph = new ModuleGraph(fileMap, moduleFileName, srcDir, ledger);
 
       graph.build();
+
+      try {
+        await graph.validateInheritedScopes();
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Scope validation failed.';
+        throw new DiagnosticError(buildDiagnostic({ reason }));
+      }
 
       const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot });
 
@@ -185,19 +164,21 @@ export function createDevCommand(deps: DevCommandDeps) {
       const runtimeReportPath = join(outDir, 'runtime-report.json');
 
       if (buildProfile === 'standard' || buildProfile === 'full') {
-        const interfaceCatalogJson = JSON.stringify({ schemaVersion: '1', entries: [] }, null, 2);
-
-        await writeIfChanged(interfaceCatalogPath, interfaceCatalogJson);
+        await writeInterfaceCatalog({
+          modules: graph.modules,
+          ledger,
+          semanticAvailable,
+          projectRoot,
+          catalogFilePath: interfaceCatalogPath,
+        });
       } else {
-        await rm(interfaceCatalogPath, { force: true });
+        await removeInterfaceCatalog(interfaceCatalogPath);
       }
 
       if (buildProfile === 'full') {
-        const runtimeReportJson = JSON.stringify({ schemaVersion: '1', adapters: [] }, null, 2);
-
-        await writeIfChanged(runtimeReportPath, runtimeReportJson);
+        await writeRuntimeReport(runtimeReportPath);
       } else {
-        await rm(runtimeReportPath, { force: true });
+        await removeRuntimeReport(runtimeReportPath);
       }
 
       return { graph, handlerIndex: adapterResolution.handlerIndex };
@@ -215,9 +196,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       return true;
     }
 
-    const fmt = (value: number): string => value.toLocaleString('en-US');
-    const pluralize = (count: number, singular: string): string =>
-      `${fmt(count)} ${count === 1 ? singular : singular + 's'}`;
+    const fmt = formatCount;
 
     renderer.outputPaths('📂 Project', [
       { label: 'Root', value: projectRoot },
@@ -254,7 +233,34 @@ export function createDevCommand(deps: DevCommandDeps) {
       throw new DiagnosticError(appEntry.data);
     }
 
-    // ── 2. Build + Generate ──
+    // ── 2. Gildash init ──
+    const gildashSpinner = renderer.startSpinner('Initializing code intelligence');
+    const ignorePatterns = ['dist', '.zipbul', '.gildash'];
+    const openGildash = deps.createGildash ?? Gildash.open;
+    let ledger: Gildash;
+    let semanticAvailable = true;
+    try {
+      ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true });
+    } catch (e) {
+      semanticAvailable = false;
+      renderer.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
+      ledger = await openGildash({ projectRoot, ignorePatterns });
+    }
+    gildashSpinner.stop('Code intelligence ready');
+
+    const unsubscribeError = ledger.onError((error) => {
+      renderer.warn(`Gildash: ${error.message}`);
+    });
+
+    const unsubscribeRole = ledger.onRoleChanged((newRole) => {
+      if (newRole === 'reader') {
+        renderer.warn('Another instance took watcher ownership. File change detection delegated.');
+      } else {
+        renderer.info('Reacquired watcher ownership.');
+      }
+    });
+
+    // ── 3. Build + Generate ──
     const buildSpinner = renderer.startSpinner('🧩 Building AOT artifacts');
     const bootStartedAt = performance.now();
 
@@ -271,114 +277,9 @@ export function createDevCommand(deps: DevCommandDeps) {
     buildSpinner.stop(`🧩 AOT artifacts generated in ${bootDuration}s (${fmt(graph.modules.size)} modules, ${fmt(providerCount)} providers)`);
 
     // ── Application tree ──
-    const handlersByController = new Map<string, number>();
-    for (const handler of handlerIndex) {
-      const hashIndex = handler.id.indexOf('#');
-      if (hashIndex !== -1) {
-        const className = handler.id.slice(hashIndex + 1).split('.')[0];
-        handlersByController.set(className, (handlersByController.get(className) ?? 0) + 1);
-      }
-    }
+    const moduleTreeResult = buildModuleTree({ modules: graph.modules, handlerIndex });
 
-    const scopeCounts = { singleton: 0, request: 0, transient: 0 };
-    for (const mod of graph.modules.values()) {
-      for (const provider of mod.providers.values()) {
-        scopeCounts[provider.scope ?? 'singleton']++;
-      }
-    }
-
-    const adapterIds = new Set<string>();
-    for (const handler of handlerIndex) {
-      adapterIds.add(handler.id.slice(0, handler.id.indexOf(':')));
-    }
-
-    const treeLines: Array<{ label: string; value: string }> = [];
-
-    const buildModuleStats = (mod: ModuleNode): string => {
-      const parts: string[] = [];
-      if (mod.providers.size > 0) {
-        parts.push(pluralize(mod.providers.size, 'provider'));
-      }
-      if (mod.controllers.size > 0) {
-        let totalHandlers = 0;
-        for (const ctrl of mod.controllers) {
-          totalHandlers += handlersByController.get(ctrl) ?? 0;
-        }
-        parts.push(pluralize(mod.controllers.size, 'controller'));
-        if (totalHandlers > 0) {
-          parts.push(pluralize(totalHandlers, 'handler'));
-        }
-      }
-      return parts.join(', ');
-    };
-
-    const moduleEntries = Array.from(graph.modules.entries())
-      .map(([path, mod]) => ({ path, dir: dirname(path), mod }))
-      .sort((entryA, entryB) => entryA.dir.length - entryB.dir.length);
-
-    const childrenOf = new Map<string, ModuleNode[]>();
-
-    for (const entry of moduleEntries) {
-      childrenOf.set(entry.path, []);
-    }
-
-    for (let index = 1; index < moduleEntries.length; index++) {
-      const entry = moduleEntries[index];
-      let parentPath: string | undefined;
-
-      for (let parentIndex = index - 1; parentIndex >= 0; parentIndex--) {
-        const candidate = moduleEntries[parentIndex];
-        if (entry.dir.startsWith(candidate.dir + '/') || entry.dir === candidate.dir) {
-          parentPath = candidate.path;
-          break;
-        }
-      }
-
-      if (parentPath !== undefined) {
-        childrenOf.get(parentPath)?.push(entry.mod);
-      }
-    }
-
-    const walkTree = (mod: ModuleNode, modPath: string, prefix: string, isLast: boolean, isRoot: boolean): void => {
-      const connector = isRoot ? '' : (isLast ? '└── ' : '├── ');
-      const stats = buildModuleStats(mod);
-      const label = `${prefix}${connector}${mod.name}`;
-      treeLines.push({ label, value: stats });
-
-      const children = (childrenOf.get(modPath) ?? [])
-        .sort((childA, childB) => childA.name.localeCompare(childB.name));
-      const childPrefix = isRoot ? '' : prefix + (isLast ? '    ' : '│   ');
-
-      children.forEach((child, childIndex) => {
-        walkTree(child, child.filePath, childPrefix, childIndex === children.length - 1, false);
-      });
-    };
-
-    if (moduleEntries.length > 0) {
-      const root = moduleEntries[0];
-      walkTree(root.mod, root.path, '', true, true);
-    }
-
-    const scopeParts = Object.entries(scopeCounts)
-      .filter(([, count]) => count > 0)
-      .map(([scope, count]) => `${fmt(count)} ${scope}`);
-    const adapterParts = Array.from(adapterIds)
-      .sort()
-      .map(id => `${id} (${fmt(handlerIndex.filter(h => h.id.startsWith(id + ':')).length)} handlers)`);
-
-    const summaryParts: string[] = [];
-    if (scopeParts.length > 0) {
-      summaryParts.push(`💉 ${scopeParts.join(', ')}`);
-    }
-    if (adapterParts.length > 0) {
-      summaryParts.push(`🔌 ${adapterParts.join(', ')}`);
-    }
-    if (summaryParts.length > 0) {
-      treeLines.push({ label: '', value: '' });
-      treeLines.push({ label: summaryParts.join(' · '), value: '' });
-    }
-
-    renderer.outputPaths('🧱 Application', treeLines);
+    renderer.outputPaths('🧱 Application', moduleTreeResult.treeLines);
 
     renderer.outputPaths('📋 Artifacts', [
       { label: 'Manifest', value: toProjectRelativePath(join(outDir, 'manifest.json')) },
@@ -394,29 +295,10 @@ export function createDevCommand(deps: DevCommandDeps) {
       spawnProcess: deps.spawnProcess ?? ((command, cwd) => Bun.spawn(command, { cwd, stdout: 'pipe', stderr: 'pipe', env: { ...process.env } })),
     });
     processManager.start();
+
     renderer.step('Watching for changes...');
 
-    let ledger: Gildash;
     try {
-      const openGildash = deps.createGildash ?? Gildash.open;
-      ledger = await openGildash({
-        projectRoot,
-        ignorePatterns: ['dist', '.zipbul', '.gildash'],
-      });
-    } catch (error) {
-      await processManager.stop();
-      throw error;
-    }
-
-    try {
-      // 심볼 캐시 (diffSymbols용)
-      const symbolCache = new Map<string, SymbolSearchResult[]>();
-      for (const filePath of fileCache.keys()) {
-        try {
-          symbolCache.set(filePath, ledger.getSymbolsByFile(filePath));
-        } catch { /* 인덱싱 전이라 조회 실패 가능 */ }
-      }
-
       let lastRebuildFailed = false;
       let indexQueue = Promise.resolve();
       const unsubscribe = ledger.onIndexed((result: IndexResult) => {
@@ -426,7 +308,7 @@ export function createDevCommand(deps: DevCommandDeps) {
           // 1. 삭제 파일 제거
           for (const file of result.deletedFiles) {
             fileCache.delete(file);
-            symbolCache.delete(file);
+            fingerprintCache.delete(file);
           }
 
           if (result.deletedFiles.length > 0) {
@@ -438,68 +320,129 @@ export function createDevCommand(deps: DevCommandDeps) {
             renderer.warn(`File could not be indexed: ${toProjectRelativePath(file)}`);
           }
 
-          // 3. 심볼 레벨 변경 분석 (diffSymbols)
-          for (const file of result.changedFiles) {
-            const before = symbolCache.get(file) ?? [];
-            try {
-              const after = ledger.getSymbolsByFile(file);
-              const diff = ledger.diffSymbols(before, after);
+          // 3. 심볼 레벨 변경 분석 (changedSymbols)
+          const { added, modified, removed } = result.changedSymbols;
 
-              if (diff.removed.length > 0) {
-                renderer.warn(`Removed: ${diff.removed.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
-              }
-              if (diff.modified.length > 0) {
-                renderer.info(`Modified: ${diff.modified.map(m => m.after.name).join(', ')} in ${toProjectRelativePath(file)}`);
-              }
-              if (diff.added.length > 0) {
-                renderer.info(`Added: ${diff.added.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
-              }
-
-              symbolCache.set(file, after);
-            } catch (e) {
-              renderer.warn(`Symbol diff failed for ${toProjectRelativePath(file)}: ${e instanceof Error ? e.message : 'unknown'}`);
+          if (removed.length > 0) {
+            const grouped = Map.groupBy(removed, (s) => s.filePath);
+            for (const [file, symbols] of grouped) {
+              renderer.warn(`Removed: ${symbols.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
+            }
+          }
+          if (modified.length > 0) {
+            const grouped = Map.groupBy(modified, (s) => s.filePath);
+            for (const [file, symbols] of grouped) {
+              renderer.info(`Modified: ${symbols.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
+            }
+          }
+          if (added.length > 0) {
+            const grouped = Map.groupBy(added, (s) => s.filePath);
+            for (const [file, symbols] of grouped) {
+              renderer.info(`Added: ${symbols.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
             }
           }
 
-          // 4. 변경 파일 자체 재분석 (getAffected는 변경 파일 제외)
+          // 4. 비앱 파일만 변경된 경우 스킵
+          const hasAppChanges = result.changedFiles.some(shouldAnalyzeFile);
+          if (!hasAppChanges && result.deletedFiles.length === 0) {
+            renderer.info('No app files changed, skipping restart');
+            return;
+          }
+
+          // 5. 변경 파일 재분석 전 핑거프린트 저장
+          const oldFingerprints = new Map<string, string>();
+          for (const file of result.changedFiles) {
+            if (shouldAnalyzeFile(file)) {
+              const existing = fingerprintCache.get(file);
+              if (existing !== undefined) {
+                oldFingerprints.set(file, existing);
+              }
+            }
+          }
+
+          // 6. 변경 파일 자체 재분석 (getAffected는 변경 파일 제외)
           for (const file of result.changedFiles) {
             if (shouldAnalyzeFile(file)) {
               await analyzeFile(file);
             }
           }
 
-          // 5. 영향 파일 계산 (파일 레벨)
-          const affectedFiles = await ledger.getAffected(result.changedFiles);
+          // 7. 영향 파일 계산 (파일 레벨)
+          let affectedFiles: string[];
+          try {
+            affectedFiles = await ledger.getAffected(result.changedFiles);
+          } catch {
+            affectedFiles = [];
+          }
 
-          // 6. 영향 파일 재분석
+          // 8. 영향 파일 재분석 전 핑거프린트 저장 + 재분석
           for (const file of affectedFiles) {
             if (shouldAnalyzeFile(file)) {
+              const existing = fingerprintCache.get(file);
+              if (existing !== undefined) {
+                oldFingerprints.set(file, existing);
+              }
               await analyzeFile(file);
             }
           }
 
-          // 7. 증분 영향 로그 (파일→모듈 매핑) + 재빌드
-          const rebuildStartedAt = performance.now();
-          const allAffected = [...result.changedFiles, ...affectedFiles];
-          const impactLog = buildDevIncrementalImpactLog({
-            affectedFiles: allAffected,
-            fileCache,
-            moduleFileName,
-            toProjectRelativePath,
-          });
+          // 9. 구조적 변경 여부 판단
+          let needsRebuild = result.deletedFiles.length > 0;
 
-          // 8. 재빌드 + 프로세스 재시작
-          await rebuild();
+          if (!needsRebuild) {
+            for (const [file, oldFp] of oldFingerprints) {
+              const newFp = fingerprintCache.get(file);
+              if (newFp !== oldFp) {
+                needsRebuild = true;
+                break;
+              }
+            }
+          }
 
-          const rebuildDuration = ((performance.now() - rebuildStartedAt) / 1000).toFixed(1);
+          // 새로 추가된 파일 (이전 핑거프린트 없음) → 리빌드 필요
+          if (!needsRebuild) {
+            for (const file of result.changedFiles) {
+              if (shouldAnalyzeFile(file) && !oldFingerprints.has(file) && fingerprintCache.has(file)) {
+                needsRebuild = true;
+                break;
+              }
+            }
+          }
 
-          // 영향 모듈명 요약 (파일 경로 대신 디렉토리 기반 모듈명)
-          const moduleNames = Array.from(impactLog.affectedModules)
-            .map(toProjectRelativePath)
-            .map(p => p.replace(/\/module\.ts$/, '').replace(/\/__module__\.ts$/, ''))
-            .sort();
-          const moduleSummary = moduleNames.length > 0 ? moduleNames.join(', ') : '(none)';
-          renderer.step(`🧭 ${moduleSummary} → rebuilt (${rebuildDuration}s)`);
+          // 10. 조건부 리빌드
+          if (needsRebuild) {
+            // 파일 레벨 import 순환 감지 (경고만, 빌드 중단 안 함)
+            try {
+              const hasCycle = await ledger.hasCycle();
+              if (hasCycle) {
+                const cyclePaths = await ledger.getCyclePaths(undefined, { maxCycles: 3 });
+                const summary = cyclePaths.map(c => c.join(' → ')).join('\n');
+                renderer.warn(`Circular file import detected:\n${summary}`);
+              }
+            } catch { /* Gildash cycle 감지 실패 시 무시 */ }
+
+            const rebuildStartedAt = performance.now();
+            const allAffected = [...result.changedFiles, ...affectedFiles];
+            const impactLog = buildDevIncrementalImpactLog({
+              affectedFiles: allAffected,
+              fileCache,
+              moduleFileName,
+              toProjectRelativePath,
+            });
+
+            await rebuild();
+
+            const rebuildDuration = ((performance.now() - rebuildStartedAt) / 1000).toFixed(1);
+
+            const moduleNames = Array.from(impactLog.affectedModules)
+              .map(toProjectRelativePath)
+              .map(p => p.replace(/\/module\.ts$/, '').replace(/\/__module__\.ts$/, ''))
+              .sort();
+            const moduleSummary = moduleNames.length > 0 ? moduleNames.join(', ') : '(none)';
+            renderer.step(`🧭 ${moduleSummary} → rebuilt (${rebuildDuration}s)`);
+          } else {
+            renderer.info('No structural changes, skipping rebuild');
+          }
 
           if (lastRebuildFailed) {
             renderer.success('Build recovered');
@@ -532,6 +475,8 @@ export function createDevCommand(deps: DevCommandDeps) {
         renderer.cancelled(`${signal} received. Stopped`);
         await processManager.stop();
         unsubscribe();
+        unsubscribeError();
+        unsubscribeRole();
         try { await ledger.close(); } catch { /* cleanup 실패 무시 */ }
         process.exit(0);
       };
@@ -540,6 +485,8 @@ export function createDevCommand(deps: DevCommandDeps) {
       process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
     } catch (error) {
       await processManager.stop();
+      unsubscribeError();
+      unsubscribeRole();
       try { await ledger.close(); } catch { /* cleanup 실패 무시 */ }
       throw error;
     }
