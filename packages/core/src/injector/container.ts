@@ -16,8 +16,6 @@ import type {
 import type {
   ContainerValue,
   ConstructorParamMetadata,
-  DecoratorArgument,
-  DecoratorMetadata,
   FactoryFn,
   ModuleObject,
   ProviderRegistration,
@@ -29,7 +27,6 @@ import { getRuntimeContext } from '../runtime/runtime-context';
 import {
   normalizeToken,
   formatToken,
-  coerceToken,
   resolveTokenRecord,
 } from './token-resolver';
 

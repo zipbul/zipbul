@@ -12,4 +12,4 @@ export enum ContentType {
   Json = 'application/json',
 }
 
-export type { HttpMethod } from '@zipbul/shared';
+export type { HttpMethod } from './types';

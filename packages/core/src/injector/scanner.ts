@@ -26,7 +26,6 @@ import { getRuntimeContext } from '../runtime/runtime-context';
 import {
   normalizeToken,
   formatToken,
-  coerceToken,
   isProviderToken,
   resolveTokenRecord,
 } from './token-resolver';

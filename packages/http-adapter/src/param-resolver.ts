@@ -64,7 +64,7 @@ export class ParamResolver {
           paramValue = resolveParamValue(typeToUse, req, res);
         }
 
-        if (metatype !== undefined && !isPrimitiveMetatype(metatype) && (typeToUse === 'body' || typeToUse === 'query')) {
+        if (metatype !== undefined && typeof metatype === 'function' && !isPrimitiveMetatype(metatype) && (typeToUse === 'body' || typeToUse === 'query')) {
           paramValue = await deserialize(metatype as new (...args: unknown[]) => RouteParamValue, paramValue);
         }
 
@@ -81,10 +81,6 @@ export class ParamResolver {
     }
 
     if (typeof type !== 'string') {
-      if (typeof type === 'function' && !('prototype' in type)) {
-        return type();
-      }
-
       return type;
     }
 

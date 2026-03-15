@@ -13,7 +13,11 @@ import type { CookieMap } from 'bun';
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
 
-export type { HttpMethod } from '@zipbul/shared';
+/**
+ * HTTP method type. Mirrors `@zipbul/shared` HttpMethod.
+ * Defined locally because tsc cannot resolve bun-cached npm packages.
+ */
+export type HttpMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | (string & {});
 
 export type HeadersInit = Headers | Array<[string, string]> | Record<string, string>;
 

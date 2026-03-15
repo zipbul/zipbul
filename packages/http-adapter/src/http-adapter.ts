@@ -1,4 +1,4 @@
-import type { ZipbulRecord, Class, Context, AdapterEntryDecorators, Result, Err } from '@zipbul/common';
+import type { ZipbulRecord, Class, ClassToken, Context, AdapterEntryDecorators, Result, Err } from '@zipbul/common';
 import { Adapter, isErr, err, safe } from '@zipbul/common';
 import { StatusCodes } from 'http-status-codes';
 import { Logger } from '@zipbul/logger';
@@ -30,7 +30,6 @@ import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
 import type { RouteHandler } from './route-handler';
 
-import type { ZipbulValue } from '@zipbul/common';
 
 interface ErrorResponseData {
   readonly status: number;
@@ -39,6 +38,10 @@ interface ErrorResponseData {
 }
 
 export class HttpAdapter extends Adapter {
+  static readonly adapterId = 'HttpAdapter';
+  static readonly controllerDecoratorName = 'RestController';
+  static readonly handlerDecoratorNames: readonly string[] = ['Get', 'Post', 'Put', 'Delete', 'Patch', 'Options', 'Head'];
+
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
     handlers: [Get, Post, Put, Delete, Patch, Options, Head],
@@ -89,7 +92,7 @@ export class HttpAdapter extends Adapter {
    * @public
    */
   async parseInput(context: Context): Promise<void> {
-    const http = context.to(HttpContext);
+    const http = context.to(HttpContext as unknown as ClassToken<HttpContext>);
     const req = http.request;
     const rawReq = http.rawRequest;
 
@@ -132,7 +135,7 @@ export class HttpAdapter extends Adapter {
    * @public
    */
   async resolveHandler(context: Context): Promise<Result<unknown, unknown>> {
-    const http = context.to(HttpContext);
+    const http = context.to(HttpContext as unknown as ClassToken<HttpContext>);
     const req = http.request;
     const res = http.response;
     const method = req.httpMethod;
@@ -201,7 +204,7 @@ export class HttpAdapter extends Adapter {
    * @public
    */
   async handleResult(result: Result<unknown, unknown>, context: Context): Promise<void> {
-    const http = context.to(HttpContext);
+    const http = context.to(HttpContext as unknown as ClassToken<HttpContext>);
     const res = http.response;
 
     if (res.isSent()) {
@@ -224,7 +227,7 @@ export class HttpAdapter extends Adapter {
    * @public
    */
   forceCloseConnection(context: Context): void {
-    const http = context.to(HttpContext);
+    const http = context.to(HttpContext as unknown as ClassToken<HttpContext>);
     const res = http.response;
 
     if (!res.isSent()) {
@@ -242,7 +245,7 @@ export class HttpAdapter extends Adapter {
    * @public
    */
   override async runExceptionFilters(error: unknown, context: Context): Promise<Err<unknown>> {
-    const http = context.to(HttpContext);
+    const http = context.to(HttpContext as unknown as ClassToken<HttpContext>);
     const routeFilters = http.routeErrorFilters;
 
     if (routeFilters !== undefined) {

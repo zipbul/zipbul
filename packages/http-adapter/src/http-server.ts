@@ -20,10 +20,10 @@ import type {
 import { HttpContext } from './http-context';
 import { HttpRequest } from './http-request';
 import { HttpResponse } from './http-response';
-import type { HttpMethod } from '@zipbul/shared';
+import type { HttpMethod } from './types';
 import { RouteHandler } from './route-handler';
 import { getIps } from './utils';
-import type { HttpAdapter } from './http-adapter';
+import { HttpAdapter } from './http-adapter';
 
 const HTTP_METHODS: ReadonlySet<string> = new Set<string>([
   'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS',
@@ -54,10 +54,12 @@ export class HttpServer {
 
     const metadataRegistry = options.metadata ?? new Map<MetadataRegistryKey, ClassMetadata>();
 
+    const adapterClass = this.adapter.constructor as typeof HttpAdapter;
+
     const decoratorConfig = {
-      adapterId: this.adapter.constructor.name,
-      controllerDecoratorName: this.adapter.decorators.controller.name,
-      handlerDecoratorNames: this.adapter.decorators.handlers.map(h => h.name),
+      adapterId: adapterClass.adapterId,
+      controllerDecoratorName: adapterClass.controllerDecoratorName,
+      handlerDecoratorNames: adapterClass.handlerDecoratorNames,
     };
 
     const routeHandler = new RouteHandler(this.container, metadataRegistry, decoratorConfig);

@@ -6,10 +6,11 @@ import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
 import type { RouteHandlerEntry } from './interfaces';
 import type { MatchOutput, RouterOptions } from '@zipbul/router';
-import type { HttpMethod } from '@zipbul/shared';
+import type { HttpMethod } from './types';
 import type {
   ClassMetadata,
   ControllerInstance,
+  DecoratorArgument,
   InternalRouteDefinition,
   MetadataRegistryKey,
   RouteHandlerArgument,
@@ -92,14 +93,22 @@ export class RouteHandler {
 
       const handler = this.resolveHandler(instance as ControllerInstance, entry.methodName);
       const paramFactory = this.paramResolver.buildParamFactory(
-        entry.params.map((param, index) => ({
-          index,
-          name: param.name,
-          type: param.metatypeKey,
-          decorators: param.decoratorName !== undefined
-            ? [{ name: param.decoratorName, arguments: [...(param.decoratorArgs ?? [])] }]
-            : [],
-        })),
+        entry.params.map((param, index) => {
+          const decorators = param.decoratorName !== undefined
+            ? [{ name: param.decoratorName, arguments: [...(param.decoratorArgs ?? [])] as readonly DecoratorArgument[] }]
+            : [];
+          const meta: { index: number; name: string; type?: string; decorators: typeof decorators } = {
+            index,
+            name: param.name,
+            decorators,
+          };
+
+          if (param.metatypeKey !== undefined) {
+            meta.type = param.metatypeKey;
+          }
+
+          return meta;
+        }),
       );
 
       const rawPath = typeof entry.handlerDecoratorArgs[0] === 'string' ? entry.handlerDecoratorArgs[0] : '';
