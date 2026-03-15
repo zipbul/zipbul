@@ -11,6 +11,7 @@ export type {
   AdapterEntryDecorators,
   AdapterClass,
 } from './adapter/types';
+export type { CompiledHandlerEntry, CompiledParamEntry } from './adapter/compiled-handler';
 
 export { LogLevel, ZipbulSymbol } from './enums';
 

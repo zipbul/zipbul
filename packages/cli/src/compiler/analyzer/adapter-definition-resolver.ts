@@ -578,8 +578,29 @@ export class AdapterDefinitionResolver {
               }));
             }
 
+            const handlerDec = method.decorators.find(dec => handlerDecorators.includes(dec.name));
+            const params = (method.parameters ?? []).map(param => {
+              const paramDec = param.decorators[0];
+              const metatypeKey = typeof param.type === 'string' ? param.type : undefined;
+
+              return {
+                name: param.name,
+                ...(paramDec !== undefined ? { decoratorName: paramDec.name } : {}),
+                ...(paramDec !== undefined && paramDec.arguments.length > 0 ? { decoratorArgs: paramDec.arguments } : {}),
+                ...(metatypeKey !== undefined ? { metatypeKey } : {}),
+              };
+            });
+
             seen.add(id);
-            entries.push({ id });
+            entries.push({
+              id,
+              adapterId: extraction.adapterId,
+              className: cls.className,
+              methodName: method.name,
+              handlerDecorator: handlerDec?.name ?? '',
+              handlerDecoratorArgs: handlerDec?.arguments ?? [],
+              params,
+            });
           }
         }
       }

@@ -58,7 +58,11 @@ export class HttpServer {
 
     const routeHandler = new RouteHandler(this.container, metadataRegistry, scopedKeysMap);
 
-    routeHandler.register();
+    if (options.handlerIndex !== undefined && options.handlerIndex.length > 0) {
+      routeHandler.registerFromHandlerIndex(options.handlerIndex);
+    } else {
+      routeHandler.register();
+    }
 
     if (Array.isArray(options.internalRoutes) && options.internalRoutes.length > 0) {
       routeHandler.registerInternalRoutes(options.internalRoutes);

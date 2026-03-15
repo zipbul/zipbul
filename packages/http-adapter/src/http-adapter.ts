@@ -294,6 +294,7 @@ export class HttpAdapter extends Adapter {
         ...(scopedKeys !== undefined ? { scopedKeys } : {}),
         errorFilters: this.errorFilterTokens,
         internalRoutes: this.internalRoutes,
+        ...(runtimeContext.handlerIndex !== undefined ? { handlerIndex: runtimeContext.handlerIndex } : {}),
       };
 
       await this.httpServer.boot(startContext.container, bootOptions, this);

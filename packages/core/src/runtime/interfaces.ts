@@ -1,4 +1,4 @@
-import type { Class, MiddlewareDefinition, ProviderToken, ExceptionFilterEntry } from '@zipbul/common';
+import type { Class, CompiledHandlerEntry, MiddlewareDefinition, ProviderToken, ExceptionFilterEntry } from '@zipbul/common';
 import type { MiddlewareHook } from '@zipbul/common';
 
 import type { Container } from '../injector/container';
@@ -20,4 +20,5 @@ export interface RuntimeContext {
   container?: Container;
   isAotRuntime?: boolean;
   adapterConfig?: Record<string, AdapterMiddlewareConfig>;
+  handlerIndex?: readonly CompiledHandlerEntry[];
 }

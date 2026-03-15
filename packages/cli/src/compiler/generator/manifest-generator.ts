@@ -3,6 +3,7 @@ import { dirname, relative } from 'path';
 import type { Result } from '@zipbul/result';
 import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
 import type { Diagnostic } from '../../diagnostics/types';
+import type { HandlerIndexEntry } from '../analyzer/interfaces';
 import type {
   ManifestDiNode,
   ManifestJsonModel,
@@ -24,7 +25,7 @@ export class ManifestGenerator {
 
   private metadataGen = new MetadataGenerator();
 
-  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string): Result<string, Diagnostic> {
+  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string, handlerIndex: readonly HandlerIndexEntry[] = []): Result<string, Diagnostic> {
     const registry = new ImportRegistry(outputDir);
     const sortedClasses = [...classes].sort((a, b) => {
       const nameDiff = compareCodePoint(a.metadata.className, b.metadata.className);
@@ -154,6 +155,7 @@ ${scopedKeysEntries.join('\n')}
 
 export const metadataRegistry = createMetadataRegistry();
 export const scopedKeysMap = createScopedKeysMap();
+export const handlerIndex = ${JSON.stringify(handlerIndex)} as const;
 
 const __container__ = createContainer();
 
@@ -163,6 +165,7 @@ registerRuntimeContext({
   scopedKeys: scopedKeysMap,
   isAotRuntime: true,
   adapterConfig,
+  handlerIndex,
 });
 
 `;

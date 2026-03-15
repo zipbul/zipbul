@@ -117,6 +117,20 @@ export interface AdapterStaticSchemaResult {
 
 export interface HandlerIndexEntry {
   id: string;
+  adapterId: string;
+  className: string;
+  controllerKey?: string;
+  methodName: string;
+  handlerDecorator: string;
+  handlerDecoratorArgs: readonly unknown[];
+  params: readonly HandlerParamEntry[];
+}
+
+export interface HandlerParamEntry {
+  name: string;
+  decoratorName?: string;
+  decoratorArgs?: readonly unknown[];
+  metatypeKey?: string;
 }
 
 export interface AdapterResolution {

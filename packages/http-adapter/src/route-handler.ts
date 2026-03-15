@@ -1,4 +1,4 @@
-import type { ZipbulContainer, ZipbulValue, ProviderToken, MiddlewareDefinition, ExceptionFilterEntry, ErrorConstructorLike } from '@zipbul/common';
+import type { ZipbulContainer, ZipbulValue, ProviderToken, MiddlewareDefinition, ExceptionFilterEntry, ErrorConstructorLike, CompiledHandlerEntry } from '@zipbul/common';
 
 import { ExceptionFilter } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
@@ -88,6 +88,70 @@ export class RouteHandler {
   }
 
   /**
+   * Registers routes from AOT-compiled handler index.
+   * Bypasses metadata scanning entirely.
+   *
+   * @param entries - Compiled handler entries from AOT.
+   * @public
+   */
+  registerFromHandlerIndex(entries: readonly CompiledHandlerEntry[]): void {
+    let routeCount = 0;
+
+    for (const entry of entries) {
+      if (entry.adapterId !== 'HttpAdapter') {
+        continue;
+      }
+
+      const httpMethod = entry.handlerDecorator.toUpperCase();
+
+      if (!this.isHttpMethod(httpMethod)) {
+        continue;
+      }
+
+      const instance = this.container.get(entry.controllerKey);
+
+      if (instance === undefined || instance === null) {
+        this.logger.warn(`Cannot resolve controller: ${entry.controllerKey}`);
+
+        continue;
+      }
+
+      const handler = this.resolveHandler(instance as ControllerInstance, entry.methodName);
+      const paramFactory = this.paramResolver.buildParamFactory(
+        entry.params.map((param, index) => ({
+          index,
+          name: param.name,
+          type: param.metatypeKey,
+          decorators: param.decoratorName !== undefined
+            ? [{ name: param.decoratorName, arguments: [...(param.decoratorArgs ?? [])] }]
+            : [],
+        })),
+      );
+
+      const rawPath = typeof entry.handlerDecoratorArgs[0] === 'string' ? entry.handlerDecoratorArgs[0] : '';
+      const controllerPrefix = this.getControllerPrefix(entry.controllerKey);
+      const fullPath = '/' + [controllerPrefix, rawPath].filter(Boolean).join('/').replace(/\/+/g, '/');
+
+      const routeEntry: RouteHandlerEntry = {
+        handler,
+        methodName: entry.methodName,
+        middlewares: [],
+        errorFilters: [],
+        paramFactory,
+      };
+
+      this.router.add(httpMethod as HttpMethod, fullPath, routeEntry);
+      this.logger.debug(`${httpMethod} ${fullPath} → ${entry.controllerKey}.${entry.methodName} (AOT)`);
+      routeCount++;
+    }
+
+    if (routeCount > 0) {
+      this.router.build();
+      this.logger.info(`${routeCount} routes registered (AOT)`);
+    }
+  }
+
+  /**
    * Undocumented/internal route registration channel.
    * This is intentionally untyped at the package boundary.
    */
@@ -106,9 +170,6 @@ export class RouteHandler {
       const fullPath = route.path.startsWith('/') ? route.path : `/${route.path}`;
       const entry: RouteHandlerEntry = {
         handler: route.handler,
-        paramType: [],
-        paramRefs: [],
-        controllerClass: null,
         methodName: '__internal__',
         middlewares: [],
         errorFilters: [],
@@ -460,6 +521,23 @@ export class RouteHandler {
 
   private isExceptionFilter(value: ContainerInstance): value is ExceptionFilter {
     return value instanceof ExceptionFilter;
+  }
+
+  private getControllerPrefix(controllerKey: string): string {
+    const className = controllerKey.includes('::') ? controllerKey.split('::')[1] : controllerKey;
+
+    for (const meta of this.metadataRegistry.values()) {
+      if (meta.className !== className) {
+        continue;
+      }
+
+      const controllerDec = (meta.decorators ?? []).find(d => d.name === 'RestController');
+      const rawPrefix = controllerDec?.arguments?.[0];
+
+      return typeof rawPrefix === 'string' ? rawPrefix : '';
+    }
+
+    return '';
   }
 
   private isHttpMethod(value: string): value is HttpMethod {

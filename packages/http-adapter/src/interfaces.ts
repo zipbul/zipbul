@@ -1,5 +1,6 @@
 import type {
   ApplicationOptions,
+  CompiledHandlerEntry,
   ZipbulContainer,
   ExceptionFilterEntry,
   MiddlewareDefinition,
@@ -51,6 +52,7 @@ export interface HttpServerBootOptions extends HttpServerOptions {
   readonly internalRoutes?: readonly InternalRouteEntry[];
   readonly errorFilters?: readonly ExceptionFilterToken[];
   readonly logger?: ZipbulValue;
+  readonly handlerIndex?: readonly CompiledHandlerEntry[];
 }
 
 export interface HttpAdapterStartContext extends Context {

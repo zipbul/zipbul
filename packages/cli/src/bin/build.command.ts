@@ -302,8 +302,21 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         await writeIfChanged(manifestFile, manifestJson);
         await mkdir(buildTempDir, { recursive: true });
 
+        const controllerKeyMap = new Map<string, string>();
+
+        for (const node of graph.modules.values()) {
+          for (const ctrlName of node.controllers) {
+            controllerKeyMap.set(ctrlName, `${node.name}::${ctrlName}`);
+          }
+        }
+
+        const resolvedHandlerIndex = adapterResolution.handlerIndex.map(entry => ({
+          ...entry,
+          controllerKey: controllerKeyMap.get(entry.className) ?? entry.className,
+        }));
+
         const runtimeFile = join(buildTempDir, 'runtime.ts');
-        const runtimeResult = manifestGen.generate(graph, allClasses, buildTempDir);
+        const runtimeResult = manifestGen.generate(graph, allClasses, buildTempDir, resolvedHandlerIndex);
 
         if (isErr(runtimeResult)) {
           throw new DiagnosticError(runtimeResult.data);

@@ -142,7 +142,20 @@ export function createDevCommand(deps: DevCommandDeps) {
         }
       }
 
-      const runtimeResult = manifestGen.generate(graph, allClasses, outDir);
+      const controllerKeyMap = new Map<string, string>();
+
+      for (const node of graph.modules.values()) {
+        for (const ctrlName of node.controllers) {
+          controllerKeyMap.set(ctrlName, `${node.name}::${ctrlName}`);
+        }
+      }
+
+      const resolvedHandlerIndex = adapterResolution.handlerIndex.map(entry => ({
+        ...entry,
+        controllerKey: controllerKeyMap.get(entry.className) ?? entry.className,
+      }));
+
+      const runtimeResult = manifestGen.generate(graph, allClasses, outDir, resolvedHandlerIndex);
 
       if (isErr(runtimeResult)) {
         throw new DiagnosticError(runtimeResult.data);
