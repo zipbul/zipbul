@@ -3,7 +3,6 @@ import type { Server } from 'bun';
 import type {
   ZipbulContainer,
   ZipbulValue,
-  ProviderToken,
 } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 import { StatusCodes } from 'http-status-codes';
@@ -54,14 +53,17 @@ export class HttpServer {
     this.logger.debug('Booting...');
 
     const metadataRegistry = options.metadata ?? new Map<MetadataRegistryKey, ClassMetadata>();
-    const scopedKeysMap: Map<ProviderToken, string> = options.scopedKeys ?? new Map<ProviderToken, string>();
 
-    const routeHandler = new RouteHandler(this.container, metadataRegistry, scopedKeysMap);
+    const decoratorConfig = {
+      adapterId: this.adapter.constructor.name,
+      controllerDecoratorName: this.adapter.decorators.controller.name,
+      handlerDecoratorNames: this.adapter.decorators.handlers.map(h => h.name),
+    };
+
+    const routeHandler = new RouteHandler(this.container, metadataRegistry, decoratorConfig);
 
     if (options.handlerIndex !== undefined && options.handlerIndex.length > 0) {
       routeHandler.registerFromHandlerIndex(options.handlerIndex);
-    } else {
-      routeHandler.register();
     }
 
     if (Array.isArray(options.internalRoutes) && options.internalRoutes.length > 0) {

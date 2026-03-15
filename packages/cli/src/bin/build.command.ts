@@ -279,6 +279,11 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           throw new DiagnosticError(adapterResolution.data);
         }
 
+        const controllerDecoratorNames = Object.values(adapterResolution.adapterStaticSchemas)
+          .map(schema => schema.entryDecorators.controller);
+
+        graph.registerControllers(controllerDecoratorNames);
+
         let providerCount = 0;
         for (const mod of graph.modules.values()) {
           providerCount += mod.providers.size;

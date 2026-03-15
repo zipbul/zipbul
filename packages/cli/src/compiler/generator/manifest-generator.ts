@@ -252,16 +252,7 @@ registerRuntimeContext({
 
       if (isClassMetadata(metadata)) {
         return metadata.constructorParams
-          .map(param => {
-            const injectDec = param.decorators.find(d => d.name === 'Inject');
-            const injectArgs = injectDec?.arguments;
-
-            if (Array.isArray(injectArgs) && injectArgs.length > 0) {
-              return extractTokenName(injectArgs[0]);
-            }
-
-            return extractTokenName(param.type);
-          })
+          .map(param => extractTokenName(param.type))
           .filter((value): value is string => typeof value === 'string');
       }
 

@@ -223,17 +223,6 @@ export class Container implements ZipbulContainer {
 
       token = resolveTokenRecord(token);
 
-      const injectDec = param.decorators?.find((decorator: DecoratorMetadata) => decorator.name === 'Inject');
-      const injectArgs = injectDec?.arguments ?? [];
-
-      if (injectArgs.length > 0) {
-        const injectedToken = coerceToken(injectArgs[0] as DecoratorArgument);
-
-        if (injectedToken !== undefined) {
-          token = resolveTokenRecord(injectedToken);
-        }
-      }
-
       const tokenName = normalizeToken(token);
       const key = tokenName !== undefined ? `${scope}::${tokenName}` : '';
 

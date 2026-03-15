@@ -168,17 +168,6 @@ export class Scanner {
 
       token = resolveTokenRecord(token);
 
-      const injectDec = param.decorators?.find((decorator: DecoratorMetadata) => decorator.name === 'Inject');
-      const injectArgs = injectDec?.arguments ?? [];
-
-      if (injectArgs.length > 0) {
-        const injectedToken = coerceToken(injectArgs[0] as DecoratorArgument);
-
-        if (injectedToken !== undefined) {
-          token = resolveTokenRecord(injectedToken);
-        }
-      }
-
       const normalizedToken = normalizeToken(token);
       const directScopedKey = isProviderToken(token) ? scopedKeys?.get(token) : undefined;
       const normalizedScopedKey = normalizedToken !== undefined ? scopedKeys?.get(normalizedToken) : undefined;

@@ -99,7 +99,11 @@ export type { InjectableScope, InjectableVisibleTo } from './decorators/types';
 export { isClass, isUndefined, isNil, isEmpty, isSymbol, isString, isFunction } from './type-guards';
 export { inject, lazy, runInInjectionContext } from './injection-context';
 
-export { IS_DEVELOPMENT, IS_TEST, IS_PRODUCTION, CONFIG_SERVICE, ENV_SERVICE } from './constants';
+export {
+  IS_DEVELOPMENT, IS_TEST, IS_PRODUCTION, CONFIG_SERVICE, ENV_SERVICE,
+  DECORATOR_INJECTABLE, DECORATOR_USE_MIDDLEWARES, DECORATOR_USE_EXCEPTION_FILTERS,
+  DECORATOR_CATCH, DECORATOR_USE_GUARDS,
+} from './constants';
 
 export {
   IsString,

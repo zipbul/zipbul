@@ -10,6 +10,8 @@ import { compareCodePoint } from '../../../common';
 import { ModuleDiscovery } from '../module-discovery';
 import { ModuleNode } from './module-node';
 
+const INJECTABLE_NAME = 'Injectable';
+
 type ProviderMetadata = AnalyzerValue | ClassMetadata;
 
 interface VisibilityResolution {
@@ -151,16 +153,11 @@ export class ModuleGraph {
           this.classMap.set(cls.className, node);
           this.classDefinitions.set(cls.className, { metadata: cls, filePath });
 
-          const isController = cls.decorators.some(d => d.name === 'RestController');
-          const isInjectable = cls.decorators.some(d => d.name === 'Injectable');
-
-          if (isController) {
-            node.controllers.add(cls.className);
-          }
+          const isInjectable = cls.decorators.some(d => d.name === INJECTABLE_NAME);
 
           if (isInjectable) {
             const token = cls.className;
-            const injectableDec = cls.decorators.find(d => d.name === 'Injectable');
+            const injectableDec = cls.decorators.find(d => d.name === INJECTABLE_NAME);
             const options = this.parseInjectableOptions(injectableDec?.arguments?.[0], modulePath, moduleName);
 
             const providerRef: ProviderRef = {
@@ -449,6 +446,31 @@ export class ModuleGraph {
     }
   }
 
+  /**
+   * Registers controllers based on adapter-provided controller decorator names.
+   * Must be called after adapterResolution to maintain adapter neutrality.
+   *
+   * @param controllerDecoratorNames - Decorator names that identify a controller (e.g. `["RestController"]`).
+   * @public
+   */
+  registerControllers(controllerDecoratorNames: readonly string[]): void {
+    const nameSet = new Set(controllerDecoratorNames);
+
+    for (const [className, def] of this.classDefinitions) {
+      const isController = def.metadata.decorators.some(d => nameSet.has(d.name));
+
+      if (!isController) {
+        continue;
+      }
+
+      const node = this.classMap.get(className);
+
+      if (node) {
+        node.controllers.add(className);
+      }
+    }
+  }
+
   async validateInheritedScopes(): Promise<void> {
     if (!this.gildash) return;
 
@@ -532,25 +554,7 @@ export class ModuleGraph {
 
     if (this.isClassMetadata(provider.metadata)) {
       return provider.metadata.constructorParams
-        .map(p => {
-          const injectDec = p.decorators.find(d => d.name === 'Inject');
-
-          if (injectDec !== undefined) {
-            const token = injectDec.arguments[0];
-
-            if (typeof token === 'string') {
-              return token;
-            }
-
-            const extracted = this.extractTokenName(token);
-
-            if (extracted !== 'UNKNOWN') {
-              return extracted;
-            }
-          }
-
-          return this.extractTokenName(p.type);
-        })
+        .map(p => this.extractTokenName(p.type))
         .filter(v => v !== 'UNKNOWN');
     }
 

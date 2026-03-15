@@ -122,6 +122,11 @@ export function createDevCommand(deps: DevCommandDeps) {
         throw new DiagnosticError(adapterResolution.data);
       }
 
+      const controllerDecoratorNames = Object.values(adapterResolution.adapterStaticSchemas)
+        .map(schema => schema.entryDecorators.controller);
+
+      graph.registerControllers(controllerDecoratorNames);
+
       const manifestJson = manifestGen.generateJson({
         graph,
         projectRoot,

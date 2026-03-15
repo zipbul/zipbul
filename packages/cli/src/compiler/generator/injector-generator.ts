@@ -625,26 +625,6 @@ ${dynamicEntries.join('\n')}
         token = lazyRefName;
       }
 
-      const injectDec = param.decorators.find(d => d.name === 'Inject');
-      const injectArgs = injectDec?.arguments;
-
-      if (Array.isArray(injectArgs) && injectArgs.length > 0) {
-        const arg = injectArgs[0];
-
-        if (typeof arg === 'string') {
-          token = arg;
-        } else {
-          const argRefName = getRefName(arg);
-          const argLazyRefName = getLazyRefName(arg);
-
-          if (isNonEmptyString(argRefName)) {
-            token = argRefName;
-          } else if (isNonEmptyString(argLazyRefName)) {
-            token = argLazyRefName;
-          }
-        }
-      }
-
       if (typeof token !== 'string') {
         return 'undefined';
       }
