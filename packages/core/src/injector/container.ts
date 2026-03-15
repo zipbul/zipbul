@@ -247,7 +247,7 @@ export class Container implements ZipbulContainer {
 
       try {
         return this.get(tokenName);
-      } catch (_e2) {
+      } catch {
         return undefined;
       }
     });

@@ -1,29 +1,33 @@
 import type { Adapter, AdapterClass, AdapterDependsOn } from '@zipbul/common';
 
-import type { Application } from './application';
-
 interface CreateApplicationOptions {
   //
 }
 
 /**
- * Bootstrap adapter — returned by adapter factory functions.
- * Installs an adapter instance into the application.
- */
-export type BootstrapAdapter = {
-  install(app: Application): Promise<void> | void;
-};
-
-/**
- * Configuration for addAdapter().
+ * Extracts the constructor options type from an adapter class.
  *
- * `name` is optional for single-instance registration.
- * When the same adapter class is registered multiple times, `name` is required
- * to distinguish instances.
+ * Resolves to the first constructor parameter type if it exists,
+ * otherwise `Record<string, never>` (empty object).
  *
  * @public
  */
-export type AddAdapterConfig = {
+export type AdapterOptions<TAdapter extends AdapterClass> =
+  ConstructorParameters<TAdapter> extends [infer TOptions, ...unknown[]]
+    ? TOptions extends Record<string, unknown>
+      ? TOptions
+      : Record<string, never>
+    : Record<string, never>;
+
+/**
+ * Options for {@link Application.attach}.
+ *
+ * Merges the target adapter's own constructor options with framework-level
+ * registration options (`name`, `dependsOn`).
+ *
+ * @public
+ */
+export type AttachOptions<TAdapter extends AdapterClass> = AdapterOptions<TAdapter> & {
   name?: string;
   dependsOn?: AdapterDependsOn;
 };

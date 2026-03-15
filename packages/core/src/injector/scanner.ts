@@ -187,7 +187,7 @@ export class Scanner {
       if (scopedKey !== undefined) {
         try {
           return c.get(scopedKey);
-        } catch (_e) {
+        } catch {
           console.warn(
             `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
           );
@@ -209,7 +209,7 @@ export class Scanner {
 
       try {
         return c.get(resolvedToken);
-      } catch (_e) {
+      } catch {
         console.warn(
           `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
         );

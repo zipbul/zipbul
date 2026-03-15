@@ -347,31 +347,31 @@ export class AdapterDefinitionResolver {
     }
 
     const controller = controllerRaw.__zipbul_ref;
-    const handlerRaw = decsRaw.handler;
+    const handlersRaw = decsRaw.handlers;
 
-    if (!Array.isArray(handlerRaw) || handlerRaw.length === 0) {
+    if (!Array.isArray(handlersRaw) || handlersRaw.length === 0) {
       return err(buildDiagnostic({
-        reason: `Adapter class '${classMetadata.className}' decorators.handler must be a non-empty Identifier array in ${sourceFile}.`,
+        reason: `Adapter class '${classMetadata.className}' decorators.handlers must be a non-empty Identifier array in ${sourceFile}.`,
         file: sourceFile,
       }));
     }
 
-    const handler: string[] = [];
+    const handlers: string[] = [];
 
-    for (const item of handlerRaw) {
-      const rec = this.asRecord(item);
+    for (const adapterNode of handlersRaw) {
+      const rec = this.asRecord(adapterNode);
 
       if (rec === null || typeof rec.__zipbul_ref !== 'string') {
         return err(buildDiagnostic({
-          reason: `Adapter class '${classMetadata.className}' decorators.handler elements must be Identifiers in ${sourceFile}.`,
+          reason: `Adapter class '${classMetadata.className}' decorators.handlers elements must be Identifiers in ${sourceFile}.`,
           file: sourceFile,
         }));
       }
 
-      handler.push(rec.__zipbul_ref);
+      handlers.push(rec.__zipbul_ref);
     }
 
-    const entryDecorators: AdapterEntryDecoratorsSchema = { controller, handler };
+    const entryDecorators: AdapterEntryDecoratorsSchema = { controller, handlers };
 
     return {
       adapterId,
@@ -522,7 +522,7 @@ export class AdapterDefinitionResolver {
 
         for (const method of cls.methods) {
           for (const extraction of extractions) {
-            const handlerDecorators = extraction.staticSchema.entryDecorators.handler;
+            const handlerDecorators = extraction.staticSchema.entryDecorators.handlers;
             const hasHandlerDecorator = method.decorators.some(dec => handlerDecorators.includes(dec.name));
 
             if (!hasHandlerDecorator) {
@@ -637,8 +637,8 @@ export class AdapterDefinitionResolver {
         continue;
       }
 
-      for (const item of adaptersArray) {
-        const itemRecord = this.asRecord(item);
+      for (const adapterNode of adaptersArray) {
+        const itemRecord = this.asRecord(adapterNode);
 
         if (itemRecord === null) {
           continue;
@@ -719,7 +719,7 @@ export class AdapterDefinitionResolver {
         }
 
         for (const method of cls.methods) {
-          const hasHandlerDecorator = method.decorators.some(dec => entryDecorators.handler.includes(dec.name));
+          const hasHandlerDecorator = method.decorators.some(dec => entryDecorators.handlers.includes(dec.name));
 
           if (!hasHandlerDecorator) {
             continue;
@@ -728,7 +728,7 @@ export class AdapterDefinitionResolver {
           if (!isAdapterController) {
             if (!isNonEmptyString(controllerAdapterId)) {
               return err(buildDiagnostic({
-                reason: `@Middlewares handler '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
+                reason: `@Middlewares handlers '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
                 file: analysis.filePath,
                 symbol: `${cls.className}.${method.name}`,
               }));

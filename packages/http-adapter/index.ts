@@ -1,5 +1,4 @@
 export { HttpAdapter } from './src/http-adapter';
-export { httpAdapter } from './src/http-adapter-factory';
 export { adapterDefinition } from './src/adapter-definition';
 
 export { HttpContext } from './src/adapter/http-context';

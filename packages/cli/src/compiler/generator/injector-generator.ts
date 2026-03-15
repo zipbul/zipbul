@@ -52,7 +52,7 @@ const stableKey = (value: GeneratorValue, visited = new WeakSet<AnalyzerValueRec
   }
 
   if (isAnalyzerValueArray(value)) {
-    const parts = value.map(v => stableKey(v, visited));
+    const parts = value.map(val => stableKey(val, visited));
 
     return `[${parts.join(',')}]`;
   }
@@ -72,8 +72,8 @@ const stableKey = (value: GeneratorValue, visited = new WeakSet<AnalyzerValueRec
   visited.add(value);
 
   const record: AnalyzerValueRecord = value;
-  const entries = Object.entries(record).sort(([a], [b]) => compareCodePoint(a, b));
-  const parts = entries.map(([k, v]) => `${k}:${stableKey(v, visited)}`);
+  const entries = Object.entries(record).sort(([keyA], [keyB]) => compareCodePoint(keyA, keyB));
+  const parts = entries.map(([key, val]) => `${key}:${stableKey(val, visited)}`);
 
   return `{${parts.join(',')}}`;
 };

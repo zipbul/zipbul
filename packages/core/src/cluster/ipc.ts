@@ -92,7 +92,7 @@ function ensurePromisifiedApi<T extends Record<string, RpcCallable>>(
   return value;
 }
 
-export function expose<T extends Record<string, RpcCallable>>(obj: T): void {
+export function expose<T extends Record<string, RpcCallable>>(targetObject: T): void {
   const self = globalThis;
 
   if (!isWorkerScope(self)) {
@@ -105,22 +105,22 @@ export function expose<T extends Record<string, RpcCallable>>(obj: T): void {
         return;
       }
 
-      const data = event.data;
+      const payload = event.data;
 
       try {
-        const handler = obj[data.method];
+        const handler = targetObject[payload.method];
 
         if (typeof handler !== 'function') {
-          throw new Error(`Method ${data.method} not found`);
+          throw new Error(`Method ${payload.method} not found`);
         }
 
-        const result = await Promise.resolve(handler(...data.args));
-        const response: RPCResponse = { id: data.id, result };
+        const result = await Promise.resolve(handler(...payload.args));
+        const response: RPCResponse = { id: payload.id, result };
 
         self.postMessage(response);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
-        const response: RPCResponse = { id: data.id, error: message };
+        const response: RPCResponse = { id: payload.id, error: message };
 
         self.postMessage(response);
       }
@@ -136,20 +136,20 @@ export function wrap<T extends Record<string, RpcCallable>>(worker: Worker, meth
       return;
     }
 
-    const data = event.data;
-    const promise = pending.get(data.id);
+    const payload = event.data;
+    const promise = pending.get(payload.id);
 
     if (!promise) {
       return;
     }
 
-    if (typeof data.error === 'string') {
-      promise.reject(new Error(data.error));
+    if (typeof payload.error === 'string') {
+      promise.reject(new Error(payload.error));
     } else {
-      promise.resolve(data.result);
+      promise.resolve(payload.result);
     }
 
-    pending.delete(data.id);
+    pending.delete(payload.id);
   });
 
   const api: Partial<Promisified<T>> = {};

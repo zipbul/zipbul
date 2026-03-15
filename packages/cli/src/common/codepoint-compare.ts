@@ -1,9 +1,9 @@
-export function compareCodePoint(a: string, b: string): number {
-  if (a === b) {
+export function compareCodePoint(strA: string, strB: string): number {
+  if (strA === strB) {
     return 0;
   }
 
-  if (a < b) {
+  if (strA < strB) {
     return -1;
   }
 

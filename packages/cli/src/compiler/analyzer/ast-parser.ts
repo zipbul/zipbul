@@ -794,7 +794,7 @@ export class AstParser {
       const resolved = Bun.resolveSync(importPath, dirname(sourcePath));
 
       return this.resolveDistToSource(resolved) ?? resolved;
-    } catch (_e) {
+    } catch {
       return importPath;
     }
   }

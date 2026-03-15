@@ -55,7 +55,7 @@ const createAdapterProperties = (overrides?: Partial<Record<string, AnalyzerValu
   const values: Record<string, AnalyzerValue> = {
     decorators: {
       controller: { __zipbul_ref: 'Controller' },
-      handler: [{ __zipbul_ref: 'Get' }],
+      handlers: [{ __zipbul_ref: 'Get' }],
     },
     ...overrides,
   };
@@ -187,7 +187,7 @@ describe('AdapterDefinitionResolver', () => {
 
     const spec = result.adapterStaticSchemas.TestAdapter;
 
-    expect(spec?.entryDecorators).toEqual({ controller: 'Controller', handler: ['Get'] });
+    expect(spec?.entryDecorators).toEqual({ controller: 'Controller', handlers: ['Get'] });
   });
 
   it('should resolve multiple adapters from different entry files', async () => {
@@ -256,7 +256,7 @@ describe('AdapterDefinitionResolver', () => {
     const adapterBClass = createTestAdapterClass('AdapterB', {
       decorators: {
         controller: { __zipbul_ref: 'WsGateway' },
-        handler: [{ __zipbul_ref: 'OnMessage' }],
+        handlers: [{ __zipbul_ref: 'OnMessage' }],
       },
     });
     const entryParseB = parseOrFail(parser, entryB, 'export const adapterDefinition = defineAdapter(AdapterB);');
@@ -734,7 +734,7 @@ describe('AdapterDefinitionResolver', () => {
       createTestAdapterClass('TestAdapter', {
         decorators: {
           controller: 'plain-string',
-          handler: [{ __zipbul_ref: 'Get' }],
+          handlers: [{ __zipbul_ref: 'Get' }],
         },
       }),
     );
@@ -748,13 +748,13 @@ describe('AdapterDefinitionResolver', () => {
     }
   });
 
-  it('should throw when decorators.handler is empty or invalid', async () => {
+  it('should throw when decorators.handlers is empty or invalid', async () => {
     // Arrange — empty handler array
     const fileMap1 = buildStandardFileMap(
       createTestAdapterClass('TestAdapter', {
         decorators: {
           controller: { __zipbul_ref: 'Controller' },
-          handler: [],
+          handlers: [],
         },
       }),
     );
@@ -771,7 +771,7 @@ describe('AdapterDefinitionResolver', () => {
       createTestAdapterClass('TestAdapter', {
         decorators: {
           controller: { __zipbul_ref: 'Controller' },
-          handler: ['plain-string'],
+          handlers: ['plain-string'],
         },
       }),
     );
@@ -907,7 +907,7 @@ describe('AdapterDefinitionResolver', () => {
     const adapterBClass = createTestAdapterClass('AdapterB', {
       decorators: {
         controller: { __zipbul_ref: 'WsGateway' },
-        handler: [{ __zipbul_ref: 'OnMessage' }],
+        handlers: [{ __zipbul_ref: 'OnMessage' }],
       },
     });
 
@@ -1346,7 +1346,7 @@ describe('AdapterDefinitionResolver', () => {
     const adapterBravo = createTestAdapterClass('BravoAdapter', {
       decorators: {
         controller: { __zipbul_ref: 'WsGateway' },
-        handler: [{ __zipbul_ref: 'OnMessage' }],
+        handlers: [{ __zipbul_ref: 'OnMessage' }],
       },
     });
     const adapterAlpha = createTestAdapterClass('AlphaAdapter');

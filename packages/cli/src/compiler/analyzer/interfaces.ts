@@ -93,7 +93,7 @@ export interface ImportEntry {
 
 export interface AdapterEntryDecoratorsSchema {
   controller: string;
-  handler: string[];
+  handlers: string[];
 }
 
 export interface AdapterStaticSchema {

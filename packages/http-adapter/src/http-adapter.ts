@@ -45,7 +45,7 @@ interface ErrorResponseData {
 export class HttpAdapter extends Adapter {
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
-    handler: [Get, Post, Put, Delete, Patch, Options, Head],
+    handlers: [Get, Post, Put, Delete, Patch, Options, Head],
   };
 
   private readonly options: HttpServerOptions;
@@ -73,7 +73,7 @@ export class HttpAdapter extends Adapter {
     this.options = normalizedOptions;
 
     this[HTTP_INTERNAL] = {
-      get: (path: string, handler: InternalRouteHandler) => {
+      get: (path: string, handlers: InternalRouteHandler) => {
         this.internalRoutes.push({ method: 'GET', path, handler });
       },
     };

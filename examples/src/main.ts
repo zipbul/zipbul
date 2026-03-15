@@ -11,10 +11,8 @@ const logger = new Logger('App');
 
 const app = createApplication(appModule);
 
-const httpAdapter = new HttpAdapter({ port: 5000 });
+const httpAdapter = app.attach(HttpAdapter, { port: 5000 });
 httpAdapter.addMiddlewares(MiddlewareHook.OnReceive, [requestTimingMiddleware()]);
-
-app.addAdapter(httpAdapter);
 
 await app.start();
 

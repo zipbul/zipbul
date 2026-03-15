@@ -1,6 +1,5 @@
 import type {
   ProviderToken,
-  Adapter,
   AdapterClass,
   Context,
   ZipbulContainer,
@@ -17,7 +16,7 @@ import { Container } from '../injector/container';
 import { runInitHooks, runDestroyHooks } from '../injector/lifecycle-runner';
 import { formatToken } from '../injector/token-resolver';
 import { getRuntimeContext } from '../runtime/runtime-context';
-import type { AdapterEntry, AddAdapterConfig, CreateApplicationOptions } from './interfaces';
+import type { AdapterEntry, AttachOptions, CreateApplicationOptions } from './interfaces';
 
 export class AppContext implements Context {
   readonly container: ZipbulContainer;
@@ -92,25 +91,29 @@ export class Application {
   }
 
   /**
-   * Registers an adapter instance into the application.
+   * Attaches an adapter to the application.
    *
-   * When registering a single instance of a given adapter class, `config` (and `name`)
-   * may be omitted. When registering multiple instances of the same class, a unique
+   * Accepts the adapter class and its constructor options merged with
+   * framework-level registration options (`name`, `dependsOn`).
+   * When registering multiple instances of the same class, a unique
    * `name` is required on each to distinguish them.
    *
-   * @param adapter - The adapter instance to register.
-   * @param config - Optional configuration (name, dependsOn).
+   * @param adapterClass - The adapter class to instantiate and attach.
+   * @param options - Adapter constructor options merged with attach options.
    *
    * @public
    */
-  public addAdapter(adapter: Adapter, config?: AddAdapterConfig): void {
+  public attach<TAdapter extends AdapterClass>(
+    adapterClass: TAdapter,
+    options?: AttachOptions<TAdapter>,
+  ): InstanceType<TAdapter> {
     if (this.started) {
-      throw new Error('Cannot add adapter after application has started');
+      throw new Error('Cannot attach adapter after application has started');
     }
 
-    const adapterClass = adapter.constructor as AdapterClass;
-    const name = config?.name;
-    const dependsOn = config?.dependsOn ?? [];
+    const { name, dependsOn: dependsOnRaw, ...adapterOptions } = options ?? {} as AttachOptions<TAdapter>;
+    const dependsOn = dependsOnRaw ?? [];
+    const adapter = new adapterClass(Object.keys(adapterOptions).length > 0 ? adapterOptions : undefined);
 
     const existingWithSameClass = this.adapters.filter(
       (entry) => entry.adapterClass === adapterClass,
@@ -146,6 +149,8 @@ export class Application {
       name,
       dependsOn,
     });
+
+    return adapter as InstanceType<TAdapter>;
   }
 
   public async start(): Promise<void> {
@@ -257,10 +262,6 @@ export class Application {
     } catch (error) {
       this.logger.error('Destroy hooks failed', error instanceof Error ? error : undefined);
     }
-  }
-
-  public attach(): void {
-    //
   }
 
   /**

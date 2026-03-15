@@ -17,7 +17,7 @@ const formatModuleList = (modules: Iterable<string>, toProjectRelativePath: (pat
   const rendered = Array.from(modules).map(path => {
     try {
       return toProjectRelativePath(path);
-    } catch (_error) {
+    } catch {
       return path;
     }
   });

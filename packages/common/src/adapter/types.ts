@@ -48,7 +48,7 @@ export type DecoratorRef = (...args: any[]) => any;
 /** Adapter-specific entry decorators provided to user code. */
 export type AdapterEntryDecorators = {
   controller: DecoratorRef;
-  handler: DecoratorRef[];
+  handlers: DecoratorRef[];
 };
 
 /** Adapter class constructor type. Accepts any constructor args and produces an Adapter. */
