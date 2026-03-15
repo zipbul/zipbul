@@ -30,7 +30,7 @@ import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
 import type { RouteHandler } from './route-handler';
 
-import type { ZipbulArray, ZipbulValue } from '@zipbul/common';
+import type { ZipbulValue } from '@zipbul/common';
 
 interface ErrorResponseData {
   readonly status: number;
@@ -114,7 +114,7 @@ export class HttpAdapter extends Adapter {
       try {
         const parsed = await rawReq.json();
 
-        req.body = this.isJsonValue(parsed) ? parsed : {};
+        req.body = parsed as RequestBodyValue;
       } catch {
         throw new BadRequestError('Invalid JSON in request body');
       }
@@ -419,60 +419,6 @@ export class HttpAdapter extends Adapter {
       'status' in value &&
       typeof value.status === 'number'
     );
-  }
-
-  // ── JSON validation ───────────────────────────────────────
-
-  private isJsonValue(value: ZipbulValue, seen?: Set<object>): value is RequestBodyValue {
-    if (value === null) {
-      return true;
-    }
-
-    const valueType = typeof value;
-
-    if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
-      return true;
-    }
-
-    if (typeof value === 'object') {
-      const visited = seen ?? new Set<object>();
-
-      if (visited.has(value)) {
-        return false;
-      }
-
-      visited.add(value);
-
-      if (this.isZipbulArray(value)) {
-        for (const entry of value) {
-          if (!this.isJsonValue(entry, visited)) {
-            return false;
-          }
-        }
-
-        return true;
-      }
-
-      if (this.isZipbulRecord(value)) {
-        for (const entry of Object.values(value)) {
-          if (!this.isJsonValue(entry, visited)) {
-            return false;
-          }
-        }
-
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  private isZipbulArray(value: ZipbulValue): value is ZipbulArray {
-    return Array.isArray(value);
-  }
-
-  private isZipbulRecord(value: ZipbulValue): value is ZipbulRecord {
-    return typeof value === 'object' && value !== null;
   }
 
   // ── Internals ─────────────────────────────────────────────

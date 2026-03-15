@@ -12,7 +12,6 @@ import type {
 
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
-import type { RouteHandlerParamType } from './decorators';
 import type {
   ClassMetadata,
   ControllerConstructor,
@@ -21,7 +20,6 @@ import type {
   HttpWorkerResponseBody,
   MetadataRegistryKey,
   RouteHandlerFunction,
-  RouteParamType,
   RouteParamValue,
 } from './types';
 
@@ -99,17 +97,8 @@ export interface HttpWorkerResponse {
 
 export interface RouteHandlerEntry {
   readonly handler: RouteHandlerFunction;
-  readonly paramType: RouteHandlerParamType[];
-  readonly paramRefs: readonly RouteParamType[];
-  readonly controllerClass: ControllerConstructor | null;
   readonly methodName: string;
   readonly middlewares: MiddlewareDefinition[];
   readonly errorFilters: readonly ExceptionFilterEntry[];
   readonly paramFactory: (req: HttpRequest, res: HttpResponse) => Promise<readonly RouteParamValue[]>;
-}
-
-export interface ArgumentMetadata {
-  type: 'body' | 'query' | 'param' | 'custom';
-  metatype?: RouteParamType;
-  data?: string;
 }

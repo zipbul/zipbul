@@ -5,7 +5,6 @@ import { Logger } from '@zipbul/logger';
 
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
-import type { RouteHandlerParamType } from './decorators';
 import type { RouteHandlerEntry } from './interfaces';
 import type { MatchOutput, RouterOptions } from '@zipbul/router';
 import type { HttpMethod } from '@zipbul/shared';
@@ -19,25 +18,23 @@ import type {
   InternalRouteDefinition,
   MetadataRegistryKey,
   MethodMetadata,
-  ParamTypeReference,
   RouteHandlerArgument,
   RouteHandlerFunction,
   RouteHandlerResult,
-  RouteParamKind,
-  RouteParamType,
   RouteParamValue,
   TokenCarrier,
   TokenRecord,
 } from './types';
 
-import { deserialize } from '@zipbul/baker';
 import { Router } from '@zipbul/router';
+import { ParamResolver } from './param-resolver';
 
 export class RouteHandler {
   private readonly container: ZipbulContainer;
   private readonly metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>;
   private readonly scopedKeys: Map<ProviderToken, string>;
   private readonly router: Router<RouteHandlerEntry>;
+  private readonly paramResolver: ParamResolver;
   private readonly logger = Logger.inherit();
 
   constructor(
@@ -49,6 +46,7 @@ export class RouteHandler {
     this.container = container;
     this.metadataRegistry = metadataRegistry;
     this.scopedKeys = scopedKeys;
+    this.paramResolver = new ParamResolver(metadataRegistry);
     this.router = new Router<RouteHandlerEntry>({
       ignoreTrailingSlash: true,
       enableCache: true,
@@ -174,94 +172,13 @@ export class RouteHandler {
         const rawSubPath = routeDec.arguments?.[0];
         const subPath = typeof rawSubPath === 'string' ? rawSubPath : '';
         const fullPath = '/' + [prefix, subPath].filter(Boolean).join('/').replace(/\/+/g, '/');
-        const paramTypes = (method.parameters ?? []).map(parameter => {
-          const normalized = this.normalizeParamKind(parameter.decorators?.[0]?.name);
 
-          return this.toRouteHandlerParamType(normalized);
-        });
-        const paramRefs = (method.parameters ?? []).map(parameter => this.resolveParamType(parameter.type) ?? 'unknown');
-        // Detect parameters early (moved into paramFactory closure)
-        const paramsConfig = (method.parameters ?? []).map((parameter, index) => {
-          const decorator = parameter.decorators?.[0];
-          const normalized = this.normalizeParamKind(decorator?.name);
-
-          return {
-            type: normalized,
-            name: parameter.name,
-            metatype: this.resolveParamType(parameter.type),
-            index,
-          };
-        });
-
-        const paramFactory = async (req: HttpRequest, res: HttpResponse): Promise<readonly RouteParamValue[]> => {
-          const params: RouteParamValue[] = [];
-
-          for (const config of paramsConfig) {
-            let paramValue: RouteParamValue = undefined;
-            const { type, metatype } = config;
-            let typeToUse: RouteParamKind | undefined = type;
-
-            // Fallback to name-based detection if no decorator
-            if (typeToUse === undefined && typeof config.name === 'string' && config.name.length > 0) {
-              typeToUse = this.normalizeParamKind(config.name);
-            }
-
-            if (typeToUse) {
-              switch (typeToUse) {
-                case 'body':
-                  paramValue = req.body;
-                  break;
-                case 'param':
-                case 'params':
-                  paramValue = req.params;
-                  break;
-                case 'query':
-                case 'queries':
-                  paramValue = req.query;
-                  break;
-                case 'header':
-                case 'headers':
-                  paramValue = req.headers;
-                  break;
-                case 'cookie':
-                case 'cookies':
-                  paramValue = req.cookies;
-                  break;
-                case 'request':
-                case 'req':
-                  paramValue = req;
-                  break;
-                case 'response':
-                case 'res':
-                  paramValue = res;
-                  break;
-                case 'ip':
-                  paramValue = req.ip;
-                  break;
-                default:
-                  paramValue = undefined;
-                  break;
-              }
-            }
-
-            if (metatype !== undefined && !this.isPrimitiveMetatype(metatype) && (typeToUse === 'body' || typeToUse === 'query')) {
-              paramValue = await deserialize(metatype as new (...args: unknown[]) => RouteParamValue, paramValue);
-            }
-
-            params.push(paramValue);
-          }
-
-                return params;
-        };
-
+        const paramFactory = this.paramResolver.buildParamFactory(method.parameters ?? []);
         const middlewares = this.resolveMiddlewares(targetClass, method, meta);
         const errorFilters = this.resolveErrorFilterEntries(targetClass, method, meta);
         const handler = this.resolveHandler(instance, method.name);
         const entry: RouteHandlerEntry = {
           handler,
-          paramType: paramTypes,
-          paramRefs,
-          controllerClass: this.isControllerConstructor(targetClass) ? targetClass : null,
           methodName: method.name,
           middlewares,
           errorFilters,
@@ -557,70 +474,6 @@ export class RouteHandler {
     );
   }
 
-  private isPrimitiveMetatype(metatype: RouteParamType): boolean {
-    return metatype === String || metatype === Boolean || metatype === Number || metatype === Array || metatype === Object;
-  }
-
-  private normalizeParamKind(value: string | undefined): RouteParamKind | undefined {
-    if (typeof value !== 'string' || value.length === 0) {
-      return undefined;
-    }
-
-    const lower = value.toLowerCase();
-
-    switch (lower) {
-      case 'body':
-      case 'param':
-      case 'params':
-      case 'query':
-      case 'queries':
-      case 'header':
-      case 'headers':
-      case 'cookie':
-      case 'cookies':
-      case 'request':
-      case 'req':
-      case 'response':
-      case 'res':
-      case 'ip':
-        return lower;
-      default:
-        return undefined;
-    }
-  }
-
-  private toRouteHandlerParamType(kind: RouteParamKind | undefined): RouteHandlerParamType {
-    if (kind === undefined) {
-      return 'param';
-    }
-
-    if (kind === 'params') {
-      return 'param';
-    }
-
-    if (kind === 'queries') {
-      return 'query';
-    }
-
-    if (kind === 'headers') {
-      return 'header';
-    }
-
-    if (kind === 'cookies') {
-      return 'cookie';
-    }
-
-    if (kind === 'req') {
-      return 'request';
-    }
-
-    if (kind === 'res') {
-      return 'response';
-    }
-
-    return kind;
-  }
-
   private resolveMiddlewares(
     _targetClass: ControllerConstructor,
     method: MethodMetadata,
@@ -755,31 +608,4 @@ export class RouteHandler {
     return undefined;
   }
 
-  private resolveParamType(type: ParamTypeReference | undefined): RouteParamType | undefined {
-    if (type === undefined) {
-      return undefined;
-    }
-
-    if (typeof type !== 'string') {
-      if (typeof type === 'function' && !('prototype' in type)) {
-        return type();
-      }
-
-      return type;
-    }
-
-    // Primitives
-    if (['string', 'number', 'boolean', 'any', 'object', 'array'].includes(type.toLowerCase())) {
-      return type;
-    }
-
-    // Lookup in registry
-    for (const [ctor, meta] of this.metadataRegistry.entries()) {
-      if (meta.className === type) {
-        return ctor;
-      }
-    }
-
-    return type;
-  }
 }

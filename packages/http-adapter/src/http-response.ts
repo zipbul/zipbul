@@ -235,11 +235,7 @@ export class HttpResponse {
       return body.toString();
     }
 
-    try {
-      return JSON.stringify(body);
-    } catch {
-      return '[unserializable body]';
-    }
+    throw new Error('normalizeWorkerBody received an unserialized object — build() should have serialized it');
   }
 
   private buildStatusInit(headers: HeadersInit): ResponseInit {

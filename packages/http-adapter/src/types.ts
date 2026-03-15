@@ -15,8 +15,6 @@ import type { HttpResponse } from './http-response';
 
 export type { HttpMethod } from '@zipbul/shared';
 
-export type RouteKey = number;
-
 export type HeadersInit = Headers | Array<[string, string]> | Record<string, string>;
 
 export type HttpWorkerRpcCallable = (...args: ReadonlyArray<ZipbulValue>) => ZipbulValue | Promise<ZipbulValue>;
@@ -60,19 +58,6 @@ export interface HttpRequestInit {
   readonly ips?: string[];
 }
 
-export interface AdaptiveRequest {
-  httpMethod: HttpMethod;
-  url: string;
-  headers: HeadersInit;
-  body?: RequestBodyValue;
-  queryParams: RequestQueryMap;
-  params: RequestParamMap;
-  ip: string;
-  ips: string[];
-  isTrustedProxy: boolean;
-  query?: RequestQueryMap;
-}
-
 export type HttpWorkerResponseBody = string | Uint8Array | ArrayBuffer | null;
 
 export type RouteHandlerArgument =
@@ -90,37 +75,20 @@ export type RouteHandlerArgument =
 
 export type RouteHandlerResult = HttpResponse | Response | RequestBodyValue | bigint | null | undefined | void;
 
-export type RouteHandlerValue = RouteHandlerArgument;
-
 export type RouteHandlerFunction = (...args: readonly RouteHandlerArgument[]) => RouteHandlerResult | Promise<RouteHandlerResult>;
 
-export type ControllerInstance = Record<string, RouteHandlerValue | RouteHandlerFunction>;
+export type ControllerInstance = Record<string, RouteHandlerArgument | RouteHandlerFunction>;
 
 export type ContainerInstance =
   | ZipbulValue
   | ControllerInstance
   | ExceptionFilter
-  | RouteHandlerValue
+  | RouteHandlerArgument
   | RouteHandlerFunction
   | null
   | undefined;
 
 export type ControllerConstructor = Class<ControllerInstance>;
-
-export type HttpContextValue =
-  | HttpRequest
-  | HttpResponse
-  | RequestBodyValue
-  | RequestParamMap
-  | RequestQueryMap
-  | Headers
-  | CookieMap
-  | bigint
-  | symbol
-  | null
-  | undefined;
-
-export type HttpContextConstructor<TContext> = ClassToken<TContext>;
 
 export type MetadataRegistryKey = ClassToken;
 
@@ -152,8 +120,6 @@ export type DecoratorArgument =
 
 export type ParamTypeReference = ProviderToken;
 
-export type LazyParamTypeFactory = () => ParamTypeReference;
-
 export type RouteParamType = ParamTypeReference;
 
 export type RouteParamValue = RouteHandlerArgument;
@@ -173,14 +139,6 @@ export type RouteParamKind =
   | 'response'
   | 'res'
   | 'ip';
-
-export type MiddlewareOptions = Record<string, string | number | boolean | null | undefined>;
-
-export type DecoratorTarget = Record<string, string | number | boolean | symbol | null | undefined>;
-
-export type DecoratorPropertyKey = string | symbol;
-
-export type RouteDecoratorArgument = string | MiddlewareOptions | undefined;
 
 export interface DecoratorMetadata {
   readonly name: string;
