@@ -7,7 +7,8 @@ import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
 import type { RouteHandlerParamType } from './decorators';
 import type { RouteHandlerEntry } from './interfaces';
-import type { RouterOptions } from './router/types';
+import type { MatchOutput, RouterOptions } from '@zipbul/router';
+import type { HttpMethod } from '@zipbul/shared';
 import type {
   ClassMetadata,
   ContainerInstance,
@@ -15,10 +16,7 @@ import type {
   ControllerConstructor,
   DecoratorArgument,
   DecoratorMetadata,
-  HttpMethod,
   InternalRouteDefinition,
-  LazyParamTypeFactory,
-  MatchResult,
   MetadataRegistryKey,
   MethodMetadata,
   ParamTypeReference,
@@ -33,14 +31,13 @@ import type {
 } from './types';
 
 import { deserialize } from '@zipbul/baker';
-
-import { Router } from './router';
+import { Router } from '@zipbul/router';
 
 export class RouteHandler {
   private readonly container: ZipbulContainer;
   private readonly metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>;
   private readonly scopedKeys: Map<ProviderToken, string>;
-  private readonly router: Router;
+  private readonly router: Router<RouteHandlerEntry>;
   private readonly logger = Logger.inherit();
 
   constructor(
@@ -52,15 +49,15 @@ export class RouteHandler {
     this.container = container;
     this.metadataRegistry = metadataRegistry;
     this.scopedKeys = scopedKeys;
-    this.router = new Router<MatchResult>({
+    this.router = new Router<RouteHandlerEntry>({
       ignoreTrailingSlash: true,
       enableCache: true,
       ...routerOptions,
     });
   }
 
-  match(method: string, path: string): MatchResult | undefined {
-    const normalized = method.toUpperCase();
+  match(method: string, path: string): MatchOutput<RouteHandlerEntry> | undefined {
+    const normalized = method.toUpperCase() as HttpMethod;
 
     if (!this.isHttpMethod(normalized)) {
       return undefined;
@@ -87,6 +84,7 @@ export class RouteHandler {
     }
 
     if (routeCount > 0) {
+      this.router.build();
       this.logger.info(`${routeCount} routes registered`);
     }
   }
@@ -124,13 +122,12 @@ export class RouteHandler {
         },
       };
 
-      this.router.add(method, fullPath, params => ({
-        entry,
-        params,
-      }));
+      this.router.add(method, fullPath, entry);
 
       this.logger.debug(`${method} ${fullPath} (internal)`);
     }
+
+    this.router.build();
   }
 
   private registerController(targetClass: ControllerConstructor, meta: ClassMetadata, controllerDec: DecoratorMetadata): number {
@@ -271,10 +268,7 @@ export class RouteHandler {
           paramFactory,
         };
 
-        this.router.add(httpMethod, fullPath, params => ({
-          entry,
-          params,
-        }));
+        this.router.add(httpMethod as HttpMethod, fullPath, entry);
 
         this.logger.debug(`${httpMethod} ${fullPath} → ${targetClass.name}.${method.name}`);
         count++;

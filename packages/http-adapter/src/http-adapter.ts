@@ -12,7 +12,6 @@ import {
   type DecoratorMetadata as CoreDecoratorMetadata,
 } from '@zipbul/core';
 import type {
-  HttpInternalChannel,
   HttpServerBootOptions,
   HttpServerOptions,
   HttpAdapterStartContext,
@@ -21,10 +20,9 @@ import type {
 } from './interfaces';
 import type { ClassMetadata, HttpWorkerRpc, JsonValue, MetadataRegistryKey, ParamTypeReference, RequestBodyValue, ResponseBodyValue } from './types';
 
-import { HttpContext } from './adapter';
+import { HttpContext } from './http-context';
 import { HttpServer } from './http-server';
 import { HttpError } from './errors/http-error';
-import { HttpMethod } from './enums';
 import { HttpResponse } from './http-response';
 import { BadRequestError } from './errors/errors';
 import { BakerValidationError } from '@zipbul/baker';
@@ -33,8 +31,6 @@ import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/metho
 import type { RouteHandler } from './route-handler';
 
 import type { ZipbulArray, ZipbulValue } from '@zipbul/common';
-
-const HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
 
 interface ErrorResponseData {
   readonly status: number;
@@ -54,8 +50,6 @@ export class HttpAdapter extends Adapter {
   private routeHandler: RouteHandler | undefined;
   private readonly logger = new Logger('HttpAdapter');
 
-  private [HTTP_INTERNAL]?: HttpInternalChannel;
-
   private internalRoutes: InternalRouteEntry[] = [];
 
   constructor(options: HttpServerOptions = {}) {
@@ -71,12 +65,18 @@ export class HttpAdapter extends Adapter {
     };
 
     this.options = normalizedOptions;
+  }
 
-    this[HTTP_INTERNAL] = {
-      get: (path: string, handlers: InternalRouteHandler) => {
-        this.internalRoutes.push({ method: 'GET', path, handler });
-      },
-    };
+  /**
+   * Registers an internal route (e.g. for Scalar API docs).
+   *
+   * @param method - HTTP method (currently only 'GET' supported).
+   * @param path - Route path.
+   * @param handler - Route handler function.
+   * @public
+   */
+  registerInternalRoute(method: InternalRouteEntry['method'], path: string, handler: InternalRouteHandler): void {
+    this.internalRoutes.push({ method, path, handler });
   }
 
   // ── Abstract hook implementations ─────────────────────────────
@@ -100,10 +100,10 @@ export class HttpAdapter extends Adapter {
     const httpMethod = req.httpMethod;
 
     if (
-      httpMethod === HttpMethod.Get ||
-      httpMethod === HttpMethod.Delete ||
-      httpMethod === HttpMethod.Head ||
-      httpMethod === HttpMethod.Options
+      httpMethod === 'GET' ||
+      httpMethod === 'DELETE' ||
+      httpMethod === 'HEAD' ||
+      httpMethod === 'OPTIONS'
     ) {
       return;
     }
@@ -150,11 +150,11 @@ export class HttpAdapter extends Adapter {
 
     req.params = matchResult.params;
 
-    if (matchResult.entry.errorFilters.length > 0) {
-      http.setRouteErrorFilters(matchResult.entry.errorFilters);
+    if (matchResult.value.errorFilters.length > 0) {
+      http.setRouteErrorFilters(matchResult.value.errorFilters);
     }
 
-    const scopedResult = await this.runMiddlewares(matchResult.entry.middlewares, context);
+    const scopedResult = await this.runMiddlewares(matchResult.value.middlewares, context);
 
     if (isErr(scopedResult)) {
       return scopedResult;
@@ -162,7 +162,7 @@ export class HttpAdapter extends Adapter {
 
     this.logger.debug(`Matched Route: ${method}:${path}`);
 
-    const routeEntry = matchResult.entry;
+    const routeEntry = matchResult.value;
     const handlerArgs = await safe(
       routeEntry.paramFactory(req, res),
       (thrown) => {
@@ -338,10 +338,6 @@ export class HttpAdapter extends Adapter {
     if (this.clusterManager !== undefined) {
       await this.clusterManager.destroy();
     }
-  }
-
-  public getInternalChannel(): HttpInternalChannel | undefined {
-    return this[HTTP_INTERNAL];
   }
 
   protected resolveWorkerScript(): URL {

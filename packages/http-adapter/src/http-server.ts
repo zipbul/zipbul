@@ -18,19 +18,19 @@ import type {
   MetadataRegistryKey,
 } from './types';
 
-import { HttpContext, HttpContextAdapter } from './adapter';
+import { HttpContext } from './http-context';
 import { HttpRequest } from './http-request';
 import { HttpResponse } from './http-response';
-import { HttpMethod } from './enums';
+import type { HttpMethod } from '@zipbul/shared';
 import { RouteHandler } from './route-handler';
 import { getIps } from './utils';
 import type { HttpAdapter } from './http-adapter';
 
-const isHttpMethod = (value: string): value is HttpMethod => {
-  const methods: string[] = Object.values(HttpMethod);
+const HTTP_METHODS: ReadonlySet<string> = new Set<string>([
+  'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS',
+]);
 
-  return methods.includes(value);
-};
+const isHttpMethod = (value: string): value is HttpMethod => HTTP_METHODS.has(value);
 
 const normalizeHttpMethod = (value: string): HttpMethod | undefined => {
   const normalized = value.toUpperCase();
@@ -111,8 +111,7 @@ export class HttpServer {
     const zipbulRes = new HttpResponse(zipbulReq, new Headers());
 
     try {
-      const contextAdapter = new HttpContextAdapter(zipbulReq, zipbulRes, req);
-      const context = new HttpContext(contextAdapter);
+      const context = new HttpContext(zipbulReq, zipbulRes, req);
 
       await this.adapter.dispatchRequest(context);
 

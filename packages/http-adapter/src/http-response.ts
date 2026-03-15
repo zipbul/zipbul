@@ -5,7 +5,7 @@ import type { HttpRequest } from './http-request';
 import type { HttpWorkerResponse } from './interfaces';
 import type { HeadersInit, ResponseBodyValue } from './types';
 
-import { ContentType, HeaderField, HttpMethod } from './enums';
+import { ContentType, HeaderField } from './enums';
 
 export class HttpResponse {
   private readonly req: HttpRequest;
@@ -156,7 +156,7 @@ export class HttpResponse {
 
     const contentType = this.getContentType();
 
-    if (this.req.httpMethod === HttpMethod.Head) {
+    if (this.req.httpMethod === 'HEAD') {
       if (!this._status) {
         this.setStatus(StatusCodes.OK);
       }

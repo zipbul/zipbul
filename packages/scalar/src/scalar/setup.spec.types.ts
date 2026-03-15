@@ -7,16 +7,13 @@ export interface InternalRouteRequest {
 export type InternalRouteHandler = (req?: InternalRouteRequest) => Response;
 
 export interface InternalRouteCall {
+  method: string;
   path: string;
   handler: InternalRouteHandler;
 }
 
-export interface HttpAdapterInternal {
-  get(path: string, handler: InternalRouteHandler): void;
-}
-
 export interface HttpAdapter extends Adapter {
-  [key: PropertyKey]: HttpAdapterInternal | Adapter['start'] | Adapter['stop'] | undefined;
+  registerInternalRoute(method: string, path: string, handler: InternalRouteHandler): void;
 }
 
 export interface HttpAdapterSpy {

@@ -12,11 +12,10 @@ import type { CookieMap } from 'bun';
 
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
-import type { RouteHandlerEntry } from './interfaces';
+
+export type { HttpMethod } from '@zipbul/shared';
 
 export type RouteKey = number;
-
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD';
 
 export type HeadersInit = Headers | Array<[string, string]> | Record<string, string>;
 
@@ -211,11 +210,6 @@ export interface ClassMetadata {
   readonly decorators?: readonly DecoratorMetadata[];
   readonly methods?: readonly MethodMetadata[];
   readonly constructorParams?: readonly ConstructorParamMetadata[];
-}
-
-export interface MatchResult {
-  readonly entry: RouteHandlerEntry;
-  readonly params: Record<string, string | undefined>;
 }
 
 export interface InternalRouteDefinition {
