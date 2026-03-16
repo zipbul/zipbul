@@ -21,6 +21,7 @@ import {
 } from '@zipbul/common';
 import { type AdapterStaticSchema, type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint, PathResolver } from '../../common';
+import { isRecordValue, isAnalyzerValueArray } from '../analyzer/type-guards';
 import { ImportRegistry } from './import-registry';
 import { InjectorGenerator } from './injector-generator';
 import { MetadataGenerator } from './metadata-generator';
@@ -283,14 +284,6 @@ registerRuntimeContext({
       compareCodePoint(left.id, right.id),
     );
     const diNodes: ManifestDiNode[] = [];
-
-    const isRecordValue = (value: AnalyzerValue | ClassMetadata): value is AnalyzerValueRecord => {
-      return typeof value === 'object' && value !== null && !Array.isArray(value);
-    };
-
-    const isAnalyzerValueArray = (value: AnalyzerValue | undefined): value is AnalyzerValue[] => {
-      return Array.isArray(value);
-    };
 
     const extractTokenName = (token: ManifestProviderToken): string | undefined => {
       if (typeof token === 'string') {

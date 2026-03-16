@@ -14,6 +14,7 @@ import {
 import { compareCodePoint } from '../../../common';
 import { ModuleDiscovery } from '../module-discovery';
 import { ModuleNode } from './module-node';
+import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from '../type-guards';
 
 const INJECTABLE_NAME = 'Injectable';
 
@@ -36,18 +37,6 @@ interface ClassDefinition {
 }
 
 type ProviderTokenValue = AnalyzerValue | ClassMetadata | CallableFunction | symbol;
-
-const isRecordValue = (value: ProviderTokenValue | ProviderMetadata): value is AnalyzerValueRecord => {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-};
-
-const isAnalyzerValueArray = (value: AnalyzerValue): value is AnalyzerValue[] => {
-  return Array.isArray(value);
-};
-
-const isNonEmptyString = (value: string | undefined): value is string => {
-  return typeof value === 'string' && value.length > 0;
-};
 
 export class ModuleGraph {
   public modules: Map<string, ModuleNode> = new Map();

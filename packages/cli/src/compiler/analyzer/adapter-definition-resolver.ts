@@ -23,22 +23,11 @@ import { Logger } from '@zipbul/logger';
 import { buildDiagnostic } from '../../diagnostics';
 import { PathResolver } from '../../common';
 import { AstParser } from './ast-parser';
+import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from './type-guards';
 
 const logger = new Logger('AdapterDefinitionResolver');
 
 const VALID_HOOKS = new Set<string>(Object.values(MiddlewareHook));
-
-const isRecordValue = (value: AnalyzerValue): value is AnalyzerValueRecord => {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-};
-
-const isAnalyzerValueArray = (value: AnalyzerValue): value is AnalyzerValue[] => {
-  return Array.isArray(value);
-};
-
-const isNonEmptyString = (value: string | null | undefined): value is string => {
-  return typeof value === 'string' && value.length > 0;
-};
 
 export class AdapterDefinitionResolver {
   private parser = new AstParser();

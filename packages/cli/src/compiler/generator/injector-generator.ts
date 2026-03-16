@@ -13,6 +13,7 @@ import {
 import { type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint } from '../../common';
 import { buildDiagnostic } from '../../diagnostics';
+import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
 
 type RecordValue = AnalyzerValueRecord;
 
@@ -23,14 +24,6 @@ interface Replacement {
 }
 
 type GeneratorValue = AnalyzerValue | symbol | ((...args: readonly AnalyzerValue[]) => AnalyzerValue);
-
-const isAnalyzerValueArray = (value: AnalyzerValue): value is AnalyzerValue[] => {
-  return Array.isArray(value);
-};
-
-const isRecordValue = (value: GeneratorValue | ClassMetadata): value is AnalyzerValueRecord => {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-};
 
 const stableKey = (value: GeneratorValue, visited = new WeakSet<AnalyzerValueRecord>()): string => {
   if (value === null) {
@@ -130,10 +123,6 @@ const getLazyRefName = (value: AnalyzerValue): string | null => {
   }
 
   return null;
-};
-
-const isNonEmptyString = (value: string | null | undefined): value is string => {
-  return typeof value === 'string' && value.length > 0;
 };
 
 const isClassMetadata = (value: AnalyzerValue | ClassMetadata): value is ClassMetadata => {

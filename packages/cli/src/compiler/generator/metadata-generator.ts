@@ -10,6 +10,7 @@ import {
   TS_UTILITY_TYPES,
 } from '@zipbul/common';
 import { compareCodePoint } from '../../common';
+import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
 
 export class MetadataGenerator {
   generate(classes: MetadataClassEntry[], registry: ImportRegistry): string {
@@ -32,14 +33,6 @@ export class MetadataGenerator {
       classFilePathMap.set(c.metadata.className, c.filePath);
     });
 
-    const isRecordValue = (value: AnalyzerValue): value is AnalyzerValueRecord => {
-      return typeof value === 'object' && value !== null && !Array.isArray(value);
-    };
-
-    const isNonEmptyString = (value: string | null | undefined): value is string => {
-      return typeof value === 'string' && value.length > 0;
-    };
-
     const getRefName = (value: AnalyzerValue): string | null => {
       if (typeof value === 'string') {
         return value;
@@ -54,10 +47,6 @@ export class MetadataGenerator {
       }
 
       return null;
-    };
-
-    const isAnalyzerValueArray = (value: AnalyzerValue): value is AnalyzerValue[] => {
-      return Array.isArray(value);
     };
 
     const cloneAnalyzerValue = (value: AnalyzerValue | undefined): AnalyzerValue | undefined => {

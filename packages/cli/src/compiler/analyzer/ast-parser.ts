@@ -26,6 +26,7 @@ import {
 import type { Diagnostic } from '../../diagnostics';
 import { buildDiagnostic } from '../../diagnostics';
 import { AstTypeResolver } from './ast-type-resolver';
+import { isNonEmptyString } from './type-guards';
 import { compareCodePoint } from '../../common';
 
 const UNKNOWN_TYPE_NAME = 'Unknown';
@@ -34,10 +35,6 @@ const UNKNOWN_CALLEE_NAME = 'unknown';
 interface InjectTokenResolution {
   tokenKind: 'token' | 'thunk';
   token: AnalyzerValue;
-}
-
-function isNonEmptyString(value: string | null | undefined): value is string {
-  return value !== null && value !== undefined && value !== '';
 }
 
 function isNullish(value: AnalyzerValue): value is null | undefined {
