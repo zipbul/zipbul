@@ -242,7 +242,7 @@ export class InjectorGenerator {
           }
 
           if (providerRecord.useFactory !== undefined) {
-            const factoryRecord = asRecord(providerRecord.useFactory as AnalyzerValue);
+            const factoryRecord = asRecord(providerRecord.useFactory);
             let factoryFn = typeof factoryRecord?.[ZIPBUL_FACTORY_CODE] === 'string' ? factoryRecord[ZIPBUL_FACTORY_CODE] : '';
             const deps =
               factoryRecord && isAnalyzerValueArray(factoryRecord.__zipbul_factory_deps)

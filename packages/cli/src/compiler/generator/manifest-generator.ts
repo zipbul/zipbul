@@ -1,7 +1,7 @@
 import { dirname, relative } from 'path';
 
 import type { Result } from '@zipbul/result';
-import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
+import type { AnalyzerValue } from '../analyzer/types';
 import type { Diagnostic } from '../../diagnostics/types';
 import type { HandlerIndexEntry } from '../analyzer/interfaces';
 import type {
@@ -246,14 +246,16 @@ registerRuntimeContext({
       return undefined;
     }
 
-    const record = value as AnalyzerValueRecord;
-
-    if (typeof record[ZIPBUL_REF] === 'string') {
-      return record[ZIPBUL_REF];
+    if (!isRecordValue(value)) {
+      return undefined;
     }
 
-    if (typeof record[ZIPBUL_LAZY_REF] === 'string') {
-      return record[ZIPBUL_LAZY_REF];
+    if (typeof value[ZIPBUL_REF] === 'string') {
+      return value[ZIPBUL_REF];
+    }
+
+    if (typeof value[ZIPBUL_LAZY_REF] === 'string') {
+      return value[ZIPBUL_LAZY_REF];
     }
 
     return undefined;

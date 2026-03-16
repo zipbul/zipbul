@@ -414,7 +414,31 @@ export class HttpAdapter extends Adapter {
       return;
     }
 
-    res.setBody(result as ResponseBodyValue);
+    if (this.isResponseBodyValue(result)) {
+      res.setBody(result);
+    }
+  }
+
+  private isResponseBodyValue(value: unknown): value is ResponseBodyValue {
+    if (value === null) {
+      return true;
+    }
+
+    const valueType = typeof value;
+
+    if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
+      return true;
+    }
+
+    if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
+      return true;
+    }
+
+    if (valueType === 'object') {
+      return true;
+    }
+
+    return false;
   }
 
   private isErrorResponseData(value: unknown): value is ErrorResponseData {

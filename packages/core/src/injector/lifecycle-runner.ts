@@ -9,22 +9,24 @@ interface WithOnDestroy {
   onDestroy(): Promise<void> | void;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 function hasOnInit(instance: ContainerValue): instance is ContainerValue & WithOnInit {
-  return (
-    typeof instance === 'object' &&
-    instance !== null &&
-    'onInit' in instance &&
-    typeof (instance as Record<string, unknown>).onInit === 'function'
-  );
+  if (!isRecord(instance)) {
+    return false;
+  }
+
+  return 'onInit' in instance && typeof instance.onInit === 'function';
 }
 
 function hasOnDestroy(instance: ContainerValue): instance is ContainerValue & WithOnDestroy {
-  return (
-    typeof instance === 'object' &&
-    instance !== null &&
-    'onDestroy' in instance &&
-    typeof (instance as Record<string, unknown>).onDestroy === 'function'
-  );
+  if (!isRecord(instance)) {
+    return false;
+  }
+
+  return 'onDestroy' in instance && typeof instance.onDestroy === 'function';
 }
 
 /**

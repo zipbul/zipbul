@@ -86,12 +86,15 @@ export class RequestScopeContainer implements ZipbulContainer {
     this.requestInstances.clear();
   }
 
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+  }
+
   private hasOnDestroy(instance: ContainerValue): instance is ContainerValue & { onDestroy(): Promise<void> | void } {
-    return (
-      typeof instance === 'object' &&
-      instance !== null &&
-      'onDestroy' in instance &&
-      typeof (instance as Record<string, unknown>).onDestroy === 'function'
-    );
+    if (!this.isRecord(instance)) {
+      return false;
+    }
+
+    return 'onDestroy' in instance && typeof instance.onDestroy === 'function';
   }
 }
