@@ -1,611 +1,425 @@
-# HTTP Adapter 재설계 계획
+# HTTP Adapter + Core 전체 수정 계획
 
-## 1. 현재 상태
+## Context
 
-### 1.1 수치
+HTTP adapter 감사에서 발견된 전체 이슈를 수정한다. 싱글 프로세스 파이프라인의 빈 틈(request scope, errorFilterTokens 레거시, 옵션 구조), 클러스터 모드 전체 불능, route-level pipeline 미소비, guard AOT 와이어링 부재를 단계적으로 해결하여 HTTP 흐름이 프레임워크 계약을 정확히 따르게 만든다.
 
-| 영역 | 파일 수 | LOC |
-|------|---------|-----|
-| `router/` (자체 구현) | 35 | 3,663 |
-| `middlewares/` (cors, query-parser) | 14 | ~800 |
-| `route-handler.ts` | 1 | 791 |
-| `http-adapter.ts` | 1 | 558 |
-| `http-server.ts` | 1 | 148 |
-| `http-request.ts` | 1 | 65 |
-| `http-response.ts` | 1 | 259 |
-| `adapter/` (context 레이어) | 5 | ~120 |
-| `decorators/` | 10 | ~300 |
-| `errors/` | 30+ | ~600 |
-| `utils/` (ip 관련) | 4 | ~300 |
-| `types.ts` + `interfaces.ts` + `enums.ts` | 3 | ~340 |
-| 기타 (constants, worker, body-json.d.ts) | 3 | ~50 |
+### 기존 인프라 (이미 존재하는 것)
 
-### 1.2 SRP 위반 분석
+데코레이터 (common, no-op 스텁):
+- `@UseMiddlewares(...middlewares)` — class/method 레벨, phase 무관
+- `@UseGuards(...guards)` — class/method 레벨
+- `@UseExceptionFilters(...filters)` — class/method 레벨
+- `@Catch(...exceptions)` — ExceptionFilter class 레벨
+- `@Middlewares(phaseId, refs)` / `@Middlewares({ [phaseId]: refs })` — phase-aware 고급 패턴
 
-#### `HttpAdapter` (558 LOC) — 5개 책임 혼재
+컴파일러 (cli):
+- `AdapterDefinitionResolver.validateMiddlewarePhaseInputs()` — `@Middlewares` 데코레이터의 phase ID 검증 (class/method 스캔)
+- `buildHandlerIndex()` — handler 메타 수집, 하지만 `middlewareKeys`/`errorFilterKeys` 미생성
+- `HandlerIndexEntry` — `middlewareKeys`/`errorFilterKeys` 필드 없음
 
-| 책임 | 메서드 | 판정 |
-|------|--------|------|
-| 파이프라인 훅 (parseInput, resolveHandler, handleResult) | 핵심 계약 | **유지** |
-| 응답 직렬화 (writeSuccessResponse, writeErrorResponse) | ~60 LOC 무상태 로직 | **유지** (private 메서드. 상태 없으므로 별도 클래스 불필요) |
-| JSON 검증 (isJsonValue, isZipbulArray, isZipbulRecord) | ~40 LOC | **삭제** (`rawReq.json()` 성공 시 이미 valid JSON) |
-| 메타데이터 변환 (normalizeMetadataRegistry + 4개 helper) | ~60 LOC | **삭제** (AOT가 담당) |
-| 서버 라이프사이클 (start, stop, cluster) | | `HttpServer`에 있어야 하나 현행 유지 |
+런타임 (common/core):
+- `CompiledHandlerEntry` — `middlewareKeys`/`errorFilterKeys` 필드 정의됨 (항상 빈 배열)
+- `Adapter.addGuards()` + `Adapter.runGuards()` — 런타임 실행 인프라 존재
+- `RequestScopeContainer` — core에 구현 완료, adapter 미통합. 단, 생성자가 구체 `Container` 클래스를 요구 (인터페이스 불일치)
+- `Application.executeStart()` — adapterConfig에서 middleware/errorFilter 와이어링 (guard 미포함)
 
-#### `RouteHandler` (791 LOC) — 6개 책임 혼재
-
-| 책임 | 메서드 | LOC | 판정 |
-|------|--------|-----|------|
-| 라우트 등록/매칭 | `register`, `match`, `registerController` | ~100 | **유지** |
-| DI 토큰 해석 | `resolveProviderToken`, `extractZipbulTokenRef`, `isTokenCarrier`, `isTokenRecord`, `tryGetFromContainer`, `tryGetFromContainerBySuffix`, `normalizeToken`, `formatTokenLabel` | ~200 | **삭제** (AOT가 담당) |
-| 컨트롤러 인스턴스 생성 | `tryCreateControllerInstance`, `resolveControllerConstructor` | ~60 | **삭제** (AOT가 담당) |
-| 파라미터 팩토리 생성 | `paramFactory` closure, `normalizeParamKind`, `toRouteHandlerParamType`, `resolveParamType`, `isPrimitiveMetatype` | ~200 | **`param-resolver.ts`로 분리** |
-| 미들웨어 수집 | `resolveMiddlewares` | ~35 | **삭제** (AOT가 담당) |
-| 에러필터 수집 | `resolveErrorFilterEntries`, `resolveCatchTypes`, `findMetadataByClassName` | ~65 | **삭제** (AOT가 담당) |
-
-#### `adapter/` 디렉토리 — 과도한 추상화 (3단계 간접 참조)
-
-```
-HttpServer.fetch() → new HttpContextAdapter(req, res, rawReq)
-                   → new HttpContext(adapter)
-                        → adapter.getRequest()   // 단순 위임
-                        → adapter.getResponse()  // 단순 위임
-```
-
-`HttpAdapter` interface 구현체는 1개(`HttpContextAdapter`)뿐. 다형성 없음. `HttpContext`가 `req`/`res`/`rawRequest`를 직접 보유하면 interface + adapter 클래스 + contract interface 삭제 가능.
-
-#### `types.ts` (226 LOC) — 중복 별칭
-
-| 타입 | 실체 | 사용처 | 판정 |
-|------|------|--------|------|
-| `RouteHandlerValue` | `= RouteHandlerArgument` | `ControllerInstance`, `ContainerInstance` 정의에서 사용 | **`RouteHandlerArgument`로 인라인 후 삭제** |
-| `RouteParamValue` | `= RouteHandlerArgument` | `route-handler.ts`, `RouteHandlerEntry.paramFactory` 반환 타입 | **`RouteHandlerArgument`로 인라인 후 삭제** |
-| `HttpContextValue` | `≈ RouteHandlerArgument` | 미사용 | **삭제** |
-| `AdaptiveRequest` | 미사용 | 없음 | **삭제** |
-| `RouteParamKind` | 14개 항목 중 7개가 별칭 | `route-handler.ts` | **정규형 7개만 남김** |
-| `HttpMethod` (types.ts) | 문자열 리터럴 유니온 | 전역 사용 | **`enums.ts` HttpMethod와 통합** |
+examples:
+- `billing.controller.ts` — `@UseMiddlewares(auditMiddleware)`, `@UseExceptionFilters(PaymentErrorFilter)` 사용 중
 
 ---
 
-## 2. 삭제 대상
+## Phase 1: Dead Code 제거 + 옵션 구조 정리
 
-### 2.1 디렉토리 단위
+> 의존: 없음. 안전한 리팩토링.
 
-| 경로 | LOC | 이유 |
-|------|-----|------|
-| `src/router/` 전체 | 3,663 | `@zipbul/router`로 대체 |
-| `src/middlewares/` 전체 | ~800 | cors, query-parser는 사용자 영역. 프레임워크 코어 아님 |
-| `src/adapter/` 전체 | ~120 | `HttpContext` → `src/http-context.ts`로 이동 + 단순화. 나머지 삭제 |
+### 1A: `HttpServerBootOptions` 이중 구조 제거
 
-### 2.2 파일 단위
-
-| 파일 | 이유 |
-|------|------|
-| `adapter/http-adapter.ts` (interface) | `HttpContext`가 직접 req/res 보유 시 불필요 |
-| `adapter/http-context-adapter.ts` | 단순 위임 레이어. 구현체 1개뿐 |
-| `adapter/interfaces.ts` | `HttpContextContract` → `HttpContext` 자체가 contract |
-| `adapter/index.ts` | 디렉토리 삭제 |
-
-### 2.3 코드 단위
-
-| 파일 | 삭제 대상 | 이유 |
-|------|-----------|------|
-| `http-adapter.ts` | `isJsonValue`, `isZipbulArray`, `isZipbulRecord` (~40 LOC) | 불필요 검증 |
-| `http-adapter.ts` | `normalizeMetadataRegistry` + 6개 helper (~60 LOC) | AOT가 정규화 |
-| `route-handler.ts` | 토큰 해석군 8개 메서드 (~200 LOC) | AOT가 container key 제공 |
-| `route-handler.ts` | `tryCreateControllerInstance` + `resolveControllerConstructor` (~60 LOC) | AOT가 DI 완료 |
-| `route-handler.ts` | `resolveMiddlewares` (~35 LOC) | AOT가 수집 |
-| `route-handler.ts` | `resolveErrorFilterEntries` + `resolveCatchTypes` + `findMetadataByClassName` (~65 LOC) | AOT가 수집 |
-| `route-handler.ts` | `normalizeParamKind` + `toRouteHandlerParamType` (~60 LOC) | AOT가 정규화 |
-| `route-handler.ts` | `resolveParamType` (~25 LOC) | AOT가 해석 |
-
-### 2.4 배럴 export 삭제
-
-미배포 상태이므로 breaking change 고려 불필요. 안 쓰는 것은 전부 삭제.
-
-`index.ts`에서 제거:
-- `corsMiddleware`, `CorsOptions`, `QueryParser`, `queryParserMiddleware`, `QueryParserOptions` — 미들웨어 삭제
-- `HttpContextAdapter` — adapter 레이어 삭제
-- `ArgumentMetadata` — 미사용
-- `HttpProtocol` — 미사용
-- `RouteHandlerEntry` type export — 재정의 후 필요 시 재export
-
----
-
-## 3. 목표 구조 (SRP 적용)
-
-### 3.1 디렉토리 트리
-
-```
-src/
-├── http-adapter.ts          # Adapter 서브클래스. 파이프라인 훅 + 응답 직렬화
-├── http-server.ts           # Bun.serve 라이프사이클 + 요청 디스패치
-├── http-context.ts          # Context 구현. req/res/rawRequest 직접 보유
-├── http-request.ts          # 요청 DTO
-├── http-response.ts         # 응답 빌더 + 직렬화
-├── route-handler.ts         # 라우트 등록/매칭 (@zipbul/router 래퍼)
-├── param-resolver.ts        # 파라미터 팩토리 생성 (decorator → req 값 매핑)
-├── adapter-definition.ts    # defineAdapter(HttpAdapter) — AOT용
-├── http-worker.ts           # Worker 스크립트 (cluster)
-│
-├── decorators/              # 데코레이터
-│   ├── class.decorator.ts
-│   ├── method.decorator.ts
-│   ├── parameter.decorator.ts
-│   ├── constants.ts
-│   ├── enums.ts             # MetadataKey enum
-│   ├── interfaces.ts        # RestControllerDecoratorOptions 등
-│   ├── types.ts             # RouteHandlerParamType
-│   └── index.ts
-│
-├── errors/                  # HTTP 에러 클래스 (변경 없음)
-│   ├── http-error.ts
-│   ├── bad-request.error.ts
-│   ├── ...
-│   └── index.ts
-│
-├── utils/                   # IP 해석 (291 LOC — 유지)
-│   ├── ip.ts
-│   ├── interfaces.ts
-│   └── index.ts
-│
-├── enums.ts                 # HttpMethod, HeaderField, ContentType
-├── interfaces.ts            # HttpServerOptions, RouteHandlerEntry, HttpWorkerResponse
-├── types.ts                 # 정리된 타입
-├── constants.ts             # HTTP_CONTEXT_TYPE
-├── body-json.d.ts           # Bun body.json() 타입 오버라이드
-└── index.ts                 # 배럴
-```
-
-### 3.2 클래스별 책임 (SRP)
-
-#### `HttpAdapter` — 파이프라인 훅 + 응답 변환
-
-```
-책임: Adapter 추상 클래스의 프로토콜 훅 구현
-의존: HttpContext, RouteHandler
-```
-
-- `parseInput(context)` — body 파싱
-- `resolveHandler(context)` — 라우트 매칭 → 핸들러 호출
-- `handleResult(result, context)` — 성공/에러 응답 작성
-- `forceCloseConnection(context)` — 500 응답
-- `runExceptionFilters(error, context)` — 라우트 필터 우선 체크
-- `start(context)` / `stop()`
-
-`writeSuccessResponse`, `writeErrorResponse`는 private 메서드로 유지. 무상태 ~60 LOC이므로 별도 클래스(`ResponseWriter`)로 분리하지 않는다. 프로젝트 가이드라인: "Class 사용 기준: 상태 캡슐화" — 상태 없는 클래스는 만들지 않는다.
-
-삭제: `isJsonValue` 계열, `normalizeMetadataRegistry` 계열
-
-#### `HttpServer` — Bun 서버 라이프사이클
-
-```
-책임: Bun.serve 생성, 요청 수신 → HttpContext 생성 → adapter.dispatchRequest
-의존: HttpRequest, HttpResponse, HttpContext, HttpAdapter
-```
-
-- `boot(options, adapter)` — 서버 시작. 파라미터 시그니처 변경 (아래 3.5 참고)
-- `fetch(req)` — URL 파싱 1회, HttpRequest/HttpResponse 생성, 디스패치
-- `toResponse(workerRes)` — 내부 응답 → native Response
-
-#### `HttpContext` — 요청 컨텍스트
-
-```
-책임: 단일 요청의 req/res/rawRequest를 보유하는 Context 구현
-의존: HttpRequest, HttpResponse
-```
-
-생성자 변경:
-```typescript
-// Before (3단계 간접)
-const contextAdapter = new HttpContextAdapter(req, res, rawReq);
-const context = new HttpContext(contextAdapter);
-
-// After (직접 보유)
-const context = new HttpContext(req, res, rawReq);
-```
-
-- `request` / `response` / `rawRequest` — 직접 프로퍼티
-- `routeErrorFilters` — 라우트별 에러필터
-- `to(ctor)` — 타입 캐스트
-- `getType()` — `'http'`
-
-삭제: `assertHttpAdapter`, `isHttpAdapter` 타입 가드
-
-#### `RouteHandler` — 라우트 레지스트리
-
-```
-책임: @zipbul/router 위에 라우트 등록/매칭
-의존: @zipbul/router, ParamResolver, ZipbulContainer
-```
-
-- `register(metadataRegistry, scopedKeys)` — 메타데이터에서 라우트 추출 → `router.add(method, path, entry)`
-- `match(method, path)` — `router.match(method, path)` → `MatchOutput<RouteHandlerEntry> | null`
-- `registerInternalRoutes(routes)` — 내부 라우트
-
-`@zipbul/router` API 매핑:
-```typescript
-// Before (callback 패턴)
-this.router.add(method, path, params => ({ entry, params }));
-const result = this.router.match(method, path);
-// result = { entry, params }
-
-// After (value 패턴)
-this.router.add(method, path, entry);
-const result = this.router.match(method, path);
-// result = { value: entry, params, meta } | null
-```
-
-`MatchResult` 타입 변경: `{ entry, params }` → `@zipbul/router`의 `MatchOutput<RouteHandlerEntry>` 사용. `matchResult.entry` → `matchResult.value`.
-
-AOT 확장 후: `register(compiledHandlers: CompiledHandlerEntry[])` — 단순 루프
-
-#### `ParamResolver` (신규) — 파라미터 해석
-
-```
-책임: 메서드 파라미터 메타데이터 → paramFactory 함수 생성
-의존: @zipbul/baker (deserialize)
-```
-
-- `buildParamFactory(paramConfigs)` → `(req, res) => Promise<unknown[]>`
-
-현재 `RouteHandler.registerController` 안의 150 LOC closure + helper를 분리. `normalizeParamKind`, `isPrimitiveMetatype` 등 helper도 함께 이동.
-
-AOT 확장 후 역할 분담:
-- AOT: decorator 이름 → ParamKind 정규화 (예: `"Body"` → `"body"`)
-- ParamResolver: ParamKind → req 값 추출 (예: `"body"` → `req.body`)
-
-### 3.3 타입 정리
-
-**`types.ts` 목표:**
-
-```typescript
-// HttpMethod — @zipbul/shared에서 가져옴 (enums.ts에서 re-export)
-
-export type RequestParamMap = Record<string, string | undefined>;
-export type RequestQueryMap = Record<string, RequestQueryValue | undefined>;
-export type RequestQueryValue = string | RequestQueryValue[] | Record<string, RequestQueryValue>;
-
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
-export type RequestBodyValue = JsonValue;
-export type ResponseBodyValue = string | Uint8Array | ArrayBuffer | JsonValue | null;
-
-export type ParamKind =
-  | 'body' | 'param' | 'query' | 'header'
-  | 'cookie' | 'request' | 'response' | 'ip';
-
-export type HeadersInit = Record<string, string>;
-export type HttpWorkerResponseBody = string | Uint8Array | ArrayBuffer | null;
-
-// 기존 RouteHandlerArgument는 유지 (RouteHandlerValue, RouteParamValue는 인라인 후 삭제)
-export type RouteHandlerArgument = HttpRequest | HttpResponse | RequestBodyValue | ...;
-export type RouteHandlerFunction = (...args: readonly RouteHandlerArgument[]) => ...;
-export type ControllerInstance = Record<string, RouteHandlerArgument | RouteHandlerFunction>;
-export type ContainerInstance = ...;
-```
-
-삭제: `RouteHandlerValue` (→ `RouteHandlerArgument`로 인라인), `RouteParamValue` (→ 동일), `HttpContextValue`, `AdaptiveRequest`, `HttpContextConstructor`, `DecoratorTarget`, `DecoratorPropertyKey`, `RouteDecoratorArgument`, `MiddlewareOptions`
-
-**`interfaces.ts` 목표:**
-
-```typescript
-export interface HttpServerOptions {
-  readonly port?: number;
-  readonly bodyLimit?: number;
-  readonly trustProxy?: boolean;
-  readonly workers?: number;
-  readonly reusePort?: boolean;
-}
-
-export interface HttpServerBootParams {
-  readonly container: ZipbulContainer;
-  readonly metadata?: Map<MetadataRegistryKey, ClassMetadata>;
-  readonly scopedKeys?: Map<ProviderToken, string>;
-  readonly internalRoutes?: readonly InternalRouteEntry[];
-  readonly errorFilters?: readonly ExceptionFilterToken[];
-}
-
-export interface HttpWorkerResponse {
-  readonly body: HttpWorkerResponseBody;
-  readonly init: ResponseInit;
-}
-
-export interface RouteHandlerEntry {
-  readonly handler: RouteHandlerFunction;
-  readonly middlewares: MiddlewareDefinition[];
-  readonly errorFilters: readonly ExceptionFilterEntry[];
-  readonly paramFactory: (req: HttpRequest, res: HttpResponse) => Promise<readonly unknown[]>;
-}
-```
-
-`HttpServerBootOptions` (자기참조) → `HttpServerOptions`(설정) + `HttpServerBootParams`(부트 인자)로 분리. `boot(params: HttpServerBootParams, options: HttpServerOptions, adapter)`.
-
-삭제: `HttpServerBootOptions`, `ArgumentMetadata`, `HttpInternalHost`, `WorkerInitParams`, `WorkerOptions`
-
-### 3.4 `HttpMethod` / `HeaderField` — `@zipbul/shared` 사용 결정
-
-`@zipbul/shared@0.0.11` (npm, 외부 패키지)이 제공하는 것:
-
-| export | 형태 | 내용 |
-|--------|------|------|
-| `HttpMethod` | **type** (open union) | `'GET' \| 'HEAD' \| 'POST' \| 'PUT' \| 'PATCH' \| 'DELETE' \| 'OPTIONS' \| (string & {})` |
-| `HttpHeader` | **enum** | CORS 헤더 10개만 (Origin, Vary, AccessControl*) |
-| `HttpStatus` | **enum** | Ok(200), NoContent(204) 2개만 |
-
-**결정:**
-
-| 항목 | 결정 | 이유 |
-|------|------|------|
-| `HttpMethod` | **`@zipbul/shared`의 `HttpMethod` type 사용** | open union이라 확장 가능. `@zipbul/router`도 이미 `@zipbul/shared`를 의존. http-adapter의 `enum HttpMethod`와 `types.ts`의 리터럴 유니온 둘 다 삭제 |
-| `HttpHeader` | **http-adapter에서 자체 `HeaderField` enum 유지** | shared의 HttpHeader는 CORS 전용 10개뿐. http-adapter가 필요한 헤더(SetCookie, ContentType, Location, Forwarded, XForwardedFor, XRealIp)와 겹치지 않음 |
-| `HttpStatus` | **현행 `http-status-codes` npm 패키지 유지** | shared의 HttpStatus는 2개뿐. 전체 status code가 필요 |
-
-`@zipbul/shared`를 `packages/http-adapter/package.json`의 `dependencies`에 추가 (4.2에 반영).
-
-### 3.5 `enums.ts` 정리
-
-`HttpMethod` enum 삭제 (`@zipbul/shared`의 type으로 대체). `HttpProtocol` 삭제 (미사용). CORS 전용 헤더 삭제.
-
-```typescript
-export enum HeaderField {
-  SetCookie = 'set-cookie',
-  ContentType = 'content-type',
-  Location = 'location',
-  Forwarded = 'forwarded',
-  XForwardedFor = 'x-forwarded-for',
-  XRealIp = 'x-real-ip',
-}
-
-export enum ContentType {
-  Text = 'text/plain',
-  Json = 'application/json',
-}
-
-// HttpMethod — @zipbul/shared에서 re-export
-export type { HttpMethod } from '@zipbul/shared';
-```
-
-삭제:
-- `enum HttpMethod` — `@zipbul/shared`의 `type HttpMethod`로 대체
-- `HeaderField.Origin`, `HeaderField.Vary` — CORS 전용
-- `HeaderField.AccessControl*` 전체 (8개) — CORS 전용
-- `HttpProtocol` enum — 미사용
-
-### 3.6 크로스 패키지 의존: `@zipbul/scalar` 내부 라우트
-
-**현재 구조:**
-```
-Scalar (Configurer) → AdapterCollection.http.get(name) → adapter[Symbol.for('zipbul:http:internal')]
-```
-
-Scalar는 http-adapter를 직접 import하지 않는다. `dependsOn` 패턴과 `AdapterCollection`을 통해 런타임에 어댑터 인스턴스를 얻고, Symbol.for로 duck-type 접근한다.
-
-**문제:** Symbol.for는 비공식 프로토콜. 타입 안전하지 않고, 어댑터 API를 거치지 않는 우회.
-
-**설계 방향:** `HttpAdapter`에 public 메서드로 내부 라우트 등록 API를 노출. Symbol.for 제거.
-
-```typescript
-// HttpAdapter
-public registerInternalRoute(method: string, path: string, handler: InternalRouteHandler): void {
-  this.internalRoutes.push({ method, path, handler });
-}
-```
-
-Scalar는 `AdapterCollection`으로 인스턴스를 얻은 뒤 이 메서드를 호출:
-```typescript
-// scalar/setup.ts
-const httpAdapter = adapters.http.get('zipbul-http');
-httpAdapter.registerInternalRoute('GET', '/api-docs', handler);
-```
-
-이 변경은 http-adapter + scalar 동시 수정. Phase 1 Step으로 포함.
-
-### 3.6 기존 버그
-
-`http-adapter.ts:77` — `handlers` 파라미터명인데 `handler`(단수)로 push. 사전 수정 필요:
-```typescript
-// Before (버그)
-get: (path: string, handlers: InternalRouteHandler) => {
-  this.internalRoutes.push({ method: 'GET', path, handler }); // handler는 미정의
-},
-
-// After
-get: (path: string, handler: InternalRouteHandler) => {
-  this.internalRoutes.push({ method: 'GET', path, handler });
-},
-```
-
-### 3.7 `HttpResponse` 직렬화 경로 단일화
-
-현재 두 경로:
-1. `build()` (line 175-181): content-type이 JSON이면 `JSON.stringify(body)` → `setBody(string)`
-2. `normalizeWorkerBody()` (line 238-240): fallback으로 object에 `JSON.stringify`
-
-실제로 동일 요청에서 double stringify는 발생하지 않는다 (build가 stringify하면 body가 string이 되어 normalizeWorkerBody는 passthrough). 그러나 이 불변성이 코드 구조가 아닌 실행 순서 우연에 의존.
-
-수정 방향: `build()`를 body 직렬화의 유일한 권한자로 만든다. `normalizeWorkerBody()`는 primitive 변환만 수행하고, object를 받으면 에러(build가 직렬화에 실패했다는 의미).
-
----
-
-## 4. 의존성 정리
-
-### 4.1 루트 `package.json`
-
-| 패키지 | 현재 | 변경 |
-|--------|------|------|
-| `@zipbul/baker` | 루트 `dependencies` | **삭제** (이미 `common`, `core`에 선언) |
-| `@zipbul/router` | 루트 `dependencies` | **삭제** |
-
-### 4.2 `packages/http-adapter/package.json`
-
-| 패키지 | 현재 | 변경 |
-|--------|------|------|
-| `@zipbul/router` | 없음 | **`dependencies`에 추가** (구현 디테일) |
-| `@zipbul/shared` | 없음 | **`dependencies`에 추가** (`HttpMethod` type 사용) |
-| `http-status-codes` | `dependencies` | 유지 |
-| `@zipbul/baker` | `peerDependencies` | 유지 |
-| `@zipbul/common` | `peerDependencies` (workspace:*) | 유지 |
-| `@zipbul/core` | `peerDependencies` (workspace:*) | 유지 |
-| `@zipbul/logger` | `peerDependencies` (workspace:*) | 유지 |
-
----
-
-## 5. AOT 컴파일러 확장 (중기, 어댑터 중립)
-
-### 5.1 원칙
-
-- 컴파일러는 프로토콜을 모른다
-- decorator 이름과 인자를 **있는 그대로** 전달
-- 토큰 해석, container key 생성, 경로 resolve만 컴파일 타임에 완료
-- 어댑터가 decorator 이름의 의미를 런타임에 해석
-
-### 5.2 현재 AOT 출력
-
-```typescript
-registerRuntimeContext({
-  container: __container__,
-  metadataRegistry,     // Map<ClassRef, raw ClassMetadata> — 해석 안 된 상태
-  scopedKeys,           // Map<ClassRef|string, 'Module::Class'>
-  isAotRuntime: true,
-  adapterConfig,        // { 'HttpAdapter': { middlewares, errorFilters } }
-});
-```
-
-`handlerIndex`는 manifest.json에 ID 문자열 목록으로만 존재:
-```json
-{ "handlerIndex": [{ "id": "HttpAdapter:src/user.controller.ts#UserController.findAll" }] }
-```
-
-### 5.3 확장 목표
-
-`handlerIndex`를 런타임 실행 가능한 resolved 레지스트리로 확장:
-
-```typescript
-interface CompiledHandlerEntry {
-  readonly adapterId: string;                  // "HttpAdapter"
-  readonly controllerKey: string;              // "AppModule::UserController" — container.get()용
-  readonly methodName: string;                 // "findAll"
-  readonly handlerDecorator: string;           // "Get" — 이름만. 의미는 어댑터가 해석
-  readonly handlerDecoratorArgs: unknown[];    // ["/users"] — 어댑터가 해석
-  readonly params: CompiledParamEntry[];
-  readonly middlewareRefs: unknown[];          // resolve된 MiddlewareDefinition 참조
-  readonly errorFilterKeys: string[];          // container keys
-}
-
-interface CompiledParamEntry {
-  readonly name: string;              // 파라미터 변수명
-  readonly decoratorName?: string;    // "Body", "Param" 등 — 어댑터가 해석
-  readonly decoratorArgs?: unknown[];
-  readonly metatypeKey?: string;      // container key 또는 "string", "number" 등
-}
-```
-
-어댑터 중립인 이유:
-- HTTP 어댑터: `handlerDecorator: "Get"` → GET method, `decoratorArgs[0]` → path
-- WebSocket 어댑터: `handlerDecorator: "OnMessage"` → message event
-- 컴파일러는 "Get"이 HTTP GET인지 모름. 문자열일 뿐
-
-### 5.4 설계 결정 필요 사항
-
-#### 5.4.1 `controllerKey` 해석 — ModuleGraph 접근 필요
-
-현재 `AdapterDefinitionResolver.resolve()`는 `{ fileMap, projectRoot }`만 받는다. `controllerKey`(예: `"AppModule::UserController"`)를 생성하려면 `ModuleGraph` 접근이 필요하나, resolver는 graph를 받지 않는다.
-
-선택지:
-1. `AdapterResolveParams`에 `ModuleGraph` 또는 `scopedKeysMap` 추가
-2. `buildHandlerIndex()`를 `ManifestGenerator`로 이동 (이미 graph 접근 가능)
-3. `build.command.ts`에서 후처리: resolver가 className만 수집 → manifest generator가 controllerKey를 붙임
-
-**권장: 선택지 3.** resolver는 adapter-neutral한 수집만, key 해석은 graph를 가진 generator가 담당. 관심사 분리 유지.
-
-#### 5.4.2 런타임 노출 채널
-
-현재 `RuntimeContext`에 `handlerIndex` 필드 없음.
-
-선택지:
-1. `RuntimeContext`에 `handlerIndex` 추가 (core 패키지 변경)
-2. `runtime.ts`에서 standalone export → 어댑터가 직접 import
-
-**권장: 선택지 1.** 기존 `adapterConfig`도 `RuntimeContext`를 통해 노출되는 패턴. 일관성.
-
-#### 5.4.3 metadataRegistry와 handlerIndex 중복
-
-확장 후 method/parameter 메타데이터가 양쪽에 존재:
-- `metadataRegistry`: 전체 ClassMetadata (DTO validation, 프로퍼티 메타 등)
-- `handlerIndex`: 핸들러 메서드 메타 (subset)
-
-원칙: **handlerIndex = 핸들러 등록 전용. metadataRegistry = DTO/프로퍼티 validation 전용.** 어댑터는 핸들러 등록 시 metadataRegistry의 methods를 읽지 않는다.
-
-### 5.5 컴파일러 변경 범위
-
-**`packages/cli/src/compiler/` 내부 (~5 파일):**
+**문제**: `HttpServerBootOptions extends HttpServerOptions` + `options?: HttpServerOptions` → `this.options = options.options ?? options` 모호.
 
 | 파일 | 변경 |
 |------|------|
-| `analyzer/interfaces.ts` | `HandlerIndexEntry` 확장 (methodName, params 등 추가) |
-| `analyzer/adapter-definition-resolver.ts` | `buildHandlerIndex()`에서 method/param 메타 수집 |
-| `analyzer/graph/interfaces.ts` | `AdapterResolveParams` 변경 없음 (선택지 3 시) |
-| `generator/manifest-generator.ts` | handlerIndex 코드 생성 → runtime.ts에 export |
-| `generator/interfaces.ts` | `HandlerIndexEntry` 참조 업데이트 |
+| `http-adapter/src/interfaces.ts` | `HttpServerBootOptions`에서 `options?: HttpServerOptions` 필드 삭제 |
+| `http-adapter/src/http-server.ts:43` | `this.options = options.options ?? options` → `this.options = options` |
 
-**`packages/cli/src/bin/` (~2 파일):**
+### 1B: 사용자 옵션 override 순서 수정
 
-| 파일 | 변경 |
-|------|------|
-| `build.command.ts` | resolver 결과와 graph를 조합하여 controllerKey 해석 |
-| `dev.command.ts` | 동일 |
-
-**`packages/common/` (~1 파일):**
+**문제**: `name`, `logLevel`이 spread 뒤에 위치하여 사용자 설정 무시.
 
 | 파일 | 변경 |
 |------|------|
-| 신규 interface 파일 | `CompiledHandlerEntry`, `CompiledParamEntry` 정의 |
+| `http-adapter/src/http-adapter.ts:57-64` | `name`, `logLevel`을 spread 앞으로 이동 |
 
-**`packages/core/` (~2 파일):**
+### 1C: `as` 타입 단언 제거 (3건)
+
+> `http-context.ts:26`의 `to()` 메서드는 `Context` 인터페이스 계약상 제네릭 `TContext` 반환이 필수이므로 `as` 불가피. 인터페이스 재설계 없이는 제거 불가하여 제외.
+
+| 파일:행 | 변경 |
+|---------|------|
+| `route-handler.ts:92` | 타입 가드 `isControllerInstance()` 도입 |
+| `route-handler.ts:124` | `isHttpMethod()` 가드가 이미 narrowing 완료. 불필요 `as HttpMethod` 제거 |
+| `param-resolver.ts:68` | 타입 가드 `isDeserializableConstructor()` 도입 |
+
+### 1D: `toResponse` status 보정 시 로깅
 
 | 파일 | 변경 |
 |------|------|
-| `runtime/interfaces.ts` | `RuntimeContext`에 `handlerIndex` 추가 |
-| `runtime/runtime-context.ts` | 새 필드 처리 |
+| `http-server.ts:136-141` | `this.logger.warn(...)` 추가 |
 
-합계: ~10 파일. 컨테이너드 변경.
+### 1E: Raw `Response` 패스스루 문서화
+
+| 파일 | 변경 |
+|------|------|
+| `http-adapter.ts:387-401` | `writeSuccessResponse`의 `Response` 분기에 TSDoc: HttpResponse 빌드 체인을 우회하는 탈출구임을 명시 |
+
+**검증**: `bunx oxlint --type-aware` + `bun test packages/http-adapter/`
 
 ---
 
-## 6. 실행 순서
+## Phase 2: Request Scope 통합
+
+> 의존: Phase 1A (boot options 정리).
+
+### 2-pre: `ZipbulContainer` 인터페이스에 `createRequestScope()` 추가
+
+**근본 문제**: `RequestScopeContainer` 생성자가 구체 `Container` 클래스를 요구. `HttpServer`는 `ZipbulContainer` 인터페이스만 알고 있어 `RequestScopeContainer`를 직접 생성할 수 없음.
+
+**우회가 아닌 이유**: `HttpServer`에서 core의 `Container`를 직접 import하면 인터페이스 경계를 무너뜨린다. 대신 인터페이스 계약을 확장하여 구현체가 scope 생성 책임을 갖게 한다.
+
+| 파일 | 변경 |
+|------|------|
+| `common/src/interfaces.ts` `ZipbulContainer` | `createRequestScope(contextId: string): ZipbulContainer` 메서드 추가 |
+| `core/src/injector/container.ts` `Container` | `createRequestScope()` 구현: `return new RequestScopeContainer(this, contextId)` |
+
+`RequestScopeContainer`도 `ZipbulContainer`를 구현하므로, 반환 타입이 일관됨.
+
+### 2A: HttpServer에 container 보존
+
+| 파일 | 변경 |
+|------|------|
+| `http-server.ts:41` | `_container` → `container`, `this.container`에 저장 |
+
+### 2B: 요청별 RequestScopeContainer 생성 + 정리
+
+| 파일 | 변경 |
+|------|------|
+| `http-server.ts` fetch() | `container.createRequestScope()` 호출 → `HttpContext`에 전달 → `finally`에서 `dispose()` |
+
+```typescript
+const requestId = crypto.randomUUID();
+const requestContainer = this.container.createRequestScope(requestId);
+const context = new HttpContext(zipbulReq, zipbulRes, req, requestContainer);
+try {
+  await this.adapter.dispatchRequest(context);
+  return this.toResponse(zipbulRes.end());
+} catch (error) { ... }
+finally { await requestContainer.dispose(); }
+```
+
+> `HttpServer`는 `ZipbulContainer.createRequestScope()`만 호출. `RequestScopeContainer` 클래스를 직접 알 필요 없음.
+
+`dispose()` 호출을 위해 `ZipbulContainer` 인터페이스에 `dispose?(): Promise<void>` 옵셔널 메서드도 추가. `Container`는 no-op, `RequestScopeContainer`는 기존 dispose 로직 실행.
+
+### 2C: HttpContext에 container 전달
+
+| 파일 | 변경 |
+|------|------|
+| `http-context.ts` | 4번째 생성자 파라미터 `container?: ZipbulContainer`, getter 추가 |
+
+**검증**: request-scoped provider → 핸들러에서 resolve → 요청 간 격리 확인
+
+---
+
+## Phase 3: errorFilterTokens 레거시 경로 제거
+
+> 의존: 없음. 안전한 삭제.
+
+### 근본 원인
+
+`errorFilterTokens`(`ExceptionFilterToken[]`)는 AOT 이전에 설계된 API다. 토큰만 전달하므로 `@Catch` 데코레이터의 catchTypes를 알 수 없다. 런타임 리플렉션 없이는 catchTypes 판별이 **구조적으로 불가능**하다.
+
+- catch-all로 패치하면 `@Catch(PaymentError)` 계약을 위반 (명시성 원칙 위반)
+- 런타임에 catchTypes를 알아내려면 reflect-metadata 필요 (정책 위반)
+
+미배포 상태이므로 하위 호환 고려 불필요. 잘못된 추상화는 패치가 아닌 제거가 정답이다.
+
+### 3A: `errorFilterTokens` 레거시 경로 제거
+
+| 파일 | 변경 |
+|------|------|
+| `common/src/adapter/adapter.ts` | `errorFilterTokens` 필드 삭제, `addErrorFilters()` 메서드 삭제 |
+| `http-adapter/src/interfaces.ts` | `HttpServerOptions.errorFilters` 필드 삭제, `HttpServerBootOptions.errorFilters` 필드 삭제 |
+| `http-adapter/src/http-adapter.ts` | `startInternal()`에서 `errorFilters: this.errorFilterTokens` 제거 |
+| `http-adapter/src/http-adapter.ts` | 클러스터 경로에서 `errorFilters: this.errorFilterTokens` 제거 |
+
+사용자에게 남는 경로:
+1. **AOT**: `@UseExceptionFilters(Filter)` + `@Catch(ErrorType)` → 컴파일러가 완전한 `ExceptionFilterEntry` 생성 (Phase 6)
+2. **수동**: `adapter.addExceptionFilterEntries([{ filter, catchTypes: [ErrorType] }])` — 명시적 API
+
+**검증**: 기존 `errorFilterTokens` 참조가 모두 제거됐는지 확인. `addExceptionFilterEntries()` 경로는 영향 없음.
+
+---
+
+## Phase 4: Core 클러스터 `wrap()` 수정
+
+> 의존: 없음.
+
+### 4A: RPC 프록시 메서드 범위 확장
+
+| 파일 | 변경 |
+|------|------|
+| `core/src/cluster/cluster-manager.ts:83` | `['init', 'bootstrap']` → `['init', 'bootstrap', 'destroy', 'getStats']` |
+
+**검증**: Worker destroy → worker 측 handler 실행 확인, getStats() 반환 확인
+
+---
+
+## Phase 5: 클러스터 Worker 재설계
+
+> 의존: Phase 2, 3, 4 완료.
+
+### 핵심 제약
+
+Worker는 별도 V8 isolate. 함수 참조는 IPC 직렬화 불가. Worker는 **AOT manifest 모듈을 직접 import**하여 RuntimeContext를 재구성해야 한다.
+
+**현재 구현의 근본 결함**: `HttpWorkerManifest` 인터페이스(`createContainer()` 등 함수 멤버)를 IPC 객체로 전달하려는 설계. 함수는 IPC 직렬화 불가이므로 worker에서 `manifest`는 항상 `undefined` → JIT 폴백 → **현재 worker는 AOT를 한 번도 사용하지 않는다**.
+
+**해결**: manifest는 IPC 객체가 아니라 **import 가능한 모듈 경로(문자열)**로 전달한다. Worker가 `await import(manifestPath)` → 모듈 로드 시 `registerRuntimeContext()` 부수효과 실행 → RuntimeContext 완성.
+
+### 5A: manifest 경로 전달 수정
+
+| 파일 | 변경 |
+|------|------|
+| `http-adapter.ts` startInternal() 클러스터 경로 | `entryModule.path = 'unknown'` → AOT manifest 모듈 경로(문자열) resolve |
+| `interfaces.ts` `HttpWorkerInitParams` | `manifestPath: string` 필드 명확화. `HttpWorkerManifest` 인터페이스 제거 (IPC 불가 설계) |
+
+### 5B: Worker에서 manifest import + HttpAdapter 생성 + 파이프라인 와이어링
+
+| 파일 | 변경 |
+|------|------|
+| `http-worker.ts` initInternal() | 전면 재작성: |
 
 ```
-Phase 1: 삭제 + 교체
-├── Step 1: 의존성 정리 (루트 deps 제거, http-adapter에 @zipbul/router + @zipbul/shared 추가)
-├── Step 2: router/ 삭제 → @zipbul/router 적용
-├── Step 3: middlewares/ 삭제
-├── Step 4: adapter/ 레이어 제거 → HttpContext 단순화 (src/http-context.ts)
-├── Step 5: Symbol.for 내부 라우트 → public 메서드 전환 (http-adapter + scalar 동시)
-├── Step 6: HttpMethod → @zipbul/shared type 전환, enums 정리
-├── Step 7: index.ts 배럴 정리 (삭제된 export 제거)
-├── Step 8: 기존 버그 수정 (http-adapter.ts:77 handler 변수명)
-└── Step 9: examples/ import 경로 확인 및 조정
-
-Phase 2: SRP 리팩토링 (http-adapter 패키지 내부)
-├── Step 10: ParamResolver 분리 (RouteHandler에서)
-├── Step 11: HttpAdapter 정리 (isJsonValue 삭제, metadata 변환 삭제)
-├── Step 12: HttpServer 정리 (URL 이중파싱 제거, HttpServerBootParams 도입)
-├── Step 13: HttpResponse 직렬화 경로 단일화 (build()가 유일한 직렬화 권한)
-├── Step 14: 타입 정리 (별칭 인라인, 미사용 삭제)
-└── Step 15: 미사용 코드 삭제 (knip 실행으로 검증)
-
-Phase 3: AOT 확장 (cli + common + core + http-adapter)
-├── Step 16: CompiledHandlerEntry/CompiledParamEntry 인터페이스 정의 (common)
-├── Step 17: RuntimeContext에 handlerIndex 추가 (core)
-├── Step 18: AdapterDefinitionResolver.buildHandlerIndex 확장 (cli)
-├── Step 19: ManifestGenerator에서 handlerIndex를 runtime.ts에 export (cli)
-├── Step 20: build/dev command에서 controllerKey 후처리 (cli)
-└── Step 21: RouteHandler를 CompiledHandlerEntry 기반으로 최종 단순화 (http-adapter)
+1. manifestPath가 존재하면 `await import(manifestPath)` 실행 (NEW — 기존 IPC 객체 패턴 폐기)
+   → 모듈 import 부수효과로 registerRuntimeContext() 실행
+   → getRuntimeContext()에서 container, adapterConfig, handlerIndex, controllerInstances 사용 가능
+   → manifestPath가 없으면 JIT 폴백 (Container 직접 생성)
+2. HttpAdapter 인스턴스 생성 (NEW)
+3. getRuntimeContext().adapterConfig 읽기 → 파이프라인 와이어링 (NEW)
+   - config.middlewares → adapter.addMiddlewares(hook, middlewares)
+   - config.errorFilters → adapter.addExceptionFilterEntries(entries)
+   - config.guards → adapter.addGuards(guards) (Phase 7 이후)
+4. handlerIndex에서 controllerInstances 생성 (NEW)
+   - RuntimeContext에 controllerInstances가 있으면 사용
+   - 없으면 handlerIndex의 고유 controllerKey를 수집, 각 key에 대해 container.get(key)로 로컬 생성
+   - controllerInstances는 IPC 직렬화 불가(클래스 인스턴스)이므로 반드시 worker 로컬에서 생성
+5. httpServer.boot(container, bootOptions, adapter) (FIX — 3번째 인자 추가)
+   - bootOptions에 controllerInstances + handlerIndex 포함
 ```
 
-Phase 1은 http-adapter + scalar + 루트 패키지 변경.
-Phase 2는 http-adapter 내부만.
-Phase 3는 cli + common + core + http-adapter 연동.
-Phase 1 내부 Step은 순서대로. Phase 2 내부 Step은 대부분 병렬 가능.
-Phase 3는 Phase 2 완료 후.
+```typescript
+// Step 1: AOT manifest 모듈 로드
+if (typeof manifestPath === 'string' && manifestPath.length > 0) {
+  await import(manifestPath);
+  // registerRuntimeContext() 부수효과로 RuntimeContext 완성
+}
+
+// Step 4: controllerInstances 확보
+const runtimeCtx = getRuntimeContext();
+const handlerIndex = runtimeCtx.handlerIndex ?? [];
+let controllerInstances = runtimeCtx.controllerInstances;
+
+if (controllerInstances === undefined) {
+  controllerInstances = new Map<string, unknown>();
+  for (const entry of handlerIndex) {
+    if (!controllerInstances.has(entry.controllerKey)) {
+      controllerInstances.set(entry.controllerKey, container.get(entry.controllerKey));
+    }
+  }
+}
+```
+
+### 5C: JIT 폴백 경로 동일 패턴 적용
+
+빈 파이프라인이지만 adapter 생성 + boot 인자 수정은 동일.
+
+### 5D: initParams에 handlerIndex 포함
+
+`handlerIndex`는 순수 JSON → IPC 직렬화 가능. (`middlewareKeys`/`errorFilterKeys`/`guardKeys`는 모두 문자열 배열)
+
+| 파일 | 변경 |
+|------|------|
+| `http-adapter.ts` 클러스터 경로 | `initParams.handlerIndex = runtimeCtx.handlerIndex` |
+| `http-worker.ts` | bootOptions에 handlerIndex 전달 |
+
+> `controllerInstances`는 IPC 불가. handlerIndex만 IPC로 전달하고, worker가 로컬에서 controllerInstances를 생성한다 (5B Step 4).
+
+**검증**: `workers: 2` → 요청 → worker 파이프라인 전체 실행 확인
+
+---
+
+## Phase 6: Route-Level Pipeline 완성
+
+> 의존: 6A/6B는 독립. 6C만 Phase 2 (container 통합) 의존.
+
+### 현재 상태
+
+- 데코레이터 존재: `@UseMiddlewares`, `@UseExceptionFilters`, `@Middlewares(phaseId, refs)`
+- 컴파일러: `@Middlewares` phase ID 검증만 수행, `handlerIndex`에 키 미생성
+- `CompiledHandlerEntry`: `middlewareKeys`/`errorFilterKeys` 필드 정의됨 (항상 빈 배열)
+- `RouteHandler`: 항상 `middlewares: []`, `errorFilters: []` 하드코딩
+- **gap**: 컴파일러가 데코레이터 인자를 container에 등록 → 키를 handlerIndex에 채움 → adapter가 소비하는 전체 경로 미구현
+
+### 6A: CLI HandlerIndexEntry에 필드 추가
+
+| 파일 | 변경 |
+|------|------|
+| `cli/src/compiler/analyzer/interfaces.ts` | `HandlerIndexEntry`에 `middlewareKeys?: readonly string[]`, `errorFilterKeys?: readonly string[]` 추가 |
+
+### 6B: 컴파일러 buildHandlerIndex()에서 데코레이터 키 추출 + 컨테이너 등록
+
+**핵심**: `@UseMiddlewares(auditMiddleware)`의 인자는 `MiddlewareDefinition` 런타임 객체이지, container 키가 아니다. `defineMiddleware()`로 생성된 모듈 상수이므로 DI 컨테이너에 등록된 적 없다.
+
+**해결**: 컴파일러가 route-level 미들웨어/필터를 감지하면, **생성 코드에서 해당 정의를 컨테이너에 등록**한다. 결정적(deterministic) 키를 생성한다.
+
+| 파일 | 변경 |
+|------|------|
+| `cli/src/compiler/analyzer/adapter-definition-resolver.ts` buildHandlerIndex() | 각 method/class의 decorators에서 `UseMiddlewares`/`Middlewares`/`UseExceptionFilters` 감지 → AST 식별자 참조 수집 → 결정적 키 생성 → `HandlerIndexEntry.middlewareKeys`/`errorFilterKeys`에 채움 |
+| `cli/src/compiler/generator/injector-generator.ts` | 수집된 참조를 컨테이너에 등록하는 코드 생성 |
+
+**미들웨어 등록 코드 생성 예시:**
+
+```typescript
+// 컴파일러가 생성하는 코드 (manifest 내)
+import { auditMiddleware } from './middlewares';
+
+// 컨테이너 등록
+container.set('__route_mw__:BillingController:0', () => auditMiddleware);
+
+// handlerIndex
+{ middlewareKeys: ['__route_mw__:BillingController:0'], ... }
+```
+
+**에러 필터 등록 — `@Catch` catchTypes 추출:**
+
+`@UseExceptionFilters(PaymentErrorFilter)` 처리 시, 컴파일러가 `PaymentErrorFilter` 클래스의 `@Catch(PaymentError)` 데코레이터 인자를 AST에서 추출하여 완전한 `ExceptionFilterEntry`를 구성한다.
+
+```typescript
+// 컴파일러가 생성하는 코드
+import { PaymentError } from './errors';
+
+container.set('__route_ef__:BillingController:0', (c) => ({
+  filter: c.get('AppModule::PaymentErrorFilter'),
+  catchTypes: [PaymentError],
+}));
+
+// handlerIndex
+{ errorFilterKeys: ['__route_ef__:BillingController:0'], ... }
+```
+
+class-level 데코레이터는 해당 controller의 모든 handler entry에 병합. 병합 순서: class-level 먼저, method-level 나중 (파이프라인 실행 순서와 일치).
+
+### 6C: RouteHandler에서 container 키 resolve
+
+| 파일 | 변경 |
+|------|------|
+| `route-handler.ts` 생성자 | container 참조 추가 |
+| `route-handler.ts` registerFromHandlerIndex() | `entry.middlewareKeys` → `container.get(key)` → `MiddlewareDefinition` resolve |
+| `route-handler.ts` registerFromHandlerIndex() | `entry.errorFilterKeys` → `container.get(key)` → `ExceptionFilterEntry` resolve |
+| `route-handler.ts:119-120` | 하드코딩 `[]` → resolved 인스턴스로 교체 |
+
+**검증**: `@UseMiddlewares(auditMiddleware)` → AOT 빌드 → handlerIndex에 middlewareKeys 포함 → 요청 시 route-level 미들웨어 실행 → examples/billing 동작 확인
+
+---
+
+## Phase 7: Guard AOT 와이어링
+
+> 의존: 7A/7-pre는 독립. 7B/7C는 7A 이후. 7E는 Phase 6C + 7B 이후.
+
+### 7-pre: `AdapterModuleConfig`에 guards 필드 추가
+
+**근본 문제**: 사용자가 모듈 정의에서 guard를 선언하는 입력 인터페이스에 `guards` 필드가 없다. 컴파일러가 모듈의 guard 설정을 읽을 수 없다.
+
+| 파일 | 변경 |
+|------|------|
+| `common/src/interfaces.ts` `AdapterModuleConfig` | `guards?: readonly GuardDefinition[]` 필드 추가 |
+
+### 7A: AdapterMiddlewareConfig에 guards 필드
+
+| 파일 | 변경 |
+|------|------|
+| `core/src/runtime/interfaces.ts` | `guards?: readonly GuardDefinition[]` 추가 |
+
+### 7B: Application에서 guard 와이어링
+
+| 파일 | 변경 |
+|------|------|
+| `core/src/application/application.ts:195` | errorFilters 와이어링 다음에 guard 와이어링 추가 |
+
+```typescript
+if (config?.guards !== undefined && config.guards.length > 0) {
+  entry.adapter.addGuards(config.guards);
+}
+```
+
+### 7C: 컴파일러에서 guard 직렬화
+
+| 파일 | 변경 |
+|------|------|
+| `cli/src/compiler/generator/injector-generator.ts:456` | `itemRecord.guards` 존재 시 guards 직렬화 추가 |
+
+### 7D: Worker에서 guard 와이어링 (Phase 5 확장)
+
+| 파일 | 변경 |
+|------|------|
+| `http-worker.ts` | Phase 5B 와이어링 로직에 guard 추가 |
+
+### 7E: Route-level guard (Phase 6 확장)
+
+`@UseGuards` 데코레이터 이미 존재. Phase 6과 동일 패턴 (컨테이너 등록 + 결정적 키):
+- `HandlerIndexEntry`에 `guardKeys?: readonly string[]` 추가
+- `CompiledHandlerEntry`에도 `guardKeys` 추가
+- `buildHandlerIndex()`에서 `@UseGuards` 인자 추출 → 컨테이너 등록 코드 생성
+- `RouteHandlerEntry`에 guards 필드 추가
+- `RouteHandler`에서 resolve → `resolveHandler()`에서 route-level guard 실행
+
+**실행 지점**: `resolveHandler()` 내부, route middlewares 실행 후 / paramFactory 호출 전.
+
+```
+route match → setRouteErrorFilters → run route middlewares → [run route guards] → param resolution → handler call
+```
+
+글로벌 guard(`executePipeline`에서 `PostParseData` 후)보다 나중에 실행된다. 글로벌이 먼저 거부하면 route-level까지 도달하지 않는다. 이는 올바른 동작이다 — 글로벌(인증) → route-level(인가) 순서.
+
+**검증**: `@UseGuards(authGuard)` → AOT → Application → adapter.addGuards() → 요청 파이프라인에서 글로벌 guard → route guard 순서 실행
+
+---
+
+## 실행 순서
+
+```
+Phase 1 ─── Dead code/옵션 정리 (http-adapter only)
+Phase 2 ─── Request scope 통합 (common + core + http-adapter)
+             └── 2-pre: ZipbulContainer.createRequestScope() 인터페이스 확장
+Phase 3 ─── errorFilterTokens 레거시 제거 (common + http-adapter)
+Phase 4 ─── Core wrap() 수정 (core only)
+Phase 5 ─── 클러스터 worker 재설계 (http-adapter, depends: 2+3+4)
+Phase 6 ─── Route-level pipeline 완성 (cli + http-adapter)
+             └── 6A/6B: 독립 (CLI only)
+             └── 6C: depends: 2 + 6B
+Phase 7 ─── Guard AOT 와이어링 (common + cli + core + http-adapter)
+             └── 7-pre/7A: 독립 (인터페이스 확장)
+             └── 7B/7C: depends: 7A
+             └── 7D: depends: 5B + 7A
+             └── 7E: depends: 6C + 7B
+```
+
+Phase 1, 3, 4, 6A/6B, 7-pre/7A 병렬 가능.
+Phase 2는 Phase 1A 이후.
+Phase 5는 Phase 2+3+4 완료 후.
+Phase 6C는 Phase 2 + 6B 이후.
+Phase 7E는 Phase 6C + 7B 이후.
+
+## 커밋 전략
+
+Phase별 1~2개 커밋. scope: `fix(core)`, `fix(http-adapter)`, `fix(common)`, `feat(http-adapter)`, `feat(core)`, `feat(cli)`.
