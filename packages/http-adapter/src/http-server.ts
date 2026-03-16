@@ -125,7 +125,11 @@ export class HttpServer {
         status: StatusCodes.INTERNAL_SERVER_ERROR,
       });
     } finally {
-      await requestContainer?.dispose?.();
+      try {
+        await requestContainer?.dispose?.();
+      } catch (disposeError) {
+        this.logger.error('Request scope dispose failed', disposeError instanceof Error ? disposeError : undefined);
+      }
     }
   }
 
