@@ -2,7 +2,17 @@ import { describe, it, expect, mock } from 'bun:test';
 
 mock.module('@zipbul/core', () => ({
   ClusterManager: class {},
-  getRuntimeContext: () => ({}),
+  ClusterBaseWorker: class {
+    async init() {}
+    getStats() { return { cpu: 0, memory: 0 }; }
+  },
+  Container: class {
+    get() { return undefined; }
+    set() {}
+    has() { return false; }
+  },
+  expose: () => {},
+  getRuntimeContext: () => ({ isAotRuntime: false, metadataRegistry: new Map() }),
 }));
 
 mock.module('@zipbul/baker', () => ({
