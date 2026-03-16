@@ -14,6 +14,11 @@ import type {
 } from './interfaces';
 
 import { isErr } from '@zipbul/result';
+import {
+  ZIPBUL_REF, ZIPBUL_LAZY_REF,
+  SCOPED_KEY_SEPARATOR,
+  SCOPE_SINGLETON, SCOPE_REQUEST, SCOPE_TRANSIENT,
+} from '@zipbul/common';
 import { type AdapterStaticSchema, type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint, PathResolver } from '../../common';
 import { ImportRegistry } from './import-registry';
@@ -59,8 +64,8 @@ export class ManifestGenerator {
         const providerDef = graph.classDefinitions.get(token);
         const alias = providerDef ? registry.getAlias(providerDef.metadata.className, providerDef.filePath) : token;
 
-        scopedKeysEntries.push(`  map.set(${alias}, '${node.name}::${token}');`);
-        scopedKeysEntries.push(`  map.set('${token}', '${node.name}::${token}');`);
+        scopedKeysEntries.push(`  map.set(${alias}, '${node.name}${SCOPED_KEY_SEPARATOR}${token}');`);
+        scopedKeysEntries.push(`  map.set('${token}', '${node.name}${SCOPED_KEY_SEPARATOR}${token}');`);
       });
 
       const controllerNames = Array.from(node.controllers.values()).sort(compareCodePoint);
@@ -73,8 +78,8 @@ export class ManifestGenerator {
           alias = registry.getAlias(ctrlName, ctrlDef.filePath);
         }
 
-        scopedKeysEntries.push(`  map.set(${alias}, '${node.name}::${ctrlName}');`);
-        scopedKeysEntries.push(`  map.set('${ctrlName}', '${node.name}::${ctrlName}');`);
+        scopedKeysEntries.push(`  map.set(${alias}, '${node.name}${SCOPED_KEY_SEPARATOR}${ctrlName}');`);
+        scopedKeysEntries.push(`  map.set('${ctrlName}', '${node.name}${SCOPED_KEY_SEPARATOR}${ctrlName}');`);
       });
     });
 
@@ -91,7 +96,7 @@ export class ManifestGenerator {
         }
 
         const alias = registry.getAlias(ctrlName, ctrlDef.filePath);
-        const scopedKey = `${node.name}::${ctrlName}`;
+        const scopedKey = `${node.name}${SCOPED_KEY_SEPARATOR}${ctrlName}`;
         const deps = ctrlDef.metadata.constructorParams.map(param => {
           const refName = this.extractRefName(param.type);
 
@@ -99,7 +104,7 @@ export class ManifestGenerator {
             const targetModule = graph.classMap.get(refName);
 
             if (targetModule) {
-              return `__container__.get('${targetModule.name}::${refName}')`;
+              return `__container__.get('${targetModule.name}${SCOPED_KEY_SEPARATOR}${refName}')`;
             }
 
             return `__container__.get('${refName}')`;
@@ -109,7 +114,7 @@ export class ManifestGenerator {
             const targetModule = graph.classMap.get(param.type);
 
             if (targetModule) {
-              return `__container__.get('${targetModule.name}::${param.type}')`;
+              return `__container__.get('${targetModule.name}${SCOPED_KEY_SEPARATOR}${param.type}')`;
             }
 
             return `__container__.get('${param.type}')`;
@@ -242,12 +247,12 @@ registerRuntimeContext({
 
     const record = value as AnalyzerValueRecord;
 
-    if (typeof record.__zipbul_ref === 'string') {
-      return record.__zipbul_ref;
+    if (typeof record[ZIPBUL_REF] === 'string') {
+      return record[ZIPBUL_REF];
     }
 
-    if (typeof record.__zipbul_lazy_ref === 'string') {
-      return record.__zipbul_lazy_ref;
+    if (typeof record[ZIPBUL_LAZY_REF] === 'string') {
+      return record[ZIPBUL_LAZY_REF];
     }
 
     return undefined;
@@ -306,12 +311,12 @@ registerRuntimeContext({
 
       const record = token;
 
-      if (typeof record.__zipbul_ref === 'string') {
-        return record.__zipbul_ref;
+      if (typeof record[ZIPBUL_REF] === 'string') {
+        return record[ZIPBUL_REF];
       }
 
-      if (typeof record.__zipbul_lazy_ref === 'string') {
-        return record.__zipbul_lazy_ref;
+      if (typeof record[ZIPBUL_LAZY_REF] === 'string') {
+        return record[ZIPBUL_LAZY_REF];
       }
 
       return undefined;
@@ -348,15 +353,15 @@ registerRuntimeContext({
     };
 
     const normalizeScope = (scope: string | undefined): string => {
-      if (scope === 'request') {
-        return 'request';
+      if (scope === SCOPE_REQUEST) {
+        return SCOPE_REQUEST;
       }
 
-      if (scope === 'transient') {
-        return 'transient';
+      if (scope === SCOPE_TRANSIENT) {
+        return SCOPE_TRANSIENT;
       }
 
-      return 'singleton';
+      return SCOPE_SINGLETON;
     };
 
     sortedModules.forEach(node => {
@@ -372,7 +377,7 @@ registerRuntimeContext({
         const deps = extractDeps(provider.metadata).sort(compareCodePoint);
 
         diNodes.push({
-          id: `${node.name}::${token}`,
+          id: `${node.name}${SCOPED_KEY_SEPARATOR}${token}`,
           token,
           deps,
           scope: normalizeScope(provider.scope),

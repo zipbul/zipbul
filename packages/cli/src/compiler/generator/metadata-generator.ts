@@ -4,6 +4,11 @@ import type { ImportRegistry } from './import-registry';
 import type { MetadataClassEntry } from './interfaces';
 
 import { type ClassMetadata } from '../analyzer';
+import {
+  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
+  ZIPBUL_FACTORY_CODE,
+  TS_UTILITY_TYPES,
+} from '@zipbul/common';
 import { compareCodePoint } from '../../common';
 
 export class MetadataGenerator {
@@ -44,8 +49,8 @@ export class MetadataGenerator {
         return null;
       }
 
-      if (typeof value.__zipbul_ref === 'string') {
-        return value.__zipbul_ref;
+      if (typeof value[ZIPBUL_REF] === 'string') {
+        return value[ZIPBUL_REF];
       }
 
       return null;
@@ -99,7 +104,7 @@ export class MetadataGenerator {
 
         if (h.typeName) {
           if (
-            ['Partial', 'Pick', 'Omit', 'Required'].includes(h.typeName) &&
+            TS_UTILITY_TYPES.includes(h.typeName) &&
             Array.isArray(h.typeArgs) &&
             h.typeArgs.length > 0
           ) {
@@ -159,46 +164,46 @@ export class MetadataGenerator {
 
         const record = value;
 
-        if (typeof record.__zipbul_ref === 'string') {
-          if (typeof record.__zipbul_import_source === 'string') {
-            registry.addImport(record.__zipbul_ref, record.__zipbul_import_source);
+        if (typeof record[ZIPBUL_REF] === 'string') {
+          if (typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
+            registry.addImport(record[ZIPBUL_REF], record[ZIPBUL_IMPORT_SOURCE]);
           }
 
-          return record.__zipbul_ref;
+          return record[ZIPBUL_REF];
         }
 
-        if (typeof record.__zipbul_factory_code === 'string') {
-          return record.__zipbul_factory_code;
+        if (typeof record[ZIPBUL_FACTORY_CODE] === 'string') {
+          return record[ZIPBUL_FACTORY_CODE];
         }
 
-        if (typeof record.__zipbul_call === 'string') {
-          if (typeof record.__zipbul_import_source === 'string') {
-            const root = record.__zipbul_call.split('.')[0];
+        if (typeof record[ZIPBUL_CALL] === 'string') {
+          if (typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
+            const root = record[ZIPBUL_CALL].split('.')[0];
 
             if (!isNonEmptyString(root)) {
-              return record.__zipbul_call;
+              return record[ZIPBUL_CALL];
             }
 
-            if (root !== record.__zipbul_call) {
-              registry.addImport(root, record.__zipbul_import_source);
+            if (root !== record[ZIPBUL_CALL]) {
+              registry.addImport(root, record[ZIPBUL_IMPORT_SOURCE]);
             } else {
-              registry.addImport(record.__zipbul_call, record.__zipbul_import_source);
+              registry.addImport(record[ZIPBUL_CALL], record[ZIPBUL_IMPORT_SOURCE]);
             }
           }
 
           const args = (isAnalyzerValueArray(record.args) ? record.args : []).map(a => serializeValue(a)).join(', ');
 
-          return `${record.__zipbul_call}(${args})`;
+          return `${record[ZIPBUL_CALL]}(${args})`;
         }
 
-        if (typeof record.__zipbul_new === 'string') {
+        if (typeof record[ZIPBUL_NEW] === 'string') {
           const args = (isAnalyzerValueArray(record.args) ? record.args : []).map(a => serializeValue(a)).join(', ');
 
-          return `new ${record.__zipbul_new}(${args})`;
+          return `new ${record[ZIPBUL_NEW]}(${args})`;
         }
 
-        if (typeof record.__zipbul_lazy_ref === 'string') {
-          return `lazy(() => ${record.__zipbul_lazy_ref})`;
+        if (typeof record[ZIPBUL_LAZY_REF] === 'string') {
+          return `lazy(() => ${record[ZIPBUL_LAZY_REF]})`;
         }
 
         const entries = Object.entries(record).map(([k, v]) => {

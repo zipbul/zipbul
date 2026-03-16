@@ -4,6 +4,12 @@ import type { ImportRegistry } from './import-registry';
 import type { Diagnostic } from '../../diagnostics';
 
 import { err, type Err } from '@zipbul/result';
+import {
+  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL,
+  ZIPBUL_FACTORY_CODE, ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
+  SCOPED_KEY_SEPARATOR,
+  SCOPE_SINGLETON, VISIBILITY_ALL, VISIBILITY_ALLOWLIST, VISIBILITY_MODULE,
+} from '@zipbul/common';
 import { type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint } from '../../common';
 import { buildDiagnostic } from '../../diagnostics';
@@ -105,8 +111,8 @@ const getRefName = (value: AnalyzerValue): string | null => {
     return null;
   }
 
-  if (typeof record.__zipbul_ref === 'string') {
-    return record.__zipbul_ref;
+  if (typeof record[ZIPBUL_REF] === 'string') {
+    return record[ZIPBUL_REF];
   }
 
   return null;
@@ -119,8 +125,8 @@ const getLazyRefName = (value: AnalyzerValue): string | null => {
     return null;
   }
 
-  if (typeof record.__zipbul_lazy_ref === 'string') {
-    return record.__zipbul_lazy_ref;
+  if (typeof record[ZIPBUL_LAZY_REF] === 'string') {
+    return record[ZIPBUL_LAZY_REF];
   }
 
   return null;
@@ -179,8 +185,8 @@ export class InjectorGenerator {
     };
 
     const serializeProviderOptions = (ref: { scope?: string; visibility?: string; visibleTo?: string[] }): string => {
-      const scope = ref.scope ?? 'singleton';
-      const visibleTo = ref.visibility === 'all' ? 'all' : ref.visibility === 'allowlist' && ref.visibleTo ? JSON.stringify(ref.visibleTo) : 'module';
+      const scope = ref.scope ?? SCOPE_SINGLETON;
+      const visibleTo = ref.visibility === VISIBILITY_ALL ? VISIBILITY_ALL : ref.visibility === VISIBILITY_ALLOWLIST && ref.visibleTo ? JSON.stringify(ref.visibleTo) : VISIBILITY_MODULE;
       const visibleToStr = typeof visibleTo === 'string' ? `'${visibleTo}'` : visibleTo;
 
       return `{ scope: '${scope}', visibleTo: ${visibleToStr} }`;
@@ -205,7 +211,7 @@ export class InjectorGenerator {
           if (Object.prototype.hasOwnProperty.call(providerRecord, 'useValue')) {
             const val = this.serializeValue(providerRecord.useValue, registry);
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', () => ${val}, ${opts});`);
+            factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', () => ${val}, ${opts});`);
 
             return;
           }
@@ -233,7 +239,7 @@ export class InjectorGenerator {
             });
             const factoryBody = Array.isArray(useClass) ? `[${instances.join(', ')}]` : instances[0];
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => runInInjectionContext(c, () => ${factoryBody}), ${opts});`);
+            factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => runInInjectionContext(c, () => ${factoryBody}), ${opts});`);
 
             return;
           }
@@ -241,14 +247,14 @@ export class InjectorGenerator {
           if (providerRecord.useExisting !== undefined) {
             const existingToken = this.serializeValue(providerRecord.useExisting, registry);
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => c.get(${existingToken}), ${opts});`);
+            factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => c.get(${existingToken}), ${opts});`);
 
             return;
           }
 
           if (providerRecord.useFactory !== undefined) {
             const factoryRecord = asRecord(providerRecord.useFactory as AnalyzerValue);
-            let factoryFn = typeof factoryRecord?.__zipbul_factory_code === 'string' ? factoryRecord.__zipbul_factory_code : '';
+            let factoryFn = typeof factoryRecord?.[ZIPBUL_FACTORY_CODE] === 'string' ? factoryRecord[ZIPBUL_FACTORY_CODE] : '';
             const deps =
               factoryRecord && isAnalyzerValueArray(factoryRecord.__zipbul_factory_deps)
                 ? factoryRecord.__zipbul_factory_deps
@@ -359,7 +365,7 @@ export class InjectorGenerator {
               const resolvedKey = isNonEmptyString(resolvedToken)
                 ? resolvedToken
                 : targetModule
-                  ? `${targetModule.name}::${tokenName}`
+                  ? `${targetModule.name}${SCOPED_KEY_SEPARATOR}${tokenName}`
                   : tokenName;
 
               replacements.push({ start, end, content: `c.get('${resolvedKey}')` });
@@ -388,7 +394,7 @@ export class InjectorGenerator {
               return `c.get('${resolved}')`;
             });
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => {`);
+            factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => {`);
             factoryEntries.push(`    const factory = ${factoryFn};`);
             factoryEntries.push(`    return factory(${injectedArgs.join(', ')});`);
             factoryEntries.push(`  }, ${opts});`);
@@ -402,7 +408,7 @@ export class InjectorGenerator {
           const alias = getAlias(clsMeta.className, ref.filePath);
           const deps = this.resolveConstructorDeps(clsMeta, node, graph);
 
-          factoryEntries.push(`  container.set('${node.name}::${token}', (c) => runInInjectionContext(c, () => new ${alias}(${deps.join(', ')})), ${opts});`);
+          factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => runInInjectionContext(c, () => new ${alias}(${deps.join(', ')})), ${opts});`);
         }
       });
 
@@ -426,7 +432,7 @@ export class InjectorGenerator {
         factoryEntries.push('    }');
         factoryEntries.push('');
         factoryEntries.push(
-          `    const key = token ? '${node.name}::' + (typeof token === 'symbol' ? token.description : token) : null;`,
+          `    const key = token ? '${node.name}${SCOPED_KEY_SEPARATOR}' + (typeof token === 'symbol' ? token.description : token) : null;`,
         );
         factoryEntries.push('    if (key && factory) container.set(key, factory);');
         factoryEntries.push('  });');
@@ -444,7 +450,7 @@ export class InjectorGenerator {
             }
 
             const adapterRef = asRecord(itemRecord.adapter);
-            const adapterClassName = typeof adapterRef?.__zipbul_ref === 'string' ? adapterRef.__zipbul_ref : null;
+            const adapterClassName = typeof adapterRef?.[ZIPBUL_REF] === 'string' ? adapterRef[ZIPBUL_REF] : null;
             const nameValue = typeof itemRecord.name === 'string' ? itemRecord.name : null;
             const configKey = nameValue ?? adapterClassName;
 
@@ -482,11 +488,11 @@ export class InjectorGenerator {
       dynamicImports.forEach(imp => {
         const impRecord = asRecord(imp);
 
-        if (impRecord === null || typeof impRecord.__zipbul_call !== 'string') {
+        if (impRecord === null || typeof impRecord[ZIPBUL_CALL] !== 'string') {
           return;
         }
 
-        const parts = impRecord.__zipbul_call.split('.');
+        const parts = impRecord[ZIPBUL_CALL].split('.');
         const className = parts[0];
         const methodName = parts[1];
 
@@ -494,8 +500,8 @@ export class InjectorGenerator {
           return;
         }
 
-        let callExpression = impRecord.__zipbul_call;
-        const importSource = asString(impRecord.__zipbul_import_source);
+        let callExpression = impRecord[ZIPBUL_CALL];
+        const importSource = asString(impRecord[ZIPBUL_IMPORT_SOURCE]);
 
         if (importSource === undefined) {
           return;
@@ -566,12 +572,12 @@ ${dynamicEntries.join('\n')}
       return 'undefined';
     }
 
-    if (typeof record.__zipbul_ref === 'string' && typeof record.__zipbul_import_source === 'string') {
-      return registry.getAlias(record.__zipbul_ref, record.__zipbul_import_source);
+    if (typeof record[ZIPBUL_REF] === 'string' && typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
+      return registry.getAlias(record[ZIPBUL_REF], record[ZIPBUL_IMPORT_SOURCE]);
     }
 
-    if (typeof record.__zipbul_call === 'string') {
-      const parts = record.__zipbul_call.split('.');
+    if (typeof record[ZIPBUL_CALL] === 'string') {
+      const parts = record[ZIPBUL_CALL].split('.');
       const className = parts[0];
       const methodName = parts[1];
 
@@ -579,8 +585,8 @@ ${dynamicEntries.join('\n')}
         return 'undefined';
       }
 
-      let callName = record.__zipbul_call;
-      const importSource = asString(record.__zipbul_import_source);
+      let callName = record[ZIPBUL_CALL];
+      const importSource = asString(record[ZIPBUL_IMPORT_SOURCE]);
 
       if (importSource !== undefined) {
         const alias = registry.getAlias(className, importSource);
@@ -599,10 +605,10 @@ ${dynamicEntries.join('\n')}
 
     const entries = Object.entries(record).sort(([a], [b]) => compareCodePoint(a, b));
     const props = entries.map(([key, entryValue]) => {
-      if (key.startsWith('__zipbul_computed_')) {
+      if (key.startsWith(ZIPBUL_COMPUTED_PREFIX)) {
         const computed = asRecord(entryValue) ?? {};
-        const keyContent = this.serializeValue(computed.__zipbul_computed_key, registry);
-        const valContent = this.serializeValue(computed.__zipbul_computed_value, registry);
+        const keyContent = this.serializeValue(computed[ZIPBUL_COMPUTED_KEY], registry);
+        const valContent = this.serializeValue(computed[ZIPBUL_COMPUTED_VALUE], registry);
 
         return `[${keyContent}]: ${valContent}`;
       }
@@ -638,7 +644,7 @@ ${dynamicEntries.join('\n')}
       const targetModule = graph.classMap.get(token);
 
       if (targetModule) {
-        return `c.get('${targetModule.name}::${token}')`;
+        return `c.get('${targetModule.name}${SCOPED_KEY_SEPARATOR}${token}')`;
       }
 
       return `c.get('${token}')`;

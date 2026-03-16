@@ -99,7 +99,16 @@ export type { InjectableScope, InjectableVisibleTo } from './decorators/types';
 export { isClass, isUndefined, isNil, isEmpty, isSymbol, isString, isFunction } from './type-guards';
 export { inject, lazy, runInInjectionContext } from './injection-context';
 
-export { IS_DEVELOPMENT, IS_TEST, IS_PRODUCTION, CONFIG_SERVICE, ENV_SERVICE } from './constants';
+export {
+  IS_DEVELOPMENT, IS_TEST, IS_PRODUCTION, CONFIG_SERVICE, ENV_SERVICE,
+  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
+  ZIPBUL_FACTORY_CODE, ZIPBUL_SPREAD, ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
+  SCOPED_KEY_SEPARATOR,
+  FRAMEWORK_CREATE_APPLICATION, FRAMEWORK_DEFINE_MODULE, FRAMEWORK_DEFINE_ADAPTER,
+  TS_UTILITY_TYPES,
+  VISIBILITY_ALL, VISIBILITY_MODULE, VISIBILITY_ALLOWLIST,
+  SCOPE_SINGLETON, SCOPE_REQUEST, SCOPE_TRANSIENT,
+} from './constants';
 
 export {
   IsString,

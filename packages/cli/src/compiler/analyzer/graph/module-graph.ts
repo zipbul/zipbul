@@ -6,6 +6,11 @@ import type { ClassMetadata } from '../interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord } from '../types';
 import type { CyclePath, ProviderRef, FileAnalysis } from './interfaces';
 
+import {
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_SPREAD,
+  VISIBILITY_ALL, VISIBILITY_MODULE,
+  SCOPE_SINGLETON, SCOPE_REQUEST, SCOPE_TRANSIENT,
+} from '@zipbul/common';
 import { compareCodePoint } from '../../../common';
 import { ModuleDiscovery } from '../module-discovery';
 import { ModuleNode } from './module-node';
@@ -185,8 +190,8 @@ export class ModuleGraph {
         rawDef.providers.forEach((p: ProviderTokenValue) => {
           const record = this.asRecord(p);
 
-          if (record && typeof record.__zipbul_spread === 'string') {
-            node.dynamicProviderBundles.add(record.__zipbul_spread);
+          if (record && typeof record[ZIPBUL_SPREAD] === 'string') {
+            node.dynamicProviderBundles.add(record[ZIPBUL_SPREAD]);
 
             return;
           }
@@ -205,7 +210,7 @@ export class ModuleGraph {
             if (this.isImplicit(prev)) {
               const metaRecord = this.asRecord(ref.metadata);
 
-              if (metaRecord && typeof metaRecord.__zipbul_ref === 'string') {
+              if (metaRecord && typeof metaRecord[ZIPBUL_REF] === 'string') {
                 const prevMeta = prev?.metadata;
                 const prevFilePath = prev?.filePath;
                 const prevScope = prev?.scope;
@@ -224,7 +229,7 @@ export class ModuleGraph {
                   ref.scope = prevScope;
                 }
 
-                if (ref.visibility === 'module' && prevVisibility !== undefined) {
+                if (ref.visibility === VISIBILITY_MODULE && prevVisibility !== undefined) {
                   ref.visibility = prevVisibility;
                 }
 
@@ -390,7 +395,7 @@ export class ModuleGraph {
         deps.forEach(depToken => {
           this.assertVisibility(node, depToken, provider.token);
 
-          const sourceScope = provider.scope ?? 'singleton';
+          const sourceScope = provider.scope ?? SCOPE_SINGLETON;
           const targetModule = this.classMap.get(depToken);
 
           if (!targetModule) {
@@ -403,9 +408,9 @@ export class ModuleGraph {
             return;
           }
 
-          const targetScope = targetProvider.scope ?? 'singleton';
+          const targetScope = targetProvider.scope ?? SCOPE_SINGLETON;
 
-          if (sourceScope === 'singleton' && targetScope === 'request') {
+          if (sourceScope === SCOPE_SINGLETON && targetScope === SCOPE_REQUEST) {
             throw new Error(
               `[Zipbul AOT] Scope Violation: Singleton '${provider.token}' cannot inject Request-Scoped '${depToken}'.`,
             );
@@ -476,8 +481,8 @@ export class ModuleGraph {
 
     for (const node of this.modules.values()) {
       for (const provider of node.providers.values()) {
-        const sourceScope = provider.scope ?? 'singleton';
-        if (sourceScope !== 'singleton') continue;
+        const sourceScope = provider.scope ?? SCOPE_SINGLETON;
+        if (sourceScope !== SCOPE_SINGLETON) continue;
 
         const classDef = this.classDefinitions.get(provider.token);
         if (!classDef) continue;
@@ -500,8 +505,8 @@ export class ModuleGraph {
       const parentProvider = parentModule.providers.get(child.symbolName);
       if (!parentProvider) continue;
 
-      const parentScope = parentProvider.scope ?? 'singleton';
-      if (sourceScope === 'singleton' && parentScope === 'request') {
+      const parentScope = parentProvider.scope ?? SCOPE_SINGLETON;
+      if (sourceScope === SCOPE_SINGLETON && parentScope === SCOPE_REQUEST) {
         throw new Error(
           `[Zipbul AOT] Scope Violation: Singleton '${providerToken}' inherits Request-Scoped dependency through '${child.symbolName}'.`,
         );
@@ -528,11 +533,11 @@ export class ModuleGraph {
       return;
     }
 
-    if (targetProvider.visibility === 'all') {
+    if (targetProvider.visibility === VISIBILITY_ALL) {
       return;
     }
 
-    if (targetProvider.visibility === 'module') {
+    if (targetProvider.visibility === VISIBILITY_MODULE) {
       throw new Error(
         `[Zipbul AOT] Visibility Violation: '${sourceLabel}' in module '${node.name}' tries to inject '${depToken}' from '${targetModule.name}', but it is module-only.`,
       );
@@ -576,11 +581,11 @@ export class ModuleGraph {
       token = this.extractTokenName(record.provide);
     } else if (typeof p === 'function') {
       token = p.name;
-    } else if (record && typeof record.__zipbul_ref === 'string') {
-      token = record.__zipbul_ref;
-      if (this.gildash && typeof record.__zipbul_import_source === 'string') {
+    } else if (record && typeof record[ZIPBUL_REF] === 'string') {
+      token = record[ZIPBUL_REF];
+      if (this.gildash && typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
         try {
-          const resolved = this.gildash.resolveSymbol(record.__zipbul_ref, record.__zipbul_import_source);
+          const resolved = this.gildash.resolveSymbol(record[ZIPBUL_REF], record[ZIPBUL_IMPORT_SOURCE]);
           if (!resolved.circular) token = resolved.originalName;
         } catch { /* resolve 실패 → 기존 ref 이름 유지 */ }
       }
@@ -617,14 +622,14 @@ export class ModuleGraph {
 
     const record = this.asRecord(t);
 
-    if (record && typeof record.__zipbul_ref === 'string') {
-      if (this.gildash && typeof record.__zipbul_import_source === 'string') {
+    if (record && typeof record[ZIPBUL_REF] === 'string') {
+      if (this.gildash && typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
         try {
-          const resolved = this.gildash.resolveSymbol(record.__zipbul_ref, record.__zipbul_import_source);
+          const resolved = this.gildash.resolveSymbol(record[ZIPBUL_REF], record[ZIPBUL_IMPORT_SOURCE]);
           if (!resolved.circular) return resolved.originalName;
         } catch { /* fallback */ }
       }
-      return record.__zipbul_ref;
+      return record[ZIPBUL_REF];
     }
 
     return 'UNKNOWN';
@@ -721,11 +726,11 @@ export class ModuleGraph {
     }
 
     if (typeof visibleTo === 'string') {
-      if (visibleTo === 'all') {
+      if (visibleTo === VISIBILITY_ALL) {
         return { kind: 'all' };
       }
 
-      if (visibleTo === 'module') {
+      if (visibleTo === VISIBILITY_MODULE) {
         return { kind: 'module' };
       }
 
@@ -759,15 +764,15 @@ export class ModuleGraph {
     const raw = typeof scope === 'string' ? scope : typeof legacyLifetime === 'string' ? legacyLifetime : undefined;
 
     if (raw === undefined) {
-      return 'singleton';
+      return SCOPE_SINGLETON;
     }
 
-    if (raw === 'singleton' || raw === 'transient') {
+    if (raw === SCOPE_SINGLETON || raw === SCOPE_TRANSIENT) {
       return raw;
     }
 
-    if (raw === 'request') {
-      return 'request';
+    if (raw === SCOPE_REQUEST) {
+      return SCOPE_REQUEST;
     }
 
     throw new Error(`[Zipbul AOT] Invalid provider scope '${raw}'.`);
@@ -833,12 +838,12 @@ export class ModuleGraph {
   private resolveModuleMarker(token: AnalyzerValue, modulePath: string, moduleName: string): string | null {
     const record = this.asRecord(token);
 
-    if (!record || typeof record.__zipbul_ref !== 'string') {
+    if (!record || typeof record[ZIPBUL_REF] !== 'string') {
       return null;
     }
 
-    const refName = record.__zipbul_ref;
-    const importSource = typeof record.__zipbul_import_source === 'string' ? record.__zipbul_import_source : undefined;
+    const refName = record[ZIPBUL_REF];
+    const importSource = typeof record[ZIPBUL_IMPORT_SOURCE] === 'string' ? record[ZIPBUL_IMPORT_SOURCE] : undefined;
     const targetModulePath = this.resolveModulePath(importSource) ?? modulePath;
     const exports = this.moduleMarkerExports.get(targetModulePath);
 

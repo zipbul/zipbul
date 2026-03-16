@@ -14,7 +14,11 @@ import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../../diagnostics';
 
 import { err, isErr } from '@zipbul/result';
-import { MiddlewareHook } from '@zipbul/common';
+import {
+  MiddlewareHook,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_COMPUTED_PREFIX,
+  FRAMEWORK_DEFINE_ADAPTER,
+} from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 import { buildDiagnostic } from '../../diagnostics';
 import { PathResolver } from '../../common';
@@ -53,7 +57,7 @@ export class AdapterDefinitionResolver {
 
       const defineCall = this.asRecord(resolvedExport.value);
 
-      if (defineCall?.__zipbul_call !== 'defineAdapter') {
+      if (defineCall?.[ZIPBUL_CALL] !== FRAMEWORK_DEFINE_ADAPTER) {
         return err(buildDiagnostic({
           reason: `Adapter definition must use defineAdapter(ClassRef) in ${resolvedExport.sourceFile}.`,
           file: resolvedExport.sourceFile,
@@ -71,15 +75,15 @@ export class AdapterDefinitionResolver {
 
       const arg = this.asRecord(args[0]);
 
-      if (arg === null || typeof arg.__zipbul_ref !== 'string') {
+      if (arg === null || typeof arg[ZIPBUL_REF] !== 'string') {
         return err(buildDiagnostic({
           reason: `defineAdapter argument must be a class reference in ${resolvedExport.sourceFile}.`,
           file: resolvedExport.sourceFile,
         }));
       }
 
-      const className = arg.__zipbul_ref;
-      const importSource = typeof arg.__zipbul_import_source === 'string' ? arg.__zipbul_import_source : null;
+      const className = arg[ZIPBUL_REF];
+      const importSource = typeof arg[ZIPBUL_IMPORT_SOURCE] === 'string' ? arg[ZIPBUL_IMPORT_SOURCE] : null;
 
       const classMetadata = await this.findClassMetadata(className, importSource, resolvedExport.sourceFile, fileMap);
 
@@ -339,14 +343,14 @@ export class AdapterDefinitionResolver {
 
     const controllerRaw = this.asRecord(decsRaw.controller);
 
-    if (controllerRaw === null || typeof controllerRaw.__zipbul_ref !== 'string') {
+    if (controllerRaw === null || typeof controllerRaw[ZIPBUL_REF] !== 'string') {
       return err(buildDiagnostic({
         reason: `Adapter class '${classMetadata.className}' decorators.controller must be an Identifier in ${sourceFile}.`,
         file: sourceFile,
       }));
     }
 
-    const controller = controllerRaw.__zipbul_ref;
+    const controller = controllerRaw[ZIPBUL_REF];
     const handlersRaw = decsRaw.handlers;
 
     if (!Array.isArray(handlersRaw) || handlersRaw.length === 0) {
@@ -361,14 +365,14 @@ export class AdapterDefinitionResolver {
     for (const adapterNode of handlersRaw) {
       const rec = this.asRecord(adapterNode);
 
-      if (rec === null || typeof rec.__zipbul_ref !== 'string') {
+      if (rec === null || typeof rec[ZIPBUL_REF] !== 'string') {
         return err(buildDiagnostic({
           reason: `Adapter class '${classMetadata.className}' decorators.handlers elements must be Identifiers in ${sourceFile}.`,
           file: sourceFile,
         }));
       }
 
-      handlers.push(rec.__zipbul_ref);
+      handlers.push(rec[ZIPBUL_REF]);
     }
 
     const entryDecorators: AdapterEntryDecoratorsSchema = { controller, handlers };
@@ -666,7 +670,7 @@ export class AdapterDefinitionResolver {
         }
 
         const adapterRef = this.asRecord(itemRecord.adapter);
-        const adapterClassName = typeof adapterRef?.__zipbul_ref === 'string' ? adapterRef.__zipbul_ref : null;
+        const adapterClassName = typeof adapterRef?.[ZIPBUL_REF] === 'string' ? adapterRef[ZIPBUL_REF] : null;
 
         if (adapterClassName !== adapterId) {
           continue;
@@ -686,7 +690,7 @@ export class AdapterDefinitionResolver {
         }
 
         for (const key of Object.keys(middlewares)) {
-          if (key.startsWith('__zipbul_computed_')) {
+          if (key.startsWith(ZIPBUL_COMPUTED_PREFIX)) {
             return err(buildDiagnostic({
               reason: `Middleware phase keys must be string literals for '${adapterId}'.`,
               file: analysis.filePath,
@@ -805,7 +809,7 @@ export class AdapterDefinitionResolver {
       const keys: string[] = [];
 
       for (const key of Object.keys(mapping)) {
-        if (key.startsWith('__zipbul_computed_')) {
+        if (key.startsWith(ZIPBUL_COMPUTED_PREFIX)) {
           return err(buildDiagnostic({
             reason: `@Middlewares phaseId must be a string literal for '${adapterId}'.`,
           }));

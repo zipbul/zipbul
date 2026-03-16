@@ -1,4 +1,5 @@
 import type { ProviderToken } from '@zipbul/common';
+import { ZIPBUL_REF, ZIPBUL_LAZY_REF } from '@zipbul/common';
 
 import type { DecoratorArgument, Token, TokenRecord } from './types';
 
@@ -31,8 +32,8 @@ export function normalizeToken(token: Token | TokenRecord | undefined): string |
   }
 
   if (isTokenRecord(token)) {
-    const ref = token.__zipbul_ref;
-    const lazyRef = token.__zipbul_lazy_ref;
+    const ref = token[ZIPBUL_REF];
+    const lazyRef = token[ZIPBUL_LAZY_REF];
 
     if (typeof ref === 'string') {
       return ref;
@@ -124,11 +125,11 @@ export function isTokenRecord(value: DecoratorArgument | Token | TokenRecord | P
     return false;
   }
 
-  if ('__zipbul_ref' in value && typeof value.__zipbul_ref === 'string') {
+  if (ZIPBUL_REF in value && typeof value[ZIPBUL_REF] === 'string') {
     return true;
   }
 
-  if ('__zipbul_lazy_ref' in value && typeof value.__zipbul_lazy_ref === 'string') {
+  if (ZIPBUL_LAZY_REF in value && typeof value[ZIPBUL_LAZY_REF] === 'string') {
     return true;
   }
 
@@ -152,12 +153,12 @@ export function resolveTokenRecord(token: Token | TokenRecord | undefined): Toke
     return token;
   }
 
-  if (typeof token.__zipbul_ref === 'string') {
-    return token.__zipbul_ref;
+  if (typeof token[ZIPBUL_REF] === 'string') {
+    return token[ZIPBUL_REF];
   }
 
-  if (typeof token.__zipbul_lazy_ref === 'string') {
-    return token.__zipbul_lazy_ref;
+  if (typeof token[ZIPBUL_LAZY_REF] === 'string') {
+    return token[ZIPBUL_LAZY_REF];
   }
 
   return token;

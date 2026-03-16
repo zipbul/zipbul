@@ -4,6 +4,7 @@ import type { Diagnostic } from '../../diagnostics';
 import type { Result } from '@zipbul/result';
 
 import { err } from '@zipbul/result';
+import { ZIPBUL_REF } from '@zipbul/common';
 import { buildDiagnostic } from '../../diagnostics';
 
 export interface ApplicationEntry {
@@ -70,7 +71,7 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
     );
   }
 
-  const entryRef = entryArg.__zipbul_ref;
+  const entryRef = entryArg[ZIPBUL_REF];
 
   if (typeof entryRef !== 'string' || entryRef.length === 0) {
     return err(

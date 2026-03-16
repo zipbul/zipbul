@@ -17,6 +17,12 @@ import type {
 
 import type { Result } from '@zipbul/result';
 import { err, isErr } from '@zipbul/result';
+import {
+  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
+  ZIPBUL_FACTORY_CODE, ZIPBUL_SPREAD, ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
+  FRAMEWORK_CREATE_APPLICATION, FRAMEWORK_DEFINE_MODULE,
+  TS_UTILITY_TYPES,
+} from '@zipbul/common';
 import type { Diagnostic } from '../../diagnostics';
 import { buildDiagnostic } from '../../diagnostics';
 import { AstTypeResolver } from './ast-type-resolver';
@@ -159,11 +165,11 @@ export class AstParser {
             }
 
             if (isCoreImport) {
-              if (importedName === 'createApplication') {
+              if (importedName === FRAMEWORK_CREATE_APPLICATION) {
                 createApplicationAliases.add(localName);
               }
 
-              if (importedName === 'defineModule') {
+              if (importedName === FRAMEWORK_DEFINE_MODULE) {
                 defineModuleAliases.add(localName);
               }
             }
@@ -559,7 +565,7 @@ export class AstParser {
         return null;
       }
 
-      if (name !== 'createApplication' && !createApplicationAliases.has(name)) {
+      if (name !== FRAMEWORK_CREATE_APPLICATION && !createApplicationAliases.has(name)) {
         return null;
       }
 
@@ -584,7 +590,7 @@ export class AstParser {
       const objectName = objectNode?.type === 'Identifier' ? this.getString(objectNode, 'name') : null;
       const propertyName = propertyNode ? this.getString(propertyNode, 'name') : null;
 
-      if (!isNonEmptyString(objectName) || propertyName !== 'createApplication') {
+      if (!isNonEmptyString(objectName) || propertyName !== FRAMEWORK_CREATE_APPLICATION) {
         return null;
       }
 
@@ -599,7 +605,7 @@ export class AstParser {
       }
 
       return {
-        callee: `${objectName}.createApplication`,
+        callee: `${objectName}.${FRAMEWORK_CREATE_APPLICATION}`,
         importSource,
         args,
         start: typeof node.start === 'number' ? node.start : undefined,
@@ -626,7 +632,7 @@ export class AstParser {
         return null;
       }
 
-      if (name !== 'defineModule' && !defineModuleAliases.has(name)) {
+      if (name !== FRAMEWORK_DEFINE_MODULE && !defineModuleAliases.has(name)) {
         return null;
       }
 
@@ -651,7 +657,7 @@ export class AstParser {
       const objectName = objectNode?.type === 'Identifier' ? this.getString(objectNode, 'name') : null;
       const propertyName = propertyNode ? this.getString(propertyNode, 'name') : null;
 
-      if (!isNonEmptyString(objectName) || propertyName !== 'defineModule') {
+      if (!isNonEmptyString(objectName) || propertyName !== FRAMEWORK_DEFINE_MODULE) {
         return null;
       }
 
@@ -666,7 +672,7 @@ export class AstParser {
       }
 
       return {
-        callee: `${objectName}.defineModule`,
+        callee: `${objectName}.${FRAMEWORK_DEFINE_MODULE}`,
         importSource,
         args,
         start: typeof node.start === 'number' ? node.start : undefined,
@@ -845,8 +851,8 @@ export class AstParser {
 
       if (isNonEmptyString(importSource)) {
         return {
-          __zipbul_ref: this.resolveOriginalName(typeInfo.typeName),
-          __zipbul_import_source: importSource,
+          [ZIPBUL_REF]: this.resolveOriginalName(typeInfo.typeName),
+          [ZIPBUL_IMPORT_SOURCE]: importSource,
         };
       }
 
@@ -1044,7 +1050,7 @@ export class AstParser {
         const baseName =
           expression?.type === 'Identifier' ? (this.getString(expression, 'name') ?? UNKNOWN_TYPE_NAME) : UNKNOWN_TYPE_NAME;
 
-        if (isNonEmptyString(baseName) && ['Partial', 'Pick', 'Omit', 'Required'].includes(baseName)) {
+        if (isNonEmptyString(baseName) && TS_UTILITY_TYPES.includes(baseName)) {
           const typeParameters = this.asNode(superClass.typeParameters);
           const params = typeParameters?.params;
           const typeArgs: string[] = [];
@@ -1092,7 +1098,7 @@ export class AstParser {
       const expression = impl ? this.asNode(impl.expression) : null;
       const expressionName = expression?.type === 'Identifier' ? this.getString(expression, 'name') : null;
 
-      if (isNonEmptyString(expressionName) && ['Partial', 'Pick', 'Omit'].includes(expressionName)) {
+      if (isNonEmptyString(expressionName) && TS_UTILITY_TYPES.includes(expressionName)) {
         const typeParameters = impl ? this.asNode(impl.typeParameters) : null;
         const params = typeParameters?.params;
         const typeArgs: string[] = [];
@@ -1464,9 +1470,9 @@ export class AstParser {
             const valExpr = this.parseExpression(prop.value);
             const start = typeof prop.start === 'number' ? prop.start : 0;
 
-            obj[`__zipbul_computed_${start}`] = {
-              __zipbul_computed_key: keyExpr,
-              __zipbul_computed_value: valExpr,
+            obj[`${ZIPBUL_COMPUTED_PREFIX}${start}`] = {
+              [ZIPBUL_COMPUTED_KEY]: keyExpr,
+              [ZIPBUL_COMPUTED_VALUE]: valExpr,
             };
 
             continue;
@@ -1495,7 +1501,7 @@ export class AstParser {
           const el = this.asNode(elValue);
 
           if (el?.type === 'SpreadElement') {
-            return { __zipbul_spread: this.parseExpression(el.argument) };
+            return { [ZIPBUL_SPREAD]: this.parseExpression(el.argument) };
           }
 
           return this.parseExpression(elValue);
@@ -1512,8 +1518,8 @@ export class AstParser {
         const importSource = this.currentImports[name];
 
         return {
-          __zipbul_ref: this.resolveOriginalName(name),
-          __zipbul_import_source: importSource,
+          [ZIPBUL_REF]: this.resolveOriginalName(name),
+          [ZIPBUL_IMPORT_SOURCE]: importSource,
         };
       }
 
@@ -1529,7 +1535,7 @@ export class AstParser {
         const newCalleeName = this.getString(callee, 'name') ?? UNKNOWN_TYPE_NAME;
 
         return {
-          __zipbul_new: this.resolveOriginalName(newCalleeName),
+          [ZIPBUL_NEW]: this.resolveOriginalName(newCalleeName),
           args: args.map(arg => this.parseExpression(arg)),
         };
       }
@@ -1580,14 +1586,14 @@ export class AstParser {
             const refName = this.getString(argBody, 'name');
 
             if (isNonEmptyString(refName)) {
-              return { __zipbul_lazy_ref: this.resolveOriginalName(refName) };
+              return { [ZIPBUL_LAZY_REF]: this.resolveOriginalName(refName) };
             }
           }
         }
 
         return {
-          __zipbul_call: calleeName,
-          __zipbul_import_source: importSource,
+          [ZIPBUL_CALL]: calleeName,
+          [ZIPBUL_IMPORT_SOURCE]: importSource,
           args: args.map(arg => this.parseExpression(arg)),
         };
       }
@@ -1601,7 +1607,7 @@ export class AstParser {
         const injectCalls = this.extractFactoryInjectCalls(expr, start);
 
         return {
-          __zipbul_factory_code: factoryCode,
+          [ZIPBUL_FACTORY_CODE]: factoryCode,
           __zipbul_factory_deps: deps,
           __zipbul_factory_injects: injectCalls,
         };
@@ -1617,8 +1623,8 @@ export class AstParser {
           const importSource = this.currentImports[objName];
 
           return {
-            __zipbul_ref: `${this.resolveOriginalName(objName)}.${propName}`,
-            __zipbul_import_source: importSource,
+            [ZIPBUL_REF]: `${this.resolveOriginalName(objName)}.${propName}`,
+            [ZIPBUL_IMPORT_SOURCE]: importSource,
           };
         }
 
@@ -1629,7 +1635,7 @@ export class AstParser {
         return this.parseExpression(expr.expression);
 
       case 'SpreadElement':
-        return { __zipbul_spread: this.parseExpression(expr.argument) };
+        return { [ZIPBUL_SPREAD]: this.parseExpression(expr.argument) };
 
       default:
         return null;
