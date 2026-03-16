@@ -594,7 +594,7 @@ export class AdapterDefinitionResolver {
             const middlewareKeys = this.extractDecoratorRefKeys(cls, method, 'UseMiddlewares', `__route_mw__:${cls.className}.${method.name}`, routeRegistrations);
             const phaseMiddlewareKeys = this.extractMiddlewaresDecoratorRefKeys(cls, method, `__route_mw__:${cls.className}.${method.name}`, routeRegistrations, middlewareKeys.length);
             const allMiddlewareKeys = [...middlewareKeys, ...phaseMiddlewareKeys];
-            const errorFilterKeys = this.extractDecoratorRefKeys(cls, method, 'UseExceptionFilters', `__route_ef__:${cls.className}.${method.name}`, routeRegistrations);
+            const errorFilterKeys = this.extractErrorFilterRefKeys(cls, method, `__route_ef__:${cls.className}.${method.name}`, routeRegistrations, fileMap);
             const guardKeys = this.extractDecoratorRefKeys(cls, method, 'UseGuards', `__route_gd__:${cls.className}.${method.name}`, routeRegistrations);
 
             seen.add(id);
@@ -657,7 +657,7 @@ export class AdapterDefinitionResolver {
           const key = `${keyPrefix}:cls:${index}`;
 
           keys.push(key);
-          registrations.push({ key, value: arg });
+          registrations.push({ key, value: arg, kind: 'ref' });
           index++;
         }
       }
@@ -677,13 +677,86 @@ export class AdapterDefinitionResolver {
           const key = `${keyPrefix}:mtd:${index}`;
 
           keys.push(key);
-          registrations.push({ key, value: arg });
+          registrations.push({ key, value: arg, kind: 'ref' });
           index++;
         }
       }
     }
 
     return keys;
+  }
+
+  /**
+   * Extracts error filter refs from `@UseExceptionFilters` decorator.
+   * For each filter class reference, looks up its `@Catch` decorator to extract catchTypes.
+   * Generates `ExceptionFilterEntry` registrations (kind: 'filter').
+   */
+  private extractErrorFilterRefKeys(
+    cls: ClassMetadata,
+    method: { decorators: readonly { name: string; arguments: readonly AnalyzerValue[] }[] },
+    keyPrefix: string,
+    registrations: RouteRegistration[],
+    fileMap: Map<string, FileAnalysis>,
+  ): string[] {
+    const keys: string[] = [];
+    let index = 0;
+
+    const processDecorators = (decorators: readonly { name: string; arguments: readonly AnalyzerValue[] }[], scope: 'cls' | 'mtd'): void => {
+      for (const decorator of decorators) {
+        if (decorator.name !== 'UseExceptionFilters') {
+          continue;
+        }
+
+        for (const arg of decorator.arguments) {
+          const record = this.asRecord(arg);
+          const ref = record !== null ? record[ZIPBUL_REF] : undefined;
+
+          if (typeof ref !== 'string' || ref.length === 0) {
+            continue;
+          }
+
+          const key = `${keyPrefix}:${scope}:${index}`;
+          const catchTypeValues = this.findCatchDecoratorArgs(ref, fileMap);
+
+          keys.push(key);
+          registrations.push({
+            key,
+            value: arg,
+            kind: 'filter',
+            catchTypeValues,
+          });
+          index++;
+        }
+      }
+    };
+
+    processDecorators(cls.decorators, 'cls');
+    processDecorators(method.decorators, 'mtd');
+
+    return keys;
+  }
+
+  /**
+   * Finds `@Catch(...)` decorator arguments on a filter class by scanning the file map.
+   */
+  private findCatchDecoratorArgs(filterClassName: string, fileMap: Map<string, FileAnalysis>): AnalyzerValue[] {
+    for (const analysis of fileMap.values()) {
+      for (const cls of analysis.classes) {
+        if (cls.className !== filterClassName) {
+          continue;
+        }
+
+        for (const decorator of cls.decorators) {
+          if (decorator.name !== 'Catch') {
+            continue;
+          }
+
+          return [...decorator.arguments];
+        }
+      }
+    }
+
+    return [];
   }
 
   /**

@@ -252,8 +252,17 @@ registerRuntimeContext({
     const lines: string[] = [];
 
     for (const reg of registrations) {
-      const serialized = this.injectorGen.serializeValuePublic(reg.value, registry);
-      lines.push(`__container__.set('${reg.key}', () => ${serialized});`);
+      if (reg.kind === 'filter') {
+        const filterRef = this.injectorGen.serializeValuePublic(reg.value, registry);
+        const catchTypes = (reg.catchTypeValues ?? [])
+          .map(ct => this.injectorGen.serializeValuePublic(ct, registry));
+        const catchTypesCode = catchTypes.length > 0 ? `[${catchTypes.join(', ')}]` : '[]';
+
+        lines.push(`__container__.set('${reg.key}', (c) => ({ filter: c.get(${filterRef}), catchTypes: ${catchTypesCode} }));`);
+      } else {
+        const serialized = this.injectorGen.serializeValuePublic(reg.value, registry);
+        lines.push(`__container__.set('${reg.key}', () => ${serialized});`);
+      }
     }
 
     return lines.join('\n');

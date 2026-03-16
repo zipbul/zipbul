@@ -477,5 +477,31 @@ describe('RouteHandler', () => {
       expect(match!.value.middlewares[0]).toBe(mw);
       expect(match!.value.middlewares[1]).toBe(mw);
     });
+
+    it('should not crash when entry has no middlewareKeys/errorFilterKeys/guardKeys fields', () => {
+      // Arrange — simulates CompiledHandlerEntry from compiler that omits optional fields
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { doSomething: () => 'result' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      // Act — entry without pipeline key fields (undefined, not empty arrays)
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#TestCtrl.doSomething',
+        adapterId: 'TestAdapter',
+        controllerKey: 'TestCtrl',
+        methodName: 'doSomething',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['test'],
+        params: [],
+      } as never], controllerInstances);
+
+      // Assert — should register route with empty pipeline arrays, no crash
+      const match = handler.match('GET', '/test');
+      expect(match).toBeDefined();
+      expect(match!.value.middlewares).toEqual([]);
+      expect(match!.value.errorFilters).toEqual([]);
+      expect(match!.value.guards).toEqual([]);
+    });
   });
 });

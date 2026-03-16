@@ -121,9 +121,9 @@ export class RouteHandler {
       const controllerPrefix = this.getControllerPrefix(entry.controllerKey);
       const fullPath = '/' + [controllerPrefix, rawPath].filter(Boolean).join('/').replace(/\/+/g, '/');
 
-      const middlewares = this.resolveMiddlewareKeys(entry.middlewareKeys);
-      const errorFilters = this.resolveErrorFilterKeys(entry.errorFilterKeys);
-      const guards = this.resolveGuardKeys(entry.guardKeys);
+      const middlewares = this.resolveMiddlewareKeys(entry.middlewareKeys ?? []);
+      const errorFilters = this.resolveErrorFilterKeys(entry.errorFilterKeys ?? []);
+      const guards = this.resolveGuardKeys(entry.guardKeys ?? []);
 
       const routeEntry: RouteHandlerEntry = {
         handler,

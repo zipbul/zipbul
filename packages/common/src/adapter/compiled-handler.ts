@@ -42,10 +42,10 @@ export interface CompiledHandlerEntry {
   readonly handlerDecoratorArgs: readonly unknown[];
   /** Compiled parameter metadata for this handler. */
   readonly params: readonly CompiledParamEntry[];
-  /** Container keys for middleware instances. */
-  readonly middlewareKeys: readonly string[];
-  /** Container keys for exception filter instances. */
-  readonly errorFilterKeys: readonly string[];
-  /** Container keys for guard instances. */
-  readonly guardKeys: readonly string[];
+  /** Container keys for route-level middleware definitions. Empty when no `@UseMiddlewares`/`@Middlewares`. */
+  readonly middlewareKeys?: readonly string[];
+  /** Container keys for route-level exception filter entries. Empty when no `@UseExceptionFilters`. */
+  readonly errorFilterKeys?: readonly string[];
+  /** Container keys for route-level guard definitions. Empty when no `@UseGuards`. */
+  readonly guardKeys?: readonly string[];
 }

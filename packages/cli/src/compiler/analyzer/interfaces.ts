@@ -139,10 +139,17 @@ export interface HandlerParamEntry {
 /**
  * Maps a deterministic container key to the original AST value reference
  * for route-level middleware/filter/guard registrations.
+ *
+ * `kind` determines the generated code pattern:
+ * - `'ref'`: `container.set(key, () => value)` — direct reference (middleware, guard)
+ * - `'filter'`: `container.set(key, (c) => ({ filter: c.get(controllerKey), catchTypes: [...] }))` — ExceptionFilterEntry
  */
 export interface RouteRegistration {
   readonly key: string;
   readonly value: AnalyzerValue;
+  readonly kind: 'ref' | 'filter';
+  readonly catchTypeValues?: readonly AnalyzerValue[];
+  readonly controllerKey?: string;
 }
 
 export interface AdapterResolution {
