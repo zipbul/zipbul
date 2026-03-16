@@ -1,5 +1,22 @@
 export class EntryGenerator {
-  generate(userMainImportPath: string, isDev: boolean): string {
+  /**
+   * Generates the entry file content that bootstraps the application.
+   *
+   * @param userMainImportPath - Absolute path to the user's main application module.
+   * @param isDev - Whether this is a dev mode build.
+   * @returns Generated entry file content as a string.
+   * @throws Error if the user main module file does not exist.
+   * @public
+   */
+  async generate(userMainImportPath: string, isDev: boolean): Promise<string> {
+    const exists = await Bun.file(userMainImportPath).exists();
+
+    if (!exists) {
+      throw new Error(
+        `[Zipbul AOT] Entry file '${userMainImportPath}' does not exist. Check the 'entry' path in your configuration.`,
+      );
+    }
+
     return `
 import { Logger } from '@zipbul/logger';
 

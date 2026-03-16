@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { ProviderToken, ZipbulContainer } from './interfaces';
-import type { ZipbulValue } from './types';
+import type { ClassToken, ZipbulValue } from './types';
 import type { LazyRefFactory } from './types';
 
 const injectionStore = new AsyncLocalStorage<ZipbulContainer>();
@@ -31,17 +31,22 @@ function runInInjectionContext<T>(container: ZipbulContainer, fn: () => T): T {
  * In AOT mode, the injection context is set by `runInInjectionContext`,
  * and the compiler guarantees type safety at build time.
  *
+ * When called with a class token, the return type is inferred from the class.
+ * When called with a string or symbol token, the return type is `ZipbulValue`.
+ *
  * @param token - The provider token to inject
- * @returns The resolved provider instance
+ * @returns The resolved provider instance, typed as `T` for class tokens
  * @throws When called outside an injection context
  * @example
  * ```ts
  * class PostsService {
- *   private readonly repo = inject(PostsRepository);
+ *   private readonly repo = inject(PostsRepository); // typed as PostsRepository
  * }
  * ```
  * @public
  */
+function inject<T>(token: ClassToken<T>): T;
+function inject(token: ProviderToken): ZipbulValue;
 function inject(token: ProviderToken): ZipbulValue {
   const container = injectionStore.getStore();
 

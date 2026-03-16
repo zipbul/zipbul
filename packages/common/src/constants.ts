@@ -17,6 +17,9 @@ export const ZIPBUL_COMPUTED_PREFIX = '__zipbul_computed_';
 export const ZIPBUL_COMPUTED_KEY = '__zipbul_computed_key';
 export const ZIPBUL_COMPUTED_VALUE = '__zipbul_computed_value';
 
+/** Marker key for unresolvable AST expressions (ternary, template literal, etc.). */
+export const ZIPBUL_UNRESOLVABLE = '__zipbul_unresolvable';
+
 /** Scoped key separator used in DI container keys (e.g. "ModuleName::ProviderName"). */
 export const SCOPED_KEY_SEPARATOR = '::';
 

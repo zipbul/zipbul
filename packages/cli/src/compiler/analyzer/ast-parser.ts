@@ -20,6 +20,7 @@ import { err, isErr } from '@zipbul/result';
 import {
   ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
   ZIPBUL_FACTORY_CODE, ZIPBUL_SPREAD, ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
+  ZIPBUL_UNRESOLVABLE,
   FRAMEWORK_CREATE_APPLICATION, FRAMEWORK_DEFINE_MODULE,
   TS_UTILITY_TYPES,
 } from '@zipbul/common';
@@ -793,6 +794,10 @@ export class AstParser {
       return absolute;
     }
 
+    // External package imports (e.g. @zipbul/common) may not be resolvable
+    // via Bun.resolveSync — returning the raw importPath is the correct
+    // fallback because the AOT compiler does not need to map external
+    // packages to local source files.
     try {
       const resolved = Bun.resolveSync(importPath, dirname(sourcePath));
 
@@ -861,7 +866,14 @@ export class AstParser {
 
   private extractClassMetadata(node: NodeRecord): Result<ClassMetadata, Diagnostic> {
     const id = this.asNode(node.id);
-    const className = id ? (this.getString(id, 'name') ?? 'Anonymous') : 'Anonymous';
+    const className = id ? (this.getString(id, 'name') ?? '') : '';
+
+    if (className.length === 0) {
+      return err(buildDiagnostic({
+        reason: 'Anonymous classes cannot be used as providers. All classes must have explicit names.',
+        file: this.currentFilePath,
+      }));
+    }
     const decoratorsValue = node.decorators;
     const decoratorValues = asAnalyzerArray(decoratorsValue);
     const decorators = decoratorValues
@@ -1635,7 +1647,12 @@ export class AstParser {
         return { [ZIPBUL_SPREAD]: this.parseExpression(expr.argument) };
 
       default:
-        return null;
+        return {
+          [ZIPBUL_UNRESOLVABLE]: true,
+          nodeType: typeof expr.type === 'string' ? expr.type : 'unknown',
+          start: typeof expr.start === 'number' ? expr.start : undefined,
+          end: typeof expr.end === 'number' ? expr.end : undefined,
+        };
     }
   }
 

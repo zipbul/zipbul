@@ -246,11 +246,25 @@ registerRuntimeContext({
       return '';
     }
 
+    const allKeys = graph.getAllRegisteredKeys();
     const lines: string[] = [];
 
     for (const reg of registrations) {
       if (reg.kind === 'filter') {
         const filterRefName = this.extractRefName(reg.value);
+
+        // C-1: Validate filter class is registered as a provider
+        if (filterRefName !== undefined && graph.classDefinitions.has(filterRefName)) {
+          const filterModule = graph.classMap.get(filterRefName);
+          const filterScopedKeyForValidation = filterModule
+            ? `${filterModule.name}${SCOPED_KEY_SEPARATOR}${filterRefName}`
+            : filterRefName;
+
+          if (!allKeys.has(filterScopedKeyForValidation)) {
+            throw new Error(`[Zipbul AOT] Filter class '${filterRefName}' used in @UseExceptionFilters is not registered as a provider. Add it to the module's providers array or decorate it with @Injectable().`);
+          }
+        }
+
         const filterScopedKey = this.resolveScopedKey(filterRefName, graph);
         const filterAccessCode = filterScopedKey !== undefined
           ? `'${filterScopedKey}'`
@@ -261,6 +275,20 @@ registerRuntimeContext({
 
         lines.push(`__container__.set('${reg.key}', (c) => ({ filter: c.get(${filterAccessCode}), catchTypes: ${catchTypesCode} }));`);
       } else {
+        const refName = this.extractRefName(reg.value);
+
+        // C-1: Validate middleware/guard class is registered as a provider
+        if (refName !== undefined && graph.classDefinitions.has(refName)) {
+          const refModule = graph.classMap.get(refName);
+          const refScopedKey = refModule
+            ? `${refModule.name}${SCOPED_KEY_SEPARATOR}${refName}`
+            : refName;
+
+          if (!allKeys.has(refScopedKey)) {
+            throw new Error(`[Zipbul AOT] Class '${refName}' used in pipeline decorator is not registered as a provider. Add it to the module's providers array or decorate it with @Injectable().`);
+          }
+        }
+
         const serialized = this.injectorGen.serializeValuePublic(reg.value, registry);
         lines.push(`__container__.set('${reg.key}', () => ${serialized});`);
       }

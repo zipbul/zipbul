@@ -12,15 +12,9 @@ import type { Adapter } from './adapter/adapter';
 
 export type ZipbulPrimitive = string | number | boolean | bigint | symbol | null | undefined;
 
-export type ErrorConstructorLike = abstract new (...args: any[]) => Error;
+export type ErrorConstructorLike = abstract new (...args: readonly unknown[]) => Error;
 
-export type ErrorToken =
-  | ErrorConstructorLike
-  | StringConstructor
-  | NumberConstructor
-  | BooleanConstructor
-  | BigIntConstructor
-  | SymbolConstructor;
+export type ErrorToken = ErrorConstructorLike;
 
 export interface ZipbulArray extends Array<ZipbulValue> {}
 
@@ -54,6 +48,17 @@ export type ZipbulValue =
 export interface ZipbulFunction {
   (...args: readonly ZipbulValue[]): ZipbulValue | void;
 }
+
+/**
+ * Factory function signature for `ProviderUseFactory`.
+ * Receives resolved dependencies (from `inject` tokens) as arguments
+ * and must return a non-void value.
+ *
+ * @param args - Resolved dependency instances matching the `inject` array
+ * @returns The constructed provider value
+ * @public
+ */
+export type ProviderFactoryFn = (...args: readonly ZipbulValue[]) => ZipbulValue;
 
 export interface Class<T = ZipbulValue> {
   new (...args: ReadonlyArray<ZipbulValue>): T;

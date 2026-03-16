@@ -104,6 +104,23 @@ export function createDevCommand(deps: DevCommandDeps) {
     }
 
     async function rebuild(): Promise<RebuildResult> {
+      // 파일 레벨 import 순환 감지 (빌드 에러로 처리, 워처는 유지)
+      try {
+        const hasCycle = await ledger.hasCycle();
+        if (hasCycle) {
+          const cyclePaths = await ledger.getCyclePaths(undefined, { maxCycles: 3 });
+          const summary = cyclePaths.map(c => c.join(' \u2192 ')).join('\n');
+          throw new DiagnosticError(
+            buildDiagnostic({ reason: `Circular import chain detected:\n${summary}` }),
+          );
+        }
+      } catch (cycleError) {
+        if (cycleError instanceof DiagnosticError) {
+          throw cycleError;
+        }
+        /* Gildash cycle 감지 실패 시 무시 */
+      }
+
       const fileMap = new Map(fileCache.entries());
       const graph = new ModuleGraph(fileMap, moduleFileName, srcDir, ledger);
 
@@ -170,7 +187,7 @@ export function createDevCommand(deps: DevCommandDeps) {
 
       // entry.ts 생성
       const userMain = resolve(projectRoot, config.entry);
-      const entryContent = entryGen.generate(userMain, true);
+      const entryContent = await entryGen.generate(userMain, true);
 
       await writeIfChanged(join(outDir, 'entry.ts'), entryContent);
 
@@ -429,16 +446,6 @@ export function createDevCommand(deps: DevCommandDeps) {
 
           // 10. 조건부 리빌드
           if (needsRebuild) {
-            // 파일 레벨 import 순환 감지 (경고만, 빌드 중단 안 함)
-            try {
-              const hasCycle = await ledger.hasCycle();
-              if (hasCycle) {
-                const cyclePaths = await ledger.getCyclePaths(undefined, { maxCycles: 3 });
-                const summary = cyclePaths.map(c => c.join(' → ')).join('\n');
-                renderer.warn(`Circular file import detected:\n${summary}`);
-              }
-            } catch { /* Gildash cycle 감지 실패 시 무시 */ }
-
             const rebuildStartedAt = performance.now();
             const allAffected = [...result.changedFiles, ...affectedFiles];
             const impactLog = buildDevIncrementalImpactLog({

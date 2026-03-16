@@ -18,13 +18,14 @@ import { err, isErr } from '@zipbul/result';
 import {
   MiddlewareHook,
   ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_COMPUTED_PREFIX,
+  ZIPBUL_UNRESOLVABLE,
   FRAMEWORK_DEFINE_ADAPTER,
 } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 import { buildDiagnostic } from '../../diagnostics';
 import { PathResolver } from '../../common';
 import { AstParser } from './ast-parser';
-import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from './type-guards';
+import { isRecordValue, isAnalyzerValueArray, isNonEmptyString, isUnresolvable } from './type-guards';
 
 const logger = new Logger('AdapterDefinitionResolver');
 
@@ -577,18 +578,38 @@ export class AdapterDefinitionResolver {
               }));
             }
 
-            const handlerDec = method.decorators.find(dec => handlerDecorators.includes(dec.name));
-            const params = (method.parameters ?? []).map(param => {
+            const matchingDecorators = method.decorators.filter(dec => handlerDecorators.includes(dec.name));
+
+            if (matchingDecorators.length > 1) {
+              return err(buildDiagnostic({
+                reason: `[Zipbul AOT] Handler '${cls.className}.${method.name}' has multiple route decorators (${matchingDecorators.map(dec => '@' + dec.name).join(', ')}). Only one is allowed.`,
+                file: analysis.filePath,
+                symbol: `${cls.className}.${method.name}`,
+              }));
+            }
+
+            const handlerDec = matchingDecorators[0];
+            const params: { name: string; decoratorName?: string; decoratorArgs?: readonly AnalyzerValue[]; metatypeKey?: string }[] = [];
+
+            for (const param of method.parameters ?? []) {
+              if (param.decorators.length > 1) {
+                return err(buildDiagnostic({
+                  reason: `[Zipbul AOT] Parameter '${param.name}' in '${cls.className}.${method.name}' has multiple decorators (${param.decorators.map(dec => '@' + dec.name).join(', ')}). Only one parameter decorator is allowed.`,
+                  file: analysis.filePath,
+                  symbol: `${cls.className}.${method.name}`,
+                }));
+              }
+
               const paramDec = param.decorators[0];
               const metatypeKey = typeof param.type === 'string' ? param.type : undefined;
 
-              return {
+              params.push({
                 name: param.name,
                 ...(paramDec !== undefined ? { decoratorName: paramDec.name } : {}),
                 ...(paramDec !== undefined && paramDec.arguments.length > 0 ? { decoratorArgs: paramDec.arguments } : {}),
                 ...(metatypeKey !== undefined ? { metatypeKey } : {}),
-              };
-            });
+              });
+            }
 
             // Extract route-level pipeline decorator references
             const middlewareKeys = this.extractDecoratorRefKeys(cls, method, 'UseMiddlewares', `__route_mw__:${cls.className}.${method.name}`, routeRegistrations);
@@ -615,9 +636,105 @@ export class AdapterDefinitionResolver {
       }
     }
 
+    // D-4: Warn when a controller has no handler methods registered
+    for (const [controllerName, adapterId] of controllerAdapterMap) {
+      const hasHandler = entries.some(
+        entry => entry.className === controllerName && entry.adapterId === adapterId,
+      );
+
+      if (!hasHandler) {
+        logger.warn(`[Zipbul AOT] Controller '${controllerName}' for adapter '${adapterId}' has no handler methods. Did you forget to add route decorators?`);
+      }
+    }
+
+    // D-3: Detect duplicate routes (same adapter + same decorator/method + same path)
+    const routeConflictCheck = this.detectRouteConflicts(entries, extractions, fileMap);
+    if (isErr(routeConflictCheck)) return routeConflictCheck;
+
     const sorted = entries.sort((a, b) => a.id.localeCompare(b.id));
 
     return { entries: sorted, routeRegistrations };
+  }
+
+  /**
+   * Detects route conflicts where two handlers share the same adapter, HTTP method decorator, and route path.
+   * The full route path is composed of the controller prefix (from controller decorator arg) and
+   * the handler path (from handler decorator arg).
+   *
+   * @param entries - All handler index entries.
+   * @param extractions - Adapter extractions for looking up controller decorator names.
+   * @param fileMap - File analysis map for resolving controller class metadata.
+   * @returns void on success, or a diagnostic error if conflicts are found.
+   */
+  private detectRouteConflicts(
+    entries: HandlerIndexEntry[],
+    extractions: AdapterExtraction[],
+    fileMap: Map<string, FileAnalysis>,
+  ): Result<void, Diagnostic> {
+    const controllerPrefixCache = new Map<string, string>();
+    const controllerDecoratorNames = new Set(
+      extractions.map(extraction => extraction.staticSchema.entryDecorators.controller),
+    );
+
+    const getControllerPrefix = (className: string): string => {
+      const cached = controllerPrefixCache.get(className);
+      if (cached !== undefined) return cached;
+
+      for (const analysis of fileMap.values()) {
+        for (const cls of analysis.classes) {
+          if (cls.className !== className) continue;
+
+          for (const decorator of cls.decorators) {
+            if (!controllerDecoratorNames.has(decorator.name)) continue;
+
+            const firstArg = decorator.arguments[0];
+            const prefix = typeof firstArg === 'string' ? firstArg : '';
+
+            controllerPrefixCache.set(className, prefix);
+            return prefix;
+          }
+        }
+      }
+
+      controllerPrefixCache.set(className, '');
+      return '';
+    };
+
+    const routeKeyToEntry = new Map<string, HandlerIndexEntry>();
+
+    for (const entry of entries) {
+      const prefix = getControllerPrefix(entry.className);
+      const handlerPath = typeof entry.handlerDecoratorArgs[0] === 'string'
+        ? entry.handlerDecoratorArgs[0]
+        : '/';
+      const fullPath = this.joinRoutePaths(prefix, handlerPath);
+      const routeKey = `${entry.adapterId}:${entry.handlerDecorator}:${fullPath}`;
+      const existing = routeKeyToEntry.get(routeKey);
+
+      if (existing !== undefined) {
+        return err(buildDiagnostic({
+          reason: `[Zipbul AOT] Route conflict: @${entry.handlerDecorator}('${fullPath}') is defined on both '${existing.className}.${existing.methodName}' and '${entry.className}.${entry.methodName}'.`,
+        }));
+      }
+
+      routeKeyToEntry.set(routeKey, entry);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Joins a controller prefix and handler path into a normalized route path.
+   *
+   * @param prefix - Controller-level path prefix (e.g. '/users').
+   * @param handlerPath - Handler-level path (e.g. '/:id').
+   * @returns Combined path (e.g. '/users/:id').
+   */
+  private joinRoutePaths(prefix: string, handlerPath: string): string {
+    const normalizedPrefix = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
+    const normalizedHandler = handlerPath.startsWith('/') ? handlerPath : `/${handlerPath}`;
+
+    return `${normalizedPrefix}${normalizedHandler}`;
   }
 
   /**
@@ -650,6 +767,10 @@ export class AdapterDefinitionResolver {
       }
 
       for (const arg of decorator.arguments) {
+        if (isUnresolvable(arg)) {
+          throw new Error(`[Zipbul AOT] @${decoratorName} on '${cls.className}': decorator argument must be a statically resolvable identifier. Found: ${arg.nodeType} expression.`);
+        }
+
         const record = this.asRecord(arg);
         const ref = record !== null ? record[ZIPBUL_REF] : undefined;
 
@@ -670,6 +791,10 @@ export class AdapterDefinitionResolver {
       }
 
       for (const arg of decorator.arguments) {
+        if (isUnresolvable(arg)) {
+          throw new Error(`[Zipbul AOT] @${decoratorName} on '${cls.className}': decorator argument must be a statically resolvable identifier. Found: ${arg.nodeType} expression.`);
+        }
+
         const record = this.asRecord(arg);
         const ref = record !== null ? record[ZIPBUL_REF] : undefined;
 
@@ -708,6 +833,10 @@ export class AdapterDefinitionResolver {
         }
 
         for (const arg of decorator.arguments) {
+          if (isUnresolvable(arg)) {
+            throw new Error(`[Zipbul AOT] @UseExceptionFilters on '${cls.className}': filter argument must be a statically resolvable class reference. Found: ${arg.nodeType} expression.`);
+          }
+
           const record = this.asRecord(arg);
           const ref = record !== null ? record[ZIPBUL_REF] : undefined;
 
@@ -717,6 +846,10 @@ export class AdapterDefinitionResolver {
 
           const key = `${keyPrefix}:${scope}:${index}`;
           const catchTypeValues = this.findCatchDecoratorArgs(ref, fileMap);
+
+          if (catchTypeValues === null) {
+            throw new Error(`[Zipbul AOT] Filter class '${ref}' used in @UseExceptionFilters must have a @Catch decorator.`);
+          }
 
           keys.push(key);
           registrations.push({
@@ -738,8 +871,11 @@ export class AdapterDefinitionResolver {
 
   /**
    * Finds `@Catch(...)` decorator arguments on a filter class by scanning the file map.
+   *
+   * @returns The decorator arguments array when `@Catch` is present (empty array for `@Catch()` with no args),
+   *          or `null` when the class has no `@Catch` decorator at all.
    */
-  private findCatchDecoratorArgs(filterClassName: string, fileMap: Map<string, FileAnalysis>): AnalyzerValue[] {
+  private findCatchDecoratorArgs(filterClassName: string, fileMap: Map<string, FileAnalysis>): AnalyzerValue[] | null {
     for (const analysis of fileMap.values()) {
       for (const cls of analysis.classes) {
         if (cls.className !== filterClassName) {
@@ -753,10 +889,12 @@ export class AdapterDefinitionResolver {
 
           return [...decorator.arguments];
         }
+
+        return null;
       }
     }
 
-    return [];
+    return null;
   }
 
   /**

@@ -13,7 +13,10 @@ import {
 import { type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint } from '../../common';
 import { buildDiagnostic } from '../../diagnostics';
-import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
+import { isRecordValue, isAnalyzerValueArray, isNonEmptyString, isUnresolvable } from '../analyzer/type-guards';
+import { Logger } from '@zipbul/logger';
+
+const logger = new Logger('InjectorGenerator');
 
 type RecordValue = AnalyzerValueRecord;
 
@@ -181,6 +184,8 @@ export class InjectorGenerator {
       return `{ scope: '${scope}', visibleTo: ${visibleToStr} }`;
     };
 
+    const allKeys = graph.getAllRegisteredKeys();
+
     const sortedNodes = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));
 
     sortedNodes.forEach((node: ModuleNode) => {
@@ -212,17 +217,17 @@ export class InjectorGenerator {
               const className = getRefName(clsItem);
 
               if (className === null || className.length === 0) {
-                return 'undefined';
+                throw new Error(`[Zipbul AOT] useClass reference in provider '${token}' of module '${node.name}' could not be resolved. Ensure the class is a valid class reference.`);
               }
 
               const clsDef = graph.classDefinitions.get(className);
 
               if (clsDef === undefined) {
-                return 'undefined';
+                throw new Error(`[Zipbul AOT] useClass '${className}' in provider '${token}' of module '${node.name}' is not found in any module. Ensure the class exists and belongs to a module.`);
               }
 
               const alias = getAlias(clsDef.metadata.className, clsDef.filePath);
-              const deps = this.resolveConstructorDeps(clsDef.metadata, node, graph);
+              const deps = this.resolveConstructorDeps(clsDef.metadata, node, graph, allKeys);
 
               return `new ${alias}(${deps.join(', ')})`;
             });
@@ -235,6 +240,20 @@ export class InjectorGenerator {
 
           if (providerRecord.useExisting !== undefined) {
             const existingToken = this.serializeValue(providerRecord.useExisting, registry);
+
+            // A-4: Validate useExisting target exists (class-based tokens only)
+            const existingRefName = getRefName(providerRecord.useExisting);
+
+            if (isNonEmptyString(existingRefName) && graph.classDefinitions.has(existingRefName)) {
+              const existingTargetModule = graph.classMap.get(existingRefName);
+              const existingScopedKey = existingTargetModule
+                ? `${existingTargetModule.name}${SCOPED_KEY_SEPARATOR}${existingRefName}`
+                : existingRefName;
+
+              if (!allKeys.has(existingScopedKey)) {
+                throw new Error(`[Zipbul AOT] useExisting target '${existingRefName}' in provider '${token}' of module '${node.name}' is not registered in any module.`);
+              }
+            }
 
             factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => c.get(${existingToken}), ${opts});`);
 
@@ -250,7 +269,7 @@ export class InjectorGenerator {
                 : [];
 
             if (factoryFn.length === 0) {
-              return;
+              throw new Error(`[Zipbul AOT] useFactory code for provider '${token}' in module '${node.name}' could not be extracted. Ensure the factory is a statically analyzable function expression.`);
             }
 
             const replacements: Replacement[] = [];
@@ -357,6 +376,11 @@ export class InjectorGenerator {
                   ? `${targetModule.name}${SCOPED_KEY_SEPARATOR}${tokenName}`
                   : tokenName;
 
+              // A-5: Validate factory inject() token exists (class-based tokens only)
+              if (graph.classDefinitions.has(tokenName) && !allKeys.has(resolvedKey)) {
+                throw new Error(`[Zipbul AOT] inject() token '${tokenName}' in useFactory of provider '${token}' in module '${node.name}' is not registered in any module.`);
+              }
+
               replacements.push({ start, end, content: `c.get('${resolvedKey}')` });
             });
 
@@ -375,10 +399,22 @@ export class InjectorGenerator {
               const tokenName = getRefName(injectItem);
 
               if (tokenName === null || tokenName.length === 0) {
-                return 'undefined';
+                throw new Error(`[Zipbul AOT] inject token in useFactory 'inject' list for provider '${token}' of module '${node.name}' could not be resolved. Ensure all inject tokens are valid class references or string tokens.`);
               }
 
               const resolved = graph.resolveToken(node.name, tokenName) ?? tokenName;
+
+              // A-5: Validate inject list token exists (class-based tokens only)
+              if (graph.classDefinitions.has(tokenName)) {
+                const targetModule = graph.classMap.get(tokenName);
+                const scopedKey = targetModule
+                  ? `${targetModule.name}${SCOPED_KEY_SEPARATOR}${tokenName}`
+                  : tokenName;
+
+                if (!allKeys.has(scopedKey) && !allKeys.has(resolved)) {
+                  throw new Error(`[Zipbul AOT] inject() token '${tokenName}' in useFactory 'inject' list of provider '${token}' in module '${node.name}' is not registered in any module.`);
+                }
+              }
 
               return `c.get('${resolved}')`;
             });
@@ -395,7 +431,7 @@ export class InjectorGenerator {
         if (isClassMetadata(ref.metadata)) {
           const clsMeta = ref.metadata;
           const alias = getAlias(clsMeta.className, ref.filePath);
-          const deps = this.resolveConstructorDeps(clsMeta, node, graph);
+          const deps = this.resolveConstructorDeps(clsMeta, node, graph, allKeys);
 
           factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => runInInjectionContext(c, () => new ${alias}(${deps.join(', ')})), ${opts});`);
         }
@@ -624,9 +660,14 @@ ${dynamicEntries.join('\n')}
     return `{ ${props.join(', ')} }`;
   }
 
-  private resolveConstructorDeps(meta: ClassMetadata, node: ModuleNode, graph: ModuleGraph): string[] {
+  private resolveConstructorDeps(meta: ClassMetadata, node: ModuleNode, graph: ModuleGraph, allKeys: Set<string>): string[] {
     return meta.constructorParams.map(param => {
       let token: AnalyzerValue = param.type;
+
+      if (isUnresolvable(token)) {
+        throw new Error(`[Zipbul AOT] Constructor parameter '${param.name}' of '${meta.className}': dependency type must be a statically resolvable class reference. Found: ${token.nodeType} expression.`);
+      }
+
       const refName = getRefName(token);
       const lazyRefName = getLazyRefName(token);
 
@@ -637,19 +678,36 @@ ${dynamicEntries.join('\n')}
       }
 
       if (typeof token !== 'string') {
-        return 'undefined';
+        throw new Error(`[Zipbul AOT] Constructor parameter '${param.name}' of '${meta.className}': dependency type cannot be statically determined. Ensure the parameter has an explicit class type annotation.`);
       }
 
       const resolvedToken = graph.resolveToken(node.name, token);
 
       if (isNonEmptyString(resolvedToken)) {
+        // A-1/H-2: Validate constructor dep token exists (class-based tokens only)
+        if (graph.classDefinitions.has(token) && !allKeys.has(resolvedToken)) {
+          throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
+        }
+
         return `c.get('${resolvedToken}')`;
       }
 
       const targetModule = graph.classMap.get(token);
 
       if (targetModule) {
-        return `c.get('${targetModule.name}${SCOPED_KEY_SEPARATOR}${token}')`;
+        const scopedKey = `${targetModule.name}${SCOPED_KEY_SEPARATOR}${token}`;
+
+        // A-1/H-2: Validate constructor dep token exists (class-based tokens only)
+        if (graph.classDefinitions.has(token) && !allKeys.has(scopedKey)) {
+          throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
+        }
+
+        return `c.get('${scopedKey}')`;
+      }
+
+      // A-1/H-2: Validate bare token if it's a known class reference
+      if (graph.classDefinitions.has(token) && !allKeys.has(token)) {
+        throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
       }
 
       return `c.get('${token}')`;

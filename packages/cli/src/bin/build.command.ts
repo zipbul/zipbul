@@ -181,6 +181,9 @@ export function createBuildCommand(deps: BuildCommandDeps) {
               try {
                 resolvedPath = deps.resolveImport(resolvedPath, dirname(filePath));
               } catch {
+                if (rawImportPath.startsWith('.') || rawImportPath.startsWith('/')) {
+                  renderer.warn(`Could not resolve import '${rawImportPath}' in '${filePath}'`);
+                }
                 continue;
               }
             }
@@ -331,7 +334,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         const entryPointFile = join(buildTempDir, 'entry.ts');
         const entryGen = deps.createEntryGenerator();
-        const buildEntryContent = entryGen.generate(userMain, false);
+        const buildEntryContent = await entryGen.generate(userMain, false);
 
         await writeIfChanged(entryPointFile, buildEntryContent);
 
