@@ -457,6 +457,10 @@ export class InjectorGenerator {
               configParts.push(`'errorFilters': ${this.serializeValue(itemRecord.errorFilters, registry)}`);
             }
 
+            if (itemRecord.guards !== undefined) {
+              configParts.push(`'guards': ${this.serializeValue(itemRecord.guards, registry)}`);
+            }
+
             if (configParts.length > 0) {
               adapterConfigs.push(`  '${configKey}': { ${configParts.join(', ')} },`);
             }
