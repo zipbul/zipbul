@@ -91,40 +91,31 @@ describe('RouteHandler', () => {
       expect(result).toEqual([mw]);
     });
 
-    it('should skip value that is not a MiddlewareDefinition', () => {
+    it('should throw when value is not a MiddlewareDefinition', () => {
       // Arrange
       const container = createStubContainer({ 'key1': { notHandler: true } });
       const handler = createRouteHandler(container);
 
-      // Act
-      const result = handler.__testing__.resolveMiddlewareKeys(['key1']);
-
-      // Assert
-      expect(result).toEqual([]);
+      // Act & Assert
+      expect(() => handler.__testing__.resolveMiddlewareKeys(['key1'])).toThrow();
     });
 
-    it('should log warning and skip when container.get throws', () => {
+    it('should throw when container.get throws', () => {
       // Arrange
       const container = createStubContainer({});
       const handler = createRouteHandler(container);
 
-      // Act
-      const result = handler.__testing__.resolveMiddlewareKeys(['missing-key']);
-
-      // Assert
-      expect(result).toEqual([]);
+      // Act & Assert
+      expect(() => handler.__testing__.resolveMiddlewareKeys(['missing-key'])).toThrow();
     });
 
-    it('should skip null value from container.get', () => {
+    it('should throw when container.get returns null', () => {
       // Arrange
       const container = createStubContainer({ 'key1': null });
       const handler = createRouteHandler(container);
 
-      // Act
-      const result = handler.__testing__.resolveMiddlewareKeys(['key1']);
-
-      // Assert
-      expect(result).toEqual([]);
+      // Act & Assert
+      expect(() => handler.__testing__.resolveMiddlewareKeys(['key1'])).toThrow();
     });
   });
 
@@ -155,16 +146,13 @@ describe('RouteHandler', () => {
       expect(result).toEqual([entry]);
     });
 
-    it('should skip invalid value without filter and catchTypes', () => {
+    it('should throw when value is not an ExceptionFilterEntry', () => {
       // Arrange
       const container = createStubContainer({ 'ef-key': { handler: () => {} } });
       const handler = createRouteHandler(container);
 
-      // Act
-      const result = handler.__testing__.resolveErrorFilterKeys(['ef-key']);
-
-      // Assert
-      expect(result).toEqual([]);
+      // Act & Assert
+      expect(() => handler.__testing__.resolveErrorFilterKeys(['ef-key'])).toThrow();
     });
   });
 
@@ -195,16 +183,13 @@ describe('RouteHandler', () => {
       expect(result).toEqual([guard]);
     });
 
-    it('should skip invalid value without handler function', () => {
+    it('should throw when value is not a GuardDefinition', () => {
       // Arrange
       const container = createStubContainer({ 'gd-key': { notHandler: true } });
       const handler = createRouteHandler(container);
 
-      // Act
-      const result = handler.__testing__.resolveGuardKeys(['gd-key']);
-
-      // Assert
-      expect(result).toEqual([]);
+      // Act & Assert
+      expect(() => handler.__testing__.resolveGuardKeys(['gd-key'])).toThrow();
     });
   });
 

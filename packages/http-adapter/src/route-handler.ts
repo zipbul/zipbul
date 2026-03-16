@@ -207,14 +207,12 @@ export class RouteHandler {
     const resolved: MiddlewareDefinition[] = [];
 
     for (const key of keys) {
-      try {
-        const value = this.container.get(key);
+      const value = this.container.get(key);
 
-        if (this.isMiddlewareDefinition(value)) {
-          resolved.push(value);
-        }
-      } catch {
-        this.logger.warn(`Failed to resolve route middleware: ${key}`);
+      if (this.isMiddlewareDefinition(value)) {
+        resolved.push(value);
+      } else {
+        throw new Error(`[RouteHandler] Container key '${key}' did not resolve to a MiddlewareDefinition`);
       }
     }
 
@@ -229,14 +227,12 @@ export class RouteHandler {
     const resolved: ExceptionFilterEntry[] = [];
 
     for (const key of keys) {
-      try {
-        const value = this.container.get(key);
+      const value = this.container.get(key);
 
-        if (this.isExceptionFilterEntry(value)) {
-          resolved.push(value);
-        }
-      } catch {
-        this.logger.warn(`Failed to resolve route error filter: ${key}`);
+      if (this.isExceptionFilterEntry(value)) {
+        resolved.push(value);
+      } else {
+        throw new Error(`[RouteHandler] Container key '${key}' did not resolve to an ExceptionFilterEntry`);
       }
     }
 
@@ -251,14 +247,12 @@ export class RouteHandler {
     const resolved: GuardDefinition[] = [];
 
     for (const key of keys) {
-      try {
-        const value = this.container.get(key);
+      const value = this.container.get(key);
 
-        if (this.isGuardDefinition(value)) {
-          resolved.push(value);
-        }
-      } catch {
-        this.logger.warn(`Failed to resolve route guard: ${key}`);
+      if (this.isGuardDefinition(value)) {
+        resolved.push(value);
+      } else {
+        throw new Error(`[RouteHandler] Container key '${key}' did not resolve to a GuardDefinition`);
       }
     }
 

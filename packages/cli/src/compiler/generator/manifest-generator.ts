@@ -62,25 +62,22 @@ export class ManifestGenerator {
       const providerTokens = Array.from(node.providers.keys()).sort(compareCodePoint);
 
       providerTokens.forEach((token: string) => {
-        const providerDef = graph.classDefinitions.get(token);
-        const alias = providerDef ? registry.getAlias(providerDef.metadata.className, providerDef.filePath) : token;
+        const providerRef = node.providers.get(token);
+        const providerFilePath = providerRef?.filePath;
+        const fallbackDef = graph.classDefinitions.get(token);
+        const filePath = providerFilePath ?? fallbackDef?.filePath;
+        const alias = filePath ? registry.getAlias(token, filePath) : token;
 
         scopedKeysEntries.push(`  map.set(${alias}, '${node.name}${SCOPED_KEY_SEPARATOR}${token}');`);
-        scopedKeysEntries.push(`  map.set('${token}', '${node.name}${SCOPED_KEY_SEPARATOR}${token}');`);
       });
 
       const controllerNames = Array.from(node.controllers.values()).sort(compareCodePoint);
 
       controllerNames.forEach((ctrlName: string) => {
-        let alias = ctrlName;
         const ctrlDef = graph.classDefinitions.get(ctrlName);
-
-        if (ctrlDef) {
-          alias = registry.getAlias(ctrlName, ctrlDef.filePath);
-        }
+        const alias = ctrlDef ? registry.getAlias(ctrlName, ctrlDef.filePath) : ctrlName;
 
         scopedKeysEntries.push(`  map.set(${alias}, '${node.name}${SCOPED_KEY_SEPARATOR}${ctrlName}');`);
-        scopedKeysEntries.push(`  map.set('${ctrlName}', '${node.name}${SCOPED_KEY_SEPARATOR}${ctrlName}');`);
       });
     });
 
@@ -210,7 +207,7 @@ export const handlerIndex = ${JSON.stringify(handlerIndex)} as const;
 const __container__ = createContainer();
 
 // Route-level pipeline registrations (middleware/filter/guard container keys)
-${this.generateRouteRegistrations(routeRegistrations, registry)}
+${this.generateRouteRegistrations(routeRegistrations, registry, graph)}
 
 function createControllerFactories() {
   const factories = new Map();
@@ -244,7 +241,7 @@ registerRuntimeContext({
 `;
   }
 
-  private generateRouteRegistrations(registrations: readonly RouteRegistration[], registry: ImportRegistry): string {
+  private generateRouteRegistrations(registrations: readonly RouteRegistration[], registry: ImportRegistry, graph: ModuleGraph): string {
     if (registrations.length === 0) {
       return '';
     }
@@ -253,12 +250,16 @@ registerRuntimeContext({
 
     for (const reg of registrations) {
       if (reg.kind === 'filter') {
-        const filterRef = this.injectorGen.serializeValuePublic(reg.value, registry);
+        const filterRefName = this.extractRefName(reg.value);
+        const filterScopedKey = this.resolveScopedKey(filterRefName, graph);
+        const filterAccessCode = filterScopedKey !== undefined
+          ? `'${filterScopedKey}'`
+          : this.injectorGen.serializeValuePublic(reg.value, registry);
         const catchTypes = (reg.catchTypeValues ?? [])
           .map(ct => this.injectorGen.serializeValuePublic(ct, registry));
         const catchTypesCode = catchTypes.length > 0 ? `[${catchTypes.join(', ')}]` : '[]';
 
-        lines.push(`__container__.set('${reg.key}', (c) => ({ filter: c.get(${filterRef}), catchTypes: ${catchTypesCode} }));`);
+        lines.push(`__container__.set('${reg.key}', (c) => ({ filter: c.get(${filterAccessCode}), catchTypes: ${catchTypesCode} }));`);
       } else {
         const serialized = this.injectorGen.serializeValuePublic(reg.value, registry);
         lines.push(`__container__.set('${reg.key}', () => ${serialized});`);
@@ -266,6 +267,20 @@ registerRuntimeContext({
     }
 
     return lines.join('\n');
+  }
+
+  private resolveScopedKey(refName: string | undefined, graph: ModuleGraph): string | undefined {
+    if (refName === undefined) {
+      return undefined;
+    }
+
+    const targetModule = graph.classMap.get(refName);
+
+    if (targetModule) {
+      return `${targetModule.name}${SCOPED_KEY_SEPARATOR}${refName}`;
+    }
+
+    return undefined;
   }
 
   private extractRefName(value: AnalyzerValue): string | undefined {

@@ -191,8 +191,8 @@ export class Scanner {
       const resolvedToken = normalizedToken ?? fallbackToken;
 
       if (resolvedToken === undefined) {
-        console.warn(
-          `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
+        this.logger.warn(
+          `Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
         );
 
         return undefined;
@@ -201,8 +201,8 @@ export class Scanner {
       try {
         return c.get(resolvedToken);
       } catch {
-        console.warn(
-          `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
+        this.logger.warn(
+          `Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
         );
 
         return undefined;

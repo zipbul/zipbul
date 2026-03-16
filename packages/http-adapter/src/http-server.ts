@@ -84,6 +84,18 @@ export class HttpServer {
     this.logger.info(`Listening on :${this.options.port}`);
   }
 
+  /**
+   * Gracefully stops the Bun HTTP server.
+   *
+   * @public
+   */
+  stop(): void {
+    if (this.server) {
+      this.server.stop();
+      this.logger.info('Server stopped');
+    }
+  }
+
   async fetch(req: Request): Promise<Response> {
     const httpMethod = normalizeHttpMethod(req.method);
 

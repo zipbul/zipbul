@@ -153,6 +153,8 @@ export class HttpAdapter extends Adapter {
       http.setRouteErrorFilters(matchResult.value.errorFilters);
     }
 
+    this.logger.debug(`Pipeline: mw=${matchResult.value.middlewares.length} guards=${matchResult.value.guards.length} filters=${matchResult.value.errorFilters.length}`);
+
     const scopedResult = await this.runMiddlewares(matchResult.value.middlewares, context);
 
     if (isErr(scopedResult)) {
@@ -349,6 +351,10 @@ export class HttpAdapter extends Adapter {
   async stop(): Promise<void> {
     if (this.clusterManager !== undefined) {
       await this.clusterManager.destroy();
+    }
+
+    if (this.httpServer !== undefined) {
+      this.httpServer.stop();
     }
   }
 

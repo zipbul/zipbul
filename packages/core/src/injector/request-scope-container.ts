@@ -43,8 +43,8 @@ export class RequestScopeContainer implements ZipbulContainer {
     return instance;
   }
 
-  set<TValue extends ContainerValue = ContainerValue>(token: ProviderToken, factory: (container: ZipbulContainer) => TValue): void {
-    this.parent.set(token, factory);
+  set<TValue extends ContainerValue = ContainerValue>(_token: ProviderToken, _factory: (container: ZipbulContainer) => TValue): void {
+    throw new Error('[Zipbul DI] Cannot register providers on a request-scoped container. Register providers at module level.');
   }
 
   has(token: Token): boolean {

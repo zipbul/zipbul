@@ -61,11 +61,10 @@ export class Container implements ZipbulContainer {
     factory: ZipbulFactory<TValue> | FactoryFn,
     options?: ProviderRegistrationOptions,
   ): void {
-    const wrapped: FactoryFn = c => factory(c);
     const scope: ProviderScope = options?.scope ?? 'singleton';
     const visibleTo: ProviderVisibleTo = options?.visibleTo ?? 'module';
 
-    this.registrations.set(token, { factory: wrapped, scope, visibleTo });
+    this.registrations.set(token, { factory: factory as FactoryFn, scope, visibleTo });
     this.registrationOrder.push(token);
   }
 
@@ -290,14 +289,6 @@ export class Container implements ZipbulContainer {
 
     if (scoped !== undefined) {
       return scoped;
-    }
-
-    if (typeof token === 'function' && token.name.length > 0) {
-      const scopedByName = this.scopedKeys.get(token.name);
-
-      if (scopedByName !== undefined) {
-        return scopedByName;
-      }
     }
 
     return token;

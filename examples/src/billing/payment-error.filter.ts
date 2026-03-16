@@ -1,23 +1,19 @@
-import { ExceptionFilter, type Context, Catch } from '@zipbul/common';
-import { HttpContext } from '@zipbul/http-adapter';
+import { ExceptionFilter, Injectable, err, type Err, type Context, Catch } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 
 import { PaymentFailedError } from './payment-failed.error';
 
+@Injectable()
 @Catch(PaymentFailedError)
 export class PaymentErrorFilter extends ExceptionFilter<PaymentFailedError> {
-  private logger = new Logger('PaymentErrorFilter');
+  private readonly logger = new Logger('PaymentErrorFilter');
 
-  public catch(error: PaymentFailedError, ctx: Context): void {
+  public catch(error: PaymentFailedError, _ctx: Context): Err<unknown> {
     this.logger.error(`[BILLING ERROR] ${error.message}`);
 
-    const http = ctx.to(HttpContext);
-    const res = http.response;
-
-    res.setStatus(402);
-    res.setBody({
-      success: false,
-      error: 'PAYMENT_REQUIRED',
+    return err({
+      status: 402,
+      message: 'PAYMENT_REQUIRED',
       details: error.reason,
       amount: error.amount,
     });

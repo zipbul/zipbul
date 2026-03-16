@@ -20,7 +20,10 @@ const usersService = app.get(UsersService);
 
 logger.info(`UsersService loaded: ${usersService.findAll().length} users`);
 
-process.on('SIGINT', async () => {
+const shutdown = async () => {
   await app.stop();
   process.exit(0);
-});
+};
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
