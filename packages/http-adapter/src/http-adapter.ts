@@ -55,12 +55,12 @@ export class HttpAdapter extends Adapter {
     super();
 
     const normalizedOptions: HttpServerOptions = {
+      name: 'zipbul-http',
+      logLevel: 'debug',
       port: 5000,
       bodyLimit: 10 * 1024 * 1024,
       trustProxy: false,
       ...options,
-      name: 'zipbul-http',
-      logLevel: 'debug',
     };
 
     this.options = normalizedOptions;
@@ -383,6 +383,18 @@ export class HttpAdapter extends Adapter {
     res.setBody(body);
   }
 
+  /**
+   * Converts a successful handler result into an HTTP response.
+   *
+   * When the handler returns a raw `Response` object, this method extracts
+   * its status, headers, and body into the `HttpResponse` builder. This is
+   * an escape hatch that bypasses the normal `HttpResponse` build chain —
+   * use it when direct control over the raw response is required (e.g.
+   * streaming, SSE, or proxied responses).
+   *
+   * @param res - The HTTP response builder.
+   * @param result - The handler's return value.
+   */
   private async writeSuccessResponse(res: HttpResponse, result: unknown): Promise<void> {
     if (result instanceof Response) {
       res.setStatus(result.status);

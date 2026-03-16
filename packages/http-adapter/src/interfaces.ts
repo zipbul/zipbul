@@ -45,7 +45,6 @@ export interface InternalRouteEntry {
 }
 
 export interface HttpServerBootOptions extends HttpServerOptions {
-  readonly options?: HttpServerOptions;
   readonly metadata?: Map<MetadataRegistryKey, ClassMetadata>;
   readonly scopedKeys?: Map<ProviderToken, string>;
   readonly internalRoutes?: readonly InternalRouteEntry[];

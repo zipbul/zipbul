@@ -64,8 +64,8 @@ export class ParamResolver {
           paramValue = resolveParamValue(typeToUse, req, res);
         }
 
-        if (metatype !== undefined && typeof metatype === 'function' && !isPrimitiveMetatype(metatype) && (typeToUse === 'body' || typeToUse === 'query')) {
-          paramValue = await deserialize(metatype as new (...args: unknown[]) => RouteParamValue, paramValue);
+        if (metatype !== undefined && typeof metatype === 'function' && !isPrimitiveMetatype(metatype) && isDeserializableConstructor(metatype) && (typeToUse === 'body' || typeToUse === 'query')) {
+          paramValue = await deserialize(metatype, paramValue);
         }
 
         params.push(paramValue);
@@ -157,4 +157,8 @@ export function normalizeParamKind(value: string | undefined): RouteParamKind | 
 
 function isPrimitiveMetatype(metatype: RouteParamType): boolean {
   return metatype === String || metatype === Boolean || metatype === Number || metatype === Array || metatype === Object;
+}
+
+function isDeserializableConstructor(value: RouteParamType): value is new (...args: unknown[]) => RouteParamValue {
+  return typeof value === 'function' && value.prototype !== undefined;
 }

@@ -6,7 +6,6 @@ import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
 import type { RouteHandlerEntry } from './interfaces';
 import type { MatchOutput, RouterOptions } from '@zipbul/router';
-import type { HttpMethod } from '@zipbul/shared';
 import { isHttpMethod } from './http-method';
 import type {
   ClassMetadata,
@@ -89,7 +88,13 @@ export class RouteHandler {
         continue;
       }
 
-      const handler = this.resolveHandler(instance as ControllerInstance, entry.methodName);
+      if (!this.isControllerInstance(instance)) {
+        this.logger.warn(`Invalid controller instance: ${entry.controllerKey}`);
+
+        continue;
+      }
+
+      const handler = this.resolveHandler(instance, entry.methodName);
       const paramFactory = this.paramResolver.buildParamFactory(
         entry.params.map((param, index) => {
           const decorators = param.decoratorName !== undefined
@@ -121,7 +126,7 @@ export class RouteHandler {
         paramFactory,
       };
 
-      this.router.add(httpMethod as HttpMethod, fullPath, routeEntry);
+      this.router.add(httpMethod, fullPath, routeEntry);
       this.logger.debug(`${httpMethod} ${fullPath} → ${entry.controllerKey}.${entry.methodName} (AOT)`);
       routeCount++;
     }
@@ -183,6 +188,10 @@ export class RouteHandler {
 
     return (...args: readonly RouteHandlerArgument[]): RouteHandlerResult | Promise<RouteHandlerResult> =>
       handler.apply(instance, [...args]);
+  }
+
+  private isControllerInstance(value: unknown): value is ControllerInstance {
+    return typeof value === 'object' && value !== null;
   }
 
   private getControllerPrefix(controllerKey: string): string {

@@ -40,7 +40,7 @@ export class HttpServer {
 
   async boot(_container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
     this.adapter = adapter;
-    this.options = options.options ?? options;
+    this.options = options;
 
     this.logger.debug('Booting...');
 
@@ -134,6 +134,8 @@ export class HttpServer {
     }
 
     if (typeof status === 'number' && status !== StatusCodes.SWITCHING_PROTOCOLS && (status < 200 || status > 599)) {
+      this.logger.warn(`Invalid HTTP status ${status} corrected to 500`);
+
       return new Response(workerRes.body, {
         ...init,
         status: StatusCodes.INTERNAL_SERVER_ERROR,
