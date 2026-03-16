@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-// MUST: MUST-4 (모듈 경계 판정 deterministic)
+// MUST: MUST-4 (module boundary resolution deterministic)
 
 import type { ClassMetadata } from '../interfaces';
 import type { FileAnalysis } from './interfaces';

@@ -1162,7 +1162,7 @@ export class AstParser {
     const errorFilters: ClassMetadata['errorFilters'] = [];
 
     const error = (): never => {
-      throw new Error('[Zipbul AOT] addErrorFilters는 리터럴 배열 + Identifier만 지원합니다.');
+      throw new Error('[Zipbul AOT] addErrorFilters only supports literal arrays and Identifiers.');
     };
 
     const visit = (n: AnalyzerValue): void => {
@@ -1249,7 +1249,7 @@ export class AstParser {
       visit(funcNode.body);
     } catch {
       return err(buildDiagnostic({
-        reason: 'addErrorFilters는 리터럴 배열 + Identifier만 지원합니다.',
+        reason: 'addErrorFilters only supports literal arrays and Identifiers.',
       }));
     }
 
@@ -1260,7 +1260,7 @@ export class AstParser {
     const middlewares: ClassMetadata['middlewares'] = [];
 
     const error = (): never => {
-      throw new Error('[Zipbul AOT] addMiddlewares는 리터럴 배열 + Identifier/withOptions만 지원합니다.');
+      throw new Error('[Zipbul AOT] addMiddlewares only supports literal arrays and Identifier/withOptions.');
     };
 
     const visit = (n: AnalyzerValue): void => {
@@ -1384,7 +1384,7 @@ export class AstParser {
       visit(funcNode.body);
     } catch {
       return err(buildDiagnostic({
-        reason: 'addMiddlewares는 리터럴 배열 + Identifier/withOptions만 지원합니다.',
+        reason: 'addMiddlewares only supports literal arrays and Identifier/withOptions.',
       }));
     }
 

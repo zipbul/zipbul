@@ -104,7 +104,7 @@ export function createDevCommand(deps: DevCommandDeps) {
     }
 
     async function rebuild(): Promise<RebuildResult> {
-      // 파일 레벨 import 순환 감지 (빌드 에러로 처리, 워처는 유지)
+      // File-level import cycle detection (treated as build error, watcher stays alive)
       try {
         const hasCycle = await ledger.hasCycle();
         if (hasCycle) {
@@ -118,7 +118,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         if (cycleError instanceof DiagnosticError) {
           throw cycleError;
         }
-        /* Gildash cycle 감지 실패 시 무시 */
+        /* Gildash cycle detection failure — ignore */
       }
 
       const fileMap = new Map(fileCache.entries());
@@ -156,7 +156,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       await mkdir(outDir, { recursive: true });
       await writeIfChanged(join(outDir, 'manifest.json'), manifestJson);
 
-      // runtime.ts 생성
+      // Generate runtime.ts
       const allClasses: CollectedClass[] = [];
       for (const [filePath, analysis] of fileMap) {
         for (const classMeta of analysis.classes) {
@@ -185,7 +185,7 @@ export function createDevCommand(deps: DevCommandDeps) {
 
       await writeIfChanged(join(outDir, 'runtime.ts'), runtimeResult);
 
-      // entry.ts 생성
+      // Generate entry.ts
       const userMain = resolve(projectRoot, config.entry);
       const entryContent = await entryGen.generate(userMain, true);
 
@@ -322,7 +322,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       { label: 'Entry', value: toProjectRelativePath(join(outDir, 'entry.ts')) },
     ]);
 
-    // 앱 프로세스 시작
+    // Start app process
     const processManager = new DevProcessManager({
       entryPath: join(outDir, 'entry.ts'),
       cwd: projectRoot,
@@ -340,7 +340,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         indexQueue = indexQueue.then(async () => {
           renderer.separator();
 
-          // 1. 삭제 파일 제거
+          // 1. Remove deleted files
           for (const file of result.deletedFiles) {
             fileCache.delete(file);
             fingerprintCache.delete(file);
@@ -350,12 +350,12 @@ export function createDevCommand(deps: DevCommandDeps) {
             renderer.info(`Deleted: ${result.deletedFiles.map(toProjectRelativePath).join(', ')}`);
           }
 
-          // 2. 파싱 실패 파일 로깅
+          // 2. Log parse-failed files
           for (const file of result.failedFiles) {
             renderer.warn(`File could not be indexed: ${toProjectRelativePath(file)}`);
           }
 
-          // 3. 심볼 레벨 변경 분석 (changedSymbols)
+          // 3. Analyze symbol-level changes (changedSymbols)
           const { added, modified, removed } = result.changedSymbols;
 
           if (removed.length > 0) {
@@ -377,14 +377,14 @@ export function createDevCommand(deps: DevCommandDeps) {
             }
           }
 
-          // 4. 비앱 파일만 변경된 경우 스킵
+          // 4. Skip if only non-app files changed
           const hasAppChanges = result.changedFiles.some(shouldAnalyzeFile);
           if (!hasAppChanges && result.deletedFiles.length === 0) {
             renderer.info('No app files changed, skipping restart');
             return;
           }
 
-          // 5. 변경 파일 재분석 전 핑거프린트 저장
+          // 5. Save fingerprints before re-analyzing changed files
           const oldFingerprints = new Map<string, string>();
           for (const file of result.changedFiles) {
             if (shouldAnalyzeFile(file)) {
@@ -395,14 +395,14 @@ export function createDevCommand(deps: DevCommandDeps) {
             }
           }
 
-          // 6. 변경 파일 자체 재분석 (getAffected는 변경 파일 제외)
+          // 6. Re-analyze changed files themselves (getAffected excludes changed files)
           for (const file of result.changedFiles) {
             if (shouldAnalyzeFile(file)) {
               await analyzeFile(file);
             }
           }
 
-          // 7. 영향 파일 계산 (파일 레벨)
+          // 7. Compute affected files (file-level)
           let affectedFiles: string[];
           try {
             affectedFiles = await ledger.getAffected(result.changedFiles);
@@ -410,7 +410,7 @@ export function createDevCommand(deps: DevCommandDeps) {
             affectedFiles = [];
           }
 
-          // 8. 영향 파일 재분석 전 핑거프린트 저장 + 재분석
+          // 8. Save fingerprints + re-analyze affected files
           for (const file of affectedFiles) {
             if (shouldAnalyzeFile(file)) {
               const existing = fingerprintCache.get(file);
@@ -421,7 +421,7 @@ export function createDevCommand(deps: DevCommandDeps) {
             }
           }
 
-          // 9. 구조적 변경 여부 판단
+          // 9. Determine if structural change occurred
           let needsRebuild = result.deletedFiles.length > 0;
 
           if (!needsRebuild) {
@@ -434,7 +434,7 @@ export function createDevCommand(deps: DevCommandDeps) {
             }
           }
 
-          // 새로 추가된 파일 (이전 핑거프린트 없음) → 리빌드 필요
+          // Newly added files (no previous fingerprint) → rebuild required
           if (!needsRebuild) {
             for (const file of result.changedFiles) {
               if (shouldAnalyzeFile(file) && !oldFingerprints.has(file) && fingerprintCache.has(file)) {
@@ -444,7 +444,7 @@ export function createDevCommand(deps: DevCommandDeps) {
             }
           }
 
-          // 10. 조건부 리빌드
+          // 10. Conditional rebuild
           if (needsRebuild) {
             const rebuildStartedAt = performance.now();
             const allAffected = [...result.changedFiles, ...affectedFiles];
@@ -488,7 +488,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         });
       });
 
-      // 시그널 핸들링
+      // Signal handling
       let shuttingDown = false;
 
       const shutdown = async (signal: string): Promise<void> => {
@@ -502,7 +502,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         unsubscribe();
         unsubscribeError();
         unsubscribeRole();
-        try { await ledger.close(); } catch { /* cleanup 실패 무시 */ }
+        try { await ledger.close(); } catch { /* cleanup failure — ignore */ }
         process.exit(0);
       };
 
@@ -512,7 +512,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       await processManager.stop();
       unsubscribeError();
       unsubscribeRole();
-      try { await ledger.close(); } catch { /* cleanup 실패 무시 */ }
+      try { await ledger.close(); } catch { /* cleanup failure — ignore */ }
       throw error;
     }
   };

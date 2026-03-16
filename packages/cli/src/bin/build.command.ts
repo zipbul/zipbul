@@ -241,7 +241,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
       const graphSpinner = renderer.startSpinner('[2/4] 🧩 Building module graph');
 
-      // gildash 파일 레벨 순환 감지 + semantic DI 검증
+      // gildash file-level cycle detection + semantic DI validation
       const openGildash = deps.createGildash ?? ((opts: GildashOptions) => Gildash.open(opts));
       const ignorePatterns = ['dist', '.zipbul', '.gildash'];
       let ledger: Gildash;

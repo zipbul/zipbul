@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-// MUST: MUST-1 (createApplication 식별)
-// MUST: MUST-5 (DI cycle 존재 시 build failure)
+// MUST: MUST-1 (createApplication identification)
+// MUST: MUST-5 (DI cycle detection → build failure)
 
 import type { FileAnalysis } from '../analyzer/graph/interfaces';
 

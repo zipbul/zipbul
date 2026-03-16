@@ -5,7 +5,7 @@ import { ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
 import type { ParseResult } from './parser-models';
 import type { AnalyzerValueRecord } from './types';
 
-// MUST: MUST-1 (createApplication 식별)
+// MUST: MUST-1 (createApplication identification)
 
 import { AstParser } from './ast-parser';
 
