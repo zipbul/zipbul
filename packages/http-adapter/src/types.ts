@@ -1,6 +1,7 @@
 import type {
   ExceptionFilter,
   MiddlewareDefinition,
+  ZipbulValue,
   Class,
   ClassToken,
   PrimitiveArray,
@@ -12,11 +13,13 @@ import type { CookieMap } from 'bun';
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
 
-export type { HttpMethod } from '@zipbul/shared';
+import type { HttpMethod } from '@zipbul/shared';
+
+export type { HttpMethod };
 
 export type HeadersInit = Headers | Array<[string, string]> | Record<string, string>;
 
-export type HttpWorkerRpcCallable = (...args: readonly unknown[]) => unknown | Promise<unknown>;
+export type HttpWorkerRpcCallable = (...args: ReadonlyArray<ZipbulValue>) => ZipbulValue | Promise<ZipbulValue>;
 
 export type HttpWorkerRpc = Record<string, HttpWorkerRpcCallable>;
 

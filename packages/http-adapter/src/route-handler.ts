@@ -84,10 +84,18 @@ export class RouteHandler {
         continue;
       }
 
-      const instance = this.container.get(entry.controllerKey);
+      let instance: unknown;
+
+      try {
+        instance = this.container.get(entry.controllerKey);
+      } catch {
+        this.logger.warn(`Cannot resolve controller: ${entry.controllerKey}`);
+
+        continue;
+      }
 
       if (instance === undefined || instance === null) {
-        this.logger.warn(`Cannot resolve controller: ${entry.controllerKey}`);
+        this.logger.warn(`Controller instance is empty: ${entry.controllerKey}`);
 
         continue;
       }

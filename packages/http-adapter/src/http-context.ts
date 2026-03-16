@@ -18,7 +18,7 @@ export class HttpContext {
     return HTTP_CONTEXT_TYPE;
   }
 
-  get(_key: string): unknown {
+  get(_key: string): undefined {
     return undefined;
   }
 
