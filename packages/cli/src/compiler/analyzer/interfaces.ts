@@ -136,7 +136,17 @@ export interface HandlerParamEntry {
   metatypeKey?: string;
 }
 
+/**
+ * Maps a deterministic container key to the original AST value reference
+ * for route-level middleware/filter/guard registrations.
+ */
+export interface RouteRegistration {
+  readonly key: string;
+  readonly value: AnalyzerValue;
+}
+
 export interface AdapterResolution {
   adapterStaticSchemas: Record<string, AdapterStaticSchema>;
   handlerIndex: HandlerIndexEntry[];
+  routeRegistrations: RouteRegistration[];
 }

@@ -538,6 +538,18 @@ ${dynamicEntries.join('\n')}
 `;
   }
 
+  /**
+   * Serializes an analyzer value to generated code string.
+   * Used by ManifestGenerator for route-level pipeline registrations.
+   *
+   * @param value - The analyzer value (identifier reference, literal, etc.)
+   * @param registry - The import registry for tracking required imports.
+   * @returns Generated code string.
+   */
+  serializeValuePublic(value: AnalyzerValue, registry: ImportRegistry): string {
+    return this.serializeValue(value, registry);
+  }
+
   private serializeValue(value: AnalyzerValue, registry: ImportRegistry): string {
     if (value === undefined) {
       return 'undefined';

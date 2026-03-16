@@ -321,7 +321,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }));
 
         const runtimeFile = join(buildTempDir, 'runtime.ts');
-        const runtimeResult = manifestGen.generate(graph, allClasses, buildTempDir, resolvedHandlerIndex);
+        const runtimeResult = manifestGen.generate(graph, allClasses, buildTempDir, resolvedHandlerIndex, adapterResolution.routeRegistrations);
 
         if (isErr(runtimeResult)) {
           throw new DiagnosticError(runtimeResult.data);

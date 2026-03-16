@@ -160,7 +160,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         controllerKey: controllerKeyMap.get(entry.className) ?? entry.className,
       }));
 
-      const runtimeResult = manifestGen.generate(graph, allClasses, outDir, resolvedHandlerIndex);
+      const runtimeResult = manifestGen.generate(graph, allClasses, outDir, resolvedHandlerIndex, adapterResolution.routeRegistrations);
 
       if (isErr(runtimeResult)) {
         throw new DiagnosticError(runtimeResult.data);

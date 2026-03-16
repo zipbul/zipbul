@@ -3,7 +3,7 @@ import { dirname, relative } from 'path';
 import type { Result } from '@zipbul/result';
 import type { AnalyzerValue } from '../analyzer/types';
 import type { Diagnostic } from '../../diagnostics/types';
-import type { HandlerIndexEntry } from '../analyzer/interfaces';
+import type { HandlerIndexEntry, RouteRegistration } from '../analyzer/interfaces';
 import type {
   ManifestDiNode,
   ManifestJsonModel,
@@ -31,7 +31,7 @@ export class ManifestGenerator {
 
   private metadataGen = new MetadataGenerator();
 
-  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string, handlerIndex: readonly HandlerIndexEntry[] = []): Result<string, Diagnostic> {
+  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string, handlerIndex: readonly HandlerIndexEntry[] = [], routeRegistrations: readonly RouteRegistration[] = []): Result<string, Diagnostic> {
     const registry = new ImportRegistry(outputDir);
     const sortedClasses = [...classes].sort((a, b) => {
       const nameDiff = compareCodePoint(a.metadata.className, b.metadata.className);
@@ -209,6 +209,9 @@ export const handlerIndex = ${JSON.stringify(handlerIndex)} as const;
 
 const __container__ = createContainer();
 
+// Route-level pipeline registrations (middleware/filter/guard container keys)
+${this.generateRouteRegistrations(routeRegistrations, registry)}
+
 function createControllerFactories() {
   const factories = new Map();
 ${controllerEntries.join('\n')}
@@ -239,6 +242,21 @@ registerRuntimeContext({
 });
 
 `;
+  }
+
+  private generateRouteRegistrations(registrations: readonly RouteRegistration[], registry: ImportRegistry): string {
+    if (registrations.length === 0) {
+      return '';
+    }
+
+    const lines: string[] = [];
+
+    for (const reg of registrations) {
+      const serialized = this.injectorGen.serializeValuePublic(reg.value, registry);
+      lines.push(`__container__.set('${reg.key}', () => ${serialized});`);
+    }
+
+    return lines.join('\n');
   }
 
   private extractRefName(value: AnalyzerValue): string | undefined {

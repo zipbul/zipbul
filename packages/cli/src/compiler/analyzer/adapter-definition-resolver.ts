@@ -7,6 +7,7 @@ import type {
   AdapterStaticSchema,
   AdapterEntryDecoratorsSchema,
   HandlerIndexEntry,
+  RouteRegistration,
 } from './interfaces';
 import type { ClassMetadata } from './interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord, DecoratorArguments } from './types';
@@ -104,10 +105,14 @@ export class AdapterDefinitionResolver {
     const middlewareValidation = this.validateMiddlewarePhaseInputs(adapterExtractions, fileMap, controllerAdapterMap);
     if (isErr(middlewareValidation)) return middlewareValidation;
 
-    const handlerIndex = this.buildHandlerIndex(adapterExtractions, fileMap, projectRoot, controllerAdapterMap);
-    if (isErr(handlerIndex)) return handlerIndex;
+    const handlerIndexResult = this.buildHandlerIndex(adapterExtractions, fileMap, projectRoot, controllerAdapterMap);
+    if (isErr(handlerIndexResult)) return handlerIndexResult;
 
-    return { adapterStaticSchemas, handlerIndex };
+    return {
+      adapterStaticSchemas,
+      handlerIndex: handlerIndexResult.entries,
+      routeRegistrations: handlerIndexResult.routeRegistrations,
+    };
   }
 
   private collectPackageEntryFiles(fileMap: Map<string, FileAnalysis>): string[] {
@@ -505,8 +510,9 @@ export class AdapterDefinitionResolver {
     fileMap: Map<string, FileAnalysis>,
     projectRoot: string,
     controllerAdapterMap: Map<string, string>,
-  ): Result<HandlerIndexEntry[], Diagnostic> {
+  ): Result<{ entries: HandlerIndexEntry[]; routeRegistrations: RouteRegistration[] }, Diagnostic> {
     const entries: HandlerIndexEntry[] = [];
+    const routeRegistrations: RouteRegistration[] = [];
     const seen = new Set<string>();
 
     for (const analysis of fileMap.values()) {
@@ -584,6 +590,11 @@ export class AdapterDefinitionResolver {
               };
             });
 
+            // Extract route-level pipeline decorator references
+            const middlewareKeys = this.extractDecoratorRefKeys(cls, method, 'UseMiddlewares', `__route_mw__:${cls.className}.${method.name}`, routeRegistrations);
+            const errorFilterKeys = this.extractDecoratorRefKeys(cls, method, 'UseExceptionFilters', `__route_ef__:${cls.className}.${method.name}`, routeRegistrations);
+            const guardKeys = this.extractDecoratorRefKeys(cls, method, 'UseGuards', `__route_gd__:${cls.className}.${method.name}`, routeRegistrations);
+
             seen.add(id);
             entries.push({
               id,
@@ -593,6 +604,9 @@ export class AdapterDefinitionResolver {
               handlerDecorator: handlerDec?.name ?? '',
               handlerDecoratorArgs: handlerDec?.arguments ?? [],
               params,
+              ...(middlewareKeys.length > 0 ? { middlewareKeys } : {}),
+              ...(errorFilterKeys.length > 0 ? { errorFilterKeys } : {}),
+              ...(guardKeys.length > 0 ? { guardKeys } : {}),
             });
           }
         }
@@ -601,7 +615,73 @@ export class AdapterDefinitionResolver {
 
     const sorted = entries.sort((a, b) => a.id.localeCompare(b.id));
 
-    return sorted;
+    return { entries: sorted, routeRegistrations };
+  }
+
+  /**
+   * Extracts decorator argument references from class-level and method-level decorators,
+   * generating deterministic container keys and route registrations for each reference.
+   *
+   * Class-level decorators are placed first (pipeline order), method-level after.
+   *
+   * @param cls - The class metadata.
+   * @param method - The method metadata.
+   * @param decoratorName - The decorator name to search for (e.g. 'UseMiddlewares').
+   * @param keyPrefix - Prefix for generated container keys.
+   * @param registrations - Accumulator for route-level container registrations.
+   * @returns Array of deterministic container keys.
+   */
+  private extractDecoratorRefKeys(
+    cls: ClassMetadata,
+    method: { decorators: readonly { name: string; arguments: readonly AnalyzerValue[] }[] },
+    decoratorName: string,
+    keyPrefix: string,
+    registrations: RouteRegistration[],
+  ): string[] {
+    const keys: string[] = [];
+    let index = 0;
+
+    // Class-level first (applies to all handlers in this controller)
+    for (const decorator of cls.decorators) {
+      if (decorator.name !== decoratorName) {
+        continue;
+      }
+
+      for (const arg of decorator.arguments) {
+        const record = this.asRecord(arg);
+        const ref = record !== null ? record[ZIPBUL_REF] : undefined;
+
+        if (typeof ref === 'string' && ref.length > 0) {
+          const key = `${keyPrefix}:cls:${index}`;
+
+          keys.push(key);
+          registrations.push({ key, value: arg });
+          index++;
+        }
+      }
+    }
+
+    // Method-level second
+    for (const decorator of method.decorators) {
+      if (decorator.name !== decoratorName) {
+        continue;
+      }
+
+      for (const arg of decorator.arguments) {
+        const record = this.asRecord(arg);
+        const ref = record !== null ? record[ZIPBUL_REF] : undefined;
+
+        if (typeof ref === 'string' && ref.length > 0) {
+          const key = `${keyPrefix}:mtd:${index}`;
+
+          keys.push(key);
+          registrations.push({ key, value: arg });
+          index++;
+        }
+      }
+    }
+
+    return keys;
   }
 
   private validateMiddlewarePhaseInputs(
