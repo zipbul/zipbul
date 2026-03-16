@@ -222,7 +222,11 @@ export class HttpAdapter extends Adapter {
    * @param context - The HTTP context.
    * @public
    */
-  forceCloseConnection(context: Context): void {
+  forceCloseConnection(context: Context, error?: unknown): void {
+    if (error instanceof Error) {
+      this.logger.error(`forceCloseConnection: ${error.message}`, error);
+    }
+
     const http = context.to(HttpContext);
     const res = http.response;
 

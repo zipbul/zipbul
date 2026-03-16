@@ -35,7 +35,7 @@ export abstract class Adapter {
   abstract handleResult(result: Result<unknown, unknown>, context: Context): Promise<void> | void;
 
   /** Emergency connection teardown when `handleResult` itself throws. */
-  abstract forceCloseConnection(context: Context): void;
+  abstract forceCloseConnection(context: Context, error?: unknown): void;
 
   /**
    * Boots the adapter and begins accepting requests.
@@ -142,8 +142,8 @@ export abstract class Adapter {
 
       try {
         await this.handleResult(filterResult, context);
-      } catch {
-        this.forceCloseConnection(context);
+      } catch (handleError) {
+        this.forceCloseConnection(context, handleError);
       }
     } finally {
       try {
