@@ -21,4 +21,5 @@ export interface RuntimeContext {
   isAotRuntime?: boolean;
   adapterConfig?: Record<string, AdapterMiddlewareConfig>;
   handlerIndex?: readonly CompiledHandlerEntry[];
+  controllerInstances?: Map<string, unknown>;
 }

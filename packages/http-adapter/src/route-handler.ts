@@ -1,4 +1,4 @@
-import type { ZipbulContainer, CompiledHandlerEntry } from '@zipbul/common';
+import type { CompiledHandlerEntry } from '@zipbul/common';
 
 import { Logger } from '@zipbul/logger';
 
@@ -30,7 +30,6 @@ interface RouteHandlerDecoratorConfig {
 }
 
 export class RouteHandler {
-  private readonly container: ZipbulContainer;
   private readonly metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>;
   private readonly decoratorConfig: RouteHandlerDecoratorConfig;
   private readonly router: Router<RouteHandlerEntry>;
@@ -38,12 +37,10 @@ export class RouteHandler {
   private readonly logger = Logger.inherit();
 
   constructor(
-    container: ZipbulContainer,
     metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
     decoratorConfig: RouteHandlerDecoratorConfig,
     routerOptions?: RouterOptions,
   ) {
-    this.container = container;
     this.metadataRegistry = metadataRegistry;
     this.decoratorConfig = decoratorConfig;
     this.paramResolver = new ParamResolver(metadataRegistry);
@@ -70,7 +67,7 @@ export class RouteHandler {
    * @param entries - Compiled handler entries from AOT.
    * @public
    */
-  registerFromHandlerIndex(entries: readonly CompiledHandlerEntry[]): void {
+  registerFromHandlerIndex(entries: readonly CompiledHandlerEntry[], controllerInstances?: Map<string, unknown>): void {
     let routeCount = 0;
 
     for (const entry of entries) {
@@ -84,18 +81,10 @@ export class RouteHandler {
         continue;
       }
 
-      let instance: unknown;
-
-      try {
-        instance = this.container.get(entry.controllerKey);
-      } catch {
-        this.logger.warn(`Cannot resolve controller: ${entry.controllerKey}`);
-
-        continue;
-      }
+      const instance = controllerInstances?.get(entry.controllerKey);
 
       if (instance === undefined || instance === null) {
-        this.logger.warn(`Controller instance is empty: ${entry.controllerKey}`);
+        this.logger.warn(`Cannot resolve controller: ${entry.controllerKey}`);
 
         continue;
       }

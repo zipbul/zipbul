@@ -32,15 +32,13 @@ const normalizeHttpMethod = (value: string): HttpMethod | undefined => {
 };
 
 export class HttpServer {
-  private container: ZipbulContainer;
   private adapter: HttpAdapter;
   private readonly logger = Logger.inherit();
 
   private options: HttpServerOptions;
   private server: Server<unknown>;
 
-  async boot(container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
-    this.container = container;
+  async boot(_container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
     this.adapter = adapter;
     this.options = options.options ?? options;
 
@@ -54,10 +52,10 @@ export class HttpServer {
       handlerDecoratorNames: this.adapter.decorators.handlers.map(h => h.name),
     };
 
-    const routeHandler = new RouteHandler(this.container, metadataRegistry, decoratorConfig);
+    const routeHandler = new RouteHandler(metadataRegistry, decoratorConfig);
 
     if (options.handlerIndex !== undefined && options.handlerIndex.length > 0) {
-      routeHandler.registerFromHandlerIndex(options.handlerIndex);
+      routeHandler.registerFromHandlerIndex(options.handlerIndex, options.controllerInstances);
     }
 
     if (Array.isArray(options.internalRoutes) && options.internalRoutes.length > 0) {

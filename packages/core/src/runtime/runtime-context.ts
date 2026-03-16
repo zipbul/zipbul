@@ -41,6 +41,12 @@ export function registerRuntimeContext(context: RuntimeContext): void {
     nextContext.handlerIndex = currentContext.handlerIndex;
   }
 
+  if (context.controllerInstances !== undefined) {
+    nextContext.controllerInstances = context.controllerInstances;
+  } else if (currentContext.controllerInstances !== undefined) {
+    nextContext.controllerInstances = currentContext.controllerInstances;
+  }
+
   if (nextContext.container && nextContext.scopedKeys) {
     nextContext.container.setScopedKeys(nextContext.scopedKeys);
   }

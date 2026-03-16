@@ -52,6 +52,7 @@ export interface HttpServerBootOptions extends HttpServerOptions {
   readonly errorFilters?: readonly ExceptionFilterToken[];
   readonly logger?: unknown;
   readonly handlerIndex?: readonly CompiledHandlerEntry[];
+  readonly controllerInstances?: Map<string, unknown>;
 }
 
 export interface HttpAdapterStartContext extends Context {

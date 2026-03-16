@@ -78,6 +78,50 @@ export class ManifestGenerator {
       });
     });
 
+    const controllerEntries: string[] = [];
+
+    sortedNodes.forEach((node: ModuleNode) => {
+      const controllerNames = Array.from(node.controllers.values()).sort(compareCodePoint);
+
+      controllerNames.forEach((ctrlName: string) => {
+        const ctrlDef = graph.classDefinitions.get(ctrlName);
+
+        if (!ctrlDef) {
+          return;
+        }
+
+        const alias = registry.getAlias(ctrlName, ctrlDef.filePath);
+        const scopedKey = `${node.name}::${ctrlName}`;
+        const deps = ctrlDef.metadata.constructorParams.map(param => {
+          const refName = this.extractRefName(param.type);
+
+          if (typeof refName === 'string' && refName.length > 0) {
+            const targetModule = graph.classMap.get(refName);
+
+            if (targetModule) {
+              return `__container__.get('${targetModule.name}::${refName}')`;
+            }
+
+            return `__container__.get('${refName}')`;
+          }
+
+          if (typeof param.type === 'string' && param.type.length > 0) {
+            const targetModule = graph.classMap.get(param.type);
+
+            if (targetModule) {
+              return `__container__.get('${targetModule.name}::${param.type}')`;
+            }
+
+            return `__container__.get('${param.type}')`;
+          }
+
+          return 'undefined';
+        });
+
+        controllerEntries.push(`  factories.set('${scopedKey}', () => runInInjectionContext(__container__, () => new ${alias}(${deps.join(', ')})));`);
+      });
+    });
+
     const imports = registry.getImportStatements().join('\n');
 
     return `
@@ -159,6 +203,22 @@ export const handlerIndex = ${JSON.stringify(handlerIndex)} as const;
 
 const __container__ = createContainer();
 
+function createControllerFactories() {
+  const factories = new Map();
+${controllerEntries.join('\n')}
+  return factories;
+}
+
+const __controllerFactories__ = createControllerFactories();
+
+function resolveControllerInstances() {
+  const instances = new Map();
+  for (const [key, factory] of __controllerFactories__) {
+    instances.set(key, factory());
+  }
+  return instances;
+}
+
 registerRuntimeContext({
   container: __container__,
   metadataRegistry,
@@ -168,7 +228,29 @@ registerRuntimeContext({
   handlerIndex,
 });
 
+registerRuntimeContext({
+  controllerInstances: resolveControllerInstances(),
+});
+
 `;
+  }
+
+  private extractRefName(value: AnalyzerValue): string | undefined {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return undefined;
+    }
+
+    const record = value as AnalyzerValueRecord;
+
+    if (typeof record.__zipbul_ref === 'string') {
+      return record.__zipbul_ref;
+    }
+
+    if (typeof record.__zipbul_lazy_ref === 'string') {
+      return record.__zipbul_lazy_ref;
+    }
+
+    return undefined;
   }
 
   generateJson(params: ManifestJsonParams): string {
