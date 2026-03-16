@@ -13,7 +13,6 @@ import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
 import type {
   ClassMetadata,
-  ControllerConstructor,
   RouteHandlerArgument,
   RouteHandlerResult,
   HttpWorkerResponseBody,
@@ -57,22 +56,13 @@ export interface HttpAdapterStartContext extends Context {
 }
 
 export interface HttpWorkerEntryModule {
-  readonly path?: string;
   readonly className: string;
   readonly manifestPath?: string;
-  readonly manifest?: HttpWorkerManifest;
 }
 
 export interface HttpWorkerInitParams {
   readonly entryModule: HttpWorkerEntryModule;
   readonly options: HttpServerOptions;
-}
-
-export interface HttpWorkerManifest {
-  createContainer(): ZipbulContainer;
-  createMetadataRegistry?(): Map<ControllerConstructor, ClassMetadata>;
-  createScopedKeysMap?(): Map<ProviderToken, string>;
-  registerDynamicModules?(container: ZipbulContainer): Promise<void> | void;
 }
 
 export interface HttpWorkerResponse {

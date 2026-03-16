@@ -319,14 +319,12 @@ export class HttpAdapter extends Adapter {
       size: workers,
     });
 
-    const sanitizedEntryModule = {
-      path: 'unknown',
-      className: entryModule.name,
-    };
+    const manifestPath = this.resolveManifestPath();
+
     const initParams: ZipbulRecord = {
       entryModule: {
-        path: sanitizedEntryModule.path,
-        className: sanitizedEntryModule.className,
+        className: entryModule.name,
+        manifestPath,
       },
       options: {
         ...this.options,
@@ -341,6 +339,27 @@ export class HttpAdapter extends Adapter {
     if (this.clusterManager !== undefined) {
       await this.clusterManager.destroy();
     }
+  }
+
+  /**
+   * Resolves the AOT manifest module path for cluster workers.
+   * In AOT mode, the manifest is `runtime.js`/`runtime.ts` next to the entry script.
+   * Workers import this path to trigger `registerRuntimeContext()` and populate the full RuntimeContext.
+   *
+   * @returns Absolute file path to the manifest module, or empty string if not in AOT mode.
+   */
+  private resolveManifestPath(): string {
+    const isAotRuntime = getRuntimeContext().isAotRuntime === true;
+
+    if (!isAotRuntime) {
+      return '';
+    }
+
+    const entryPath = Bun.argv[1] ?? '';
+    const entryDir = entryPath.lastIndexOf('/') >= 0 ? entryPath.slice(0, entryPath.lastIndexOf('/')) : '.';
+    const ext = entryPath.endsWith('.ts') ? '.ts' : '.js';
+
+    return `${entryDir}/runtime${ext}`;
   }
 
   protected resolveWorkerScript(): URL {

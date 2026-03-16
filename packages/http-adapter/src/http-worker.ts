@@ -1,12 +1,13 @@
-import type { ZipbulRecord, ProviderToken } from '@zipbul/common';
+import type { ZipbulRecord, ZipbulContainer, CompiledHandlerEntry } from '@zipbul/common';
+import { MiddlewareHook } from '@zipbul/common';
 import type { RpcArgs, RpcCallable } from '@zipbul/core/src/cluster/types';
 
-import { ClusterBaseWorker, Container, type ClusterWorkerId, expose } from '@zipbul/core';
+import { ClusterBaseWorker, Container, type ClusterWorkerId, expose, getRuntimeContext } from '@zipbul/core';
 import { Logger } from '@zipbul/logger';
 
-import type { HttpServerBootOptions, HttpWorkerInitParams, HttpWorkerManifest } from './interfaces';
-import type { ClassMetadata, ControllerConstructor } from './types';
+import type { HttpServerBootOptions, HttpWorkerInitParams } from './interfaces';
 
+import { HttpAdapter } from './http-adapter';
 import { HttpServer } from './http-server';
 
 class HttpWorker extends ClusterBaseWorker {
@@ -26,8 +27,8 @@ class HttpWorker extends ClusterBaseWorker {
     await Logger.runScoped(this.logger, () => this.initInternal(workerId, params));
   }
 
-  private async initInternal(workerId: ClusterWorkerId, params: Parameters<ClusterBaseWorker['init']>[1]): Promise<void> {
-    this.logger.info(`🔧 Zipbul HTTP Worker #${workerId} is initializing...`);
+  private async initInternal(_workerId: ClusterWorkerId, params: Parameters<ClusterBaseWorker['init']>[1]): Promise<void> {
+    this.logger.info(`Zipbul HTTP Worker #${_workerId} is initializing...`);
 
     if (!this.isHttpWorkerInitParams(params)) {
       throw new Error('Invalid worker init params for HttpWorker.');
@@ -35,66 +36,81 @@ class HttpWorker extends ClusterBaseWorker {
 
     const { options, entryModule } = params;
     const manifestPath = entryModule.manifestPath;
-    const manifest = entryModule.manifest;
 
-    if (this.isHttpWorkerManifest(manifest)) {
-      if (typeof manifestPath === 'string' && manifestPath.length > 0) {
-        this.logger.info(`⚡ AOT Worker Load: ${manifestPath}`);
-      }
-
-      const container = manifest.createContainer();
-      const metadataRegistry = manifest.createMetadataRegistry?.() ?? new Map<ControllerConstructor, ClassMetadata>();
-      const scopedKeysMap = manifest.createScopedKeysMap?.() ?? new Map<ProviderToken, string>();
-
-      if (typeof manifest.registerDynamicModules === 'function') {
-        this.logger.info('⚡ Loading Dynamic Modules...');
-
-        await manifest.registerDynamicModules(container);
-      }
-
-      this.httpServer = new HttpServer();
-
-      // Pass combined options including metadata for Runtime to use
-      const bootOptions: HttpServerBootOptions = {
-        ...options,
-        metadata: metadataRegistry,
-        scopedKeys: scopedKeysMap,
-      };
-
-      await this.httpServer.boot(container, bootOptions);
-    } else {
-      if (typeof manifestPath === 'string' && manifestPath.length > 0) {
-        this.logger.warn('⚠️ AOT manifest path provided but manifest module is missing. Falling back to JIT.');
-      }
-
-      this.logger.warn('⚠️ Standard Mode (JIT) - Booting without AOT Manifest');
-
-      // Basic JIT Container Setup
-      const container = new Container();
-
-      this.httpServer = new HttpServer();
-
-      // Boot without pre-compiled metadata - Runtime will rely on what's available
-      await this.httpServer.boot(container, options);
+    // Step 1: Load AOT manifest module (triggers registerRuntimeContext as side effect)
+    if (typeof manifestPath === 'string' && manifestPath.length > 0) {
+      this.logger.info(`AOT Worker Load: ${manifestPath}`);
+      await import(manifestPath);
     }
+
+    const runtimeCtx = getRuntimeContext();
+    const container: ZipbulContainer = runtimeCtx.container ?? new Container();
+
+    // Step 2: Create HttpAdapter instance
+    const adapter = new HttpAdapter(options);
+
+    // Step 3: Wire pipeline from adapterConfig
+    const configKey = adapter.constructor.name;
+    const config = runtimeCtx.adapterConfig?.[configKey];
+
+    if (config?.middlewares !== undefined) {
+      for (const hook of Object.values(MiddlewareHook)) {
+        const middlewares = config.middlewares[hook];
+
+        if (middlewares !== undefined && middlewares.length > 0) {
+          adapter.addMiddlewares(hook, middlewares);
+        }
+      }
+    }
+
+    if (config?.errorFilters !== undefined && config.errorFilters.length > 0) {
+      adapter.addExceptionFilterEntries(config.errorFilters);
+    }
+
+    if (config?.guards !== undefined && config.guards.length > 0) {
+      adapter.addGuards(config.guards);
+    }
+
+    // Step 4: Build controllerInstances from handlerIndex
+    const handlerIndex = runtimeCtx.handlerIndex ?? [];
+    const controllerInstances = runtimeCtx.controllerInstances ?? this.buildControllerInstances(handlerIndex, container);
+
+    // Step 5: Boot HttpServer with adapter
+    this.httpServer = new HttpServer();
+
+    const bootOptions: HttpServerBootOptions = {
+      ...options,
+      ...(handlerIndex.length > 0 ? { handlerIndex } : {}),
+      ...(controllerInstances.size > 0 ? { controllerInstances } : {}),
+    };
+
+    await this.httpServer.boot(container, bootOptions, adapter);
   }
 
   bootstrap() {
-    this.logger.info(`🚀 Zipbul HTTP Worker #${this.id} is bootstrapping...`);
+    this.logger.info(`Zipbul HTTP Worker #${this.id} is bootstrapping...`);
   }
 
   destroy() {
-    this.logger.info(`🛑 Worker #${this.id} is destroying...`);
+    this.logger.info(`Worker #${this.id} is destroying...`);
   }
 
-  private isHttpWorkerManifest(value: unknown): value is HttpWorkerManifest {
-    if (!this.isRecord(value)) {
-      return false;
+  private buildControllerInstances(handlerIndex: readonly CompiledHandlerEntry[], container: ZipbulContainer): Map<string, unknown> {
+    const instances = new Map<string, unknown>();
+
+    for (const entry of handlerIndex) {
+      if (instances.has(entry.controllerKey)) {
+        continue;
+      }
+
+      try {
+        instances.set(entry.controllerKey, container.get(entry.controllerKey));
+      } catch (error) {
+        this.logger.warn(`Failed to resolve controller: ${entry.controllerKey}`, error instanceof Error ? error : undefined);
+      }
     }
 
-    const createContainer = value.createContainer;
-
-    return typeof createContainer === 'function';
+    return instances;
   }
 
   private isHttpWorkerInitParams(value: unknown): value is HttpWorkerInitParams {
