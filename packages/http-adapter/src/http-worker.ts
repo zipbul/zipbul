@@ -63,13 +63,15 @@ class HttpWorker extends ClusterBaseWorker {
       }
     }
 
-    if (config?.errorFilters !== undefined && config.errorFilters.length > 0) {
-      adapter.addExceptionFilterEntries(config.errorFilters);
+    if (config?.exceptionFilters !== undefined && config.exceptionFilters.length > 0) {
+      adapter.addExceptionFilters(config.exceptionFilters);
     }
 
     if (config?.guards !== undefined && config.guards.length > 0) {
       adapter.addGuards(config.guards);
     }
+
+    adapter.initializePipeline(container);
 
     // Step 4: Build controllerInstances from handlerIndex
     const handlerIndex = runtimeCtx.handlerIndex ?? [];

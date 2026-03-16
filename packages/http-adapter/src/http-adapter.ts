@@ -149,11 +149,11 @@ export class HttpAdapter extends Adapter {
 
     req.params = matchResult.params;
 
-    if (matchResult.value.errorFilters.length > 0) {
-      http.setRouteErrorFilters(matchResult.value.errorFilters);
+    if (matchResult.value.exceptionFilters.length > 0) {
+      http.setRouteExceptionFilters(matchResult.value.exceptionFilters);
     }
 
-    this.logger.debug(`Pipeline: mw=${matchResult.value.middlewares.length} guards=${matchResult.value.guards.length} filters=${matchResult.value.errorFilters.length}`);
+    this.logger.debug(`Pipeline: mw=${matchResult.value.middlewares.length} guards=${matchResult.value.guards.length} filters=${matchResult.value.exceptionFilters.length}`);
 
     const scopedResult = await this.runMiddlewares(matchResult.value.middlewares, context);
 
@@ -164,7 +164,7 @@ export class HttpAdapter extends Adapter {
     // Route-level guards: after route middlewares, before param resolution
     if (matchResult.value.guards.length > 0) {
       for (const guard of matchResult.value.guards) {
-        const guardResult = await guard.handler(context);
+        const guardResult = await guard(context);
 
         if (isErr(guardResult)) {
           return guardResult;
@@ -259,7 +259,7 @@ export class HttpAdapter extends Adapter {
    */
   override async runExceptionFilters(error: unknown, context: Context): Promise<Err<unknown>> {
     const http = context.to(HttpContext);
-    const routeFilters = http.routeErrorFilters;
+    const routeFilters = http.routeExceptionFilters;
 
     if (routeFilters !== undefined) {
       for (const entry of routeFilters) {
@@ -267,7 +267,7 @@ export class HttpAdapter extends Adapter {
           continue;
         }
 
-        return await entry.filter.catch(error, context);
+        return await entry.handler(error, context);
       }
     }
 

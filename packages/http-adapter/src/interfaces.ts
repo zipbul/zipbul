@@ -2,12 +2,12 @@ import type {
   ApplicationOptions,
   CompiledHandlerEntry,
   ZipbulContainer,
-  ExceptionFilterEntry,
-  MiddlewareDefinition,
+  ResolvedMiddleware,
+  ResolvedExceptionFilter,
   Class,
   Context,
   ProviderToken,
-  GuardDefinition,
+  GuardHandlerFn,
 } from '@zipbul/common';
 
 import type { HttpRequest } from './http-request';
@@ -74,8 +74,8 @@ export interface HttpWorkerResponse {
 export interface RouteHandlerEntry {
   readonly handler: RouteHandlerFunction;
   readonly methodName: string;
-  readonly middlewares: MiddlewareDefinition[];
-  readonly errorFilters: readonly ExceptionFilterEntry[];
-  readonly guards: readonly GuardDefinition[];
+  readonly middlewares: readonly ResolvedMiddleware[];
+  readonly exceptionFilters: readonly ResolvedExceptionFilter[];
+  readonly guards: readonly GuardHandlerFn[];
   readonly paramFactory: (req: HttpRequest, res: HttpResponse) => Promise<readonly RouteParamValue[]>;
 }

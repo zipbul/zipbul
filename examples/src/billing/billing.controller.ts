@@ -5,7 +5,7 @@ import { Logger } from '@zipbul/logger';
 import { AuditService } from './audit.service';
 import { auditMiddleware } from './audit.middleware';
 import { ChargeDto } from './charge.dto';
-import { PaymentErrorFilter } from './payment-error.filter';
+import { paymentExceptionFilter } from './payment-error.filter';
 import { PaymentFailedError } from './payment-failed.error';
 
 @RestController('billing')
@@ -15,7 +15,7 @@ export class BillingController {
   private readonly auditService = inject(AuditService);
 
   @Post('charge')
-  @UseExceptionFilters(PaymentErrorFilter)
+  @UseExceptionFilters(paymentExceptionFilter)
   charge(@Body() body: ChargeDto) {
     const amount = body.amount || 0;
 

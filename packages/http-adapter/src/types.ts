@@ -1,5 +1,4 @@
 import type {
-  ExceptionFilter,
   MiddlewareDefinition,
   ZipbulValue,
   Class,
@@ -83,7 +82,6 @@ export type ControllerInstance = Record<string, RouteHandlerArgument | RouteHand
 
 export type ContainerInstance =
   | ControllerInstance
-  | ExceptionFilter
   | RouteHandlerArgument
   | RouteHandlerFunction
   | null

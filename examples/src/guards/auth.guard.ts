@@ -1,7 +1,7 @@
 import { defineGuard, err } from '@zipbul/common';
 import { HttpContext } from '@zipbul/http-adapter';
 
-export const authGuard = defineGuard((ctx) => {
+export const authGuard = defineGuard(() => (ctx) => {
   const http = ctx.to(HttpContext);
   const token = http.request.headers.get('authorization') ?? '';
 

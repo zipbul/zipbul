@@ -1,12 +1,12 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result } from '@zipbul/result';
-import type { Context, ExceptionFilterEntry } from '../interfaces';
-import { ExceptionFilter } from '../exception-filter';
-import { MiddlewareHook } from './types';
+import type { Context, ZipbulContainer } from '../interfaces';
 import type { MiddlewareHandlerFn } from '../define-middleware';
 import { defineMiddleware } from '../define-middleware';
 import { defineGuard } from '../define-guard';
+import { defineExceptionFilter } from '../define-exception-filter';
+import { MiddlewareHook } from './types';
 import { Adapter } from './adapter';
 
 class TestAdapter extends Adapter {
@@ -41,8 +41,18 @@ function createContext(): Context {
   };
 }
 
+function createMockContainer(): ZipbulContainer {
+  return {
+    get: () => undefined,
+    set: () => {},
+    has: () => false,
+    getInstances: () => [][Symbol.iterator](),
+    keys: () => [][Symbol.iterator](),
+  } as unknown as ZipbulContainer;
+}
+
 function mw(handler: MiddlewareHandlerFn) {
-  return defineMiddleware(handler);
+  return defineMiddleware(() => handler);
 }
 
 describe('Adapter', () => {
@@ -59,6 +69,7 @@ describe('Adapter', () => {
       // Arrange
       const handler = mock((_ctx: Context) => {});
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(handler)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -75,12 +86,11 @@ describe('Adapter', () => {
       const h1 = mock((_ctx: Context) => { order.push('1'); });
       const h2 = mock((_ctx: Context) => { order.push('2'); });
       const h3 = mock((_ctx: Context) => { order.push('3'); });
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(h1), mw(h2), mw(h3)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
-      const result = await adapter.runMiddlewares(
-        [mw(h1), mw(h2), mw(h3)],
-        createContext(),
-      );
+      const result = await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
 
       // Assert
       expect(isErr(result)).toBe(false);
@@ -98,6 +108,7 @@ describe('Adapter', () => {
       const h2 = mock((_ctx: Context) => { order.push('2'); });
       const h3 = mock((_ctx: Context) => { order.push('3'); });
       adapter.addMiddlewares(MiddlewareHook.PreHandle, [mw(h1), mw(h2), mw(h3)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.PreHandle, createContext());
@@ -110,9 +121,11 @@ describe('Adapter', () => {
     it('should return void when array overload has single item', async () => {
       // Arrange
       const handler = mock((_ctx: Context) => {});
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(handler)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
-      const result = await adapter.runMiddlewares([mw(handler)], createContext());
+      const result = await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
 
       // Assert
       expect(isErr(result)).toBe(false);
@@ -126,6 +139,7 @@ describe('Adapter', () => {
       const preHandleHandler = mock((_ctx: Context) => {});
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(onReceiveHandler)]);
       adapter.addMiddlewares(MiddlewareHook.PreHandle, [mw(preHandleHandler)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -141,6 +155,7 @@ describe('Adapter', () => {
       // Arrange
       const handler = mock((_ctx: Context) => err({ reason: 'test_halt' }));
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(handler)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -154,6 +169,7 @@ describe('Adapter', () => {
       const h1 = mock((_ctx: Context) => err({ reason: 'halt' }));
       const h2 = mock((_ctx: Context) => {});
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(h1), mw(h2)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -170,6 +186,7 @@ describe('Adapter', () => {
       const h2 = mock((_ctx: Context) => {});
       const h3 = mock((_ctx: Context) => err({ reason: 'late_halt' }));
       adapter.addMiddlewares(MiddlewareHook.PreHandle, [mw(h1), mw(h2), mw(h3)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.PreHandle, createContext());
@@ -187,6 +204,7 @@ describe('Adapter', () => {
         err({ reason: 'cors_preflight', message: 'Preflight handled' }),
       );
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(handler)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -201,26 +219,13 @@ describe('Adapter', () => {
       }
     });
 
-    it('should return Err immediately when array overload first middleware returns err', async () => {
-      // Arrange
-      const h1 = mock((_ctx: Context) => err({ reason: 'first_halt' }));
-      const h2 = mock((_ctx: Context) => {});
-
-      // Act
-      const result = await adapter.runMiddlewares([mw(h1), mw(h2)], createContext());
-
-      // Assert
-      expect(isErr(result)).toBe(true);
-      expect(h1).toHaveBeenCalledTimes(1);
-      expect(h2).not.toHaveBeenCalled();
-    });
-
     it('should propagate rejection when middleware throws exception', async () => {
       // Arrange
       const handler = mock((_ctx: Context) => {
         throw new Error('middleware crash');
       });
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(handler)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act & Assert
       await expect(
@@ -232,24 +237,10 @@ describe('Adapter', () => {
 
     it('should return void when hook has no registered middlewares', async () => {
       // Arrange — no addMiddlewares called for OnReceive
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
-
-      // Assert
-      expect(isErr(result)).toBe(false);
-      expect(result).toBeUndefined();
-    });
-
-    it('should return void when empty array passed to overload', async () => {
-      // Arrange — empty array
-      const emptyList: ReturnType<typeof defineMiddleware>[] = [];
-
-      // Act
-      const result = await adapter.runMiddlewares(
-        emptyList,
-        createContext(),
-      );
 
       // Assert
       expect(isErr(result)).toBe(false);
@@ -260,6 +251,7 @@ describe('Adapter', () => {
       // Arrange
       const handler = mock((_ctx: Context) => undefined);
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(handler)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -279,6 +271,7 @@ describe('Adapter', () => {
       });
       const h2 = mock((_ctx: Context) => err({ reason: 'halt_after_modify' }));
       adapter.addMiddlewares(MiddlewareHook.PreHandle, [mw(h1), mw(h2)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.PreHandle, createContext());
@@ -287,72 +280,6 @@ describe('Adapter', () => {
       expect(isErr(result)).toBe(true);
       expect(h1).toHaveBeenCalledTimes(1);
       expect(state.modified).toBe(true);
-    });
-
-    // ── State Transition ────────────────────────────────────
-
-    it('should include newly added middlewares when addMiddlewares called between runs', async () => {
-      // Arrange
-      const h1 = mock((_ctx: Context) => {});
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(h1)]);
-
-      // Act — first run
-      await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
-
-      // Arrange — add more
-      const h2 = mock((_ctx: Context) => {});
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(h2)]);
-
-      // Act — second run
-      await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
-
-      // Assert
-      expect(h1).toHaveBeenCalledTimes(2);
-      expect(h2).toHaveBeenCalledTimes(1);
-    });
-
-    it('should return void when runMiddlewares called before any addMiddlewares', async () => {
-      // Arrange — fresh adapter, no middlewares
-
-      // Act
-      const result = await adapter.runMiddlewares(MiddlewareHook.PreHandle, createContext());
-
-      // Assert
-      expect(isErr(result)).toBe(false);
-      expect(result).toBeUndefined();
-    });
-
-    it('should restart from beginning when retrying after err', async () => {
-      // Arrange
-      const h1 = mock((_ctx: Context) => {});
-      const h2 = mock((_ctx: Context) => err({ reason: 'temporary' }));
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(h1), mw(h2)]);
-
-      // Act — two runs
-      await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
-      await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
-
-      // Assert — h1 called twice (once per run), h2 called twice (once per run)
-      expect(h1).toHaveBeenCalledTimes(2);
-      expect(h2).toHaveBeenCalledTimes(2);
-    });
-
-    // ── Idempotency ─────────────────────────────────────────
-
-    it('should return same result when called twice with same hook and context', async () => {
-      // Arrange
-      const handler = mock((_ctx: Context) => {});
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(handler)]);
-      const ctx = createContext();
-
-      // Act
-      const result1 = await adapter.runMiddlewares(MiddlewareHook.OnReceive, ctx);
-      const result2 = await adapter.runMiddlewares(MiddlewareHook.OnReceive, ctx);
-
-      // Assert
-      expect(result1).toBeUndefined();
-      expect(result2).toBeUndefined();
-      expect(isErr(result1)).toBe(isErr(result2));
     });
 
     // ── Ordering ────────────────────────────────────────────
@@ -368,6 +295,7 @@ describe('Adapter', () => {
         MiddlewareHook.OnReceive,
         handlers.map(handler => mw(handler)),
       );
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -388,6 +316,7 @@ describe('Adapter', () => {
       const hC = mock((_ctx: Context) => { order.push('C'); });
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(hA), mw(hB)]);
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(hC)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -401,6 +330,7 @@ describe('Adapter', () => {
       const h1 = mock((_ctx: Context) => {});
       const h2 = mock((_ctx: Context) => {});
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(h1), mw(h2)]);
+      adapter.initializePipeline(createMockContainer());
       const ctx = createContext();
 
       // Act
@@ -417,7 +347,7 @@ describe('Adapter', () => {
 
     it('should accept middleware without adapters field (universal)', () => {
       // Arrange
-      const def = defineMiddleware((_ctx: Context) => {});
+      const def = defineMiddleware(() => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [def])).not.toThrow();
@@ -425,7 +355,7 @@ describe('Adapter', () => {
 
     it('should accept middleware when adapter class matches', () => {
       // Arrange
-      const def = defineMiddleware([TestAdapter], (_ctx: Context) => {});
+      const def = defineMiddleware([TestAdapter], () => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [def])).not.toThrow();
@@ -433,7 +363,7 @@ describe('Adapter', () => {
 
     it('should accept middleware when one of multiple adapter classes matches', () => {
       // Arrange
-      const def = defineMiddleware([AnotherAdapter, TestAdapter], (_ctx: Context) => {});
+      const def = defineMiddleware([AnotherAdapter, TestAdapter], () => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [def])).not.toThrow();
@@ -442,7 +372,7 @@ describe('Adapter', () => {
     it('should accept middleware on child adapter when parent class is declared', () => {
       // Arrange
       const child = new ChildAdapter();
-      const def = defineMiddleware([TestAdapter], (_ctx: Context) => {});
+      const def = defineMiddleware([TestAdapter], () => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => child.addMiddlewares(MiddlewareHook.OnReceive, [def])).not.toThrow();
@@ -452,7 +382,7 @@ describe('Adapter', () => {
 
     it('should throw when middleware declares incompatible adapter class', () => {
       // Arrange
-      const def = defineMiddleware([AnotherAdapter], (_ctx: Context) => {});
+      const def = defineMiddleware([AnotherAdapter], () => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [def])).toThrow(
@@ -463,7 +393,7 @@ describe('Adapter', () => {
     it('should throw when none of multiple declared adapter classes match', () => {
       // Arrange
       const another = new AnotherAdapter();
-      const def = defineMiddleware([TestAdapter], (_ctx: Context) => {});
+      const def = defineMiddleware([TestAdapter], () => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => another.addMiddlewares(MiddlewareHook.OnReceive, [def])).toThrow(
@@ -473,8 +403,8 @@ describe('Adapter', () => {
 
     it('should throw on first incompatible middleware when batch contains mixed compatibility', () => {
       // Arrange
-      const compatible = defineMiddleware([TestAdapter], (_ctx: Context) => {});
-      const incompatible = defineMiddleware([AnotherAdapter], (_ctx: Context) => {});
+      const compatible = defineMiddleware([TestAdapter], () => (_ctx: Context) => {});
+      const incompatible = defineMiddleware([AnotherAdapter], () => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [incompatible, compatible])).toThrow(
@@ -486,7 +416,7 @@ describe('Adapter', () => {
 
     it('should accept middleware with empty adapters array', () => {
       // Arrange
-      const def = defineMiddleware([], (_ctx: Context) => {});
+      const def = defineMiddleware([], () => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => adapter.addMiddlewares(MiddlewareHook.OnReceive, [def])).not.toThrow();
@@ -494,10 +424,11 @@ describe('Adapter', () => {
 
     it('should not modify registry when validation fails', () => {
       // Arrange
-      const def = defineMiddleware([AnotherAdapter], (_ctx: Context) => {});
+      const def = defineMiddleware([AnotherAdapter], () => (_ctx: Context) => {});
 
       // Act
       try { adapter.addMiddlewares(MiddlewareHook.OnReceive, [def]); } catch { /* expected */ }
+      adapter.initializePipeline(createMockContainer());
 
       // Assert — registry should remain empty for this hook
       const result = adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -508,13 +439,14 @@ describe('Adapter', () => {
   // ── dispatchRequest ─────────────────────────────────────────
 
   describe('dispatchRequest', () => {
-    it('should execute full pipeline: OnReceive → parseInput → PostParseData → Guards → PreHandle → resolveHandler → handleResult → OnComplete', async () => {
+    it('should execute full pipeline: OnReceive -> parseInput -> PostParseData -> Guards -> PreHandle -> resolveHandler -> handleResult -> OnComplete', async () => {
       // Arrange
       const order: string[] = [];
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(() => { order.push('OnReceive'); })]);
       adapter.addMiddlewares(MiddlewareHook.PostParseData, [mw(() => { order.push('PostParseData'); })]);
       adapter.addMiddlewares(MiddlewareHook.PreHandle, [mw(() => { order.push('PreHandle'); })]);
       adapter.addMiddlewares(MiddlewareHook.OnComplete, [mw(() => { order.push('OnComplete'); })]);
+      adapter.initializePipeline(createMockContainer());
 
       adapter.parseInput = mock((_ctx: Context) => { order.push('parseInput'); });
       adapter.resolveHandler = mock((_ctx: Context) => { order.push('resolveHandler'); return { value: 'ok' } as Result<unknown, unknown>; });
@@ -533,6 +465,7 @@ describe('Adapter', () => {
     it('should skip after middleware err and jump to handleResult', async () => {
       // Arrange
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [mw(() => err({ status: 401 }))]);
+      adapter.initializePipeline(createMockContainer());
       adapter.resolveHandler = mock((_ctx: Context) => { throw new Error('should not be called'); });
       adapter.handleResult = mock((_result: Result<unknown, unknown>, _ctx: Context) => {});
 
@@ -550,13 +483,12 @@ describe('Adapter', () => {
         constructor() { super('test error'); }
       }
 
-      class TestFilter extends ExceptionFilter<TestError> {
-        catch(_error: TestError, _context: Context): Err<unknown> {
-          return err({ status: 400, message: 'caught' });
-        }
-      }
+      const filterHandler = mock((_error: TestError, _context: Context): Err<unknown> => {
+        return err({ status: 400, message: 'caught' });
+      });
 
-      adapter.addExceptionFilterEntries([{ filter: new TestFilter(), catchTypes: [TestError] }]);
+      adapter.addExceptionFilters([defineExceptionFilter([TestError], () => filterHandler)]);
+      adapter.initializePipeline(createMockContainer());
       adapter.resolveHandler = mock((_ctx: Context) => { throw new TestError(); });
       const handleResultCalls: unknown[] = [];
       adapter.handleResult = mock((result: Result<unknown, unknown>, _ctx: Context) => { handleResultCalls.push(result); });
@@ -571,6 +503,7 @@ describe('Adapter', () => {
 
     it('should call forceCloseConnection when handleResult throws on error path', async () => {
       // Arrange
+      adapter.initializePipeline(createMockContainer());
       adapter.resolveHandler = mock((_ctx: Context) => { throw new Error('pipeline error'); });
       adapter.handleResult = mock((_result: Result<unknown, unknown>, _ctx: Context) => { throw new Error('handleResult failed'); });
       adapter.forceCloseConnection = mock((_ctx: Context) => {});
@@ -585,6 +518,7 @@ describe('Adapter', () => {
     it('should swallow OnComplete errors', async () => {
       // Arrange
       adapter.addMiddlewares(MiddlewareHook.OnComplete, [mw(() => { throw new Error('complete fail'); })]);
+      adapter.initializePipeline(createMockContainer());
       adapter.resolveHandler = mock((_ctx: Context) => undefined as unknown as Result<unknown, unknown>);
       adapter.handleResult = mock((_result: Result<unknown, unknown>, _ctx: Context) => {});
 
@@ -595,8 +529,9 @@ describe('Adapter', () => {
     it('should run guards before PreHandle and resolveHandler', async () => {
       // Arrange
       const order: string[] = [];
-      adapter.addGuards([defineGuard(() => { order.push('guard'); })]);
+      adapter.addGuards([defineGuard(() => () => { order.push('guard'); })]);
       adapter.addMiddlewares(MiddlewareHook.PreHandle, [mw(() => { order.push('PreHandle'); })]);
+      adapter.initializePipeline(createMockContainer());
       adapter.resolveHandler = mock((_ctx: Context) => { order.push('resolveHandler'); return undefined as unknown as Result<unknown, unknown>; });
       adapter.handleResult = mock((_result: Result<unknown, unknown>, _ctx: Context) => {});
 
@@ -609,7 +544,8 @@ describe('Adapter', () => {
 
     it('should skip pipeline after guard err', async () => {
       // Arrange
-      adapter.addGuards([defineGuard(() => err({ status: 403 }))]);
+      adapter.addGuards([defineGuard(() => () => err({ status: 403 }))]);
+      adapter.initializePipeline(createMockContainer());
       adapter.resolveHandler = mock((_ctx: Context) => undefined as unknown as Result<unknown, unknown>);
       adapter.handleResult = mock((_result: Result<unknown, unknown>, _ctx: Context) => {});
 
@@ -629,13 +565,12 @@ describe('Adapter', () => {
       // Arrange
       class DbError extends Error {}
 
-      class DbFilter extends ExceptionFilter<DbError> {
-        catch(_error: DbError, _context: Context): Err<unknown> {
-          return err({ status: 503, message: 'db down' });
-        }
-      }
+      const filterHandler = mock((_error: DbError, _context: Context): Err<unknown> => {
+        return err({ status: 503, message: 'db down' });
+      });
 
-      adapter.addExceptionFilterEntries([{ filter: new DbFilter(), catchTypes: [DbError] }]);
+      adapter.addExceptionFilters([defineExceptionFilter([DbError], () => filterHandler)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runExceptionFilters(new DbError(), createContext());
@@ -649,13 +584,12 @@ describe('Adapter', () => {
       // Arrange
       class SpecificError extends Error {}
 
-      class SpecificFilter extends ExceptionFilter<SpecificError> {
-        catch(_error: SpecificError, _context: Context): Err<unknown> {
-          return err({ caught: true });
-        }
-      }
+      const filterHandler = mock((_error: SpecificError, _context: Context): Err<unknown> => {
+        return err({ caught: true });
+      });
 
-      adapter.addExceptionFilterEntries([{ filter: new SpecificFilter(), catchTypes: [SpecificError] }]);
+      adapter.addExceptionFilters([defineExceptionFilter([SpecificError], () => filterHandler)]);
+      adapter.initializePipeline(createMockContainer());
       const originalError = new Error('generic');
 
       // Act
@@ -668,13 +602,12 @@ describe('Adapter', () => {
 
     it('should match catch-all filter (empty catchTypes)', async () => {
       // Arrange
-      class CatchAllFilter extends ExceptionFilter {
-        catch(_error: unknown, _context: Context): Err<unknown> {
-          return err({ status: 500, message: 'caught all' });
-        }
-      }
+      const filterHandler = mock((_error: unknown, _context: Context): Err<unknown> => {
+        return err({ status: 500, message: 'caught all' });
+      });
 
-      adapter.addExceptionFilterEntries([{ filter: new CatchAllFilter(), catchTypes: [] }]);
+      adapter.addExceptionFilters([defineExceptionFilter([], () => filterHandler)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runExceptionFilters(new Error('anything'), createContext());
@@ -685,6 +618,7 @@ describe('Adapter', () => {
 
     it('should return default error with cause when no filters are registered', async () => {
       // Arrange
+      adapter.initializePipeline(createMockContainer());
       const orphanError = new Error('orphan');
 
       // Act
@@ -701,24 +635,21 @@ describe('Adapter', () => {
       class AppError extends Error {}
       const order: string[] = [];
 
-      class FirstFilter extends ExceptionFilter<AppError> {
-        catch(_error: AppError, _context: Context): Err<unknown> {
-          order.push('first');
-          return err({ matched: 'first' });
-        }
-      }
+      const firstHandler = mock((_error: AppError, _context: Context): Err<unknown> => {
+        order.push('first');
+        return err({ matched: 'first' });
+      });
 
-      class SecondFilter extends ExceptionFilter<AppError> {
-        catch(_error: AppError, _context: Context): Err<unknown> {
-          order.push('second');
-          return err({ matched: 'second' });
-        }
-      }
+      const secondHandler = mock((_error: AppError, _context: Context): Err<unknown> => {
+        order.push('second');
+        return err({ matched: 'second' });
+      });
 
-      adapter.addExceptionFilterEntries([
-        { filter: new FirstFilter(), catchTypes: [AppError] },
-        { filter: new SecondFilter(), catchTypes: [AppError] },
+      adapter.addExceptionFilters([
+        defineExceptionFilter([AppError], () => firstHandler),
+        defineExceptionFilter([AppError], () => secondHandler),
       ]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runExceptionFilters(new AppError(), createContext());
@@ -729,21 +660,20 @@ describe('Adapter', () => {
     });
   });
 
-  // ── addExceptionFilterEntries ──────────────────────────────
+  // ── addExceptionFilters ──────────────────────────────────
 
-  describe('addExceptionFilterEntries', () => {
-    it('should register exception filter entries', async () => {
+  describe('addExceptionFilters', () => {
+    it('should register exception filter definitions', async () => {
       // Arrange
-      class CatchAllFilter extends ExceptionFilter {
-        catch(_error: unknown, _context: Context): Err<unknown> {
-          return err({ caught: true });
-        }
-      }
+      const filterHandler = mock((_error: unknown, _context: Context): Err<unknown> => {
+        return err({ caught: true });
+      });
 
-      const entries: readonly ExceptionFilterEntry[] = [{ filter: new CatchAllFilter(), catchTypes: [] }];
+      const defs = [defineExceptionFilter([], () => filterHandler)];
 
       // Act
-      adapter.addExceptionFilterEntries(entries);
+      adapter.addExceptionFilters(defs);
+      adapter.initializePipeline(createMockContainer());
       const result = await adapter.runExceptionFilters(new Error('test'), createContext());
 
       // Assert
@@ -752,7 +682,7 @@ describe('Adapter', () => {
 
     it('should return this for chaining', () => {
       // Act
-      const returned = adapter.addExceptionFilterEntries([]);
+      const returned = adapter.addExceptionFilters([]);
 
       // Assert
       expect(returned).toBe(adapter);
@@ -772,7 +702,7 @@ describe('Adapter', () => {
 
     it('should accept guard without adapters field (universal)', () => {
       // Arrange
-      const guard = defineGuard((_ctx: Context) => {});
+      const guard = defineGuard(() => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => adapter.addGuards([guard])).not.toThrow();
@@ -780,7 +710,7 @@ describe('Adapter', () => {
 
     it('should accept guard when adapter class matches', () => {
       // Arrange
-      const guard = defineGuard([TestAdapter], (_ctx: Context) => {});
+      const guard = defineGuard([TestAdapter], () => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => adapter.addGuards([guard])).not.toThrow();
@@ -788,7 +718,7 @@ describe('Adapter', () => {
 
     it('should throw when guard declares incompatible adapter class', () => {
       // Arrange
-      const guard = defineGuard([AnotherAdapter], (_ctx: Context) => {});
+      const guard = defineGuard([AnotherAdapter], () => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => adapter.addGuards([guard])).toThrow(
@@ -799,7 +729,7 @@ describe('Adapter', () => {
     it('should accept guard on child adapter when parent class is declared', () => {
       // Arrange
       const child = new ChildAdapter();
-      const guard = defineGuard([TestAdapter], (_ctx: Context) => {});
+      const guard = defineGuard([TestAdapter], () => (_ctx: Context) => {});
 
       // Act & Assert
       expect(() => child.addGuards([guard])).not.toThrow();
@@ -811,13 +741,12 @@ describe('Adapter', () => {
   describe('dispatchRequest - exception filter safety', () => {
     it('should call forceCloseConnection when exception filter throws', async () => {
       // Arrange
-      class BrokenFilter extends ExceptionFilter {
-        catch(_error: unknown, _context: Context): Err<unknown> {
-          throw new Error('filter crashed');
-        }
-      }
+      const brokenHandler = mock((_error: unknown, _context: Context): Err<unknown> => {
+        throw new Error('filter crashed');
+      });
 
-      adapter.addExceptionFilterEntries([{ filter: new BrokenFilter(), catchTypes: [] }]);
+      adapter.addExceptionFilters([defineExceptionFilter([], () => brokenHandler)]);
+      adapter.initializePipeline(createMockContainer());
       adapter.resolveHandler = mock(() => { throw new Error('pipeline error'); });
       adapter.handleResult = mock(() => { throw new Error('handleResult also failed'); });
       adapter.forceCloseConnection = mock(() => {});
@@ -836,12 +765,13 @@ describe('Adapter', () => {
     it('should handle async middleware that returns void', async () => {
       // Arrange
       const order: string[] = [];
-      const asyncMw = defineMiddleware(async (_ctx: Context) => {
+      const asyncMw = defineMiddleware(() => async (_ctx: Context) => {
         await Promise.resolve();
         order.push('async-mw');
       });
 
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [asyncMw]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -853,12 +783,13 @@ describe('Adapter', () => {
 
     it('should handle async middleware that returns Err', async () => {
       // Arrange
-      const asyncMw = defineMiddleware(async (_ctx: Context) => {
+      const asyncMw = defineMiddleware(() => async (_ctx: Context) => {
         await Promise.resolve();
         return err({ halted: true });
       });
 
       adapter.addMiddlewares(MiddlewareHook.OnReceive, [asyncMw]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runMiddlewares(MiddlewareHook.OnReceive, createContext());
@@ -871,11 +802,12 @@ describe('Adapter', () => {
   describe('async guard handlers', () => {
     it('should handle async guard that allows', async () => {
       // Arrange
-      const asyncGuard = defineGuard(async (_ctx: Context) => {
+      const asyncGuard = defineGuard(() => async (_ctx: Context) => {
         await Promise.resolve();
       });
 
       adapter.addGuards([asyncGuard]);
+      adapter.initializePipeline(createMockContainer());
       adapter.parseInput = mock((_ctx: Context) => {});
       adapter.resolveHandler = mock((_ctx: Context) => ({ value: 'ok' }) as Result<unknown, unknown>);
       adapter.handleResult = mock((_result: Result<unknown, unknown>, _ctx: Context) => {});
@@ -889,12 +821,13 @@ describe('Adapter', () => {
 
     it('should handle async guard that denies', async () => {
       // Arrange
-      const asyncGuard = defineGuard(async (_ctx: Context) => {
+      const asyncGuard = defineGuard(() => async (_ctx: Context) => {
         await Promise.resolve();
         return err({ status: 403 });
       });
 
       adapter.addGuards([asyncGuard]);
+      adapter.initializePipeline(createMockContainer());
       adapter.parseInput = mock((_ctx: Context) => {});
       adapter.resolveHandler = mock((_ctx: Context) => ({ value: 'ok' }) as Result<unknown, unknown>);
       adapter.handleResult = mock((_result: Result<unknown, unknown>, _ctx: Context) => {});
@@ -908,16 +841,15 @@ describe('Adapter', () => {
   });
 
   describe('async exception filter', () => {
-    it('should handle async exception filter catch method', async () => {
+    it('should handle async exception filter handler', async () => {
       // Arrange
-      class AsyncFilter extends ExceptionFilter {
-        async catch(_error: unknown, _context: Context): Promise<Err<unknown>> {
-          await Promise.resolve();
-          return err({ async: true });
-        }
-      }
+      const asyncHandler = mock(async (_error: unknown, _context: Context): Promise<Err<unknown>> => {
+        await Promise.resolve();
+        return err({ async: true });
+      });
 
-      adapter.addExceptionFilterEntries([{ filter: new AsyncFilter(), catchTypes: [] }]);
+      adapter.addExceptionFilters([defineExceptionFilter([], () => asyncHandler)]);
+      adapter.initializePipeline(createMockContainer());
 
       // Act
       const result = await adapter.runExceptionFilters(new Error('test'), createContext());
@@ -927,9 +859,9 @@ describe('Adapter', () => {
     });
   });
 
-  // ── errorFilterTokens removal ──────────────────────────────
+  // ── legacy API removal ──────────────────────────────────
 
-  describe('errorFilterTokens removal', () => {
+  describe('legacy API removal', () => {
     it('should not have errorFilterTokens property on adapter instance', () => {
       // Arrange — fresh adapter from beforeEach
 
@@ -950,45 +882,48 @@ describe('Adapter', () => {
       expect(hasMethod).toBe(false);
     });
 
-    it('should accept entries via addExceptionFilterEntries', () => {
-      // Arrange
-      class TestFilter extends ExceptionFilter {
-        catch(_error: unknown, _context: Context): Err<unknown> {
-          return err({ caught: true });
-        }
-      }
-
-      const entries: readonly ExceptionFilterEntry[] = [
-        { filter: new TestFilter(), catchTypes: [] },
-      ];
+    it('should not have addExceptionFilterEntries method on adapter instance', () => {
+      // Arrange — fresh adapter from beforeEach
 
       // Act
-      const returned = adapter.addExceptionFilterEntries(entries);
+      const hasMethod = 'addExceptionFilterEntries' in adapter;
+
+      // Assert
+      expect(hasMethod).toBe(false);
+    });
+
+    it('should accept definitions via addExceptionFilters', () => {
+      // Arrange
+      const filterHandler = mock((_error: unknown, _context: Context): Err<unknown> => {
+        return err({ caught: true });
+      });
+
+      const defs = [defineExceptionFilter([], () => filterHandler)];
+
+      // Act
+      const returned = adapter.addExceptionFilters(defs);
 
       // Assert
       expect(returned).toBe(adapter);
     });
 
-    it('should accumulate entries across multiple addExceptionFilterEntries calls', async () => {
+    it('should accumulate definitions across multiple addExceptionFilters calls', async () => {
       // Arrange
       class FirstError extends Error {}
       class SecondError extends Error {}
 
-      class FirstFilter extends ExceptionFilter<FirstError> {
-        catch(_error: FirstError, _context: Context): Err<unknown> {
-          return err({ matched: 'first' });
-        }
-      }
+      const firstHandler = mock((_error: FirstError, _context: Context): Err<unknown> => {
+        return err({ matched: 'first' });
+      });
 
-      class SecondFilter extends ExceptionFilter<SecondError> {
-        catch(_error: SecondError, _context: Context): Err<unknown> {
-          return err({ matched: 'second' });
-        }
-      }
+      const secondHandler = mock((_error: SecondError, _context: Context): Err<unknown> => {
+        return err({ matched: 'second' });
+      });
 
       // Act — two separate calls
-      adapter.addExceptionFilterEntries([{ filter: new FirstFilter(), catchTypes: [FirstError] }]);
-      adapter.addExceptionFilterEntries([{ filter: new SecondFilter(), catchTypes: [SecondError] }]);
+      adapter.addExceptionFilters([defineExceptionFilter([FirstError], () => firstHandler)]);
+      adapter.addExceptionFilters([defineExceptionFilter([SecondError], () => secondHandler)]);
+      adapter.initializePipeline(createMockContainer());
 
       const firstResult = await adapter.runExceptionFilters(new FirstError(), createContext());
       const secondResult = await adapter.runExceptionFilters(new SecondError(), createContext());

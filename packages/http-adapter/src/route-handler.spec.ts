@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
-import type { ZipbulContainer, MiddlewareDefinition, ExceptionFilterEntry, GuardDefinition } from '@zipbul/common';
+import type { ZipbulContainer, MiddlewareDefinition, ExceptionFilterDefinition, GuardDefinition } from '@zipbul/common';
 
 mock.module('@zipbul/logger', () => ({
   Logger: class {
@@ -38,18 +38,18 @@ function createRouteHandler(container?: ZipbulContainer): RouteHandlerInstance {
 }
 
 function createMiddlewareDef(): MiddlewareDefinition {
-  return Object.freeze({ handler: mock(() => undefined) });
+  return Object.freeze({ factory: mock(() => mock(() => undefined)) });
 }
 
-function createFilterEntry(): ExceptionFilterEntry {
+function createFilterDef(): ExceptionFilterDefinition {
   return Object.freeze({
-    filter: { catch: mock(() => ({ __err: true, data: 'filtered' })) },
+    factory: mock(() => mock((_error: unknown, _ctx: unknown) => ({ __err: true, data: 'filtered' }))),
     catchTypes: [],
   });
 }
 
 function createGuardDef(): GuardDefinition {
-  return Object.freeze({ handler: mock(() => undefined) });
+  return Object.freeze({ factory: mock(() => mock(() => undefined)) });
 }
 
 describe('RouteHandler', () => {
@@ -87,8 +87,9 @@ describe('RouteHandler', () => {
       // Act
       const result = handler.__testing__.resolveMiddlewareKeys(['__route_mw__:Ctrl.method:cls:0']);
 
-      // Assert
-      expect(result).toEqual([mw]);
+      // Assert — resolved middleware has handler (factory was called)
+      expect(result).toHaveLength(1);
+      expect(typeof result[0]!.handler).toBe('function');
     });
 
     it('should throw when value is not a MiddlewareDefinition', () => {
@@ -119,40 +120,42 @@ describe('RouteHandler', () => {
     });
   });
 
-  // ── resolveErrorFilterKeys ─────────────────────────────
+  // ── resolveExceptionFilterKeys ─────────────────────────────
 
-  describe('resolveErrorFilterKeys', () => {
+  describe('resolveExceptionFilterKeys', () => {
     it('should return empty array when keys is empty', () => {
       // Arrange
       const handler = createRouteHandler(createStubContainer());
 
       // Act
-      const result = handler.__testing__.resolveErrorFilterKeys([]);
+      const result = handler.__testing__.resolveExceptionFilterKeys([]);
 
       // Assert
       expect(result).toEqual([]);
     });
 
-    it('should resolve valid ExceptionFilterEntry from container', () => {
+    it('should resolve valid ExceptionFilterDefinition from container', () => {
       // Arrange
-      const entry = createFilterEntry();
+      const entry = createFilterDef();
       const container = createStubContainer({ 'ef-key': entry });
       const handler = createRouteHandler(container);
 
       // Act
-      const result = handler.__testing__.resolveErrorFilterKeys(['ef-key']);
+      const result = handler.__testing__.resolveExceptionFilterKeys(['ef-key']);
 
-      // Assert
-      expect(result).toEqual([entry]);
+      // Assert — resolved has handler and catchTypes
+      expect(result).toHaveLength(1);
+      expect(typeof result[0]!.handler).toBe('function');
+      expect(result[0]!.catchTypes).toEqual([]);
     });
 
-    it('should throw when value is not an ExceptionFilterEntry', () => {
+    it('should throw when value is not an ExceptionFilterDefinition', () => {
       // Arrange
-      const container = createStubContainer({ 'ef-key': { handler: () => {} } });
+      const container = createStubContainer({ 'ef-key': { factory: () => {} } });
       const handler = createRouteHandler(container);
 
       // Act & Assert
-      expect(() => handler.__testing__.resolveErrorFilterKeys(['ef-key'])).toThrow();
+      expect(() => handler.__testing__.resolveExceptionFilterKeys(['ef-key'])).toThrow();
     });
   });
 
@@ -179,8 +182,9 @@ describe('RouteHandler', () => {
       // Act
       const result = handler.__testing__.resolveGuardKeys(['gd-key']);
 
-      // Assert
-      expect(result).toEqual([guard]);
+      // Assert — guards resolve to GuardHandlerFn[] (plain functions)
+      expect(result).toHaveLength(1);
+      expect(typeof result[0]).toBe('function');
     });
 
     it('should throw when value is not a GuardDefinition', () => {
@@ -198,17 +202,17 @@ describe('RouteHandler', () => {
   describe('isMiddlewareDefinition', () => {
     it('should return true for valid MiddlewareDefinition', () => {
       const handler = createRouteHandler();
-      expect(handler.__testing__.isMiddlewareDefinition({ handler: () => {} })).toBe(true);
+      expect(handler.__testing__.isMiddlewareDefinition({ factory: () => {} })).toBe(true);
     });
 
-    it('should return false when handler property is missing', () => {
+    it('should return false when factory property is missing', () => {
       const handler = createRouteHandler();
       expect(handler.__testing__.isMiddlewareDefinition({ name: 'test' })).toBe(false);
     });
 
-    it('should return false when handler is not a function', () => {
+    it('should return false when factory is not a function', () => {
       const handler = createRouteHandler();
-      expect(handler.__testing__.isMiddlewareDefinition({ handler: 'string' })).toBe(false);
+      expect(handler.__testing__.isMiddlewareDefinition({ factory: 'string' })).toBe(false);
     });
 
     it('should return false for null', () => {
@@ -224,30 +228,30 @@ describe('RouteHandler', () => {
     });
   });
 
-  describe('isExceptionFilterEntry', () => {
-    it('should return true for valid entry with filter and catchTypes', () => {
+  describe('isExceptionFilterDefinition', () => {
+    it('should return true for valid definition with factory and catchTypes', () => {
       const handler = createRouteHandler();
-      expect(handler.__testing__.isExceptionFilterEntry({ filter: {}, catchTypes: [] })).toBe(true);
+      expect(handler.__testing__.isExceptionFilterDefinition({ factory: () => {}, catchTypes: [] })).toBe(true);
     });
 
     it('should return false when catchTypes is missing', () => {
       const handler = createRouteHandler();
-      expect(handler.__testing__.isExceptionFilterEntry({ filter: {} })).toBe(false);
+      expect(handler.__testing__.isExceptionFilterDefinition({ factory: () => {} })).toBe(false);
     });
 
     it('should return false for null', () => {
       const handler = createRouteHandler();
-      expect(handler.__testing__.isExceptionFilterEntry(null)).toBe(false);
+      expect(handler.__testing__.isExceptionFilterDefinition(null)).toBe(false);
     });
   });
 
   describe('isGuardDefinition', () => {
     it('should return true for valid GuardDefinition', () => {
       const handler = createRouteHandler();
-      expect(handler.__testing__.isGuardDefinition({ handler: () => {} })).toBe(true);
+      expect(handler.__testing__.isGuardDefinition({ factory: () => {} })).toBe(true);
     });
 
-    it('should return false when handler property is missing', () => {
+    it('should return false when factory property is missing', () => {
       const handler = createRouteHandler();
       expect(handler.__testing__.isGuardDefinition({ name: 'test' })).toBe(false);
     });
@@ -307,19 +311,20 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['test'],
         params: [],
         middlewareKeys: ['__route_mw__:TestCtrl.doSomething:cls:0'],
-        errorFilterKeys: [],
+        exceptionFilterKeys: [],
         guardKeys: [],
       }], controllerInstances);
 
-      // Assert
+      // Assert — resolved middleware has handler (factory was called)
       const match = handler.match('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.middlewares).toEqual([mw]);
+      expect(match!.value.middlewares).toHaveLength(1);
+      expect(typeof match!.value.middlewares[0]!.handler).toBe('function');
     });
 
-    it('should resolve errorFilterKeys into route entry errorFilters', () => {
+    it('should resolve exceptionFilterKeys into route entry exceptionFilters', () => {
       // Arrange
-      const ef = createFilterEntry();
+      const ef = createFilterDef();
       const container = createStubContainer({ 'ef-key': ef });
       const handler = createRouteHandler(container);
       const instance = { doSomething: () => 'result' };
@@ -335,14 +340,16 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['test'],
         params: [],
         middlewareKeys: [],
-        errorFilterKeys: ['ef-key'],
+        exceptionFilterKeys: ['ef-key'],
         guardKeys: [],
       }], controllerInstances);
 
-      // Assert
+      // Assert — resolved exception filter has handler and catchTypes
       const match = handler.match('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.errorFilters).toEqual([ef]);
+      expect(match!.value.exceptionFilters).toHaveLength(1);
+      expect(typeof match!.value.exceptionFilters[0]!.handler).toBe('function');
+      expect(match!.value.exceptionFilters[0]!.catchTypes).toEqual([]);
     });
 
     it('should resolve guardKeys into route entry guards', () => {
@@ -363,20 +370,21 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['test'],
         params: [],
         middlewareKeys: [],
-        errorFilterKeys: [],
+        exceptionFilterKeys: [],
         guardKeys: ['gd-key'],
       }], controllerInstances);
 
-      // Assert
+      // Assert — guards are resolved to GuardHandlerFn[] (plain functions)
       const match = handler.match('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.guards).toEqual([guard]);
+      expect(match!.value.guards).toHaveLength(1);
+      expect(typeof match!.value.guards[0]).toBe('function');
     });
 
     it('should resolve all three key types simultaneously', () => {
       // Arrange
       const mw = createMiddlewareDef();
-      const ef = createFilterEntry();
+      const ef = createFilterDef();
       const guard = createGuardDef();
       const container = createStubContainer({ 'mw-key': mw, 'ef-key': ef, 'gd-key': guard });
       const handler = createRouteHandler(container);
@@ -393,16 +401,16 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['test'],
         params: [],
         middlewareKeys: ['mw-key'],
-        errorFilterKeys: ['ef-key'],
+        exceptionFilterKeys: ['ef-key'],
         guardKeys: ['gd-key'],
       }], controllerInstances);
 
-      // Assert
+      // Assert — all resolved from factories
       const match = handler.match('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.middlewares).toEqual([mw]);
-      expect(match!.value.errorFilters).toEqual([ef]);
-      expect(match!.value.guards).toEqual([guard]);
+      expect(match!.value.middlewares).toHaveLength(1);
+      expect(match!.value.exceptionFilters).toHaveLength(1);
+      expect(match!.value.guards).toHaveLength(1);
     });
 
     it('should produce empty arrays when container is undefined but keys are present', () => {
@@ -421,7 +429,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['test'],
         params: [],
         middlewareKeys: ['mw-key'],
-        errorFilterKeys: ['ef-key'],
+        exceptionFilterKeys: ['ef-key'],
         guardKeys: ['gd-key'],
       }], controllerInstances);
 
@@ -429,7 +437,7 @@ describe('RouteHandler', () => {
       const match = handler.match('GET', '/test');
       expect(match).toBeDefined();
       expect(match!.value.middlewares).toEqual([]);
-      expect(match!.value.errorFilters).toEqual([]);
+      expect(match!.value.exceptionFilters).toEqual([]);
       expect(match!.value.guards).toEqual([]);
     });
 
@@ -451,7 +459,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['test'],
         params: [],
         middlewareKeys: ['mw-key', 'mw-key'],
-        errorFilterKeys: [],
+        exceptionFilterKeys: [],
         guardKeys: [],
       }], controllerInstances);
 
@@ -459,11 +467,11 @@ describe('RouteHandler', () => {
       const match = handler.match('GET', '/test');
       expect(match).toBeDefined();
       expect(match!.value.middlewares).toHaveLength(2);
-      expect(match!.value.middlewares[0]).toBe(mw);
-      expect(match!.value.middlewares[1]).toBe(mw);
+      expect(typeof match!.value.middlewares[0]!.handler).toBe('function');
+      expect(typeof match!.value.middlewares[1]!.handler).toBe('function');
     });
 
-    it('should not crash when entry has no middlewareKeys/errorFilterKeys/guardKeys fields', () => {
+    it('should not crash when entry has no middlewareKeys/exceptionFilterKeys/guardKeys fields', () => {
       // Arrange — simulates CompiledHandlerEntry from compiler that omits optional fields
       const container = createStubContainer({});
       const handler = createRouteHandler(container);
@@ -485,7 +493,7 @@ describe('RouteHandler', () => {
       const match = handler.match('GET', '/test');
       expect(match).toBeDefined();
       expect(match!.value.middlewares).toEqual([]);
-      expect(match!.value.errorFilters).toEqual([]);
+      expect(match!.value.exceptionFilters).toEqual([]);
       expect(match!.value.guards).toEqual([]);
     });
   });

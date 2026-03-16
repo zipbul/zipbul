@@ -250,65 +250,25 @@ registerRuntimeContext({
     const lines: string[] = [];
 
     for (const reg of registrations) {
-      if (reg.kind === 'filter') {
-        const filterRefName = this.extractRefName(reg.value);
+      const refName = this.extractRefName(reg.value);
 
-        // C-1: Validate filter class is registered as a provider
-        if (filterRefName !== undefined && graph.classDefinitions.has(filterRefName)) {
-          const filterModule = graph.classMap.get(filterRefName);
-          const filterScopedKeyForValidation = filterModule
-            ? `${filterModule.name}${SCOPED_KEY_SEPARATOR}${filterRefName}`
-            : filterRefName;
+      // C-1: Validate middleware/filter/guard class is registered as a provider
+      if (refName !== undefined && graph.classDefinitions.has(refName)) {
+        const refModule = graph.classMap.get(refName);
+        const refScopedKey = refModule
+          ? `${refModule.name}${SCOPED_KEY_SEPARATOR}${refName}`
+          : refName;
 
-          if (!allKeys.has(filterScopedKeyForValidation)) {
-            throw new Error(`[Zipbul AOT] Filter class '${filterRefName}' used in @UseExceptionFilters is not registered as a provider. Add it to the module's providers array or decorate it with @Injectable().`);
-          }
+        if (!allKeys.has(refScopedKey)) {
+          throw new Error(`[Zipbul AOT] Class '${refName}' used in pipeline decorator is not registered as a provider. Add it to the module's providers array or decorate it with @Injectable().`);
         }
-
-        const filterScopedKey = this.resolveScopedKey(filterRefName, graph);
-        const filterAccessCode = filterScopedKey !== undefined
-          ? `'${filterScopedKey}'`
-          : this.injectorGen.serializeValuePublic(reg.value, registry);
-        const catchTypes = (reg.catchTypeValues ?? [])
-          .map(ct => this.injectorGen.serializeValuePublic(ct, registry));
-        const catchTypesCode = catchTypes.length > 0 ? `[${catchTypes.join(', ')}]` : '[]';
-
-        lines.push(`__container__.set('${reg.key}', (c) => ({ filter: c.get(${filterAccessCode}), catchTypes: ${catchTypesCode} }));`);
-      } else {
-        const refName = this.extractRefName(reg.value);
-
-        // C-1: Validate middleware/guard class is registered as a provider
-        if (refName !== undefined && graph.classDefinitions.has(refName)) {
-          const refModule = graph.classMap.get(refName);
-          const refScopedKey = refModule
-            ? `${refModule.name}${SCOPED_KEY_SEPARATOR}${refName}`
-            : refName;
-
-          if (!allKeys.has(refScopedKey)) {
-            throw new Error(`[Zipbul AOT] Class '${refName}' used in pipeline decorator is not registered as a provider. Add it to the module's providers array or decorate it with @Injectable().`);
-          }
-        }
-
-        const serialized = this.injectorGen.serializeValuePublic(reg.value, registry);
-        lines.push(`__container__.set('${reg.key}', () => ${serialized});`);
       }
+
+      const serialized = this.injectorGen.serializeValuePublic(reg.value, registry);
+      lines.push(`__container__.set('${reg.key}', () => ${serialized});`);
     }
 
     return lines.join('\n');
-  }
-
-  private resolveScopedKey(refName: string | undefined, graph: ModuleGraph): string | undefined {
-    if (refName === undefined) {
-      return undefined;
-    }
-
-    const targetModule = graph.classMap.get(refName);
-
-    if (targetModule) {
-      return `${targetModule.name}${SCOPED_KEY_SEPARATOR}${refName}`;
-    }
-
-    return undefined;
   }
 
   private extractRefName(value: AnalyzerValue): string | undefined {

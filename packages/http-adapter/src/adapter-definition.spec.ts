@@ -1,17 +1,8 @@
 import { describe, it, expect, mock } from 'bun:test';
 
+const actualCore = await import('@zipbul/core');
 mock.module('@zipbul/core', () => ({
-  ClusterManager: class {},
-  ClusterBaseWorker: class {
-    async init() {}
-    getStats() { return { cpu: 0, memory: 0 }; }
-  },
-  Container: class {
-    get() { return undefined; }
-    set() {}
-    has() { return false; }
-  },
-  expose: () => {},
+  ...actualCore,
   getRuntimeContext: () => ({ isAotRuntime: false, metadataRegistry: new Map() }),
 }));
 

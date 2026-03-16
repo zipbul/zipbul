@@ -1,10 +1,40 @@
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result, ResultAsync } from '@zipbul/result';
-import type { MiddlewareDefinition } from '../define-middleware';
-import type { GuardDefinition } from '../define-guard';
+import type { MiddlewareDefinition, MiddlewareHandlerFn } from '../define-middleware';
+import type { GuardDefinition, GuardHandlerFn } from '../define-guard';
+import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '../define-exception-filter';
 import type { AdapterClass, AdapterEntryDecorators, MiddlewareRegistry } from './types';
 import { MiddlewareHook } from './types';
-import type { Context, ExceptionFilterEntry } from '../interfaces';
+import type { Context, ZipbulContainer } from '../interfaces';
+import { runInInjectionContext } from '../injection-context';
+
+/**
+ * Resolved middleware: factory has been called, handler is ready.
+ *
+ * @public
+ */
+export interface ResolvedMiddleware {
+  readonly handler: MiddlewareHandlerFn;
+}
+
+/**
+ * Resolved guard: factory has been called, handler is ready.
+ *
+ * @public
+ */
+export interface ResolvedGuard {
+  readonly handler: GuardHandlerFn;
+}
+
+/**
+ * Resolved exception filter: factory has been called, handler is ready.
+ *
+ * @public
+ */
+export interface ResolvedExceptionFilter {
+  readonly handler: ExceptionFilterHandlerFn;
+  readonly catchTypes: readonly ExceptionConstructorLike[];
+}
 
 /**
  * Base class for all Zipbul adapters.
@@ -19,8 +49,12 @@ export abstract class Adapter {
   abstract readonly decorators: AdapterEntryDecorators;
 
   protected middlewareRegistry: MiddlewareRegistry = {};
-  protected exceptionFilters: ExceptionFilterEntry[] = [];
-  protected guardDefinitions: GuardDefinition[] = [];
+  protected exceptionFilterDefs: ExceptionFilterDefinition[] = [];
+  protected guardDefs: GuardDefinition[] = [];
+
+  protected resolvedMiddlewareRegistry: Partial<Record<MiddlewareHook, ResolvedMiddleware[]>> = {};
+  protected resolvedExceptionFilters: ResolvedExceptionFilter[] = [];
+  protected resolvedGuards: ResolvedGuard[] = [];
 
   // ── Abstract hooks (subclass implements) ────────────────────
 
@@ -71,15 +105,15 @@ export abstract class Adapter {
   }
 
   /**
-   * Registers typed exception filter entries.
+   * Registers exception filter definitions.
    *
-   * @param entries - Exception filter entries to append.
+   * @param definitions - Exception filter definitions to append.
    * @returns `this` for chaining.
    *
    * @public
    */
-  addExceptionFilterEntries(entries: readonly ExceptionFilterEntry[]): this {
-    this.exceptionFilters = [...this.exceptionFilters, ...entries];
+  addExceptionFilters(definitions: readonly ExceptionFilterDefinition[]): this {
+    this.exceptionFilterDefs = [...this.exceptionFilterDefs, ...definitions];
     return this;
   }
 
@@ -93,8 +127,43 @@ export abstract class Adapter {
    */
   addGuards(guards: readonly GuardDefinition[]): this {
     this.validateAdapterCompatibility(guards, 'Guard');
-    this.guardDefinitions = [...this.guardDefinitions, ...guards];
+    this.guardDefs = [...this.guardDefs, ...guards];
     return this;
+  }
+
+  // ── Pipeline initialization ────────────────────────────────
+
+  /**
+   * Resolves all registered definition factories within the given DI container,
+   * producing ready-to-call handler functions for middlewares, guards, and
+   * exception filters.
+   *
+   * Must be called once after all definitions have been registered and
+   * the container is fully assembled.
+   *
+   * @param container - The application DI container.
+   *
+   * @public
+   */
+  initializePipeline(container: ZipbulContainer): void {
+    for (const [hook, defs] of Object.entries(this.middlewareRegistry)) {
+      if (defs === undefined) {
+        continue;
+      }
+
+      this.resolvedMiddlewareRegistry[hook as MiddlewareHook] = defs.map((def) => ({
+        handler: runInInjectionContext(container, def.factory),
+      }));
+    }
+
+    this.resolvedGuards = this.guardDefs.map((def) => ({
+      handler: runInInjectionContext(container, def.factory),
+    }));
+
+    this.resolvedExceptionFilters = this.exceptionFilterDefs.map((def) => ({
+      handler: runInInjectionContext(container, def.factory),
+      catchTypes: def.catchTypes,
+    }));
   }
 
   // ── Pipeline orchestration ──────────────────────────────────
@@ -143,24 +212,24 @@ export abstract class Adapter {
   // ── Middleware execution ─────────────────────────────────────
 
   /**
-   * Executes middlewares registered for a given hook or from a direct list.
+   * Executes resolved middlewares for a given hook or from a direct list.
    *
-   * @param hookOrList - A pipeline hook to look up, or a direct array of middleware definitions.
+   * @param hookOrList - A pipeline hook to look up, or a direct array of resolved middlewares.
    * @param context - The current execution context.
    * @returns `void` on success, `Err<unknown>` when a middleware halts the pipeline.
    *
    * @public
    */
   async runMiddlewares(
-    hookOrList: MiddlewareHook | MiddlewareDefinition[],
+    hookOrList: MiddlewareHook | readonly ResolvedMiddleware[],
     context: Context,
   ): ResultAsync<void, unknown> {
-    const list = Array.isArray(hookOrList)
-      ? hookOrList
-      : (this.middlewareRegistry[hookOrList] ?? []);
+    const list = typeof hookOrList === 'string'
+      ? (this.resolvedMiddlewareRegistry[hookOrList] ?? [])
+      : hookOrList;
 
-    for (const def of list) {
-      const result = await def.handler(context);
+    for (const mw of list) {
+      const result = await mw.handler(context);
 
       if (isErr(result)) {
         return result;
@@ -184,12 +253,12 @@ export abstract class Adapter {
    * @public
    */
   async runExceptionFilters(error: unknown, context: Context): Promise<Err<unknown>> {
-    for (const entry of this.exceptionFilters) {
+    for (const entry of this.resolvedExceptionFilters) {
       if (!this.matchesExceptionFilter(error, entry)) {
         continue;
       }
 
-      return await entry.filter.catch(error, context);
+      return await entry.handler(error, context);
     }
 
     return err({ message: 'Unhandled error', cause: error });
@@ -228,7 +297,7 @@ export abstract class Adapter {
   }
 
   private async runGuards(context: Context): ResultAsync<void, unknown> {
-    for (const guard of this.guardDefinitions) {
+    for (const guard of this.resolvedGuards) {
       const result = await guard.handler(context);
 
       if (isErr(result)) {
@@ -270,13 +339,13 @@ export abstract class Adapter {
     }
   }
 
-  protected matchesExceptionFilter(error: unknown, entry: ExceptionFilterEntry): boolean {
+  protected matchesExceptionFilter(error: unknown, entry: ResolvedExceptionFilter): boolean {
     if (entry.catchTypes.length === 0) {
       return true;
     }
 
-    for (const errorType of entry.catchTypes) {
-      if (error instanceof errorType) {
+    for (const exceptionType of entry.catchTypes) {
+      if (error instanceof exceptionType) {
         return true;
       }
     }

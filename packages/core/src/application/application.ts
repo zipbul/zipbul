@@ -192,13 +192,17 @@ export class Application {
         }
       }
 
-      if (config?.errorFilters !== undefined && config.errorFilters.length > 0) {
-        entry.adapter.addExceptionFilterEntries(config.errorFilters);
+      if (config?.exceptionFilters !== undefined && config.exceptionFilters.length > 0) {
+        entry.adapter.addExceptionFilters(config.exceptionFilters);
       }
 
       if (config?.guards !== undefined && config.guards.length > 0) {
         entry.adapter.addGuards(config.guards);
       }
+    }
+
+    for (const entry of this.startOrder) {
+      entry.adapter.initializePipeline(this.container);
     }
 
     const started: AdapterEntry[] = [];

@@ -47,9 +47,10 @@ class MockContainer {
   setScopedKeys(): void {}
 }
 
+const actualCore = await import('@zipbul/core');
 mock.module('@zipbul/core', () => ({
+  ...actualCore,
   ClusterBaseWorker: MockClusterBaseWorker,
-  ClusterManager: class {},
   Container: MockContainer,
   expose: mockExpose,
   getRuntimeContext: mockGetRuntimeContext,
@@ -77,8 +78,9 @@ mock.module('@zipbul/logger', () => ({
 // ── Mock: ./http-adapter ────────────────────────────────────────────
 
 const mockAddMiddlewares = mock();
-const mockAddExceptionFilterEntries = mock();
+const mockAddExceptionFilters = mock();
 const mockAddGuards = mock();
+const mockInitializePipeline = mock();
 
 mock.module('./http-adapter', () => ({
   HttpAdapter: class HttpAdapter {
@@ -88,8 +90,9 @@ mock.module('./http-adapter', () => ({
     };
 
     addMiddlewares = mockAddMiddlewares;
-    addExceptionFilterEntries = mockAddExceptionFilterEntries;
+    addExceptionFilters = mockAddExceptionFilters;
     addGuards = mockAddGuards;
+    initializePipeline = mockInitializePipeline;
 
     constructor(public options?: unknown) {}
   },
@@ -121,7 +124,7 @@ function createHandlerEntry(overrides: Partial<CompiledHandlerEntry> = {}): Comp
     handlerDecoratorArgs: ['/test'],
     params: [],
     middlewareKeys: [],
-    errorFilterKeys: [],
+    exceptionFilterKeys: [],
     guardKeys: [],
     ...overrides,
   };
@@ -155,8 +158,9 @@ describe('HttpWorker', () => {
     mockExpose.mockClear();
     mockLoggerWarn.mockClear();
     mockAddMiddlewares.mockClear();
-    mockAddExceptionFilterEntries.mockClear();
+    mockAddExceptionFilters.mockClear();
     mockAddGuards.mockClear();
+    mockInitializePipeline.mockClear();
     mockBoot.mockClear();
 
     mockGetRuntimeContext.mockReturnValue({});
@@ -345,14 +349,14 @@ describe('HttpWorker', () => {
       expect(mockAddMiddlewares).toHaveBeenCalledWith(MiddlewareHook.PreHandle, [preHandleMiddleware]);
     });
 
-    it('should wire errorFilters from adapterConfig', async () => {
+    it('should wire exceptionFilters from adapterConfig', async () => {
       // Arrange
       const errorFilter = { filterClass: 'GlobalFilter', catchType: 'Error' };
 
       mockGetRuntimeContext.mockReturnValue({
         adapterConfig: {
           HttpAdapter: {
-            errorFilters: [errorFilter],
+            exceptionFilters: [errorFilter],
           },
         },
       });
@@ -362,8 +366,8 @@ describe('HttpWorker', () => {
       await worker.init(1, createValidInitParams());
 
       // Assert
-      expect(mockAddExceptionFilterEntries).toHaveBeenCalledTimes(1);
-      expect(mockAddExceptionFilterEntries).toHaveBeenCalledWith([errorFilter]);
+      expect(mockAddExceptionFilters).toHaveBeenCalledTimes(1);
+      expect(mockAddExceptionFilters).toHaveBeenCalledWith([errorFilter]);
     });
 
     it('should wire guards from adapterConfig', async () => {

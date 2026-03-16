@@ -224,7 +224,7 @@ describe('InjectorGenerator', () => {
       expect(result).not.toContain("'guards':");
     });
 
-    it('should serialize guards alongside middlewares and errorFilters when all are present', () => {
+    it('should serialize guards alongside middlewares and exceptionFilters when all are present', () => {
       // Arrange
       const modulePath = '/app/src/app/__module__.ts';
       const fileMap = new Map<string, FileAnalysis>();
@@ -254,7 +254,7 @@ describe('InjectorGenerator', () => {
               middlewares: [
                 { __zipbul_ref: 'LogMiddleware', __zipbul_import_source: '/app/src/middlewares/log.ts' },
               ],
-              errorFilters: [
+              exceptionFilters: [
                 { __zipbul_ref: 'HttpExceptionFilter', __zipbul_import_source: '/app/src/filters/http-exception.ts' },
               ],
               guards: [
@@ -281,7 +281,7 @@ describe('InjectorGenerator', () => {
       }
 
       expect(result).toContain("'middlewares':");
-      expect(result).toContain("'errorFilters':");
+      expect(result).toContain("'exceptionFilters':");
       expect(result).toContain("'guards':");
     });
   });

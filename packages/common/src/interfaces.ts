@@ -1,8 +1,8 @@
-import type { ZipbulValue, Class, ClassToken, ValueLike, ErrorConstructorLike, ModuleMarker, ProviderFactoryFn } from './types';
+import type { ZipbulValue, Class, ClassToken, ValueLike, ModuleMarker, ProviderFactoryFn } from './types';
 import type { AdapterClass, MiddlewareHook } from './adapter/types';
 import type { MiddlewareDefinition } from './define-middleware';
 import type { GuardDefinition } from './define-guard';
-import type { ExceptionFilter } from './exception-filter';
+import type { ExceptionFilterDefinition } from './define-exception-filter';
 
 import type { Adapter } from './adapter/adapter';
 
@@ -135,19 +135,6 @@ export interface ZipbulContainer {
   dispose?(): Promise<void>;
 }
 
-export type ExceptionFilterToken = ClassToken<ExceptionFilter> | Class<ExceptionFilter>;
-
-/**
- * Pairs an exception filter instance with the error types it catches.
- * Empty `catchTypes` = catch-all.
- *
- * @public
- */
-export interface ExceptionFilterEntry {
-  readonly filter: ExceptionFilter;
-  readonly catchTypes: readonly ErrorConstructorLike[];
-}
-
 // Module Interface (Strict Schema Enforcement)
 export interface Module {
   name?: string;
@@ -164,12 +151,10 @@ export interface AdapterModuleConfig {
   adapter: AdapterClass;
   name?: string;
   middlewares?: MiddlewareConfig;
-  errorFilters?: ExceptionFilterConfig[];
+  exceptionFilters?: readonly ExceptionFilterDefinition[];
   guards?: readonly GuardDefinition[];
 }
 
 export type MiddlewareConfig = Partial<Record<MiddlewareHook, readonly MiddlewareDefinition[]>>;
-
-export type ExceptionFilterConfig = ExceptionFilterToken;
 
 export type Provider = ProviderUseValue | ProviderUseClass | ProviderUseExisting | ProviderUseFactory | Class;

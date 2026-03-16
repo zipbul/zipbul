@@ -44,8 +44,8 @@ export interface CompiledHandlerEntry {
   readonly params: readonly CompiledParamEntry[];
   /** Container keys for route-level middleware definitions. Empty when no `@UseMiddlewares`/`@Middlewares`. */
   readonly middlewareKeys?: readonly string[];
-  /** Container keys for route-level exception filter entries. Empty when no `@UseExceptionFilters`. */
-  readonly errorFilterKeys?: readonly string[];
+  /** Container keys for route-level exception filter definitions. Empty when no `@UseExceptionFilters`. */
+  readonly exceptionFilterKeys?: readonly string[];
   /** Container keys for route-level guard definitions. Empty when no `@UseGuards`. */
   readonly guardKeys?: readonly string[];
 }

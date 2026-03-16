@@ -1,4 +1,14 @@
-import type { CompiledHandlerEntry, ZipbulContainer, MiddlewareDefinition, ExceptionFilterEntry, GuardDefinition } from '@zipbul/common';
+import type {
+  CompiledHandlerEntry,
+  ZipbulContainer,
+  MiddlewareDefinition,
+  ExceptionFilterDefinition,
+  GuardDefinition,
+  GuardHandlerFn,
+  ResolvedMiddleware,
+  ResolvedExceptionFilter,
+} from '@zipbul/common';
+import { runInInjectionContext } from '@zipbul/common';
 
 import { Logger } from '@zipbul/logger';
 
@@ -122,14 +132,14 @@ export class RouteHandler {
       const fullPath = '/' + [controllerPrefix, rawPath].filter(Boolean).join('/').replace(/\/+/g, '/');
 
       const middlewares = this.resolveMiddlewareKeys(entry.middlewareKeys ?? []);
-      const errorFilters = this.resolveErrorFilterKeys(entry.errorFilterKeys ?? []);
+      const exceptionFilters = this.resolveExceptionFilterKeys(entry.exceptionFilterKeys ?? []);
       const guards = this.resolveGuardKeys(entry.guardKeys ?? []);
 
       const routeEntry: RouteHandlerEntry = {
         handler,
         methodName: entry.methodName,
         middlewares,
-        errorFilters,
+        exceptionFilters,
         guards,
         paramFactory,
       };
@@ -168,7 +178,7 @@ export class RouteHandler {
         handler: route.handler,
         methodName: '__internal__',
         middlewares: [],
-        errorFilters: [],
+        exceptionFilters: [],
         guards: [],
         paramFactory: async (req: HttpRequest, res: HttpResponse) => {
           const arity = typeof route.handler === 'function' ? route.handler.length : 0;
@@ -199,18 +209,20 @@ export class RouteHandler {
       handler.apply(instance, [...args]);
   }
 
-  private resolveMiddlewareKeys(keys: readonly string[]): MiddlewareDefinition[] {
+  private resolveMiddlewareKeys(keys: readonly string[]): ResolvedMiddleware[] {
     if (keys.length === 0 || this.container === undefined) {
       return [];
     }
 
-    const resolved: MiddlewareDefinition[] = [];
+    const resolved: ResolvedMiddleware[] = [];
 
     for (const key of keys) {
       const value = this.container.get(key);
 
       if (this.isMiddlewareDefinition(value)) {
-        resolved.push(value);
+        resolved.push({
+          handler: runInInjectionContext(this.container, value.factory),
+        });
       } else {
         throw new Error(`[RouteHandler] Container key '${key}' did not resolve to a MiddlewareDefinition`);
       }
@@ -219,38 +231,41 @@ export class RouteHandler {
     return resolved;
   }
 
-  private resolveErrorFilterKeys(keys: readonly string[]): ExceptionFilterEntry[] {
+  private resolveExceptionFilterKeys(keys: readonly string[]): ResolvedExceptionFilter[] {
     if (keys.length === 0 || this.container === undefined) {
       return [];
     }
 
-    const resolved: ExceptionFilterEntry[] = [];
+    const resolved: ResolvedExceptionFilter[] = [];
 
     for (const key of keys) {
       const value = this.container.get(key);
 
-      if (this.isExceptionFilterEntry(value)) {
-        resolved.push(value);
+      if (this.isExceptionFilterDefinition(value)) {
+        resolved.push({
+          handler: runInInjectionContext(this.container, value.factory),
+          catchTypes: value.catchTypes,
+        });
       } else {
-        throw new Error(`[RouteHandler] Container key '${key}' did not resolve to an ExceptionFilterEntry`);
+        throw new Error(`[RouteHandler] Container key '${key}' did not resolve to an ExceptionFilterDefinition`);
       }
     }
 
     return resolved;
   }
 
-  private resolveGuardKeys(keys: readonly string[]): GuardDefinition[] {
+  private resolveGuardKeys(keys: readonly string[]): GuardHandlerFn[] {
     if (keys.length === 0 || this.container === undefined) {
       return [];
     }
 
-    const resolved: GuardDefinition[] = [];
+    const resolved: GuardHandlerFn[] = [];
 
     for (const key of keys) {
       const value = this.container.get(key);
 
       if (this.isGuardDefinition(value)) {
-        resolved.push(value);
+        resolved.push(runInInjectionContext(this.container, value.factory));
       } else {
         throw new Error(`[RouteHandler] Container key '${key}' did not resolve to a GuardDefinition`);
       }
@@ -260,15 +275,15 @@ export class RouteHandler {
   }
 
   private isMiddlewareDefinition(value: unknown): value is MiddlewareDefinition {
-    return typeof value === 'object' && value !== null && 'handler' in value && typeof (value as Record<string, unknown>).handler === 'function';
+    return typeof value === 'object' && value !== null && 'factory' in value && typeof (value as Record<string, unknown>).factory === 'function';
   }
 
-  private isExceptionFilterEntry(value: unknown): value is ExceptionFilterEntry {
-    return typeof value === 'object' && value !== null && 'filter' in value && 'catchTypes' in value;
+  private isExceptionFilterDefinition(value: unknown): value is ExceptionFilterDefinition {
+    return typeof value === 'object' && value !== null && 'factory' in value && 'catchTypes' in value;
   }
 
   private isGuardDefinition(value: unknown): value is GuardDefinition {
-    return typeof value === 'object' && value !== null && 'handler' in value && typeof (value as Record<string, unknown>).handler === 'function';
+    return typeof value === 'object' && value !== null && 'factory' in value && typeof (value as Record<string, unknown>).factory === 'function';
   }
 
   private isControllerInstance(value: unknown): value is ControllerInstance {
@@ -296,10 +311,10 @@ export class RouteHandler {
   get __testing__() {
     return {
       resolveMiddlewareKeys: this.resolveMiddlewareKeys.bind(this),
-      resolveErrorFilterKeys: this.resolveErrorFilterKeys.bind(this),
+      resolveExceptionFilterKeys: this.resolveExceptionFilterKeys.bind(this),
       resolveGuardKeys: this.resolveGuardKeys.bind(this),
       isMiddlewareDefinition: this.isMiddlewareDefinition.bind(this),
-      isExceptionFilterEntry: this.isExceptionFilterEntry.bind(this),
+      isExceptionFilterDefinition: this.isExceptionFilterDefinition.bind(this),
       isGuardDefinition: this.isGuardDefinition.bind(this),
       isControllerInstance: this.isControllerInstance.bind(this),
     };

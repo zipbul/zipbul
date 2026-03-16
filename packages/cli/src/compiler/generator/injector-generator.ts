@@ -489,8 +489,8 @@ export class InjectorGenerator {
               configParts.push(`'middlewares': ${this.serializeValue(itemRecord.middlewares, registry)}`);
             }
 
-            if (itemRecord.errorFilters !== undefined) {
-              configParts.push(`'errorFilters': ${this.serializeValue(itemRecord.errorFilters, registry)}`);
+            if (itemRecord.exceptionFilters !== undefined) {
+              configParts.push(`'exceptionFilters': ${this.serializeValue(itemRecord.exceptionFilters, registry)}`);
             }
 
             if (itemRecord.guards !== undefined) {

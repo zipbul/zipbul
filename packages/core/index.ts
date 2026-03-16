@@ -4,4 +4,5 @@ export { getRuntimeContext, registerRuntimeContext } from './src/runtime/runtime
 export { Container } from './src/injector/container';
 export type { ClassMetadata, ConstructorParamMetadata, DecoratorMetadata } from './src/injector/types';
 export { ClusterManager } from './src/cluster/cluster-manager';
-export type { ClusterBaseWorker } from './src/cluster/cluster-base-worker';
+export { ClusterBaseWorker } from './src/cluster/cluster-base-worker';
+export { expose } from './src/cluster/ipc';

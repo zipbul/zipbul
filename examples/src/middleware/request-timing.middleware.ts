@@ -26,17 +26,19 @@ export function requestTimingMiddleware(options: RequestTimingOptions = {}): Mid
   const headerName = options.headerName ?? DEFAULT_HEADER;
   const logger = new Logger('RequestTimingMiddleware');
 
-  return defineMiddleware([HttpAdapter], (ctx) => {
-    const http = ctx.to(HttpContext);
-    const start = performance.now();
-    const req = http.request;
-    const res = http.response;
+  return defineMiddleware([HttpAdapter], () => {
+    return (ctx) => {
+      const http = ctx.to(HttpContext);
+      const start = performance.now();
+      const req = http.request;
+      const res = http.response;
 
-    logger.info(`-> ${req.method} ${req.url}`);
+      logger.info(`-> ${req.method} ${req.url}`);
 
-    const elapsed = (performance.now() - start).toFixed(2);
-    res.setHeader(headerName, `${elapsed}ms`);
+      const elapsed = (performance.now() - start).toFixed(2);
+      res.setHeader(headerName, `${elapsed}ms`);
 
-    logger.info(`<- ${req.method} ${req.url} ${elapsed}ms`);
+      logger.info(`<- ${req.method} ${req.url} ${elapsed}ms`);
+    };
   });
 }

@@ -25,8 +25,16 @@ export type MiddlewareHandlerFn = (
  *
  * @public
  */
+/**
+ * Factory function that creates a middleware handler.
+ * Called once during pipeline assembly to produce the handler instance.
+ *
+ * @public
+ */
+export type MiddlewareFactory = () => MiddlewareHandlerFn;
+
 export interface MiddlewareDefinition {
-  readonly handler: MiddlewareHandlerFn;
+  readonly factory: MiddlewareFactory;
   readonly adapters?: readonly AdapterClass[];
 }
 
@@ -36,46 +44,46 @@ export interface MiddlewareDefinition {
  * as a static marker for the AOT compiler and to provide a
  * type-safe, immutable middleware reference.
  *
- * @param handler - The middleware handler function (universal middleware).
+ * @param factory - The middleware factory function (universal middleware).
  * @returns A frozen {@link MiddlewareDefinition}.
  *
  * @example
  * ```ts
  * // Universal middleware (all adapters)
- * export const timingMiddleware = defineMiddleware((ctx) => {
+ * export const timingMiddleware = defineMiddleware(() => (ctx) => {
  *   console.log('timing');
  * });
  *
  * // Adapter-specific middleware
- * export const corsMiddleware = defineMiddleware([HttpAdapter], (ctx) => {
+ * export const corsMiddleware = defineMiddleware([HttpAdapter], () => (ctx) => {
  *   const http = ctx.to(HttpContext);
  *   handleCors(http);
  * });
  *
  * // Factory pattern with adapter constraint
  * export function rateLimitMiddleware(opts: RateLimitOptions): MiddlewareDefinition {
- *   return defineMiddleware([HttpAdapter], (ctx) => { ... });
+ *   return defineMiddleware([HttpAdapter], () => (ctx) => { ... });
  * }
  * ```
  *
  * @public
  */
-export function defineMiddleware(handler: MiddlewareHandlerFn): MiddlewareDefinition;
-export function defineMiddleware(adapters: readonly AdapterClass[], handler: MiddlewareHandlerFn): MiddlewareDefinition;
+export function defineMiddleware(factory: MiddlewareFactory): MiddlewareDefinition;
+export function defineMiddleware(adapters: readonly AdapterClass[], factory: MiddlewareFactory): MiddlewareDefinition;
 export function defineMiddleware(
-  adaptersOrHandler: readonly AdapterClass[] | MiddlewareHandlerFn,
-  maybeHandler?: MiddlewareHandlerFn,
+  adaptersOrFactory: readonly AdapterClass[] | MiddlewareFactory,
+  maybeFactory?: MiddlewareFactory,
 ): MiddlewareDefinition {
-  if (typeof adaptersOrHandler === 'function') {
-    return Object.freeze({ handler: adaptersOrHandler });
+  if (typeof adaptersOrFactory === 'function') {
+    return Object.freeze({ factory: adaptersOrFactory });
   }
 
-  if (maybeHandler === undefined) {
-    throw new Error('Handler function is required when adapters are specified.');
+  if (maybeFactory === undefined) {
+    throw new Error('Factory function is required when adapters are specified.');
   }
 
   return Object.freeze({
-    handler: maybeHandler,
-    adapters: Object.freeze([...adaptersOrHandler]),
+    factory: maybeFactory,
+    adapters: Object.freeze([...adaptersOrFactory]),
   });
 }

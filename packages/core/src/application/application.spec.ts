@@ -17,16 +17,19 @@ const { Application } = await import('./application');
 function createMockAdapterClass() {
   const startFn = mock(() => Promise.resolve());
   const stopFn = mock(() => Promise.resolve());
+  const initializePipelineFn = mock(function () {});
 
   class MockAdapter {
     start = startFn;
     stop = stopFn;
+    initializePipeline = initializePipelineFn;
   }
 
   return {
     AdapterClass: MockAdapter as unknown as AdapterClass,
     startFn,
     stopFn,
+    initializePipelineFn,
   };
 }
 
@@ -40,12 +43,14 @@ function createWirableAdapterClass() {
 
   let currentInstance: any;
   const addMiddlewaresFn = mock(function () { return currentInstance; });
+  const initializePipelineFn = mock(function () {});
 
   class WirableMockAdapter {
     constructor() { currentInstance = this; }
     start = startFn;
     stop = stopFn;
     addMiddlewares = addMiddlewaresFn;
+    initializePipeline = initializePipelineFn;
   }
 
   return {
@@ -53,6 +58,7 @@ function createWirableAdapterClass() {
     startFn,
     stopFn,
     addMiddlewaresFn,
+    initializePipelineFn,
   };
 }
 
@@ -717,7 +723,7 @@ describe('Application', () => {
 
   describe('middleware wiring', () => {
     function createMiddleware() {
-      return defineMiddleware(() => undefined);
+      return defineMiddleware(() => () => undefined);
     }
 
     it('should call addMiddlewares on adapter when adapterConfig has matching middleware', async () => {
@@ -918,7 +924,7 @@ describe('Application', () => {
 
   describe('guard wiring', () => {
     function createGuard(): GuardDefinition {
-      return defineGuard(() => undefined);
+      return defineGuard(() => () => undefined);
     }
 
     function createGuardWirableAdapterClass() {
@@ -927,16 +933,18 @@ describe('Application', () => {
 
       let currentInstance: any;
       const addGuardsFn = mock(function () { return currentInstance; });
-      const addExceptionFilterEntriesFn = mock(function () { return currentInstance; });
+      const addExceptionFiltersFn = mock(function () { return currentInstance; });
       const addMiddlewaresFn = mock(function () { return currentInstance; });
+      const initializePipelineFn = mock(function () {});
 
       class GuardWirableMockAdapter {
         constructor() { currentInstance = this; }
         start = startFn;
         stop = stopFn;
         addGuards = addGuardsFn;
-        addExceptionFilterEntries = addExceptionFilterEntriesFn;
+        addExceptionFilters = addExceptionFiltersFn;
         addMiddlewares = addMiddlewaresFn;
+        initializePipeline = initializePipelineFn;
       }
 
       return {
@@ -944,8 +952,9 @@ describe('Application', () => {
         startFn,
         stopFn,
         addGuardsFn,
-        addExceptionFilterEntriesFn,
+        addExceptionFiltersFn,
         addMiddlewaresFn,
+        initializePipelineFn,
       };
     }
 
@@ -987,11 +996,11 @@ describe('Application', () => {
       expect(adapter.addGuardsFn).not.toHaveBeenCalled();
     });
 
-    it('should wire guards after errorFilters', async () => {
+    it('should wire guards after exceptionFilters', async () => {
       const wireOrder: string[] = [];
       const adapter = createGuardWirableAdapterClass();
-      adapter.addExceptionFilterEntriesFn.mockImplementation(function () {
-        wireOrder.push('errorFilters');
+      adapter.addExceptionFiltersFn.mockImplementation(function () {
+        wireOrder.push('exceptionFilters');
         return currentInstance;
       });
       adapter.addGuardsFn.mockImplementation(function () {
@@ -1005,23 +1014,24 @@ describe('Application', () => {
         start = adapter.startFn;
         stop = adapter.stopFn;
         addGuards = adapter.addGuardsFn;
-        addExceptionFilterEntries = adapter.addExceptionFilterEntriesFn;
+        addExceptionFilters = adapter.addExceptionFiltersFn;
         addMiddlewares = adapter.addMiddlewaresFn;
+        initializePipeline = adapter.initializePipelineFn;
       }
 
       const guard = createGuard();
-      const errorFilter = { filter: { catch() { /* noop */ } }, catchTypes: [] };
+      const exceptionFilter = { factory: () => () => {}, catchTypes: [] };
       mockAdapterConfig = {
         [OrderTrackingAdapter.name]: {
           guards: [guard],
-          errorFilters: [errorFilter],
+          exceptionFilters: [exceptionFilter],
         },
       };
 
       app.attach(OrderTrackingAdapter as unknown as AdapterClass);
       await app.start();
 
-      expect(wireOrder).toEqual(['errorFilters', 'guards']);
+      expect(wireOrder).toEqual(['exceptionFilters', 'guards']);
     });
 
     it('should resolve config key using adapter name when name is set', async () => {

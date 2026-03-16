@@ -2161,57 +2161,6 @@ describe('AdapterDefinitionResolver', () => {
   // =======================================================================
 
   describe('build-time validation', () => {
-    // C-2: @UseExceptionFilters without @Catch → error
-    it('should throw when @UseExceptionFilters references a filter class without @Catch decorator', async () => {
-      // Arrange — SomeFilter class exists but has NO @Catch decorator
-      const parser = new AstParser();
-      const fileMap = new Map<string, FileAnalysis>();
-
-      const code = [
-        'function Controller() { return () => {}; }',
-        'function Get() { return () => {}; }',
-        'function UseExceptionFilters() { return () => {}; }',
-        'class SomeFilter {}',
-        '',
-        '@Controller()',
-        'class FilterController {',
-        '  @Get()',
-        '  @UseExceptionFilters(SomeFilter)',
-        '  handle() {}',
-        '}',
-      ].join('\n');
-
-      const controllerParse = parseOrFail(parser, controllerFile, code);
-      const controllerAnalysis: FileAnalysis = {
-        filePath: controllerFile,
-        classes: controllerParse.classes,
-        reExports: controllerParse.reExports,
-        exports: controllerParse.exports,
-        importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
-      };
-
-      applyParseToAnalysis(controllerAnalysis, controllerParse);
-      fileMap.set(controllerFile, controllerAnalysis);
-
-      const adapterClass = createTestAdapterClass();
-      const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter(TestAdapter);');
-      const entryAnalysis: FileAnalysis = {
-        filePath: entryFile,
-        classes: [adapterClass],
-        reExports: entryParse.reExports,
-        exports: entryParse.exports,
-        exportedValues: { adapterDefinition: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
-      };
-
-      applyParseToAnalysis(entryAnalysis, entryParse);
-      fileMap.set(entryFile, entryAnalysis);
-
-      const resolver = new AdapterDefinitionResolver();
-
-      // Act & Assert
-      await expect(resolver.resolve({ fileMap, projectRoot })).rejects.toThrow(/must have a @Catch decorator/);
-    });
-
     // C-3: Unresolvable expression in @UseGuards → throw
     it('should throw when @UseGuards argument is an unresolvable expression', async () => {
       // Arrange — manually construct metadata with ZIPBUL_UNRESOLVABLE marker

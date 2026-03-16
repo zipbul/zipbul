@@ -885,7 +885,7 @@ export class AstParser {
     const methods: ClassMetadata['methods'] = [];
     const properties: ClassMetadata['properties'] = [];
     let middlewares: ClassMetadata['middlewares'] = [];
-    let errorFilters: ClassMetadata['errorFilters'] = [];
+    let exceptionFilters: ClassMetadata['exceptionFilters'] = [];
     const body = this.asNode(node.body);
     const bodyValue = body?.body;
     const bodyItems = asAnalyzerArray(bodyValue);
@@ -970,13 +970,13 @@ export class AstParser {
 
               middlewares = mwResult;
 
-              const efResult = this.extractErrorFiltersFromConfigure(value);
+              const efResult = this.extractExceptionFiltersFromConfigure(value);
 
               if (isErr(efResult)) {
                 return efResult;
               }
 
-              errorFilters = efResult;
+              exceptionFilters = efResult;
             }
 
             if (methodDecorators.length > 0 || methodParams.some(param => param.decorators.length > 0)) {
@@ -1154,12 +1154,12 @@ export class AstParser {
       properties,
       imports: {},
       middlewares,
-      errorFilters,
+      exceptionFilters,
     };
   }
 
-  private extractErrorFiltersFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['errorFilters'], Diagnostic> {
-    const errorFilters: ClassMetadata['errorFilters'] = [];
+  private extractExceptionFiltersFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['exceptionFilters'], Diagnostic> {
+    const exceptionFilters: ClassMetadata['exceptionFilters'] = [];
 
     const error = (): never => {
       throw new Error('[Zipbul AOT] addErrorFilters only supports literal arrays and Identifiers.');
@@ -1213,7 +1213,7 @@ export class AstParser {
                 return;
               }
 
-              errorFilters.push({ name, index });
+              exceptionFilters.push({ name, index });
 
               continue;
             }
@@ -1253,7 +1253,7 @@ export class AstParser {
       }));
     }
 
-    return errorFilters;
+    return exceptionFilters;
   }
 
   private extractMiddlewaresFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['middlewares'], Diagnostic> {
