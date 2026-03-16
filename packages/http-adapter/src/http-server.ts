@@ -2,7 +2,6 @@ import type { Server } from 'bun';
 
 import type {
   ZipbulContainer,
-  ZipbulValue,
 } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 import { StatusCodes } from 'http-status-codes';
@@ -38,7 +37,7 @@ export class HttpServer {
   private readonly logger = Logger.inherit();
 
   private options: HttpServerOptions;
-  private server: Server<ZipbulValue>;
+  private server: Server<unknown>;
 
   async boot(container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
     this.container = container;
@@ -80,7 +79,7 @@ export class HttpServer {
       serveOptions.maxRequestBodySize = this.options.bodyLimit;
     }
 
-    this.server = Bun.serve<ZipbulValue>(serveOptions);
+    this.server = Bun.serve<unknown>(serveOptions);
 
     this.logger.info(`Listening on :${this.options.port}`);
   }

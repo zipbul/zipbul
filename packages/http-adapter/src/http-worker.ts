@@ -1,4 +1,4 @@
-import type { ZipbulRecord, ZipbulValue, ProviderToken } from '@zipbul/common';
+import type { ZipbulRecord, ProviderToken } from '@zipbul/common';
 import type { RpcArgs, RpcCallable } from '@zipbul/core/src/cluster/types';
 
 import { ClusterBaseWorker, Container, type ClusterWorkerId, expose } from '@zipbul/core';
@@ -87,7 +87,7 @@ class HttpWorker extends ClusterBaseWorker {
     this.logger.info(`🛑 Worker #${this.id} is destroying...`);
   }
 
-  private isHttpWorkerManifest(value: ZipbulValue | undefined): value is HttpWorkerManifest {
+  private isHttpWorkerManifest(value: unknown): value is HttpWorkerManifest {
     if (!this.isRecord(value)) {
       return false;
     }
@@ -97,7 +97,7 @@ class HttpWorker extends ClusterBaseWorker {
     return typeof createContainer === 'function';
   }
 
-  private isHttpWorkerInitParams(value: ZipbulValue): value is HttpWorkerInitParams {
+  private isHttpWorkerInitParams(value: unknown): value is HttpWorkerInitParams {
     if (!this.isRecord(value)) {
       return false;
     }
@@ -116,7 +116,7 @@ class HttpWorker extends ClusterBaseWorker {
     return this.isRecord(options);
   }
 
-  private isRecord(value: ZipbulValue | undefined): value is ZipbulRecord {
+  private isRecord(value: unknown): value is ZipbulRecord {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 }
@@ -157,7 +157,7 @@ expose({
   getStats: getWorkerStats,
 });
 
-function isZipbulRecord(value: ZipbulValue): value is ZipbulRecord {
+function isZipbulRecord(value: unknown): value is ZipbulRecord {
   return typeof value === 'object' && value !== null;
 }
 

@@ -1,7 +1,6 @@
 import type {
   ExceptionFilter,
   MiddlewareDefinition,
-  ZipbulValue,
   Class,
   ClassToken,
   PrimitiveArray,
@@ -17,7 +16,7 @@ export type { HttpMethod } from '@zipbul/shared';
 
 export type HeadersInit = Headers | Array<[string, string]> | Record<string, string>;
 
-export type HttpWorkerRpcCallable = (...args: ReadonlyArray<ZipbulValue>) => ZipbulValue | Promise<ZipbulValue>;
+export type HttpWorkerRpcCallable = (...args: readonly unknown[]) => unknown | Promise<unknown>;
 
 export type HttpWorkerRpc = Record<string, HttpWorkerRpcCallable>;
 
@@ -80,7 +79,6 @@ export type RouteHandlerFunction = (...args: readonly RouteHandlerArgument[]) =>
 export type ControllerInstance = Record<string, RouteHandlerArgument | RouteHandlerFunction>;
 
 export type ContainerInstance =
-  | ZipbulValue
   | ControllerInstance
   | ExceptionFilter
   | RouteHandlerArgument

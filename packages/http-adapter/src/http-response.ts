@@ -144,7 +144,7 @@ export class HttpResponse {
 
     if (typeof location === 'string' && location.length > 0) {
       if (!this._status) {
-        this.setStatus(StatusCodes.MOVED_PERMANENTLY);
+        this.setStatus(StatusCodes.MOVED_TEMPORARILY);
       }
 
       return this.setBody(undefined).buildWorkerResponse();

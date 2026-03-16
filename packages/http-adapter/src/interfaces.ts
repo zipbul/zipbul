@@ -4,7 +4,6 @@ import type {
   ZipbulContainer,
   ExceptionFilterEntry,
   MiddlewareDefinition,
-  ZipbulValue,
   Class,
   Context,
   ExceptionFilterToken,
@@ -51,7 +50,7 @@ export interface HttpServerBootOptions extends HttpServerOptions {
   readonly scopedKeys?: Map<ProviderToken, string>;
   readonly internalRoutes?: readonly InternalRouteEntry[];
   readonly errorFilters?: readonly ExceptionFilterToken[];
-  readonly logger?: ZipbulValue;
+  readonly logger?: unknown;
   readonly handlerIndex?: readonly CompiledHandlerEntry[];
 }
 
@@ -59,19 +58,6 @@ export interface HttpAdapterStartContext extends Context {
   readonly container: ZipbulContainer;
   readonly entryModule?: Class;
 }
-
-export interface HttpInternalChannel {
-  get(path: string, handler: InternalRouteHandler): void;
-}
-
-export type HttpInternalHost = Record<symbol, HttpInternalChannel | undefined>;
-
-export interface WorkerInitParams {
-  rootModuleClassName: string;
-  options: WorkerOptions;
-}
-
-export interface WorkerOptions {}
 
 export interface HttpWorkerEntryModule {
   readonly path?: string;
