@@ -162,3 +162,5 @@ function isPrimitiveMetatype(metatype: RouteParamType): boolean {
 function isDeserializableConstructor(value: RouteParamType): value is new (...args: unknown[]) => RouteParamValue {
   return typeof value === 'function' && value.prototype !== undefined;
 }
+
+export const __testing__ = { isDeserializableConstructor };

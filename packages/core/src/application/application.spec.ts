@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach, type Mock } from 'bun:test';
-import type { Adapter, AdapterClass, Context, ZipbulContainer, ProviderToken } from '@zipbul/common';
-import { MiddlewareHook, defineMiddleware } from '@zipbul/common';
+import type { Adapter, AdapterClass, Context, ZipbulContainer, ProviderToken, GuardDefinition } from '@zipbul/common';
+import { MiddlewareHook, defineMiddleware, defineGuard } from '@zipbul/common';
 
 let mockAdapterConfig: Record<string, unknown> | undefined;
 
@@ -913,6 +913,129 @@ describe('Application', () => {
       expect(classA.stopFn).toHaveBeenCalledTimes(1);
       expect(classA.addMiddlewaresFn).toHaveBeenCalledTimes(1);
       expect(classB.addMiddlewaresFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('guard wiring', () => {
+    function createGuard(): GuardDefinition {
+      return defineGuard(() => undefined);
+    }
+
+    function createGuardWirableAdapterClass() {
+      const startFn = mock(() => Promise.resolve());
+      const stopFn = mock(() => Promise.resolve());
+
+      let currentInstance: any;
+      const addGuardsFn = mock(function () { return currentInstance; });
+      const addExceptionFilterEntriesFn = mock(function () { return currentInstance; });
+      const addMiddlewaresFn = mock(function () { return currentInstance; });
+
+      class GuardWirableMockAdapter {
+        constructor() { currentInstance = this; }
+        start = startFn;
+        stop = stopFn;
+        addGuards = addGuardsFn;
+        addExceptionFilterEntries = addExceptionFilterEntriesFn;
+        addMiddlewares = addMiddlewaresFn;
+      }
+
+      return {
+        AdapterClass: GuardWirableMockAdapter as unknown as AdapterClass,
+        startFn,
+        stopFn,
+        addGuardsFn,
+        addExceptionFilterEntriesFn,
+        addMiddlewaresFn,
+      };
+    }
+
+    it('should call adapter.addGuards when config.guards is non-empty', async () => {
+      const adapter = createGuardWirableAdapterClass();
+      const guard = createGuard();
+      mockAdapterConfig = {
+        [adapter.AdapterClass.name]: { guards: [guard] },
+      };
+
+      app.attach(adapter.AdapterClass);
+      await app.start();
+
+      expect(adapter.addGuardsFn).toHaveBeenCalledTimes(1);
+      expect(adapter.addGuardsFn).toHaveBeenCalledWith([guard]);
+    });
+
+    it('should not call adapter.addGuards when config.guards is empty array', async () => {
+      const adapter = createGuardWirableAdapterClass();
+      mockAdapterConfig = {
+        [adapter.AdapterClass.name]: { guards: [] },
+      };
+
+      app.attach(adapter.AdapterClass);
+      await app.start();
+
+      expect(adapter.addGuardsFn).not.toHaveBeenCalled();
+    });
+
+    it('should not call adapter.addGuards when config.guards is undefined', async () => {
+      const adapter = createGuardWirableAdapterClass();
+      mockAdapterConfig = {
+        [adapter.AdapterClass.name]: {},
+      };
+
+      app.attach(adapter.AdapterClass);
+      await app.start();
+
+      expect(adapter.addGuardsFn).not.toHaveBeenCalled();
+    });
+
+    it('should wire guards after errorFilters', async () => {
+      const wireOrder: string[] = [];
+      const adapter = createGuardWirableAdapterClass();
+      adapter.addExceptionFilterEntriesFn.mockImplementation(function () {
+        wireOrder.push('errorFilters');
+        return currentInstance;
+      });
+      adapter.addGuardsFn.mockImplementation(function () {
+        wireOrder.push('guards');
+        return currentInstance;
+      });
+
+      let currentInstance: any;
+      class OrderTrackingAdapter {
+        constructor() { currentInstance = this; }
+        start = adapter.startFn;
+        stop = adapter.stopFn;
+        addGuards = adapter.addGuardsFn;
+        addExceptionFilterEntries = adapter.addExceptionFilterEntriesFn;
+        addMiddlewares = adapter.addMiddlewaresFn;
+      }
+
+      const guard = createGuard();
+      const errorFilter = { filter: { catch() { /* noop */ } }, catchTypes: [] };
+      mockAdapterConfig = {
+        [OrderTrackingAdapter.name]: {
+          guards: [guard],
+          errorFilters: [errorFilter],
+        },
+      };
+
+      app.attach(OrderTrackingAdapter as unknown as AdapterClass);
+      await app.start();
+
+      expect(wireOrder).toEqual(['errorFilters', 'guards']);
+    });
+
+    it('should resolve config key using adapter name when name is set', async () => {
+      const adapter = createGuardWirableAdapterClass();
+      const guard = createGuard();
+      mockAdapterConfig = {
+        'custom-name': { guards: [guard] },
+      };
+
+      app.attach(adapter.AdapterClass, { name: 'custom-name' });
+      await app.start();
+
+      expect(adapter.addGuardsFn).toHaveBeenCalledTimes(1);
+      expect(adapter.addGuardsFn).toHaveBeenCalledWith([guard]);
     });
   });
 });

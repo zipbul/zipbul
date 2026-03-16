@@ -1727,6 +1727,383 @@ describe('AdapterDefinitionResolver', () => {
     expect(isErr(result)).toBe(false);
   });
 
+  // =======================================================================
+  // extractDecoratorRefKeys (tested indirectly via buildHandlerIndex)
+  // =======================================================================
+
+  describe('extractDecoratorRefKeys', () => {
+    it('should return empty middlewareKeys when handler has no UseMiddlewares decorator', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        '',
+        '@Controller()',
+        'class PlainController {',
+        '  @Get()',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.middlewareKeys).toBeUndefined();
+      expect(result.routeRegistrations).toEqual([]);
+    });
+
+    it('should populate middlewareKeys from class-level UseMiddlewares decorator', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function UseMiddlewares() { return () => {}; }',
+        'function AuthMw() {}',
+        '',
+        '@Controller()',
+        '@UseMiddlewares(AuthMw)',
+        'class ClassMwController {',
+        '  @Get()',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.middlewareKeys).toBeDefined();
+      expect(entry!.middlewareKeys!.length).toBe(1);
+      expect(entry!.middlewareKeys![0]).toContain(':cls:');
+    });
+
+    it('should populate middlewareKeys from method-level UseMiddlewares decorator', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function UseMiddlewares() { return () => {}; }',
+        'function LogMw() {}',
+        '',
+        '@Controller()',
+        'class MethodMwController {',
+        '  @Get()',
+        '  @UseMiddlewares(LogMw)',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.middlewareKeys).toBeDefined();
+      expect(entry!.middlewareKeys!.length).toBe(1);
+      expect(entry!.middlewareKeys![0]).toContain(':mtd:');
+    });
+
+    it('should merge class-level before method-level (order preserved)', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function UseMiddlewares() { return () => {}; }',
+        'function AuthMw() {}',
+        'function LogMw() {}',
+        '',
+        '@Controller()',
+        '@UseMiddlewares(AuthMw)',
+        'class MergedController {',
+        '  @Get()',
+        '  @UseMiddlewares(LogMw)',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.middlewareKeys).toBeDefined();
+      expect(entry!.middlewareKeys!.length).toBe(2);
+      expect(entry!.middlewareKeys![0]).toContain(':cls:0');
+      expect(entry!.middlewareKeys![1]).toContain(':mtd:1');
+    });
+
+    it('should handle multiple arguments in single decorator', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function UseMiddlewares() { return () => {}; }',
+        'function MwA() {}',
+        'function MwB() {}',
+        '',
+        '@Controller()',
+        'class MultiArgController {',
+        '  @Get()',
+        '  @UseMiddlewares(MwA, MwB)',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.middlewareKeys).toBeDefined();
+      expect(entry!.middlewareKeys!.length).toBe(2);
+      expect(entry!.middlewareKeys![0]).toContain(':mtd:0');
+      expect(entry!.middlewareKeys![1]).toContain(':mtd:1');
+    });
+
+    it('should skip non-matching decorator names', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function SomeOther() { return () => {}; }',
+        'function AuthMw() {}',
+        '',
+        '@Controller()',
+        'class OtherDecController {',
+        '  @Get()',
+        '  @SomeOther(AuthMw)',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.middlewareKeys).toBeUndefined();
+    });
+
+    it('should skip arguments without __zipbul_ref', async () => {
+      // Arrange — string literal arguments do not produce __zipbul_ref records
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function UseMiddlewares() { return () => {}; }',
+        '',
+        '@Controller()',
+        'class StringArgController {',
+        '  @Get()',
+        '  @UseMiddlewares("not-a-ref")',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.middlewareKeys).toBeUndefined();
+      expect(result.routeRegistrations).toEqual([]);
+    });
+
+    it('should produce deterministic key format with cls/mtd prefix', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function UseMiddlewares() { return () => {}; }',
+        'function GlobalMw() {}',
+        'function RouteMw() {}',
+        '',
+        '@Controller()',
+        '@UseMiddlewares(GlobalMw)',
+        'class KeyFormatController {',
+        '  @Get()',
+        '  @UseMiddlewares(RouteMw)',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+      const prefix = '__route_mw__:KeyFormatController.handle';
+
+      expect(entry).toBeDefined();
+      expect(entry!.middlewareKeys![0]).toBe(`${prefix}:cls:0`);
+      expect(entry!.middlewareKeys![1]).toBe(`${prefix}:mtd:1`);
+    });
+
+    it('should accumulate routeRegistrations with key-value pairs', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function UseMiddlewares() { return () => {}; }',
+        'function AuthMw() {}',
+        '',
+        '@Controller()',
+        'class RegController {',
+        '  @Get()',
+        '  @UseMiddlewares(AuthMw)',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const mwRegistrations = result.routeRegistrations.filter(reg => reg.key.includes('__route_mw__'));
+
+      expect(mwRegistrations.length).toBe(1);
+      expect(mwRegistrations[0]!.key).toContain('RegController.handle');
+
+      const value = mwRegistrations[0]!.value as Record<string, unknown>;
+
+      expect(value.__zipbul_ref).toBe('AuthMw');
+    });
+
+    it('should produce no keys when decorator arguments is empty', async () => {
+      // Arrange — @UseMiddlewares() with no arguments
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function UseMiddlewares() { return () => {}; }',
+        '',
+        '@Controller()',
+        'class EmptyArgController {',
+        '  @Get()',
+        '  @UseMiddlewares()',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.middlewareKeys).toBeUndefined();
+    });
+
+    it('should merge keys when both class and method have same decorator type', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function UseGuards() { return () => {}; }',
+        'function AdminGuard() {}',
+        'function RoleGuard() {}',
+        '',
+        '@Controller()',
+        '@UseGuards(AdminGuard)',
+        'class DualGuardController {',
+        '  @Get()',
+        '  @UseGuards(RoleGuard)',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.guardKeys).toBeDefined();
+      expect(entry!.guardKeys!.length).toBe(2);
+      expect(entry!.guardKeys![0]).toContain(':cls:0');
+      expect(entry!.guardKeys![1]).toContain(':mtd:1');
+    });
+
+    it('should not process @Middlewares (phase-aware) decorator — only UseMiddlewares', async () => {
+      // Arrange — @Middlewares is the phase-aware variant, not handled by extractDecoratorRefKeys
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function Middlewares() { return () => {}; }',
+        'function AuthMw() {}',
+        '',
+        '@Controller()',
+        'class PhaseAwareController {',
+        '  @Get()',
+        '  @Middlewares("OnReceive", AuthMw)',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const fileMap = buildFileMapWithCode(code);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.middlewareKeys).toBeUndefined();
+    });
+  });
+
   it('should throw for isStatic before isPrivateName when both are true', async () => {
     const code = [
       'function Controller() { return () => {}; }',

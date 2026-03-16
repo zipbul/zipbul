@@ -926,4 +926,76 @@ describe('Adapter', () => {
       expect(result.data).toEqual({ async: true });
     });
   });
+
+  // ── errorFilterTokens removal ──────────────────────────────
+
+  describe('errorFilterTokens removal', () => {
+    it('should not have errorFilterTokens property on adapter instance', () => {
+      // Arrange — fresh adapter from beforeEach
+
+      // Act
+      const hasProperty = 'errorFilterTokens' in adapter;
+
+      // Assert
+      expect(hasProperty).toBe(false);
+    });
+
+    it('should not have addErrorFilters method on adapter instance', () => {
+      // Arrange — fresh adapter from beforeEach
+
+      // Act
+      const hasMethod = 'addErrorFilters' in adapter;
+
+      // Assert
+      expect(hasMethod).toBe(false);
+    });
+
+    it('should accept entries via addExceptionFilterEntries', () => {
+      // Arrange
+      class TestFilter extends ExceptionFilter {
+        catch(_error: unknown, _context: Context): Err<unknown> {
+          return err({ caught: true });
+        }
+      }
+
+      const entries: readonly ExceptionFilterEntry[] = [
+        { filter: new TestFilter(), catchTypes: [] },
+      ];
+
+      // Act
+      const returned = adapter.addExceptionFilterEntries(entries);
+
+      // Assert
+      expect(returned).toBe(adapter);
+    });
+
+    it('should accumulate entries across multiple addExceptionFilterEntries calls', async () => {
+      // Arrange
+      class FirstError extends Error {}
+      class SecondError extends Error {}
+
+      class FirstFilter extends ExceptionFilter<FirstError> {
+        catch(_error: FirstError, _context: Context): Err<unknown> {
+          return err({ matched: 'first' });
+        }
+      }
+
+      class SecondFilter extends ExceptionFilter<SecondError> {
+        catch(_error: SecondError, _context: Context): Err<unknown> {
+          return err({ matched: 'second' });
+        }
+      }
+
+      // Act — two separate calls
+      adapter.addExceptionFilterEntries([{ filter: new FirstFilter(), catchTypes: [FirstError] }]);
+      adapter.addExceptionFilterEntries([{ filter: new SecondFilter(), catchTypes: [SecondError] }]);
+
+      const firstResult = await adapter.runExceptionFilters(new FirstError(), createContext());
+      const secondResult = await adapter.runExceptionFilters(new SecondError(), createContext());
+
+      // Assert
+      expect(firstResult.data).toEqual({ matched: 'first' });
+      expect(secondResult.data).toEqual({ matched: 'second' });
+    });
+  });
 });

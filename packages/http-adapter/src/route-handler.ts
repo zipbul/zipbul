@@ -298,4 +298,17 @@ export class RouteHandler {
     return '';
   }
 
+  /** @internal Exposed for unit testing only. */
+  get __testing__() {
+    return {
+      resolveMiddlewareKeys: this.resolveMiddlewareKeys.bind(this),
+      resolveErrorFilterKeys: this.resolveErrorFilterKeys.bind(this),
+      resolveGuardKeys: this.resolveGuardKeys.bind(this),
+      isMiddlewareDefinition: this.isMiddlewareDefinition.bind(this),
+      isExceptionFilterEntry: this.isExceptionFilterEntry.bind(this),
+      isGuardDefinition: this.isGuardDefinition.bind(this),
+      isControllerInstance: this.isControllerInstance.bind(this),
+    };
+  }
+
 }
