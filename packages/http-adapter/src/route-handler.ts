@@ -1,4 +1,4 @@
-import type { CompiledHandlerEntry } from '@zipbul/common';
+import type { CompiledHandlerEntry, ZipbulContainer, MiddlewareDefinition, ExceptionFilterEntry, GuardDefinition } from '@zipbul/common';
 
 import { Logger } from '@zipbul/logger';
 
@@ -31,6 +31,7 @@ interface RouteHandlerDecoratorConfig {
 export class RouteHandler {
   private readonly metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>;
   private readonly decoratorConfig: RouteHandlerDecoratorConfig;
+  private readonly container: ZipbulContainer | undefined;
   private readonly router: Router<RouteHandlerEntry>;
   private readonly paramResolver: ParamResolver;
   private readonly logger = Logger.inherit();
@@ -39,9 +40,11 @@ export class RouteHandler {
     metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
     decoratorConfig: RouteHandlerDecoratorConfig,
     routerOptions?: RouterOptions,
+    container?: ZipbulContainer,
   ) {
     this.metadataRegistry = metadataRegistry;
     this.decoratorConfig = decoratorConfig;
+    this.container = container;
     this.paramResolver = new ParamResolver(metadataRegistry);
     this.router = new Router<RouteHandlerEntry>({
       ignoreTrailingSlash: true,
@@ -118,11 +121,16 @@ export class RouteHandler {
       const controllerPrefix = this.getControllerPrefix(entry.controllerKey);
       const fullPath = '/' + [controllerPrefix, rawPath].filter(Boolean).join('/').replace(/\/+/g, '/');
 
+      const middlewares = this.resolveMiddlewareKeys(entry.middlewareKeys);
+      const errorFilters = this.resolveErrorFilterKeys(entry.errorFilterKeys);
+      const guards = this.resolveGuardKeys(entry.guardKeys);
+
       const routeEntry: RouteHandlerEntry = {
         handler,
         methodName: entry.methodName,
-        middlewares: [],
-        errorFilters: [],
+        middlewares,
+        errorFilters,
+        guards,
         paramFactory,
       };
 
@@ -161,6 +169,7 @@ export class RouteHandler {
         methodName: '__internal__',
         middlewares: [],
         errorFilters: [],
+        guards: [],
         paramFactory: async (req: HttpRequest, res: HttpResponse) => {
           const arity = typeof route.handler === 'function' ? route.handler.length : 0;
           const args: readonly RouteParamValue[] = arity >= 2 ? [req, res] : [req];
@@ -188,6 +197,84 @@ export class RouteHandler {
 
     return (...args: readonly RouteHandlerArgument[]): RouteHandlerResult | Promise<RouteHandlerResult> =>
       handler.apply(instance, [...args]);
+  }
+
+  private resolveMiddlewareKeys(keys: readonly string[]): MiddlewareDefinition[] {
+    if (keys.length === 0 || this.container === undefined) {
+      return [];
+    }
+
+    const resolved: MiddlewareDefinition[] = [];
+
+    for (const key of keys) {
+      try {
+        const value = this.container.get(key);
+
+        if (this.isMiddlewareDefinition(value)) {
+          resolved.push(value);
+        }
+      } catch {
+        this.logger.warn(`Failed to resolve route middleware: ${key}`);
+      }
+    }
+
+    return resolved;
+  }
+
+  private resolveErrorFilterKeys(keys: readonly string[]): ExceptionFilterEntry[] {
+    if (keys.length === 0 || this.container === undefined) {
+      return [];
+    }
+
+    const resolved: ExceptionFilterEntry[] = [];
+
+    for (const key of keys) {
+      try {
+        const value = this.container.get(key);
+
+        if (this.isExceptionFilterEntry(value)) {
+          resolved.push(value);
+        }
+      } catch {
+        this.logger.warn(`Failed to resolve route error filter: ${key}`);
+      }
+    }
+
+    return resolved;
+  }
+
+  private resolveGuardKeys(keys: readonly string[]): GuardDefinition[] {
+    if (keys.length === 0 || this.container === undefined) {
+      return [];
+    }
+
+    const resolved: GuardDefinition[] = [];
+
+    for (const key of keys) {
+      try {
+        const value = this.container.get(key);
+
+        if (this.isGuardDefinition(value)) {
+          resolved.push(value);
+        }
+      } catch {
+        this.logger.warn(`Failed to resolve route guard: ${key}`);
+      }
+    }
+
+    return resolved;
+  }
+
+  private isMiddlewareDefinition(value: unknown): value is MiddlewareDefinition {
+    return typeof value === 'object' && value !== null && 'handler' in value && typeof (value as Record<string, unknown>).handler === 'function';
+  }
+
+  private isExceptionFilterEntry(value: unknown): value is ExceptionFilterEntry {
+    return typeof value === 'object' && value !== null && 'filter' in value && 'catchTypes' in value;
+  }
+
+  private isGuardDefinition(value: unknown): value is GuardDefinition {
+    return typeof value === 'object' && value !== null && 'handler' in value && typeof (value as Record<string, unknown>).handler === 'function';
   }
 
   private isControllerInstance(value: unknown): value is ControllerInstance {

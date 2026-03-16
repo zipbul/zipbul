@@ -46,4 +46,6 @@ export interface CompiledHandlerEntry {
   readonly middlewareKeys: readonly string[];
   /** Container keys for exception filter instances. */
   readonly errorFilterKeys: readonly string[];
+  /** Container keys for guard instances. */
+  readonly guardKeys: readonly string[];
 }

@@ -54,7 +54,7 @@ export class HttpServer {
       handlerDecoratorNames: this.adapter.decorators.handlers.map(h => h.name),
     };
 
-    const routeHandler = new RouteHandler(metadataRegistry, decoratorConfig);
+    const routeHandler = new RouteHandler(metadataRegistry, decoratorConfig, undefined, this.container);
 
     if (options.handlerIndex !== undefined && options.handlerIndex.length > 0) {
       routeHandler.registerFromHandlerIndex(options.handlerIndex, options.controllerInstances);

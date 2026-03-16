@@ -7,6 +7,7 @@ import type {
   Class,
   Context,
   ProviderToken,
+  GuardDefinition,
 } from '@zipbul/common';
 
 import type { HttpRequest } from './http-request';
@@ -75,5 +76,6 @@ export interface RouteHandlerEntry {
   readonly methodName: string;
   readonly middlewares: MiddlewareDefinition[];
   readonly errorFilters: readonly ExceptionFilterEntry[];
+  readonly guards: readonly GuardDefinition[];
   readonly paramFactory: (req: HttpRequest, res: HttpResponse) => Promise<readonly RouteParamValue[]>;
 }

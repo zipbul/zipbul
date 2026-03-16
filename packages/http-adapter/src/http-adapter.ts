@@ -159,6 +159,17 @@ export class HttpAdapter extends Adapter {
       return scopedResult;
     }
 
+    // Route-level guards: after route middlewares, before param resolution
+    if (matchResult.value.guards.length > 0) {
+      for (const guard of matchResult.value.guards) {
+        const guardResult = await guard.handler(context);
+
+        if (isErr(guardResult)) {
+          return guardResult;
+        }
+      }
+    }
+
     this.logger.debug(`Matched Route: ${method}:${path}`);
 
     const routeEntry = matchResult.value;
