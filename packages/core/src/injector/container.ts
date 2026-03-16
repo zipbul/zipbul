@@ -29,6 +29,7 @@ import {
   formatToken,
   resolveTokenRecord,
 } from './token-resolver';
+import { RequestScopeContainer } from './request-scope-container';
 
 export class Container implements ZipbulContainer {
   private registrations = new Map<Token, ProviderRegistration>();
@@ -134,6 +135,23 @@ export class Container implements ZipbulContainer {
    */
   getRegistrationOrder(): readonly Token[] {
     return this.registrationOrder;
+  }
+
+  /**
+   * Creates a request-scoped child container.
+   *
+   * @param contextId - Unique identifier for this request scope.
+   * @returns A scoped container that delegates singletons to this parent.
+   */
+  createRequestScope(contextId: string): ZipbulContainer {
+    return new RequestScopeContainer(this, contextId);
+  }
+
+  /**
+   * No-op on root container. Request-scoped containers override this.
+   */
+  async dispose(): Promise<void> {
+    // Root container lifecycle is managed by Application.stop()
   }
 
   async loadDynamicModule(scope: string, dynamicModule: ModuleObject | null | undefined): Promise<void> {

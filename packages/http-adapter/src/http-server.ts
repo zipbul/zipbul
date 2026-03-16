@@ -33,13 +33,15 @@ const normalizeHttpMethod = (value: string): HttpMethod | undefined => {
 
 export class HttpServer {
   private adapter: HttpAdapter;
+  private container: ZipbulContainer;
   private readonly logger = Logger.inherit();
 
   private options: HttpServerOptions;
   private server: Server<unknown>;
 
-  async boot(_container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
+  async boot(container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
     this.adapter = adapter;
+    this.container = container;
     this.options = options;
 
     this.logger.debug('Booting...');
@@ -108,9 +110,11 @@ export class HttpServer {
 
     const zipbulRes = new HttpResponse(zipbulReq, new Headers());
 
-    try {
-      const context = new HttpContext(zipbulReq, zipbulRes, req);
+    const requestId = crypto.randomUUID();
+    const requestContainer = this.container.createRequestScope?.(requestId);
+    const context = new HttpContext(zipbulReq, zipbulRes, req, requestContainer);
 
+    try {
       await this.adapter.dispatchRequest(context);
 
       return this.toResponse(zipbulRes.end());
@@ -120,6 +124,8 @@ export class HttpServer {
       return new Response('Internal server error', {
         status: StatusCodes.INTERNAL_SERVER_ERROR,
       });
+    } finally {
+      await requestContainer?.dispose?.();
     }
   }
 

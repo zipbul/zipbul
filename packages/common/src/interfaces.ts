@@ -118,6 +118,21 @@ export interface ZipbulContainer {
   has(token: ProviderToken): boolean;
   getInstances(): IterableIterator<ZipbulValue>;
   keys(): IterableIterator<ProviderToken>;
+
+  /**
+   * Creates a request-scoped child container.
+   * Singletons delegate to the parent; request-scoped providers are cached per contextId.
+   *
+   * @param contextId - Unique identifier for this request scope.
+   * @returns A scoped container that implements `ZipbulContainer`.
+   */
+  createRequestScope?(contextId: string): ZipbulContainer;
+
+  /**
+   * Disposes scoped resources. No-op on the root container.
+   * Request-scoped containers clear cached instances and call onDestroy hooks.
+   */
+  dispose?(): Promise<void>;
 }
 
 export type ExceptionFilterToken = ProviderToken;

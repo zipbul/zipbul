@@ -1,4 +1,4 @@
-import { ContextError, type ClassToken, type ExceptionFilterEntry } from '@zipbul/common';
+import { ContextError, type ClassToken, type ExceptionFilterEntry, type ZipbulContainer } from '@zipbul/common';
 
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
@@ -12,6 +12,7 @@ export class HttpContext {
     private readonly _request: HttpRequest,
     private readonly _response: HttpResponse,
     private readonly _rawRequest?: Request,
+    private readonly _container?: ZipbulContainer,
   ) {}
 
   getType(): string {
@@ -40,6 +41,10 @@ export class HttpContext {
 
   get rawRequest(): Request | undefined {
     return this._rawRequest;
+  }
+
+  get container(): ZipbulContainer | undefined {
+    return this._container;
   }
 
   get routeErrorFilters(): readonly ExceptionFilterEntry[] | undefined {
