@@ -1,6 +1,7 @@
 import type { ZipbulFunction, ZipbulValue, Class, ClassToken, ValueLike, ErrorConstructorLike } from './types';
 import type { AdapterClass } from './adapter/types';
 import type { MiddlewareDefinition } from './define-middleware';
+import type { GuardDefinition } from './define-guard';
 import type { ExceptionFilter } from './exception-filter';
 
 import type { Adapter } from './adapter/adapter';
@@ -149,6 +150,7 @@ export interface AdapterModuleConfig {
   name?: string;
   middlewares?: MiddlewareConfig;
   errorFilters?: ExceptionFilterConfig[];
+  guards?: readonly GuardDefinition[];
 }
 
 export interface MiddlewareConfig {

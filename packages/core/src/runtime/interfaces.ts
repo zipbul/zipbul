@@ -1,5 +1,6 @@
 import type { Class, CompiledHandlerEntry, MiddlewareDefinition, ProviderToken, ExceptionFilterEntry } from '@zipbul/common';
 import type { MiddlewareHook } from '@zipbul/common';
+import type { GuardDefinition } from '@zipbul/common';
 
 import type { Container } from '../injector/container';
 import type { ClassMetadata } from '../injector/types';
@@ -12,6 +13,7 @@ import type { ClassMetadata } from '../injector/types';
 export interface AdapterMiddlewareConfig {
   middlewares?: Partial<Record<MiddlewareHook, readonly MiddlewareDefinition[]>>;
   errorFilters?: readonly ExceptionFilterEntry[];
+  guards?: readonly GuardDefinition[];
 }
 
 export interface RuntimeContext {

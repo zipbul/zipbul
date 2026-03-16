@@ -6,7 +6,6 @@ import type {
   MiddlewareDefinition,
   Class,
   Context,
-  ExceptionFilterToken,
   ProviderToken,
 } from '@zipbul/common';
 
@@ -29,7 +28,6 @@ export interface HttpServerOptions extends ApplicationOptions {
   readonly trustProxy?: boolean;
   readonly workers?: number;
   readonly reusePort?: boolean;
-  readonly errorFilters?: readonly ExceptionFilterToken[];
   readonly name?: string;
   readonly logLevel?: string;
 }
@@ -48,7 +46,6 @@ export interface HttpServerBootOptions extends HttpServerOptions {
   readonly metadata?: Map<MetadataRegistryKey, ClassMetadata>;
   readonly scopedKeys?: Map<ProviderToken, string>;
   readonly internalRoutes?: readonly InternalRouteEntry[];
-  readonly errorFilters?: readonly ExceptionFilterToken[];
   readonly logger?: unknown;
   readonly handlerIndex?: readonly CompiledHandlerEntry[];
   readonly controllerInstances?: Map<string, unknown>;

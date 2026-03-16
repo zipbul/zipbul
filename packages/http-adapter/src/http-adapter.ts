@@ -295,7 +295,6 @@ export class HttpAdapter extends Adapter {
         ...this.options,
         ...(metadata !== undefined ? { metadata } : {}),
         ...(scopedKeys !== undefined ? { scopedKeys } : {}),
-        errorFilters: this.errorFilterTokens,
         internalRoutes: this.internalRoutes,
         ...(runtimeContext.handlerIndex !== undefined ? { handlerIndex: runtimeContext.handlerIndex } : {}),
         ...(runtimeContext.controllerInstances !== undefined ? { controllerInstances: runtimeContext.controllerInstances } : {}),
@@ -331,7 +330,6 @@ export class HttpAdapter extends Adapter {
       },
       options: {
         ...this.options,
-        errorFilters: this.errorFilterTokens,
       },
     };
 

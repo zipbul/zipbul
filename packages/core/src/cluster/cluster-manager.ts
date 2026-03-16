@@ -80,7 +80,7 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       void this.handleCrash('close', id, event);
     });
 
-    return { remote: wrap<T>(native, ['init', 'bootstrap']), native };
+    return { remote: wrap<T>(native, ['init', 'bootstrap', 'destroy', 'getStats']), native };
   }
 
   private async handleCrash(event: 'error' | 'messageerror' | 'close', id: number, error: Event) {

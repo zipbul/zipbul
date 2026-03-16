@@ -4,7 +4,7 @@ import type { MiddlewareDefinition } from '../define-middleware';
 import type { GuardDefinition } from '../define-guard';
 import type { AdapterClass, AdapterEntryDecorators, MiddlewareRegistry } from './types';
 import { MiddlewareHook } from './types';
-import type { Context, ExceptionFilterToken, ExceptionFilterEntry } from '../interfaces';
+import type { Context, ExceptionFilterEntry } from '../interfaces';
 
 /**
  * Base class for all Zipbul adapters.
@@ -19,7 +19,6 @@ export abstract class Adapter {
   abstract readonly decorators: AdapterEntryDecorators;
 
   protected middlewareRegistry: MiddlewareRegistry = {};
-  protected errorFilterTokens: ExceptionFilterToken[] = [];
   protected exceptionFilters: ExceptionFilterEntry[] = [];
   protected guardDefinitions: GuardDefinition[] = [];
 
@@ -68,19 +67,6 @@ export abstract class Adapter {
 
     const current = this.middlewareRegistry[hook];
     this.middlewareRegistry[hook] = current ? [...current, ...middlewares] : [...middlewares];
-    return this;
-  }
-
-  /**
-   * Registers error filter tokens (legacy — used by HttpServer boot).
-   *
-   * @param filters - Error filter tokens to append.
-   * @returns `this` for chaining.
-   *
-   * @public
-   */
-  addErrorFilters(filters: readonly ExceptionFilterToken[]): this {
-    this.errorFilterTokens = [...this.errorFilterTokens, ...filters];
     return this;
   }
 

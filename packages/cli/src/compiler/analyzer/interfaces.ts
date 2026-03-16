@@ -124,6 +124,9 @@ export interface HandlerIndexEntry {
   handlerDecorator: string;
   handlerDecoratorArgs: readonly unknown[];
   params: readonly HandlerParamEntry[];
+  middlewareKeys?: readonly string[];
+  errorFilterKeys?: readonly string[];
+  guardKeys?: readonly string[];
 }
 
 export interface HandlerParamEntry {
