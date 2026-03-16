@@ -17,19 +17,14 @@ import type {
   MetadataRegistryKey,
 } from './types';
 
+import type { HttpMethod } from '@zipbul/shared';
 import { HttpContext } from './http-context';
 import { HttpRequest } from './http-request';
 import { HttpResponse } from './http-response';
-import type { HttpMethod } from './types';
+import { isHttpMethod } from './http-method';
 import { RouteHandler } from './route-handler';
 import { getIps } from './utils';
-import { HttpAdapter } from './http-adapter';
-
-const HTTP_METHODS: ReadonlySet<string> = new Set<string>([
-  'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS',
-]);
-
-const isHttpMethod = (value: string): value is HttpMethod => HTTP_METHODS.has(value);
+import type { HttpAdapter } from './http-adapter';
 
 const normalizeHttpMethod = (value: string): HttpMethod | undefined => {
   const normalized = value.toUpperCase();
@@ -54,12 +49,10 @@ export class HttpServer {
 
     const metadataRegistry = options.metadata ?? new Map<MetadataRegistryKey, ClassMetadata>();
 
-    const adapterClass = this.adapter.constructor as typeof HttpAdapter;
-
     const decoratorConfig = {
-      adapterId: adapterClass.adapterId,
-      controllerDecoratorName: adapterClass.controllerDecoratorName,
-      handlerDecoratorNames: adapterClass.handlerDecoratorNames,
+      adapterId: this.adapter.constructor.name,
+      controllerDecoratorName: this.adapter.decorators.controller.name,
+      handlerDecoratorNames: this.adapter.decorators.handlers.map(h => h.name),
     };
 
     const routeHandler = new RouteHandler(this.container, metadataRegistry, decoratorConfig);

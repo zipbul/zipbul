@@ -1,4 +1,4 @@
-import { ContextError, type ZipbulValue, type ExceptionFilterEntry } from '@zipbul/common';
+import { ContextError, type ClassToken, type ExceptionFilterEntry } from '@zipbul/common';
 
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
@@ -22,8 +22,8 @@ export class HttpContext {
     return undefined;
   }
 
-  to<TContext>(ctor: abstract new (...args: never[]) => TContext): TContext {
-    if (ctor === (HttpContext as unknown) || ctor?.name === HttpContext.name) {
+  to<TContext>(ctor: ClassToken<TContext>): TContext {
+    if (ctor === HttpContext) {
       return this as unknown as TContext;
     }
 

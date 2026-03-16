@@ -16,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json"
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm --packages external --minify-syntax --minify-whitespace && tsc -p tsconfig.build.json"
   },
   "repository": {
     "type": "git",

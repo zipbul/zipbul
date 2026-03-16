@@ -6,7 +6,8 @@ import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
 import type { RouteHandlerEntry } from './interfaces';
 import type { MatchOutput, RouterOptions } from '@zipbul/router';
-import type { HttpMethod } from './types';
+import type { HttpMethod } from '@zipbul/shared';
+import { isHttpMethod } from './http-method';
 import type {
   ClassMetadata,
   ControllerInstance,
@@ -54,9 +55,9 @@ export class RouteHandler {
   }
 
   match(method: string, path: string): MatchOutput<RouteHandlerEntry> | undefined {
-    const normalized = method.toUpperCase() as HttpMethod;
+    const normalized = method.toUpperCase();
 
-    if (!this.isHttpMethod(normalized)) {
+    if (!isHttpMethod(normalized)) {
       return undefined;
     }
 
@@ -79,7 +80,7 @@ export class RouteHandler {
 
       const httpMethod = entry.handlerDecorator.toUpperCase();
 
-      if (!this.isHttpMethod(httpMethod)) {
+      if (!isHttpMethod(httpMethod)) {
         continue;
       }
 
@@ -144,7 +145,7 @@ export class RouteHandler {
     for (const route of routes) {
       const method = String(route.method || '').toUpperCase();
 
-      if (!this.isHttpMethod(method)) {
+      if (!isHttpMethod(method)) {
         continue;
       }
 
@@ -204,15 +205,4 @@ export class RouteHandler {
     return '';
   }
 
-  private isHttpMethod(value: string): value is HttpMethod {
-    return (
-      value === 'GET' ||
-      value === 'POST' ||
-      value === 'PUT' ||
-      value === 'PATCH' ||
-      value === 'DELETE' ||
-      value === 'OPTIONS' ||
-      value === 'HEAD'
-    );
-  }
 }

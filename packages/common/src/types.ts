@@ -59,8 +59,8 @@ export interface Class<T = ZipbulValue> {
   new (...args: ReadonlyArray<ZipbulValue>): T;
 }
 
-export interface ClassToken<T = ZipbulValue> {
-  new (...args: ReadonlyArray<ZipbulValue>): T;
+export interface ClassToken<T = unknown> {
+  new (...args: never[]): T;
 }
 
 export type ClassProperties<T> = {
