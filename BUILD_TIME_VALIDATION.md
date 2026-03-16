@@ -1,155 +1,155 @@
-# AOT 빌드 타임 검증 — 전수조사 및 구현 결과
+# AOT Build-Time Validation — Full Audit & Implementation Report
 
-> 2026-03-17 기준. 모든 항목은 소스 코드 직접 확인 완료.
-> ✅ = 구현 완료, ⬜ = 미구현 (구조적 한계 또는 낮은 우선순위)
+> As of 2026-03-17. All items verified against source code.
+> ✅ = Implemented, ⬜ = Not implemented (structural limitation or low priority)
 
-## 1층: 타입 시스템 (IDE 빨간줄)
+## Layer 1: Type System (IDE Red Squiggles)
 
-| # | 상태 | 위치 | 수정 내용 |
-|---|------|------|----------|
+| # | Status | Location | Change |
+|---|--------|----------|--------|
 | T-1 | ✅ | `interfaces.ts:138` | `ExceptionFilterToken` → `ClassToken<ExceptionFilter> \| Class<ExceptionFilter>` |
 | T-2 | ✅ | `interfaces.ts:171-173` | `MiddlewareConfig` → `Partial<Record<MiddlewareHook, ...>>` |
-| T-3 | ✅ | `types.ts:15,17-23` | `ErrorConstructorLike` → `readonly unknown[]`, primitive 생성자 제거 |
+| T-3 | ✅ | `types.ts:15,17-23` | `ErrorConstructorLike` → `readonly unknown[]`, removed primitive constructors |
 | T-6 | ✅ | `interfaces.ts:113` | `ProviderVisibleTo` → `readonly ModuleMarker[]` |
-| T-9 | ✅ | `injection-context.ts:45` | `inject<T>(token: ClassToken<T>): T` 제네릭 오버로드 추가 |
-| T-13 | ✅ | `interfaces.ts:47` | `ProviderUseFactory.useFactory` → `ProviderFactoryFn` (void 반환 제거) |
+| T-9 | ✅ | `injection-context.ts:45` | Added `inject<T>(token: ClassToken<T>): T` generic overload |
+| T-13 | ✅ | `interfaces.ts:47` | `ProviderUseFactory.useFactory` → `ProviderFactoryFn` (removed void return) |
 
 ---
 
-## 2층: AOT 빌드 타임 검증
+## Layer 2: AOT Build-Time Validation
 
-### A. DI 프로바이더 존재 검증
+### A. DI Provider Existence
 
-| # | 상태 | 항목 | 조치 |
-|---|------|------|------|
-| A-1 | ✅ | `inject()` 토큰이 등록 키에 없음 | `getAllRegisteredKeys()` + `classDefinitions` 대조. 클래스 토큰만 검증 |
-| A-2 | ✅ | 생성자 의존성 타입 추출 불가 | `'undefined'` → throw |
-| A-3 | ✅ | `useClass` 참조 클래스 없음 | `'undefined'` → throw |
-| A-4 | ✅ | `useExisting` 별칭 대상 없음 | `allKeys` 대조. 클래스 토큰만 검증 |
-| A-5 | ✅ | `useFactory` inject 토큰 미등록 | `allKeys` 대조. 클래스 토큰만 검증 |
-| A-6 | ✅ | `useFactory` 코드 빈 문자열 | `return;` → throw |
-| A-7 | ✅ | `normalizeProvider` token `'UNKNOWN'` | throw 추가 |
-| A-8 | ✅ | `useFactory` inject 토큰 추출 실패 | `'undefined'` → throw |
+| # | Status | Item | Action |
+|---|--------|------|--------|
+| A-1 | ✅ | `inject()` token not in registered keys | Cross-reference via `getAllRegisteredKeys()` + `classDefinitions`. Class tokens only |
+| A-2 | ✅ | Constructor dep type not extractable | `'undefined'` literal → throw |
+| A-3 | ✅ | `useClass` target class missing | `'undefined'` literal → throw |
+| A-4 | ✅ | `useExisting` alias target missing | Cross-reference via `allKeys`. Class tokens only |
+| A-5 | ✅ | `useFactory` inject token unregistered | Cross-reference via `allKeys`. Class tokens only |
+| A-6 | ✅ | `useFactory` empty code string | Silent `return;` → throw |
+| A-7 | ✅ | `normalizeProvider` token `'UNKNOWN'` | Added throw |
+| A-8 | ✅ | `useFactory` inject token extraction failure | `'undefined'` literal → throw |
 
-### B. 스코프 & 가시성
+### B. Scope & Visibility
 
-| # | 상태 | 항목 | 조치 |
-|---|------|------|------|
-| B-1 | ✅ | Singleton → Request scope 주입 | 이미 구현됨 |
-| B-2 | ⬜ | `visibleTo` 배열 내 모듈 마커 유효성 | 타입(T-6)으로 symbol 강제. 런타임 모듈명 대조는 복잡 |
-| B-3 | ✅ | 상속 체인 스코프 위반 gildash 실패 | warning 추가 (I-3) |
+| # | Status | Item | Action |
+|---|--------|------|--------|
+| B-1 | ✅ | Singleton → Request scope injection | Already implemented |
+| B-2 | ⬜ | Invalid module markers in `visibleTo` | Type (T-6) already enforces symbols. Runtime module name cross-check is complex |
+| B-3 | ✅ | Heritage scope violation on gildash failure | Warning added (I-3) |
 
-### C. 라우트 파이프라인
+### C. Route Pipeline
 
-| # | 상태 | 항목 | 조치 |
-|---|------|------|------|
-| C-1 | ✅ | filter 클래스 DI 미등록 | `generateRouteRegistrations`에서 `allKeys` 대조 |
-| C-2 | ✅ | `@Catch` 없는 필터 → catch-all | `findCatchDecoratorArgs` → null 반환 + throw |
-| C-3 | ✅ | guard/middleware 식별자 추출 실패 | warn → throw (J-1 기반 `isUnresolvable` 체크) |
-| C-4 | ✅ | filter 식별자 추출 실패 | 동일 |
+| # | Status | Item | Action |
+|---|--------|------|--------|
+| C-1 | ✅ | Filter class not registered as provider | Cross-reference via `allKeys` in `generateRouteRegistrations` |
+| C-2 | ✅ | Filter without `@Catch` → silent catch-all | `findCatchDecoratorArgs` returns null + throw |
+| C-3 | ✅ | Guard/middleware identifier extraction failure | warn → throw (J-1 `isUnresolvable` check) |
+| C-4 | ✅ | Filter identifier extraction failure | Same as C-3 |
 
-### D. 컨트롤러 & 핸들러
+### D. Controller & Handler
 
-| # | 상태 | 항목 | 조치 |
-|---|------|------|------|
-| D-1 | ✅ | controllerKey 없음 → 무음 탈락 | 구조적 보장: `registerControllers()`가 `classDefinitions`에서만 등록 |
-| D-2 | ✅ | methodName 없음 → 런타임 throw | 구조적 보장: handler entry는 `cls.methods` 순회에서 생성. 메서드가 AST에 존재 |
-| D-3 | ✅ | 동일 method+path 충돌 | `detectRouteConflicts()` 추가 |
-| D-4 | ✅ | 핸들러 없는 컨트롤러 | warn 추가 |
-| D-5 | ✅ | 복수 라우트 데코레이터 | DiagnosticError |
+| # | Status | Item | Action |
+|---|--------|------|--------|
+| D-1 | ✅ | Missing controllerKey → silent route drop | Structurally guaranteed: `registerControllers()` only registers from `classDefinitions` |
+| D-2 | ✅ | Missing methodName → runtime throw | Structurally guaranteed: handler entries are created by iterating `cls.methods` from AST |
+| D-3 | ✅ | Same method+path conflict | Added `detectRouteConflicts()` |
+| D-4 | ✅ | Controller with no handlers | Warning added |
+| D-5 | ✅ | Multiple route decorators on method | DiagnosticError |
 
-### E. 파라미터 데코레이터
+### E. Parameter Decorators
 
-| # | 상태 | 항목 | 조치 |
-|---|------|------|------|
-| E-1 | ✅ | 복수 파라미터 데코레이터 | DiagnosticError |
-| E-2 | ⬜ | property 인자 타입 | TS가 이미 차단 (낮음) |
-| E-3 | ⬜ | metatypeKey 레지스트리 존재 | 메타데이터 레지스트리는 생성 시점에만 존재. 분석 단계 검증 어려움 |
-| E-4 | ⬜ | 데코레이터 없는 파라미터 | 의도적일 수 있음 (낮음) |
+| # | Status | Item | Action |
+|---|--------|------|--------|
+| E-1 | ✅ | Multiple parameter decorators | DiagnosticError |
+| E-2 | ⬜ | Property arg type mismatch | Already blocked by TS (low priority) |
+| E-3 | ⬜ | metatypeKey not in registry | Metadata registry only exists at generation time. Hard to validate during analysis |
+| E-4 | ⬜ | Parameter without decorator | May be intentional (low priority) |
 
-### F. 모듈 구조
+### F. Module Structure
 
-| # | 상태 | 항목 | 조치 |
-|---|------|------|------|
-| F-1 | ⬜ | spread 번들 내용 | 빌드 타임 검증 구조적 불가 (런타임 변수) |
-| F-2 | ⬜ | 어댑터 dependsOn 순환 | `app.attach()` 런타임 호출. 컴파일 시점에 정보 없음 |
-| F-3 | ✅ | gildash 인터페이스 검증 실패 | warning 추가 (I-2) |
-| F-4 | ✅ | 모듈 이름 중복 | `validateModuleNameUniqueness()` 추가 |
+| # | Status | Item | Action |
+|---|--------|------|--------|
+| F-1 | ⬜ | Spread bundle contents | Structurally impossible at build time (runtime variable) |
+| F-2 | ⬜ | Adapter `dependsOn` cycles | `app.attach()` is a runtime call. No compile-time info available |
+| F-3 | ✅ | gildash interface validation failure | Warning added (I-2) |
+| F-4 | ✅ | Duplicate module names | Added `validateModuleNameUniqueness()` |
 
-### G. 코드 생성 무결성
+### G. Code Generation Integrity
 
-| # | 상태 | 항목 | 조치 |
-|---|------|------|------|
-| G-1 | ⬜ | import 경로 파일 존재 | 생성 후 검증 가능하나 빌드 시간 증가. 낮은 우선순위 |
-| G-5 | ✅ | entry 파일 존재 | `Bun.file().exists()` 검증 추가 |
+| # | Status | Item | Action |
+|---|--------|------|--------|
+| G-1 | ⬜ | Generated import paths point to real files | Possible post-generation but increases build time. Low priority |
+| G-5 | ✅ | Entry file existence | Added `Bun.file().exists()` check |
 
-### H. `inject()` 호출
+### H. `inject()` Calls
 
-| # | 상태 | 항목 | 조치 |
-|---|------|------|------|
-| H-1 | ✅ | inject 토큰 검증 시점 | `validateFactoryInjectTokens()` 분석 단계에 추가 |
-| H-2 | ✅ | 토큰 등록 여부 | A-1과 동일. `allKeys` 대조 |
+| # | Status | Item | Action |
+|---|--------|------|--------|
+| H-1 | ✅ | Token validation timing | Added `validateFactoryInjectTokens()` at analysis phase |
+| H-2 | ✅ | Token registration check | Same infra as A-1. Cross-reference via `allKeys` |
 
 ### I. Silent try/catch
 
-| # | 상태 | 위치 | 조치 |
-|---|------|------|------|
-| I-1 | ✅ | `ast-parser.ts:800` | 의도적 fallback 확인, 설명 코멘트 추가 |
-| I-2 | ✅ | `module-graph.ts:438` | warning 추가 |
-| I-3 | ✅ | `module-graph.ts:482` | warning 추가 |
-| I-4 | ✅ | `module-graph.ts:579` | warning 추가 |
-| I-5 | ✅ | `module-graph.ts:619` | warning 추가 |
-| I-6 | ✅ | `build.command.ts:183` | 상대 경로 실패 시 warning 추가 |
+| # | Status | Location | Action |
+|---|--------|----------|--------|
+| I-1 | ✅ | `ast-parser.ts:800` | Confirmed intentional fallback, added explanatory comment |
+| I-2 | ✅ | `module-graph.ts:438` | Warning added |
+| I-3 | ✅ | `module-graph.ts:482` | Warning added |
+| I-4 | ✅ | `module-graph.ts:579` | Warning added |
+| I-5 | ✅ | `module-graph.ts:619` | Warning added |
+| I-6 | ✅ | `build.command.ts:183` | Warning added for relative import resolution failures |
 
-### J. AST 파서 정책
+### J. AST Parser Policy
 
-| # | 상태 | 항목 | 조치 |
-|---|------|------|------|
-| J-1 | ✅ | `parseExpression` 무음 탈락 | `ZIPBUL_UNRESOLVABLE` 마커 + 소비 지점 throw |
-| J-2 | ✅ | 익명 클래스 `'Anonymous'` | DiagnosticError |
-| J-3 | ✅ | 데코레이터 인자 검증 시점 | TSDoc 코멘트 추가 (동작 변경 없음) |
+| # | Status | Item | Action |
+|---|--------|------|--------|
+| J-1 | ✅ | `parseExpression` silent null return | `ZIPBUL_UNRESOLVABLE` marker + throw at consumption points |
+| J-2 | ✅ | Anonymous class `'Anonymous'` token | DiagnosticError |
+| J-3 | ✅ | Decorator arg validation timing | TSDoc comment added (no behavior change) |
 
-### K. 빌드/출력 일관성
+### K. Build/Output Consistency
 
-| # | 상태 | 항목 | 조치 |
-|---|------|------|------|
-| K-1 | ✅ | dev/build cycle detection 불일치 | dev 모드도 DiagnosticError throw (watcher 유지) |
-| K-2 | ⬜ | gildash 실패 구분 | 현재 fallback 동작이 합리적. 낮은 우선순위 |
-
----
-
-## 집계
-
-| 구분 | 전체 | 완료 | 미구현 | 구조적 불가/낮음 |
-|------|------|------|--------|-----------------|
-| 1층 타입 | 6 | 6 | 0 | 0 |
-| 2층 AOT | 42 | 35 | 0 | 7 |
-| **합계** | **48** | **41** | **0** | **7** |
-
-### 구조적 보장 확인 2건
-D-1, D-2 — 코드 구조상 발생 불가. `registerControllers()`와 `buildHandlerIndex()`가 동일 AST 소스에서 생성.
-
-### 구조적 불가/낮은 우선순위 7건
-B-2 (타입으로 이미 제한), E-2 (TS가 차단), E-3/E-4 (낮음), F-1/F-2 (런타임 정보), G-1 (빌드 시간), K-2 (합리적 fallback)
+| # | Status | Item | Action |
+|---|--------|------|--------|
+| K-1 | ✅ | dev/build cycle detection inconsistency | dev mode now throws DiagnosticError (watcher stays alive) |
+| K-2 | ⬜ | gildash failure vs unavailable indistinguishable | Current fallback behavior is reasonable. Low priority |
 
 ---
 
-## 삭제/정정 이력
+## Summary
 
-| 항목 | 사유 |
-|------|------|
-| ~~B-4~~ | `checkHeritageScopes` 재귀적. 전체 체인 검사됨 |
-| ~~C-5~~ | Guard/Middleware는 클래스 아님. Filter만 해당하며 C-1에 포함 |
-| ~~C-6~~ | MiddlewareHook enum 대조 이미 구현됨 |
-| ~~A-9~~ | 동일 소스에서 생성. 불일치 불가 |
-| ~~F-5~~ | gildash `hasCycle()` 이미 구현됨 |
-| ~~G-2~~ ~~G-3~~ ~~G-4~~ | 동일 코드 경로에서 생성. 구조적 보장 |
+| Category | Total | Done | Not Impl. | Structural/Low |
+|----------|-------|------|-----------|----------------|
+| Layer 1 Types | 6 | 6 | 0 | 0 |
+| Layer 2 AOT | 42 | 35 | 0 | 7 |
+| **Total** | **48** | **41** | **0** | **7** |
 
-## 테스트 결과
+### Structurally Guaranteed (2 items)
+D-1, D-2 — Cannot occur by construction. `registerControllers()` and `buildHandlerIndex()` operate on the same AST source.
+
+### Structurally Impossible / Low Priority (7 items)
+B-2 (type already restricts), E-2 (TS blocks), E-3/E-4 (low), F-1/F-2 (runtime info), G-1 (build time cost), K-2 (reasonable fallback)
+
+---
+
+## Removed/Corrected Items
+
+| Item | Reason |
+|------|--------|
+| ~~B-4~~ | `checkHeritageScopes` is recursive. Full chain is checked |
+| ~~C-5~~ | Guards/Middleware are values, not classes. Only filters are class-based (covered by C-1) |
+| ~~C-6~~ | MiddlewareHook enum validation already implemented |
+| ~~A-9~~ | Generated from same source. Mismatch impossible |
+| ~~F-5~~ | gildash `hasCycle()` already implemented |
+| ~~G-2~~ ~~G-3~~ ~~G-4~~ | Generated from same code path. Structurally consistent |
+
+## Test Results
 
 - common: 101 pass / 0 fail
-- core: 247 pass / 0 fail (개별 실행)
-- cli: 212 pass / 0 fail (개별 실행, +2 추가: entry-generator, adapter-definition-resolver)
-- http-adapter: 120 pass / 3 fail (기존 mock.module 오염, 개별 실행 시 전부 통과)
-- **총 680 pass / 0 fail (개별 실행)**
-- examples `zb build`: 성공 (9 singleton, 14 handlers, 0.4s)
+- core: 247 pass / 0 fail (per-file execution)
+- cli: 212 pass / 0 fail (per-file execution, +2 new: entry-generator, adapter-definition-resolver)
+- http-adapter: 120 pass / 3 fail (pre-existing mock.module pollution, all pass when run per-file)
+- **Total: 680 pass / 0 fail (per-file execution)**
+- examples `zb build`: Success (9 singletons, 14 handlers, 0.4s)
