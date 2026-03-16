@@ -594,12 +594,10 @@ describe('Container', () => {
       scope.get(tokenB);
 
       // Act — reversed order: B destroys first (throws), then A
-      const disposeResult = scope.dispose();
+      await scope.dispose();
 
-      // Assert — dispose rejects because onDestroy throws (no try/catch in implementation)
-      await expect(disposeResult).rejects.toThrow('destroy failed');
-      // B's onDestroy was called (it threw), but A's was not reached
-      expect(destroyOrder).toContain('B');
+      // Assert — dispose swallows onDestroy errors and continues to remaining instances
+      expect(destroyOrder).toEqual(['B', 'A']);
     });
 
     it('should create new request-scoped instance after dispose and re-get', async () => {

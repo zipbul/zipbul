@@ -79,7 +79,11 @@ export class RequestScopeContainer implements ZipbulContainer {
 
     for (const instance of instances) {
       if (this.hasOnDestroy(instance)) {
-        await instance.onDestroy();
+        try {
+          await instance.onDestroy();
+        } catch {
+          // Best-effort: continue disposing remaining instances
+        }
       }
     }
 

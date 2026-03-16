@@ -592,6 +592,8 @@ export class AdapterDefinitionResolver {
 
             // Extract route-level pipeline decorator references
             const middlewareKeys = this.extractDecoratorRefKeys(cls, method, 'UseMiddlewares', `__route_mw__:${cls.className}.${method.name}`, routeRegistrations);
+            const phaseMiddlewareKeys = this.extractMiddlewaresDecoratorRefKeys(cls, method, `__route_mw__:${cls.className}.${method.name}`, routeRegistrations, middlewareKeys.length);
+            const allMiddlewareKeys = [...middlewareKeys, ...phaseMiddlewareKeys];
             const errorFilterKeys = this.extractDecoratorRefKeys(cls, method, 'UseExceptionFilters', `__route_ef__:${cls.className}.${method.name}`, routeRegistrations);
             const guardKeys = this.extractDecoratorRefKeys(cls, method, 'UseGuards', `__route_gd__:${cls.className}.${method.name}`, routeRegistrations);
 
@@ -604,7 +606,7 @@ export class AdapterDefinitionResolver {
               handlerDecorator: handlerDec?.name ?? '',
               handlerDecoratorArgs: handlerDec?.arguments ?? [],
               params,
-              ...(middlewareKeys.length > 0 ? { middlewareKeys } : {}),
+              ...(allMiddlewareKeys.length > 0 ? { middlewareKeys: allMiddlewareKeys } : {}),
               ...(errorFilterKeys.length > 0 ? { errorFilterKeys } : {}),
               ...(guardKeys.length > 0 ? { guardKeys } : {}),
             });
@@ -679,6 +681,113 @@ export class AdapterDefinitionResolver {
           index++;
         }
       }
+    }
+
+    return keys;
+  }
+
+  /**
+   * Extracts middleware refs from `@Middlewares` phase-aware decorator.
+   *
+   * Handles both forms:
+   * - `@Middlewares('OnReceive', [mw1, mw2])` — positional
+   * - `@Middlewares({ OnReceive: [mw1] })` — object map
+   *
+   * @param cls - The class metadata.
+   * @param method - The method metadata.
+   * @param keyPrefix - Prefix for generated container keys.
+   * @param registrations - Accumulator for route-level container registrations.
+   * @param startIndex - Starting index for key generation (to avoid collision with UseMiddlewares keys).
+   * @returns Array of deterministic container keys.
+   */
+  private extractMiddlewaresDecoratorRefKeys(
+    cls: ClassMetadata,
+    method: { decorators: readonly { name: string; arguments: readonly AnalyzerValue[] }[] },
+    keyPrefix: string,
+    registrations: RouteRegistration[],
+    startIndex: number,
+  ): string[] {
+    const keys: string[] = [];
+    let index = startIndex;
+
+    const extractFromDecorator = (decorator: { arguments: readonly AnalyzerValue[] }, scope: 'cls' | 'mtd'): void => {
+      const args = decorator.arguments;
+
+      if (args.length === 2) {
+        // Positional: @Middlewares('OnReceive', [mw1, mw2])
+        const refsArray = isAnalyzerValueArray(args[1]) ? args[1] : null;
+
+        if (refsArray === null) {
+          return;
+        }
+
+        for (const ref of refsArray) {
+          const record = this.asRecord(ref);
+          const refName = record !== null ? record[ZIPBUL_REF] : undefined;
+
+          if (typeof refName === 'string' && refName.length > 0) {
+            const key = `${keyPrefix}:${scope}:${index}`;
+
+            keys.push(key);
+            registrations.push({ key, value: ref });
+            index++;
+          }
+        }
+
+        return;
+      }
+
+      if (args.length === 1) {
+        // Object map: @Middlewares({ OnReceive: [mw1] })
+        const mapping = this.asRecord(args[0]);
+
+        if (mapping === null) {
+          return;
+        }
+
+        for (const phaseKey of Object.keys(mapping)) {
+          if (phaseKey.startsWith(ZIPBUL_COMPUTED_PREFIX) || phaseKey.startsWith('__zipbul')) {
+            continue;
+          }
+
+          const phaseRefs = isAnalyzerValueArray(mapping[phaseKey]) ? mapping[phaseKey] : null;
+
+          if (phaseRefs === null) {
+            continue;
+          }
+
+          for (const ref of phaseRefs) {
+            const record = this.asRecord(ref);
+            const refName = record !== null ? record[ZIPBUL_REF] : undefined;
+
+            if (typeof refName === 'string' && refName.length > 0) {
+              const key = `${keyPrefix}:${scope}:${index}`;
+
+              keys.push(key);
+              registrations.push({ key, value: ref });
+              index++;
+            }
+          }
+        }
+      }
+    };
+
+    // Class-level first
+    for (const decorator of cls.decorators) {
+      if (decorator.name !== 'Middlewares') {
+        continue;
+      }
+
+      extractFromDecorator(decorator, 'cls');
+    }
+
+    // Method-level second
+    for (const decorator of method.decorators) {
+      if (decorator.name !== 'Middlewares') {
+        continue;
+      }
+
+      extractFromDecorator(decorator, 'mtd');
     }
 
     return keys;
