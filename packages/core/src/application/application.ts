@@ -18,6 +18,8 @@ import { formatToken } from '../injector/token-resolver';
 import { getRuntimeContext } from '../runtime/runtime-context';
 import type { AdapterEntry, AttachOptions, CreateApplicationOptions } from './interfaces';
 
+const APPLICATION_CONTEXT_TYPE = 'application';
+
 export class AppContext implements Context {
   readonly container: ZipbulContainer;
 
@@ -26,7 +28,7 @@ export class AppContext implements Context {
   }
 
   getType(): string {
-    return 'application';
+    return APPLICATION_CONTEXT_TYPE;
   }
 
   get(_key: string): ZipbulValue | undefined {

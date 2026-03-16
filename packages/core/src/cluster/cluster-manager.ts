@@ -7,6 +7,8 @@ import type { ClusterBootstrapParams, ClusterInitParams, RpcCallable } from './t
 
 import { wrap } from './ipc';
 
+const WORKER_ID_ENV = 'ZIPBUL_WORKER_ID';
+
 export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCallable>> {
   private readonly script: URL;
   private readonly reviving = new Set<number>();
@@ -63,7 +65,7 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     const native = new Worker(this.script.href, {
       env: {
         ...Bun.env,
-        ZIPBUL_WORKER_ID: id.toString(),
+        [WORKER_ID_ENV]: id.toString(),
       },
       smol: true, // Optional: memory optimization
     });
@@ -92,7 +94,9 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
 
     try {
       await this.destroyWorker(id);
-    } catch {}
+    } catch (error) {
+      this.logger.warn(`Worker #${id} cleanup failed during crash recovery`, error instanceof Error ? error : undefined);
+    }
 
     this.workers[id] = undefined;
 
@@ -158,7 +162,9 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
 
     try {
       await worker.remote.destroy();
-    } catch {} // Optional: if worker process kills itself, this might fail/timeout
+    } catch (error) {
+      this.logger.warn(`Worker #${id} destroy failed — process may have already exited`, error instanceof Error ? error : undefined);
+    }
 
     worker.native.terminate();
     // worker.remote[releaseProxy](); // No longer needed for native wrapper

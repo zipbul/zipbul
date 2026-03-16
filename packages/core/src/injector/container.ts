@@ -141,8 +141,6 @@ export class Container implements ZipbulContainer {
       return;
     }
 
-    await Promise.resolve();
-
     const providers = dynamicModule.providers ?? [];
 
     for (const provider of providers) {

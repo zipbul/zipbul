@@ -9,6 +9,7 @@ import type {
 } from '@zipbul/common';
 
 import type { ZipbulContainer } from '@zipbul/common';
+import { Logger } from '@zipbul/logger';
 import type { Container } from './container';
 import type {
   ClassMetadata,
@@ -30,7 +31,11 @@ import {
   resolveTokenRecord,
 } from './token-resolver';
 
+const MODULE_DECORATOR_NAME = 'Module';
+
 export class Scanner {
+  private readonly logger = new Logger(Scanner.name);
+
   constructor(
     private readonly container: Container,
     private readonly registry?: Map<Class, ClassMetadata>,
@@ -75,7 +80,7 @@ export class Scanner {
       return;
     }
 
-    const moduleDec = meta.decorators?.find((decorator: DecoratorMetadata) => decorator.name === 'Module');
+    const moduleDec = meta.decorators?.find((decorator: DecoratorMetadata) => decorator.name === MODULE_DECORATOR_NAME);
 
     if (!moduleDec) {
       return;
@@ -131,15 +136,13 @@ export class Scanner {
         factory = (c: ZipbulContainer) => new provider.useClass(...this.resolveDepsFor(provider.useClass, c));
       } else if (this.isProviderUseExisting(provider)) {
         factory = (c: ZipbulContainer) => c.get(provider.useExisting);
-      } else {
-        factory = () => null;
       }
     }
 
     if (token !== undefined && factory !== undefined) {
       this.container.set(token, factory);
     } else {
-      console.warn(`[Scanner] Failed to register provider: ${this.formatProvider(provider)}`);
+      this.logger.warn(`Failed to register provider: ${this.formatProvider(provider)}`);
     }
   }
 
@@ -176,8 +179,8 @@ export class Scanner {
         try {
           return c.get(scopedKey);
         } catch {
-          console.warn(
-            `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
+          this.logger.warn(
+            `Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
           );
 
           return undefined;
