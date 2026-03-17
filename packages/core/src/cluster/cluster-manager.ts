@@ -44,6 +44,12 @@ interface ClusterManagerConfig {
   readonly preload?: readonly string[];
   /** Adapter class names for this worker group. Set as ZIPBUL_ADAPTER_FILTER env var on workers. */
   readonly adapterFilter?: readonly string[];
+  /** Memory limit per worker in bytes. Required for memory pressure monitoring. */
+  readonly memoryLimitBytes?: number;
+  /** Soft memory threshold (0-1). Default 0.8. Triggers graceful recycle. */
+  readonly memorySoftThreshold?: number;
+  /** Hard memory threshold (0-1). Default 0.95. Triggers immediate crash treatment. */
+  readonly memoryHardThreshold?: number;
 }
 
 /**
@@ -658,6 +664,9 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       slot.healthCheckPending = false;
       slot.healthCheckFailures = 0;
       slot.lastStats = stats as ClusterWorkerStats;
+
+      // Memory pressure evaluation (integrated with health check)
+      this.evaluateMemoryPressure(slot, stats as ClusterWorkerStats);
     } catch {
       slot.healthCheckPending = false;
 
@@ -671,6 +680,141 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
         this.handleCrash('healthcheck', slot, new Error('Health check timeout'));
       }
     }
+  }
+
+  // ── Memory Pressure ────────────────────────────────────────
+
+  private evaluateMemoryPressure(slot: ClusterWorkerSlot<T>, stats: ClusterWorkerStats): void {
+    const limitBytes = this.config.memoryLimitBytes;
+
+    if (limitBytes === undefined || limitBytes <= 0) {
+      return; // Memory monitoring disabled
+    }
+
+    const hardThreshold = this.config.memoryHardThreshold ?? 0.95;
+    const softThreshold = this.config.memorySoftThreshold ?? 0.8;
+    const usage = stats.memory / slot.hardMemoryLimit || stats.memory / limitBytes;
+
+    if (usage >= hardThreshold) {
+      this.logger.error(`Worker #${slot.id} hard memory limit: ${stats.memory} bytes`);
+      this.handleCrash('memory-hard', slot, new Error(`RSS ${stats.memory} exceeds hard limit`));
+
+      return;
+    }
+
+    if (usage >= softThreshold && !this.replacementInProgress) {
+      this.logger.warn(`Worker #${slot.id} soft memory limit: ${stats.memory} bytes — recycling`);
+      void this.recycleWorker(slot);
+    }
+  }
+
+  // ── Rolling Restart ───────────────────────────────────────
+
+  /**
+   * Replaces all workers in this group one-by-one.
+   * Shared groups: spawn new → ready → drain old → terminate old (zero-downtime).
+   * Exclusive groups: drain old → terminate old → spawn new → ready (no overlap).
+   *
+   * @public
+   */
+  async rollingRestart(): Promise<void> {
+    if (this.rollingRestartInProgress) {
+      throw new Error('Rolling restart already in progress');
+    }
+
+    this.rollingRestartInProgress = true;
+    let consecutiveFailures = 0;
+
+    try {
+      for (const slot of this.slots) {
+        if (this.destroying) break;
+
+        if (slot.state !== WorkerState.Running) continue;
+
+        // Acquire replacement lock
+        if (this.replacementInProgress) continue;
+        this.replacementInProgress = true;
+
+        try {
+          await this.replaceWorker(slot);
+          consecutiveFailures = 0;
+        } catch {
+          consecutiveFailures++;
+          this.recordGroupCrash();
+
+          if (consecutiveFailures >= 2) {
+            this.logger.error(`Rolling restart aborted: ${consecutiveFailures} consecutive failures`);
+            break;
+          }
+        } finally {
+          this.replacementInProgress = false;
+        }
+      }
+    } finally {
+      this.rollingRestartInProgress = false;
+    }
+  }
+
+  // ── Worker Recycling ──────────────────────────────────────
+
+  private async recycleWorker(slot: ClusterWorkerSlot<T>): Promise<void> {
+    if (this.replacementInProgress || this.destroying) return;
+
+    this.replacementInProgress = true;
+
+    try {
+      await this.replaceWorker(slot);
+    } catch (error) {
+      this.logger.error(`Worker #${slot.id} recycle failed`, error instanceof Error ? error : undefined);
+    } finally {
+      this.replacementInProgress = false;
+    }
+  }
+
+  /**
+   * Replaces a single Running worker with a new one.
+   * Shared: spawn new first (zero-downtime), then drain old.
+   * This is the primitive used by both rolling restart and recycling.
+   */
+  private async replaceWorker(slot: ClusterWorkerSlot<T>): Promise<void> {
+    if (slot.state !== WorkerState.Running) return;
+
+    // Spawn replacement worker in a temporary slot
+    const tempSlot = createSlot<T>(slot.id);
+    this.spawnWorker(tempSlot);
+
+    try {
+      await this.waitForInit(tempSlot, this.initParams);
+    } catch {
+      // New worker failed — terminate it, keep old worker
+      if (tempSlot.native) {
+        tempSlot.native.terminate();
+      }
+
+      disposeSlot(tempSlot);
+      throw new Error(`Replacement worker #${slot.id} failed to start`);
+    }
+
+    // New worker is Running — drain and terminate old worker
+    await this.terminateWorker(slot);
+
+    // Promote: move new worker's resources to the original slot
+    slot.native = tempSlot.native;
+    slot.remote = tempSlot.remote;
+    slot.rpcProxy = tempSlot.rpcProxy;
+    slot.handlers = tempSlot.handlers;
+    slot.timers = tempSlot.timers;
+    slot.state = tempSlot.state;
+    slot.generation = tempSlot.generation;
+    slot.terminateInitiated = false;
+    slot.readyReceived = true;
+    slot.healthCheckFailures = 0;
+    slot.healthCheckPending = false;
+    slot.lastStats = undefined;
+    slot.reviveAttempts = 0;
+    slot.firstCrashTime = undefined;
+    slot.lastCrashTime = undefined;
+    slot.lastReadyTime = Date.now();
   }
 
   // ── Utilities ──────────────────────────────────────────────
