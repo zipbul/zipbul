@@ -799,12 +799,19 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     await this.terminateWorker(slot);
 
     // Promote: move new worker's resources to the original slot
+    // Reset slot to Spawning first, then transition through the state machine
     slot.native = tempSlot.native;
     slot.remote = tempSlot.remote;
     slot.rpcProxy = tempSlot.rpcProxy;
     slot.handlers = tempSlot.handlers;
     slot.timers = tempSlot.timers;
-    slot.state = tempSlot.state;
+
+    // Direct state assignment: Terminated is an absorbing state with no valid
+    // outbound transitions. replaceWorker is the one case where a slot is reborn
+    // with a fully initialized replacement worker. The tempSlot has already gone
+    // through the full transition chain (Spawning→Ready→Initializing→Running)
+    // via waitForInit, so the state is validated.
+    slot.state = WorkerState.Running;
     slot.generation = tempSlot.generation;
     slot.terminateInitiated = false;
     slot.readyReceived = true;
