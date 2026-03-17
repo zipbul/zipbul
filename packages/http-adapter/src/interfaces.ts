@@ -26,7 +26,6 @@ export interface HttpServerOptions extends ApplicationOptions {
   readonly port?: number;
   readonly bodyLimit?: number;
   readonly trustProxy?: boolean;
-  readonly workers?: number;
   readonly reusePort?: boolean;
   readonly name?: string;
   readonly logLevel?: string;

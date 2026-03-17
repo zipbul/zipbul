@@ -18,10 +18,6 @@ export type { HttpMethod };
 
 export type HeadersInit = Headers | Array<[string, string]> | Record<string, string>;
 
-export type HttpWorkerRpcCallable = (...args: ReadonlyArray<ZipbulValue>) => ZipbulValue | Promise<ZipbulValue>;
-
-export type HttpWorkerRpc = Record<string, HttpWorkerRpcCallable>;
-
 export type RequestParamMap = Record<string, string | undefined>;
 
 export interface RequestQueryArray extends Array<RequestQueryValue> {}

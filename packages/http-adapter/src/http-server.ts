@@ -39,6 +39,16 @@ export class HttpServer {
   private options: HttpServerOptions;
   private server: Server<unknown>;
 
+  /**
+   * Returns the underlying Bun Server instance for drain operations.
+   *
+   * @returns The Bun Server, or undefined if not yet booted.
+   * @public
+   */
+  getServer(): Server<unknown> | undefined {
+    return this.server;
+  }
+
   async boot(container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
     this.adapter = adapter;
     this.container = container;

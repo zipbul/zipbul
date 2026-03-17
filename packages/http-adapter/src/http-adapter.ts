@@ -4,9 +4,7 @@ import { StatusCodes } from 'http-status-codes';
 import { Logger } from '@zipbul/logger';
 
 import {
-  ClusterManager,
   getRuntimeContext,
-  type ClusterBaseWorker,
   type ClassMetadata as CoreClassMetadata,
   type ConstructorParamMetadata as CoreConstructorParamMetadata,
   type DecoratorMetadata as CoreDecoratorMetadata,
@@ -18,7 +16,7 @@ import type {
   InternalRouteHandler,
   InternalRouteEntry,
 } from './interfaces';
-import type { ClassMetadata, HttpWorkerRpc, JsonValue, MetadataRegistryKey, ParamTypeReference, RequestBodyValue, ResponseBodyValue } from './types';
+import type { ClassMetadata, JsonValue, MetadataRegistryKey, ParamTypeReference, RequestBodyValue, ResponseBodyValue } from './types';
 
 import { HttpContext } from './http-context';
 import { HttpServer } from './http-server';
@@ -44,7 +42,6 @@ export class HttpAdapter extends Adapter {
   };
 
   private readonly options: HttpServerOptions;
-  private clusterManager: ClusterManager<ClusterBaseWorker & HttpWorkerRpc> | undefined;
   private httpServer: HttpServer | undefined;
   private routeHandler: RouteHandler | undefined;
   private readonly logger = new Logger('HttpAdapter');
@@ -293,100 +290,55 @@ export class HttpAdapter extends Adapter {
 
   private async startInternal(context: Context): Promise<void> {
     const startContext = this.toStartContext(context);
-    const workers = this.options.workers;
-    const isSingleProcess = workers === undefined || workers === 1;
-
     const runtimeCtx = getRuntimeContext();
 
-    if (isSingleProcess) {
-      this.httpServer = new HttpServer();
+    this.httpServer = new HttpServer();
 
-      const runtimeContext = runtimeCtx;
-      const metadata = this.normalizeMetadataRegistry(runtimeContext.metadataRegistry);
-      const scopedKeys = runtimeContext.scopedKeys;
-      const bootOptions: HttpServerBootOptions = {
-        ...this.options,
-        ...(metadata !== undefined ? { metadata } : {}),
-        ...(scopedKeys !== undefined ? { scopedKeys } : {}),
-        internalRoutes: this.internalRoutes,
-        ...(runtimeContext.handlerIndex !== undefined ? { handlerIndex: runtimeContext.handlerIndex } : {}),
-        ...(runtimeContext.controllerInstances !== undefined ? { controllerInstances: runtimeContext.controllerInstances } : {}),
-      };
-
-      await this.httpServer.boot(startContext.container, bootOptions, this);
-
-      return;
-    }
-
-    // === Multi Process Mode (Cluster) ===
-    const entryModule = startContext.entryModule;
-
-    if (!entryModule) {
-      throw new Error('Entry Module not found in context. Cannot start Cluster Mode.');
-    }
-
-    const script = this.resolveWorkerScript();
-
-    this.clusterManager = new ClusterManager<ClusterBaseWorker & HttpWorkerRpc>({
-      script,
-      size: workers,
-    });
-
-    const manifestPath = this.resolveManifestPath();
-
-    const initParams: ZipbulRecord = {
-      entryModule: {
-        className: entryModule.name,
-        manifestPath,
-      },
-      options: {
-        ...this.options,
-      },
+    const metadata = this.normalizeMetadataRegistry(runtimeCtx.metadataRegistry);
+    const scopedKeys = runtimeCtx.scopedKeys;
+    const bootOptions: HttpServerBootOptions = {
+      ...this.options,
+      ...(metadata !== undefined ? { metadata } : {}),
+      ...(scopedKeys !== undefined ? { scopedKeys } : {}),
+      internalRoutes: this.internalRoutes,
+      ...(runtimeCtx.handlerIndex !== undefined ? { handlerIndex: runtimeCtx.handlerIndex } : {}),
+      ...(runtimeCtx.controllerInstances !== undefined ? { controllerInstances: runtimeCtx.controllerInstances } : {}),
     };
 
-    await this.clusterManager.init(initParams);
-    await this.clusterManager.bootstrap();
+    await this.httpServer.boot(startContext.container, bootOptions, this);
   }
 
   async stop(): Promise<void> {
-    if (this.clusterManager !== undefined) {
-      await this.clusterManager.destroy();
-    }
-
     if (this.httpServer !== undefined) {
       this.httpServer.stop();
     }
   }
 
   /**
-   * Resolves the AOT manifest module path for cluster workers.
-   * In AOT mode, the manifest is `runtime.js`/`runtime.ts` next to the entry script.
-   * Workers import this path to trigger `registerRuntimeContext()` and populate the full RuntimeContext.
+   * Stops accepting new connections and waits for in-flight requests to complete.
+   * Uses Bun's built-in server.stop() drain mechanism with a timeout fallback.
    *
-   * @returns Absolute file path to the manifest module, or empty string if not in AOT mode.
+   * @param timeoutMs - Maximum time to wait before force-closing connections.
+   * @public
    */
-  private resolveManifestPath(): string {
-    const isAotRuntime = getRuntimeContext().isAotRuntime === true;
+  override async drain(timeoutMs: number): Promise<void> {
+    if (!this.httpServer) return;
 
-    if (!isAotRuntime) {
-      return '';
+    const server = this.httpServer.getServer();
+
+    if (!server) return;
+
+    // server.stop() = graceful drain (waits for in-flight requests indefinitely)
+    // Promise.race with timeout to prevent infinite wait
+    await Promise.race([
+      server.stop(),
+      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
+
+    // If requests remain after timeout, force close
+    if (server.pendingRequests > 0 || server.pendingWebSockets > 0) {
+      server.stop(true);
     }
-
-    const entryPath = Bun.argv[1] ?? '';
-    const entryDir = entryPath.lastIndexOf('/') >= 0 ? entryPath.slice(0, entryPath.lastIndexOf('/')) : '.';
-    const ext = entryPath.endsWith('.ts') ? '.ts' : '.js';
-
-    return `${entryDir}/runtime${ext}`;
-  }
-
-  protected resolveWorkerScript(): URL {
-    const isAotRuntime = getRuntimeContext().isAotRuntime === true;
-
-    if (isAotRuntime) {
-      return new URL('./http-worker.ts', import.meta.url);
-    }
-
-    return new URL(Bun.argv[1] ?? '', 'file://');
   }
 
   // ── Response writing ──────────────────────────────────────
