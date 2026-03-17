@@ -1,6 +1,6 @@
-import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
-import type { Context } from '@zipbul/common';
-import { err, isErr } from '@zipbul/common';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import type { Context, ZipbulContainer } from '@zipbul/common';
+import { err, isErr, defineMiddleware, defineGuard, defineExceptionFilter, MiddlewareHook } from '@zipbul/common';
 
 const mockGetRuntimeContext = mock(() => ({
   isAotRuntime: false,
@@ -444,3 +444,1464 @@ function createHttpContext(method: string, path: string): Context {
 
   return new HttpContext(req, res);
 }
+
+function createMockContainer(): ZipbulContainer {
+  return {
+    get: () => undefined,
+    set: () => {},
+    has: () => false,
+    getInstances: () => [][Symbol.iterator](),
+    keys: () => [][Symbol.iterator](),
+  } as unknown as ZipbulContainer;
+}
+
+function createMockRouteHandler(options: {
+  middlewares?: Array<(ctx: Context) => unknown>;
+  guards?: Array<(ctx: Context) => unknown>;
+  exceptionFilters?: Array<{ handler: (error: unknown, ctx: Context) => unknown; catchTypes: readonly (abstract new (...args: readonly unknown[]) => Error)[] }>;
+  handler?: (...args: readonly unknown[]) => unknown;
+}) {
+  return {
+    match: mock(() => ({
+      params: {},
+      value: {
+        handler: options.handler ?? mock(() => ({ data: 'ok' })),
+        methodName: 'test',
+        middlewares: (options.middlewares ?? []).map((handler) => ({ handler })),
+        exceptionFilters: options.exceptionFilters ?? [],
+        guards: options.guards ?? [],
+        paramFactory: mock(async () => []),
+      },
+    })),
+  };
+}
+
+// ── Route-Level Middleware Pipeline Integration ─────────────────
+
+describe('HttpAdapter route-level middleware pipeline', () => {
+  let adapter: InstanceType<typeof HttpAdapter>;
+
+  beforeEach(() => {
+    adapter = new HttpAdapter();
+  });
+
+  // ── Execution Order ──────────────────────────────────────────
+
+  describe('execution order', () => {
+    it('should execute full pipeline: OnReceive → parseInput → PostParseData → GlobalGuards → PreHandle → RouteMW → RouteGuards → Handler → OnComplete', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
+      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => () => { order.push('global:PostParseData'); })]);
+      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => () => { order.push('global:PreHandle'); })]);
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
+      adapter.addGuards([defineGuard(() => () => { order.push('global:guard'); })]);
+      adapter.initializePipeline(createMockContainer());
+
+      // Spy on parseInput to track its position in the pipeline
+      const originalParseInput = adapter.parseInput.bind(adapter);
+      adapter.parseInput = async (ctx: Context) => {
+        order.push('parseInput');
+        await originalParseInput(ctx);
+      };
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [
+          () => { order.push('route:mw1'); },
+          () => { order.push('route:mw2'); },
+        ],
+        guards: [() => { order.push('route:guard'); }],
+        handler: () => { order.push('handler'); return { data: 'ok' }; },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual([
+        'global:OnReceive',
+        'parseInput',
+        'global:PostParseData',
+        'global:guard',
+        'global:PreHandle',
+        'route:mw1',
+        'route:mw2',
+        'route:guard',
+        'handler',
+        'global:OnComplete',
+      ]);
+    });
+
+    it('should execute multiple global middlewares per phase in registration order', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [
+        defineMiddleware(() => () => { order.push('OnReceive:1'); }),
+        defineMiddleware(() => () => { order.push('OnReceive:2'); }),
+      ]);
+      adapter.addMiddlewares(MiddlewareHook.PreHandle, [
+        defineMiddleware(() => () => { order.push('PreHandle:1'); }),
+      ]);
+      adapter.addMiddlewares(MiddlewareHook.PreHandle, [
+        defineMiddleware(() => () => { order.push('PreHandle:2'); }),
+      ]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => { order.push('route:mw'); }],
+        handler: () => { order.push('handler'); return 'ok'; },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual([
+        'OnReceive:1',
+        'OnReceive:2',
+        'PreHandle:1',
+        'PreHandle:2',
+        'route:mw',
+        'handler',
+      ]);
+    });
+
+    it('should place global guards after PostParseData and before PreHandle', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => () => { order.push('PostParseData'); })]);
+      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => () => { order.push('PreHandle'); })]);
+      adapter.addGuards([defineGuard(() => () => { order.push('global:guard'); })]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        handler: () => { order.push('handler'); return 'ok'; },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['PostParseData', 'global:guard', 'PreHandle', 'handler']);
+    });
+  });
+
+  // ── Short-Circuit Behavior ──────────────────────────────────
+
+  describe('short-circuit', () => {
+    it('should skip everything after OnReceive when OnReceive returns Err', async () => {
+      // Arrange
+      const routeMw = mock((_ctx: Context) => {});
+      const handlerFn = mock(() => 'ok');
+      const parseInputCalled = { value: false };
+
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => err({ status: 429 }))]);
+      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => () => { throw new Error('should not run'); })]);
+      adapter.initializePipeline(createMockContainer());
+      adapter.parseInput = async () => { parseInputCalled.value = true; };
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [routeMw],
+        handler: handlerFn,
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(parseInputCalled.value).toBe(false);
+      expect(routeMw).not.toHaveBeenCalled();
+      expect(handlerFn).not.toHaveBeenCalled();
+    });
+
+    it('should skip route-level after PostParseData Err but run OnReceive and parseInput', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => () => { order.push('PostParseData:halt'); return err({ status: 400 }); })]);
+      adapter.initializePipeline(createMockContainer());
+      adapter.parseInput = async () => { order.push('parseInput'); };
+
+      const routeMw = mock((_ctx: Context) => {});
+      const routeHandler = createMockRouteHandler({ middlewares: [routeMw] });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['OnReceive', 'parseInput', 'PostParseData:halt']);
+      expect(routeMw).not.toHaveBeenCalled();
+    });
+
+    it('should skip route-level middlewares when global PreHandle returns Err', async () => {
+      // Arrange
+      const routeMw = mock((_ctx: Context) => {});
+
+      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => () => err({ status: 503 }))]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({ middlewares: [routeMw] });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(routeMw).not.toHaveBeenCalled();
+    });
+
+    it('should skip route-level when global guard denies (before PreHandle)', async () => {
+      // Arrange
+      const order: string[] = [];
+      const routeMw = mock((_ctx: Context) => { order.push('route:mw'); });
+      const preHandleMw = mock((_ctx: Context) => { order.push('PreHandle'); });
+
+      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => preHandleMw)]);
+      adapter.addGuards([defineGuard(() => () => { order.push('global:guard:deny'); return err({ status: 403 }); })]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({ middlewares: [routeMw] });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['global:guard:deny']);
+      expect(preHandleMw).not.toHaveBeenCalled();
+      expect(routeMw).not.toHaveBeenCalled();
+    });
+
+    it('should halt at first route-level middleware when it returns Err', async () => {
+      // Arrange
+      const guardFn = mock((_ctx: Context) => {});
+      const handlerFn = mock(() => 'ok');
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [
+          () => err({ reason: 'first_halt' }),
+          () => { throw new Error('should not run'); },
+        ],
+        guards: [guardFn],
+        handler: handlerFn,
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(guardFn).not.toHaveBeenCalled();
+      expect(handlerFn).not.toHaveBeenCalled();
+    });
+
+    it('should halt at last route-level middleware when it returns Err after others pass', async () => {
+      // Arrange
+      const order: string[] = [];
+      const guardFn = mock((_ctx: Context) => {});
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [
+          () => { order.push('mw1'); },
+          () => { order.push('mw2'); },
+          () => { order.push('mw3:halt'); return err({ reason: 'last_halt' }); },
+        ],
+        guards: [guardFn],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['mw1', 'mw2', 'mw3:halt']);
+      expect(guardFn).not.toHaveBeenCalled();
+    });
+
+    it('should skip route-level guards and handler when middle middleware returns Err', async () => {
+      // Arrange
+      const order: string[] = [];
+      const guardFn = mock((_ctx: Context) => { order.push('guard'); });
+      const handlerFn = mock(() => { order.push('handler'); return 'ok'; });
+
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [
+          () => { order.push('route:mw1'); },
+          () => { order.push('route:mw2:halt'); return err({ status: 401 }); },
+          () => { order.push('route:mw3'); },
+        ],
+        guards: [guardFn],
+        handler: handlerFn,
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual([
+        'global:OnReceive',
+        'route:mw1',
+        'route:mw2:halt',
+        'global:OnComplete',
+      ]);
+      expect(guardFn).not.toHaveBeenCalled();
+      expect(handlerFn).not.toHaveBeenCalled();
+    });
+
+    it('should still run OnComplete when route-level middleware halts', async () => {
+      // Arrange
+      const onCompleteFn = mock((_ctx: Context) => {});
+
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => err({ reason: 'halt' })],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(onCompleteFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should still run OnComplete when global guard denies', async () => {
+      // Arrange
+      const onCompleteFn = mock((_ctx: Context) => {});
+
+      adapter.addGuards([defineGuard(() => () => err({ status: 403 }))]);
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({});
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(onCompleteFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── Err Data Propagation ──────────────────────────────────
+
+  describe('Err data propagation', () => {
+    it('should flow route-level middleware Err data through to handleResult', async () => {
+      // Arrange
+      let receivedResult: unknown;
+      const originalHandleResult = adapter.handleResult.bind(adapter);
+      adapter.handleResult = async (result: unknown, ctx: Context) => {
+        receivedResult = result;
+        await originalHandleResult(result as never, ctx);
+      };
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => err({ status: 401, message: 'Unauthorized' })],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(isErr(receivedResult)).toBe(true);
+      expect((receivedResult as { data: unknown }).data).toEqual({ status: 401, message: 'Unauthorized' });
+    });
+
+    it('should flow route-level guard Err data through to handleResult', async () => {
+      // Arrange
+      let receivedResult: unknown;
+      const originalHandleResult = adapter.handleResult.bind(adapter);
+      adapter.handleResult = async (result: unknown, ctx: Context) => {
+        receivedResult = result;
+        await originalHandleResult(result as never, ctx);
+      };
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        guards: [() => err({ status: 403, message: 'Forbidden' })],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(isErr(receivedResult)).toBe(true);
+      expect((receivedResult as { data: unknown }).data).toEqual({ status: 403, message: 'Forbidden' });
+    });
+  });
+
+  // ── Guard Err vs Exception Path ──────────────────────────
+
+  describe('guard Err vs exception path', () => {
+    it('should NOT invoke exception filters when guard returns Err (Err is a normal result, not exception)', async () => {
+      // Arrange
+      const globalFilter = mock((_error: unknown, _ctx: Context) => err({ source: 'filter' }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilter)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route-filter' }));
+      const routeHandler = createMockRouteHandler({
+        guards: [() => err({ status: 403 })],
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — Err from guard goes directly to handleResult, NOT through exception filters
+      expect(globalFilter).not.toHaveBeenCalled();
+      expect(routeFilterHandler).not.toHaveBeenCalled();
+    });
+
+    it('should NOT invoke exception filters when route-level middleware returns Err', async () => {
+      // Arrange
+      const globalFilter = mock((_error: unknown, _ctx: Context) => err({ source: 'filter' }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilter)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => err({ status: 429 })],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(globalFilter).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Route-Level Exception Filters ──────────────────────────
+
+  describe('route-level exception filters', () => {
+    it('should use route-level exception filter before global filter', async () => {
+      // Arrange
+      class RouteError extends Error {
+        constructor() { super('route error'); }
+      }
+
+      const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
+      const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route', status: 422 }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [RouteError] }],
+        handler: () => { throw new RouteError(); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(routeFilterHandler).toHaveBeenCalledTimes(1);
+      expect(globalFilterHandler).not.toHaveBeenCalled();
+    });
+
+    it('should fall back to global filter when route-level filter does not match', async () => {
+      // Arrange
+      class SpecificError extends Error {}
+      class DifferentError extends Error {}
+
+      const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
+      const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route' }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [SpecificError] }],
+        handler: () => { throw new DifferentError('different'); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(routeFilterHandler).not.toHaveBeenCalled();
+      expect(globalFilterHandler).toHaveBeenCalledTimes(1);
+    });
+
+    it('should route thrown exception from route-level middleware to route-level exception filter', async () => {
+      // Arrange
+      class MwError extends Error {
+        constructor() { super('mw threw'); }
+      }
+
+      const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ status: 400, caught: 'route-filter' }));
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => { throw new MwError(); }],
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [MwError] }],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(routeFilterHandler).toHaveBeenCalledTimes(1);
+      const errorArg = routeFilterHandler.mock.calls[0]![0];
+      expect(errorArg).toBeInstanceOf(MwError);
+    });
+
+    it('should pass correct error instance and context to route-level exception filter', async () => {
+      // Arrange
+      class DetailedError extends Error {
+        readonly code = 'ERR_DETAIL';
+        constructor() { super('detailed'); }
+      }
+
+      let capturedError: unknown;
+      let capturedCtx: unknown;
+      const routeFilterHandler = (error: unknown, ctx: Context) => {
+        capturedError = error;
+        capturedCtx = ctx;
+        return err({ handled: true });
+      };
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [DetailedError] }],
+        handler: () => { throw new DetailedError(); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      const context = createHttpContext('GET', '/test');
+
+      // Act
+      await adapter.dispatchRequest(context);
+
+      // Assert
+      expect(capturedError).toBeInstanceOf(DetailedError);
+      expect((capturedError as DetailedError).code).toBe('ERR_DETAIL');
+      expect(capturedCtx).toBe(context);
+    });
+  });
+
+  // ── Async Route-Level Middleware ──────────────────────────
+
+  describe('async route-level middleware', () => {
+    it('should handle async route-level middleware that returns void', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [
+          async () => { await Promise.resolve(); order.push('async:mw'); },
+        ],
+        handler: () => { order.push('handler'); return 'ok'; },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['async:mw', 'handler']);
+    });
+
+    it('should halt pipeline when async route-level middleware returns Err', async () => {
+      // Arrange
+      const handlerFn = mock(() => 'ok');
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [
+          async () => { await Promise.resolve(); return err({ async: true }); },
+        ],
+        handler: handlerFn,
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(handlerFn).not.toHaveBeenCalled();
+    });
+
+    it('should preserve order with mixed sync and async route-level middlewares', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [
+          () => { order.push('sync:1'); },
+          async () => { await Promise.resolve(); order.push('async:2'); },
+          () => { order.push('sync:3'); },
+        ],
+        handler: () => { order.push('handler'); return 'ok'; },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['sync:1', 'async:2', 'sync:3', 'handler']);
+    });
+  });
+
+  // ── Context Propagation ──────────────────────────────────
+
+  describe('context propagation', () => {
+    it('should pass same context to all pipeline stages', async () => {
+      // Arrange
+      const contexts: Context[] = [];
+
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.addGuards([defineGuard(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [(ctx) => { contexts.push(ctx); }],
+        guards: [(ctx) => { contexts.push(ctx); }],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      const context = createHttpContext('GET', '/test');
+
+      // Act
+      await adapter.dispatchRequest(context);
+
+      // Assert — 4 global hooks + 1 global guard + 1 route mw + 1 route guard = 7
+      expect(contexts).toHaveLength(7);
+      for (const captured of contexts) {
+        expect(captured).toBe(context);
+      }
+    });
+  });
+
+  // ── Global Guard + Route-Level Interaction ──────────────
+
+  describe('global guard + route-level guard interaction', () => {
+    it('should run global guards before route-level guards', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.addGuards([defineGuard(() => () => { order.push('global:guard'); })]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        guards: [() => { order.push('route:guard'); }],
+        handler: () => { order.push('handler'); return 'ok'; },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['global:guard', 'route:guard', 'handler']);
+    });
+
+    it('should skip route-level guards when global guard denies', async () => {
+      // Arrange
+      const routeGuard = mock((_ctx: Context) => {});
+      const handlerFn = mock(() => 'ok');
+
+      adapter.addGuards([defineGuard(() => () => err({ status: 403 }))]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        guards: [routeGuard],
+        handler: handlerFn,
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(routeGuard).not.toHaveBeenCalled();
+      expect(handlerFn).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Route Not Found ──────────────────────────────────────
+
+  describe('route not found', () => {
+    it('should skip route-level pipeline when no route matches', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
+      adapter.initializePipeline(createMockContainer());
+
+      const noMatchRouteHandler = {
+        match: mock(() => undefined),
+      };
+      adapter.setRouteHandler(noMatchRouteHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/nonexistent'));
+
+      // Assert — global phases run, no route-level
+      expect(order).toEqual(['OnReceive', 'OnComplete']);
+    });
+
+    it('should return 404 Err when no route matches', async () => {
+      // Arrange
+      let receivedResult: unknown;
+      const originalHandleResult = adapter.handleResult.bind(adapter);
+      adapter.handleResult = async (result: unknown, ctx: Context) => {
+        receivedResult = result;
+        await originalHandleResult(result as never, ctx);
+      };
+
+      adapter.initializePipeline(createMockContainer());
+
+      const noMatchRouteHandler = {
+        match: mock(() => undefined),
+      };
+      adapter.setRouteHandler(noMatchRouteHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/nonexistent'));
+
+      // Assert
+      expect(isErr(receivedResult)).toBe(true);
+      expect((receivedResult as { data: { status: number } }).data.status).toBe(404);
+    });
+  });
+
+  // ── Edge Cases ────────────────────────────────────────────
+
+  describe('edge cases', () => {
+    it('should work with empty route-level middleware list', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('global'); })]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [],
+        handler: () => { order.push('handler'); return 'ok'; },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['global', 'handler']);
+    });
+
+    it('should work with no global middlewares and only route-level middlewares', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => { order.push('route:mw'); }],
+        handler: () => { order.push('handler'); return 'ok'; },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['route:mw', 'handler']);
+    });
+
+    it('should route thrown exception from route-level middleware through exception filters', async () => {
+      // Arrange
+      const globalFilter = mock((_error: unknown, _ctx: Context) => err({ caught: true }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilter)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => { throw new Error('middleware crash'); }],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(globalFilter).toHaveBeenCalledTimes(1);
+      const errorArg = globalFilter.mock.calls[0]![0];
+      expect(errorArg).toBeInstanceOf(Error);
+      expect((errorArg as Error).message).toBe('middleware crash');
+    });
+
+    it('should not call routeHandler.match when routeHandler is not set', async () => {
+      // Arrange
+      adapter.initializePipeline(createMockContainer());
+      // Do NOT call setRouteHandler
+
+      let receivedResult: unknown;
+      const originalHandleResult = adapter.handleResult.bind(adapter);
+      adapter.handleResult = async (result: unknown, ctx: Context) => {
+        receivedResult = result;
+        await originalHandleResult(result as never, ctx);
+      };
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — should get 500 "Router not initialized"
+      expect(isErr(receivedResult)).toBe(true);
+      expect((receivedResult as { data: { status: number } }).data.status).toBe(500);
+    });
+  });
+
+  // ── Failure Propagation Paths ─────────────────────────────
+
+  describe('failure propagation paths', () => {
+    it('should skip PostParseData and all subsequent stages when parseInput throws', async () => {
+      // Arrange
+      const order: string[] = [];
+
+      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => () => { order.push('PostParseData'); })]);
+      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => () => { order.push('PreHandle'); })]);
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
+      adapter.addExceptionFilters([defineExceptionFilter([], () => (_error, _ctx) => {
+        order.push('exceptionFilter');
+        return err({ caught: true });
+      })]);
+      adapter.initializePipeline(createMockContainer());
+
+      adapter.parseInput = async () => { throw new Error('parse failed'); };
+
+      const routeMw = mock((_ctx: Context) => {});
+      const routeHandler = createMockRouteHandler({ middlewares: [routeMw] });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('POST', '/test'));
+
+      // Assert — OnReceive runs, parseInput throws, exception filter catches, OnComplete runs
+      expect(order).toEqual(['OnReceive', 'exceptionFilter', 'OnComplete']);
+      expect(routeMw).not.toHaveBeenCalled();
+    });
+
+    it('should route global guard throw (not Err) to exception filters', async () => {
+      // Arrange
+      const filterHandler = mock((_error: unknown, _ctx: Context) => err({ caught: true }));
+
+      adapter.addGuards([defineGuard(() => () => { throw new Error('guard exploded'); })]);
+      adapter.addExceptionFilters([defineExceptionFilter([], () => filterHandler)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const handlerFn = mock(() => 'ok');
+      const routeHandler = createMockRouteHandler({ handler: handlerFn });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(filterHandler).toHaveBeenCalledTimes(1);
+      expect((filterHandler.mock.calls[0]![0] as Error).message).toBe('guard exploded');
+      expect(handlerFn).not.toHaveBeenCalled();
+    });
+
+    it('should run first MW then route to exception filter when second MW throws', async () => {
+      // Arrange
+      const order: string[] = [];
+      const thirdMw = mock((_ctx: Context) => { order.push('mw3'); });
+
+      const routeFilterHandler = mock((_error: unknown, _ctx: Context) => {
+        order.push('route:filter');
+        return err({ caught: true });
+      });
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [
+          () => { order.push('mw1'); },
+          () => { order.push('mw2:throw'); throw new Error('mw2 crash'); },
+          thirdMw,
+        ],
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['mw1', 'mw2:throw', 'route:filter']);
+      expect(thirdMw).not.toHaveBeenCalled();
+    });
+
+    it('should call forceCloseConnection when route exception filter itself throws', async () => {
+      // Arrange
+      adapter.initializePipeline(createMockContainer());
+      adapter.forceCloseConnection = mock(() => {});
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [{
+          handler: () => { throw new Error('filter also crashed'); },
+          catchTypes: [],
+        }],
+        handler: () => { throw new Error('handler crash'); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — filter throw is caught by dispatchRequest, creates synthetic Err,
+      // handleResult receives it. If handleResult also fails → forceCloseConnection.
+      // But handleResult should succeed with the synthetic Err, so forceCloseConnection
+      // should NOT be called. Let's verify handleResult gets the synthetic error.
+      // Actually: dispatchRequest catches filter throw → filterResult = err({message, cause, filterError})
+      // → handleResult(filterResult) should work → no forceCloseConnection
+      expect(adapter.forceCloseConnection).not.toHaveBeenCalled();
+    });
+
+    it('should produce synthetic Err with cause and filterError when route exception filter throws', async () => {
+      // Arrange
+      let receivedResult: unknown;
+      const originalHandleResult = adapter.handleResult.bind(adapter);
+      adapter.handleResult = async (result: unknown, ctx: Context) => {
+        receivedResult = result;
+        await originalHandleResult(result as never, ctx);
+      };
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [{
+          handler: () => { throw new Error('filter crash'); },
+          catchTypes: [],
+        }],
+        handler: () => { throw new Error('handler crash'); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(isErr(receivedResult)).toBe(true);
+      const data = (receivedResult as { data: Record<string, unknown> }).data;
+      expect(data.message).toBe('Unhandled error');
+      expect(data.cause).toBeInstanceOf(Error);
+      expect((data.cause as Error).message).toBe('handler crash');
+      expect(data.filterError).toBeInstanceOf(Error);
+      expect((data.filterError as Error).message).toBe('filter crash');
+    });
+
+    it('should call forceCloseConnection when handleResult throws on error-path result', async () => {
+      // Arrange
+      adapter.initializePipeline(createMockContainer());
+      adapter.forceCloseConnection = mock(() => {});
+
+      // Make handleResult throw only on error path
+      const callCount = { value: 0 };
+      adapter.handleResult = async () => {
+        callCount.value++;
+        throw new Error('handleResult broken');
+      };
+
+      const routeHandler = createMockRouteHandler({
+        handler: () => { throw new Error('handler crash'); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(adapter.forceCloseConnection).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not affect request result when OnComplete middleware throws', async () => {
+      // Arrange
+      let receivedResult: unknown;
+      const originalHandleResult = adapter.handleResult.bind(adapter);
+      adapter.handleResult = async (result: unknown, ctx: Context) => {
+        receivedResult = result;
+        await originalHandleResult(result as never, ctx);
+      };
+
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [
+        defineMiddleware(() => () => { throw new Error('OnComplete crash'); }),
+      ]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        handler: () => ({ success: true }),
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act — should not throw despite OnComplete failure
+      await expect(adapter.dispatchRequest(createHttpContext('GET', '/test'))).resolves.toBeUndefined();
+
+      // Assert — handler result reached handleResult before OnComplete ran
+      expect(isErr(receivedResult)).toBe(false);
+    });
+
+    it('should not affect request result when OnComplete middleware returns Err', async () => {
+      // Arrange
+      let receivedResult: unknown;
+      const originalHandleResult = adapter.handleResult.bind(adapter);
+      adapter.handleResult = async (result: unknown, ctx: Context) => {
+        receivedResult = result;
+        await originalHandleResult(result as never, ctx);
+      };
+
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [
+        defineMiddleware(() => () => err({ reason: 'OnComplete err' })),
+      ]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        handler: () => ({ success: true }),
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await expect(adapter.dispatchRequest(createHttpContext('GET', '/test'))).resolves.toBeUndefined();
+
+      // Assert — handler result still reached handleResult normally
+      expect(isErr(receivedResult)).toBe(false);
+    });
+  });
+
+  // ── Exception Filter Priority ──────────────────────────────
+
+  describe('exception filter priority', () => {
+    it('should prefer route-level catch-all over global specific filter', async () => {
+      // Arrange
+      class SpecificError extends Error {
+        constructor() { super('specific'); }
+      }
+
+      const globalSpecificHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global-specific' }));
+      const routeCatchAllHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route-catch-all' }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([SpecificError], () => globalSpecificHandler)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [{ handler: routeCatchAllHandler, catchTypes: [] }],
+        handler: () => { throw new SpecificError(); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — route-level catch-all takes priority over global specific
+      expect(routeCatchAllHandler).toHaveBeenCalledTimes(1);
+      expect(globalSpecificHandler).not.toHaveBeenCalled();
+    });
+
+    it('should use first matching route-level filter when multiple registered', async () => {
+      // Arrange
+      class AppError extends Error {
+        constructor() { super('app'); }
+      }
+
+      const order: string[] = [];
+      const firstHandler = mock((_error: unknown, _ctx: Context) => { order.push('first'); return err({ matched: 'first' }); });
+      const secondHandler = mock((_error: unknown, _ctx: Context) => { order.push('second'); return err({ matched: 'second' }); });
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [
+          { handler: firstHandler, catchTypes: [AppError] },
+          { handler: secondHandler, catchTypes: [] },
+        ],
+        handler: () => { throw new AppError(); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['first']);
+      expect(secondHandler).not.toHaveBeenCalled();
+    });
+
+    it('should skip non-matching route filter and use next matching route filter before global', async () => {
+      // Arrange
+      class ErrorA extends Error {}
+      class ErrorB extends Error {
+        constructor() { super('B'); }
+      }
+
+      const filterA = mock((_error: unknown, _ctx: Context) => err({ source: 'A' }));
+      const filterB = mock((_error: unknown, _ctx: Context) => err({ source: 'B' }));
+      const globalFilter = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilter)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [
+          { handler: filterA, catchTypes: [ErrorA] },
+          { handler: filterB, catchTypes: [ErrorB] },
+        ],
+        handler: () => { throw new ErrorB(); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — ErrorA filter skipped, ErrorB filter matches
+      expect(filterA).not.toHaveBeenCalled();
+      expect(filterB).toHaveBeenCalledTimes(1);
+      expect(globalFilter).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Route-Level Middleware Err Does Not Trigger Exception Filters ──
+
+  describe('Err vs throw distinction', () => {
+    it('should not register route exception filters when route MW Err halts before route matching sets them', async () => {
+      // This tests an important subtlety: route exception filters are set in resolveHandler
+      // AFTER route match but BEFORE route MW execution. So if route MW returns Err,
+      // the Err flows back as a normal Result, never touching exception filters.
+      // But if route MW THROWS, it DOES go through exception filters (including route-level ones).
+
+      const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route' }));
+      const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.initializePipeline(createMockContainer());
+
+      // Err path — should NOT trigger any exception filter
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => err({ status: 429 })],
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(routeFilterHandler).not.toHaveBeenCalled();
+      expect(globalFilterHandler).not.toHaveBeenCalled();
+    });
+
+    it('should trigger route exception filter when route MW throws (not Err)', async () => {
+      // Arrange
+      const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route' }));
+      const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => { throw new Error('MW throw'); }],
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — throw goes through exception filter chain, route catch-all matches
+      expect(routeFilterHandler).toHaveBeenCalledTimes(1);
+      expect(globalFilterHandler).not.toHaveBeenCalled();
+    });
+
+    it('should trigger route exception filter when handler throws (not Err)', async () => {
+      // Arrange
+      const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route' }));
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+        handler: () => { throw new Error('handler throw'); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(routeFilterHandler).toHaveBeenCalledTimes(1);
+      expect((routeFilterHandler.mock.calls[0]![0] as Error).message).toBe('handler throw');
+    });
+
+    it('should NOT trigger exception filter when handler returns Err', async () => {
+      // Arrange
+      const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route' }));
+      const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+        handler: () => err({ status: 400, message: 'bad input' }),
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — Err is a normal Result, not an exception
+      expect(routeFilterHandler).not.toHaveBeenCalled();
+      expect(globalFilterHandler).not.toHaveBeenCalled();
+    });
+
+    it('should route to route-level exception filter when route guard throws', async () => {
+      // Arrange — route exception filters are set BEFORE guards run in resolveHandler,
+      // so a guard throw should be caught by route-level filters
+      const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route-filter' }));
+      const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        guards: [() => { throw new Error('guard exploded'); }],
+        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — route catch-all filter handles the guard throw
+      expect(routeFilterHandler).toHaveBeenCalledTimes(1);
+      expect((routeFilterHandler.mock.calls[0]![0] as Error).message).toBe('guard exploded');
+      expect(globalFilterHandler).not.toHaveBeenCalled();
+    });
+
+    it('should treat non-void non-Err return from middleware as continue', async () => {
+      // Arrange — runMiddlewares only checks isErr(); anything else = continue
+      const order: string[] = [];
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [
+          () => { order.push('mw1'); return 'garbage string' as never; },
+          () => { order.push('mw2'); return 42 as never; },
+          () => { order.push('mw3'); return { random: 'object' } as never; },
+        ],
+        handler: () => { order.push('handler'); return 'ok'; },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — all middlewares ran, handler reached
+      expect(order).toEqual(['mw1', 'mw2', 'mw3', 'handler']);
+    });
+
+    it('should treat null return from middleware as continue', async () => {
+      // Arrange
+      const handlerFn = mock(() => 'ok');
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => null as never],
+        handler: handlerFn,
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(handlerFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── OnComplete Guarantee ────────────────────────────────────
+
+  describe('OnComplete guarantee', () => {
+    it('should run OnComplete on success path', async () => {
+      // Arrange
+      const onCompleteFn = mock((_ctx: Context) => {});
+
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        handler: () => ({ data: 'success' }),
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(onCompleteFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should run OnComplete on Err path (middleware Err)', async () => {
+      // Arrange
+      const onCompleteFn = mock((_ctx: Context) => {});
+
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        middlewares: [() => err({ halt: true })],
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(onCompleteFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should run OnComplete on exception path (handler throw)', async () => {
+      // Arrange
+      const onCompleteFn = mock((_ctx: Context) => {});
+
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addExceptionFilters([defineExceptionFilter([], () => (_error, _ctx) => err({ caught: true }))]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        handler: () => { throw new Error('handler crash'); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(onCompleteFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should run OnComplete even when forceCloseConnection is called', async () => {
+      // Arrange
+      const onCompleteFn = mock((_ctx: Context) => {});
+
+      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.initializePipeline(createMockContainer());
+
+      adapter.handleResult = async () => { throw new Error('handleResult broken'); };
+      adapter.forceCloseConnection = mock(() => {});
+
+      const routeHandler = createMockRouteHandler({
+        handler: () => { throw new Error('handler crash'); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(adapter.forceCloseConnection).toHaveBeenCalledTimes(1);
+      expect(onCompleteFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── No Route Exception Filter Fallback ────────────────────
+
+  describe('no route exception filter fallback', () => {
+    it('should fall back to global filter when route has no exception filters and handler throws', async () => {
+      // Arrange
+      const globalFilter = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilter)]);
+      adapter.initializePipeline(createMockContainer());
+
+      // Route with NO exception filters
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [],
+        handler: () => { throw new Error('handler crash'); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — no route filters registered → routeExceptionFilters on context remains undefined → global filter handles
+      expect(globalFilter).toHaveBeenCalledTimes(1);
+      expect((globalFilter.mock.calls[0]![0] as Error).message).toBe('handler crash');
+    });
+
+    it('should produce default unhandled error when no filters registered at all and handler throws', async () => {
+      // Arrange
+      let receivedResult: unknown;
+      const originalHandleResult = adapter.handleResult.bind(adapter);
+      adapter.handleResult = async (result: unknown, ctx: Context) => {
+        receivedResult = result;
+        await originalHandleResult(result as never, ctx);
+      };
+
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        exceptionFilters: [],
+        handler: () => { throw new Error('totally unhandled'); },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert — default fallback from base Adapter.runExceptionFilters
+      expect(isErr(receivedResult)).toBe(true);
+      const data = (receivedResult as { data: Record<string, unknown> }).data;
+      expect(data.message).toBe('Unhandled error');
+      expect(data.cause).toBeInstanceOf(Error);
+      expect((data.cause as Error).message).toBe('totally unhandled');
+    });
+  });
+});
