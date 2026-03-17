@@ -1,172 +1,615 @@
 import { Logger } from '@zipbul/logger';
-import { backOff } from 'exponential-backoff'; // Consider removing if complex retry logic handles native restarts differently, but keeping for now.
 
 import type { ClusterBaseWorker } from './cluster-base-worker';
-import type { ClusterWorker, ClusterOptions } from './interfaces';
+import { WorkerState } from './enums';
+import { WorkerStartupTimeoutError } from './errors';
+import type {
+  ClusterOptions,
+  ClusterWorkerSlot,
+  ClusterWorkerStats,
+  GroupCircuitBreaker,
+  RpcProxy,
+} from './interfaces';
+import { wrapWorker } from './rpc-proxy';
 import type { ClusterBootstrapParams, ClusterInitParams, RpcCallable } from './types';
-
-import { wrap } from './ipc';
+import { createSlot, disposeSlot, transition } from './worker-state';
 
 const WORKER_ID_ENV = 'ZIPBUL_WORKER_ID';
 
+const DEFAULT_STARTUP_TIMEOUT_MS = 60_000;
+const DEFAULT_RPC_TIMEOUT_MS = 30_000;
+const DEFAULT_DESTROY_RPC_TIMEOUT_MS = 5_000;
+const DEFAULT_TERMINATE_TIMEOUT_MS = 5_000;
+const DEFAULT_HEALTH_CHECK_INTERVAL_MS = 15_000;
+const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 5_000;
+const DEFAULT_HEALTH_CHECK_MAX_FAILURES = 3;
+const DEFAULT_REVIVE_STARTING_DELAY_MS = 300;
+const DEFAULT_REVIVE_MAX_DELAY_MS = 30_000;
+const DEFAULT_CRASH_WINDOW_MS = 60_000;
+const DEFAULT_MAX_CRASHES_IN_WINDOW = 5;
+const RPC_METHODS: ReadonlyArray<string> = ['init', 'bootstrap', 'destroy', 'getStats'];
+
+interface ClusterManagerConfig {
+  readonly startupTimeoutMs?: number;
+  readonly rpcTimeoutMs?: number;
+  readonly terminateTimeoutMs?: number;
+  readonly healthCheckIntervalMs?: number;
+  readonly healthCheckTimeoutMs?: number;
+  readonly healthCheckMaxFailures?: number;
+  readonly reviveStartingDelayMs?: number;
+  readonly reviveMaxDelayMs?: number;
+  readonly crashWindowMs?: number;
+  readonly maxCrashesInWindow?: number;
+  readonly smol?: boolean;
+  readonly preload?: readonly string[];
+}
+
+/**
+ * Manages a group of Worker threads with lifecycle state machine,
+ * crash recovery, health monitoring, and graceful shutdown.
+ *
+ * Each ClusterManager instance manages one WorkerGroup.
+ * The Application creates one ClusterManager per group.
+ *
+ * @public
+ */
 export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCallable>> {
   private readonly script: URL;
-  private readonly reviving = new Set<number>();
-  private readonly workers: Array<ClusterWorker<T> | undefined>;
+  private readonly slots: Array<ClusterWorkerSlot<T>>;
   private readonly logger = new Logger(ClusterManager.name);
-  private destroying = false;
+  private readonly reviveControllers = new Map<number, AbortController>();
+  private readonly config: Required<ClusterManagerConfig>;
+  private readonly circuitBreaker: GroupCircuitBreaker;
+
+  destroying = false;
+  replacementInProgress = false;
+  rollingRestartInProgress = false;
+
   private initParams: ClusterInitParams<T>;
   private bootstrapParams: ClusterBootstrapParams<T>;
+  private healthCheckTimer: ReturnType<typeof setInterval> | undefined;
 
-  constructor(options: ClusterOptions) {
-    const size = options?.size ?? navigator.hardwareConcurrency;
+  constructor(options: ClusterOptions, config?: ClusterManagerConfig) {
+    const size = options.size ?? navigator.hardwareConcurrency;
 
     this.script = options.script;
-    this.workers = Array.from({ length: size }, (_, id) => this.spawnWorker(id));
+    this.config = {
+      startupTimeoutMs: config?.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS,
+      rpcTimeoutMs: config?.rpcTimeoutMs ?? DEFAULT_RPC_TIMEOUT_MS,
+      terminateTimeoutMs: config?.terminateTimeoutMs ?? DEFAULT_TERMINATE_TIMEOUT_MS,
+      healthCheckIntervalMs: config?.healthCheckIntervalMs ?? DEFAULT_HEALTH_CHECK_INTERVAL_MS,
+      healthCheckTimeoutMs: config?.healthCheckTimeoutMs ?? DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
+      healthCheckMaxFailures: config?.healthCheckMaxFailures ?? DEFAULT_HEALTH_CHECK_MAX_FAILURES,
+      reviveStartingDelayMs: config?.reviveStartingDelayMs ?? DEFAULT_REVIVE_STARTING_DELAY_MS,
+      reviveMaxDelayMs: config?.reviveMaxDelayMs ?? DEFAULT_REVIVE_MAX_DELAY_MS,
+      crashWindowMs: config?.crashWindowMs ?? DEFAULT_CRASH_WINDOW_MS,
+      maxCrashesInWindow: config?.maxCrashesInWindow ?? DEFAULT_MAX_CRASHES_IN_WINDOW,
+      smol: config?.smol ?? size >= 4,
+      preload: config?.preload ?? [],
+    };
+
+    this.circuitBreaker = {
+      crashTimestamps: [],
+      maxIntensity: this.config.maxCrashesInWindow,
+      periodMs: this.config.crashWindowMs,
+      tripped: false,
+    };
+
+    // Lazy init: create slot objects only, no workers spawned yet
+    this.slots = Array.from({ length: size }, (_, id) => createSlot<T>(id));
   }
 
-  async destroy() {
-    this.destroying = true;
+  // ── Lifecycle ──────────────────────────────────────────────
 
-    await Promise.all(this.workers.map(async (_, id) => this.destroyWorker(id)));
-  }
-
-  // 'call' method removed - no longer needed for native cluster
-
-  async init(params?: ClusterInitParams<T>) {
+  /**
+   * Spawns all workers, sends init RPC, and waits for all to reach Running.
+   *
+   * @param params - Init parameters forwarded to each worker's init() method.
+   * @public
+   */
+  async init(params?: ClusterInitParams<T>): Promise<void> {
     this.initParams = params;
 
-    const tasks = this.workers.map(async (worker, id) => {
-      if (!worker) {
-        return;
-      }
-
-      await worker.remote.init(id, params);
+    const tasks = this.slots.map(async (slot) => {
+      this.spawnWorker(slot);
+      await this.waitForInit(slot, params);
     });
 
     await Promise.all(tasks);
   }
 
-  async bootstrap(params?: ClusterBootstrapParams<T>) {
+  /**
+   * Sends bootstrap RPC to all Running workers.
+   *
+   * @param params - Bootstrap parameters forwarded to each worker.
+   * @public
+   */
+  async bootstrap(params?: ClusterBootstrapParams<T>): Promise<void> {
     this.bootstrapParams = params;
 
-    const tasks = this.workers.map(async worker => {
-      if (!worker) {
+    const tasks = this.slots.map(async (slot) => {
+      if (!slot.remote) {
         return;
       }
 
-      await worker.remote.bootstrap(params);
+      await slot.remote.bootstrap(params);
     });
 
     await Promise.all(tasks);
   }
 
-  private spawnWorker(id: number): ClusterWorker<T> {
+  /**
+   * Starts the periodic health check / monitoring loop.
+   *
+   * @public
+   */
+  startHealthCheck(): void {
+    if (this.healthCheckTimer !== undefined) {
+      return;
+    }
+
+    this.healthCheckTimer = setInterval(() => {
+      void this.monitorWorkers();
+    }, this.config.healthCheckIntervalMs);
+  }
+
+  /**
+   * Stops health checks and gracefully shuts down all workers.
+   *
+   * Sequence:
+   * 1. Cancel all revive operations
+   * 2. Terminate non-Running workers immediately
+   * 3. Terminate Running workers (with destroy RPC attempt)
+   * 4. Force-terminate any remaining after timeout
+   *
+   * @public
+   */
+  async destroy(): Promise<void> {
+    this.destroying = true;
+
+    if (this.healthCheckTimer !== undefined) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = undefined;
+    }
+
+    this.cancelAllRevives();
+
+    await Promise.all(this.slots.map(async (slot) => this.terminateWorker(slot)));
+  }
+
+  // ── Worker Spawning ────────────────────────────────────────
+
+  private spawnWorker(slot: ClusterWorkerSlot<T>): void {
     const native = new Worker(this.script.href, {
       env: {
         ...Bun.env,
-        [WORKER_ID_ENV]: id.toString(),
+        [WORKER_ID_ENV]: slot.id.toString(),
       },
-      smol: true, // Optional: memory optimization
+      smol: this.config.smol,
+      preload: [...this.config.preload],
     });
 
-    native.addEventListener('error', (event: ErrorEvent) => {
-      void this.handleCrash('error', id, event);
-    });
-    native.addEventListener('messageerror', (event: MessageEvent) => {
-      void this.handleCrash('messageerror', id, event);
-    });
-    native.addEventListener('close', (event: Event) => {
-      void this.handleCrash('close', id, event);
-    });
+    slot.native = native;
+    slot.terminateInitiated = false;
+    slot.readyReceived = false;
 
-    return { remote: wrap<T>(native, ['init', 'bootstrap', 'destroy', 'getStats']), native };
-  }
+    const gen = slot.generation;
 
-  private async handleCrash(event: 'error' | 'messageerror' | 'close', id: number, error: Event) {
-    if (this.destroying) {
-      return;
-    }
-
-    const meta = error instanceof Error ? error : { error: error instanceof Event ? error.type : 'unknown' };
-
-    this.logger.error(`💥 Worker #${id} ${event}: `, meta);
-
-    try {
-      await this.destroyWorker(id);
-    } catch (error) {
-      this.logger.warn(`Worker #${id} cleanup failed during crash recovery`, error instanceof Error ? error : undefined);
-    }
-
-    this.workers[id] = undefined;
-
-    this.reviveWorker(id);
-  }
-
-  private reviveWorker(id: number) {
-    if (this.destroying || this.reviving.has(id)) {
-      return;
-    }
-
-    this.reviving.add(id);
-
-    let attempt = 0;
-
-    void (async () => {
-      try {
-        await backOff(
-          async () => {
-            if (this.destroying) {
-              this.reviving.delete(id);
-
-              throw new Error();
-            }
-
-            ++attempt;
-
-            this.logger.info(`🩺 Revive attempt ${attempt} for worker #${id}`);
-
-            const worker = this.spawnWorker(id);
-
-            await worker.remote.init(id, this.initParams);
-            await worker.remote.bootstrap(this.bootstrapParams);
-
-            this.workers[id] = worker;
-
-            this.reviving.delete(id);
-          },
-          {
-            numOfAttempts: 50,
-            startingDelay: 300,
-            maxDelay: 30_000,
-            timeMultiple: 2,
-            jitter: 'full',
-            delayFirstAttempt: true,
-            retry: () => !this.destroying,
-          },
-        );
-      } catch {
-        this.reviving.delete(id);
+    // Register event handlers with generation guard (Invariant C)
+    const onOpen = () => {
+      if (slot.generation !== gen) return;
+      if (slot.state === WorkerState.Spawning) {
+        transition(slot, WorkerState.Spawning, WorkerState.Ready);
+        slot.lastReadyTime = Date.now();
       }
-    })();
+    };
+
+    const onError = (event: ErrorEvent) => {
+      if (slot.generation !== gen) return;
+      this.handleCrash('error', slot, event);
+    };
+
+    const onMessageError = (event: MessageEvent) => {
+      if (slot.generation !== gen) return;
+      this.handleCrash('messageerror', slot, event);
+    };
+
+    const onClose = (event: CloseEvent) => {
+      if (slot.generation !== gen) return;
+
+      if (slot.state === WorkerState.Destroying && slot.terminateInitiated) {
+        // Expected close after terminate() — transition to Terminated
+        transition(slot, WorkerState.Destroying, WorkerState.Terminated);
+        disposeSlot(slot);
+      } else {
+        this.handleCrash('close', slot, event);
+      }
+    };
+
+    native.addEventListener('open', onOpen);
+    native.addEventListener('error', onError);
+    native.addEventListener('messageerror', onMessageError);
+    native.addEventListener('close', onClose);
+
+    slot.handlers.set('open', onOpen as EventListener);
+    slot.handlers.set('error', onError as EventListener);
+    slot.handlers.set('messageerror', onMessageError as EventListener);
+    slot.handlers.set('close', onClose as EventListener);
+
+    // Create RPC proxy with timeout + dispose
+    const rpcProxy = wrapWorker<T>(native, RPC_METHODS as ReadonlyArray<keyof T>, this.config.rpcTimeoutMs);
+    slot.rpcProxy = rpcProxy;
+    slot.remote = rpcProxy.api;
   }
 
-  private async destroyWorker(id: number) {
-    const worker = this.workers[id];
+  private async waitForInit(slot: ClusterWorkerSlot<T>, params: ClusterInitParams<T>): Promise<void> {
+    if (!slot.remote) {
+      throw new Error(`Worker #${slot.id} has no RPC proxy`);
+    }
 
-    if (!worker) {
+    // Startup timeout
+    const startupPromise = (async () => {
+      transition(slot, WorkerState.Ready, WorkerState.Initializing);
+      await slot.remote!.init(slot.id, params);
+      await slot.remote!.bootstrap(this.bootstrapParams);
+
+      slot.readyReceived = true;
+      transition(slot, WorkerState.Initializing, WorkerState.Running);
+    })();
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => {
+        if (slot.readyReceived) return;
+        reject(new WorkerStartupTimeoutError(slot.id, this.config.startupTimeoutMs));
+      }, this.config.startupTimeoutMs);
+
+      slot.startupTimer = timer;
+      slot.timers.add(timer);
+    });
+
+    try {
+      await Promise.race([startupPromise, timeoutPromise]);
+    } catch (error) {
+      if (!slot.readyReceived) {
+        this.handleCrash('startup-timeout', slot, error instanceof Error ? error : new Error(String(error)));
+      }
+
+      throw error;
+    }
+  }
+
+  // ── Crash Handling ─────────────────────────────────────────
+
+  private handleCrash(event: string, slot: ClusterWorkerSlot<T>, error: Error | Event): void {
+    // Invariant A: central transition function
+    const transitioned = transition(slot, slot.state, WorkerState.Crashed);
+
+    if (!transitioned) {
+      return; // Already Crashed/Destroying/Terminated — idempotent
+    }
+
+    // Invariant C: increment generation on Crashed entry
+    slot.generation++;
+    slot.lastCrashTime = Date.now();
+
+    const meta = error instanceof Error ? error : undefined;
+    this.logger.error(`Worker #${slot.id} [gen=${slot.generation - 1}] ${event}`, meta);
+
+    // Clean up resources
+    disposeSlot(slot);
+
+    // Record crash for group circuit breaker
+    if (!this.recordGroupCrash()) {
+      return; // Circuit breaker tripped — no revive
+    }
+
+    // Per-worker circuit breaker
+    if (!this.shouldRevive(slot)) {
+      transition(slot, WorkerState.Crashed, WorkerState.Terminated);
       return;
     }
 
-    this.reviving.delete(id);
+    this.reviveWorker(slot);
+  }
 
-    try {
-      await worker.remote.destroy();
-    } catch (error) {
-      this.logger.warn(`Worker #${id} destroy failed — process may have already exited`, error instanceof Error ? error : undefined);
+  private shouldRevive(slot: ClusterWorkerSlot<T>): boolean {
+    if (this.destroying) {
+      return false;
     }
 
-    worker.native.terminate();
-    // worker.remote[releaseProxy](); // No longer needed for native wrapper
+    slot.reviveAttempts++;
+
+    if (slot.firstCrashTime === undefined) {
+      slot.firstCrashTime = Date.now();
+    }
+
+    if (slot.reviveAttempts >= this.config.maxCrashesInWindow) {
+      const timeSinceFirst = Date.now() - slot.firstCrashTime;
+
+      if (timeSinceFirst < this.config.crashWindowMs) {
+        this.logger.error(
+          `Worker #${slot.id} crashed ${slot.reviveAttempts} times in ${timeSinceFirst}ms — giving up`,
+        );
+
+        return false;
+      }
+
+      // Outside window — reset counter
+      slot.reviveAttempts = 1;
+      slot.firstCrashTime = Date.now();
+    }
+
+    return true;
+  }
+
+  private recordGroupCrash(): boolean {
+    if (this.circuitBreaker.tripped) {
+      return false;
+    }
+
+    const now = Date.now();
+    this.circuitBreaker.crashTimestamps.push(now);
+
+    // Trim to window
+    this.circuitBreaker.crashTimestamps = this.circuitBreaker.crashTimestamps.filter(
+      (timestamp) => now - timestamp < this.circuitBreaker.periodMs,
+    );
+
+    if (this.circuitBreaker.crashTimestamps.length >= this.circuitBreaker.maxIntensity) {
+      this.circuitBreaker.tripped = true;
+
+      this.logger.error(
+        `Group circuit breaker tripped: ${this.circuitBreaker.crashTimestamps.length} crashes in ${this.circuitBreaker.periodMs}ms`,
+      );
+
+      // Cancel all reviving workers
+      for (const slot of this.slots) {
+        if (slot.state === WorkerState.Reviving) {
+          this.cancelRevive(slot);
+          transition(slot, WorkerState.Reviving, WorkerState.Terminated);
+        }
+      }
+
+      return false;
+    }
+
+    return true;
+  }
+
+  // ── Revive ─────────────────────────────────────────────────
+
+  private reviveWorker(slot: ClusterWorkerSlot<T>): void {
+    if (this.destroying || this.reviveControllers.has(slot.id)) {
+      return;
+    }
+
+    transition(slot, WorkerState.Crashed, WorkerState.Reviving);
+
+    const controller = new AbortController();
+    this.reviveControllers.set(slot.id, controller);
+
+    void this.reviveLoop(slot, controller.signal);
+  }
+
+  private async reviveLoop(slot: ClusterWorkerSlot<T>, signal: AbortSignal): Promise<void> {
+    let delay = this.config.reviveStartingDelayMs;
+
+    try {
+      while (!signal.aborted && !this.destroying) {
+        // Wait with jittered delay
+        const jitteredDelay = Math.round(delay * (0.5 + Math.random() * 0.5));
+
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, jitteredDelay);
+          slot.timers.add(timer);
+
+          signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new Error('Revive aborted'));
+          }, { once: true });
+        });
+
+        if (signal.aborted || this.destroying) break;
+
+        this.logger.info(`Revive attempt for worker #${slot.id}`);
+
+        try {
+          // Transition back to Spawning for respawn
+          transition(slot, WorkerState.Reviving, WorkerState.Spawning);
+          this.spawnWorker(slot);
+          await this.waitForInit(slot, this.initParams);
+
+          // Success — worker is Running
+          this.reviveControllers.delete(slot.id);
+
+          return;
+        } catch {
+          // init failed — back to Crashed for retry
+          if (slot.state !== WorkerState.Crashed && slot.state !== WorkerState.Terminated) {
+            const transitioned = transition(slot, slot.state, WorkerState.Crashed);
+
+            if (transitioned) {
+              slot.generation++;
+              disposeSlot(slot);
+            }
+          }
+
+          // Check circuit breaker
+          if (!this.recordGroupCrash() || !this.shouldRevive(slot)) {
+            transition(slot, WorkerState.Crashed, WorkerState.Terminated);
+            break;
+          }
+
+          transition(slot, WorkerState.Crashed, WorkerState.Reviving);
+        }
+
+        // Exponential backoff
+        delay = Math.min(delay * 2, this.config.reviveMaxDelayMs);
+      }
+    } catch {
+      // Aborted
+    } finally {
+      this.reviveControllers.delete(slot.id);
+    }
+  }
+
+  private cancelRevive(slot: ClusterWorkerSlot<T>): void {
+    const controller = this.reviveControllers.get(slot.id);
+
+    if (controller) {
+      controller.abort();
+      this.reviveControllers.delete(slot.id);
+    }
+  }
+
+  private cancelAllRevives(): void {
+    for (const [id, controller] of this.reviveControllers) {
+      controller.abort();
+      const slot = this.slots[id];
+
+      if (slot && slot.state === WorkerState.Reviving) {
+        transition(slot, WorkerState.Reviving, WorkerState.Terminated);
+      }
+    }
+
+    this.reviveControllers.clear();
+  }
+
+  // ── Terminate ──────────────────────────────────────────────
+
+  private async terminateWorker(slot: ClusterWorkerSlot<T>): Promise<void> {
+    if (slot.state === WorkerState.Terminated) {
+      return;
+    }
+
+    // For non-Running/non-Draining states, go directly to Terminated
+    if (
+      slot.state === WorkerState.Spawning ||
+      slot.state === WorkerState.Ready ||
+      slot.state === WorkerState.Initializing ||
+      slot.state === WorkerState.Crashed ||
+      slot.state === WorkerState.Reviving
+    ) {
+      this.cancelRevive(slot);
+      transition(slot, slot.state, WorkerState.Terminated);
+      disposeSlot(slot);
+
+      if (slot.native) {
+        slot.native.unref();
+        slot.native.terminate();
+      }
+
+      return;
+    }
+
+    // Running or Draining — go through Destroying
+    slot.terminateInitiated = true;
+
+    if (slot.state === WorkerState.Running) {
+      transition(slot, WorkerState.Running, WorkerState.Draining);
+    }
+
+    if (slot.state === WorkerState.Draining) {
+      transition(slot, WorkerState.Draining, WorkerState.Destroying);
+    }
+
+    // Dispose RPC (rejects pending)
+    slot.rpcProxy?.dispose();
+
+    // Attempt graceful destroy RPC if worker might be alive
+    if (slot.remote) {
+      try {
+        await Promise.race([
+          slot.remote.destroy(),
+          this.timeout(DEFAULT_DESTROY_RPC_TIMEOUT_MS),
+        ]);
+      } catch {
+        // Graceful destroy failed — proceed to force terminate
+      }
+    }
+
+    // Force terminate
+    if (slot.native) {
+      slot.native.unref();
+      slot.native.terminate();
+    }
+
+    // Set terminate timeout — if close event doesn't fire within 5s, force Terminated
+    const terminateTimer = setTimeout(() => {
+      if (slot.state === WorkerState.Destroying) {
+        transition(slot, WorkerState.Destroying, WorkerState.Terminated);
+        disposeSlot(slot);
+      }
+    }, this.config.terminateTimeoutMs);
+
+    slot.timers.add(terminateTimer);
+  }
+
+  // ── Health Monitoring ──────────────────────────────────────
+
+  private async monitorWorkers(): Promise<void> {
+    if (this.destroying) return;
+
+    const tasks = this.slots
+      .filter((slot) => slot.state === WorkerState.Running)
+      .map(async (slot) => this.checkWorkerHealth(slot));
+
+    await Promise.all(tasks);
+  }
+
+  private async checkWorkerHealth(slot: ClusterWorkerSlot<T>): Promise<void> {
+    if (!slot.remote || slot.state !== WorkerState.Running) return;
+
+    if (slot.healthCheckPending) {
+      // Previous check still in-flight — skip (back-pressure)
+      return;
+    }
+
+    slot.healthCheckPending = true;
+
+    try {
+      const stats = await Promise.race([
+        slot.remote.getStats() as Promise<ClusterWorkerStats>,
+        this.timeout(this.config.healthCheckTimeoutMs),
+      ]);
+
+      slot.healthCheckPending = false;
+      slot.healthCheckFailures = 0;
+      slot.lastStats = stats as ClusterWorkerStats;
+    } catch {
+      slot.healthCheckPending = false;
+
+      // Re-check state — worker may have transitioned during await
+      if (slot.state !== WorkerState.Running) return;
+
+      slot.healthCheckFailures++;
+
+      if (slot.healthCheckFailures >= this.config.healthCheckMaxFailures) {
+        this.logger.error(`Worker #${slot.id} health check failed ${slot.healthCheckFailures} times — marking crashed`);
+        this.handleCrash('healthcheck', slot, new Error('Health check timeout'));
+      }
+    }
+  }
+
+  // ── Utilities ──────────────────────────────────────────────
+
+  private timeout(ms: number): Promise<never> {
+    return new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms);
+    });
+  }
+
+  /**
+   * Returns a snapshot of all slot states for external inspection.
+   *
+   * @returns Array of slot state summaries.
+   * @public
+   */
+  getSlotStates(): ReadonlyArray<{ id: number; state: WorkerState; generation: number }> {
+    return this.slots.map((slot) => ({
+      id: slot.id,
+      state: slot.state,
+      generation: slot.generation,
+    }));
   }
 }
