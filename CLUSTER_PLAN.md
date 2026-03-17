@@ -477,7 +477,7 @@ Application.start() (마스터)
     → clusterManager.init({ adapterNames: group.adapterNames })
     → clusterManager.bootstrap()
   → startHealthCheck()
-  → registerSignalHandlers()
+  // 시그널 핸들링은 사용자 책임 — 프레임워크 범위 외 (Phase 6-2)
 ```
 
 각 그룹의 ClusterManager가 독립적으로 워커를 관리한다. 그룹 간 워커는 격리되어 있다.
@@ -1152,70 +1152,60 @@ async drain(timeoutMs: number): Promise<void> {
 
 **drain 훅 실패 처리**: drain()이 throw하면 drain 타임아웃과 동일 처리 (catch → Destroying 진입)
 
-### 6-2. 시그널 핸들링
+### 6-2. 시그널 핸들링 — 프레임워크 범위 외
 
-마스터 프로세스가 OS 시그널을 수신하고 전체 클러스터 shutdown을 오케스트레이션:
+**프레임워크 규칙: 시그널 핸들러를 프레임워크가 등록하지 않는다.**
+
+시그널 핸들링은 사용자 코드의 책임이다. 프레임워크가 암묵적으로 `SIGTERM`/`SIGINT`를 가로채면 사용자의 커스텀 시그널 핸들링(로그 flush, 메트릭 전송, 외부 서비스 알림 등)과 충돌한다. "명시성 > 편의성" 원칙에 따라, 프레임워크는 `Application.stop()`이 클러스터 모드에서 올바르게 동작하는 것만 보장한다.
+
+**사용자 코드 예시:**
 
 ```typescript
-// Application.start() 내에서, 클러스터 모드일 때
-private registerSignalHandlers(): void {
-  const shutdown = () => void this.shutdownCluster();
+const app = createApplication(AppModule, { workers: 4 });
+await app.start();
 
-  process.once('SIGTERM', shutdown);
-  process.once('SIGINT', shutdown);
-}
+// 사용자가 직접 시그널 핸들러 등록
+process.on('SIGTERM', () => app.stop());
+process.on('SIGINT', () => app.stop());
 ```
 
-Web Worker는 OS 시그널을 직접 수신할 수 없다. 마스터가 `drain` RPC로 전달한다.
+**프레임워크 보장 사항:**
 
-**startup 중 시그널**: `startupPhase` 플래그가 true일 때는 drain 건너뜀. 아직 커넥션이 없으므로 즉시 terminate.
+`Application.stop()` 호출 시 클러스터 모드에서:
+1. 모든 ClusterManager의 `destroying` 플래그 설정
+2. 롤링 리스타트/리사이클 취소
+3. 모든 Reviving 워커 취소 → Terminated
+4. non-Running 워커 즉시 terminate
+5. Running 워커 drain → terminate
+6. 자원 정리
+
+Web Worker는 OS 시그널을 직접 수신할 수 없으므로, `Application.stop()` → `ClusterManager.destroy()` 경로가 유일한 shutdown 진입점이다.
 
 ### 6-3. Graceful Shutdown 오케스트레이션
 
+사용자가 `Application.stop()`을 호출하면 (시그널 핸들러 또는 직접 호출), 클러스터 모드에서는 `Application.stop()` 내부에서 모든 ClusterManager를 순차적으로 destroy한다:
+
 ```typescript
-private async shutdownCluster(): Promise<void> {
-  if (this.isShuttingDown) return;
-  this.isShuttingDown = true;
+// Application.stop() 내부 — 클러스터 모드일 때
+public async stop(): Promise<void> {
+  // 기존 싱글 프로세스 stop 로직과 동일한 진입점.
+  // 클러스터 모드에서는 어댑터 stop 대신 ClusterManager.destroy()를 호출.
 
-  // 1. 모든 그룹의 destroying 플래그를 원자적으로 설정
-  for (const group of this.groups.values()) {
-    group.clusterManager.destroying = true;
+  for (const manager of this.clusterManagers) {
+    await manager.destroy();
   }
 
-  // 2. 롤링 리스타트/리사이클 중이면 취소
-  for (const group of this.groups.values()) {
-    group.clusterManager.cancelRollingRestart();
-  }
-
-  // 3. 모든 Reviving 워커의 backoff 타이머 취소 → Terminated
-  for (const group of this.groups.values()) {
-    group.clusterManager.cancelAllRevives();
-  }
-
-  // 4. Spawning/Ready/Initializing 워커 즉시 terminate
-  for (const group of this.groups.values()) {
-    group.clusterManager.terminateNonRunningWorkers();
-  }
-
-  // 5. Running 워커에 drain (모든 그룹 병렬)
-  const drainPromises = [];
-  for (const group of this.groups.values()) {
-    drainPromises.push(group.clusterManager.drainAllRunning(this.drainTimeoutMs));
-  }
-  await Promise.all(drainPromises);
-
-  // 6. 남은 워커 force terminate
-  for (const group of this.groups.values()) {
-    await group.clusterManager.forceTerminateAll();
-  }
-
-  // 7. 마스터 자원 정리
-  clearInterval(this.monitorTimer);
-  process.exit(0);
+  // manager.destroy() 내부에서:
+  // 1. destroying = true 설정
+  // 2. 모든 revive 취소
+  // 3. 모든 워커 terminateWorker() (drain → terminate 포함)
+  // 4. 헬스체크 타이머 정리
 }
 ```
 
-**핵심**: shutdown 타임아웃은 그룹별이 아니라 전역. 모든 그룹이 병렬 drain하므로 총 시간 = max(각 그룹 drain 시간), 최대 `drainTimeoutMs`.
+**프레임워크는 `process.exit()`를 호출하지 않는다.** 프로세스 종료 시점은 사용자 코드가 결정한다. `Application.stop()` 이후 이벤트 루프가 비어있으면 프로세스는 자연스럽게 종료된다.
+
+**핵심**: 모든 그룹의 `destroy()`가 병렬로 실행되므로 총 시간 = max(각 그룹 drain 시간), 최대 `terminateTimeoutMs`.
 
 ### 6-4. 롤링 리스타트
 
@@ -1425,7 +1415,7 @@ packages/core/src/cluster/
 | 13 | `Adapter` 베이스: `clusterStrategy` 프로퍼티 + `drain()` 훅 추가 | 없음 |
 | 14 | `HttpAdapter`: drain() 구현 (server.stop + pendingRequests 확인), 클러스터 관련 코드 전체 제거 | 13 |
 | 15 | `application-worker.ts`: 어댑터 무관 워커 + 어댑터 필터 + Container 검증 | 8, 9 |
-| 16 | `Application`: Worker Group 자동 분류, 클러스터 모드 분기, shutdownCluster(), 시그널 핸들러 | 9, 13, 15 |
+| 16 | `Application`: Worker Group 자동 분류, 클러스터 모드 분기, `stop()` 클러스터 모드 통합 | 9, 13, 15 |
 | 17 | `CreateApplicationOptions`: `workers`, `cluster` (WorkerGroupConfig[]) 옵션 추가 | 없음 |
 | **Phase 6: 정리** | | |
 | 18 | `HttpServerOptions.workers` 제거, `http-worker.ts` 삭제, `HttpWorkerRpc` 제거 | 16 |
