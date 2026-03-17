@@ -249,6 +249,11 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
 
     // Startup timeout
     const startupPromise = (async () => {
+      // Wait for open event if still in Spawning state
+      if (slot.state === WorkerState.Spawning) {
+        await this.waitForOpen(slot);
+      }
+
       transition(slot, WorkerState.Ready, WorkerState.Initializing);
       await slot.remote!.init(slot.id, params);
       await slot.remote!.bootstrap(this.bootstrapParams);
@@ -278,14 +283,50 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     }
   }
 
+  private waitForOpen(slot: ClusterWorkerSlot<T>): Promise<void> {
+    if (slot.state !== WorkerState.Spawning) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const gen = slot.generation;
+
+      const check = () => {
+        if (slot.generation !== gen) {
+          reject(new Error('Worker generation changed while waiting for open'));
+          return;
+        }
+
+        if (slot.state !== WorkerState.Spawning) {
+          resolve();
+          return;
+        }
+
+        setTimeout(check, 10);
+      };
+
+      check();
+    });
+  }
+
   // ── Crash Handling ─────────────────────────────────────────
 
   private handleCrash(event: string, slot: ClusterWorkerSlot<T>, error: Error | Event): void {
+    // Skip if already in a non-crashable state
+    if (
+      slot.state === WorkerState.Crashed ||
+      slot.state === WorkerState.Reviving ||
+      slot.state === WorkerState.Destroying ||
+      slot.state === WorkerState.Terminated
+    ) {
+      return;
+    }
+
     // Invariant A: central transition function
     const transitioned = transition(slot, slot.state, WorkerState.Crashed);
 
     if (!transitioned) {
-      return; // Already Crashed/Destroying/Terminated — idempotent
+      return;
     }
 
     // Invariant C: increment generation on Crashed entry
@@ -513,9 +554,6 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       transition(slot, WorkerState.Draining, WorkerState.Destroying);
     }
 
-    // Dispose RPC (rejects pending)
-    slot.rpcProxy?.dispose();
-
     // Attempt graceful destroy RPC if worker might be alive
     if (slot.remote) {
       try {
@@ -528,21 +566,44 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       }
     }
 
+    // Dispose RPC (rejects any remaining pending)
+    slot.rpcProxy?.dispose();
+
     // Force terminate
     if (slot.native) {
       slot.native.unref();
       slot.native.terminate();
     }
 
-    // Set terminate timeout — if close event doesn't fire within 5s, force Terminated
-    const terminateTimer = setTimeout(() => {
-      if (slot.state === WorkerState.Destroying) {
-        transition(slot, WorkerState.Destroying, WorkerState.Terminated);
-        disposeSlot(slot);
+    // Wait for Terminated state (via close event or timeout)
+    await new Promise<void>((resolve) => {
+      if (slot.state === WorkerState.Terminated) {
+        resolve();
+        return;
       }
-    }, this.config.terminateTimeoutMs);
 
-    slot.timers.add(terminateTimer);
+      const terminateTimer = setTimeout(() => {
+        if (slot.state === WorkerState.Destroying) {
+          transition(slot, WorkerState.Destroying, WorkerState.Terminated);
+          disposeSlot(slot);
+        }
+
+        resolve();
+      }, this.config.terminateTimeoutMs);
+
+      slot.timers.add(terminateTimer);
+
+      // Also resolve on close event (which transitions to Terminated)
+      if (slot.native) {
+        const gen = slot.generation;
+
+        slot.native.addEventListener('close', () => {
+          if (slot.generation !== gen) return;
+          clearTimeout(terminateTimer);
+          resolve();
+        }, { once: true });
+      }
+    });
   }
 
   // ── Health Monitoring ──────────────────────────────────────
