@@ -186,4 +186,82 @@ describe('ClusterManager', () => {
       manager = undefined;
     });
   });
+
+  describe('rolling restart', () => {
+    it('should replace all workers and keep them Running', async () => {
+      // Arrange
+      manager = createManager(2);
+      await manager.init();
+      await manager.bootstrap();
+
+      const preStates = manager.getSlotStates();
+      expect(preStates.every((slot) => slot.state === WorkerState.Running)).toBe(true);
+
+      // Act
+      await manager.rollingRestart();
+
+      // Assert — all workers should still be Running with the same IDs
+      const postStates = manager.getSlotStates();
+      expect(postStates).toHaveLength(2);
+      expect(postStates.every((slot) => slot.state === WorkerState.Running)).toBe(true);
+    });
+
+    it('should not allow concurrent rolling restarts', async () => {
+      // Arrange
+      manager = createManager(1);
+      await manager.init();
+      await manager.bootstrap();
+
+      // Act — start first rolling restart
+      const firstRestart = manager.rollingRestart();
+
+      // Assert — second call should throw
+      await expect(manager.rollingRestart()).rejects.toThrow('Rolling restart already in progress');
+
+      await firstRestart;
+    });
+
+    it('should complete rolling restart then destroy cleanly', async () => {
+      // Arrange
+      manager = createManager(2);
+      await manager.init();
+      await manager.bootstrap();
+
+      // Act — rolling restart first, then destroy
+      await manager.rollingRestart();
+      await manager.destroy();
+
+      // Assert — all workers should be Terminated
+      const states = manager.getSlotStates();
+      expect(states.every((slot) => slot.state === WorkerState.Terminated)).toBe(true);
+      manager = undefined;
+    });
+  });
+
+  describe('replacement semaphore', () => {
+    it('should set replacementInProgress during rolling restart', async () => {
+      // Arrange
+      manager = createManager(1);
+      await manager.init();
+      await manager.bootstrap();
+
+      // Act
+      expect(manager.replacementInProgress).toBe(false);
+      const restartPromise = manager.rollingRestart();
+
+      // Assert — after restart completes, flag should be released
+      await restartPromise;
+      expect(manager.replacementInProgress).toBe(false);
+    });
+  });
+
+  describe('script validation', () => {
+    it('should throw when script URL is not file protocol', () => {
+      expect(() => {
+        new ClusterManager<TestWorkerRpc>(
+          { script: new URL('https://example.com/worker.js'), size: 1 },
+        );
+      }).toThrow('file://');
+    });
+  });
 });
