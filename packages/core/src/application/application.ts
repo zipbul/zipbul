@@ -7,11 +7,14 @@ import type {
   ClassToken,
   ModuleMarker,
 } from '@zipbul/common';
-import { MiddlewareHook } from '@zipbul/common';
+import { ClusterStrategy, MiddlewareHook } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 
 import { seal } from '@zipbul/baker';
 
+import { ClusterManager } from '../cluster/cluster-manager';
+import type { ClusterBaseWorker } from '../cluster/cluster-base-worker';
+import type { RpcCallable } from '../cluster/types';
 import { Container } from '../injector/container';
 import { runInitHooks, runDestroyHooks } from '../injector/lifecycle-runner';
 import { formatToken } from '../injector/token-resolver';
@@ -40,17 +43,22 @@ export class AppContext implements Context {
   }
 }
 
+type TestWorkerRpc = ClusterBaseWorker & Record<string, RpcCallable>;
+
 export class Application {
   private readonly container: Container;
   private readonly logger = new Logger(Application.name);
   private readonly adapters: AdapterEntry[] = [];
+  private readonly clusterManagers: Array<ClusterManager<TestWorkerRpc>> = [];
+  private readonly options: CreateApplicationOptions;
   private startOrder: AdapterEntry[] = [];
   private started = false;
   private stopped = false;
   private startPromise: Promise<void> | undefined;
 
-  constructor(container?: Container) {
+  constructor(container?: Container, options?: CreateApplicationOptions) {
     this.container = container ?? new Container();
+    this.options = options ?? {};
   }
 
   /**
@@ -183,6 +191,17 @@ export class Application {
       );
     }
 
+    // Cluster mode: master process spawns workers instead of starting adapters directly
+    const isWorker = Bun.env.ZIPBUL_WORKER_ID !== undefined;
+    const workers = this.options.workers;
+    const isClusterMode = !isWorker && workers !== undefined && workers > 1;
+
+    if (isClusterMode) {
+      await this.startClusterMode(workers);
+
+      return;
+    }
+
     seal();
     await runInitHooks(this.container);
 
@@ -242,6 +261,98 @@ export class Application {
     }
   }
 
+  // ── Cluster Mode ──────────────────────────────────────────
+
+  private async startClusterMode(workerCount: number): Promise<void> {
+    if (process.platform !== 'linux') {
+      throw new Error(
+        `Cluster mode (workers: ${workerCount}) requires Linux. ` +
+        `${process.platform} does not support SO_REUSEPORT load balancing.`,
+      );
+    }
+
+    const groups = this.resolveWorkerGroups(workerCount);
+    const workerScript = this.resolveWorkerScript();
+    const runtimeCtx = getRuntimeContext();
+    const manifestPath = runtimeCtx.isAotRuntime === true ? this.resolveManifestPath() : undefined;
+    const preload = manifestPath !== undefined ? [manifestPath] : [];
+
+    for (const group of groups) {
+      const manager = new ClusterManager<TestWorkerRpc>(
+        { script: workerScript, size: group.workers },
+        {
+          adapterFilter: group.adapterNames,
+          preload,
+          smol: group.workers >= 4,
+        },
+      );
+
+      this.clusterManagers.push(manager);
+
+      await manager.init();
+      await manager.bootstrap();
+      manager.startHealthCheck();
+    }
+
+    this.logger.info(`Cluster started: ${groups.length} group(s), ${groups.reduce((sum, g) => sum + g.workers, 0)} total workers`);
+  }
+
+  private resolveWorkerGroups(workerCount: number): ReadonlyArray<{ adapterNames: string[]; workers: number }> {
+    const explicitGroups = this.options.cluster;
+
+    if (explicitGroups !== undefined && explicitGroups.length > 0) {
+      return explicitGroups.map((group) => ({
+        adapterNames: group.adapters.map((cls) => cls.name),
+        workers: group.workers ?? 1,
+      }));
+    }
+
+    // Auto-grouping: Shared adapters → main group, Exclusive → exclusive group
+    const sharedAdapters: string[] = [];
+    const exclusiveAdapters: string[] = [];
+
+    for (const entry of this.adapters) {
+      if (entry.adapter.clusterStrategy === ClusterStrategy.Exclusive) {
+        exclusiveAdapters.push(entry.adapterClass.name);
+      } else {
+        sharedAdapters.push(entry.adapterClass.name);
+      }
+    }
+
+    const groups: Array<{ adapterNames: string[]; workers: number }> = [];
+
+    if (sharedAdapters.length > 0) {
+      groups.push({ adapterNames: sharedAdapters, workers: workerCount });
+    }
+
+    if (exclusiveAdapters.length > 0) {
+      groups.push({ adapterNames: exclusiveAdapters, workers: 1 });
+    }
+
+    return groups;
+  }
+
+  private resolveWorkerScript(): URL {
+    const runtimeCtx = getRuntimeContext();
+
+    if (runtimeCtx.isAotRuntime === true) {
+      const entryPath = Bun.argv[1] ?? '';
+      const entryDir = entryPath.lastIndexOf('/') >= 0 ? entryPath.slice(0, entryPath.lastIndexOf('/')) : '.';
+
+      return new URL(`file://${entryDir}/worker.js`);
+    }
+
+    return new URL('../cluster/application-worker.ts', import.meta.url);
+  }
+
+  private resolveManifestPath(): string {
+    const entryPath = Bun.argv[1] ?? '';
+    const entryDir = entryPath.lastIndexOf('/') >= 0 ? entryPath.slice(0, entryPath.lastIndexOf('/')) : '.';
+    const ext = entryPath.endsWith('.ts') ? '.ts' : '.js';
+
+    return `${entryDir}/runtime${ext}`;
+  }
+
   /**
    * In worker mode (ZIPBUL_WORKER_ID set), reads ZIPBUL_ADAPTER_FILTER
    * to determine which adapters this worker should start.
@@ -297,6 +408,19 @@ export class Application {
     }
 
     this.stopped = true;
+
+    // Cluster mode: destroy all ClusterManagers
+    for (const manager of this.clusterManagers) {
+      try {
+        await manager.destroy();
+      } catch (error) {
+        this.logger.error('ClusterManager destroy failed', error instanceof Error ? error : undefined);
+      }
+    }
+
+    this.clusterManagers.length = 0;
+
+    // Single-process mode: stop adapters directly
     const entries = [...this.startOrder].reverse();
 
     for (const entry of entries) {
@@ -391,11 +515,11 @@ export class Application {
 
 function createApplication(
   _entryModuleMarker: ModuleMarker,
-  _options?: CreateApplicationOptions,
+  options?: CreateApplicationOptions,
 ): Application {
   const ctx = getRuntimeContext();
 
-  return new Application(ctx.container);
+  return new Application(ctx.container, options);
 }
 
 export { createApplication };
