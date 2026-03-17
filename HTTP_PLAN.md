@@ -5,7 +5,7 @@
 | Item | Reason |
 |------|--------|
 | Cluster mode (`workers: 2+`) | Requires real multi-process environment |
-| Request scope isolation | No request-scoped provider usage in examples |
+| ~~Request scope isolation~~ | ~~No request-scoped provider usage in examples~~ — **Done**: 71 integration tests across 3 files, 197 assertions. Example request-scoped provider added (`examples/src/users/request-context.ts`) |
 
 ## Design Decision Log
 
