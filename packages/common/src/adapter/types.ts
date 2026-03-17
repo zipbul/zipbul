@@ -53,3 +53,28 @@ export type AdapterEntryDecorators = {
 
 /** Adapter class constructor type. Accepts any constructor args and produces an Adapter. */
 export type AdapterClass = new (...args: any[]) => Adapter;
+
+/**
+ * Adapter clustering strategy.
+ *
+ * Determines how the framework assigns adapters to worker groups in cluster mode.
+ *
+ * @public
+ */
+export enum ClusterStrategy {
+  /**
+   * Port sharing via reusePort for horizontal scaling.
+   * N workers run identical adapter instances. Kernel distributes traffic.
+   *
+   * @example HTTP, gRPC Unary, MQ Consumer
+   */
+  Shared = 'Shared',
+
+  /**
+   * Exactly 1 worker runs this adapter.
+   * Duplicate execution causes side effects.
+   *
+   * @example Cron, Leader Election, Scheduler
+   */
+  Exclusive = 'Exclusive',
+}

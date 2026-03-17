@@ -4,7 +4,7 @@ import type { MiddlewareDefinition, MiddlewareHandlerFn } from '../define-middle
 import type { GuardDefinition, GuardHandlerFn } from '../define-guard';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '../define-exception-filter';
 import type { AdapterClass, AdapterEntryDecorators, MiddlewareRegistry } from './types';
-import { MiddlewareHook } from './types';
+import { ClusterStrategy, MiddlewareHook } from './types';
 import type { Context, ZipbulContainer } from '../interfaces';
 import { runInInjectionContext } from '../injection-context';
 
@@ -48,6 +48,15 @@ export interface ResolvedExceptionFilter {
 export abstract class Adapter {
   abstract readonly decorators: AdapterEntryDecorators;
 
+  /**
+   * Clustering strategy for this adapter.
+   * Shared = N workers with reusePort. Exclusive = exactly 1 worker.
+   * Subclasses override to declare their strategy.
+   *
+   * @public
+   */
+  readonly clusterStrategy: ClusterStrategy = ClusterStrategy.Shared;
+
   protected middlewareRegistry: MiddlewareRegistry = {};
   protected exceptionFilterDefs: ExceptionFilterDefinition[] = [];
   protected guardDefs: GuardDefinition[] = [];
@@ -84,6 +93,20 @@ export abstract class Adapter {
    * @public
    */
   abstract stop(): Promise<void>;
+
+  /**
+   * Stops accepting new connections and waits for in-flight work to complete.
+   * Each adapter implements protocol-specific drain logic.
+   *
+   * @param timeoutMs - Maximum time to wait for drain completion.
+   *                     After timeout, force-close remaining connections.
+   * @public
+   */
+  async drain(timeoutMs: number): Promise<void> {
+    // Default: delegate to stop(). Subclasses override with protocol-specific drain.
+    void timeoutMs;
+    await this.stop();
+  }
 
   // ── Registration ────────────────────────────────────────────
 
