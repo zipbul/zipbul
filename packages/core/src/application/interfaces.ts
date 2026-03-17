@@ -1,7 +1,30 @@
 import type { Adapter, AdapterClass, AdapterDependsOn } from '@zipbul/common';
 
+import type { WorkerGroupConfig } from '../cluster/interfaces';
+
+/**
+ * Options for `createApplication()`.
+ *
+ * @public
+ */
 interface CreateApplicationOptions {
-  //
+  /**
+   * Number of worker threads for cluster mode.
+   * Omitted or 1 = single-process mode.
+   * 2+ = cluster mode with automatic adapter grouping.
+   *
+   * @public
+   */
+  workers?: number;
+
+  /**
+   * Explicit worker group configuration.
+   * Overrides automatic grouping from `workers`.
+   * Each group defines its adapter assignment and worker count.
+   *
+   * @public
+   */
+  cluster?: readonly WorkerGroupConfig[];
 }
 
 /**

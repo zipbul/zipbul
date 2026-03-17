@@ -1,5 +1,6 @@
 export { ClusterManager } from './cluster-manager';
 export { ClusterBaseWorker } from './cluster-base-worker';
+export { ApplicationWorker } from './application-worker';
 export { WorkerState, ClusterStrategy } from './enums';
 export { RpcTimeoutError, RpcAbortedError, WorkerStartupTimeoutError, InvalidStateTransitionError } from './errors';
 export { wrapWorker } from './rpc-proxy';

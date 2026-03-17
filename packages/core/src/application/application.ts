@@ -173,6 +173,16 @@ export class Application {
   private async executeStart(): Promise<void> {
     const context = new AppContext(this.container);
     this.startOrder = this.topologicalSort();
+
+    // In worker mode, filter adapters to only those assigned to this group
+    const adapterFilter = this.resolveAdapterFilter();
+
+    if (adapterFilter !== undefined) {
+      this.startOrder = this.startOrder.filter(
+        (entry) => adapterFilter.has(entry.adapterClass.name),
+      );
+    }
+
     seal();
     await runInitHooks(this.container);
 
@@ -229,6 +239,36 @@ export class Application {
 
       this.stopped = true;
       throw error;
+    }
+  }
+
+  /**
+   * In worker mode (ZIPBUL_WORKER_ID set), reads ZIPBUL_ADAPTER_FILTER
+   * to determine which adapters this worker should start.
+   *
+   * @returns Set of adapter class names, or undefined if not in worker mode.
+   */
+  private resolveAdapterFilter(): Set<string> | undefined {
+    const workerId = Bun.env.ZIPBUL_WORKER_ID;
+
+    if (workerId === undefined) {
+      return undefined;
+    }
+
+    const filterJson = Bun.env.ZIPBUL_ADAPTER_FILTER;
+
+    if (filterJson === undefined || filterJson.length === 0) {
+      return undefined; // No filter = start all adapters
+    }
+
+    try {
+      const names = JSON.parse(filterJson) as string[];
+
+      return new Set(names);
+    } catch {
+      this.logger.warn('Failed to parse ZIPBUL_ADAPTER_FILTER, starting all adapters');
+
+      return undefined;
     }
   }
 
