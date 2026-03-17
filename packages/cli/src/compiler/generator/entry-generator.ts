@@ -41,4 +41,41 @@ async function bootstrap() {
 }
 `;
   }
+
+  /**
+   * Generates the worker entry file for cluster mode.
+   *
+   * This file is the entrypoint for each Bun Worker thread.
+   * It re-exports the ApplicationWorker from @zipbul/core which
+   * sets up RPC handlers (init, bootstrap, destroy, getStats).
+   *
+   * The AOT runtime (runtime.js) is loaded via the Worker's `preload` option,
+   * so registerRuntimeContext() runs before this script executes.
+   *
+   * @returns Generated worker file content as a string.
+   * @public
+   */
+  generateWorker(): string {
+    return `import '@zipbul/core/src/cluster/application-worker';
+`;
+  }
+
+  /**
+   * Generates a lightweight runtime for the master process in cluster mode.
+   *
+   * The master process does not serve requests — it only manages workers.
+   * This runtime registers minimal context (isAotRuntime flag only),
+   * avoiding the full container/metadata/controller initialization.
+   *
+   * @returns Generated runtime-master file content as a string.
+   * @public
+   */
+  generateRuntimeMaster(): string {
+    return `import { registerRuntimeContext } from '@zipbul/core';
+
+registerRuntimeContext({
+  isAotRuntime: true,
+});
+`;
+  }
 }

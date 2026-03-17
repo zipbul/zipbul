@@ -338,6 +338,18 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         await writeIfChanged(entryPointFile, buildEntryContent);
 
+        // Generate worker entry for cluster mode
+        const workerFile = join(buildTempDir, 'worker.ts');
+        const workerContent = entryGen.generateWorker();
+
+        await writeIfChanged(workerFile, workerContent);
+
+        // Generate lightweight master runtime for cluster mode
+        const runtimeMasterFile = join(buildTempDir, 'runtime-master.ts');
+        const runtimeMasterContent = entryGen.generateRuntimeMaster();
+
+        await writeIfChanged(runtimeMasterFile, runtimeMasterContent);
+
         const manifestJsonGuard = manifestGen.generateJson({
           graph,
           projectRoot,
@@ -381,7 +393,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const bundleSpinner = renderer.startSpinner('[4/4] 📦 Bundling application');
 
         const buildResult = await deps.buildBundle({
-          entrypoints: [entryPointFile, runtimeFile],
+          entrypoints: [entryPointFile, runtimeFile, workerFile, runtimeMasterFile],
           outdir: outDir,
           target: 'bun',
           splitting: true,

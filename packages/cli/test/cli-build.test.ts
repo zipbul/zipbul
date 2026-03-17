@@ -78,6 +78,8 @@ const makeManifestGenMock = () => ({
 
 const makeEntryGenMock = () => ({
   generate: mock(() => 'const e={};'),
+  generateWorker: mock(() => 'const w={};'),
+  generateRuntimeMaster: mock(() => 'const rm={};'),
 });
 
 const makeAdapterResolverMock = () => ({
@@ -129,6 +131,8 @@ const makeDeps = (overrides?: Partial<BuildCommandDeps>): BuildCommandDeps => ({
   buildBundle: mock(async (opts: { outdir: string }) => {
     await Bun.write(join(opts.outdir, 'entry.js'), '// entry');
     await Bun.write(join(opts.outdir, 'runtime.js'), '// runtime');
+    await Bun.write(join(opts.outdir, 'worker.js'), '// worker');
+    await Bun.write(join(opts.outdir, 'runtime-master.js'), '// runtime-master');
     return { success: true as const, outputs: [], logs: [] };
   }) as unknown as BuildCommandDeps['buildBundle'],
   createGildash: makeGildashMock(),
@@ -237,9 +241,11 @@ describe('createBuildCommand', () => {
     // Assert
     expect(deps.buildBundle).toHaveBeenCalledTimes(1);
     const bundleArg = (deps.buildBundle as ReturnType<typeof mock>).mock.calls[0]?.[0] as { entrypoints: string[] };
-    expect(bundleArg?.entrypoints).toHaveLength(2);
-    expect(bundleArg?.entrypoints.some((p: string) => p.endsWith('runtime.ts'))).toBe(true);
+    expect(bundleArg?.entrypoints).toHaveLength(4);
     expect(bundleArg?.entrypoints.some((p: string) => p.endsWith('entry.ts'))).toBe(true);
+    expect(bundleArg?.entrypoints.some((p: string) => p.endsWith('runtime.ts'))).toBe(true);
+    expect(bundleArg?.entrypoints.some((p: string) => p.endsWith('worker.ts'))).toBe(true);
+    expect(bundleArg?.entrypoints.some((p: string) => p.endsWith('runtime-master.ts'))).toBe(true);
   });
 
   it('should not throw when buildBundle returns success: true', async () => {
