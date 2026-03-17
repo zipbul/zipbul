@@ -42,6 +42,8 @@ interface ClusterManagerConfig {
   readonly maxCrashesInWindow?: number;
   readonly smol?: boolean;
   readonly preload?: readonly string[];
+  /** Adapter class names for this worker group. Set as ZIPBUL_ADAPTER_FILTER env var on workers. */
+  readonly adapterFilter?: readonly string[];
 }
 
 /**
@@ -58,7 +60,7 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
   private readonly slots: Array<ClusterWorkerSlot<T>>;
   private readonly logger = new Logger(ClusterManager.name);
   private readonly reviveControllers = new Map<number, AbortController>();
-  private readonly config: Required<ClusterManagerConfig>;
+  private readonly config: Required<Omit<ClusterManagerConfig, 'adapterFilter'>> & Pick<ClusterManagerConfig, 'adapterFilter'>;
   private readonly circuitBreaker: GroupCircuitBreaker;
 
   destroying = false;
@@ -71,6 +73,10 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
 
   constructor(options: ClusterOptions, config?: ClusterManagerConfig) {
     const size = options.size ?? navigator.hardwareConcurrency;
+
+    if (!options.script || options.script.protocol !== 'file:') {
+      throw new Error(`ClusterManager requires a valid file:// script URL, got: ${String(options.script)}`);
+    }
 
     this.script = options.script;
     this.config = {
@@ -86,6 +92,7 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       maxCrashesInWindow: config?.maxCrashesInWindow ?? DEFAULT_MAX_CRASHES_IN_WINDOW,
       smol: config?.smol ?? size >= 4,
       preload: config?.preload ?? [],
+      adapterFilter: config?.adapterFilter,
     };
 
     this.circuitBreaker = {
@@ -180,11 +187,17 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
   // ── Worker Spawning ────────────────────────────────────────
 
   private spawnWorker(slot: ClusterWorkerSlot<T>): void {
+    const env: Record<string, string> = {
+      ...Bun.env,
+      [WORKER_ID_ENV]: slot.id.toString(),
+    };
+
+    if (this.config.adapterFilter !== undefined && this.config.adapterFilter.length > 0) {
+      env.ZIPBUL_ADAPTER_FILTER = JSON.stringify(this.config.adapterFilter);
+    }
+
     const native = new Worker(this.script.href, {
-      env: {
-        ...Bun.env,
-        [WORKER_ID_ENV]: slot.id.toString(),
-      },
+      env,
       smol: this.config.smol,
       preload: [...this.config.preload],
     });
@@ -302,6 +315,10 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
           return;
         }
 
+        // Polling timers are intentionally NOT tracked in slot.timers.
+        // They are short-lived (10ms) and self-terminate when state changes.
+        // Adding them to slot.timers would cause clearSlotTimers() during
+        // Spawning→Ready transition to cancel the very check that detects the transition.
         setTimeout(check, 10);
       };
 
@@ -456,7 +473,9 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
 
         try {
           // Transition back to Spawning for respawn
-          transition(slot, WorkerState.Reviving, WorkerState.Spawning);
+          const spawning = transition(slot, WorkerState.Reviving, WorkerState.Spawning);
+
+          if (!spawning) break; // Slot was terminated during shutdown
           this.spawnWorker(slot);
           await this.waitForInit(slot, this.initParams);
 
@@ -543,27 +562,27 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       return;
     }
 
-    // Running or Draining — go through Destroying
+    // Running → Draining: attempt drain RPC to let worker finish in-flight work
     slot.terminateInitiated = true;
 
     if (slot.state === WorkerState.Running) {
       transition(slot, WorkerState.Running, WorkerState.Draining);
+
+      // Send drain RPC so the worker's adapters can stop accepting connections
+      if (slot.remote) {
+        try {
+          await Promise.race([
+            slot.remote.destroy(), // worker-side drain + cleanup
+            this.timeout(DEFAULT_DESTROY_RPC_TIMEOUT_MS),
+          ]);
+        } catch {
+          // Drain failed — proceed to force terminate
+        }
+      }
     }
 
     if (slot.state === WorkerState.Draining) {
       transition(slot, WorkerState.Draining, WorkerState.Destroying);
-    }
-
-    // Attempt graceful destroy RPC if worker might be alive
-    if (slot.remote) {
-      try {
-        await Promise.race([
-          slot.remote.destroy(),
-          this.timeout(DEFAULT_DESTROY_RPC_TIMEOUT_MS),
-        ]);
-      } catch {
-        // Graceful destroy failed — proceed to force terminate
-      }
     }
 
     // Dispose RPC (rejects any remaining pending)
@@ -596,12 +615,14 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       // Also resolve on close event (which transitions to Terminated)
       if (slot.native) {
         const gen = slot.generation;
-
-        slot.native.addEventListener('close', () => {
+        const terminateCloseHandler = () => {
           if (slot.generation !== gen) return;
           clearTimeout(terminateTimer);
           resolve();
-        }, { once: true });
+        };
+
+        slot.native.addEventListener('close', terminateCloseHandler, { once: true });
+        slot.handlers.set('terminate-close', terminateCloseHandler as EventListener);
       }
     });
   }
