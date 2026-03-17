@@ -3,6 +3,7 @@ import type { ClusterBootstrapParams, ClusterInitParams, ClusterWorkerId } from 
 
 export abstract class ClusterBaseWorker {
   protected prevCpu: ReturnType<typeof process.cpuUsage>;
+  protected prevTime: bigint;
   protected id: ClusterWorkerId;
 
   abstract bootstrap<T>(params?: ClusterBootstrapParams<T>): void | Promise<void>;
@@ -12,21 +13,31 @@ export abstract class ClusterBaseWorker {
   async init<T>(id: number, _params: ClusterInitParams<T>) {
     this.id = id;
     this.prevCpu = process.cpuUsage();
+    this.prevTime = process.hrtime.bigint();
 
     await Promise.resolve();
   }
 
-  getStats() {
+  /**
+   * Returns CPU usage ratio (0–1) relative to wall-clock time elapsed
+   * since the previous call, and current RSS in bytes.
+   *
+   * @returns Worker stats for health check and memory pressure evaluation.
+   * @public
+   */
+  getStats(): ClusterWorkerStats {
+    const now = process.hrtime.bigint();
+    const elapsedSeconds = Number(now - this.prevTime) / 1_000_000_000;
+
     const currentCpu = process.cpuUsage(this.prevCpu);
-    const totalCpu = (currentCpu.user ?? 0) + (currentCpu.system ?? 0);
+    const cpuSeconds = (currentCpu.user + currentCpu.system) / 1_000_000;
 
     this.prevCpu = process.cpuUsage();
+    this.prevTime = now;
 
-    const stats: ClusterWorkerStats = {
-      cpu: Math.max(0, Math.min(1, totalCpu / 1_000_000)),
-      memory: process.memoryUsage().rss,
+    return {
+      cpu: elapsedSeconds > 0 ? Math.min(1, cpuSeconds / elapsedSeconds) : 0,
+      memory: process.memoryUsage.rss(),
     };
-
-    return stats;
   }
 }
