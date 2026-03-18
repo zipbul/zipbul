@@ -1,11 +1,11 @@
 import { Glob } from 'bun';
-import { mkdir, rm } from 'fs/promises';
-import { join, resolve, dirname } from 'path';
+import { mkdir } from 'fs/promises';
+import { join, resolve, dirname, relative } from 'path';
+import { gzipSync } from 'node:zlib';
 
-import type { CollectedClass, CommandOptions } from './types';
+import type { CliRendererLike, CollectedClass, CommandOptions } from './interfaces';
 
 import { isErr } from '@zipbul/result';
-import { Logger } from '@zipbul/logger';
 import { Gildash, type GildashOptions } from '@zipbul/gildash';
 import { AdapterDefinitionResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
@@ -20,6 +20,47 @@ import { ConfigLoader, type ResolvedConfig } from '../config';
 import type { ConfigSource } from '../config/interfaces';
 import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
+import { CliRenderer } from './cli-renderer';
+import { buildFileAnalysis } from './build-analysis';
+import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from './build-artifact-writer';
+import { formatCount, buildModuleTree } from './module-tree-renderer';
+
+// ---------------------------------------------------------------------------
+// dist → source resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps a dist/ build output path back to the original TypeScript source.
+ *
+ * When a package.json `exports` field points to `./dist/index.js`,
+ * `Bun.resolveSync` returns the dist path. The AOT compiler needs
+ * the TypeScript source, so we check the package root and `src/`
+ * for a matching `.ts` file.
+ */
+async function resolveDistToSource(resolvedPath: string): Promise<string | null> {
+  const distSegmentIndex = resolvedPath.lastIndexOf('/dist/');
+
+  if (distSegmentIndex === -1) {
+    return null;
+  }
+
+  const packageRoot = resolvedPath.slice(0, distSegmentIndex);
+  const relative = resolvedPath.slice(distSegmentIndex + 6).replace(/\.js$/, '.ts');
+
+  const rootCandidate = join(packageRoot, relative);
+
+  if (await Bun.file(rootCandidate).exists()) {
+    return rootCandidate;
+  }
+
+  const srcCandidate = join(packageRoot, 'src', relative);
+
+  if (await Bun.file(srcCandidate).exists()) {
+    return srcCandidate;
+  }
+
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // DI factory types
@@ -35,28 +76,33 @@ export interface BuildCommandDeps {
   resolveImport: (specifier: string, fromDir: string) => string;
   buildBundle: typeof Bun.build;
   createGildash?: (opts: GildashOptions) => Promise<Gildash>;
+  renderer: CliRendererLike;
 }
 
 export function createBuildCommand(deps: BuildCommandDeps) {
-  const logger = new Logger('Build');
+  const { renderer } = deps;
 
   return async function build(commandOptions?: CommandOptions): Promise<void> {
-    logger.info('Starting Zipbul Production Build...');
+    renderer.intro('build');
+    const buildStartedAt = performance.now();
 
     try {
       const configResult = await deps.loadConfig();
       const config = configResult.config;
       const moduleFileName = config.module.fileName;
       const buildProfile = commandOptions?.profile ?? 'full';
+      const verbose = commandOptions?.verbose === true;
       const projectRoot = process.cwd();
       const srcDir = resolve(projectRoot, config.sourceDir);
       const outDir = resolve(projectRoot, 'dist');
       const zipbulDir = outputDirPath(projectRoot);
       const buildTempDir = tempDirPath(outDir);
 
-      logger.info(`📂 Project Root: ${projectRoot}`);
-      logger.info(`📂 Source Dir: ${srcDir}`);
-      logger.info(`📂 Output Dir: ${outDir}`);
+      renderer.outputPaths('📂 Project', [
+        { label: 'Root', value: projectRoot },
+        { label: 'Source', value: relative(projectRoot, srcDir) || '.' },
+        { label: 'Output', value: relative(projectRoot, outDir) || '.' },
+      ]);
 
       const parser = deps.createParser();
       const manifestGen = deps.createManifestGenerator();
@@ -64,7 +110,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const fileMap = new Map<string, FileAnalysis>();
       const allClasses: CollectedClass[] = [];
 
-      logger.info('🔍 Scanning source files...');
+      const scanSpinner = renderer.startSpinner('[1/4] 🔍 Scanning source files');
 
       const userMain = resolve(projectRoot, config.entry);
       const visited = new Set<string>();
@@ -80,12 +126,11 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
       }
 
-      while (queue.length > 0) {
-        const filePath = queue.shift();
+      let queueIndex = 0;
 
-        if (filePath === undefined) {
-          continue;
-        }
+      while (queueIndex < queue.length) {
+        const filePath = queue[queueIndex] as string;
+        queueIndex++;
 
         if (visited.has(filePath)) {
           continue;
@@ -113,44 +158,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
           allClasses.push(...classInfos);
 
-          const analysis: FileAnalysis = {
-            filePath,
-            classes: parseResult.classes,
-            reExports: parseResult.reExports,
-            exports: parseResult.exports,
-          };
-
-          if (parseResult.createApplicationCalls !== undefined) {
-            analysis.createApplicationCalls = parseResult.createApplicationCalls;
-          }
-
-          if (parseResult.defineModuleCalls !== undefined) {
-            analysis.defineModuleCalls = parseResult.defineModuleCalls;
-          }
-
-          if (parseResult.injectCalls !== undefined) {
-            analysis.injectCalls = parseResult.injectCalls;
-          }
-
-          if (parseResult.imports !== undefined) {
-            analysis.imports = parseResult.imports;
-          }
-
-          if (parseResult.importEntries !== undefined) {
-            analysis.importEntries = parseResult.importEntries;
-          }
-
-          if (parseResult.exportedValues !== undefined) {
-            analysis.exportedValues = parseResult.exportedValues;
-          }
-
-          if (parseResult.localValues !== undefined) {
-            analysis.localValues = parseResult.localValues;
-          }
-
-          if (parseResult.moduleDefinition !== undefined) {
-            analysis.moduleDefinition = parseResult.moduleDefinition;
-          }
+          const analysis = buildFileAnalysis(filePath, parseResult);
 
           fileMap.set(filePath, analysis);
 
@@ -172,7 +180,10 @@ export function createBuildCommand(deps: BuildCommandDeps) {
             if (!resolvedPath.startsWith('/') && !resolvedPath.match(/^[a-zA-Z]:/)) {
               try {
                 resolvedPath = deps.resolveImport(resolvedPath, dirname(filePath));
-              } catch (_e) {
+              } catch {
+                if (rawImportPath.startsWith('.') || rawImportPath.startsWith('/')) {
+                  renderer.warn(`Could not resolve import '${rawImportPath}' in '${filePath}'`);
+                }
                 continue;
               }
             }
@@ -186,13 +197,19 @@ export function createBuildCommand(deps: BuildCommandDeps) {
                 resolvedPath += '.ts';
               } else if (await Bun.file(resolvedPath + '/index.ts').exists()) {
                 resolvedPath += '/index.ts';
+              } else {
+                const sourceCandidate = await resolveDistToSource(resolvedPath);
+
+                if (sourceCandidate !== null) {
+                  resolvedPath = sourceCandidate;
+                }
               }
             }
 
             if (resolvedPath && !visited.has(resolvedPath)) {
               if (!resolvedPath.endsWith('.d.ts') && resolvedPath.endsWith('.ts')) {
                 const normalizedPath = resolvedPath.replaceAll('\\', '/');
-                if (normalizedPath.includes('/node_modules/@types/')) {
+                if (normalizedPath.includes('/node_modules/')) {
                   continue;
                 }
 
@@ -214,25 +231,33 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
       }
 
+      scanSpinner.stop(`[1/4] 🔍 Scanned ${formatCount(fileMap.size)} files (${formatCount(allClasses.length)} classes)`);
+
       const appEntry = validateCreateApplication(fileMap);
 
       if (isErr(appEntry)) {
         throw new DiagnosticError(appEntry.data);
       }
 
-      logger.info('🕸️  Building Module Graph...');
+      const graphSpinner = renderer.startSpinner('[2/4] 🧩 Building module graph');
 
-      // gildash 파일 레벨 순환 감지 + semantic DI 검증
-      const openGildash = deps.createGildash ?? Gildash.open;
+      // gildash file-level cycle detection + semantic DI validation
+      const openGildash = deps.createGildash ?? ((opts: GildashOptions) => Gildash.open(opts));
       const ignorePatterns = ['dist', '.zipbul', '.gildash'];
       let ledger: Gildash;
+      let semanticAvailable = true;
 
       try {
-        ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true });
+        ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true, watchMode: false });
       } catch (e) {
-        logger.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
-        ledger = await openGildash({ projectRoot, ignorePatterns });
+        semanticAvailable = false;
+        renderer.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
+        ledger = await openGildash({ projectRoot, ignorePatterns, watchMode: false });
       }
+
+      const unsubscribeError = ledger.onError((error) => {
+        renderer.warn(`Gildash: ${error.message}`);
+      });
 
       try {
         const hasCycle = await ledger.hasCycle();
@@ -257,7 +282,18 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           throw new DiagnosticError(adapterResolution.data);
         }
 
-        logger.info('🛠️  Generating intermediate manifests...');
+        const controllerDecoratorNames = Object.values(adapterResolution.adapterStaticSchemas)
+          .map(schema => schema.entryDecorators.controller);
+
+        graph.registerControllers(controllerDecoratorNames);
+
+        let providerCount = 0;
+        for (const mod of graph.modules.values()) {
+          providerCount += mod.providers.size;
+        }
+        graphSpinner.stop(`[2/4] 🧩 Module graph built (${formatCount(graph.modules.size)} modules, ${formatCount(providerCount)} providers)`);
+
+        const manifestSpinner = renderer.startSpinner('[3/4] 📋 Generating manifests');
 
         await mkdir(zipbulDir, { recursive: true });
 
@@ -274,8 +310,21 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         await writeIfChanged(manifestFile, manifestJson);
         await mkdir(buildTempDir, { recursive: true });
 
+        const controllerKeyMap = new Map<string, string>();
+
+        for (const node of graph.modules.values()) {
+          for (const ctrlName of node.controllers) {
+            controllerKeyMap.set(ctrlName, `${node.name}::${ctrlName}`);
+          }
+        }
+
+        const resolvedHandlerIndex = adapterResolution.handlerIndex.map(entry => ({
+          ...entry,
+          controllerKey: controllerKeyMap.get(entry.className) ?? entry.className,
+        }));
+
         const runtimeFile = join(buildTempDir, 'runtime.ts');
-        const runtimeResult = manifestGen.generate(graph, allClasses, buildTempDir);
+        const runtimeResult = manifestGen.generate(graph, allClasses, buildTempDir, resolvedHandlerIndex, adapterResolution.routeRegistrations);
 
         if (isErr(runtimeResult)) {
           throw new DiagnosticError(runtimeResult.data);
@@ -285,9 +334,21 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         const entryPointFile = join(buildTempDir, 'entry.ts');
         const entryGen = deps.createEntryGenerator();
-        const buildEntryContent = entryGen.generate(userMain, false);
+        const buildEntryContent = await entryGen.generate(userMain, false);
 
         await writeIfChanged(entryPointFile, buildEntryContent);
+
+        // Generate worker entry for cluster mode
+        const workerFile = join(buildTempDir, 'worker.ts');
+        const workerContent = entryGen.generateWorker();
+
+        await writeIfChanged(workerFile, workerContent);
+
+        // Generate lightweight master runtime for cluster mode
+        const runtimeMasterFile = join(buildTempDir, 'runtime-master.ts');
+        const runtimeMasterContent = entryGen.generateRuntimeMaster();
+
+        await writeIfChanged(runtimeMasterFile, runtimeMasterContent);
 
         const manifestJsonGuard = manifestGen.generateJson({
           graph,
@@ -310,25 +371,29 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const runtimeReportFile = join(zipbulDir, 'runtime-report.json');
 
         if (buildProfile === 'standard' || buildProfile === 'full') {
-          const interfaceCatalogJson = JSON.stringify({ schemaVersion: '1', entries: [] }, null, 2);
-
-          await writeIfChanged(interfaceCatalogFile, interfaceCatalogJson);
+          await writeInterfaceCatalog({
+            modules: graph.modules,
+            ledger,
+            semanticAvailable,
+            projectRoot,
+            catalogFilePath: interfaceCatalogFile,
+          });
         } else {
-          await rm(interfaceCatalogFile, { force: true });
+          await removeInterfaceCatalog(interfaceCatalogFile);
         }
 
         if (buildProfile === 'full') {
-          const runtimeReportJson = JSON.stringify({ schemaVersion: '1', adapters: [] }, null, 2);
-
-          await writeIfChanged(runtimeReportFile, runtimeReportJson);
+          await writeRuntimeReport(runtimeReportFile);
         } else {
-          await rm(runtimeReportFile, { force: true });
+          await removeRuntimeReport(runtimeReportFile);
         }
 
-        logger.info('📦 Bundling application and manifest...');
+        manifestSpinner.stop('[3/4] 📋 Manifests generated');
+
+        const bundleSpinner = renderer.startSpinner('[4/4] 📦 Bundling application');
 
         const buildResult = await deps.buildBundle({
-          entrypoints: [entryPointFile, runtimeFile],
+          entrypoints: [entryPointFile, runtimeFile, workerFile, runtimeMasterFile],
           outdir: outDir,
           target: 'bun',
           splitting: true,
@@ -344,15 +409,103 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           throw new Error(reason);
         }
 
-        logger.info('✅ Build Complete!');
-        logger.info(`   Entry: ${join(outDir, 'entry.js')}`);
-        logger.info(`   Runtime: ${join(outDir, 'runtime.js')}`);
-        logger.info(`   Manifest: ${manifestFile}`);
+        bundleSpinner.stop('[4/4] 📦 Application bundled');
+
+        const moduleTreeResult = buildModuleTree(
+          { modules: graph.modules, handlerIndex: adapterResolution.handlerIndex },
+          { verbose },
+        );
+
+        renderer.outputPaths('🧱 Application', moduleTreeResult.treeLines);
+
+        // ── Output file sizes + gzip ──
+        const entryOutputFile = join(outDir, 'entry.js');
+        const runtimeOutputFile = join(outDir, 'runtime.js');
+        const [entryBuffer, runtimeBuffer] = await Promise.all([
+          Bun.file(entryOutputFile).arrayBuffer(),
+          Bun.file(runtimeOutputFile).arrayBuffer(),
+        ]);
+        const manifestBuffer = Buffer.from(manifestJson, 'utf-8');
+
+        const entrySize = entryBuffer.byteLength;
+        const runtimeSize = runtimeBuffer.byteLength;
+        const manifestSize = manifestBuffer.byteLength;
+
+        const entryGzip = gzipSync(Buffer.from(entryBuffer)).byteLength;
+        const runtimeGzip = gzipSync(Buffer.from(runtimeBuffer)).byteLength;
+        const manifestGzip = gzipSync(manifestBuffer).byteLength;
+
+        const buildDuration = ((performance.now() - buildStartedAt) / 1000).toFixed(1);
+        const warningCount = graph.warnings.length;
+
+        renderer.success(`Build complete in ${buildDuration}s`);
+
+        if (buildProfile === 'full') {
+          const filePaths = Array.from(fileMap.keys());
+          const metricsResults = await Promise.all(
+            filePaths.map(async (filePath) => {
+              try {
+                const metrics = await ledger.getFanMetrics(filePath);
+                return { filePath, fanIn: metrics.fanIn, fanOut: metrics.fanOut };
+              } catch {
+                return null;
+              }
+            })
+          );
+
+          const highCoupling = metricsResults
+            .filter((m): m is NonNullable<typeof m> => m !== null)
+            .filter(m => m.fanIn > 10 || m.fanOut > 8)
+            .sort((a, b) => (b.fanIn + b.fanOut) - (a.fanIn + a.fanOut))
+            .slice(0, 5);
+
+          if (highCoupling.length > 0) {
+            renderer.outputPaths('High Coupling', highCoupling.map(m => ({
+              label: relative(projectRoot, m.filePath),
+              value: `fan-in: ${m.fanIn}, fan-out: ${m.fanOut}`,
+            })));
+          }
+
+          const complexFiles = filePaths
+            .map((filePath) => {
+              try {
+                return { filePath, stats: ledger.getFileStats(filePath) };
+              } catch {
+                return null;
+              }
+            })
+            .filter((f): f is NonNullable<typeof f> => f !== null)
+            .filter(f => f.stats.symbolCount > 20 || f.stats.lineCount > 500)
+            .sort((a, b) => b.stats.symbolCount - a.stats.symbolCount)
+            .slice(0, 5);
+
+          if (complexFiles.length > 0) {
+            renderer.outputPaths('Complex Files', complexFiles.map(f => ({
+              label: relative(projectRoot, f.filePath),
+              value: `${f.stats.symbolCount} symbols, ${f.stats.lineCount} lines, ${f.stats.exportedSymbolCount} exports`,
+            })));
+          }
+
+          try {
+            const stats = ledger.getStats();
+            renderer.info(`Project: ${stats.fileCount} files, ${stats.symbolCount} symbols`);
+          } catch { /* stats failure ignored */ }
+        }
+
+        renderer.outputFiles('📦 Output', [
+          { name: relative(projectRoot, entryOutputFile), size: entrySize, gzipSize: entryGzip },
+          { name: relative(projectRoot, runtimeOutputFile), size: runtimeSize, gzipSize: runtimeGzip },
+          { name: relative(projectRoot, manifestFile), size: manifestSize, gzipSize: manifestGzip },
+        ]);
+
+        const outroSuffix = warningCount > 0 ? ` with ${String(warningCount)} warnings` : '';
+        renderer.outro(`Ready to deploy (profile: ${buildProfile})${outroSuffix}`);
       } finally {
+        unsubscribeError();
         try {
           await ledger.close();
         } catch (e) {
-          logger.error(e instanceof Error ? e.message : 'Failed to close gildash.');
+          renderer.warn(e instanceof Error ? e.message : 'Failed to close gildash.');
         }
       }
     } catch (error) {
@@ -386,6 +539,7 @@ export async function build(commandOptions?: CommandOptions): Promise<void> {
     scanFiles: ({ glob, baseDir }) => scanGlobSorted({ glob, baseDir }),
     resolveImport: (specifier, fromDir) => Bun.resolveSync(specifier, fromDir),
     buildBundle: (...args) => Bun.build(...args),
+    renderer: new CliRenderer(),
   });
 
   await impl(commandOptions);

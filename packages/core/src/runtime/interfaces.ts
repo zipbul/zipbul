@@ -1,16 +1,19 @@
-import type { Class, MiddlewareDefinition, ProviderToken } from '@zipbul/common';
+import type { Class, CompiledHandlerEntry, MiddlewareDefinition, ProviderToken, ExceptionFilterDefinition } from '@zipbul/common';
 import type { MiddlewareHook } from '@zipbul/common';
+import type { GuardDefinition } from '@zipbul/common';
 
 import type { Container } from '../injector/container';
 import type { ClassMetadata } from '../injector/types';
 
 /**
- * Per-adapter middleware configuration produced by AOT.
+ * Per-adapter configuration produced by AOT.
  *
  * @public
  */
 export interface AdapterMiddlewareConfig {
   middlewares?: Partial<Record<MiddlewareHook, readonly MiddlewareDefinition[]>>;
+  exceptionFilters?: readonly ExceptionFilterDefinition[];
+  guards?: readonly GuardDefinition[];
 }
 
 export interface RuntimeContext {
@@ -19,4 +22,10 @@ export interface RuntimeContext {
   container?: Container;
   isAotRuntime?: boolean;
   adapterConfig?: Record<string, AdapterMiddlewareConfig>;
+  handlerIndex?: readonly CompiledHandlerEntry[];
+  controllerInstances?: Map<string, unknown>;
+  /** Worker ID assigned by ClusterManager. Present only in worker processes. */
+  workerId?: number;
+  /** Adapter class names this worker should start. Present only in worker processes. */
+  adapterFilter?: readonly string[];
 }

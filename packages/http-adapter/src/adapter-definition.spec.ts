@@ -1,8 +1,9 @@
 import { describe, it, expect, mock } from 'bun:test';
 
+const actualCore = await import('@zipbul/core');
 mock.module('@zipbul/core', () => ({
-  ClusterManager: class {},
-  getRuntimeContext: () => ({}),
+  ...actualCore,
+  getRuntimeContext: () => ({ isAotRuntime: false, metadataRegistry: new Map() }),
 }));
 
 mock.module('@zipbul/baker', () => ({
@@ -43,9 +44,9 @@ describe('adapterDefinition', () => {
     const expectedHandlers = [Get, Post, Put, Delete, Patch, Options, Head];
 
     // Act & Assert
-    expect(decorators.handler).toHaveLength(7);
+    expect(decorators.handlers).toHaveLength(7);
     for (const expected of expectedHandlers) {
-      expect(decorators.handler).toContain(expected);
+      expect(decorators.handlers).toContain(expected);
     }
   });
 });

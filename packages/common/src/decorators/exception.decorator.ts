@@ -1,10 +1,5 @@
-import type { ExceptionFilterToken } from '../interfaces';
-import type { ErrorToken } from '../types';
+import type { ExceptionFilterDefinition } from '../define-exception-filter';
 
-export function Catch(..._exceptions: Array<ErrorToken>): ClassDecorator {
-  return () => {};
-}
-
-export function UseExceptionFilters(..._filters: Array<ExceptionFilterToken>): MethodDecorator & ClassDecorator {
+export function UseExceptionFilters(..._filters: readonly ExceptionFilterDefinition[]): MethodDecorator & ClassDecorator {
   return () => {};
 }

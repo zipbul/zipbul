@@ -6,10 +6,11 @@ import { runInNewContext } from 'node:vm';
 import { ModuleKind, ScriptTarget, transpileModule } from 'typescript';
 
 import type { FileAnalysis } from '../analyzer/graph/interfaces';
-import type { ClassMetadata } from '../analyzer/interfaces';
+import type { ClassMetadata, RouteRegistration } from '../analyzer/interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
 import type { DeepFreezeModule, GeneratedBlockParams, MetadataRegistryModule, ScopedKeysMapModule } from './types';
 
+import { isErr } from '@zipbul/result';
 import { ModuleGraph } from '../analyzer/graph/module-graph';
 
 import { ManifestGenerator } from './manifest-generator';
@@ -716,5 +717,104 @@ describe('ManifestGenerator', () => {
 
     // Assert
     expect(json1a).toBe(json1b);
+  });
+
+  describe('generateRouteRegistrations', () => {
+    it('should produce no container.set lines when routeRegistrations is empty', () => {
+      // Arrange
+      const graph = createSingleModuleGraph();
+      const gen = new ManifestGenerator();
+      const emptyRegistrations: readonly RouteRegistration[] = [];
+
+      // Act
+      const result = gen.generate(graph, [], '/out', [], emptyRegistrations);
+
+      // Assert
+      if (isErr(result)) {
+        throw new Error('Expected successful generation');
+      }
+
+      expect(result).not.toContain('__container__.set(');
+    });
+
+    it('should generate container.set for a single registration', () => {
+      // Arrange
+      const graph = createSingleModuleGraph();
+      const gen = new ManifestGenerator();
+      const registrations: readonly RouteRegistration[] = [
+        { key: 'middleware::LogMiddleware', value: 'LogMiddleware' },
+      ];
+
+      // Act
+      const result = gen.generate(graph, [], '/out', [], registrations);
+
+      // Assert
+      if (isErr(result)) {
+        throw new Error('Expected successful generation');
+      }
+
+      expect(result).toContain("__container__.set('middleware::LogMiddleware'");
+    });
+
+    it('should generate multiple container.set lines for multiple registrations', () => {
+      // Arrange
+      const graph = createSingleModuleGraph();
+      const gen = new ManifestGenerator();
+      const registrations: readonly RouteRegistration[] = [
+        { key: 'middleware::AuthMiddleware', value: 'AuthMiddleware' },
+        { key: 'filter::HttpExceptionFilter', value: 'HttpExceptionFilter' },
+        { key: 'guard::RoleGuard', value: 'RoleGuard' },
+      ];
+
+      // Act
+      const result = gen.generate(graph, [], '/out', [], registrations);
+
+      // Assert
+      if (isErr(result)) {
+        throw new Error('Expected successful generation');
+      }
+
+      expect(result).toContain("__container__.set('middleware::AuthMiddleware'");
+      expect(result).toContain("__container__.set('filter::HttpExceptionFilter'");
+      expect(result).toContain("__container__.set('guard::RoleGuard'");
+    });
+
+    it('should include the exact key in generated code', () => {
+      // Arrange
+      const graph = createSingleModuleGraph();
+      const gen = new ManifestGenerator();
+      const registrations: readonly RouteRegistration[] = [
+        { key: 'pipeline::exact-key-test', value: 'SomeValue' },
+      ];
+
+      // Act
+      const result = gen.generate(graph, [], '/out', [], registrations);
+
+      // Assert
+      if (isErr(result)) {
+        throw new Error('Expected successful generation');
+      }
+
+      expect(result).toContain("__container__.set('pipeline::exact-key-test',");
+    });
+
+    it('should handle key containing dots and colons (special characters)', () => {
+      // Arrange
+      const graph = createSingleModuleGraph();
+      const gen = new ManifestGenerator();
+      const registrations: readonly RouteRegistration[] = [
+        { key: 'adapter:http.middleware:cors.filter', value: 'CorsFilter' },
+      ];
+
+      // Act
+      const result = gen.generate(graph, [], '/out', [], registrations);
+
+      // Assert
+      if (isErr(result)) {
+        throw new Error('Expected successful generation');
+      }
+
+      expect(result).toContain("__container__.set('adapter:http.middleware:cors.filter',");
+    });
   });
 });

@@ -16,8 +16,6 @@ import type {
 import type {
   ContainerValue,
   ConstructorParamMetadata,
-  DecoratorArgument,
-  DecoratorMetadata,
   FactoryFn,
   ModuleObject,
   ProviderRegistration,
@@ -29,9 +27,9 @@ import { getRuntimeContext } from '../runtime/runtime-context';
 import {
   normalizeToken,
   formatToken,
-  coerceToken,
   resolveTokenRecord,
 } from './token-resolver';
+import { RequestScopeContainer } from './request-scope-container';
 
 export class Container implements ZipbulContainer {
   private registrations = new Map<Token, ProviderRegistration>();
@@ -63,11 +61,10 @@ export class Container implements ZipbulContainer {
     factory: ZipbulFactory<TValue> | FactoryFn,
     options?: ProviderRegistrationOptions,
   ): void {
-    const wrapped: FactoryFn = c => factory(c);
     const scope: ProviderScope = options?.scope ?? 'singleton';
     const visibleTo: ProviderVisibleTo = options?.visibleTo ?? 'module';
 
-    this.registrations.set(token, { factory: wrapped, scope, visibleTo });
+    this.registrations.set(token, { factory: factory as FactoryFn, scope, visibleTo });
     this.registrationOrder.push(token);
   }
 
@@ -139,12 +136,27 @@ export class Container implements ZipbulContainer {
     return this.registrationOrder;
   }
 
+  /**
+   * Creates a request-scoped child container.
+   *
+   * @param contextId - Unique identifier for this request scope.
+   * @returns A scoped container that delegates singletons to this parent.
+   */
+  createRequestScope(contextId: string): ZipbulContainer {
+    return new RequestScopeContainer(this, contextId);
+  }
+
+  /**
+   * No-op on root container. Request-scoped containers override this.
+   */
+  async dispose(): Promise<void> {
+    // Root container lifecycle is managed by Application.stop()
+  }
+
   async loadDynamicModule(scope: string, dynamicModule: ModuleObject | null | undefined): Promise<void> {
     if (dynamicModule === null || dynamicModule === undefined) {
       return;
     }
-
-    await Promise.resolve();
 
     const providers = dynamicModule.providers ?? [];
 
@@ -223,17 +235,6 @@ export class Container implements ZipbulContainer {
 
       token = resolveTokenRecord(token);
 
-      const injectDec = param.decorators?.find((decorator: DecoratorMetadata) => decorator.name === 'Inject');
-      const injectArgs = injectDec?.arguments ?? [];
-
-      if (injectArgs.length > 0) {
-        const injectedToken = coerceToken(injectArgs[0] as DecoratorArgument);
-
-        if (injectedToken !== undefined) {
-          token = resolveTokenRecord(injectedToken);
-        }
-      }
-
       const tokenName = normalizeToken(token);
       const key = tokenName !== undefined ? `${scope}::${tokenName}` : '';
 
@@ -247,7 +248,7 @@ export class Container implements ZipbulContainer {
 
       try {
         return this.get(tokenName);
-      } catch (_e2) {
+      } catch {
         return undefined;
       }
     });
@@ -288,14 +289,6 @@ export class Container implements ZipbulContainer {
 
     if (scoped !== undefined) {
       return scoped;
-    }
-
-    if (typeof token === 'function' && token.name.length > 0) {
-      const scopedByName = this.scopedKeys.get(token.name);
-
-      if (scopedByName !== undefined) {
-        return scopedByName;
-      }
     }
 
     return token;

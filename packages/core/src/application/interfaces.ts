@@ -1,29 +1,56 @@
 import type { Adapter, AdapterClass, AdapterDependsOn } from '@zipbul/common';
 
-import type { Application } from './application';
-
-interface CreateApplicationOptions {
-  //
-}
+import type { WorkerGroupConfig } from '../cluster/interfaces';
 
 /**
- * Bootstrap adapter — returned by adapter factory functions.
- * Installs an adapter instance into the application.
- */
-export type BootstrapAdapter = {
-  install(app: Application): Promise<void> | void;
-};
-
-/**
- * Configuration for addAdapter().
- *
- * `name` is optional for single-instance registration.
- * When the same adapter class is registered multiple times, `name` is required
- * to distinguish instances.
+ * Options for `createApplication()`.
  *
  * @public
  */
-export type AddAdapterConfig = {
+interface CreateApplicationOptions {
+  /**
+   * Number of worker threads for cluster mode.
+   * Omitted or 1 = single-process mode.
+   * 2+ = cluster mode with automatic adapter grouping.
+   *
+   * @public
+   */
+  workers?: number;
+
+  /**
+   * Explicit worker group configuration.
+   * Overrides automatic grouping from `workers`.
+   * Each group defines its adapter assignment and worker count.
+   *
+   * @public
+   */
+  cluster?: readonly WorkerGroupConfig[];
+}
+
+/**
+ * Extracts the constructor options type from an adapter class.
+ *
+ * Resolves to the first constructor parameter type if it exists,
+ * otherwise `Record<string, never>` (empty object).
+ *
+ * @public
+ */
+export type AdapterOptions<TAdapter extends AdapterClass> =
+  ConstructorParameters<TAdapter> extends [infer TOptions, ...unknown[]]
+    ? TOptions extends Record<string, unknown>
+      ? TOptions
+      : Record<string, never>
+    : Record<string, never>;
+
+/**
+ * Options for {@link Application.attach}.
+ *
+ * Merges the target adapter's own constructor options with framework-level
+ * registration options (`name`, `dependsOn`).
+ *
+ * @public
+ */
+export type AttachOptions<TAdapter extends AdapterClass> = AdapterOptions<TAdapter> & {
   name?: string;
   dependsOn?: AdapterDependsOn;
 };

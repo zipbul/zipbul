@@ -1,10 +1,9 @@
-import type { Doc, InternalRouter, ScalarRequest, ScalarSetupOptionsInput } from './interfaces';
+import type { Doc, InternalRouteHandler, ScalarRequest, ScalarSetupOptionsInput } from './interfaces';
 import type {
   AdapterCollectionLike,
   AdapterGroupGetResult,
   AdapterGroupLike,
   AdapterGroupWithGet,
-  ScalarInput,
   ScalarKeyedRecord,
 } from './types';
 
@@ -14,7 +13,6 @@ import { indexResponse } from './index-html';
 import { resolveDocFromPath } from './routing';
 import { uiResponse } from './ui';
 
-const HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
 const boundAdapters = new WeakSet<ScalarKeyedRecord>();
 
 function isKeyedRecord(value: AdapterGroupGetResult): value is ScalarKeyedRecord {
@@ -37,7 +35,11 @@ function hasAdapterGroupGet(value: AdapterGroupLike | undefined): value is Adapt
   return typeof value.get === 'function';
 }
 
-function hasInternalRouter(value: ScalarInput | InternalRouter | undefined): value is InternalRouter {
+interface InternalRouteRegistrar {
+  registerInternalRoute(method: string, path: string, handler: InternalRouteHandler): void;
+}
+
+function hasRegisterInternalRoute(value: AdapterGroupGetResult | undefined): value is InternalRouteRegistrar & ScalarKeyedRecord {
   if (value === undefined || value === null) {
     return false;
   }
@@ -46,11 +48,11 @@ function hasInternalRouter(value: ScalarInput | InternalRouter | undefined): val
     return false;
   }
 
-  if (!('get' in value)) {
+  if (!('registerInternalRoute' in value)) {
     return false;
   }
 
-  return typeof value.get === 'function';
+  return typeof value.registerInternalRoute === 'function';
 }
 
 function jsonResponse(doc: Doc): Response {
@@ -59,8 +61,8 @@ function jsonResponse(doc: Doc): Response {
   });
 }
 
-function registerInternalRoutes(internal: InternalRouter, docs: Doc[], docsById: Map<string, Doc>): void {
-  internal.get('/api-docs', () => {
+function registerInternalRoutes(adapter: InternalRouteRegistrar, docs: Doc[], docsById: Map<string, Doc>): void {
+  adapter.registerInternalRoute('GET', '/api-docs', () => {
     if (docs.length === 1) {
       const onlyDoc = docs[0];
 
@@ -71,7 +73,7 @@ function registerInternalRoutes(internal: InternalRouter, docs: Doc[], docsById:
 
     return indexResponse(docs);
   });
-  internal.get('/api-docs/*', (req: ScalarRequest) => {
+  adapter.registerInternalRoute('GET', '/api-docs/*', (req: ScalarRequest) => {
     const path = typeof req.path === 'string' ? req.path : '';
     const resolved = resolveDocFromPath(path);
 
@@ -138,13 +140,11 @@ export function setupScalar(adapters: AdapterCollectionLike, options?: ScalarSet
       continue;
     }
 
-    const internalValue: ScalarInput | InternalRouter = adapter[HTTP_INTERNAL];
-
-    if (!hasInternalRouter(internalValue)) {
+    if (!hasRegisterInternalRoute(adapter)) {
       throw new Error('Scalar: selected http adapter does not support internal route binding (upgrade http-adapter).');
     }
 
-    registerInternalRoutes(internalValue, docs, docsById);
+    registerInternalRoutes(adapter, docs, docsById);
     boundAdapters.add(adapter);
   }
 }

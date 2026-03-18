@@ -16,6 +16,10 @@ class FakeAdapter extends Adapter {
     handler: [getDeco, postDeco],
   };
 
+  parseInput() {}
+  resolveHandler() { return undefined; }
+  handleResult() {}
+  forceCloseConnection() {}
   async start(_context: Context): Promise<void> {}
   async stop(): Promise<void> {}
 }

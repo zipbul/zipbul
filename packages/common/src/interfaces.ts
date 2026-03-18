@@ -1,6 +1,8 @@
-import type { ZipbulFunction, ZipbulValue, Class, ClassToken, ValueLike } from './types';
-import type { AdapterClass } from './adapter/types';
+import type { ZipbulValue, Class, ClassToken, ValueLike, ModuleMarker, ProviderFactoryFn } from './types';
+import type { AdapterClass, MiddlewareHook } from './adapter/types';
 import type { MiddlewareDefinition } from './define-middleware';
+import type { GuardDefinition } from './define-guard';
+import type { ExceptionFilterDefinition } from './define-exception-filter';
 
 import type { Adapter } from './adapter/adapter';
 
@@ -42,7 +44,7 @@ export interface ProviderUseExisting extends ProviderBase {
 }
 
 export interface ProviderUseFactory extends ProviderBase {
-  useFactory: ZipbulFunction;
+  useFactory: ProviderFactoryFn;
   inject?: ProviderToken[];
 }
 
@@ -108,7 +110,7 @@ export interface ProviderRegistrationOptions {
   readonly visibleTo?: ProviderVisibleTo;
 }
 
-export type ProviderVisibleTo = 'all' | 'module' | string[];
+export type ProviderVisibleTo = 'all' | 'module' | readonly ModuleMarker[];
 
 export interface ZipbulContainer {
   get(token: ProviderToken): ZipbulValue;
@@ -116,9 +118,22 @@ export interface ZipbulContainer {
   has(token: ProviderToken): boolean;
   getInstances(): IterableIterator<ZipbulValue>;
   keys(): IterableIterator<ProviderToken>;
-}
 
-export type ExceptionFilterToken = ProviderToken;
+  /**
+   * Creates a request-scoped child container.
+   * Singletons delegate to the parent; request-scoped providers are cached per contextId.
+   *
+   * @param contextId - Unique identifier for this request scope.
+   * @returns A scoped container that implements `ZipbulContainer`.
+   */
+  createRequestScope?(contextId: string): ZipbulContainer;
+
+  /**
+   * Disposes scoped resources. No-op on the root container.
+   * Request-scoped containers clear cached instances and call onDestroy hooks.
+   */
+  dispose?(): Promise<void>;
+}
 
 // Module Interface (Strict Schema Enforcement)
 export interface Module {
@@ -136,13 +151,10 @@ export interface AdapterModuleConfig {
   adapter: AdapterClass;
   name?: string;
   middlewares?: MiddlewareConfig;
-  errorFilters?: ExceptionFilterConfig[];
+  exceptionFilters?: readonly ExceptionFilterDefinition[];
+  guards?: readonly GuardDefinition[];
 }
 
-export interface MiddlewareConfig {
-  [lifecycle: string]: readonly MiddlewareDefinition[];
-}
-
-export type ExceptionFilterConfig = ExceptionFilterToken;
+export type MiddlewareConfig = Partial<Record<MiddlewareHook, readonly MiddlewareDefinition[]>>;
 
 export type Provider = ProviderUseValue | ProviderUseClass | ProviderUseExisting | ProviderUseFactory | Class;

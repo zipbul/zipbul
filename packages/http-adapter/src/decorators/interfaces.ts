@@ -1,4 +1,4 @@
-import type { HttpMethod } from '../enums';
+import type { HttpMethod } from '../types';
 import type { RouteHandlerParamType } from './types';
 
 export interface RestControllerDecoratorOptions {

@@ -417,4 +417,275 @@ describe('Container', () => {
       expect(second).toBe(third);
     });
   });
+
+  // -- createRequestScope --
+
+  describe('createRequestScope', () => {
+    it('should return a ZipbulContainer implementation', () => {
+      // Arrange
+      const contextId = 'req-1';
+
+      // Act
+      const scope = container.createRequestScope(contextId);
+
+      // Assert
+      expect(scope).toBeDefined();
+      expect(typeof scope.get).toBe('function');
+      expect(typeof scope.has).toBe('function');
+      expect(typeof scope.keys).toBe('function');
+      expect(typeof scope.set).toBe('function');
+      expect(typeof scope.dispose).toBe('function');
+    });
+
+    it('should resolve singleton provider to same instance as parent', () => {
+      // Arrange
+      const token: Token = 'SingletonShared';
+      const instance = { shared: true };
+      container.set(token, createValueFactory(instance), { scope: 'singleton' });
+      container.get(token);
+      const scope = container.createRequestScope('req-2');
+
+      // Act
+      const result = scope.get(token);
+
+      // Assert
+      expect(result).toBe(instance);
+    });
+
+    it('should cache request-scoped provider within same scope', () => {
+      // Arrange
+      const token: Token = 'RequestScoped';
+      let callCount = 0;
+      const factory: FactoryFn = () => {
+        callCount += 1;
+        return { call: callCount };
+      };
+      container.set(token, factory, { scope: 'request' });
+      const scope = container.createRequestScope('req-3');
+
+      // Act
+      const first = scope.get(token);
+      const second = scope.get(token);
+
+      // Assert
+      expect(first).toBe(second);
+      expect(callCount).toBe(1);
+    });
+
+    it('should return different instances for request-scoped provider across different scopes', () => {
+      // Arrange
+      const token: Token = 'RequestScopedMulti';
+      container.set(token, () => ({ created: true }), { scope: 'request' });
+      const scopeA = container.createRequestScope('req-4a');
+      const scopeB = container.createRequestScope('req-4b');
+
+      // Act
+      const resultA = scopeA.get(token);
+      const resultB = scopeB.get(token);
+
+      // Assert
+      expect(resultA).not.toBe(resultB);
+      expect(resultA).toEqual({ created: true });
+      expect(resultB).toEqual({ created: true });
+    });
+
+    it('should create new instance for transient provider on each call', () => {
+      // Arrange
+      const token: Token = 'TransientInScope';
+      container.set(token, () => ({ fresh: true }), { scope: 'transient' });
+      const scope = container.createRequestScope('req-5');
+
+      // Act
+      const first = scope.get(token);
+      const second = scope.get(token);
+
+      // Assert
+      expect(first).not.toBe(second);
+      expect(first).toEqual({ fresh: true });
+      expect(second).toEqual({ fresh: true });
+    });
+
+    it('should clear request-scoped cache after dispose', async () => {
+      // Arrange
+      const token: Token = 'DisposableScoped';
+      let callCount = 0;
+      container.set(token, () => {
+        callCount += 1;
+        return { call: callCount };
+      }, { scope: 'request' });
+      const scope = container.createRequestScope('req-6');
+      scope.get(token);
+
+      // Act
+      await scope.dispose();
+
+      // Assert
+      const instances = Array.from(scope.getInstances());
+      expect(instances).toHaveLength(0);
+    });
+
+    it('should call onDestroy hooks in reverse order during dispose', async () => {
+      // Arrange
+      const destroyOrder: string[] = [];
+      const tokenA: Token = 'DestroyA';
+      const tokenB: Token = 'DestroyB';
+      const tokenC: Token = 'DestroyC';
+      container.set(tokenA, () => ({
+        name: 'A',
+        onDestroy: () => { destroyOrder.push('A'); },
+      }), { scope: 'request' });
+      container.set(tokenB, () => ({
+        name: 'B',
+        onDestroy: () => { destroyOrder.push('B'); },
+      }), { scope: 'request' });
+      container.set(tokenC, () => ({
+        name: 'C',
+        onDestroy: () => { destroyOrder.push('C'); },
+      }), { scope: 'request' });
+      const scope = container.createRequestScope('req-7');
+      scope.get(tokenA);
+      scope.get(tokenB);
+      scope.get(tokenC);
+
+      // Act
+      await scope.dispose();
+
+      // Assert
+      expect(destroyOrder).toEqual(['C', 'B', 'A']);
+    });
+
+    it('should not throw when Container.dispose is called (no-op)', async () => {
+      // Act & Assert
+      await expect(container.dispose()).resolves.toBeUndefined();
+    });
+
+    it('should not throw when dispose is called twice (idempotent)', async () => {
+      // Arrange
+      const token: Token = 'IdempotentDispose';
+      container.set(token, () => ({
+        onDestroy: mock(() => undefined),
+      }), { scope: 'request' });
+      const scope = container.createRequestScope('req-9');
+      scope.get(token);
+
+      // Act & Assert
+      await expect(scope.dispose()).resolves.toBeUndefined();
+      await expect(scope.dispose()).resolves.toBeUndefined();
+    });
+
+    it('should continue clearing remaining instances when onDestroy throws', async () => {
+      // Arrange
+      const destroyOrder: string[] = [];
+      const tokenA: Token = 'ThrowA';
+      const tokenB: Token = 'ThrowB';
+      container.set(tokenA, () => ({
+        name: 'A',
+        onDestroy: () => { destroyOrder.push('A'); },
+      }), { scope: 'request' });
+      container.set(tokenB, () => ({
+        name: 'B',
+        onDestroy: () => {
+          destroyOrder.push('B');
+          throw new Error('destroy failed');
+        },
+      }), { scope: 'request' });
+      const scope = container.createRequestScope('req-10');
+      scope.get(tokenA);
+      scope.get(tokenB);
+
+      // Act — reversed order: B destroys first (throws), then A
+      await scope.dispose();
+
+      // Assert — dispose swallows onDestroy errors and continues to remaining instances
+      expect(destroyOrder).toEqual(['B', 'A']);
+    });
+
+    it('should create new request-scoped instance after dispose and re-get', async () => {
+      // Arrange
+      const token: Token = 'ReScopedAfterDispose';
+      let callCount = 0;
+      container.set(token, () => {
+        callCount += 1;
+        return { call: callCount };
+      }, { scope: 'request' });
+      const scope = container.createRequestScope('req-11');
+      const first = scope.get(token);
+      await scope.dispose();
+
+      // Act
+      const second = scope.get(token);
+
+      // Assert
+      expect(second).not.toBe(first);
+      expect(callCount).toBe(2);
+    });
+
+    it('should return undefined for createRequestScope on RequestScopeContainer', () => {
+      // Arrange
+      const scope = container.createRequestScope('req-12');
+
+      // Act
+      const nested = scope.createRequestScope?.('req-12-nested');
+
+      // Assert
+      expect(nested).toBeUndefined();
+    });
+
+    it('should produce independent scopes even with identical contextId', () => {
+      // Arrange
+      const token: Token = 'SameContextId';
+      container.set(token, () => ({ unique: true }), { scope: 'request' });
+      const scopeA = container.createRequestScope('same-id');
+      const scopeB = container.createRequestScope('same-id');
+
+      // Act
+      const resultA = scopeA.get(token);
+      const resultB = scopeB.get(token);
+
+      // Assert
+      expect(resultA).not.toBe(resultB);
+    });
+
+    it('should not interfere between concurrently active scopes', () => {
+      // Arrange
+      const tokenX: Token = 'ConcurrentX';
+      const tokenY: Token = 'ConcurrentY';
+      container.set(tokenX, () => ({ service: 'X' }), { scope: 'request' });
+      container.set(tokenY, () => ({ service: 'Y' }), { scope: 'request' });
+      const scopeA = container.createRequestScope('concurrent-a');
+      const scopeB = container.createRequestScope('concurrent-b');
+
+      // Act — interleave gets across scopes
+      const aX = scopeA.get(tokenX);
+      const bX = scopeB.get(tokenX);
+      const aY = scopeA.get(tokenY);
+      const bY = scopeB.get(tokenY);
+
+      // Assert — each scope caches independently
+      expect(aX).not.toBe(bX);
+      expect(aY).not.toBe(bY);
+      expect(scopeA.get(tokenX)).toBe(aX);
+      expect(scopeB.get(tokenX)).toBe(bX);
+    });
+
+    it('should cache request-scoped provider that depends on another request-scoped provider in same scope', () => {
+      // Arrange
+      const depToken: Token = 'RequestDep';
+      const consumerToken: Token = 'RequestConsumer';
+      container.set(depToken, () => ({ dep: true }), { scope: 'request' });
+      container.set(consumerToken, (c) => ({
+        dependency: c.get(depToken),
+        consumer: true,
+      }), { scope: 'request' });
+      const scope = container.createRequestScope('req-15');
+
+      // Act
+      const consumer = scope.get(consumerToken);
+      const dep = scope.get(depToken);
+
+      // Assert — consumer's dependency should be the same cached instance
+      expect(consumer.dependency).toBe(dep);
+      expect(scope.get(consumerToken)).toBe(consumer);
+    });
+  });
 });

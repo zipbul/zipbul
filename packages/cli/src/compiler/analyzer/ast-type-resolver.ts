@@ -1,8 +1,6 @@
 import type { AnalyzerProgram, AnalyzerValue, AnalyzerValueRecord, NodeRecord, TypeInfo } from './types';
 
-const isAnalyzerValueArray = (value: AnalyzerValue): value is AnalyzerValue[] => {
-  return Array.isArray(value);
-};
+import { isAnalyzerValueArray } from './type-guards';
 
 const isRecordCandidate = (value: AnalyzerValue): value is AnalyzerValueRecord | AnalyzerProgram => {
   return typeof value === 'object' && value !== null && !isAnalyzerValueArray(value);

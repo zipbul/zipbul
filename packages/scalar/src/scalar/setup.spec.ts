@@ -5,7 +5,6 @@ import { describe, expect, it } from 'bun:test';
 import type { ScalarSetupOptionsInput } from './interfaces';
 import type {
   HttpAdapter,
-  HttpAdapterInternal,
   HttpAdapterSpy,
   InternalRouteCall,
   InternalRouteHandler,
@@ -14,17 +13,12 @@ import type {
 
 import { setupScalar } from './setup';
 
-const HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
-
 function createHttpAdapterSpy(): HttpAdapterSpy {
   const calls: InternalRouteCall[] = [];
-  const internalAdapter: HttpAdapterInternal = {
-    get: (path: string, handler: InternalRouteHandler) => {
-      calls.push({ path, handler });
-    },
-  };
   const adapter: HttpAdapter = {
-    [HTTP_INTERNAL]: internalAdapter,
+    registerInternalRoute: (method: string, path: string, handler: InternalRouteHandler) => {
+      calls.push({ method, path, handler });
+    },
     start: async () => {},
     stop: async () => {},
   };

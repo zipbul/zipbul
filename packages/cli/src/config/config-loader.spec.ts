@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { join } from 'path';
 
-// MUST: MUST-10 (config source 선택)
-// MUST: MUST-11 (json/jsonc 파싱)
-// MUST: MUST-12 (sourceDir/entry/module.fileName 검증)
+// MUST: MUST-10 (config source selection)
+// MUST: MUST-11 (json/jsonc parsing)
+// MUST: MUST-12 (sourceDir/entry/module.fileName validation)
 
 import type { FileSetup } from '../../test/shared/interfaces';
 

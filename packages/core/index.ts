@@ -1,7 +1,11 @@
-export { createApplication, Application, type BootstrapAdapter, type AdapterEntry } from './src/application';
+export { createApplication, Application, type AdapterEntry, type AdapterOptions, type AttachOptions } from './src/application';
 export { defineModule, type DefineModuleOptions } from './src/module';
 export { getRuntimeContext, registerRuntimeContext } from './src/runtime/runtime-context';
 export { Container } from './src/injector/container';
 export type { ClassMetadata, ConstructorParamMetadata, DecoratorMetadata } from './src/injector/types';
 export { ClusterManager } from './src/cluster/cluster-manager';
-export type { ClusterBaseWorker } from './src/cluster/cluster-base-worker';
+export { ClusterBaseWorker } from './src/cluster/cluster-base-worker';
+export { WorkerState, ClusterStrategy } from './src/cluster/enums';
+export { wrapWorker } from './src/cluster/rpc-proxy';
+export { exposeWorker } from './src/cluster/rpc-expose';
+export type { ClusterWorkerSlot, ClusterWorkerStats, ClusterWorkerId, WorkerGroupConfig } from './src/cluster';

@@ -17,7 +17,7 @@ const formatModuleList = (modules: Iterable<string>, toProjectRelativePath: (pat
   const rendered = Array.from(modules).map(path => {
     try {
       return toProjectRelativePath(path);
-    } catch (_error) {
+    } catch {
       return path;
     }
   });
@@ -56,12 +56,12 @@ export function buildDevIncrementalImpactLog(params: DevIncrementalImpactLogPara
 
     const affected = formatModuleList(affectedModules, toProjectRelativePath);
 
-    return { affectedModules, logLine: `🧭 증분 영향: 영향=${affected}` };
+    return { affectedModules, logLine: `🧭 Incremental impact: affected=${affected}` };
   } catch (error) {
     const rawReason = error instanceof Error ? error.message : 'Unknown impact error.';
     const reason = rawReason.replaceAll('\n', ' ').trim() || 'Unknown impact error.';
 
-    return { affectedModules: new Set(), logLine: `⚠️ 증분 영향 계산 실패: ${reason}` };
+    return { affectedModules: new Set(), logLine: `⚠️ Incremental impact calculation failed: ${reason}` };
   }
 }
 

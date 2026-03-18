@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-// MUST: MUST-3 (defineModule 검증)
+// MUST: MUST-3 (defineModule validation)
 
 import { ModuleDiscovery } from './module-discovery';
 

@@ -43,8 +43,8 @@ export class RequestScopeContainer implements ZipbulContainer {
     return instance;
   }
 
-  set<TValue extends ContainerValue = ContainerValue>(token: ProviderToken, factory: (container: ZipbulContainer) => TValue): void {
-    this.parent.set(token, factory);
+  set<TValue extends ContainerValue = ContainerValue>(_token: ProviderToken, _factory: (container: ZipbulContainer) => TValue): void {
+    throw new Error('[Zipbul DI] Cannot register providers on a request-scoped container. Register providers at module level.');
   }
 
   has(token: Token): boolean {
@@ -79,19 +79,26 @@ export class RequestScopeContainer implements ZipbulContainer {
 
     for (const instance of instances) {
       if (this.hasOnDestroy(instance)) {
-        await instance.onDestroy();
+        try {
+          await instance.onDestroy();
+        } catch {
+          // Best-effort: continue disposing remaining instances
+        }
       }
     }
 
     this.requestInstances.clear();
   }
 
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+  }
+
   private hasOnDestroy(instance: ContainerValue): instance is ContainerValue & { onDestroy(): Promise<void> | void } {
-    return (
-      typeof instance === 'object' &&
-      instance !== null &&
-      'onDestroy' in instance &&
-      typeof (instance as Record<string, unknown>).onDestroy === 'function'
-    );
+    if (!this.isRecord(instance)) {
+      return false;
+    }
+
+    return 'onDestroy' in instance && typeof instance.onDestroy === 'function';
   }
 }

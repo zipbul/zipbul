@@ -1,43 +1,10 @@
 {
   "name": "zipbul",
   "version": "0.0.1",
-  "private": true,
-  "description": "Zipbul is a web server framework for building web applications with Bun.",
-  "keywords": [
-    "api",
-    "bun",
-    "zipbul",
-    "express",
-    "framework",
-    "restful"
-  ],
-  "homepage": "https://github.com/zipbul/zipbul",
-  "bugs": {
-    "url": "https://github.com/zipbul/zipbul/issues"
-  },
-  "license": "MIT",
   "author": "revil <revil.com@gmail.com>",
   "repository": {
     "type": "git",
     "url": "https://github.com/zipbul/zipbul"
-  },
-  "workspaces": [
-    "packages/**/*",
-    "examples"
-  ],
-  "type": "module",
-  "scripts": {
-    "knip": "knip",
-    "deps": "depcruise packages",
-    "prepare": "husky",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage",
-    "kb:migrate": "bunx drizzle-kit migrate --config tooling/mcp/drizzle.config.ts",
-    "kb:http": "bun tooling/mcp/src/http-server.ts",
-    "kb:http:verify": "bun --env-file=.env tooling/mcp/test/integration/tools/_http-verify-all.ts"
-  },
-  "dependencies": {
-    "@zipbul/baker": "^0.1.2"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.4",
@@ -52,5 +19,35 @@
     "oxfmt": "^0.26.0",
     "oxlint": "^1.41.0",
     "oxlint-tsgolint": "^0.11.1"
-  }
+  },
+  "bugs": {
+    "url": "https://github.com/zipbul/zipbul/issues"
+  },
+  "description": "Zipbul is a web server framework for building web applications with Bun.",
+  "homepage": "https://github.com/zipbul/zipbul",
+  "keywords": [
+    "api",
+    "bun",
+    "zipbul",
+    "express",
+    "framework",
+    "restful"
+  ],
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "knip": "knip",
+    "deps": "depcruise packages",
+    "prepare": "husky",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "kb:migrate": "bunx drizzle-kit migrate --config tooling/mcp/drizzle.config.ts",
+    "kb:http": "bun tooling/mcp/src/http-server.ts",
+    "kb:http:verify": "bun --env-file=.env tooling/mcp/test/integration/tools/_http-verify-all.ts"
+  },
+  "type": "module",
+  "workspaces": [
+    "packages/**/*",
+    "examples"
+  ]
 }

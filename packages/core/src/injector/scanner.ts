@@ -9,6 +9,7 @@ import type {
 } from '@zipbul/common';
 
 import type { ZipbulContainer } from '@zipbul/common';
+import { Logger } from '@zipbul/logger';
 import type { Container } from './container';
 import type {
   ClassMetadata,
@@ -26,12 +27,15 @@ import { getRuntimeContext } from '../runtime/runtime-context';
 import {
   normalizeToken,
   formatToken,
-  coerceToken,
   isProviderToken,
   resolveTokenRecord,
 } from './token-resolver';
 
+const MODULE_DECORATOR_NAME = 'Module';
+
 export class Scanner {
+  private readonly logger = new Logger(Scanner.name);
+
   constructor(
     private readonly container: Container,
     private readonly registry?: Map<Class, ClassMetadata>,
@@ -76,7 +80,7 @@ export class Scanner {
       return;
     }
 
-    const moduleDec = meta.decorators?.find((decorator: DecoratorMetadata) => decorator.name === 'Module');
+    const moduleDec = meta.decorators?.find((decorator: DecoratorMetadata) => decorator.name === MODULE_DECORATOR_NAME);
 
     if (!moduleDec) {
       return;
@@ -132,15 +136,13 @@ export class Scanner {
         factory = (c: ZipbulContainer) => new provider.useClass(...this.resolveDepsFor(provider.useClass, c));
       } else if (this.isProviderUseExisting(provider)) {
         factory = (c: ZipbulContainer) => c.get(provider.useExisting);
-      } else {
-        factory = () => null;
       }
     }
 
     if (token !== undefined && factory !== undefined) {
       this.container.set(token, factory);
     } else {
-      console.warn(`[Scanner] Failed to register provider: ${this.formatProvider(provider)}`);
+      this.logger.warn(`Failed to register provider: ${this.formatProvider(provider)}`);
     }
   }
 
@@ -168,17 +170,6 @@ export class Scanner {
 
       token = resolveTokenRecord(token);
 
-      const injectDec = param.decorators?.find((decorator: DecoratorMetadata) => decorator.name === 'Inject');
-      const injectArgs = injectDec?.arguments ?? [];
-
-      if (injectArgs.length > 0) {
-        const injectedToken = coerceToken(injectArgs[0] as DecoratorArgument);
-
-        if (injectedToken !== undefined) {
-          token = resolveTokenRecord(injectedToken);
-        }
-      }
-
       const normalizedToken = normalizeToken(token);
       const directScopedKey = isProviderToken(token) ? scopedKeys?.get(token) : undefined;
       const normalizedScopedKey = normalizedToken !== undefined ? scopedKeys?.get(normalizedToken) : undefined;
@@ -187,9 +178,9 @@ export class Scanner {
       if (scopedKey !== undefined) {
         try {
           return c.get(scopedKey);
-        } catch (_e) {
-          console.warn(
-            `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
+        } catch {
+          this.logger.warn(
+            `Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
           );
 
           return undefined;
@@ -200,8 +191,8 @@ export class Scanner {
       const resolvedToken = normalizedToken ?? fallbackToken;
 
       if (resolvedToken === undefined) {
-        console.warn(
-          `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
+        this.logger.warn(
+          `Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
         );
 
         return undefined;
@@ -209,9 +200,9 @@ export class Scanner {
 
       try {
         return c.get(resolvedToken);
-      } catch (_e) {
-        console.warn(
-          `[Scanner] Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
+      } catch {
+        this.logger.warn(
+          `Failed to resolve dependency for ${ctor.name}. Token: ${formatToken(token, normalizedToken)}`,
         );
 
         return undefined;

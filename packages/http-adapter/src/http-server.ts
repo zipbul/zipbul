@@ -1,18 +1,9 @@
 import type { Server } from 'bun';
 
-import {
-  ExceptionFilter,
-  MiddlewareHook,
-  Adapter,
-  isErr,
-  type ZipbulArray,
-  type ZipbulContainer,
-  type ZipbulRecord,
-  type ZipbulValue,
-  type ExceptionFilterToken,
-  type ProviderToken,
+import type {
+  ZipbulContainer,
 } from '@zipbul/common';
-import { Logger, type LogMetadataValue } from '@zipbul/logger';
+import { Logger } from '@zipbul/logger';
 import { StatusCodes } from 'http-status-codes';
 
 import type {
@@ -21,79 +12,69 @@ import type {
   HttpWorkerResponse,
 } from './interfaces';
 import type {
-  AdaptiveRequest,
   ClassMetadata,
   MetadataRegistryKey,
-  RequestBodyValue,
-  RequestQueryMap,
 } from './types';
 
-import { HttpContext, HttpContextAdapter } from './adapter';
+import type { HttpMethod } from '@zipbul/shared';
+import { HttpContext } from './http-context';
 import { HttpRequest } from './http-request';
 import { HttpResponse } from './http-response';
-import { HTTP_ERROR_FILTER } from './constants';
-import { HttpMethod } from './enums';
-import { BakerValidationExceptionFilter } from './baker-validation-exception-filter';
-import { RequestHandler } from './request-handler';
+import { isHttpMethod } from './http-method';
 import { RouteHandler } from './route-handler';
 import { getIps } from './utils';
+import type { HttpAdapter } from './http-adapter';
 
-const isHttpMethod = (value: string): value is HttpMethod => {
-  const methods: string[] = Object.values(HttpMethod);
-
-  return methods.includes(value);
-};
-
-const normalizeHttpMethod = (value: string): HttpMethod => {
+const normalizeHttpMethod = (value: string): HttpMethod | undefined => {
   const normalized = value.toUpperCase();
 
-  return isHttpMethod(normalized) ? normalized : HttpMethod.Get;
+  return isHttpMethod(normalized) ? normalized : undefined;
 };
 
 export class HttpServer {
+  private adapter: HttpAdapter;
   private container: ZipbulContainer;
-  private routeHandler: RouteHandler;
-  private requestHandler: RequestHandler;
-  private adapter: Adapter;
-  private logger = new Logger(HttpServer.name);
+  private readonly logger = Logger.inherit();
 
   private options: HttpServerOptions;
-  private server: Server<ZipbulValue>;
+  private server: Server<unknown>;
 
-  async boot(container: ZipbulContainer, options: HttpServerBootOptions, adapter: Adapter): Promise<void> {
-    this.container = container;
+  /**
+   * Returns the underlying Bun Server instance for drain operations.
+   *
+   * @returns The Bun Server, or undefined if not yet booted.
+   * @public
+   */
+  getServer(): Server<unknown> | undefined {
+    return this.server;
+  }
+
+  async boot(container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
     this.adapter = adapter;
-    this.options = options.options ?? options; // Handle nested options
+    this.container = container;
+    this.options = options;
 
-    this.logger.info('🚀 HttpServer booting...');
-
-    const builtinErrorFilter = new BakerValidationExceptionFilter();
-
-    if (Array.isArray(this.options.errorFilters) && this.options.errorFilters.length > 0) {
-      const tokens: readonly ExceptionFilterToken[] = this.options.errorFilters;
-
-      this.container.set(HTTP_ERROR_FILTER, (c: ZipbulContainer) => {
-        const resolved: ZipbulValue[] = tokens.map(token => c.get(token));
-        const userFilters = resolved.filter((value): value is ExceptionFilter => this.isErrorFilter(value));
-
-        return [builtinErrorFilter, ...userFilters];
-      });
-    } else {
-      this.container.set(HTTP_ERROR_FILTER, () => [builtinErrorFilter]);
-    }
+    this.logger.debug('Booting...');
 
     const metadataRegistry = options.metadata ?? new Map<MetadataRegistryKey, ClassMetadata>();
-    const scopedKeysMap: Map<ProviderToken, string> = options.scopedKeys ?? new Map<ProviderToken, string>();
 
-    this.routeHandler = new RouteHandler(this.container, metadataRegistry, scopedKeysMap);
+    const decoratorConfig = {
+      adapterId: this.adapter.constructor.name,
+      controllerDecoratorName: this.adapter.decorators.controller.name,
+      handlerDecoratorNames: this.adapter.decorators.handlers.map(h => h.name),
+    };
 
-    this.routeHandler.register();
+    const routeHandler = new RouteHandler(metadataRegistry, decoratorConfig, undefined, this.container);
 
-    if (Array.isArray(options.internalRoutes) && options.internalRoutes.length > 0) {
-      this.routeHandler.registerInternalRoutes(options.internalRoutes);
+    if (options.handlerIndex !== undefined && options.handlerIndex.length > 0) {
+      routeHandler.registerFromHandlerIndex(options.handlerIndex, options.controllerInstances);
     }
 
-    this.requestHandler = new RequestHandler(this.container, this.routeHandler, metadataRegistry, this.adapter);
+    if (Array.isArray(options.internalRoutes) && options.internalRoutes.length > 0) {
+      routeHandler.registerInternalRoutes(options.internalRoutes);
+    }
+
+    this.adapter.setRouteHandler(routeHandler);
 
     const serveOptions: Parameters<typeof Bun.serve>[0] = {
       fetch: this.fetch.bind(this),
@@ -108,188 +89,70 @@ export class HttpServer {
       serveOptions.maxRequestBodySize = this.options.bodyLimit;
     }
 
-    this.server = Bun.serve<ZipbulValue>(serveOptions);
+    this.server = Bun.serve<unknown>(serveOptions);
 
-    this.logger.info(`✨ Server listening on port ${this.options.port}`);
+    this.logger.info(`Listening on :${this.options.port}`);
+  }
 
-    await Promise.resolve();
+  /**
+   * Gracefully stops the Bun HTTP server.
+   *
+   * @public
+   */
+  stop(): void {
+    if (this.server) {
+      this.server.stop();
+      this.logger.info('Server stopped');
+    }
   }
 
   async fetch(req: Request): Promise<Response> {
-    const adaptiveReq: AdaptiveRequest = {
-      httpMethod: normalizeHttpMethod(req.method),
+    const httpMethod = normalizeHttpMethod(req.method);
+
+    if (httpMethod === undefined) {
+      return new Response('Method Not Allowed', {
+        status: StatusCodes.METHOD_NOT_ALLOWED,
+      });
+    }
+
+    const urlObj = new URL(req.url, 'http://localhost');
+    const queryParams = Object.fromEntries(urlObj.searchParams.entries());
+    const { ip, ips } = getIps(req, this.server, this.options.trustProxy);
+
+    const zipbulReq = new HttpRequest({
+      httpMethod,
       url: req.url,
       headers: req.headers.toJSON(),
-      queryParams: {},
       params: {},
-      ip: '',
-      ips: [],
+      ip: ip ?? '',
+      ips: ips ?? [],
       isTrustedProxy: this.options.trustProxy ?? false,
-    };
-    const zipbulReq = new HttpRequest(adaptiveReq);
+      query: queryParams,
+    });
+
     const zipbulRes = new HttpResponse(zipbulReq, new Headers());
 
+    const requestId = crypto.randomUUID();
+    const requestContainer = this.container.createRequestScope?.(requestId);
+    const context = new HttpContext(zipbulReq, zipbulRes, req, requestContainer);
+
     try {
-      const adapter = new HttpContextAdapter(zipbulReq, zipbulRes);
-      const context = new HttpContext(adapter);
+      await this.adapter.dispatchRequest(context);
 
-      // 1. OnReceive
-      const onReceiveResult = await this.adapter.runMiddlewares(MiddlewareHook.OnReceive, context);
-
-      if (isErr(onReceiveResult)) {
-        return this.toResponse(zipbulRes.end());
-      }
-
-      // [parseData] — implicit adapter hook
-      const httpMethod = normalizeHttpMethod(req.method);
-      let body: RequestBodyValue | undefined = undefined;
-      const contentType = req.headers.get('content-type') ?? '';
-
-      if (
-        httpMethod !== HttpMethod.Get &&
-        httpMethod !== HttpMethod.Delete &&
-        httpMethod !== HttpMethod.Head &&
-        httpMethod !== HttpMethod.Options
-      ) {
-        if (contentType.includes('application/json')) {
-          try {
-            const parsed = await req.json();
-
-            body = this.isJsonValue(parsed) ? parsed : {};
-          } catch {
-            body = {};
-          }
-        } else {
-          body = await req.text();
-        }
-      }
-
-      const { ip, ips } = getIps(req, this.server, this.options.trustProxy);
-      const urlObj = new URL(req.url, 'http://localhost');
-      const path = urlObj.pathname;
-      const queryParams: RequestQueryMap = Object.fromEntries(urlObj.searchParams.entries());
-
-      Object.assign(adaptiveReq, {
-        body,
-        queryParams,
-        ip,
-        ips,
-        query: queryParams,
-      });
-
-      zipbulReq.body = body ?? null;
-      zipbulReq.query = queryParams;
-
-      // 2. PostParseData
-      const postParseResult = await this.adapter.runMiddlewares(MiddlewareHook.PostParseData, context);
-
-      if (isErr(postParseResult)) {
-        return this.toResponse(zipbulRes.end());
-      }
-
-      // 3. Guards + PreHandle + Handler (delegated to requestHandler)
-      const workerRes = await this.requestHandler.handle(zipbulReq, zipbulRes, httpMethod, path, context);
-
-      // [sendResult] — implicit adapter hook
-      const response = this.toResponse(workerRes);
-
-      // 4. OnComplete (post-response, errors suppressed)
-      try {
-        const onCompleteResult = await this.adapter.runMiddlewares(MiddlewareHook.OnComplete, context);
-
-        if (isErr(onCompleteResult)) {
-          this.logger.debug(`OnComplete halted: ${onCompleteResult.data.reason}`);
-        }
-      } catch (error) {
-        const logValue: LogMetadataValue =
-          error instanceof Error
-            ? error
-            : typeof error === 'string' || typeof error === 'number' || typeof error === 'boolean'
-              ? error
-              : typeof error === 'object'
-                ? (() => { try { return JSON.stringify(error); } catch { return 'Unknown error (circular)'; } })()
-                : 'Unknown error';
-
-        this.logger.error('Error in OnComplete', logValue);
-      }
-
-      return response;
+      return this.toResponse(zipbulRes.end());
     } catch (error) {
-      const logValue: LogMetadataValue =
-        error instanceof Error
-          ? error
-          : typeof error === 'string' || typeof error === 'number' || typeof error === 'boolean'
-            ? error
-            : typeof error === 'object'
-              ? (JSON.stringify(error) ?? 'Unknown error')
-              : 'Unknown error';
-
-      this.logger.error('Fetch Error', logValue);
+      this.logger.error('Fetch Error', error instanceof Error ? error : undefined);
 
       return new Response('Internal server error', {
         status: StatusCodes.INTERNAL_SERVER_ERROR,
       });
-    }
-  }
-
-  private isErrorFilter(value: ZipbulValue | ExceptionFilter | null | undefined): value is ExceptionFilter {
-    if (!this.isZipbulRecord(value)) {
-      return false;
-    }
-
-    return 'catch' in value;
-  }
-
-  private isJsonValue(value: ZipbulValue, seen?: Set<object>): value is RequestBodyValue {
-    if (value === null) {
-      return true;
-    }
-
-    const valueType = typeof value;
-
-    if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
-      return true;
-    }
-
-    if (typeof value === 'object') {
-      const visited = seen ?? new Set<object>();
-
-      if (visited.has(value)) {
-        return false;
-      }
-
-      visited.add(value);
-
-      if (this.isZipbulArray(value)) {
-        for (const entry of value) {
-          if (!this.isJsonValue(entry, visited)) {
-            return false;
-          }
-        }
-
-        return true;
-      }
-
-      if (this.isZipbulRecord(value)) {
-        for (const entry of Object.values(value)) {
-          if (!this.isJsonValue(entry, visited)) {
-            return false;
-          }
-        }
-
-        return true;
+    } finally {
+      try {
+        await requestContainer?.dispose?.();
+      } catch (disposeError) {
+        this.logger.error('Request scope dispose failed', disposeError instanceof Error ? disposeError : undefined);
       }
     }
-
-    return false;
-  }
-
-  private isZipbulArray(value: ZipbulValue): value is ZipbulArray {
-    return Array.isArray(value);
-  }
-
-  private isZipbulRecord(value: ZipbulValue): value is ZipbulRecord {
-    return typeof value === 'object' && value !== null;
   }
 
   private toResponse(workerRes: HttpWorkerResponse): Response {
@@ -303,6 +166,8 @@ export class HttpServer {
     }
 
     if (typeof status === 'number' && status !== StatusCodes.SWITCHING_PROTOCOLS && (status < 200 || status > 599)) {
+      this.logger.warn(`Invalid HTTP status ${status} corrected to 500`);
+
       return new Response(workerRes.body, {
         ...init,
         status: StatusCodes.INTERNAL_SERVER_ERROR,

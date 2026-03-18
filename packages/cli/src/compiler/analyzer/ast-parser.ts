@@ -1,5 +1,6 @@
+import { existsSync } from 'node:fs';
 import { parseSync } from 'oxc-parser';
-import { dirname, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 
 import type { ClassMetadata, DecoratorMetadata, ImportEntry } from './interfaces';
 import type { CreateApplicationCall, DefineModuleCall, InjectCall, ModuleDefinition, ParseResult, ReExport } from './parser-models';
@@ -16,9 +17,17 @@ import type {
 
 import type { Result } from '@zipbul/result';
 import { err, isErr } from '@zipbul/result';
+import {
+  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
+  ZIPBUL_FACTORY_CODE, ZIPBUL_SPREAD, ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
+  ZIPBUL_UNRESOLVABLE,
+  FRAMEWORK_CREATE_APPLICATION, FRAMEWORK_DEFINE_MODULE,
+  TS_UTILITY_TYPES,
+} from '@zipbul/common';
 import type { Diagnostic } from '../../diagnostics';
 import { buildDiagnostic } from '../../diagnostics';
 import { AstTypeResolver } from './ast-type-resolver';
+import { isNonEmptyString } from './type-guards';
 import { compareCodePoint } from '../../common';
 
 const UNKNOWN_TYPE_NAME = 'Unknown';
@@ -27,10 +36,6 @@ const UNKNOWN_CALLEE_NAME = 'unknown';
 interface InjectTokenResolution {
   tokenKind: 'token' | 'thunk';
   token: AnalyzerValue;
-}
-
-function isNonEmptyString(value: string | null | undefined): value is string {
-  return value !== null && value !== undefined && value !== '';
 }
 
 function isNullish(value: AnalyzerValue): value is null | undefined {
@@ -158,11 +163,11 @@ export class AstParser {
             }
 
             if (isCoreImport) {
-              if (importedName === 'createApplication') {
+              if (importedName === FRAMEWORK_CREATE_APPLICATION) {
                 createApplicationAliases.add(localName);
               }
 
-              if (importedName === 'defineModule') {
+              if (importedName === FRAMEWORK_DEFINE_MODULE) {
                 defineModuleAliases.add(localName);
               }
             }
@@ -558,7 +563,7 @@ export class AstParser {
         return null;
       }
 
-      if (name !== 'createApplication' && !createApplicationAliases.has(name)) {
+      if (name !== FRAMEWORK_CREATE_APPLICATION && !createApplicationAliases.has(name)) {
         return null;
       }
 
@@ -583,7 +588,7 @@ export class AstParser {
       const objectName = objectNode?.type === 'Identifier' ? this.getString(objectNode, 'name') : null;
       const propertyName = propertyNode ? this.getString(propertyNode, 'name') : null;
 
-      if (!isNonEmptyString(objectName) || propertyName !== 'createApplication') {
+      if (!isNonEmptyString(objectName) || propertyName !== FRAMEWORK_CREATE_APPLICATION) {
         return null;
       }
 
@@ -598,7 +603,7 @@ export class AstParser {
       }
 
       return {
-        callee: `${objectName}.createApplication`,
+        callee: `${objectName}.${FRAMEWORK_CREATE_APPLICATION}`,
         importSource,
         args,
         start: typeof node.start === 'number' ? node.start : undefined,
@@ -625,7 +630,7 @@ export class AstParser {
         return null;
       }
 
-      if (name !== 'defineModule' && !defineModuleAliases.has(name)) {
+      if (name !== FRAMEWORK_DEFINE_MODULE && !defineModuleAliases.has(name)) {
         return null;
       }
 
@@ -650,7 +655,7 @@ export class AstParser {
       const objectName = objectNode?.type === 'Identifier' ? this.getString(objectNode, 'name') : null;
       const propertyName = propertyNode ? this.getString(propertyNode, 'name') : null;
 
-      if (!isNonEmptyString(objectName) || propertyName !== 'defineModule') {
+      if (!isNonEmptyString(objectName) || propertyName !== FRAMEWORK_DEFINE_MODULE) {
         return null;
       }
 
@@ -665,7 +670,7 @@ export class AstParser {
       }
 
       return {
-        callee: `${objectName}.defineModule`,
+        callee: `${objectName}.${FRAMEWORK_DEFINE_MODULE}`,
         importSource,
         args,
         start: typeof node.start === 'number' ? node.start : undefined,
@@ -789,11 +794,57 @@ export class AstParser {
       return absolute;
     }
 
+    // External package imports (e.g. @zipbul/common) may not be resolvable
+    // via Bun.resolveSync — returning the raw importPath is the correct
+    // fallback because the AOT compiler does not need to map external
+    // packages to local source files.
     try {
-      return Bun.resolveSync(importPath, dirname(sourcePath));
-    } catch (_e) {
+      const resolved = Bun.resolveSync(importPath, dirname(sourcePath));
+
+      return this.resolveDistToSource(resolved) ?? resolved;
+    } catch {
       return importPath;
     }
+  }
+
+  /**
+   * Maps a dist/ build output path back to the original TypeScript source.
+   *
+   * When a package.json `exports` field points to `./dist/index.js`,
+   * `Bun.resolveSync` returns the dist path. The AOT compiler needs
+   * the TypeScript source, so we check the package root and `src/`
+   * for a matching `.ts` file.
+   *
+   * @param resolvedPath - Absolute path returned by Bun.resolveSync
+   * @returns The source `.ts` path if found, or `null`
+   */
+  private resolveDistToSource(resolvedPath: string): string | null {
+    if (resolvedPath.endsWith('.ts') || resolvedPath.endsWith('.d.ts')) {
+      return null;
+    }
+
+    const distSegmentIndex = resolvedPath.lastIndexOf('/dist/');
+
+    if (distSegmentIndex === -1) {
+      return null;
+    }
+
+    const packageRoot = resolvedPath.slice(0, distSegmentIndex);
+    const relative = resolvedPath.slice(distSegmentIndex + 6).replace(/\.js$/, '.ts');
+
+    const rootCandidate = join(packageRoot, relative);
+
+    if (existsSync(rootCandidate)) {
+      return rootCandidate;
+    }
+
+    const srcCandidate = join(packageRoot, 'src', relative);
+
+    if (existsSync(srcCandidate)) {
+      return srcCandidate;
+    }
+
+    return null;
   }
 
   private resolveTypeValue(typeInfo: TypeInfo): AnalyzerValue {
@@ -802,8 +853,8 @@ export class AstParser {
 
       if (isNonEmptyString(importSource)) {
         return {
-          __zipbul_ref: this.resolveOriginalName(typeInfo.typeName),
-          __zipbul_import_source: importSource,
+          [ZIPBUL_REF]: this.resolveOriginalName(typeInfo.typeName),
+          [ZIPBUL_IMPORT_SOURCE]: importSource,
         };
       }
 
@@ -815,7 +866,14 @@ export class AstParser {
 
   private extractClassMetadata(node: NodeRecord): Result<ClassMetadata, Diagnostic> {
     const id = this.asNode(node.id);
-    const className = id ? (this.getString(id, 'name') ?? 'Anonymous') : 'Anonymous';
+    const className = id ? (this.getString(id, 'name') ?? '') : '';
+
+    if (className.length === 0) {
+      return err(buildDiagnostic({
+        reason: 'Anonymous classes cannot be used as providers. All classes must have explicit names.',
+        file: this.currentFilePath,
+      }));
+    }
     const decoratorsValue = node.decorators;
     const decoratorValues = asAnalyzerArray(decoratorsValue);
     const decorators = decoratorValues
@@ -827,7 +885,7 @@ export class AstParser {
     const methods: ClassMetadata['methods'] = [];
     const properties: ClassMetadata['properties'] = [];
     let middlewares: ClassMetadata['middlewares'] = [];
-    let errorFilters: ClassMetadata['errorFilters'] = [];
+    let exceptionFilters: ClassMetadata['exceptionFilters'] = [];
     const body = this.asNode(node.body);
     const bodyValue = body?.body;
     const bodyItems = asAnalyzerArray(bodyValue);
@@ -912,13 +970,13 @@ export class AstParser {
 
               middlewares = mwResult;
 
-              const efResult = this.extractErrorFiltersFromConfigure(value);
+              const efResult = this.extractExceptionFiltersFromConfigure(value);
 
               if (isErr(efResult)) {
                 return efResult;
               }
 
-              errorFilters = efResult;
+              exceptionFilters = efResult;
             }
 
             if (methodDecorators.length > 0 || methodParams.some(param => param.decorators.length > 0)) {
@@ -1001,7 +1059,7 @@ export class AstParser {
         const baseName =
           expression?.type === 'Identifier' ? (this.getString(expression, 'name') ?? UNKNOWN_TYPE_NAME) : UNKNOWN_TYPE_NAME;
 
-        if (isNonEmptyString(baseName) && ['Partial', 'Pick', 'Omit', 'Required'].includes(baseName)) {
+        if (isNonEmptyString(baseName) && TS_UTILITY_TYPES.includes(baseName)) {
           const typeParameters = this.asNode(superClass.typeParameters);
           const params = typeParameters?.params;
           const typeArgs: string[] = [];
@@ -1049,7 +1107,7 @@ export class AstParser {
       const expression = impl ? this.asNode(impl.expression) : null;
       const expressionName = expression?.type === 'Identifier' ? this.getString(expression, 'name') : null;
 
-      if (isNonEmptyString(expressionName) && ['Partial', 'Pick', 'Omit'].includes(expressionName)) {
+      if (isNonEmptyString(expressionName) && TS_UTILITY_TYPES.includes(expressionName)) {
         const typeParameters = impl ? this.asNode(impl.typeParameters) : null;
         const params = typeParameters?.params;
         const typeArgs: string[] = [];
@@ -1096,15 +1154,15 @@ export class AstParser {
       properties,
       imports: {},
       middlewares,
-      errorFilters,
+      exceptionFilters,
     };
   }
 
-  private extractErrorFiltersFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['errorFilters'], Diagnostic> {
-    const errorFilters: ClassMetadata['errorFilters'] = [];
+  private extractExceptionFiltersFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['exceptionFilters'], Diagnostic> {
+    const exceptionFilters: ClassMetadata['exceptionFilters'] = [];
 
     const error = (): never => {
-      throw new Error('[Zipbul AOT] addErrorFilters는 리터럴 배열 + Identifier만 지원합니다.');
+      throw new Error('[Zipbul AOT] addErrorFilters only supports literal arrays and Identifiers.');
     };
 
     const visit = (n: AnalyzerValue): void => {
@@ -1155,7 +1213,7 @@ export class AstParser {
                 return;
               }
 
-              errorFilters.push({ name, index });
+              exceptionFilters.push({ name, index });
 
               continue;
             }
@@ -1191,18 +1249,18 @@ export class AstParser {
       visit(funcNode.body);
     } catch {
       return err(buildDiagnostic({
-        reason: 'addErrorFilters는 리터럴 배열 + Identifier만 지원합니다.',
+        reason: 'addErrorFilters only supports literal arrays and Identifiers.',
       }));
     }
 
-    return errorFilters;
+    return exceptionFilters;
   }
 
   private extractMiddlewaresFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['middlewares'], Diagnostic> {
     const middlewares: ClassMetadata['middlewares'] = [];
 
     const error = (): never => {
-      throw new Error('[Zipbul AOT] addMiddlewares는 리터럴 배열 + Identifier/withOptions만 지원합니다.');
+      throw new Error('[Zipbul AOT] addMiddlewares only supports literal arrays and Identifier/withOptions.');
     };
 
     const visit = (n: AnalyzerValue): void => {
@@ -1326,7 +1384,7 @@ export class AstParser {
       visit(funcNode.body);
     } catch {
       return err(buildDiagnostic({
-        reason: 'addMiddlewares는 리터럴 배열 + Identifier/withOptions만 지원합니다.',
+        reason: 'addMiddlewares only supports literal arrays and Identifier/withOptions.',
       }));
     }
 
@@ -1421,9 +1479,9 @@ export class AstParser {
             const valExpr = this.parseExpression(prop.value);
             const start = typeof prop.start === 'number' ? prop.start : 0;
 
-            obj[`__zipbul_computed_${start}`] = {
-              __zipbul_computed_key: keyExpr,
-              __zipbul_computed_value: valExpr,
+            obj[`${ZIPBUL_COMPUTED_PREFIX}${start}`] = {
+              [ZIPBUL_COMPUTED_KEY]: keyExpr,
+              [ZIPBUL_COMPUTED_VALUE]: valExpr,
             };
 
             continue;
@@ -1452,7 +1510,7 @@ export class AstParser {
           const el = this.asNode(elValue);
 
           if (el?.type === 'SpreadElement') {
-            return { __zipbul_spread: this.parseExpression(el.argument) };
+            return { [ZIPBUL_SPREAD]: this.parseExpression(el.argument) };
           }
 
           return this.parseExpression(elValue);
@@ -1469,8 +1527,8 @@ export class AstParser {
         const importSource = this.currentImports[name];
 
         return {
-          __zipbul_ref: this.resolveOriginalName(name),
-          __zipbul_import_source: importSource,
+          [ZIPBUL_REF]: this.resolveOriginalName(name),
+          [ZIPBUL_IMPORT_SOURCE]: importSource,
         };
       }
 
@@ -1486,7 +1544,7 @@ export class AstParser {
         const newCalleeName = this.getString(callee, 'name') ?? UNKNOWN_TYPE_NAME;
 
         return {
-          __zipbul_new: this.resolveOriginalName(newCalleeName),
+          [ZIPBUL_NEW]: this.resolveOriginalName(newCalleeName),
           args: args.map(arg => this.parseExpression(arg)),
         };
       }
@@ -1537,14 +1595,14 @@ export class AstParser {
             const refName = this.getString(argBody, 'name');
 
             if (isNonEmptyString(refName)) {
-              return { __zipbul_lazy_ref: this.resolveOriginalName(refName) };
+              return { [ZIPBUL_LAZY_REF]: this.resolveOriginalName(refName) };
             }
           }
         }
 
         return {
-          __zipbul_call: calleeName,
-          __zipbul_import_source: importSource,
+          [ZIPBUL_CALL]: calleeName,
+          [ZIPBUL_IMPORT_SOURCE]: importSource,
           args: args.map(arg => this.parseExpression(arg)),
         };
       }
@@ -1558,7 +1616,7 @@ export class AstParser {
         const injectCalls = this.extractFactoryInjectCalls(expr, start);
 
         return {
-          __zipbul_factory_code: factoryCode,
+          [ZIPBUL_FACTORY_CODE]: factoryCode,
           __zipbul_factory_deps: deps,
           __zipbul_factory_injects: injectCalls,
         };
@@ -1574,8 +1632,8 @@ export class AstParser {
           const importSource = this.currentImports[objName];
 
           return {
-            __zipbul_ref: `${this.resolveOriginalName(objName)}.${propName}`,
-            __zipbul_import_source: importSource,
+            [ZIPBUL_REF]: `${this.resolveOriginalName(objName)}.${propName}`,
+            [ZIPBUL_IMPORT_SOURCE]: importSource,
           };
         }
 
@@ -1586,10 +1644,15 @@ export class AstParser {
         return this.parseExpression(expr.expression);
 
       case 'SpreadElement':
-        return { __zipbul_spread: this.parseExpression(expr.argument) };
+        return { [ZIPBUL_SPREAD]: this.parseExpression(expr.argument) };
 
       default:
-        return null;
+        return {
+          [ZIPBUL_UNRESOLVABLE]: true,
+          nodeType: typeof expr.type === 'string' ? expr.type : 'unknown',
+          start: typeof expr.start === 'number' ? expr.start : undefined,
+          end: typeof expr.end === 'number' ? expr.end : undefined,
+        };
     }
   }
 
@@ -1879,44 +1942,51 @@ export class AstParser {
     }
 
     if (paramNode.type === 'AssignmentPattern') {
-      const node = paramNode.type === 'AssignmentPattern' ? this.asNode(paramNode.left) : paramNode;
+      const node = this.asNode(paramNode.left);
 
       if (node?.type !== 'Identifier') {
         return null;
       }
 
-      const name = this.getString(node, 'name');
+      return this.extractIdentifierParam(node, paramNode.decorators);
+    }
 
-      if (!isNonEmptyString(name)) {
-        return null;
-      }
-
-      const decoratorsValue = paramNode.decorators;
-      const decoratorValues = asAnalyzerArray(decoratorsValue);
-      const decorators = decoratorValues
-        ? decoratorValues
-            .map(value => this.extractDecorator(value))
-            .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
-        : [];
-      let typeInfo: TypeInfo = { typeName: 'any' };
-      const typeAnnotation = this.asNode(node.typeAnnotation);
-      const nestedTypeAnnotation = typeAnnotation ? this.asNode(typeAnnotation.typeAnnotation) : null;
-
-      if (nestedTypeAnnotation) {
-        typeInfo = this.typeResolver.resolve(nestedTypeAnnotation);
-      }
-
-      const typeValue = this.resolveTypeValue(typeInfo);
-
-      return {
-        name,
-        type: typeValue,
-        typeArgs: typeInfo.typeArgs,
-        decorators,
-      };
+    if (paramNode.type === 'Identifier') {
+      return this.extractIdentifierParam(paramNode, paramNode.decorators);
     }
 
     return null;
+  }
+
+  private extractIdentifierParam(identifierNode: NodeRecord, decoratorsValue: AnalyzerValue): ExtractedParam | null {
+    const name = this.getString(identifierNode, 'name');
+
+    if (!isNonEmptyString(name)) {
+      return null;
+    }
+
+    const decoratorValues = asAnalyzerArray(decoratorsValue);
+    const decorators = decoratorValues
+      ? decoratorValues
+          .map(value => this.extractDecorator(value))
+          .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
+      : [];
+    let typeInfo: TypeInfo = { typeName: 'any' };
+    const typeAnnotation = this.asNode(identifierNode.typeAnnotation);
+    const nestedTypeAnnotation = typeAnnotation ? this.asNode(typeAnnotation.typeAnnotation) : null;
+
+    if (nestedTypeAnnotation) {
+      typeInfo = this.typeResolver.resolve(nestedTypeAnnotation);
+    }
+
+    const typeValue = this.resolveTypeValue(typeInfo);
+
+    return {
+      name,
+      type: typeValue,
+      typeArgs: typeInfo.typeArgs,
+      decorators,
+    };
   }
 
   private asNode(value: AnalyzerValue): NodeRecord | null {

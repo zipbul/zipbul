@@ -1,6 +1,5 @@
 import type {
   ProviderToken,
-  Adapter,
   AdapterClass,
   Context,
   ZipbulContainer,
@@ -8,15 +7,21 @@ import type {
   ClassToken,
   ModuleMarker,
 } from '@zipbul/common';
-import { MiddlewareHook } from '@zipbul/common';
+import { ClusterStrategy, MiddlewareHook } from '@zipbul/common';
+import { Logger } from '@zipbul/logger';
 
 import { seal } from '@zipbul/baker';
 
+import { ClusterManager } from '../cluster/cluster-manager';
+import type { ClusterBaseWorker } from '../cluster/cluster-base-worker';
+import type { RpcCallable } from '../cluster/types';
 import { Container } from '../injector/container';
 import { runInitHooks, runDestroyHooks } from '../injector/lifecycle-runner';
 import { formatToken } from '../injector/token-resolver';
 import { getRuntimeContext } from '../runtime/runtime-context';
-import type { AdapterEntry, AddAdapterConfig, CreateApplicationOptions } from './interfaces';
+import type { AdapterEntry, AttachOptions, CreateApplicationOptions } from './interfaces';
+
+const APPLICATION_CONTEXT_TYPE = 'application';
 
 export class AppContext implements Context {
   readonly container: ZipbulContainer;
@@ -26,7 +31,7 @@ export class AppContext implements Context {
   }
 
   getType(): string {
-    return 'application';
+    return APPLICATION_CONTEXT_TYPE;
   }
 
   get(_key: string): ZipbulValue | undefined {
@@ -38,15 +43,22 @@ export class AppContext implements Context {
   }
 }
 
+type TestWorkerRpc = ClusterBaseWorker & Record<string, RpcCallable>;
+
 export class Application {
   private readonly container: Container;
+  private readonly logger = new Logger(Application.name);
   private readonly adapters: AdapterEntry[] = [];
+  private readonly clusterManagers: Array<ClusterManager<TestWorkerRpc>> = [];
+  private readonly options: CreateApplicationOptions;
   private startOrder: AdapterEntry[] = [];
   private started = false;
   private stopped = false;
+  private startPromise: Promise<void> | undefined;
 
-  constructor(container?: Container) {
+  constructor(container?: Container, options?: CreateApplicationOptions) {
     this.container = container ?? new Container();
+    this.options = options ?? {};
   }
 
   /**
@@ -89,25 +101,29 @@ export class Application {
   }
 
   /**
-   * Registers an adapter instance into the application.
+   * Attaches an adapter to the application.
    *
-   * When registering a single instance of a given adapter class, `config` (and `name`)
-   * may be omitted. When registering multiple instances of the same class, a unique
+   * Accepts the adapter class and its constructor options merged with
+   * framework-level registration options (`name`, `dependsOn`).
+   * When registering multiple instances of the same class, a unique
    * `name` is required on each to distinguish them.
    *
-   * @param adapter - The adapter instance to register.
-   * @param config - Optional configuration (name, dependsOn).
+   * @param adapterClass - The adapter class to instantiate and attach.
+   * @param options - Adapter constructor options merged with attach options.
    *
    * @public
    */
-  public addAdapter(adapter: Adapter, config?: AddAdapterConfig): void {
+  public attach<TAdapter extends AdapterClass>(
+    adapterClass: TAdapter,
+    options?: AttachOptions<TAdapter>,
+  ): InstanceType<TAdapter> {
     if (this.started) {
-      throw new Error('Cannot add adapter after application has started');
+      throw new Error('Cannot attach adapter after application has started');
     }
 
-    const adapterClass = adapter.constructor as AdapterClass;
-    const name = config?.name;
-    const dependsOn = config?.dependsOn ?? [];
+    const { name, dependsOn: dependsOnRaw, ...adapterOptions } = options ?? {} as AttachOptions<TAdapter>;
+    const dependsOn = dependsOnRaw ?? [];
+    const adapter = new adapterClass(Object.keys(adapterOptions).length > 0 ? adapterOptions : undefined);
 
     const existingWithSameClass = this.adapters.filter(
       (entry) => entry.adapterClass === adapterClass,
@@ -143,6 +159,8 @@ export class Application {
       name,
       dependsOn,
     });
+
+    return adapter as InstanceType<TAdapter>;
   }
 
   public async start(): Promise<void> {
@@ -151,8 +169,39 @@ export class Application {
     }
 
     this.started = true;
+    this.startPromise = this.executeStart();
+
+    try {
+      await this.startPromise;
+    } finally {
+      this.startPromise = undefined;
+    }
+  }
+
+  private async executeStart(): Promise<void> {
     const context = new AppContext(this.container);
     this.startOrder = this.topologicalSort();
+
+    // In worker mode, filter adapters to only those assigned to this group
+    const adapterFilter = this.resolveAdapterFilter();
+
+    if (adapterFilter !== undefined) {
+      this.startOrder = this.startOrder.filter(
+        (entry) => adapterFilter.has(entry.adapterClass.name),
+      );
+    }
+
+    // Cluster mode: master process spawns workers instead of starting adapters directly
+    const isWorker = getRuntimeContext().workerId !== undefined;
+    const workers = this.options.workers;
+    const isClusterMode = !isWorker && workers !== undefined && workers > 1;
+
+    if (isClusterMode) {
+      await this.startClusterMode(workers);
+
+      return;
+    }
+
     seal();
     await runInitHooks(this.container);
 
@@ -171,6 +220,18 @@ export class Application {
           }
         }
       }
+
+      if (config?.exceptionFilters !== undefined && config.exceptionFilters.length > 0) {
+        entry.adapter.addExceptionFilters(config.exceptionFilters);
+      }
+
+      if (config?.guards !== undefined && config.guards.length > 0) {
+        entry.adapter.addGuards(config.guards);
+      }
+    }
+
+    for (const entry of this.startOrder) {
+      entry.adapter.initializePipeline(this.container);
     }
 
     const started: AdapterEntry[] = [];
@@ -188,32 +249,185 @@ export class Application {
           // best-effort cleanup — suppress to preserve original error
         }
       }
+
+      try {
+        await runDestroyHooks(this.container);
+      } catch {
+        // best-effort cleanup — suppress to preserve original error
+      }
+
       this.stopped = true;
       throw error;
     }
   }
 
+  // ── Cluster Mode ──────────────────────────────────────────
+
+  private async startClusterMode(workerCount: number): Promise<void> {
+    if (process.platform !== 'linux') {
+      throw new Error(
+        `Cluster mode (workers: ${workerCount}) requires Linux. ` +
+        `${process.platform} does not support SO_REUSEPORT load balancing.`,
+      );
+    }
+
+    const groups = this.resolveWorkerGroups(workerCount);
+    const workerScript = this.resolveWorkerScript();
+    const runtimeCtx = getRuntimeContext();
+    const manifestPath = runtimeCtx.isAotRuntime === true ? this.resolveManifestPath() : undefined;
+    const preload = manifestPath !== undefined ? [manifestPath] : [];
+
+    for (const group of groups) {
+      const manager = new ClusterManager<TestWorkerRpc>(
+        { script: workerScript, size: group.workers },
+        {
+          adapterFilter: group.adapterNames,
+          preload,
+          smol: false,
+        },
+      );
+
+      this.clusterManagers.push(manager);
+
+      await manager.init();
+      await manager.bootstrap();
+      manager.startHealthCheck();
+    }
+
+    this.logger.info(`Cluster started: ${groups.length} group(s), ${groups.reduce((sum, g) => sum + g.workers, 0)} total workers`);
+  }
+
+  private resolveWorkerGroups(workerCount: number): ReadonlyArray<{ adapterNames: string[]; workers: number }> {
+    const explicitGroups = this.options.cluster;
+
+    if (explicitGroups !== undefined && explicitGroups.length > 0) {
+      return explicitGroups.map((group) => ({
+        adapterNames: group.adapters.map((cls) => cls.name),
+        workers: group.workers ?? 1,
+      }));
+    }
+
+    // Auto-grouping: Shared adapters → main group, Exclusive → exclusive group
+    const sharedAdapters: string[] = [];
+    const exclusiveAdapters: string[] = [];
+
+    for (const entry of this.adapters) {
+      if (entry.adapter.clusterStrategy === ClusterStrategy.Exclusive) {
+        exclusiveAdapters.push(entry.adapterClass.name);
+      } else {
+        sharedAdapters.push(entry.adapterClass.name);
+      }
+    }
+
+    const groups: Array<{ adapterNames: string[]; workers: number }> = [];
+
+    if (sharedAdapters.length > 0) {
+      groups.push({ adapterNames: sharedAdapters, workers: workerCount });
+    }
+
+    if (exclusiveAdapters.length > 0) {
+      groups.push({ adapterNames: exclusiveAdapters, workers: 1 });
+    }
+
+    return groups;
+  }
+
+  private resolveWorkerScript(): URL {
+    const runtimeCtx = getRuntimeContext();
+
+    if (runtimeCtx.isAotRuntime === true) {
+      const entryPath = Bun.argv[1] ?? '';
+      const entryDir = entryPath.lastIndexOf('/') >= 0 ? entryPath.slice(0, entryPath.lastIndexOf('/')) : '.';
+
+      return new URL(`file://${entryDir}/worker.js`);
+    }
+
+    return new URL('../cluster/application-worker.ts', import.meta.url);
+  }
+
+  private resolveManifestPath(): string {
+    const entryPath = Bun.argv[1] ?? '';
+    const entryDir = entryPath.lastIndexOf('/') >= 0 ? entryPath.slice(0, entryPath.lastIndexOf('/')) : '.';
+    const ext = entryPath.endsWith('.ts') ? '.ts' : '.js';
+
+    return `${entryDir}/runtime${ext}`;
+  }
+
+  /**
+   * In worker mode, reads adapter filter from RuntimeContext
+   * to determine which adapters this worker should start.
+   *
+   * @returns Set of adapter class names, or undefined if not in worker mode.
+   */
+  private resolveAdapterFilter(): Set<string> | undefined {
+    const runtimeCtx = getRuntimeContext();
+
+    if (runtimeCtx.workerId === undefined) {
+      return undefined;
+    }
+
+    const filter = runtimeCtx.adapterFilter;
+
+    if (filter === undefined || filter.length === 0) {
+      return undefined; // No filter = start all adapters
+    }
+
+    return new Set(filter);
+  }
+
+  /**
+   * Gracefully stops the application.
+   * Idempotent — safe to call multiple times or before start.
+   * Never throws — all errors are logged and swallowed.
+   *
+   * @public
+   */
   public async stop(): Promise<void> {
-    if (!this.started) {
-      throw new Error('Application has not been started');
+    if (!this.started || this.stopped) {
+      return;
+    }
+
+    if (this.startPromise !== undefined) {
+      try {
+        await this.startPromise;
+      } catch {
+        // start failed — cleanup already happened in executeStart
+      }
     }
 
     if (this.stopped) {
-      throw new Error('Application has already stopped');
+      return;
     }
 
     this.stopped = true;
+
+    // Cluster mode: destroy all ClusterManagers
+    for (const manager of this.clusterManagers) {
+      try {
+        await manager.destroy();
+      } catch (error) {
+        this.logger.error('ClusterManager destroy failed', error instanceof Error ? error : undefined);
+      }
+    }
+
+    this.clusterManagers.length = 0;
+
+    // Single-process mode: stop adapters directly
     const entries = [...this.startOrder].reverse();
 
     for (const entry of entries) {
-      await entry.adapter.stop();
+      try {
+        await entry.adapter.stop();
+      } catch (error) {
+        this.logger.error(`Adapter stop failed: ${entry.adapterClass.name}`, error instanceof Error ? error : undefined);
+      }
     }
 
-    await runDestroyHooks(this.container);
-  }
-
-  public attach(): void {
-    //
+    try {
+      await runDestroyHooks(this.container);
+    } catch (error) {
+      this.logger.error('Destroy hooks failed', error instanceof Error ? error : undefined);
+    }
   }
 
   /**
@@ -293,11 +507,11 @@ export class Application {
 
 function createApplication(
   _entryModuleMarker: ModuleMarker,
-  _options?: CreateApplicationOptions,
+  options?: CreateApplicationOptions,
 ): Application {
   const ctx = getRuntimeContext();
 
-  return new Application(ctx.container);
+  return new Application(ctx.container, options);
 }
 
 export { createApplication };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-// MUST: MUST-4 (모듈 경계 판정 deterministic)
+// MUST: MUST-4 (module boundary resolution deterministic)
 
 import type { ClassMetadata } from '../interfaces';
 import type { FileAnalysis } from './interfaces';
@@ -367,6 +367,208 @@ describe('ModuleGraph', () => {
     const graph = new ModuleGraph(fileMap, '__module__.ts');
 
     expect(() => graph.build()).toThrow(/Module marker must be exported/);
+  });
+
+  it('should throw when a provider token cannot be determined (A-7)', () => {
+    const modulePath = '/app/src/app/__module__.ts';
+    const fileMap = new Map<string, FileAnalysis>();
+
+    fileMap.set(modulePath, {
+      filePath: modulePath,
+      classes: [],
+      reExports: [],
+      exports: [],
+      imports: {},
+      defineModuleCalls: [
+        {
+          callee: 'defineModule',
+          importSource: '@zipbul/core',
+          args: [],
+          exportedName: 'appModule',
+        },
+      ],
+      moduleDefinition: {
+        name: 'AppModule',
+        providers: [42 as never],
+        imports: {},
+      },
+    });
+
+    const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+    expect(() => graph.build()).toThrow(/Cannot determine provider token/);
+  });
+
+  it('should throw when a provider is an unresolvable expression (A-7)', () => {
+    const modulePath = '/app/src/app/__module__.ts';
+    const fileMap = new Map<string, FileAnalysis>();
+
+    fileMap.set(modulePath, {
+      filePath: modulePath,
+      classes: [],
+      reExports: [],
+      exports: [],
+      imports: {},
+      defineModuleCalls: [
+        {
+          callee: 'defineModule',
+          importSource: '@zipbul/core',
+          args: [],
+          exportedName: 'appModule',
+        },
+      ],
+      moduleDefinition: {
+        name: 'AppModule',
+        providers: [{ __zipbul_unresolvable: true, nodeType: 'CallExpression' } as never],
+        imports: {},
+      },
+    });
+
+    const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+    expect(() => graph.build()).toThrow(/provider must be a class reference or provider object/);
+  });
+
+  it('should throw when two modules have the same name (F-4)', () => {
+    const moduleAPath = '/app/src/a/__module__.ts';
+    const moduleBPath = '/app/src/b/__module__.ts';
+    const fileMap = new Map<string, FileAnalysis>();
+
+    fileMap.set(
+      moduleAPath,
+      createModuleFileAnalysis({ filePath: moduleAPath, name: 'SharedName', exportedName: 'aModule' }),
+    );
+    fileMap.set(
+      moduleBPath,
+      createModuleFileAnalysis({ filePath: moduleBPath, name: 'SharedName', exportedName: 'bModule' }),
+    );
+
+    const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+    expect(() => graph.build()).toThrow(/Duplicate module name/);
+  });
+
+  it('should return all scoped keys from getAllRegisteredKeys()', () => {
+    const moduleAPath = '/app/src/a/__module__.ts';
+    const moduleBPath = '/app/src/b/__module__.ts';
+    const serviceAPath = '/app/src/a/a.service.ts';
+    const serviceBPath = '/app/src/b/b.service.ts';
+    const serviceCPath = '/app/src/b/c.service.ts';
+    const fileMap = new Map<string, FileAnalysis>();
+
+    fileMap.set(moduleAPath, createModuleFileAnalysis({ filePath: moduleAPath, name: 'AModule', exportedName: 'aModule' }));
+    fileMap.set(moduleBPath, createModuleFileAnalysis({ filePath: moduleBPath, name: 'BModule', exportedName: 'bModule' }));
+    fileMap.set(
+      serviceAPath,
+      createClassFileAnalysis({
+        filePath: serviceAPath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }),
+    );
+    fileMap.set(
+      serviceBPath,
+      createClassFileAnalysis({
+        filePath: serviceBPath,
+        classes: [createInjectableClassMetadata({ className: 'BService' })],
+      }),
+    );
+    fileMap.set(
+      serviceCPath,
+      createClassFileAnalysis({
+        filePath: serviceCPath,
+        classes: [createInjectableClassMetadata({ className: 'CService' })],
+      }),
+    );
+
+    const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+    graph.build();
+
+    const keys = graph.getAllRegisteredKeys();
+
+    expect(keys).toBeInstanceOf(Set);
+    expect(keys.has('AModule::AService')).toBe(true);
+    expect(keys.has('BModule::BService')).toBe(true);
+    expect(keys.has('BModule::CService')).toBe(true);
+    expect(keys.size).toBe(3);
+  });
+
+  it('should throw when useFactory inject tokens are invalid (H-1)', () => {
+    const modulePath = '/app/src/app/__module__.ts';
+    const fileMap = new Map<string, FileAnalysis>();
+
+    fileMap.set(modulePath, {
+      filePath: modulePath,
+      classes: [],
+      reExports: [],
+      exports: [],
+      imports: {},
+      defineModuleCalls: [
+        {
+          callee: 'defineModule',
+          importSource: '@zipbul/core',
+          args: [],
+          exportedName: 'appModule',
+        },
+      ],
+      moduleDefinition: {
+        name: 'AppModule',
+        providers: [
+          {
+            provide: 'ConfigService',
+            useFactory: {
+              __zipbul_factory_injects: [
+                { tokenKind: 'invalid', token: null },
+              ],
+            },
+          } as never,
+        ],
+        imports: {},
+      },
+    });
+
+    const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+    expect(() => graph.build()).toThrow(/inject\(\) token in useFactory of provider 'ConfigService'/);
+  });
+
+  it('should throw when useFactory inject token is null (H-1)', () => {
+    const modulePath = '/app/src/app/__module__.ts';
+    const fileMap = new Map<string, FileAnalysis>();
+
+    fileMap.set(modulePath, {
+      filePath: modulePath,
+      classes: [],
+      reExports: [],
+      exports: [],
+      imports: {},
+      defineModuleCalls: [
+        {
+          callee: 'defineModule',
+          importSource: '@zipbul/core',
+          args: [],
+          exportedName: 'appModule',
+        },
+      ],
+      moduleDefinition: {
+        name: 'AppModule',
+        providers: [
+          {
+            provide: 'DbService',
+            useFactory: {
+              __zipbul_factory_injects: [
+                { tokenKind: 'token', token: null },
+              ],
+            },
+          } as never,
+        ],
+        imports: {},
+      },
+    });
+
+    const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+    expect(() => graph.build()).toThrow(/inject\(\) token in useFactory of provider 'DbService'/);
   });
 });
 

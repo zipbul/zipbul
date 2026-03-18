@@ -1,41 +1,50 @@
-import type { ZipbulRecord, Class, Context, AdapterEntryDecorators } from '@zipbul/common';
-import { Adapter } from '@zipbul/common';
+import type { Class, Context, AdapterEntryDecorators, Result, Err } from '@zipbul/common';
+import { Adapter, isErr, err, safe } from '@zipbul/common';
+import { StatusCodes } from 'http-status-codes';
+import { Logger } from '@zipbul/logger';
 
 import {
-  ClusterManager,
   getRuntimeContext,
-  type ClusterBaseWorker,
   type ClassMetadata as CoreClassMetadata,
   type ConstructorParamMetadata as CoreConstructorParamMetadata,
   type DecoratorMetadata as CoreDecoratorMetadata,
 } from '@zipbul/core';
 import type {
-  HttpInternalChannel,
   HttpServerBootOptions,
   HttpServerOptions,
   HttpAdapterStartContext,
   InternalRouteHandler,
   InternalRouteEntry,
 } from './interfaces';
-import type { ClassMetadata, HttpWorkerRpc, MetadataRegistryKey, ParamTypeReference } from './types';
+import type { ClassMetadata, JsonValue, MetadataRegistryKey, ParamTypeReference, RequestBodyValue, ResponseBodyValue } from './types';
 
+import { HttpContext } from './http-context';
 import { HttpServer } from './http-server';
+import { HttpError } from './errors/http-error';
+import { HttpResponse } from './http-response';
+import { BadRequestError } from './errors/errors';
+import { BakerValidationError } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
+import type { RouteHandler } from './route-handler';
 
-const HTTP_INTERNAL = Symbol.for('zipbul:http:internal');
+
+interface ErrorResponseData {
+  readonly status: number;
+  readonly message?: string;
+  readonly errors?: readonly JsonValue[];
+}
 
 export class HttpAdapter extends Adapter {
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
-    handler: [Get, Post, Put, Delete, Patch, Options, Head],
+    handlers: [Get, Post, Put, Delete, Patch, Options, Head],
   };
 
-  private options: HttpServerOptions;
-  private clusterManager: ClusterManager<ClusterBaseWorker & HttpWorkerRpc> | undefined;
+  private readonly options: HttpServerOptions;
   private httpServer: HttpServer | undefined;
-
-  private [HTTP_INTERNAL]?: HttpInternalChannel;
+  private routeHandler: RouteHandler | undefined;
+  private readonly logger = new Logger('HttpAdapter');
 
   private internalRoutes: InternalRouteEntry[] = [];
 
@@ -43,101 +52,403 @@ export class HttpAdapter extends Adapter {
     super();
 
     const normalizedOptions: HttpServerOptions = {
+      name: 'zipbul-http',
+      logLevel: 'debug',
       port: 5000,
       bodyLimit: 10 * 1024 * 1024,
       trustProxy: false,
       ...options,
-      name: 'zipbul-http',
-      logLevel: 'debug',
     };
 
     this.options = normalizedOptions;
-
-    this[HTTP_INTERNAL] = {
-      get: (path: string, handler: InternalRouteHandler) => {
-        this.internalRoutes.push({ method: 'GET', path, handler });
-      },
-    };
   }
 
-  async start(context: Context): Promise<void> {
-    const startContext = this.toStartContext(context);
-    const workers = this.options.workers;
-    const isSingleProcess = workers === undefined || workers === 1;
+  /**
+   * Registers an internal route (e.g. for Scalar API docs).
+   *
+   * @param method - HTTP method (currently only 'GET' supported).
+   * @param path - Route path.
+   * @param handler - Route handler function.
+   * @public
+   */
+  registerInternalRoute(method: InternalRouteEntry['method'], path: string, handler: InternalRouteHandler): void {
+    this.internalRoutes.push({ method, path, handler });
+  }
 
-    const runtimeCtx = getRuntimeContext();
+  // ── Abstract hook implementations ─────────────────────────────
 
-    if (isSingleProcess) {
-      this.httpServer = new HttpServer();
+  /**
+   * Parses the HTTP request body from the raw Bun `Request`.
+   * Runs after `OnReceive` middlewares, before `PostParseData`.
+   *
+   * @param context - The HTTP context.
+   * @public
+   */
+  async parseInput(context: Context): Promise<void> {
+    const http = context.to(HttpContext);
+    const req = http.request;
+    const rawReq = http.rawRequest;
 
-      const runtimeContext = runtimeCtx;
-      const metadata = this.normalizeMetadataRegistry(runtimeContext.metadataRegistry);
-      const scopedKeys = runtimeContext.scopedKeys;
-      const bootOptions: HttpServerBootOptions = {
-        ...this.options,
-        ...(metadata !== undefined ? { metadata } : {}),
-        ...(scopedKeys !== undefined ? { scopedKeys } : {}),
-        errorFilters: this.errorFilterTokens,
-        internalRoutes: this.internalRoutes,
-      };
+    if (!rawReq) {
+      return;
+    }
 
-      await this.httpServer.boot(startContext.container, bootOptions, this);
+    const httpMethod = req.httpMethod;
+
+    if (
+      httpMethod === 'GET' ||
+      httpMethod === 'DELETE' ||
+      httpMethod === 'HEAD' ||
+      httpMethod === 'OPTIONS'
+    ) {
+      return;
+    }
+
+    const contentType = req.contentType ?? '';
+
+    if (contentType.includes('application/json')) {
+      try {
+        const parsed = await rawReq.json();
+
+        req.body = parsed as RequestBodyValue;
+      } catch {
+        throw new BadRequestError('Invalid JSON in request body');
+      }
+    } else {
+      req.body = await rawReq.text();
+    }
+  }
+
+  /**
+   * Matches the request to a route, runs scoped middlewares, and invokes the handler.
+   * Returns the handler's result as a `Result<unknown, unknown>`.
+   *
+   * @param context - The HTTP context.
+   * @returns The handler result (success value or `Err`).
+   * @public
+   */
+  async resolveHandler(context: Context): Promise<Result<unknown, unknown>> {
+    const http = context.to(HttpContext);
+    const req = http.request;
+    const res = http.response;
+    const method = req.httpMethod;
+    const path = req.path;
+
+    if (!this.routeHandler) {
+      return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Router not initialized' });
+    }
+
+    const matchResult = this.routeHandler.match(method, path);
+
+    if (!matchResult) {
+      return err({ status: StatusCodes.NOT_FOUND, message: `Route not found: ${method} ${path}` });
+    }
+
+    req.params = matchResult.params;
+
+    if (matchResult.value.exceptionFilters.length > 0) {
+      http.setRouteExceptionFilters(matchResult.value.exceptionFilters);
+    }
+
+    this.logger.debug(`Pipeline: mw=${matchResult.value.middlewares.length} guards=${matchResult.value.guards.length} filters=${matchResult.value.exceptionFilters.length}`);
+
+    const scopedResult = await this.runMiddlewares(matchResult.value.middlewares, context);
+
+    if (isErr(scopedResult)) {
+      return scopedResult;
+    }
+
+    // Route-level guards: after route middlewares, before param resolution
+    if (matchResult.value.guards.length > 0) {
+      for (const guard of matchResult.value.guards) {
+        const guardResult = await guard(context);
+
+        if (isErr(guardResult)) {
+          return guardResult;
+        }
+      }
+    }
+
+    this.logger.debug(`Matched Route: ${method}:${path}`);
+
+    const routeEntry = matchResult.value;
+    const handlerArgs = await safe(
+      routeEntry.paramFactory(req, res),
+      (thrown) => {
+        if (thrown instanceof BakerValidationError) {
+          return {
+            status: StatusCodes.BAD_REQUEST,
+            message: thrown.message,
+            errors: thrown.errors.map(fieldError => ({
+              path: fieldError.path,
+              code: fieldError.code,
+              ...(fieldError.message !== undefined ? { message: fieldError.message } : {}),
+            })),
+          };
+        }
+
+        throw thrown;
+      },
+    );
+
+    if (isErr(handlerArgs)) {
+      return handlerArgs;
+    }
+
+    const result = await routeEntry.handler(...handlerArgs);
+
+    return result;
+  }
+
+  /**
+   * Converts a `Result` into an HTTP response.
+   * On success, writes the handler's return value as the response body.
+   * On error, writes an error response with appropriate status code.
+   *
+   * @param result - The pipeline result.
+   * @param context - The HTTP context.
+   * @public
+   */
+  async handleResult(result: Result<unknown, unknown>, context: Context): Promise<void> {
+    const http = context.to(HttpContext);
+    const res = http.response;
+
+    if (res.isSent()) {
+      return;
+    }
+
+    if (isErr(result)) {
+      this.writeErrorResponse(res, result.data);
 
       return;
     }
 
-    // === Multi Process Mode (Cluster) ===
-    const entryModule = startContext.entryModule;
+    await this.writeSuccessResponse(res, result);
+  }
 
-    if (!entryModule) {
-      throw new Error('Entry Module not found in context. Cannot start Cluster Mode.');
+  /**
+   * Emergency connection teardown. Sets a 500 status on the response.
+   *
+   * @param context - The HTTP context.
+   * @public
+   */
+  forceCloseConnection(context: Context, error?: unknown): void {
+    if (error instanceof Error) {
+      this.logger.error(`forceCloseConnection: ${error.message}`, error);
     }
 
-    const script = this.resolveWorkerScript();
+    const http = context.to(HttpContext);
+    const res = http.response;
 
-    this.clusterManager = new ClusterManager<ClusterBaseWorker & HttpWorkerRpc>({
-      script,
-      size: workers,
-    });
+    if (!res.isSent()) {
+      res.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
+      res.setBody('Internal Server Error');
+    }
+  }
 
-    const sanitizedEntryModule = {
-      path: 'unknown',
-      className: entryModule.name,
+  /**
+   * Runs exception filters, checking route-level filters first, then global.
+   *
+   * @param error - The thrown error.
+   * @param context - The current execution context.
+   * @returns `Err<unknown>` to feed into `handleResult`.
+   * @public
+   */
+  override async runExceptionFilters(error: unknown, context: Context): Promise<Err<unknown>> {
+    const http = context.to(HttpContext);
+    const routeFilters = http.routeExceptionFilters;
+
+    if (routeFilters !== undefined) {
+      for (const entry of routeFilters) {
+        if (!this.matchesExceptionFilter(error, entry)) {
+          continue;
+        }
+
+        return await entry.handler(error, context);
+      }
+    }
+
+    return super.runExceptionFilters(error, context);
+  }
+
+  /**
+   * Stores the RouteHandler reference for use by `resolveHandler`.
+   * Called by HttpServer during boot.
+   *
+   * @param routeHandler - The route handler instance.
+   * @public
+   */
+  setRouteHandler(routeHandler: RouteHandler): void {
+    this.routeHandler = routeHandler;
+  }
+
+  // ── Lifecycle ──────────────────────────────────────────────
+
+  async start(context: Context): Promise<void> {
+    await Logger.runScoped(this.logger, () => this.startInternal(context));
+  }
+
+  private async startInternal(context: Context): Promise<void> {
+    const startContext = this.toStartContext(context);
+    const runtimeCtx = getRuntimeContext();
+
+    this.httpServer = new HttpServer();
+
+    const metadata = this.normalizeMetadataRegistry(runtimeCtx.metadataRegistry);
+    const scopedKeys = runtimeCtx.scopedKeys;
+    const bootOptions: HttpServerBootOptions = {
+      ...this.options,
+      ...(metadata !== undefined ? { metadata } : {}),
+      ...(scopedKeys !== undefined ? { scopedKeys } : {}),
+      internalRoutes: this.internalRoutes,
+      ...(runtimeCtx.handlerIndex !== undefined ? { handlerIndex: runtimeCtx.handlerIndex } : {}),
+      ...(runtimeCtx.controllerInstances !== undefined ? { controllerInstances: runtimeCtx.controllerInstances } : {}),
     };
-    const initParams: ZipbulRecord = {
-      entryModule: {
-        path: sanitizedEntryModule.path,
-        className: sanitizedEntryModule.className,
-      },
-      options: {
-        ...this.options,
-        errorFilters: this.errorFilterTokens,
-      },
-    };
 
-    await this.clusterManager.init(initParams);
-    await this.clusterManager.bootstrap();
+    await this.httpServer.boot(startContext.container, bootOptions, this);
   }
 
   async stop(): Promise<void> {
-    if (this.clusterManager !== undefined) {
-      await this.clusterManager.destroy();
+    if (this.httpServer !== undefined) {
+      this.httpServer.stop();
     }
   }
 
-  public getInternalChannel(): HttpInternalChannel | undefined {
-    return this[HTTP_INTERNAL];
+  /**
+   * Stops accepting new connections and waits for in-flight requests to complete.
+   * Uses Bun's built-in server.stop() drain mechanism with a timeout fallback.
+   *
+   * @param timeoutMs - Maximum time to wait before force-closing connections.
+   * @public
+   */
+  override async drain(timeoutMs: number): Promise<void> {
+    if (!this.httpServer) return;
+
+    const server = this.httpServer.getServer();
+
+    if (!server) return;
+
+    // server.stop() = graceful drain (waits for in-flight requests indefinitely)
+    // Promise.race with timeout to prevent infinite wait
+    await Promise.race([
+      server.stop(),
+      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
+
+    // If requests remain after timeout, force close
+    if (server.pendingRequests > 0 || server.pendingWebSockets > 0) {
+      server.stop(true);
+    }
   }
 
-  protected resolveWorkerScript(): URL {
-    const isAotRuntime = getRuntimeContext().isAotRuntime === true;
+  // ── Response writing ──────────────────────────────────────
 
-    if (isAotRuntime) {
-      return new URL('./http-worker.ts', import.meta.url);
+  private writeErrorResponse(res: HttpResponse, errorData: unknown): void {
+    if (errorData instanceof HttpError) {
+      const body: ResponseBodyValue = { statusCode: errorData.statusCode, message: errorData.message };
+      res.setStatus(errorData.statusCode);
+      res.setBody(body);
+
+      return;
     }
 
-    return new URL(Bun.argv[1] ?? '', 'file://');
+    if (this.isErrorResponseData(errorData)) {
+      const body: ResponseBodyValue = {
+        status: errorData.status,
+        message: String(errorData.message ?? 'Error'),
+        ...(errorData.errors !== undefined ? { errors: [...errorData.errors] } : {}),
+      };
+      res.setStatus(errorData.status);
+      res.setBody(body);
+
+      return;
+    }
+
+    const body: ResponseBodyValue = { statusCode: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Internal Server Error' };
+    res.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
+    res.setBody(body);
   }
+
+  /**
+   * Converts a successful handler result into an HTTP response.
+   *
+   * When the handler returns a raw `Response` object, this method extracts
+   * its status, headers, and body into the `HttpResponse` builder. This is
+   * an escape hatch that bypasses the normal `HttpResponse` build chain —
+   * use it when direct control over the raw response is required (e.g.
+   * streaming, SSE, or proxied responses).
+   *
+   * @param res - The HTTP response builder.
+   * @param result - The handler's return value.
+   */
+  private async writeSuccessResponse(res: HttpResponse, result: unknown): Promise<void> {
+    if (result instanceof Response) {
+      res.setStatus(result.status);
+
+      for (const [key, value] of result.headers.entries()) {
+        res.setHeader(key, value);
+      }
+
+      const arrayBuffer = await result.arrayBuffer();
+
+      if (arrayBuffer.byteLength > 0) {
+        res.setBody(new Uint8Array(arrayBuffer));
+      }
+
+      return;
+    }
+
+    if (result instanceof HttpResponse) {
+      return;
+    }
+
+    if (result === undefined || result === null) {
+      return;
+    }
+
+    if (typeof result === 'bigint') {
+      res.setBody(result.toString());
+
+      return;
+    }
+
+    if (this.isResponseBodyValue(result)) {
+      res.setBody(result);
+    }
+  }
+
+  private isResponseBodyValue(value: unknown): value is ResponseBodyValue {
+    if (value === null) {
+      return true;
+    }
+
+    const valueType = typeof value;
+
+    if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
+      return true;
+    }
+
+    if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
+      return true;
+    }
+
+    if (valueType === 'object') {
+      return true;
+    }
+
+    return false;
+  }
+
+  private isErrorResponseData(value: unknown): value is ErrorResponseData {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      'status' in value &&
+      typeof value.status === 'number'
+    );
+  }
+
+  // ── Internals ─────────────────────────────────────────────
 
   private toStartContext(context: Context): HttpAdapterStartContext {
     if (!this.isStartContext(context)) {
@@ -211,6 +522,6 @@ export class HttpAdapter extends Adapter {
   }
 
   private isClassToken(value: MetadataRegistryKey | Class): value is MetadataRegistryKey {
-    return typeof value === 'function' && value.length === 0;
+    return typeof value === 'function';
   }
 }

@@ -1,17 +1,21 @@
-import { RestController, Get, Post, Put, Delete, Body } from '@zipbul/http-adapter';
+import { inject, UseGuards } from '@zipbul/common';
+import { RestController, Get, Post, Put, Delete, Body, Param } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 
 import type { IdRouteParams } from '../interfaces';
 import type { ComplexCreateResponse, User } from './interfaces';
 
+import { authGuard } from '../guards/auth.guard';
 import { AddressDto } from './dto/address.dto';
 import { CreateUserComplexDto } from './dto/complex.dto';
 import { SocialDto } from './dto/social.dto';
+import { AuditService } from './audit.service';
 import { UsersService } from './users.service';
 
 @RestController('users')
 export class UsersController {
   private readonly logger = new Logger('UsersController');
+  private readonly auditService = inject(AuditService);
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
@@ -53,9 +57,9 @@ export class UsersController {
   }
 
   @Delete(':id')
-  delete(params: IdRouteParams): void {
-    const id = Number(params.id);
-
-    this.usersService.delete(id);
+  @UseGuards(authGuard)
+  delete(@Param('id') id: string): void {
+    this.auditService.logAction('delete', `userId=${id}`);
+    this.usersService.delete(Number(id));
   }
 }

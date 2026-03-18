@@ -1,8 +1,9 @@
 import { dirname, relative } from 'path';
 
 import type { Result } from '@zipbul/result';
-import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
+import type { AnalyzerValue } from '../analyzer/types';
 import type { Diagnostic } from '../../diagnostics/types';
+import type { HandlerIndexEntry, RouteRegistration } from '../analyzer/interfaces';
 import type {
   ManifestDiNode,
   ManifestJsonModel,
@@ -13,8 +14,14 @@ import type {
 } from './interfaces';
 
 import { isErr } from '@zipbul/result';
+import {
+  ZIPBUL_REF, ZIPBUL_LAZY_REF,
+  SCOPED_KEY_SEPARATOR,
+  SCOPE_SINGLETON, SCOPE_REQUEST, SCOPE_TRANSIENT,
+} from '@zipbul/common';
 import { type AdapterStaticSchema, type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint, PathResolver } from '../../common';
+import { isRecordValue, isAnalyzerValueArray } from '../analyzer/type-guards';
 import { ImportRegistry } from './import-registry';
 import { InjectorGenerator } from './injector-generator';
 import { MetadataGenerator } from './metadata-generator';
@@ -24,7 +31,7 @@ export class ManifestGenerator {
 
   private metadataGen = new MetadataGenerator();
 
-  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string): Result<string, Diagnostic> {
+  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string, handlerIndex: readonly HandlerIndexEntry[] = [], routeRegistrations: readonly RouteRegistration[] = []): Result<string, Diagnostic> {
     const registry = new ImportRegistry(outputDir);
     const sortedClasses = [...classes].sort((a, b) => {
       const nameDiff = compareCodePoint(a.metadata.className, b.metadata.className);
@@ -55,25 +62,66 @@ export class ManifestGenerator {
       const providerTokens = Array.from(node.providers.keys()).sort(compareCodePoint);
 
       providerTokens.forEach((token: string) => {
-        const providerDef = graph.classDefinitions.get(token);
-        const alias = providerDef ? registry.getAlias(providerDef.metadata.className, providerDef.filePath) : token;
+        const providerRef = node.providers.get(token);
+        const providerFilePath = providerRef?.filePath;
+        const fallbackDef = graph.classDefinitions.get(token);
+        const filePath = providerFilePath ?? fallbackDef?.filePath;
+        const alias = filePath ? registry.getAlias(token, filePath) : token;
 
-        scopedKeysEntries.push(`  map.set(${alias}, '${node.name}::${token}');`);
-        scopedKeysEntries.push(`  map.set('${token}', '${node.name}::${token}');`);
+        scopedKeysEntries.push(`  map.set(${alias}, '${node.name}${SCOPED_KEY_SEPARATOR}${token}');`);
       });
 
       const controllerNames = Array.from(node.controllers.values()).sort(compareCodePoint);
 
       controllerNames.forEach((ctrlName: string) => {
-        let alias = ctrlName;
+        const ctrlDef = graph.classDefinitions.get(ctrlName);
+        const alias = ctrlDef ? registry.getAlias(ctrlName, ctrlDef.filePath) : ctrlName;
+
+        scopedKeysEntries.push(`  map.set(${alias}, '${node.name}${SCOPED_KEY_SEPARATOR}${ctrlName}');`);
+      });
+    });
+
+    const controllerEntries: string[] = [];
+
+    sortedNodes.forEach((node: ModuleNode) => {
+      const controllerNames = Array.from(node.controllers.values()).sort(compareCodePoint);
+
+      controllerNames.forEach((ctrlName: string) => {
         const ctrlDef = graph.classDefinitions.get(ctrlName);
 
-        if (ctrlDef) {
-          alias = registry.getAlias(ctrlName, ctrlDef.filePath);
+        if (!ctrlDef) {
+          return;
         }
 
-        scopedKeysEntries.push(`  map.set(${alias}, '${node.name}::${ctrlName}');`);
-        scopedKeysEntries.push(`  map.set('${ctrlName}', '${node.name}::${ctrlName}');`);
+        const alias = registry.getAlias(ctrlName, ctrlDef.filePath);
+        const scopedKey = `${node.name}${SCOPED_KEY_SEPARATOR}${ctrlName}`;
+        const deps = ctrlDef.metadata.constructorParams.map(param => {
+          const refName = this.extractRefName(param.type);
+
+          if (typeof refName === 'string' && refName.length > 0) {
+            const targetModule = graph.classMap.get(refName);
+
+            if (targetModule) {
+              return `__container__.get('${targetModule.name}${SCOPED_KEY_SEPARATOR}${refName}')`;
+            }
+
+            return `__container__.get('${refName}')`;
+          }
+
+          if (typeof param.type === 'string' && param.type.length > 0) {
+            const targetModule = graph.classMap.get(param.type);
+
+            if (targetModule) {
+              return `__container__.get('${targetModule.name}${SCOPED_KEY_SEPARATOR}${param.type}')`;
+            }
+
+            return `__container__.get('${param.type}')`;
+          }
+
+          return 'undefined';
+        });
+
+        controllerEntries.push(`  factories.set('${scopedKey}', () => runInInjectionContext(__container__, () => new ${alias}(${deps.join(', ')})));`);
       });
     });
 
@@ -154,8 +202,28 @@ ${scopedKeysEntries.join('\n')}
 
 export const metadataRegistry = createMetadataRegistry();
 export const scopedKeysMap = createScopedKeysMap();
+export const handlerIndex = ${JSON.stringify(handlerIndex)} as const;
 
 const __container__ = createContainer();
+
+// Route-level pipeline registrations (middleware/filter/guard container keys)
+${this.generateRouteRegistrations(routeRegistrations, registry, graph)}
+
+function createControllerFactories() {
+  const factories = new Map();
+${controllerEntries.join('\n')}
+  return factories;
+}
+
+const __controllerFactories__ = createControllerFactories();
+
+function resolveControllerInstances() {
+  const instances = new Map();
+  for (const [key, factory] of __controllerFactories__) {
+    instances.set(key, factory());
+  }
+  return instances;
+}
 
 registerRuntimeContext({
   container: __container__,
@@ -163,9 +231,64 @@ registerRuntimeContext({
   scopedKeys: scopedKeysMap,
   isAotRuntime: true,
   adapterConfig,
+  handlerIndex,
+});
+
+registerRuntimeContext({
+  controllerInstances: resolveControllerInstances(),
 });
 
 `;
+  }
+
+  private generateRouteRegistrations(registrations: readonly RouteRegistration[], registry: ImportRegistry, graph: ModuleGraph): string {
+    if (registrations.length === 0) {
+      return '';
+    }
+
+    const allKeys = graph.getAllRegisteredKeys();
+    const lines: string[] = [];
+
+    for (const reg of registrations) {
+      const refName = this.extractRefName(reg.value);
+
+      // C-1: Validate middleware/filter/guard class is registered as a provider
+      if (refName !== undefined && graph.classDefinitions.has(refName)) {
+        const refModule = graph.classMap.get(refName);
+        const refScopedKey = refModule
+          ? `${refModule.name}${SCOPED_KEY_SEPARATOR}${refName}`
+          : refName;
+
+        if (!allKeys.has(refScopedKey)) {
+          throw new Error(`[Zipbul AOT] Class '${refName}' used in pipeline decorator is not registered as a provider. Add it to the module's providers array or decorate it with @Injectable().`);
+        }
+      }
+
+      const serialized = this.injectorGen.serializeValuePublic(reg.value, registry);
+      lines.push(`__container__.set('${reg.key}', () => ${serialized});`);
+    }
+
+    return lines.join('\n');
+  }
+
+  private extractRefName(value: AnalyzerValue): string | undefined {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return undefined;
+    }
+
+    if (!isRecordValue(value)) {
+      return undefined;
+    }
+
+    if (typeof value[ZIPBUL_REF] === 'string') {
+      return value[ZIPBUL_REF];
+    }
+
+    if (typeof value[ZIPBUL_LAZY_REF] === 'string') {
+      return value[ZIPBUL_LAZY_REF];
+    }
+
+    return undefined;
   }
 
   generateJson(params: ManifestJsonParams): string {
@@ -194,14 +317,6 @@ registerRuntimeContext({
     );
     const diNodes: ManifestDiNode[] = [];
 
-    const isRecordValue = (value: AnalyzerValue | ClassMetadata): value is AnalyzerValueRecord => {
-      return typeof value === 'object' && value !== null && !Array.isArray(value);
-    };
-
-    const isAnalyzerValueArray = (value: AnalyzerValue | undefined): value is AnalyzerValue[] => {
-      return Array.isArray(value);
-    };
-
     const extractTokenName = (token: ManifestProviderToken): string | undefined => {
       if (typeof token === 'string') {
         return token;
@@ -221,12 +336,12 @@ registerRuntimeContext({
 
       const record = token;
 
-      if (typeof record.__zipbul_ref === 'string') {
-        return record.__zipbul_ref;
+      if (typeof record[ZIPBUL_REF] === 'string') {
+        return record[ZIPBUL_REF];
       }
 
-      if (typeof record.__zipbul_lazy_ref === 'string') {
-        return record.__zipbul_lazy_ref;
+      if (typeof record[ZIPBUL_LAZY_REF] === 'string') {
+        return record[ZIPBUL_LAZY_REF];
       }
 
       return undefined;
@@ -249,16 +364,7 @@ registerRuntimeContext({
 
       if (isClassMetadata(metadata)) {
         return metadata.constructorParams
-          .map(param => {
-            const injectDec = param.decorators.find(d => d.name === 'Inject');
-            const injectArgs = injectDec?.arguments;
-
-            if (Array.isArray(injectArgs) && injectArgs.length > 0) {
-              return extractTokenName(injectArgs[0]);
-            }
-
-            return extractTokenName(param.type);
-          })
+          .map(param => extractTokenName(param.type))
           .filter((value): value is string => typeof value === 'string');
       }
 
@@ -272,15 +378,15 @@ registerRuntimeContext({
     };
 
     const normalizeScope = (scope: string | undefined): string => {
-      if (scope === 'request') {
-        return 'request';
+      if (scope === SCOPE_REQUEST) {
+        return SCOPE_REQUEST;
       }
 
-      if (scope === 'transient') {
-        return 'transient';
+      if (scope === SCOPE_TRANSIENT) {
+        return SCOPE_TRANSIENT;
       }
 
-      return 'singleton';
+      return SCOPE_SINGLETON;
     };
 
     sortedModules.forEach(node => {
@@ -296,7 +402,7 @@ registerRuntimeContext({
         const deps = extractDeps(provider.metadata).sort(compareCodePoint);
 
         diNodes.push({
-          id: `${node.name}::${token}`,
+          id: `${node.name}${SCOPED_KEY_SEPARATOR}${token}`,
           token,
           deps,
           scope: normalizeScope(provider.scope),

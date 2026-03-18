@@ -28,7 +28,7 @@ export class HttpRequest {
   constructor(req: HttpRequestInit) {
     const urlObj = new URL(req.url);
 
-    this.requestId = req.requestId ?? Math.random().toString(36).substring(7);
+    this.requestId = req.requestId ?? crypto.randomUUID();
     this.httpMethod = req.httpMethod;
     this.url = req.url;
     this.path = urlObj.pathname;

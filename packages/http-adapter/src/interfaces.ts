@@ -1,38 +1,32 @@
 import type {
   ApplicationOptions,
+  CompiledHandlerEntry,
   ZipbulContainer,
-  ExceptionFilter,
-  MiddlewareDefinition,
-  ZipbulValue,
+  ResolvedMiddleware,
+  ResolvedExceptionFilter,
   Class,
   Context,
-  ExceptionFilterToken,
   ProviderToken,
+  GuardHandlerFn,
 } from '@zipbul/common';
 
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
-import type { RouteHandlerParamType } from './decorators';
 import type {
   ClassMetadata,
-  ControllerConstructor,
   RouteHandlerArgument,
   RouteHandlerResult,
   HttpWorkerResponseBody,
   MetadataRegistryKey,
   RouteHandlerFunction,
-  RouteParamType,
   RouteParamValue,
-  SystemError,
 } from './types';
 
 export interface HttpServerOptions extends ApplicationOptions {
   readonly port?: number;
   readonly bodyLimit?: number;
   readonly trustProxy?: boolean;
-  readonly workers?: number;
   readonly reusePort?: boolean;
-  readonly errorFilters?: readonly ExceptionFilterToken[];
   readonly name?: string;
   readonly logLevel?: string;
 }
@@ -48,12 +42,12 @@ export interface InternalRouteEntry {
 }
 
 export interface HttpServerBootOptions extends HttpServerOptions {
-  readonly options?: HttpServerOptions;
   readonly metadata?: Map<MetadataRegistryKey, ClassMetadata>;
   readonly scopedKeys?: Map<ProviderToken, string>;
   readonly internalRoutes?: readonly InternalRouteEntry[];
-  readonly errorFilters?: readonly ExceptionFilterToken[];
-  readonly logger?: ZipbulValue;
+  readonly logger?: unknown;
+  readonly handlerIndex?: readonly CompiledHandlerEntry[];
+  readonly controllerInstances?: Map<string, unknown>;
 }
 
 export interface HttpAdapterStartContext extends Context {
@@ -61,36 +55,14 @@ export interface HttpAdapterStartContext extends Context {
   readonly entryModule?: Class;
 }
 
-export interface HttpInternalChannel {
-  get(path: string, handler: InternalRouteHandler): void;
-}
-
-export type HttpInternalHost = Record<symbol, HttpInternalChannel | undefined>;
-
-export interface WorkerInitParams {
-  rootModuleClassName: string;
-  options: WorkerOptions;
-}
-
-export interface WorkerOptions {}
-
 export interface HttpWorkerEntryModule {
-  readonly path?: string;
   readonly className: string;
   readonly manifestPath?: string;
-  readonly manifest?: HttpWorkerManifest;
 }
 
 export interface HttpWorkerInitParams {
   readonly entryModule: HttpWorkerEntryModule;
   readonly options: HttpServerOptions;
-}
-
-export interface HttpWorkerManifest {
-  createContainer(): ZipbulContainer;
-  createMetadataRegistry?(): Map<ControllerConstructor, ClassMetadata>;
-  createScopedKeysMap?(): Map<ProviderToken, string>;
-  registerDynamicModules?(container: ZipbulContainer): Promise<void> | void;
 }
 
 export interface HttpWorkerResponse {
@@ -100,17 +72,9 @@ export interface HttpWorkerResponse {
 
 export interface RouteHandlerEntry {
   readonly handler: RouteHandlerFunction;
-  readonly paramType: RouteHandlerParamType[];
-  readonly paramRefs: readonly RouteParamType[];
-  readonly controllerClass: ControllerConstructor | null;
   readonly methodName: string;
-  readonly middlewares: MiddlewareDefinition[];
-  readonly errorFilters: Array<ExceptionFilter<SystemError>>;
+  readonly middlewares: readonly ResolvedMiddleware[];
+  readonly exceptionFilters: readonly ResolvedExceptionFilter[];
+  readonly guards: readonly GuardHandlerFn[];
   readonly paramFactory: (req: HttpRequest, res: HttpResponse) => Promise<readonly RouteParamValue[]>;
-}
-
-export interface ArgumentMetadata {
-  type: 'body' | 'query' | 'param' | 'custom';
-  metatype?: RouteParamType;
-  data?: string;
 }

@@ -1,10 +1,7 @@
 import type {
-  ExceptionFilter,
   MiddlewareDefinition,
-  ZipbulValue,
   Class,
   ClassToken,
-  Context,
   PrimitiveArray,
   PrimitiveRecord,
   ProviderToken,
@@ -13,17 +10,12 @@ import type { CookieMap } from 'bun';
 
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
-import type { RouteHandlerEntry } from './interfaces';
 
-export type RouteKey = number;
+import type { HttpMethod } from '@zipbul/shared';
 
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS' | 'HEAD';
+export type { HttpMethod };
 
 export type HeadersInit = Headers | Array<[string, string]> | Record<string, string>;
-
-export type HttpWorkerRpcCallable = (...args: ReadonlyArray<ZipbulValue>) => ZipbulValue | Promise<ZipbulValue>;
-
-export type HttpWorkerRpc = Record<string, HttpWorkerRpcCallable>;
 
 export type RequestParamMap = Record<string, string | undefined>;
 
@@ -62,19 +54,6 @@ export interface HttpRequestInit {
   readonly ips?: string[];
 }
 
-export interface AdaptiveRequest {
-  httpMethod: HttpMethod;
-  url: string;
-  headers: HeadersInit;
-  body?: RequestBodyValue;
-  queryParams: RequestQueryMap;
-  params: RequestParamMap;
-  ip: string;
-  ips: string[];
-  isTrustedProxy: boolean;
-  query?: RequestQueryMap;
-}
-
 export type HttpWorkerResponseBody = string | Uint8Array | ArrayBuffer | null;
 
 export type RouteHandlerArgument =
@@ -92,37 +71,18 @@ export type RouteHandlerArgument =
 
 export type RouteHandlerResult = HttpResponse | Response | RequestBodyValue | bigint | null | undefined | void;
 
-export type RouteHandlerValue = RouteHandlerArgument;
-
 export type RouteHandlerFunction = (...args: readonly RouteHandlerArgument[]) => RouteHandlerResult | Promise<RouteHandlerResult>;
 
-export type ControllerInstance = Record<string, RouteHandlerValue | RouteHandlerFunction>;
+export type ControllerInstance = Record<string, RouteHandlerArgument | RouteHandlerFunction>;
 
 export type ContainerInstance =
-  | ZipbulValue
   | ControllerInstance
-  | ExceptionFilter
-  | RouteHandlerValue
+  | RouteHandlerArgument
   | RouteHandlerFunction
   | null
   | undefined;
 
 export type ControllerConstructor = Class<ControllerInstance>;
-
-export type HttpContextValue =
-  | HttpRequest
-  | HttpResponse
-  | RequestBodyValue
-  | RequestParamMap
-  | RequestQueryMap
-  | Headers
-  | CookieMap
-  | bigint
-  | symbol
-  | null
-  | undefined;
-
-export type HttpContextConstructor<TContext> = ClassToken<TContext>;
 
 export type MetadataRegistryKey = ClassToken;
 
@@ -154,8 +114,6 @@ export type DecoratorArgument =
 
 export type ParamTypeReference = ProviderToken;
 
-export type LazyParamTypeFactory = () => ParamTypeReference;
-
 export type RouteParamType = ParamTypeReference;
 
 export type RouteParamValue = RouteHandlerArgument;
@@ -175,62 +133,6 @@ export type RouteParamKind =
   | 'response'
   | 'res'
   | 'ip';
-
-export interface ErrorLike {
-  readonly name?: string;
-  readonly message?: string;
-  readonly stack?: string;
-}
-
-export type SystemError = Error | ErrorLike | string | number | boolean;
-
-export interface SystemErrorHandlerLike {
-  handle(error: SystemError, ctx: Context): void | Promise<void>;
-}
-
-export interface ErrorHandlingStageParams {
-  readonly error: SystemError;
-  readonly stage: string;
-  readonly allowBody: boolean;
-}
-
-export interface ErrorFilterRunParams {
-  readonly error: SystemError;
-  readonly ctx: Context;
-  readonly entry?: RouteHandlerEntry;
-}
-
-export interface ErrorFilterRunResult {
-  readonly originalError: SystemError;
-  readonly currentError: SystemError;
-}
-
-export interface ShouldCatchParams {
-  readonly error: SystemError;
-  readonly filter: ExceptionFilter<SystemError>;
-}
-
-export interface MatchCatchArgumentParams {
-  readonly error: SystemError;
-  readonly arg: DecoratorArgument;
-}
-
-export interface ResolveTokenOptions {
-  readonly strict?: boolean;
-}
-
-export interface ResolveTokenContext {
-  readonly strict: boolean;
-  readonly token: string;
-}
-
-export type MiddlewareOptions = Record<string, string | number | boolean | null | undefined>;
-
-export type DecoratorTarget = Record<string, string | number | boolean | symbol | null | undefined>;
-
-export type DecoratorPropertyKey = string | symbol;
-
-export type RouteDecoratorArgument = string | MiddlewareOptions | undefined;
 
 export interface DecoratorMetadata {
   readonly name: string;
@@ -260,11 +162,6 @@ export interface ClassMetadata {
   readonly decorators?: readonly DecoratorMetadata[];
   readonly methods?: readonly MethodMetadata[];
   readonly constructorParams?: readonly ConstructorParamMetadata[];
-}
-
-export interface MatchResult {
-  readonly entry: RouteHandlerEntry;
-  readonly params: Record<string, string | undefined>;
 }
 
 export interface InternalRouteDefinition {

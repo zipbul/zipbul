@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 
-// MUST: MUST-1 (createApplication 식별)
-// MUST: MUST-5 (DI cycle 존재 시 build failure)
+// MUST: MUST-1 (createApplication identification)
+// MUST: MUST-5 (DI cycle detection → build failure)
 
 import type { FileAnalysis } from '../analyzer/graph/interfaces';
 
+import { isErr } from '@zipbul/result';
 import { ModuleGraph } from '../analyzer/graph/module-graph';
 import { ImportRegistry } from './import-registry';
 import { InjectorGenerator } from './injector-generator';
@@ -113,6 +114,585 @@ describe('InjectorGenerator', () => {
 
       // Act & Assert
       expect(() => generator.generate(graph, registry)).not.toThrow();
+    });
+  });
+
+  describe('guard serialization', () => {
+    it('should serialize guards field when present in adapter module config', () => {
+      // Arrange
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [],
+          imports: {},
+          adapters: [
+            {
+              adapter: { __zipbul_ref: 'HttpAdapter', __zipbul_import_source: '@zipbul/http-adapter' },
+              name: 'http',
+              guards: [
+                { __zipbul_ref: 'AuthGuard', __zipbul_import_source: '/app/src/guards/auth-guard.ts' },
+              ],
+            },
+          ],
+        },
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Act
+      const result = generator.generate(graph, registry);
+
+      // Assert
+      if (isErr(result)) {
+        throw new Error('Expected successful generation');
+      }
+
+      expect(result).toContain("'guards':");
+    });
+
+    it('should not include guards in output when guards is absent', () => {
+      // Arrange
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [],
+          imports: {},
+          adapters: [
+            {
+              adapter: { __zipbul_ref: 'HttpAdapter', __zipbul_import_source: '@zipbul/http-adapter' },
+              name: 'http',
+              middlewares: [
+                { __zipbul_ref: 'LogMiddleware', __zipbul_import_source: '/app/src/middlewares/log.ts' },
+              ],
+            },
+          ],
+        },
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Act
+      const result = generator.generate(graph, registry);
+
+      // Assert
+      if (isErr(result)) {
+        throw new Error('Expected successful generation');
+      }
+
+      expect(result).not.toContain("'guards':");
+    });
+
+    it('should serialize guards alongside middlewares and exceptionFilters when all are present', () => {
+      // Arrange
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [],
+          imports: {},
+          adapters: [
+            {
+              adapter: { __zipbul_ref: 'HttpAdapter', __zipbul_import_source: '@zipbul/http-adapter' },
+              name: 'http',
+              middlewares: [
+                { __zipbul_ref: 'LogMiddleware', __zipbul_import_source: '/app/src/middlewares/log.ts' },
+              ],
+              exceptionFilters: [
+                { __zipbul_ref: 'HttpExceptionFilter', __zipbul_import_source: '/app/src/filters/http-exception.ts' },
+              ],
+              guards: [
+                { __zipbul_ref: 'AuthGuard', __zipbul_import_source: '/app/src/guards/auth-guard.ts' },
+              ],
+            },
+          ],
+        },
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Act
+      const result = generator.generate(graph, registry);
+
+      // Assert
+      if (isErr(result)) {
+        throw new Error('Expected successful generation');
+      }
+
+      expect(result).toContain("'middlewares':");
+      expect(result).toContain("'exceptionFilters':");
+      expect(result).toContain("'guards':");
+    });
+  });
+
+  describe('AOT validation', () => {
+    it('should throw when constructor dependency type cannot be statically determined (A-2)', () => {
+      // Arrange
+      const modulePath = '/app/src/app/__module__.ts';
+      const servicePath = '/app/src/app/my-service.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [],
+          imports: {},
+        },
+      });
+
+      fileMap.set(servicePath, {
+        filePath: servicePath,
+        classes: [
+          {
+            className: 'MyService',
+            decorators: [{ name: 'Injectable', arguments: [] }],
+            constructorParams: [
+              {
+                name: 'dep',
+                type: { someNonStringNonRefValue: true },
+                decorators: [],
+              },
+            ],
+            methods: [],
+            properties: [],
+            imports: {},
+          },
+        ],
+        reExports: [],
+        exports: ['MyService'],
+        imports: {},
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Act & Assert
+      expect(() => generator.generate(graph, registry)).toThrow(
+        'dependency type cannot be statically determined',
+      );
+    });
+
+    it('should throw when useClass references a class not found in classDefinitions (A-3)', () => {
+      // Arrange
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [
+            {
+              provide: 'SomeToken',
+              useClass: { __zipbul_ref: 'NonExistentClass', __zipbul_import_source: '/app/src/app/non-existent.ts' },
+            },
+          ],
+          imports: {},
+        },
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Act & Assert
+      expect(() => generator.generate(graph, registry)).toThrow(
+        'not found in any module',
+      );
+    });
+
+    it('should throw when useFactory code string is empty (A-6)', () => {
+      // Arrange
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [
+            {
+              provide: 'ConfigToken',
+              useFactory: {
+                __zipbul_factory_code: '',
+              },
+            },
+          ],
+          imports: {},
+        },
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Act & Assert
+      expect(() => generator.generate(graph, registry)).toThrow(
+        'could not be extracted',
+      );
+    });
+
+    it('should throw when useFactory inject list contains unresolvable token (A-8)', () => {
+      // Arrange
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [
+            {
+              provide: 'ConfigToken',
+              useFactory: {
+                __zipbul_factory_code: '() => 42',
+              },
+              inject: [{ notARef: true }],
+            },
+          ],
+          imports: {},
+        },
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Act & Assert
+      expect(() => generator.generate(graph, registry)).toThrow(
+        'could not be resolved',
+      );
+    });
+
+    it('should throw when constructor dependency class exists but is not registered as provider (A-1/H-2)', () => {
+      // Arrange
+      const modulePath = '/app/src/app/__module__.ts';
+      const servicePath = '/app/src/app/my-service.ts';
+      const depPath = '/app/src/app/unregistered-dep.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [],
+          imports: {},
+        },
+      });
+
+      fileMap.set(servicePath, {
+        filePath: servicePath,
+        classes: [
+          {
+            className: 'MyService',
+            decorators: [{ name: 'Injectable', arguments: [] }],
+            constructorParams: [
+              {
+                name: 'dep',
+                type: 'UnregisteredDep',
+                decorators: [],
+              },
+            ],
+            methods: [],
+            properties: [],
+            imports: {},
+          },
+        ],
+        reExports: [],
+        exports: ['MyService'],
+        imports: {},
+      });
+
+      fileMap.set(depPath, {
+        filePath: depPath,
+        classes: [
+          {
+            className: 'UnregisteredDep',
+            decorators: [],
+            constructorParams: [],
+            methods: [],
+            properties: [],
+            imports: {},
+          },
+        ],
+        reExports: [],
+        exports: ['UnregisteredDep'],
+        imports: {},
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Act & Assert
+      expect(() => generator.generate(graph, registry)).toThrow(
+        'is not registered in any module',
+      );
+    });
+
+    it('should throw when useExisting target class is not registered (A-4)', () => {
+      // Arrange
+      const modulePath = '/app/src/app/__module__.ts';
+      const depPath = '/app/src/app/unregistered-target.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [
+            {
+              provide: 'AliasToken',
+              useExisting: { __zipbul_ref: 'UnregisteredTarget', __zipbul_import_source: '/app/src/app/unregistered-target.ts' },
+            },
+          ],
+          imports: {},
+        },
+      });
+
+      fileMap.set(depPath, {
+        filePath: depPath,
+        classes: [
+          {
+            className: 'UnregisteredTarget',
+            decorators: [],
+            constructorParams: [],
+            methods: [],
+            properties: [],
+            imports: {},
+          },
+        ],
+        reExports: [],
+        exports: ['UnregisteredTarget'],
+        imports: {},
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Act & Assert
+      expect(() => generator.generate(graph, registry)).toThrow(
+        'is not registered in any module',
+      );
+    });
+
+    it('should throw when useFactory inject list references unregistered class (A-5)', () => {
+      // Arrange
+      const modulePath = '/app/src/app/__module__.ts';
+      const depPath = '/app/src/app/unregistered-dep.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [
+            {
+              provide: 'ConfigToken',
+              useFactory: {
+                __zipbul_factory_code: '(dep) => dep.getValue()',
+              },
+              inject: [{ __zipbul_ref: 'UnregisteredDep', __zipbul_import_source: '/app/src/app/unregistered-dep.ts' }],
+            },
+          ],
+          imports: {},
+        },
+      });
+
+      fileMap.set(depPath, {
+        filePath: depPath,
+        classes: [
+          {
+            className: 'UnregisteredDep',
+            decorators: [],
+            constructorParams: [],
+            methods: [],
+            properties: [],
+            imports: {},
+          },
+        ],
+        reExports: [],
+        exports: ['UnregisteredDep'],
+        imports: {},
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Act & Assert
+      expect(() => generator.generate(graph, registry)).toThrow(
+        'is not registered in any module',
+      );
     });
   });
 });

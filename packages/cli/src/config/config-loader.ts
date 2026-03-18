@@ -130,7 +130,7 @@ export class ConfigLoader {
 
     try {
       parsed = (format === 'jsonc' ? Bun.JSONC.parse(rawText) : JSON.parse(rawText)) as JsonValue;
-    } catch (_error) {
+    } catch {
       throw new ConfigLoadError('Invalid zipbul config: failed to parse json/jsonc.', sourcePath);
     }
 

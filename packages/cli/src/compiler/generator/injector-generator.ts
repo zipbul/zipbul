@@ -4,9 +4,19 @@ import type { ImportRegistry } from './import-registry';
 import type { Diagnostic } from '../../diagnostics';
 
 import { err, type Err } from '@zipbul/result';
+import {
+  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL,
+  ZIPBUL_FACTORY_CODE, ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
+  SCOPED_KEY_SEPARATOR,
+  SCOPE_SINGLETON, VISIBILITY_ALL, VISIBILITY_ALLOWLIST, VISIBILITY_MODULE,
+} from '@zipbul/common';
 import { type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint } from '../../common';
 import { buildDiagnostic } from '../../diagnostics';
+import { isRecordValue, isAnalyzerValueArray, isNonEmptyString, isUnresolvable } from '../analyzer/type-guards';
+import { Logger } from '@zipbul/logger';
+
+const logger = new Logger('InjectorGenerator');
 
 type RecordValue = AnalyzerValueRecord;
 
@@ -17,14 +27,6 @@ interface Replacement {
 }
 
 type GeneratorValue = AnalyzerValue | symbol | ((...args: readonly AnalyzerValue[]) => AnalyzerValue);
-
-const isAnalyzerValueArray = (value: AnalyzerValue): value is AnalyzerValue[] => {
-  return Array.isArray(value);
-};
-
-const isRecordValue = (value: GeneratorValue | ClassMetadata): value is AnalyzerValueRecord => {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-};
 
 const stableKey = (value: GeneratorValue, visited = new WeakSet<AnalyzerValueRecord>()): string => {
   if (value === null) {
@@ -52,7 +54,7 @@ const stableKey = (value: GeneratorValue, visited = new WeakSet<AnalyzerValueRec
   }
 
   if (isAnalyzerValueArray(value)) {
-    const parts = value.map(v => stableKey(v, visited));
+    const parts = value.map(val => stableKey(val, visited));
 
     return `[${parts.join(',')}]`;
   }
@@ -72,8 +74,8 @@ const stableKey = (value: GeneratorValue, visited = new WeakSet<AnalyzerValueRec
   visited.add(value);
 
   const record: AnalyzerValueRecord = value;
-  const entries = Object.entries(record).sort(([a], [b]) => compareCodePoint(a, b));
-  const parts = entries.map(([k, v]) => `${k}:${stableKey(v, visited)}`);
+  const entries = Object.entries(record).sort(([keyA], [keyB]) => compareCodePoint(keyA, keyB));
+  const parts = entries.map(([key, val]) => `${key}:${stableKey(val, visited)}`);
 
   return `{${parts.join(',')}}`;
 };
@@ -105,8 +107,8 @@ const getRefName = (value: AnalyzerValue): string | null => {
     return null;
   }
 
-  if (typeof record.__zipbul_ref === 'string') {
-    return record.__zipbul_ref;
+  if (typeof record[ZIPBUL_REF] === 'string') {
+    return record[ZIPBUL_REF];
   }
 
   return null;
@@ -119,15 +121,11 @@ const getLazyRefName = (value: AnalyzerValue): string | null => {
     return null;
   }
 
-  if (typeof record.__zipbul_lazy_ref === 'string') {
-    return record.__zipbul_lazy_ref;
+  if (typeof record[ZIPBUL_LAZY_REF] === 'string') {
+    return record[ZIPBUL_LAZY_REF];
   }
 
   return null;
-};
-
-const isNonEmptyString = (value: string | null | undefined): value is string => {
-  return typeof value === 'string' && value.length > 0;
 };
 
 const isClassMetadata = (value: AnalyzerValue | ClassMetadata): value is ClassMetadata => {
@@ -179,12 +177,14 @@ export class InjectorGenerator {
     };
 
     const serializeProviderOptions = (ref: { scope?: string; visibility?: string; visibleTo?: string[] }): string => {
-      const scope = ref.scope ?? 'singleton';
-      const visibleTo = ref.visibility === 'all' ? 'all' : ref.visibility === 'allowlist' && ref.visibleTo ? JSON.stringify(ref.visibleTo) : 'module';
+      const scope = ref.scope ?? SCOPE_SINGLETON;
+      const visibleTo = ref.visibility === VISIBILITY_ALL ? VISIBILITY_ALL : ref.visibility === VISIBILITY_ALLOWLIST && ref.visibleTo ? JSON.stringify(ref.visibleTo) : VISIBILITY_MODULE;
       const visibleToStr = typeof visibleTo === 'string' ? `'${visibleTo}'` : visibleTo;
 
       return `{ scope: '${scope}', visibleTo: ${visibleToStr} }`;
     };
+
+    const allKeys = graph.getAllRegisteredKeys();
 
     const sortedNodes = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));
 
@@ -205,7 +205,7 @@ export class InjectorGenerator {
           if (Object.prototype.hasOwnProperty.call(providerRecord, 'useValue')) {
             const val = this.serializeValue(providerRecord.useValue, registry);
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', () => ${val}, ${opts});`);
+            factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', () => ${val}, ${opts});`);
 
             return;
           }
@@ -217,23 +217,23 @@ export class InjectorGenerator {
               const className = getRefName(clsItem);
 
               if (className === null || className.length === 0) {
-                return 'undefined';
+                throw new Error(`[Zipbul AOT] useClass reference in provider '${token}' of module '${node.name}' could not be resolved. Ensure the class is a valid class reference.`);
               }
 
               const clsDef = graph.classDefinitions.get(className);
 
               if (clsDef === undefined) {
-                return 'undefined';
+                throw new Error(`[Zipbul AOT] useClass '${className}' in provider '${token}' of module '${node.name}' is not found in any module. Ensure the class exists and belongs to a module.`);
               }
 
               const alias = getAlias(clsDef.metadata.className, clsDef.filePath);
-              const deps = this.resolveConstructorDeps(clsDef.metadata, node, graph);
+              const deps = this.resolveConstructorDeps(clsDef.metadata, node, graph, allKeys);
 
               return `new ${alias}(${deps.join(', ')})`;
             });
             const factoryBody = Array.isArray(useClass) ? `[${instances.join(', ')}]` : instances[0];
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => { setInjectionContext(c); try { return ${factoryBody}; } finally { setInjectionContext(null); } }, ${opts});`);
+            factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => runInInjectionContext(c, () => ${factoryBody}), ${opts});`);
 
             return;
           }
@@ -241,21 +241,35 @@ export class InjectorGenerator {
           if (providerRecord.useExisting !== undefined) {
             const existingToken = this.serializeValue(providerRecord.useExisting, registry);
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => c.get(${existingToken}), ${opts});`);
+            // A-4: Validate useExisting target exists (class-based tokens only)
+            const existingRefName = getRefName(providerRecord.useExisting);
+
+            if (isNonEmptyString(existingRefName) && graph.classDefinitions.has(existingRefName)) {
+              const existingTargetModule = graph.classMap.get(existingRefName);
+              const existingScopedKey = existingTargetModule
+                ? `${existingTargetModule.name}${SCOPED_KEY_SEPARATOR}${existingRefName}`
+                : existingRefName;
+
+              if (!allKeys.has(existingScopedKey)) {
+                throw new Error(`[Zipbul AOT] useExisting target '${existingRefName}' in provider '${token}' of module '${node.name}' is not registered in any module.`);
+              }
+            }
+
+            factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => c.get(${existingToken}), ${opts});`);
 
             return;
           }
 
           if (providerRecord.useFactory !== undefined) {
-            const factoryRecord = asRecord(providerRecord.useFactory as AnalyzerValue);
-            let factoryFn = typeof factoryRecord?.__zipbul_factory_code === 'string' ? factoryRecord.__zipbul_factory_code : '';
+            const factoryRecord = asRecord(providerRecord.useFactory);
+            let factoryFn = typeof factoryRecord?.[ZIPBUL_FACTORY_CODE] === 'string' ? factoryRecord[ZIPBUL_FACTORY_CODE] : '';
             const deps =
               factoryRecord && isAnalyzerValueArray(factoryRecord.__zipbul_factory_deps)
                 ? factoryRecord.__zipbul_factory_deps
                 : [];
 
             if (factoryFn.length === 0) {
-              return;
+              throw new Error(`[Zipbul AOT] useFactory code for provider '${token}' in module '${node.name}' could not be extracted. Ensure the factory is a statically analyzable function expression.`);
             }
 
             const replacements: Replacement[] = [];
@@ -338,7 +352,7 @@ export class InjectorGenerator {
 
               if (start === null || end === null || tokenKind === 'invalid' || tokenValue === null) {
                 generateError = err(buildDiagnostic({
-                  reason: 'inject() 호출의 토큰을 정적으로 결정할 수 없습니다.',
+                  reason: 'Cannot statically determine the token for this inject() call.',
                 }));
 
                 return;
@@ -348,7 +362,7 @@ export class InjectorGenerator {
 
               if (!isNonEmptyString(tokenName)) {
                 generateError = err(buildDiagnostic({
-                  reason: 'inject() 호출의 토큰을 정적으로 결정할 수 없습니다.',
+                  reason: 'Cannot statically determine the token for this inject() call.',
                 }));
 
                 return;
@@ -359,8 +373,13 @@ export class InjectorGenerator {
               const resolvedKey = isNonEmptyString(resolvedToken)
                 ? resolvedToken
                 : targetModule
-                  ? `${targetModule.name}::${tokenName}`
+                  ? `${targetModule.name}${SCOPED_KEY_SEPARATOR}${tokenName}`
                   : tokenName;
+
+              // A-5: Validate factory inject() token exists (class-based tokens only)
+              if (graph.classDefinitions.has(tokenName) && !allKeys.has(resolvedKey)) {
+                throw new Error(`[Zipbul AOT] inject() token '${tokenName}' in useFactory of provider '${token}' in module '${node.name}' is not registered in any module.`);
+              }
 
               replacements.push({ start, end, content: `c.get('${resolvedKey}')` });
             });
@@ -380,15 +399,27 @@ export class InjectorGenerator {
               const tokenName = getRefName(injectItem);
 
               if (tokenName === null || tokenName.length === 0) {
-                return 'undefined';
+                throw new Error(`[Zipbul AOT] inject token in useFactory 'inject' list for provider '${token}' of module '${node.name}' could not be resolved. Ensure all inject tokens are valid class references or string tokens.`);
               }
 
               const resolved = graph.resolveToken(node.name, tokenName) ?? tokenName;
 
+              // A-5: Validate inject list token exists (class-based tokens only)
+              if (graph.classDefinitions.has(tokenName)) {
+                const targetModule = graph.classMap.get(tokenName);
+                const scopedKey = targetModule
+                  ? `${targetModule.name}${SCOPED_KEY_SEPARATOR}${tokenName}`
+                  : tokenName;
+
+                if (!allKeys.has(scopedKey) && !allKeys.has(resolved)) {
+                  throw new Error(`[Zipbul AOT] inject() token '${tokenName}' in useFactory 'inject' list of provider '${token}' in module '${node.name}' is not registered in any module.`);
+                }
+              }
+
               return `c.get('${resolved}')`;
             });
 
-            factoryEntries.push(`  container.set('${node.name}::${token}', (c) => {`);
+            factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => {`);
             factoryEntries.push(`    const factory = ${factoryFn};`);
             factoryEntries.push(`    return factory(${injectedArgs.join(', ')});`);
             factoryEntries.push(`  }, ${opts});`);
@@ -400,9 +431,9 @@ export class InjectorGenerator {
         if (isClassMetadata(ref.metadata)) {
           const clsMeta = ref.metadata;
           const alias = getAlias(clsMeta.className, ref.filePath);
-          const deps = this.resolveConstructorDeps(clsMeta, node, graph);
+          const deps = this.resolveConstructorDeps(clsMeta, node, graph, allKeys);
 
-          factoryEntries.push(`  container.set('${node.name}::${token}', (c) => { setInjectionContext(c); try { return new ${alias}(${deps.join(', ')}); } finally { setInjectionContext(null); } }, ${opts});`);
+          factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => runInInjectionContext(c, () => new ${alias}(${deps.join(', ')})), ${opts});`);
         }
       });
 
@@ -426,7 +457,7 @@ export class InjectorGenerator {
         factoryEntries.push('    }');
         factoryEntries.push('');
         factoryEntries.push(
-          `    const key = token ? '${node.name}::' + (typeof token === 'symbol' ? token.description : token) : null;`,
+          `    const key = token ? '${node.name}${SCOPED_KEY_SEPARATOR}' + (typeof token === 'symbol' ? token.description : token) : null;`,
         );
         factoryEntries.push('    if (key && factory) container.set(key, factory);');
         factoryEntries.push('  });');
@@ -444,7 +475,7 @@ export class InjectorGenerator {
             }
 
             const adapterRef = asRecord(itemRecord.adapter);
-            const adapterClassName = typeof adapterRef?.__zipbul_ref === 'string' ? adapterRef.__zipbul_ref : null;
+            const adapterClassName = typeof adapterRef?.[ZIPBUL_REF] === 'string' ? adapterRef[ZIPBUL_REF] : null;
             const nameValue = typeof itemRecord.name === 'string' ? itemRecord.name : null;
             const configKey = nameValue ?? adapterClassName;
 
@@ -458,8 +489,12 @@ export class InjectorGenerator {
               configParts.push(`'middlewares': ${this.serializeValue(itemRecord.middlewares, registry)}`);
             }
 
-            if (itemRecord.errorFilters !== undefined) {
-              configParts.push(`'errorFilters': ${this.serializeValue(itemRecord.errorFilters, registry)}`);
+            if (itemRecord.exceptionFilters !== undefined) {
+              configParts.push(`'exceptionFilters': ${this.serializeValue(itemRecord.exceptionFilters, registry)}`);
+            }
+
+            if (itemRecord.guards !== undefined) {
+              configParts.push(`'guards': ${this.serializeValue(itemRecord.guards, registry)}`);
             }
 
             if (configParts.length > 0) {
@@ -482,11 +517,11 @@ export class InjectorGenerator {
       dynamicImports.forEach(imp => {
         const impRecord = asRecord(imp);
 
-        if (impRecord === null || typeof impRecord.__zipbul_call !== 'string') {
+        if (impRecord === null || typeof impRecord[ZIPBUL_CALL] !== 'string') {
           return;
         }
 
-        const parts = impRecord.__zipbul_call.split('.');
+        const parts = impRecord[ZIPBUL_CALL].split('.');
         const className = parts[0];
         const methodName = parts[1];
 
@@ -494,8 +529,8 @@ export class InjectorGenerator {
           return;
         }
 
-        let callExpression = impRecord.__zipbul_call;
-        const importSource = asString(impRecord.__zipbul_import_source);
+        let callExpression = impRecord[ZIPBUL_CALL];
+        const importSource = asString(impRecord[ZIPBUL_IMPORT_SOURCE]);
 
         if (importSource === undefined) {
           return;
@@ -521,7 +556,7 @@ export class InjectorGenerator {
 
     return `
 import { Container } from "@zipbul/core";
-import { setInjectionContext } from "@zipbul/common";
+import { runInInjectionContext } from "@zipbul/common";
 
 export function createContainer() {
   const container = new Container();
@@ -537,6 +572,18 @@ export async function registerDynamicModules(container: { loadDynamicModule: (na
 ${dynamicEntries.join('\n')}
 }
 `;
+  }
+
+  /**
+   * Serializes an analyzer value to generated code string.
+   * Used by ManifestGenerator for route-level pipeline registrations.
+   *
+   * @param value - The analyzer value (identifier reference, literal, etc.)
+   * @param registry - The import registry for tracking required imports.
+   * @returns Generated code string.
+   */
+  serializeValuePublic(value: AnalyzerValue, registry: ImportRegistry): string {
+    return this.serializeValue(value, registry);
   }
 
   private serializeValue(value: AnalyzerValue, registry: ImportRegistry): string {
@@ -566,12 +613,12 @@ ${dynamicEntries.join('\n')}
       return 'undefined';
     }
 
-    if (typeof record.__zipbul_ref === 'string' && typeof record.__zipbul_import_source === 'string') {
-      return registry.getAlias(record.__zipbul_ref, record.__zipbul_import_source);
+    if (typeof record[ZIPBUL_REF] === 'string' && typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
+      return registry.getAlias(record[ZIPBUL_REF], record[ZIPBUL_IMPORT_SOURCE]);
     }
 
-    if (typeof record.__zipbul_call === 'string') {
-      const parts = record.__zipbul_call.split('.');
+    if (typeof record[ZIPBUL_CALL] === 'string') {
+      const parts = record[ZIPBUL_CALL].split('.');
       const className = parts[0];
       const methodName = parts[1];
 
@@ -579,8 +626,8 @@ ${dynamicEntries.join('\n')}
         return 'undefined';
       }
 
-      let callName = record.__zipbul_call;
-      const importSource = asString(record.__zipbul_import_source);
+      let callName = record[ZIPBUL_CALL];
+      const importSource = asString(record[ZIPBUL_IMPORT_SOURCE]);
 
       if (importSource !== undefined) {
         const alias = registry.getAlias(className, importSource);
@@ -599,10 +646,10 @@ ${dynamicEntries.join('\n')}
 
     const entries = Object.entries(record).sort(([a], [b]) => compareCodePoint(a, b));
     const props = entries.map(([key, entryValue]) => {
-      if (key.startsWith('__zipbul_computed_')) {
+      if (key.startsWith(ZIPBUL_COMPUTED_PREFIX)) {
         const computed = asRecord(entryValue) ?? {};
-        const keyContent = this.serializeValue(computed.__zipbul_computed_key, registry);
-        const valContent = this.serializeValue(computed.__zipbul_computed_value, registry);
+        const keyContent = this.serializeValue(computed[ZIPBUL_COMPUTED_KEY], registry);
+        const valContent = this.serializeValue(computed[ZIPBUL_COMPUTED_VALUE], registry);
 
         return `[${keyContent}]: ${valContent}`;
       }
@@ -613,9 +660,14 @@ ${dynamicEntries.join('\n')}
     return `{ ${props.join(', ')} }`;
   }
 
-  private resolveConstructorDeps(meta: ClassMetadata, node: ModuleNode, graph: ModuleGraph): string[] {
+  private resolveConstructorDeps(meta: ClassMetadata, node: ModuleNode, graph: ModuleGraph, allKeys: Set<string>): string[] {
     return meta.constructorParams.map(param => {
       let token: AnalyzerValue = param.type;
+
+      if (isUnresolvable(token)) {
+        throw new Error(`[Zipbul AOT] Constructor parameter '${param.name}' of '${meta.className}': dependency type must be a statically resolvable class reference. Found: ${token.nodeType} expression.`);
+      }
+
       const refName = getRefName(token);
       const lazyRefName = getLazyRefName(token);
 
@@ -625,40 +677,37 @@ ${dynamicEntries.join('\n')}
         token = lazyRefName;
       }
 
-      const injectDec = param.decorators.find(d => d.name === 'Inject');
-      const injectArgs = injectDec?.arguments;
-
-      if (Array.isArray(injectArgs) && injectArgs.length > 0) {
-        const arg = injectArgs[0];
-
-        if (typeof arg === 'string') {
-          token = arg;
-        } else {
-          const argRefName = getRefName(arg);
-          const argLazyRefName = getLazyRefName(arg);
-
-          if (isNonEmptyString(argRefName)) {
-            token = argRefName;
-          } else if (isNonEmptyString(argLazyRefName)) {
-            token = argLazyRefName;
-          }
-        }
-      }
-
       if (typeof token !== 'string') {
-        return 'undefined';
+        throw new Error(`[Zipbul AOT] Constructor parameter '${param.name}' of '${meta.className}': dependency type cannot be statically determined. Ensure the parameter has an explicit class type annotation.`);
       }
 
       const resolvedToken = graph.resolveToken(node.name, token);
 
       if (isNonEmptyString(resolvedToken)) {
+        // A-1/H-2: Validate constructor dep token exists (class-based tokens only)
+        if (graph.classDefinitions.has(token) && !allKeys.has(resolvedToken)) {
+          throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
+        }
+
         return `c.get('${resolvedToken}')`;
       }
 
       const targetModule = graph.classMap.get(token);
 
       if (targetModule) {
-        return `c.get('${targetModule.name}::${token}')`;
+        const scopedKey = `${targetModule.name}${SCOPED_KEY_SEPARATOR}${token}`;
+
+        // A-1/H-2: Validate constructor dep token exists (class-based tokens only)
+        if (graph.classDefinitions.has(token) && !allKeys.has(scopedKey)) {
+          throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
+        }
+
+        return `c.get('${scopedKey}')`;
+      }
+
+      // A-1/H-2: Validate bare token if it's a known class reference
+      if (graph.classDefinitions.has(token) && !allKeys.has(token)) {
+        throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
       }
 
       return `c.get('${token}')`;

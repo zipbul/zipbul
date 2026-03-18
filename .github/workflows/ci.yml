@@ -36,4 +36,4 @@ jobs:
         working-directory: packages/http-adapter
 
       - name: Lint
-        run: bunx oxlint --type-aware
+        run: bunx oxlint@1.48.0

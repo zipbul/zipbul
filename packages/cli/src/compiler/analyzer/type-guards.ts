@@ -1,0 +1,38 @@
+import { ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
+
+import type { AnalyzerValue, AnalyzerValueRecord } from './types';
+
+/**
+ * Record returned by `parseExpression` when the AST node type is not
+ * statically resolvable (e.g. ternary, tagged template, `await`).
+ * Carries source location so consumption sites can produce actionable diagnostics.
+ */
+export interface UnresolvableExpression extends AnalyzerValueRecord {
+  readonly [key: typeof ZIPBUL_UNRESOLVABLE]: true;
+  readonly nodeType: string;
+  readonly start: number | undefined;
+  readonly end: number | undefined;
+}
+
+export function isRecordValue(value: unknown): value is AnalyzerValueRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function isAnalyzerValueArray(value: unknown): value is AnalyzerValue[] {
+  return Array.isArray(value);
+}
+
+export function isNonEmptyString(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * Checks whether an analyzer value is an unresolvable expression marker
+ * produced by `parseExpression` for unsupported AST node types.
+ *
+ * @param value - The analyzer value to check.
+ * @returns `true` when the value is an {@link UnresolvableExpression} marker.
+ */
+export function isUnresolvable(value: unknown): value is UnresolvableExpression {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && ZIPBUL_UNRESOLVABLE in value;
+}

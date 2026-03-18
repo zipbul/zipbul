@@ -267,17 +267,13 @@ describe('RequestScopeContainer', () => {
   // -- set --
 
   describe('set', () => {
-    it('should delegate to parent.set with token and factory', () => {
+    it('should throw when attempting to register providers on request-scoped container', () => {
       // Arrange
       const token: Token = 'NewService';
       const factory = mock(() => ({ name: 'new' }));
 
-      // Act
-      container.set(token, factory);
-
-      // Assert
-      expect(mockParent.set).toHaveBeenCalledTimes(1);
-      expect(mockParent.set).toHaveBeenCalledWith(token, factory);
+      // Act & Assert
+      expect(() => container.set(token, factory)).toThrow('Cannot register providers on a request-scoped container');
     });
   });
 

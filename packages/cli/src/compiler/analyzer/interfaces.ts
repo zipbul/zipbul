@@ -20,7 +20,7 @@ export interface MiddlewareUsage {
   index: number;
 }
 
-export interface ErrorFilterUsage {
+export interface ExceptionFilterUsage {
   name: string;
   index: number;
 }
@@ -82,7 +82,7 @@ export interface ClassMetadata {
   properties: PropertyMetadata[];
   imports: Record<string, string>;
   middlewares?: MiddlewareUsage[] | undefined;
-  errorFilters?: ErrorFilterUsage[] | undefined;
+  exceptionFilters?: ExceptionFilterUsage[] | undefined;
 }
 
 export interface ImportEntry {
@@ -93,7 +93,7 @@ export interface ImportEntry {
 
 export interface AdapterEntryDecoratorsSchema {
   controller: string;
-  handler: string[];
+  handlers: string[];
 }
 
 export interface AdapterStaticSchema {
@@ -117,9 +117,40 @@ export interface AdapterStaticSchemaResult {
 
 export interface HandlerIndexEntry {
   id: string;
+  adapterId: string;
+  className: string;
+  controllerKey?: string;
+  methodName: string;
+  handlerDecorator: string;
+  handlerDecoratorArgs: readonly unknown[];
+  params: readonly HandlerParamEntry[];
+  middlewareKeys?: readonly string[];
+  exceptionFilterKeys?: readonly string[];
+  guardKeys?: readonly string[];
+}
+
+export interface HandlerParamEntry {
+  name: string;
+  decoratorName?: string;
+  decoratorArgs?: readonly unknown[];
+  metatypeKey?: string;
+}
+
+/**
+ * Maps a deterministic container key to the original AST value reference
+ * for route-level middleware/filter/guard registrations.
+ *
+ * All registrations use the same code pattern:
+ * `container.set(key, () => value)` — direct reference.
+ */
+export interface RouteRegistration {
+  readonly key: string;
+  readonly value: AnalyzerValue;
+  readonly kind: 'ref';
 }
 
 export interface AdapterResolution {
   adapterStaticSchemas: Record<string, AdapterStaticSchema>;
   handlerIndex: HandlerIndexEntry[];
+  routeRegistrations: RouteRegistration[];
 }
