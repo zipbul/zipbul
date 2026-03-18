@@ -1,13 +1,11 @@
 # TODO — 미완료 항목 (2026-03-18)
 
-## 1. E2E 검증
+## 1. CI
 
-### 클러스터 모드 (workers: 2+) 실환경 검증
+### CI 파이프라인에 `bun test` 스텝 추가
 
-- ClusterManager 통합 테스트 27건은 Worker RPC 레벨만 검증 — Bun.serve/reusePort/HTTP 요청 0건
-- `Application`에 `workers: 2+` 전달하여 실제 HTTP 요청 분배를 검증하는 E2E 테스트 없음
-- Linux 전용 (`application.ts:267-272`에서 non-Linux throw)
-- CI 파이프라인(`.github/workflows/ci.yml`)에 `bun test` 스텝 자체가 없음 — 빌드/린트만 실행
+- `.github/workflows/ci.yml`에 빌드/린트만 실행 — 테스트 미실행
+- 클러스터 E2E 포함 전체 테스트가 CI에서 돌아야 regression 감지 가능
 
 ## 2. AOT Build-Time Validation — 구조적 한계
 
