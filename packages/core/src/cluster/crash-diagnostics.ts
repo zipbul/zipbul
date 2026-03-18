@@ -93,9 +93,17 @@ export function extractCrashDiagnostics(input: Error | Event): CrashDiagnostics 
   }
 
   if (input instanceof MessageEvent) {
-    const dataSummary = typeof input.data === 'string'
-      ? input.data
-      : JSON.stringify(input.data) ?? 'unknown';
+    let dataSummary: string;
+
+    if (typeof input.data === 'string') {
+      dataSummary = input.data;
+    } else {
+      try {
+        dataSummary = JSON.stringify(input.data) ?? 'unknown';
+      } catch {
+        dataSummary = 'unserializable data';
+      }
+    }
 
     return {
       type: 'message-event',

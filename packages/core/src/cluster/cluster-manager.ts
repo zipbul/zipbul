@@ -847,9 +847,17 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
           const postGcStats = await slot.remote.getStatsAfterGC() as ClusterWorkerStats;
           const postGcAction = evaluateMemoryAction(postGcStats, slot.softMemoryLimit, slot.hardMemoryLimit);
 
+          slot.lastStats = postGcStats;
+
           if (postGcAction === MemoryAction.None) {
             this.logger.info(`Worker #${slot.id} soft limit recovered after GC: ${postGcStats.memory}/${slot.softMemoryLimit} bytes`);
-            slot.lastStats = postGcStats;
+
+            return;
+          }
+
+          if (postGcAction === MemoryAction.HardCrash) {
+            this.logger.error(`Worker #${slot.id} hard memory limit after GC: ${postGcStats.memory}/${slot.hardMemoryLimit} bytes`);
+            this.handleCrash('memory-hard', slot, new Error(`RSS ${postGcStats.memory} exceeds hard limit ${slot.hardMemoryLimit} after GC`));
 
             return;
           }
