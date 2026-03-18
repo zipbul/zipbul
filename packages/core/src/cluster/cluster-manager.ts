@@ -342,25 +342,41 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     return new Promise<void>((resolve, reject) => {
       const gen = slot.generation;
 
-      const check = () => {
+      // Use event listener instead of timer polling.
+      // clearSlotTimers() (called by transition()) only clears timers in slot.timers,
+      // not event listeners. Listeners are only removed by disposeSlot().
+      // This avoids the deadlock where the Spawning→Ready transition
+      // would cancel the very timer that detects it.
+      const onOpen = () => {
+        cleanup();
+
         if (slot.generation !== gen) {
           reject(new Error('Worker generation changed while waiting for open'));
           return;
         }
 
-        if (slot.state !== WorkerState.Spawning) {
-          resolve();
-          return;
-        }
-
-        // Polling timers are intentionally NOT tracked in slot.timers.
-        // They are short-lived (10ms) and self-terminate when state changes.
-        // Adding them to slot.timers would cause clearSlotTimers() during
-        // Spawning→Ready transition to cancel the very check that detects the transition.
-        setTimeout(check, 10);
+        resolve();
       };
 
-      check();
+      const onError = () => {
+        cleanup();
+        reject(new Error(`Worker #${slot.id} errored before open`));
+      };
+
+      const onClose = () => {
+        cleanup();
+        reject(new Error(`Worker #${slot.id} closed before open`));
+      };
+
+      const cleanup = () => {
+        slot.native?.removeEventListener('open', onOpen);
+        slot.native?.removeEventListener('error', onError);
+        slot.native?.removeEventListener('close', onClose);
+      };
+
+      slot.native!.addEventListener('open', onOpen, { once: true });
+      slot.native!.addEventListener('error', onError, { once: true });
+      slot.native!.addEventListener('close', onClose, { once: true });
     });
   }
 
