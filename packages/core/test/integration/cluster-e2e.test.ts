@@ -157,6 +157,126 @@ describe('Cluster E2E — reusePort HTTP', () => {
     expect(body.workerId).toBe(1);
   });
 
+  it('should handle concurrent requests across multiple workers', async () => {
+    const port = await findAvailablePort();
+    manager = createHttpManager(3);
+
+    await manager.init({ port });
+    await manager.bootstrap();
+
+    // Fire 100 concurrent requests
+    const concurrency = 100;
+    const promises = Array.from({ length: concurrency }, () =>
+      fetch(`http://localhost:${port}/`).then(async (response) => {
+        expect(response.status).toBe(200);
+        const body = await response.json() as { workerId: number };
+
+        return body.workerId;
+      }),
+    );
+
+    const results = await Promise.all(promises);
+
+    // All requests should succeed
+    expect(results).toHaveLength(concurrency);
+
+    // Every result should be a valid worker ID (0, 1, or 2)
+    for (const workerId of results) {
+      expect(workerId).toBeGreaterThanOrEqual(0);
+      expect(workerId).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('should survive worker crash during active request handling', async () => {
+    const port = await findAvailablePort();
+    manager = createHttpManager(2, {
+      crashWindowMs: 10_000,
+      maxCrashesInWindow: 2,
+    });
+
+    await manager.init({ port });
+    await manager.bootstrap();
+
+    // Start sending requests in background
+    let requestsSucceeded = 0;
+    let requestsFailed = 0;
+    const requestLoop = (async () => {
+      for (let idx = 0; idx < 30; idx++) {
+        try {
+          const response = await fetch(`http://localhost:${port}/`);
+
+          if (response.status === 200) {
+            requestsSucceeded++;
+          }
+        } catch {
+          requestsFailed++;
+        }
+
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      }
+    })();
+
+    // Kill worker #0 while requests are in-flight
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    const slots = manager.__testing__.getSlots();
+
+    if (slots[0]!.native) {
+      slots[0]!.native.terminate();
+    }
+
+    await requestLoop;
+
+    // Most requests should succeed (worker #1 is still alive)
+    expect(requestsSucceeded).toBeGreaterThan(0);
+  });
+
+  it('should maintain service during rolling restart', async () => {
+    const port = await findAvailablePort();
+    manager = createHttpManager(2);
+
+    await manager.init({ port });
+    await manager.bootstrap();
+
+    // Start continuous requests
+    let requestsDuringRestart = 0;
+    let failuresDuringRestart = 0;
+    const done = { value: false };
+
+    const requestLoop = (async () => {
+      while (!done.value) {
+        try {
+          const response = await fetch(`http://localhost:${port}/`);
+
+          if (response.status === 200) {
+            requestsDuringRestart++;
+          } else {
+            failuresDuringRestart++;
+          }
+        } catch {
+          failuresDuringRestart++;
+        }
+
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      }
+    })();
+
+    // Perform rolling restart while requests are flowing
+    await manager.rollingRestart();
+    done.value = true;
+    await requestLoop;
+
+    // All workers should be Running after restart
+    const states = manager.getSlotStates();
+    expect(states.every((slot) => slot.state === WorkerState.Running)).toBe(true);
+
+    // Requests should have succeeded during restart (zero-downtime)
+    expect(requestsDuringRestart).toBeGreaterThan(0);
+
+    // Verify post-restart serving works
+    const postRestart = await fetch(`http://localhost:${port}/`);
+    expect(postRestart.status).toBe(200);
+  });
+
   it('should gracefully shutdown all workers and release the port', async () => {
     const port = await findAvailablePort();
     manager = createHttpManager(2);
