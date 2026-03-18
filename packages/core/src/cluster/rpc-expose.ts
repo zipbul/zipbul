@@ -33,11 +33,16 @@ function isRpcMessage(value: RecordCandidate): value is RPCMessage {
  */
 function serializeError(error: unknown): RPCErrorPayload {
   if (error instanceof Error) {
-    return {
+    const payload: RPCErrorPayload = {
       message: error.message,
       name: error.name,
-      stack: error.stack,
     };
+
+    if (error.stack !== undefined) {
+      payload.stack = error.stack;
+    }
+
+    return payload;
   }
 
   return {

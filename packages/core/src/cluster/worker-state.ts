@@ -15,7 +15,7 @@ const logger = new Logger('WorkerState');
  *
  *
  */
-const VALID_TRANSITIONS: ReadonlyMap<WorkerState, ReadonlySet<WorkerState>> = new Map([
+const VALID_TRANSITIONS = new Map<WorkerState, ReadonlySet<WorkerState>>([
   [WorkerState.Spawning, new Set([
     WorkerState.Ready,
     WorkerState.Crashed,

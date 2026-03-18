@@ -11,13 +11,16 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./worker": "./src/cluster/application-worker.ts"
+    "./worker": {
+      "bun": "./src/cluster/application-worker.ts",
+      "default": "./dist/src/cluster/application-worker.js"
+    }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --minify-syntax --minify-whitespace && tsc -p tsconfig.build.json"
+    "build": "bun build index.ts src/cluster/application-worker.ts --outdir dist --target bun --format esm --packages external --minify-syntax --minify-whitespace && tsc -p tsconfig.build.json"
   },
   "repository": {
     "type": "git",

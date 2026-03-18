@@ -1,4 +1,4 @@
-import { inject, UseMiddlewares, UseExceptionFilters } from '@zipbul/common';
+import { inject, UseMiddlewares, UseExceptionFilters, err } from '@zipbul/common';
 import { RestController, Post, Get, Body } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 
@@ -22,7 +22,7 @@ export class BillingController {
     this.auditService.logAction('charge', `amount=${amount}`);
 
     if (amount <= 0) {
-      throw new Error('Invalid amount');
+      return err({ status: 400, message: 'Invalid amount' });
     }
 
     if (amount > 1000) {

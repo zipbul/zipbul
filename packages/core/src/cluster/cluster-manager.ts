@@ -64,7 +64,7 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
   private readonly logger = new Logger(ClusterManager.name);
   private readonly reviveControllers = new Map<number, AbortController>();
   private readonly config: Required<Omit<ClusterManagerConfig, 'adapterFilter' | 'memoryLimitBytes'>>
-    & Pick<ClusterManagerConfig, 'adapterFilter' | 'memoryLimitBytes'>;
+    & { readonly adapterFilter: readonly string[] | undefined; readonly memoryLimitBytes: number | undefined };
   private readonly circuitBreaker: GroupCircuitBreaker;
 
   destroying = false;
@@ -228,7 +228,6 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
 
   private spawnWorker(slot: ClusterWorkerSlot<T>): void {
     const native = new Worker(this.script.href, {
-      env: Bun.env,
       smol: this.config.smol,
       preload: [...this.config.preload],
     });

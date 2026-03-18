@@ -27,10 +27,12 @@ class ApplicationWorker extends ClusterBaseWorker {
 
     // Register worker context so Application.start() can detect worker mode
     // and filter adapters without relying on environment variables.
-    registerRuntimeContext({
-      workerId,
-      adapterFilter: parseAdapterFilter(adapterFilter),
-    });
+    const parsedFilter = parseAdapterFilter(adapterFilter);
+    const workerContext = parsedFilter !== undefined
+      ? { workerId, adapterFilter: parsedFilter }
+      : { workerId };
+
+    registerRuntimeContext(workerContext);
 
     if (!isRecord(params)) {
       throw new Error('ApplicationWorker requires init params with appEntryPath');

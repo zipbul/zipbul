@@ -4,15 +4,23 @@
 
 set -e
 
-PORT=5099
+PORT=5000
 PASS=0
 FAIL=0
 APP_PID=""
 
 cleanup() {
+  # Kill the known app process
   if [ -n "$APP_PID" ]; then
     kill "$APP_PID" 2>/dev/null || true
     wait "$APP_PID" 2>/dev/null || true
+  fi
+
+  # Ensure no processes remain on the test port (prevents orphans across runs)
+  local stale
+  stale=$(lsof -i :"$PORT" -t 2>/dev/null || true)
+  if [ -n "$stale" ]; then
+    echo "$stale" | xargs kill -9 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -20,10 +28,19 @@ trap cleanup EXIT
 echo "=== Zipbul E2E Tests ==="
 echo ""
 
-# --- Build AOT ---
-echo "[setup] Building AOT..."
 cd "$(dirname "$0")"
-PORT=$PORT bun .zipbul/entry.ts &
+
+# --- Kill any stale processes on the test port ---
+STALE_PIDS=$(lsof -i :"$PORT" -t 2>/dev/null || true)
+if [ -n "$STALE_PIDS" ]; then
+  echo "[setup] Killing stale processes on :$PORT"
+  echo "$STALE_PIDS" | xargs kill -9 2>/dev/null || true
+  sleep 1
+fi
+
+# --- Start app ---
+echo "[setup] Starting app..."
+bun dist/entry.js &
 APP_PID=$!
 sleep 3
 
@@ -129,12 +146,18 @@ assert_status "Billing charge with AuditService" "200" POST "/billing/charge" '{
 # ═══════════════════════════════════════════════════════
 echo "[TODO 3] Graceful shutdown"
 kill "$APP_PID" 2>/dev/null || true
-wait "$APP_PID" 2>/dev/null || true
-sleep 1
+
+# Poll until process is actually dead (max 5s)
+for i in $(seq 1 50); do
+  if ! kill -0 "$APP_PID" 2>/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
 APP_PID=""
 
 # After stop, server should not respond
-STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "http://localhost:$PORT/posts" 2>/dev/null || echo "000")
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 "http://localhost:$PORT/posts" 2>/dev/null) || STATUS="000"
 if [ "$STATUS" = "000" ]; then
   echo "  [PASS] Server stopped after app.stop()"
   PASS=$((PASS + 1))
