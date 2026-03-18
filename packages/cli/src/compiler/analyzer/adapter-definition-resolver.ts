@@ -31,6 +31,19 @@ const logger = new Logger('AdapterDefinitionResolver');
 
 const VALID_HOOKS = new Set<string>(Object.values(MiddlewareHook));
 
+/** Primitive TS type names that cannot be deserialized as a DTO class. */
+const PRIMITIVE_TYPE_NAMES = new Set(['string', 'number', 'boolean', 'any', 'object', 'array', 'void', 'undefined', 'null', 'never', 'unknown']);
+
+/** Body-like decorators that expect a class type for deserialization. */
+const BODY_LIKE_DECORATORS = new Set(['Body', 'Query']);
+
+/** Parameter names recognized at runtime by normalizeParamKind (case-insensitive). */
+const KNOWN_PARAM_NAMES = new Set([
+  'body', 'param', 'params', 'query', 'queries',
+  'header', 'headers', 'cookie', 'cookies',
+  'request', 'req', 'response', 'res', 'ip',
+]);
+
 export class AdapterDefinitionResolver {
   private parser = new AstParser();
 
@@ -602,6 +615,27 @@ export class AdapterDefinitionResolver {
 
               const paramDec = param.decorators[0];
               const metatypeKey = typeof param.type === 'string' ? param.type : undefined;
+
+              // E-2: Warn when body-like decorator is used with a primitive type
+              if (paramDec !== undefined && BODY_LIKE_DECORATORS.has(paramDec.name) && metatypeKey !== undefined && PRIMITIVE_TYPE_NAMES.has(metatypeKey.toLowerCase())) {
+                logger.warn(`[Zipbul AOT] Parameter '${param.name}' in '${cls.className}.${method.name}' uses @${paramDec.name}() with primitive type '${metatypeKey}'. Deserialization will be skipped at runtime. Use a DTO class for structured data.`);
+              }
+
+              // E-3: Warn when metatypeKey looks like a class name but is not in any analyzed file
+              if (metatypeKey !== undefined && !PRIMITIVE_TYPE_NAMES.has(metatypeKey.toLowerCase())) {
+                const classExists = Array.from(fileMap.values()).some(
+                  (fa) => fa.classes.some((c) => c.className === metatypeKey),
+                );
+
+                if (!classExists) {
+                  logger.warn(`[Zipbul AOT] Type '${metatypeKey}' used in '${cls.className}.${method.name}' parameter '${param.name}' was not found in any analyzed file. Deserialization will be skipped at runtime.`);
+                }
+              }
+
+              // E-4: Warn when parameter has no decorator and name doesn't match any known param kind
+              if (paramDec === undefined && !KNOWN_PARAM_NAMES.has(param.name.toLowerCase())) {
+                logger.warn(`[Zipbul AOT] Parameter '${param.name}' in '${cls.className}.${method.name}' has no decorator and its name does not match any known param kind. It will receive undefined at runtime.`);
+              }
 
               params.push({
                 name: param.name,
