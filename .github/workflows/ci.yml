@@ -36,7 +36,7 @@ jobs:
         working-directory: packages/http-adapter
 
       - name: Lint
-        run: bunx oxlint
+        run: bunx oxlint@1.48.0
 
       - name: Test
         run: bun test
