@@ -19,6 +19,8 @@ const init: RpcCallable = async (...args: RpcArgs) => {
   workerId = typeof args[0] === 'number' ? args[0] : 0;
   const params = args.length > 1 && isRecord(args[1]) ? args[1] : {};
   const port = typeof params.port === 'number' ? params.port : 0;
+  const crashAfterMs = typeof params.crashAfterMs === 'number' ? params.crashAfterMs : undefined;
+  const crashWorkerId = typeof params.crashWorkerId === 'number' ? params.crashWorkerId : undefined;
 
   server = Bun.serve({
     port,
@@ -29,6 +31,10 @@ const init: RpcCallable = async (...args: RpcArgs) => {
       });
     },
   });
+
+  if (crashAfterMs !== undefined && (crashWorkerId === undefined || crashWorkerId === workerId)) {
+    setTimeout(() => process.exit(1), crashAfterMs);
+  }
 
   return null;
 };
