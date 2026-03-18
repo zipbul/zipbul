@@ -529,6 +529,15 @@ export class AdapterDefinitionResolver {
     const routeRegistrations: RouteRegistration[] = [];
     const seen = new Set<string>();
 
+    // E-3: Pre-build set of all known class names for metatypeKey validation
+    const knownClassNames = new Set<string>();
+
+    for (const fa of fileMap.values()) {
+      for (const cls of fa.classes) {
+        knownClassNames.add(cls.className);
+      }
+    }
+
     for (const analysis of fileMap.values()) {
       for (const cls of analysis.classes) {
         const controllerAdapterId = controllerAdapterMap.get(cls.className);
@@ -622,14 +631,8 @@ export class AdapterDefinitionResolver {
               }
 
               // E-3: Warn when metatypeKey looks like a class name but is not in any analyzed file
-              if (metatypeKey !== undefined && !PRIMITIVE_TYPE_NAMES.has(metatypeKey.toLowerCase())) {
-                const classExists = Array.from(fileMap.values()).some(
-                  (fa) => fa.classes.some((c) => c.className === metatypeKey),
-                );
-
-                if (!classExists) {
-                  logger.warn(`[Zipbul AOT] Type '${metatypeKey}' used in '${cls.className}.${method.name}' parameter '${param.name}' was not found in any analyzed file. Deserialization will be skipped at runtime.`);
-                }
+              if (metatypeKey !== undefined && !PRIMITIVE_TYPE_NAMES.has(metatypeKey.toLowerCase()) && !knownClassNames.has(metatypeKey)) {
+                logger.warn(`[Zipbul AOT] Type '${metatypeKey}' used in '${cls.className}.${method.name}' parameter '${param.name}' was not found in any analyzed file. Deserialization will be skipped at runtime.`);
               }
 
               // E-4: Warn when parameter has no decorator and name doesn't match any known param kind
