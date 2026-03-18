@@ -1,5 +1,12 @@
 # @zipbul/http-adapter
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [91f95b3]
+  - @zipbul/core@0.1.2
+
 ## 0.1.1
 
 ### Patch Changes
