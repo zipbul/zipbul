@@ -1,6 +1,5 @@
 import type {
   MiddlewareDefinition,
-  ZipbulValue,
   Class,
   ClassToken,
   PrimitiveArray,

@@ -1,4 +1,4 @@
-import type { ZipbulRecord, Class, Context, AdapterEntryDecorators, Result, Err } from '@zipbul/common';
+import type { Class, Context, AdapterEntryDecorators, Result, Err } from '@zipbul/common';
 import { Adapter, isErr, err, safe } from '@zipbul/common';
 import { StatusCodes } from 'http-status-codes';
 import { Logger } from '@zipbul/logger';
