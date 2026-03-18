@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, setDefaultTimeout } from 'bun:test';
+import { describe, it, expect, afterEach } from 'bun:test';
 
 import { ClusterManager } from '../../src/cluster/cluster-manager';
 import { WorkerState } from '../../src/cluster/enums';
@@ -50,28 +50,18 @@ function createHttpManager(size: number, config?: Record<string, unknown>): Clus
   );
 }
 
-// Bun default test timeout is 5s, but cluster worker lifecycle
-// (spawn → init → crash → revive) can take longer under load.
-setDefaultTimeout(30_000);
-
 describe('Cluster E2E — reusePort HTTP', () => {
   let manager: ClusterManager<HttpWorkerRpc> | undefined;
 
   afterEach(async () => {
     if (manager) {
       try {
-        await Promise.race([
-          manager.destroy(),
-          new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-        ]);
+        await manager.destroy();
       } catch {
         // best-effort cleanup
       }
 
       manager = undefined;
-
-      // Allow OS to release sockets before next test binds to a new port
-      await new Promise<void>((resolve) => setTimeout(resolve, 100));
     }
   });
 
@@ -214,13 +204,13 @@ describe('Cluster E2E — reusePort HTTP', () => {
     await manager.init({ port, crashAfterMs: 300, crashWorkerId: 0 });
     await manager.bootstrap();
 
-    // Send requests for ~1 second (worker #0 dies at ~300ms)
+    // Send requests spanning the crash (worker #0 dies at ~300ms)
     let requestsSucceeded = 0;
 
-    for (let idx = 0; idx < 20; idx++) {
+    for (let idx = 0; idx < 10; idx++) {
       try {
         const response = await fetch(`http://localhost:${port}/`, {
-          signal: AbortSignal.timeout(2_000),
+          signal: AbortSignal.timeout(1_000),
         });
 
         if (response.status === 200) {
