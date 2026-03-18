@@ -264,4 +264,134 @@ describe('ClusterManager', () => {
       }).toThrow('file://');
     });
   });
+
+  describe('crash recovery with process.exit', () => {
+    it('should detect crash and attempt revive when worker exits', async () => {
+      // Arrange — worker will exit(1) after init
+      manager = createManager(1, { startupTimeoutMs: 3_000 });
+
+      // Act — init with crash flag
+      try {
+        await manager.init({ crash: true });
+      } catch {
+        // init may throw due to crash during bootstrap
+      }
+
+      // Wait for crash detection + revive attempt
+      await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
+
+      // Assert — generation should have incremented from crash
+      const states = manager.getSlotStates();
+      expect(states[0]?.generation).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should trip circuit breaker after repeated crashes', async () => {
+      // Arrange — low thresholds to trigger breaker quickly
+      manager = createManager(1, {
+        startupTimeoutMs: 1_000,
+        rpcTimeoutMs: 500,
+        crashWindowMs: 10_000,
+        maxCrashesInWindow: 2,
+        reviveStartingDelayMs: 50,
+        reviveMaxDelayMs: 100,
+      });
+
+      // Act — init with crash, worker will keep crashing on revive
+      try {
+        await manager.init({ crash: true });
+      } catch {
+        // expected
+      }
+
+      // Wait for multiple crash+revive cycles to trip breaker
+      await new Promise<void>((resolve) => setTimeout(resolve, 3_000));
+
+      // Assert — worker should be Terminated (breaker tripped, no more revives)
+      const states = manager.getSlotStates();
+      expect([WorkerState.Terminated, WorkerState.Crashed]).toContain(states[0]?.state);
+    });
+  });
+
+  describe('startup timeout', () => {
+    it('should crash worker when init hangs beyond timeout', async () => {
+      // Arrange — worker will never complete init
+      manager = createManager(1, { startupTimeoutMs: 500, rpcTimeoutMs: 400 });
+
+      // Act
+      try {
+        await manager.init({ hangInit: true });
+      } catch {
+        // expected — startup timeout
+      }
+
+      // Assert — worker should have been marked as crashed
+      const states = manager.getSlotStates();
+      expect([WorkerState.Crashed, WorkerState.Reviving, WorkerState.Terminated]).toContain(states[0]?.state);
+    });
+
+    it('should succeed when init is slow but within timeout', async () => {
+      // Arrange — worker delays 200ms but timeout is 5s
+      manager = createManager(1, { startupTimeoutMs: 5_000 });
+
+      // Act
+      await manager.init({ slowInit: 200 });
+      await manager.bootstrap();
+
+      // Assert
+      const states = manager.getSlotStates();
+      expect(states[0]?.state).toBe(WorkerState.Running);
+    });
+  });
+
+  describe('health check', () => {
+    it('should collect stats from running workers', async () => {
+      // Arrange — short interval to trigger quickly
+      manager = createManager(1, { healthCheckIntervalMs: 100, healthCheckTimeoutMs: 2_000 });
+      await manager.init();
+      await manager.bootstrap();
+      manager.startHealthCheck();
+
+      // Act — wait for at least one health check cycle
+      await new Promise<void>((resolve) => setTimeout(resolve, 300));
+
+      // Assert — worker should still be Running (healthy)
+      const states = manager.getSlotStates();
+      expect(states[0]?.state).toBe(WorkerState.Running);
+    });
+  });
+
+  describe('destroy during init', () => {
+    it('should terminate worker that is still initializing', async () => {
+      // Arrange — worker delays init
+      manager = createManager(1, { startupTimeoutMs: 10_000 });
+
+      // Act — start init but destroy before it completes
+      const initPromise = manager.init({ slowInit: 2_000 }).catch(() => {});
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      await manager.destroy();
+      await initPromise;
+
+      // Assert
+      const states = manager.getSlotStates();
+      expect(states[0]?.state).toBe(WorkerState.Terminated);
+      manager = undefined;
+    });
+  });
+
+  describe('single worker rolling restart', () => {
+    it('should replace the only worker and maintain Running state', async () => {
+      // Arrange
+      manager = createManager(1);
+      await manager.init();
+      await manager.bootstrap();
+
+      // Act
+      await manager.rollingRestart();
+
+      // Assert
+      const states = manager.getSlotStates();
+      expect(states).toHaveLength(1);
+      expect(states[0]?.state).toBe(WorkerState.Running);
+    });
+  });
 });
