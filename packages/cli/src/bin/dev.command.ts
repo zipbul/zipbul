@@ -12,7 +12,7 @@ import { outputDirPath, scanGlobSorted, writeIfChanged } from '../common';
 import { isErr } from '@zipbul/result';
 import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
-import { Gildash, type GildashOptions } from '@zipbul/gildash';
+import { Gildash, GildashError, type GildashOptions } from '@zipbul/gildash';
 import type { IndexResult } from '@zipbul/gildash';
 
 import { buildFileAnalysis } from './build-analysis';
@@ -277,9 +277,13 @@ export function createDevCommand(deps: DevCommandDeps) {
     try {
       ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true });
     } catch (e) {
-      semanticAvailable = false;
-      renderer.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
-      ledger = await openGildash({ projectRoot, ignorePatterns });
+      if (e instanceof GildashError && e.type === 'semantic') {
+        semanticAvailable = false;
+        renderer.warn(`Semantic mode unavailable, falling back: ${e.message}`);
+        ledger = await openGildash({ projectRoot, ignorePatterns });
+      } else {
+        throw e;
+      }
     }
     gildashSpinner.stop('Code intelligence ready');
 

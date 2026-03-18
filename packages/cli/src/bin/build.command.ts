@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 import type { CliRendererLike, CollectedClass, CommandOptions } from './interfaces';
 
 import { isErr } from '@zipbul/result';
-import { Gildash, type GildashOptions } from '@zipbul/gildash';
+import { Gildash, GildashError, type GildashOptions } from '@zipbul/gildash';
 import { AdapterDefinitionResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import {
@@ -250,9 +250,13 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       try {
         ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true, watchMode: false });
       } catch (e) {
-        semanticAvailable = false;
-        renderer.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
-        ledger = await openGildash({ projectRoot, ignorePatterns, watchMode: false });
+        if (e instanceof GildashError && e.type === 'semantic') {
+          semanticAvailable = false;
+          renderer.warn(`Semantic mode unavailable, falling back: ${e.message}`);
+          ledger = await openGildash({ projectRoot, ignorePatterns, watchMode: false });
+        } else {
+          throw e;
+        }
       }
 
       const unsubscribeError = ledger.onError((error) => {
