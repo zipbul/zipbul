@@ -858,6 +858,11 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
         }
       }
 
+      // Re-check state after async GC RPC — slot may have transitioned
+      if (slot.state !== WorkerState.Running || this.replacementInProgress) {
+        return;
+      }
+
       this.logger.warn(`Worker #${slot.id} soft memory limit: ${stats.memory}/${slot.softMemoryLimit} bytes — recycling`);
       void this.recycleWorker(slot);
     }
