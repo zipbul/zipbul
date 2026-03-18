@@ -1,3 +1,4 @@
+import { heapStats } from 'bun:jsc';
 import type { ClusterWorkerStats } from './interfaces';
 import type { ClusterBootstrapParams, ClusterInitParams, ClusterWorkerId } from './types';
 
@@ -35,9 +36,13 @@ export abstract class ClusterBaseWorker {
     this.prevCpu = process.cpuUsage();
     this.prevTime = now;
 
+    const heap = heapStats();
+
     return {
       cpu: elapsedSeconds > 0 ? Math.min(1, cpuSeconds / elapsedSeconds) : 0,
       memory: process.memoryUsage.rss(),
+      heapSize: heap.heapSize,
+      heapCapacity: heap.heapCapacity,
     };
   }
 }

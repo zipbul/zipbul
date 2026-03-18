@@ -12,6 +12,7 @@ import type {
 import { wrapWorker } from './rpc-proxy';
 import type { ClusterBootstrapParams, ClusterInitParams, RpcCallable } from './types';
 import { extractCrashDiagnostics } from './crash-diagnostics';
+import { evaluateMemoryAction, MemoryAction } from './memory-pressure';
 import { createSlot, disposeSlot, transition } from './worker-state';
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 60_000;
@@ -830,14 +831,16 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       return; // Slot limits not yet set or rounded to zero from pathological config
     }
 
-    if (stats.memory >= slot.hardMemoryLimit) {
+    const action = evaluateMemoryAction(stats, slot.softMemoryLimit, slot.hardMemoryLimit);
+
+    if (action === MemoryAction.HardCrash) {
       this.logger.error(`Worker #${slot.id} hard memory limit: ${stats.memory}/${slot.hardMemoryLimit} bytes`);
       this.handleCrash('memory-hard', slot, new Error(`RSS ${stats.memory} exceeds hard limit ${slot.hardMemoryLimit}`));
 
       return;
     }
 
-    if (stats.memory >= slot.softMemoryLimit && !this.replacementInProgress) {
+    if (action === MemoryAction.SoftRecycle && !this.replacementInProgress) {
       this.logger.warn(`Worker #${slot.id} soft memory limit: ${stats.memory}/${slot.softMemoryLimit} bytes — recycling`);
       void this.recycleWorker(slot);
     }

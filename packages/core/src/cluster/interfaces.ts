@@ -76,6 +76,10 @@ export interface RpcProxy<T extends Record<string, RpcCallable>> {
 export interface ClusterWorkerStats {
   cpu: number;
   memory: number;
+  /** JS heap size in bytes (from bun:jsc heapStats). */
+  heapSize?: number;
+  /** JS heap capacity in bytes (from bun:jsc heapStats). */
+  heapCapacity?: number;
 }
 
 export interface RPCMessage {
