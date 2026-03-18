@@ -38,5 +38,11 @@ jobs:
       - name: Lint
         run: bunx oxlint@1.48.0
 
-      - name: Test
-        run: bun test
+      - name: Test core
+        run: bun test packages/core/
+
+      - name: Test cli
+        run: bun test packages/cli/
+
+      - name: Test http-adapter
+        run: bun test packages/http-adapter/
