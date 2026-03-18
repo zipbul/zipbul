@@ -26,7 +26,7 @@ const DEFAULT_REVIVE_STARTING_DELAY_MS = 300;
 const DEFAULT_REVIVE_MAX_DELAY_MS = 30_000;
 const DEFAULT_CRASH_WINDOW_MS = 60_000;
 const DEFAULT_MAX_CRASHES_IN_WINDOW = 5;
-const RPC_METHODS: ReadonlyArray<string> = ['init', 'bootstrap', 'destroy', 'getStats'];
+const RPC_METHODS: ReadonlyArray<string> = ['init', 'bootstrap', 'destroy', 'getStats', 'getStatsAfterGC'];
 
 interface ClusterManagerConfig {
   readonly startupTimeoutMs?: number;
@@ -800,7 +800,7 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       slot.lastStats = stats as ClusterWorkerStats;
 
       // Memory pressure evaluation (integrated with health check)
-      this.evaluateMemoryPressure(slot, stats as ClusterWorkerStats);
+      await this.evaluateMemoryPressure(slot, stats as ClusterWorkerStats);
     } catch {
       slot.healthCheckPending = false;
 
@@ -820,7 +820,7 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
 
   // ── Memory Pressure ────────────────────────────────────────
 
-  private evaluateMemoryPressure(slot: ClusterWorkerSlot<T>, stats: ClusterWorkerStats): void {
+  private async evaluateMemoryPressure(slot: ClusterWorkerSlot<T>, stats: ClusterWorkerStats): Promise<void> {
     const limitBytes = this.config.memoryLimitBytes;
 
     if (limitBytes === undefined || limitBytes <= 0) {
@@ -841,6 +841,23 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     }
 
     if (action === MemoryAction.SoftRecycle && !this.replacementInProgress) {
+      // Try GC before recycling — if post-GC stats drop below soft limit, skip recycle
+      if (slot.remote && slot.state === WorkerState.Running) {
+        try {
+          const postGcStats = await slot.remote.getStatsAfterGC() as ClusterWorkerStats;
+          const postGcAction = evaluateMemoryAction(postGcStats, slot.softMemoryLimit, slot.hardMemoryLimit);
+
+          if (postGcAction === MemoryAction.None) {
+            this.logger.info(`Worker #${slot.id} soft limit recovered after GC: ${postGcStats.memory}/${slot.softMemoryLimit} bytes`);
+            slot.lastStats = postGcStats;
+
+            return;
+          }
+        } catch {
+          // GC RPC failed — proceed with recycle
+        }
+      }
+
       this.logger.warn(`Worker #${slot.id} soft memory limit: ${stats.memory}/${slot.softMemoryLimit} bytes — recycling`);
       void this.recycleWorker(slot);
     }

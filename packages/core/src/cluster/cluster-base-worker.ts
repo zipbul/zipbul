@@ -1,4 +1,4 @@
-import { heapStats } from 'bun:jsc';
+import { heapStats, edenGC, fullGC } from 'bun:jsc';
 import type { ClusterWorkerStats } from './interfaces';
 import type { ClusterBootstrapParams, ClusterInitParams, ClusterWorkerId } from './types';
 
@@ -44,5 +44,21 @@ export abstract class ClusterBaseWorker {
       heapSize: heap.heapSize,
       heapCapacity: heap.heapCapacity,
     };
+  }
+
+  /**
+   * Triggers a young-generation GC (eden collection) then returns fresh stats.
+   *
+   * Used by the master process when soft memory limit is reached:
+   * if post-GC stats drop below the limit, the recycle is skipped.
+   *
+   * @returns Worker stats collected after GC.
+   * @public
+   */
+  getStatsAfterGC(): ClusterWorkerStats {
+    edenGC();
+    fullGC();
+
+    return this.getStats();
   }
 }

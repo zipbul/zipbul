@@ -77,7 +77,16 @@ const getStats: RpcCallable = () => {
   };
 };
 
+const getStatsAfterGC: RpcCallable = () => {
+  // Trigger GC in the worker process before collecting stats
+  const { edenGC, fullGC } = require('bun:jsc');
+  edenGC();
+  fullGC();
+
+  return getStats();
+};
+
 exposeWorker(
-  { init, bootstrap, destroy, getStats },
-  ['init', 'bootstrap', 'destroy', 'getStats'],
+  { init, bootstrap, destroy, getStats, getStatsAfterGC },
+  ['init', 'bootstrap', 'destroy', 'getStats', 'getStatsAfterGC'],
 );
