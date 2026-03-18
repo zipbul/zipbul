@@ -10,7 +10,6 @@ export type {
   ClusterOptions,
   ClusterWorkerSlot,
   ClusterWorkerStats,
-  ClusterWorker,
   RpcProxy,
   RPCMessage,
   RPCResponse,

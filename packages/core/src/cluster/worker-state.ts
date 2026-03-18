@@ -134,8 +134,6 @@ export function createSlot<T extends Record<string, RpcCallable>>(id: number): C
     remote: undefined,
     rpcProxy: undefined,
 
-    pendingReplacement: undefined,
-
     handlers: new Map(),
     timers: new Set(),
 
@@ -157,7 +155,7 @@ export function createSlot<T extends Record<string, RpcCallable>>(id: number): C
  * Disposes all resources held by a slot.
  *
  * Removes event listeners, clears timers, rejects pending RPC,
- * terminates pendingReplacement, and nulls references.
+ * and nulls references.
  *
  *
  * @public
@@ -172,11 +170,6 @@ export function disposeSlot<T extends Record<string, RpcCallable>>(slot: Cluster
   clearSlotTimers(slot);
 
   slot.rpcProxy?.dispose();
-
-  if (slot.pendingReplacement) {
-    slot.pendingReplacement.terminate();
-    slot.pendingReplacement = undefined;
-  }
 
   slot.native = undefined;
   slot.remote = undefined;

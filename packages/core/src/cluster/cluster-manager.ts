@@ -8,13 +8,10 @@ import type {
   ClusterWorkerSlot,
   ClusterWorkerStats,
   GroupCircuitBreaker,
-  RpcProxy,
 } from './interfaces';
 import { wrapWorker } from './rpc-proxy';
 import type { ClusterBootstrapParams, ClusterInitParams, RpcCallable } from './types';
 import { createSlot, disposeSlot, transition } from './worker-state';
-
-const WORKER_ID_ENV = 'ZIPBUL_WORKER_ID';
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 60_000;
 const DEFAULT_RPC_TIMEOUT_MS = 30_000;
@@ -42,7 +39,7 @@ interface ClusterManagerConfig {
   readonly maxCrashesInWindow?: number;
   readonly smol?: boolean;
   readonly preload?: readonly string[];
-  /** Adapter class names for this worker group. Set as ZIPBUL_ADAPTER_FILTER env var on workers. */
+  /** Adapter class names for this worker group. Passed to workers via init RPC params. */
   readonly adapterFilter?: readonly string[];
   /** Memory limit per worker in bytes. Required for memory pressure monitoring. */
   readonly memoryLimitBytes?: number;
@@ -66,16 +63,19 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
   private readonly slots: Array<ClusterWorkerSlot<T>>;
   private readonly logger = new Logger(ClusterManager.name);
   private readonly reviveControllers = new Map<number, AbortController>();
-  private readonly config: Required<Omit<ClusterManagerConfig, 'adapterFilter'>> & Pick<ClusterManagerConfig, 'adapterFilter'>;
+  private readonly config: Required<Omit<ClusterManagerConfig, 'adapterFilter' | 'memoryLimitBytes'>>
+    & Pick<ClusterManagerConfig, 'adapterFilter' | 'memoryLimitBytes'>;
   private readonly circuitBreaker: GroupCircuitBreaker;
 
   destroying = false;
   replacementInProgress = false;
   rollingRestartInProgress = false;
 
-  private initParams: ClusterInitParams<T>;
+  private initialized = false;
+  private initParams: ClusterInitParams<T> | undefined;
   private bootstrapParams: ClusterBootstrapParams<T>;
   private healthCheckTimer: ReturnType<typeof setInterval> | undefined;
+  private recoveryTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(options: ClusterOptions, config?: ClusterManagerConfig) {
     const size = options.size ?? navigator.hardwareConcurrency;
@@ -96,10 +96,30 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       reviveMaxDelayMs: config?.reviveMaxDelayMs ?? DEFAULT_REVIVE_MAX_DELAY_MS,
       crashWindowMs: config?.crashWindowMs ?? DEFAULT_CRASH_WINDOW_MS,
       maxCrashesInWindow: config?.maxCrashesInWindow ?? DEFAULT_MAX_CRASHES_IN_WINDOW,
-      smol: config?.smol ?? size >= 4,
+      smol: config?.smol ?? false,
       preload: config?.preload ?? [],
       adapterFilter: config?.adapterFilter,
+      memoryLimitBytes: config?.memoryLimitBytes,
+      memorySoftThreshold: config?.memorySoftThreshold ?? 0.8,
+      memoryHardThreshold: config?.memoryHardThreshold ?? 0.95,
     };
+
+    // Validate memory thresholds
+    if (this.config.memoryLimitBytes !== undefined) {
+      if (this.config.memorySoftThreshold >= this.config.memoryHardThreshold) {
+        throw new Error(
+          `memorySoftThreshold (${this.config.memorySoftThreshold}) must be less than memoryHardThreshold (${this.config.memoryHardThreshold})`,
+        );
+      }
+
+      if (this.config.memorySoftThreshold <= 0 || this.config.memorySoftThreshold > 1) {
+        throw new Error(`memorySoftThreshold must be in (0, 1], got ${this.config.memorySoftThreshold}`);
+      }
+
+      if (this.config.memoryHardThreshold <= 0 || this.config.memoryHardThreshold > 1) {
+        throw new Error(`memoryHardThreshold must be in (0, 1], got ${this.config.memoryHardThreshold}`);
+      }
+    }
 
     this.circuitBreaker = {
       crashTimestamps: [],
@@ -121,6 +141,11 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
    * @public
    */
   async init(params?: ClusterInitParams<T>): Promise<void> {
+    if (this.initialized) {
+      throw new Error('init() has already been called. ClusterManager does not support re-initialization.');
+    }
+
+    this.initialized = true;
     this.initParams = params;
 
     const tasks = this.slots.map(async (slot) => {
@@ -138,6 +163,10 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
    * @public
    */
   async bootstrap(params?: ClusterBootstrapParams<T>): Promise<void> {
+    if (!this.initialized) {
+      throw new Error('bootstrap() cannot be called before init().');
+    }
+
     this.bootstrapParams = params;
 
     const tasks = this.slots.map(async (slot) => {
@@ -185,6 +214,11 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       this.healthCheckTimer = undefined;
     }
 
+    if (this.recoveryTimer !== undefined) {
+      clearInterval(this.recoveryTimer);
+      this.recoveryTimer = undefined;
+    }
+
     this.cancelAllRevives();
 
     await Promise.all(this.slots.map(async (slot) => this.terminateWorker(slot)));
@@ -193,17 +227,8 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
   // ── Worker Spawning ────────────────────────────────────────
 
   private spawnWorker(slot: ClusterWorkerSlot<T>): void {
-    const env: Record<string, string> = {
-      ...Bun.env,
-      [WORKER_ID_ENV]: slot.id.toString(),
-    };
-
-    if (this.config.adapterFilter !== undefined && this.config.adapterFilter.length > 0) {
-      env.ZIPBUL_ADAPTER_FILTER = JSON.stringify(this.config.adapterFilter);
-    }
-
     const native = new Worker(this.script.href, {
-      env,
+      env: Bun.env,
       smol: this.config.smol,
       preload: [...this.config.preload],
     });
@@ -211,6 +236,13 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     slot.native = native;
     slot.terminateInitiated = false;
     slot.readyReceived = false;
+
+    // Set per-slot memory limits with jitter to prevent thundering herd
+    if (this.config.memoryLimitBytes !== undefined && this.config.memoryLimitBytes > 0) {
+      const jitter = 0.95 + Math.random() * 0.1; // 0.95 ~ 1.05
+      slot.hardMemoryLimit = Math.round(this.config.memoryLimitBytes * this.config.memoryHardThreshold * jitter);
+      slot.softMemoryLimit = Math.round(this.config.memoryLimitBytes * this.config.memorySoftThreshold * jitter);
+    }
 
     const gen = slot.generation;
 
@@ -274,7 +306,7 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       }
 
       transition(slot, WorkerState.Ready, WorkerState.Initializing);
-      await slot.remote!.init(slot.id, params);
+      await slot.remote!.init(slot.id, params, this.config.adapterFilter);
       await slot.remote!.bootstrap(this.bootstrapParams);
 
       slot.readyReceived = true;
@@ -359,12 +391,26 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     const meta = error instanceof Error ? error : undefined;
     this.logger.error(`Worker #${slot.id} [gen=${slot.generation - 1}] ${event}`, meta);
 
-    // Clean up resources
+    // Clean up resources — capture native ref before dispose nulls it
+    const native = slot.native;
     disposeSlot(slot);
+
+    // Terminate native thread if still alive.
+    // Skip for 'close' events — Worker is already dead, terminate() would be invalid.
+    if (native && event !== 'close') {
+      native.unref();
+      native.terminate();
+    }
 
     // Record crash for group circuit breaker
     if (!this.recordGroupCrash()) {
-      return; // Circuit breaker tripped — no revive
+      // Circuit breaker tripped — no revive.
+      // During destroy, ensure slot reaches Terminated (not stuck in Crashed).
+      if (this.destroying) {
+        transition(slot, WorkerState.Crashed, WorkerState.Terminated);
+      }
+
+      return;
     }
 
     // Per-worker circuit breaker
@@ -434,10 +480,68 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
         }
       }
 
+      this.startRecoveryTimer();
+
       return false;
     }
 
     return true;
+  }
+
+  private startRecoveryTimer(): void {
+    if (this.recoveryTimer !== undefined) return;
+
+    this.recoveryTimer = setInterval(() => {
+      if (this.destroying) {
+        clearInterval(this.recoveryTimer!);
+        this.recoveryTimer = undefined;
+
+        return;
+      }
+
+      const now = Date.now();
+      const recentCrashes = this.circuitBreaker.crashTimestamps.filter(
+        (timestamp) => now - timestamp < this.circuitBreaker.periodMs,
+      );
+
+      if (recentCrashes.length > 0) return; // Still within crash window
+
+      clearInterval(this.recoveryTimer!);
+      this.recoveryTimer = undefined;
+      this.circuitBreaker.tripped = false;
+      this.circuitBreaker.crashTimestamps = [];
+
+      this.logger.info('Circuit breaker recovered — restarting terminated workers');
+
+      // Cannot recover if init() was never called
+      if (!this.initialized) {
+        this.logger.warn('Cannot recover workers — init() was never called');
+
+        return;
+      }
+
+      // Restart terminated/crashed workers with fresh slots
+      for (let slotIndex = 0; slotIndex < this.slots.length; slotIndex++) {
+        const slot = this.slots[slotIndex]!;
+
+        if (
+          (slot.state === WorkerState.Terminated || slot.state === WorkerState.Crashed) &&
+          !this.destroying
+        ) {
+          const freshSlot = createSlot<T>(slot.id);
+          this.slots[slotIndex] = freshSlot;
+          this.spawnWorker(freshSlot);
+
+          void this.waitForInit(freshSlot, this.initParams).catch((error) => {
+            this.handleCrash(
+              'recovery-failed',
+              freshSlot,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          });
+        }
+      }
+    }, this.config.crashWindowMs);
   }
 
   // ── Revive ─────────────────────────────────────────────────
@@ -534,7 +638,14 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       const slot = this.slots[id];
 
       if (slot && slot.state === WorkerState.Reviving) {
+        const native = slot.native;
         transition(slot, WorkerState.Reviving, WorkerState.Terminated);
+        disposeSlot(slot);
+
+        if (native) {
+          native.unref();
+          native.terminate();
+        }
       }
     }
 
@@ -557,12 +668,13 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       slot.state === WorkerState.Reviving
     ) {
       this.cancelRevive(slot);
+      const native = slot.native;
       transition(slot, slot.state, WorkerState.Terminated);
       disposeSlot(slot);
 
-      if (slot.native) {
-        slot.native.unref();
-        slot.native.terminate();
+      if (native) {
+        native.unref();
+        native.terminate();
       }
 
       return;
@@ -576,13 +688,17 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
 
       // Send drain RPC so the worker's adapters can stop accepting connections
       if (slot.remote) {
+        const destroyTimeout = this.timeoutWithCleanup(DEFAULT_DESTROY_RPC_TIMEOUT_MS);
+
         try {
           await Promise.race([
             slot.remote.destroy(), // worker-side drain + cleanup
-            this.timeout(DEFAULT_DESTROY_RPC_TIMEOUT_MS),
+            destroyTimeout.promise,
           ]);
         } catch {
           // Drain failed — proceed to force terminate
+        } finally {
+          destroyTimeout.clear();
         }
       }
     }
@@ -654,11 +770,12 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     }
 
     slot.healthCheckPending = true;
+    const healthTimeout = this.timeoutWithCleanup(this.config.healthCheckTimeoutMs);
 
     try {
       const stats = await Promise.race([
         slot.remote.getStats() as Promise<ClusterWorkerStats>,
-        this.timeout(this.config.healthCheckTimeoutMs),
+        healthTimeout.promise,
       ]);
 
       slot.healthCheckPending = false;
@@ -679,6 +796,8 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
         this.logger.error(`Worker #${slot.id} health check failed ${slot.healthCheckFailures} times — marking crashed`);
         this.handleCrash('healthcheck', slot, new Error('Health check timeout'));
       }
+    } finally {
+      healthTimeout.clear();
     }
   }
 
@@ -691,19 +810,19 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       return; // Memory monitoring disabled
     }
 
-    const hardThreshold = this.config.memoryHardThreshold ?? 0.95;
-    const softThreshold = this.config.memorySoftThreshold ?? 0.8;
-    const usage = stats.memory / slot.hardMemoryLimit || stats.memory / limitBytes;
+    if (slot.hardMemoryLimit <= 0 || slot.softMemoryLimit <= 0) {
+      return; // Slot limits not yet set or rounded to zero from pathological config
+    }
 
-    if (usage >= hardThreshold) {
-      this.logger.error(`Worker #${slot.id} hard memory limit: ${stats.memory} bytes`);
-      this.handleCrash('memory-hard', slot, new Error(`RSS ${stats.memory} exceeds hard limit`));
+    if (stats.memory >= slot.hardMemoryLimit) {
+      this.logger.error(`Worker #${slot.id} hard memory limit: ${stats.memory}/${slot.hardMemoryLimit} bytes`);
+      this.handleCrash('memory-hard', slot, new Error(`RSS ${stats.memory} exceeds hard limit ${slot.hardMemoryLimit}`));
 
       return;
     }
 
-    if (usage >= softThreshold && !this.replacementInProgress) {
-      this.logger.warn(`Worker #${slot.id} soft memory limit: ${stats.memory} bytes — recycling`);
+    if (stats.memory >= slot.softMemoryLimit && !this.replacementInProgress) {
+      this.logger.warn(`Worker #${slot.id} soft memory limit: ${stats.memory}/${slot.softMemoryLimit} bytes — recycling`);
       void this.recycleWorker(slot);
     }
   }
@@ -740,7 +859,10 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
           consecutiveFailures = 0;
         } catch {
           consecutiveFailures++;
-          this.recordGroupCrash();
+
+          if (!this.recordGroupCrash()) {
+            break; // Circuit breaker tripped — abort rolling restart
+          }
 
           if (consecutiveFailures >= 2) {
             this.logger.error(`Rolling restart aborted: ${consecutiveFailures} consecutive failures`);
@@ -807,18 +929,17 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     // (Spawning→Ready→Initializing→Running) and has its own
     // event handlers and RPC proxy. No manual field copying needed.
     this.slots[slotIndex] = tempSlot;
-    slot.reviveAttempts = 0;
-    slot.firstCrashTime = undefined;
-    slot.lastCrashTime = undefined;
-    slot.lastReadyTime = Date.now();
   }
 
   // ── Utilities ──────────────────────────────────────────────
 
-  private timeout(ms: number): Promise<never> {
-    return new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms);
+  private timeoutWithCleanup(ms: number): { promise: Promise<never>; clear: () => void } {
+    let timer: ReturnType<typeof setTimeout>;
+    const promise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms);
     });
+
+    return { promise, clear: () => clearTimeout(timer!) };
   }
 
   /**
@@ -834,4 +955,9 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       generation: slot.generation,
     }));
   }
+
+  /** @internal Exposed for integration test access to slot internals. */
+  readonly __testing__ = {
+    getSlots: (): ReadonlyArray<ClusterWorkerSlot<T>> => this.slots,
+  };
 }

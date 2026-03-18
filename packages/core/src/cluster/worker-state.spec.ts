@@ -174,7 +174,6 @@ describe('createSlot', () => {
     expect(slot.native).toBeUndefined();
     expect(slot.remote).toBeUndefined();
     expect(slot.rpcProxy).toBeUndefined();
-    expect(slot.pendingReplacement).toBeUndefined();
     expect(slot.handlers.size).toBe(0);
     expect(slot.timers.size).toBe(0);
     expect(slot.reviveAttempts).toBe(0);

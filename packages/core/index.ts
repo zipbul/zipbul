@@ -8,5 +8,4 @@ export { ClusterBaseWorker } from './src/cluster/cluster-base-worker';
 export { WorkerState, ClusterStrategy } from './src/cluster/enums';
 export { wrapWorker } from './src/cluster/rpc-proxy';
 export { exposeWorker } from './src/cluster/rpc-expose';
-export { expose } from './src/cluster/ipc';
 export type { ClusterWorkerSlot, ClusterWorkerStats, ClusterWorkerId, WorkerGroupConfig } from './src/cluster';

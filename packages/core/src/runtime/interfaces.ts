@@ -24,4 +24,8 @@ export interface RuntimeContext {
   adapterConfig?: Record<string, AdapterMiddlewareConfig>;
   handlerIndex?: readonly CompiledHandlerEntry[];
   controllerInstances?: Map<string, unknown>;
+  /** Worker ID assigned by ClusterManager. Present only in worker processes. */
+  workerId?: number;
+  /** Adapter class names this worker should start. Present only in worker processes. */
+  adapterFilter?: readonly string[];
 }

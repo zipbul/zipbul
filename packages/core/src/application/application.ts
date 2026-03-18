@@ -192,7 +192,7 @@ export class Application {
     }
 
     // Cluster mode: master process spawns workers instead of starting adapters directly
-    const isWorker = Bun.env.ZIPBUL_WORKER_ID !== undefined;
+    const isWorker = getRuntimeContext().workerId !== undefined;
     const workers = this.options.workers;
     const isClusterMode = !isWorker && workers !== undefined && workers > 1;
 
@@ -283,7 +283,7 @@ export class Application {
         {
           adapterFilter: group.adapterNames,
           preload,
-          smol: group.workers >= 4,
+          smol: false,
         },
       );
 
@@ -354,33 +354,25 @@ export class Application {
   }
 
   /**
-   * In worker mode (ZIPBUL_WORKER_ID set), reads ZIPBUL_ADAPTER_FILTER
+   * In worker mode, reads adapter filter from RuntimeContext
    * to determine which adapters this worker should start.
    *
    * @returns Set of adapter class names, or undefined if not in worker mode.
    */
   private resolveAdapterFilter(): Set<string> | undefined {
-    const workerId = Bun.env.ZIPBUL_WORKER_ID;
+    const runtimeCtx = getRuntimeContext();
 
-    if (workerId === undefined) {
+    if (runtimeCtx.workerId === undefined) {
       return undefined;
     }
 
-    const filterJson = Bun.env.ZIPBUL_ADAPTER_FILTER;
+    const filter = runtimeCtx.adapterFilter;
 
-    if (filterJson === undefined || filterJson.length === 0) {
+    if (filter === undefined || filter.length === 0) {
       return undefined; // No filter = start all adapters
     }
 
-    try {
-      const names = JSON.parse(filterJson) as string[];
-
-      return new Set(names);
-    } catch {
-      this.logger.warn('Failed to parse ZIPBUL_ADAPTER_FILTER, starting all adapters');
-
-      return undefined;
-    }
+    return new Set(filter);
   }
 
   /**

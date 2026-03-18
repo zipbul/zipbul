@@ -56,7 +56,7 @@ async function bootstrap() {
    * @public
    */
   generateWorker(): string {
-    return `import '@zipbul/core/src/cluster/application-worker';
+    return `import '@zipbul/core/worker';
 `;
   }
 

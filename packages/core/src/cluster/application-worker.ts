@@ -1,6 +1,7 @@
-import type { ZipbulRecord } from '@zipbul/common';
+import type { ZipbulRecord, ZipbulValue } from '@zipbul/common';
 
 import { ClusterBaseWorker } from './cluster-base-worker';
+import { registerRuntimeContext } from '../runtime/runtime-context';
 import type { RpcArgs, RpcCallable } from './types';
 import { exposeWorker } from './rpc-expose';
 
@@ -15,23 +16,21 @@ const RPC_METHODS = ['init', 'bootstrap', 'destroy', 'getStats'] as const;
  * The user's app module is then dynamically imported, calling
  * `createApplication()` → `attach()` → `start()` internally.
  *
- * `Application.start()` detects the worker context via `ZIPBUL_WORKER_ID`
- * env var and filters adapters based on `ZIPBUL_ADAPTER_FILTER`.
+ * `Application.start()` detects the worker context via `getRuntimeContext().workerId`
+ * and filters adapters based on `getRuntimeContext().adapterFilter`.
  *
  * @public
  */
 class ApplicationWorker extends ClusterBaseWorker {
-  override async init(workerId: number, params: Parameters<ClusterBaseWorker['init']>[1]) {
+  override async init(workerId: number, params: Parameters<ClusterBaseWorker['init']>[1], adapterFilter?: ZipbulValue) {
     await super.init(workerId, params);
 
-    // The AOT runtime is already loaded via preload.
-    // The user's app entry module will be imported by the entry script,
-    // which calls createApplication() → attach() → start().
-    // Application.start() checks ZIPBUL_WORKER_ID to know it's a worker
-    // and ZIPBUL_ADAPTER_FILTER to know which adapters to start.
-    //
-    // For now, this worker just needs to signal readiness after the
-    // app entry module has been loaded and started.
+    // Register worker context so Application.start() can detect worker mode
+    // and filter adapters without relying on environment variables.
+    registerRuntimeContext({
+      workerId,
+      adapterFilter: parseAdapterFilter(adapterFilter),
+    });
 
     if (!isRecord(params)) {
       throw new Error('ApplicationWorker requires init params with appEntryPath');
@@ -65,8 +64,9 @@ const worker = new ApplicationWorker();
 const initRpc: RpcCallable = async (...args: RpcArgs) => {
   const workerId = typeof args[0] === 'number' ? args[0] : 0;
   const params = args.length > 1 && isRecord(args[1]) ? args[1] : undefined;
+  const adapterFilter = args.length > 2 ? args[2] : undefined;
 
-  await worker.init(workerId, params);
+  await worker.init(workerId, params, adapterFilter);
 
   return null;
 };
@@ -96,6 +96,13 @@ exposeWorker(
 
 function isRecord(value: unknown): value is ZipbulRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseAdapterFilter(value: ZipbulValue | undefined): readonly string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
+
+  return undefined;
 }
 
 export { ApplicationWorker };

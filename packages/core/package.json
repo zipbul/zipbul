@@ -10,7 +10,8 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./worker": "./src/cluster/application-worker.ts"
   },
   "files": [
     "dist"

@@ -37,9 +37,6 @@ export interface ClusterWorkerSlot<T extends Record<string, RpcCallable>> {
   remote: Promisified<T> | undefined;
   rpcProxy: RpcProxy<T> | undefined;
 
-  /** Tracks the replacement worker during rolling restart / recycling. Terminated on disposeSlot(). */
-  pendingReplacement: Worker | undefined;
-
   /** Named event listeners for deterministic cleanup. */
   handlers: Map<string, EventListener>;
   /** Active timers (startup, drain, RPC, backoff, destroy). Cleared on every state transition. */
@@ -63,11 +60,6 @@ export interface ClusterWorkerSlot<T extends Record<string, RpcCallable>> {
 }
 
 // ── RPC ──────────────────────────────────────────────────────
-
-export interface ClusterWorker<T extends Record<string, RpcCallable>> {
-  remote: Promisified<T>;
-  native: Worker;
-}
 
 /**
  * Wraps a Promisified RPC proxy with a dispose method
