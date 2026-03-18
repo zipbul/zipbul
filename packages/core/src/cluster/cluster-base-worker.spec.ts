@@ -82,17 +82,36 @@ describe('ClusterBaseWorker', () => {
   });
 
   describe('getStatsAfterGC', () => {
-    it('should return valid stats after triggering GC', async () => {
+    it('should return memory and heap stats without updating CPU baseline', async () => {
       const worker = new TestWorker();
       await worker.init(0, {});
 
       const stats = worker.getStatsAfterGC();
 
-      expect(stats.cpu).toBeGreaterThanOrEqual(0);
-      expect(stats.cpu).toBeLessThanOrEqual(1);
+      // CPU is 0 because getStatsAfterGC does not compute CPU ratio
+      expect(stats.cpu).toBe(0);
       expect(stats.memory).toBeGreaterThan(0);
       expect(stats.heapSize).toBeDefined();
       expect(stats.heapSize).toBeGreaterThan(0);
+    });
+
+    it('should not reset CPU measurement baseline for next getStats call', async () => {
+      const worker = new TestWorker();
+      await worker.init(0, {});
+
+      // First getStats — establishes baseline
+      worker.getStats();
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+      // getStatsAfterGC should NOT update prevCpu/prevTime
+      worker.getStatsAfterGC();
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+      // Next getStats should measure from the first getStats, not from getStatsAfterGC
+      const nextStats = worker.getStats();
+      // CPU should be >= 0 (valid ratio over the full ~100ms window, not just ~50ms)
+      expect(nextStats.cpu).toBeGreaterThanOrEqual(0);
+      expect(nextStats.cpu).toBeLessThanOrEqual(1);
     });
 
     it('should trigger GC and return reduced heapSize for reclaimable allocations', async () => {

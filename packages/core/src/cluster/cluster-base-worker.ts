@@ -59,6 +59,16 @@ export abstract class ClusterBaseWorker {
     edenGC();
     fullGC();
 
-    return this.getStats();
+    // Collect memory/heap stats without updating CPU baseline.
+    // getStats() resets prevCpu/prevTime — calling it here would
+    // skew the next health check's CPU ratio calculation.
+    const heap = heapStats();
+
+    return {
+      cpu: 0,
+      memory: process.memoryUsage.rss(),
+      heapSize: heap.heapSize,
+      heapCapacity: heap.heapCapacity,
+    };
   }
 }
