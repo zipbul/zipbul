@@ -11,6 +11,7 @@ import type {
 } from './interfaces';
 import { wrapWorker } from './rpc-proxy';
 import type { ClusterBootstrapParams, ClusterInitParams, RpcCallable } from './types';
+import { extractCrashDiagnostics } from './crash-diagnostics';
 import { createSlot, disposeSlot, transition } from './worker-state';
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 60_000;
@@ -387,8 +388,8 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     slot.generation++;
     slot.lastCrashTime = Date.now();
 
-    const meta = error instanceof Error ? error : undefined;
-    this.logger.error(`Worker #${slot.id} [gen=${slot.generation - 1}] ${event}`, meta);
+    const diagnostics = extractCrashDiagnostics(error);
+    this.logger.error(`Worker #${slot.id} [gen=${slot.generation - 1}] ${event}`, diagnostics);
 
     // Clean up resources — capture native ref before dispose nulls it
     const native = slot.native;
