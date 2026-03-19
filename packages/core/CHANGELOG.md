@@ -1,5 +1,11 @@
 # @zipbul/core
 
+## 0.1.3
+
+### Patch Changes
+
+- e90133f: Add heap metrics to worker stats, structured crash diagnostics, dual-metric memory pressure evaluation with GC-before-recycle, and cluster E2E tests.
+
 ## 0.1.2
 
 ### Patch Changes
