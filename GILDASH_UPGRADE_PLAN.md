@@ -80,26 +80,7 @@ ledger.pruneChangelog(ONE_DAY_AGO);
 
 ### 2-A. `getSymbolChanges()` 진단 로깅
 
-#### 현재 문제
-
-`computeStructuralFingerprint()` (`dev.command.ts` line 61-64)가 `FileAnalysis` 전체를 `JSON.stringify`. 현재 fingerprint 로직은 올바르게 동작하고 있으며 변경하지 않는다.
-
-#### ~~원래 계획: fingerprint를 gildash `diffSymbols()`로 교체~~
-
-#### 교체 불가 사유
-
-1. **`IndexResult.changedSymbols`에 `isExported` 필드 없음** — `{name, filePath, kind}` 3개 필드만 존재 (index-coordinator.d.ts line 39-55). export 상태 변경 감지 불가.
-2. **Re-export 변경이 changedSymbols에 미반영** — `export { X } from './lib'` 변경은 심볼 추가/수정/삭제가 아니라 CodeRelation (`type: 're-exports'`) 변경. changedSymbols에 나타나지 않음.
-3. **Spread bundle의 `exportedValues` 변경 감지 불가** — `exportedValues`는 AST에서 추출한 오브젝트 구조(AnalyzerValueRecord)로, gildash 심볼 시스템에 없음. spread provider 해석에 필수.
-4. **Import source 변경 감지 불가** — 동일 심볼을 다른 파일에서 import하도록 변경 시, changedSymbols가 변경을 보고하지 않음.
-
-#### ~~수정된 계획: localValues 제외~~
-
-#### localValues 제외도 불가 사유
-
-`localValues`는 `resolveSpreadBundle()` (`module-graph.ts` line 473, 479)에서 **직접 사용**됨. fingerprint에서 제외하면 spread bundle 변경을 감지 못해 provider 목록이 오염됨.
-
-#### 구현: 진단 로깅만 추가
+`onIndexed` 콜백에서 rename/move 감지 정보를 개발자에게 표시.
 
 ```typescript
 // onIndexed 콜백 내부 — 개발자 피드백 강화
