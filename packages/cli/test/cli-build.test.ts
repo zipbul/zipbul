@@ -148,8 +148,9 @@ const makeDeps = (overrides?: Partial<BuildCommandDeps>): BuildCommandDeps => ({
 describe('createBuildCommand', () => {
   let cwdSpy: ReturnType<typeof spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     cwdSpy = spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    await rm(join(tmpDir, '.zipbul', 'cache'), { recursive: true, force: true });
   });
 
   afterEach(() => {
