@@ -2,7 +2,9 @@
 
 > 작성일: 2026-03-19
 > 현재 버전: `@zipbul/gildash` 0.8.2
-> 목표 버전: `@zipbul/gildash` 0.9.4 (latest)
+> 즉시 업그레이드: `@zipbul/gildash` 0.9.4 (Phase 0~7)
+> gildash 신규 API 릴리스 후: Phase 8~9
+> AOT 컴파일러 내부 최적화: Phase 10~12
 
 ---
 
@@ -187,7 +189,22 @@ const patterns = [
 
 CLAUDE.md 정책 "deep import(`@zipbul/*/src/`) 금지"를 빌드 타임에 강제.
 
-`searchRelations()` 패턴 매칭 미지원이므로 `searchAllRelations({ type: 'imports' })` 전체 조회 후 수동 필터링. gildash `project` 필터로 크로스패키지 import만 추출 가능.
+gildash `RelationSearchQuery`에 패턴 매칭 구현 확정. `dstFilePathPattern`으로 deep import 위반을 직접 조회:
+
+```typescript
+const violations = ledger.searchRelations({
+  type: 'imports',
+  dstFilePathPattern: '**/packages/*/src/**',
+});
+
+for (const rel of violations) {
+  const srcPkg = extractPackageName(rel.srcFilePath);
+  const dstPkg = extractPackageName(rel.dstFilePath);
+  if (srcPkg !== dstPkg) {
+    this.warnings.push(`Deep import violation: ${rel.srcFilePath} → ${rel.dstFilePath}`);
+  }
+}
+```
 
 사전 설계 결정 필요: 대상 패키지 범위, 허용 deep import, 강제 수준 (에러 vs warning).
 
@@ -215,7 +232,8 @@ gildash에 `changedSymbols[].isExported` + `changedRelations` 구현 후 착수.
 ```typescript
 const result: IndexResult = /* onIndexed callback */;
 
-const hasExportedChange = result.changedSymbols.modified.some(s => s.isExported)
+// modified는 isExported 무관하게 전부 변경으로 간주 (이전 값 미제공)
+const hasExportedChange = result.changedSymbols.modified.length > 0
   || result.changedSymbols.added.some(s => s.isExported)
   || result.changedSymbols.removed.some(s => s.isExported);
 
@@ -259,6 +277,38 @@ for (let i = 0; i < injectTokens.length; i++) {
   // compatible === null → tsc 해석 실패, 스킵
 }
 ```
+
+---
+
+## 10. 미사용 Provider 감지
+
+gildash 불필요. AOT 컴파일러 내부 데이터(`classDefinitions`, `ModuleGraph.providers`, `constructorParams`, `injectCalls`)로 구현.
+
+등록된 provider 토큰 집합과 참조된 토큰 집합의 차집합 = 미사용 provider → warning.
+
+controller, lifecycle hook provider는 제외 처리 필요.
+
+---
+
+## 11. DI Signature Hash Early Cutoff
+
+gildash 불필요. AOT 컴파일러 내부 리팩토링.
+
+`ModuleGraph.build()`를 `buildStructure()` (population) + `validate()` (검증)로 분리. 모듈별 DI signature (providers, tokens, deps, scope, controllers, exports) hash 비교. 이전 빌드와 동일하면 validate + 코드 생성 스킵.
+
+업계 사례: Dagger/Hilt (isolating + aggregating), TypeScript incremental (version + signature 이중 해시), Rust 컴파일러 (red-green early cutoff).
+
+효과: DI 미변경 시 리빌드 ~70% 단축.
+
+---
+
+## 12. 빌드 캐싱
+
+`getTransitiveDependencies(entryPoint)`로 도달 가능 파일 목록 획득 (imports + type-references + re-exports 포함). 각 파일의 `contentHash` 비교 → 변경된 파일만 파싱, 나머지는 `.zipbul/file-analysis-cache.json`에서 로드.
+
+FileAnalysis는 JSON 직렬화 안전 (모든 데이터가 primitives + plain objects + arrays).
+
+tsconfig.json 변경 시 전체 캐시 무효화 필요.
 
 ---
 
