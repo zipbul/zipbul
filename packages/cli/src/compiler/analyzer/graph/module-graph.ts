@@ -66,6 +66,15 @@ export class ModuleGraph {
    * @public
    */
   buildStructure(): Map<string, ModuleNode> {
+    this.modules.clear();
+    this.classMap.clear();
+    this.classDefinitions.clear();
+    this.warnings = [];
+    this.moduleFileSet.clear();
+    this.moduleNameByPath.clear();
+    this.moduleMarkerExports.clear();
+    this.moduleInjectDeps.clear();
+
     const sourceDir = this.sourceDir;
     const allFiles = Array.from(this.fileMap.keys())
       .filter(filePath => sourceDir === undefined || filePath.startsWith(sourceDir))
@@ -713,7 +722,7 @@ export class ModuleGraph {
 
       interfaceNames = new Set(interfaces.map(sym => sym.name));
     } catch {
-      logger.warn('searchSymbols failed, falling back to per-provider validation.');
+      logger.warn('searchSymbols failed. Provider implementation validation disabled for this build.');
       interfaceNames = new Set();
     }
 
@@ -730,6 +739,12 @@ export class ModuleGraph {
         }
 
         try {
+          const sym = this.gildash.getFullSymbol(provider.token, lookupPath);
+
+          if (!sym || sym.kind !== 'interface') {
+            continue;
+          }
+
           const impls = this.gildash.getImplementations(provider.token, lookupPath);
 
           if (impls.length === 0) {
@@ -1078,12 +1093,41 @@ export class ModuleGraph {
     }
 
     const record = this.asRecord(provider.metadata);
+    const deps: string[] = [];
 
     if (record && isAnalyzerValueArray(record.inject)) {
-      return record.inject.map(v => this.extractTokenName(v)).filter(v => v !== 'UNKNOWN');
+      for (const value of record.inject) {
+        const name = this.extractTokenName(value);
+
+        if (name !== 'UNKNOWN') {
+          deps.push(name);
+        }
+      }
     }
 
-    return [];
+    if (record) {
+      const factoryRecord = this.asRecord(record.useFactory);
+
+      if (factoryRecord !== null) {
+        const factoryInjects = isAnalyzerValueArray(factoryRecord.__zipbul_factory_injects)
+          ? factoryRecord.__zipbul_factory_injects
+          : [];
+
+        for (const entry of factoryInjects) {
+          const entryRecord = this.asRecord(entry);
+
+          if (entryRecord !== null) {
+            const tokenName = this.extractTokenName(entryRecord.token);
+
+            if (tokenName !== 'UNKNOWN') {
+              deps.push(tokenName);
+            }
+          }
+        }
+      }
+    }
+
+    return deps;
   }
 
   private normalizeProvider(p: ProviderTokenValue, modulePath: string, moduleName: string): ProviderRef {
@@ -1447,8 +1491,10 @@ export class ModuleGraph {
       const deps = this.extractDeps(ref).sort(compareCodePoint);
       const metaKind = this.classifyProviderMetadata(ref);
       const factoryCode = this.extractFactoryCode(ref);
+      const visibleTo = ref.visibleTo !== undefined ? ref.visibleTo.join(',') : '';
+      const target = this.extractProviderTarget(ref);
 
-      parts.push(`p:${token}|${ref.visibility}|${ref.scope ?? ''}|${deps.join(',')}|${metaKind}|${factoryCode}|${ref.filePath ?? ''}`);
+      parts.push(`p:${token}|${ref.visibility}|${visibleTo}|${ref.scope ?? ''}|${deps.join(',')}|${metaKind}|${target}|${factoryCode}|${ref.filePath ?? ''}`);
     }
 
     const sortedControllers = Array.from(node.controllers).sort(compareCodePoint);
@@ -1466,7 +1512,15 @@ export class ModuleGraph {
     }
 
     const sortedDynamicImports = Array.from(node.dynamicImports)
-      .map(value => JSON.stringify(value))
+      .map(value => {
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          const sorted = Object.keys(value).sort();
+
+          return JSON.stringify(value, sorted);
+        }
+
+        return JSON.stringify(value);
+      })
       .sort(compareCodePoint);
 
     for (const key of sortedDynamicImports) {
@@ -1508,6 +1562,36 @@ export class ModuleGraph {
     }
 
     return 'ref';
+  }
+
+  private extractProviderTarget(ref: ProviderRef): string {
+    const record = this.asRecord(ref.metadata ?? undefined);
+
+    if (record === null) {
+      return '';
+    }
+
+    if (typeof record.useClass === 'string') {
+      return record.useClass;
+    }
+
+    const useClassRecord = this.asRecord(record.useClass);
+
+    if (useClassRecord !== null && typeof useClassRecord[ZIPBUL_REF] === 'string') {
+      return useClassRecord[ZIPBUL_REF];
+    }
+
+    if (typeof record.useExisting === 'string') {
+      return record.useExisting;
+    }
+
+    const useExistingRecord = this.asRecord(record.useExisting);
+
+    if (useExistingRecord !== null && typeof useExistingRecord[ZIPBUL_REF] === 'string') {
+      return useExistingRecord[ZIPBUL_REF];
+    }
+
+    return '';
   }
 
   private extractFactoryCode(ref: ProviderRef): string {

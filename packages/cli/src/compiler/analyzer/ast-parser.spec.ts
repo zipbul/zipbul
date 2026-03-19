@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
-import { ZIPBUL_IMPORT_SOURCE, ZIPBUL_REF, ZIPBUL_SPREAD, ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
+import { ZIPBUL_FACTORY_CODE, ZIPBUL_IMPORT_SOURCE, ZIPBUL_REF, ZIPBUL_SPREAD, ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
 
 import type { ParseResult } from './parser-models';
 import type { AnalyzerValueRecord } from './types';
@@ -529,6 +529,116 @@ describe('AstParser', () => {
       const exported = result.exportedValues as AnalyzerValueRecord;
 
       expect(exported?.result).toBeNull();
+    });
+  });
+
+  describe('extractFactoryParamTypes', () => {
+    function extractFactoryParams(code: string): AnalyzerValueRecord[] {
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/__module__.ts', code);
+      const callArgs = result.defineModuleCalls?.[0]?.args;
+      const firstArg = (callArgs?.[0] ?? {}) as AnalyzerValueRecord;
+      const providers = firstArg.providers as AnalyzerValueRecord[];
+      const factoryProvider = providers[0] as AnalyzerValueRecord;
+      const factoryRecord = factoryProvider.useFactory as AnalyzerValueRecord;
+
+      expect(factoryRecord[ZIPBUL_FACTORY_CODE]).toBeDefined();
+
+      return (factoryRecord.__zipbul_factory_params ?? []) as AnalyzerValueRecord[];
+    }
+
+    it('should extract typed param from arrow function with single typed parameter', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        "import { ConfigService } from './config.service';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [{',
+        "    provide: 'MyService',",
+        '    useFactory: (config: ConfigService) => new Foo(config),',
+        '  }],',
+        '});',
+      ].join('\n');
+      const params = extractFactoryParams(source);
+
+      expect(params).toHaveLength(1);
+      expect(params[0]?.name).toBe('config');
+      expect(params[0]?.typeName).toBe('ConfigService');
+    });
+
+    it('should extract param with null typeName when no type annotation is present', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [{',
+        "    provide: 'MyService',",
+        '    useFactory: (a) => a,',
+        '  }],',
+        '});',
+      ].join('\n');
+      const params = extractFactoryParams(source);
+
+      expect(params).toHaveLength(1);
+      expect(params[0]?.name).toBe('a');
+      expect(params[0]?.typeName).toBeNull();
+    });
+
+    it('should extract multiple typed params from arrow function', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        "import { Foo } from './foo';",
+        "import { Bar } from './bar';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [{',
+        "    provide: 'MyService',",
+        '    useFactory: (a: Foo, b: Bar) => new MyService(a, b),',
+        '  }],',
+        '});',
+      ].join('\n');
+      const params = extractFactoryParams(source);
+
+      expect(params).toHaveLength(2);
+      expect(params[0]?.name).toBe('a');
+      expect(params[0]?.typeName).toBe('Foo');
+      expect(params[1]?.name).toBe('b');
+      expect(params[1]?.typeName).toBe('Bar');
+    });
+
+    it('should extract empty array when arrow function has no params', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [{',
+        "    provide: 'MyService',",
+        '    useFactory: () => new Foo(),',
+        '  }],',
+        '});',
+      ].join('\n');
+      const params = extractFactoryParams(source);
+
+      expect(params).toHaveLength(0);
+    });
+
+    it('should degrade destructured param name to unknown while preserving type annotation', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        "import { Config } from './config';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [{',
+        "    provide: 'MyService',",
+        '    useFactory: ({ a }: Config) => new Foo(a),',
+        '  }],',
+        '});',
+      ].join('\n');
+      const params = extractFactoryParams(source);
+
+      expect(params).toHaveLength(1);
+      expect(params[0]?.name).toBe('unknown');
+      expect(params[0]?.typeName).toBe('Config');
     });
   });
 });

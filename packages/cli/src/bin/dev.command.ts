@@ -328,8 +328,8 @@ export function createDevCommand(deps: DevCommandDeps) {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
       ledger.pruneChangelog(oneDayAgo);
-    } catch {
-      /* changelog pruning failure — non-fatal */
+    } catch (pruneError) {
+      renderer.warn(`Changelog pruning failed: ${pruneError instanceof Error ? pruneError.message : 'unknown'}`);
     }
 
     const bootDuration = ((performance.now() - bootStartedAt) / 1000).toFixed(1);
@@ -428,7 +428,7 @@ export function createDevCommand(deps: DevCommandDeps) {
           }
 
           // 4-B. Fast path: skip re-parse + rebuild when no exported symbols changed
-          const hasExportedChange = result.changedSymbols.modified.length > 0
+          const hasExportedChange = result.changedSymbols.modified.some(s => s.isExported)
             || result.changedSymbols.added.some(s => s.isExported)
             || result.changedSymbols.removed.some(s => s.isExported);
           const hasReExportChange = result.changedRelations.added.some(r => r.type === 're-exports')
@@ -509,8 +509,9 @@ export function createDevCommand(deps: DevCommandDeps) {
 
           // 10. Conditional rebuild
           if (needsRebuild) {
-            const importsChanged = result.changedRelations.added.some(r => r.type === 'imports' || r.type === 're-exports')
-              || result.changedRelations.removed.some(r => r.type === 'imports' || r.type === 're-exports')
+            const importRelationTypes = new Set(['imports', 're-exports', 'type-references']);
+            const importsChanged = result.changedRelations.added.some(r => importRelationTypes.has(r.type))
+              || result.changedRelations.removed.some(r => importRelationTypes.has(r.type))
               || result.deletedFiles.length > 0;
 
             const rebuildStartedAt = performance.now();

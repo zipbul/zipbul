@@ -8,6 +8,7 @@
  *   - { slowInit: number }  → delays init by N ms
  *   - (default)             → normal init/bootstrap/destroy
  */
+import { edenGC, fullGC } from 'bun:jsc';
 import { exposeWorker } from '../../../src/cluster/rpc-expose';
 import type { RpcCallable, RpcArgs } from '../../../src/cluster/types';
 import type { ZipbulValue } from '@zipbul/common';
@@ -78,8 +79,6 @@ const getStats: RpcCallable = () => {
 };
 
 const getStatsAfterGC: RpcCallable = () => {
-  // Trigger GC in the worker process before collecting stats
-  const { edenGC, fullGC } = require('bun:jsc');
   edenGC();
   fullGC();
 

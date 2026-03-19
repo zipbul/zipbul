@@ -135,11 +135,8 @@ describe('Cluster E2E — reusePort HTTP', () => {
     await manager.init({ port, crashAfterMs: 200, crashWorkerId: 0 });
     await manager.bootstrap();
 
-    // Wait for worker #0 to die by polling HTTP until only worker #1 responds
-    const survivorVerified = await waitForCondition(
-      () => false, // just wait
-      500, // enough for crashAfterMs=200 + processing
-    );
+    // Wait for worker #0 to crash (crashAfterMs=200 + processing margin)
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     // The surviving worker should still serve requests — retry on transient failures
     let successCount = 0;

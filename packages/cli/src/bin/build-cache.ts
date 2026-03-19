@@ -1,5 +1,5 @@
-import { mkdir, rm } from 'fs/promises';
-import { dirname } from 'path';
+import { mkdir, rename, rm } from 'fs/promises';
+import { dirname, join } from 'path';
 
 import type { FileAnalysis } from '../compiler/analyzer/graph/interfaces';
 
@@ -18,7 +18,6 @@ interface CachePayload {
 
 export interface BuildCache {
   get(filePath: string, contentHash: string): FileAnalysis | undefined;
-  set(filePath: string, contentHash: string, analysis: FileAnalysis): void;
 }
 
 /**
@@ -58,19 +57,16 @@ export async function loadBuildCache(cachePath: string, tsconfigHash: string): P
 
       return entry.analysis;
     },
-
-    set(filePath: string, contentHash: string, analysis: FileAnalysis): void {
-      entries.set(filePath, { contentHash, analysis });
-    },
   };
 }
 
 /**
- * Persists a build cache to disk.
+ * Persists a build cache to disk atomically via write-to-tmp + rename.
  *
  * @param cachePath - Absolute path to the cache JSON file.
  * @param tsconfigHash - Hash of the current tsconfig.json content.
- * @param cache - The BuildCache to save.
+ * @param fileMap - File analysis map to persist.
+ * @param contentHashes - Content hashes keyed by file path.
  * @public
  */
 export async function saveBuildCache(
@@ -96,11 +92,59 @@ export async function saveBuildCache(
   };
 
   try {
-    await mkdir(dirname(cachePath), { recursive: true });
-    await Bun.write(cachePath, JSON.stringify(payload));
+    const cacheDir = dirname(cachePath);
+    const tmpPath = join(cacheDir, `file-analysis-cache.${Date.now()}.tmp`);
+
+    await mkdir(cacheDir, { recursive: true });
+    await Bun.write(tmpPath, JSON.stringify(payload));
+    await rename(tmpPath, cachePath);
   } catch {
     /* cache write failure — non-fatal */
   }
+}
+
+/**
+ * Computes a combined hash of the tsconfig.json file and its full `extends` chain.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @returns A deterministic hash string.
+ * @public
+ */
+export async function computeTsconfigHash(projectRoot: string): Promise<string> {
+  const parts: string[] = [];
+  const visited = new Set<string>();
+  let currentPath = join(projectRoot, 'tsconfig.json');
+
+  while (currentPath && !visited.has(currentPath)) {
+    visited.add(currentPath);
+
+    try {
+      const content = await Bun.file(currentPath).text();
+
+      parts.push(content);
+
+      const parsed = JSON.parse(content);
+      const extendsValue = parsed.extends;
+
+      if (typeof extendsValue === 'string') {
+        currentPath = join(dirname(currentPath), extendsValue);
+
+        if (!currentPath.endsWith('.json')) {
+          currentPath += '.json';
+        }
+      } else {
+        break;
+      }
+    } catch {
+      break;
+    }
+  }
+
+  if (parts.length === 0) {
+    return '';
+  }
+
+  return Bun.hash(parts.join('\n')).toString(36);
 }
 
 /**

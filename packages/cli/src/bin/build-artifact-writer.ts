@@ -21,6 +21,8 @@ export interface InterfaceCatalogParams {
 /**
  * Generates and writes `interface-catalog.json` from the module graph.
  *
+ * Schema v3: Added optional `fileStats` (lineCount, symbolCount, exportedSymbolCount) per entry.
+ *
  * @param params - Catalog generation parameters
  *
  * @public

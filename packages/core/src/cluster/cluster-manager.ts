@@ -795,12 +795,12 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
         healthTimeout.promise,
       ]);
 
-      slot.healthCheckPending = false;
       slot.healthCheckFailures = 0;
       slot.lastStats = stats as ClusterWorkerStats;
 
       // Memory pressure evaluation (integrated with health check)
       await this.evaluateMemoryPressure(slot, stats as ClusterWorkerStats);
+      slot.healthCheckPending = false;
     } catch {
       slot.healthCheckPending = false;
 

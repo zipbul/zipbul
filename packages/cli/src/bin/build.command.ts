@@ -24,7 +24,7 @@ import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 import { CliRenderer } from './cli-renderer';
 import { buildFileAnalysis } from './build-analysis';
 import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from './build-artifact-writer';
-import { loadBuildCache, saveBuildCache } from './build-cache';
+import { loadBuildCache, saveBuildCache, computeTsconfigHash } from './build-cache';
 import { formatCount, buildModuleTree } from './module-tree-renderer';
 
 // ---------------------------------------------------------------------------
@@ -115,17 +115,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
       // Load build cache
       const buildCachePath = cacheFilePath(projectRoot, 'file-analysis-cache.json');
-      let tsconfigHash = '';
-
-      try {
-        const tsconfigPath = join(projectRoot, 'tsconfig.json');
-        const tsconfigContent = await Bun.file(tsconfigPath).text();
-
-        tsconfigHash = Bun.hash(tsconfigContent).toString(36);
-      } catch {
-        /* no tsconfig — empty hash forces cache miss */
-      }
-
+      const tsconfigHash = await computeTsconfigHash(projectRoot);
       const buildCache = await loadBuildCache(buildCachePath, tsconfigHash);
       let cacheHits = 0;
 
@@ -142,6 +132,62 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         if (fullPath !== userMain) {
           queue.push(fullPath);
+        }
+      }
+
+      async function enqueueImports(
+        imports: Record<string, string> | undefined,
+        reExports: readonly { module: string }[],
+        fromFilePath: string,
+      ): Promise<void> {
+        const pathsToFollow = new Set<string>();
+
+        if (imports !== undefined) {
+          Object.values(imports).forEach(p => pathsToFollow.add(p));
+        }
+
+        if (reExports.length > 0) {
+          reExports.forEach(re => pathsToFollow.add(re.module));
+        }
+
+        const orderedPaths = Array.from(pathsToFollow).sort(compareCodePoint);
+
+        for (const rawImportPath of orderedPaths) {
+          let resolvedPath = rawImportPath;
+
+          if (!resolvedPath.startsWith('/') && !resolvedPath.match(/^[a-zA-Z]:/)) {
+            try {
+              resolvedPath = deps.resolveImport(resolvedPath, dirname(fromFilePath));
+            } catch {
+              if (rawImportPath.startsWith('.') || rawImportPath.startsWith('/')) {
+                renderer.warn(`Could not resolve import '${rawImportPath}' in '${fromFilePath}'`);
+              }
+
+              continue;
+            }
+          }
+
+          if (resolvedPath && !resolvedPath.endsWith('.ts') && !resolvedPath.endsWith('.d.ts')) {
+            if (await Bun.file(resolvedPath + '.ts').exists()) {
+              resolvedPath += '.ts';
+            } else if (await Bun.file(resolvedPath + '/index.ts').exists()) {
+              resolvedPath += '/index.ts';
+            } else {
+              const sourceCandidate = await resolveDistToSource(resolvedPath);
+
+              if (sourceCandidate !== null) {
+                resolvedPath = sourceCandidate;
+              }
+            }
+          }
+
+          if (resolvedPath && !visited.has(resolvedPath) && !resolvedPath.endsWith('.d.ts') && resolvedPath.endsWith('.ts')) {
+            const normalizedPath = resolvedPath.replaceAll('\\', '/');
+
+            if (!normalizedPath.includes('/node_modules/')) {
+              queue.push(resolvedPath);
+            }
+          }
         }
       }
 
@@ -180,47 +226,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
             fileMap.set(filePath, cached);
             cacheHits++;
 
-            const pathsToFollow = new Set<string>();
-
-            if (cached.imports !== undefined) {
-              Object.values(cached.imports).forEach(p => pathsToFollow.add(p));
-            }
-
-            if (cached.reExports.length > 0) {
-              cached.reExports.forEach(re => pathsToFollow.add(re.module));
-            }
-
-            const orderedPathsToFollow = Array.from(pathsToFollow).sort(compareCodePoint);
-
-            for (const rawImportPath of orderedPathsToFollow) {
-              let resolvedPath = rawImportPath;
-
-              if (!resolvedPath.startsWith('/') && !resolvedPath.match(/^[a-zA-Z]:/)) {
-                try {
-                  resolvedPath = deps.resolveImport(resolvedPath, dirname(filePath));
-                } catch {
-                  continue;
-                }
-              }
-
-              if (resolvedPath && !resolvedPath.endsWith('.ts') && !resolvedPath.endsWith('.d.ts')) {
-                if (await Bun.file(resolvedPath + '.ts').exists()) {
-                  resolvedPath += '.ts';
-                } else if (await Bun.file(resolvedPath + '/index.ts').exists()) {
-                  resolvedPath += '/index.ts';
-                } else {
-                  const sourceCandidate = await resolveDistToSource(resolvedPath);
-                  if (sourceCandidate !== null) resolvedPath = sourceCandidate;
-                }
-              }
-
-              if (resolvedPath && !visited.has(resolvedPath) && !resolvedPath.endsWith('.d.ts') && resolvedPath.endsWith('.ts')) {
-                const normalizedPath = resolvedPath.replaceAll('\\', '/');
-                if (!normalizedPath.includes('/node_modules/')) {
-                  queue.push(resolvedPath);
-                }
-              }
-            }
+            await enqueueImports(cached.imports, cached.reExports, filePath);
 
             continue;
           }
@@ -239,61 +245,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
           fileMap.set(filePath, analysis);
 
-          const pathsToFollow = new Set<string>();
-
-          if (parseResult.imports !== undefined) {
-            Object.values(parseResult.imports).forEach(p => pathsToFollow.add(p));
-          }
-
-          if (parseResult.reExports.length > 0) {
-            parseResult.reExports.forEach(re => pathsToFollow.add(re.module));
-          }
-
-          const orderedPathsToFollow = Array.from(pathsToFollow).sort(compareCodePoint);
-
-          for (const rawImportPath of orderedPathsToFollow) {
-            let resolvedPath = rawImportPath;
-
-            if (!resolvedPath.startsWith('/') && !resolvedPath.match(/^[a-zA-Z]:/)) {
-              try {
-                resolvedPath = deps.resolveImport(resolvedPath, dirname(filePath));
-              } catch {
-                if (rawImportPath.startsWith('.') || rawImportPath.startsWith('/')) {
-                  renderer.warn(`Could not resolve import '${rawImportPath}' in '${filePath}'`);
-                }
-                continue;
-              }
-            }
-
-            if (
-              resolvedPath &&
-              !resolvedPath.endsWith('.ts') &&
-              !resolvedPath.endsWith('.d.ts')
-            ) {
-              if (await Bun.file(resolvedPath + '.ts').exists()) {
-                resolvedPath += '.ts';
-              } else if (await Bun.file(resolvedPath + '/index.ts').exists()) {
-                resolvedPath += '/index.ts';
-              } else {
-                const sourceCandidate = await resolveDistToSource(resolvedPath);
-
-                if (sourceCandidate !== null) {
-                  resolvedPath = sourceCandidate;
-                }
-              }
-            }
-
-            if (resolvedPath && !visited.has(resolvedPath)) {
-              if (!resolvedPath.endsWith('.d.ts') && resolvedPath.endsWith('.ts')) {
-                const normalizedPath = resolvedPath.replaceAll('\\', '/');
-                if (normalizedPath.includes('/node_modules/')) {
-                  continue;
-                }
-
-                queue.push(resolvedPath);
-              }
-            }
-          }
+          await enqueueImports(parseResult.imports, parseResult.reExports, filePath);
         } catch (error) {
           if (error instanceof DiagnosticError) {
             throw error;

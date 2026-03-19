@@ -1,10 +1,9 @@
-# Gildash 업그레이드 계획: 0.8.2 → 0.9.4
+# Gildash 업그레이드 계획: 0.8.2 → 0.10.0
 
 > 작성일: 2026-03-19
-> 현재 버전: `@zipbul/gildash` 0.8.2
-> 즉시 업그레이드: `@zipbul/gildash` 0.9.4 (Phase 0~7)
-> gildash 신규 API 릴리스 후: Phase 8~9
-> AOT 컴파일러 내부 최적화: Phase 10~12
+> 실제 업그레이드: `@zipbul/gildash` 0.10.0 (0.10.0에 Phase 8, 9, 12 선행 API 포함)
+> 구현 완료: Phase 0~4-A, 7~12 (3-B 제외)
+> 미구현: Phase 3-B (벤치마크 결과 불필요), 5, 6 (향후 작업)
 
 ---
 
