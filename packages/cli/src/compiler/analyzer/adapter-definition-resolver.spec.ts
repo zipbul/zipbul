@@ -2369,6 +2369,261 @@ describe('AdapterDefinitionResolver', () => {
       }
     });
 
+    // E-2: @Body with primitive type → warning
+    it('should warn when @Body decorator is used with a primitive type annotation', async () => {
+      // Arrange — @Body() body: string
+      const warnSpy = spyOn(Logger.prototype, 'warn');
+      const fileMap = new Map<string, FileAnalysis>();
+
+      const controllerAnalysis: FileAnalysis = {
+        filePath: controllerFile,
+        classes: [
+          {
+            className: 'PrimitiveBodyController',
+            decorators: [{ name: 'Controller', arguments: [] }],
+            methods: [
+              {
+                name: 'create',
+                decorators: [{ name: 'Post', arguments: [] }],
+                parameters: [
+                  {
+                    name: 'body',
+                    type: 'string',
+                    decorators: [{ name: 'Body', arguments: [] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        reExports: [],
+        exports: [],
+        importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
+      };
+
+      fileMap.set(controllerFile, controllerAnalysis);
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        decorators: {
+          controller: { __zipbul_ref: 'Controller' },
+          handlers: [{ __zipbul_ref: 'Post' }],
+        },
+      });
+      const entryAnalysis: FileAnalysis = {
+        filePath: entryFile,
+        classes: [adapterClass],
+        reExports: [],
+        exports: ['adapterDefinition'],
+        exportedValues: { adapterDefinition: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
+      };
+
+      fileMap.set(entryFile, entryAnalysis);
+
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert — should succeed but emit a warning
+      expect(isErr(result)).toBe(false);
+
+      const warnCalls = warnSpy.mock.calls.map((call) => String(call[0]));
+      const bodyPrimitiveWarn = warnCalls.find((msg) => msg.includes('primitive') && msg.includes('Body'));
+      expect(bodyPrimitiveWarn).toBeDefined();
+
+      warnSpy.mockRestore();
+    });
+
+    // E-3: metatypeKey not in known classes → warning
+    it('should warn when metatypeKey references a class not found in any analyzed file', async () => {
+      // Arrange — @Body() body: NonExistentDto
+      const warnSpy = spyOn(Logger.prototype, 'warn');
+      const fileMap = new Map<string, FileAnalysis>();
+
+      const controllerAnalysis: FileAnalysis = {
+        filePath: controllerFile,
+        classes: [
+          {
+            className: 'UnknownDtoController',
+            decorators: [{ name: 'Controller', arguments: [] }],
+            methods: [
+              {
+                name: 'create',
+                decorators: [{ name: 'Post', arguments: [] }],
+                parameters: [
+                  {
+                    name: 'body',
+                    type: 'NonExistentDto',
+                    decorators: [{ name: 'Body', arguments: [] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        reExports: [],
+        exports: [],
+        importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
+      };
+
+      fileMap.set(controllerFile, controllerAnalysis);
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        decorators: {
+          controller: { __zipbul_ref: 'Controller' },
+          handlers: [{ __zipbul_ref: 'Post' }],
+        },
+      });
+      const entryAnalysis: FileAnalysis = {
+        filePath: entryFile,
+        classes: [adapterClass],
+        reExports: [],
+        exports: ['adapterDefinition'],
+        exportedValues: { adapterDefinition: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
+      };
+
+      fileMap.set(entryFile, entryAnalysis);
+
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert — should succeed but emit warning about unknown class
+      expect(isErr(result)).toBe(false);
+
+      const warnCalls = warnSpy.mock.calls.map((call) => String(call[0]));
+      const unknownClassWarn = warnCalls.find((msg) => msg.includes('NonExistentDto') && msg.includes('not found'));
+      expect(unknownClassWarn).toBeDefined();
+
+      warnSpy.mockRestore();
+    });
+
+    // E-4: Parameter without decorator and non-matching name → warning
+    it('should warn when parameter has no decorator and name does not match any known param kind', async () => {
+      // Arrange — getUser(userId: number) — no decorator, "userId" not in normalizeParamKind
+      const warnSpy = spyOn(Logger.prototype, 'warn');
+      const fileMap = new Map<string, FileAnalysis>();
+
+      const controllerAnalysis: FileAnalysis = {
+        filePath: controllerFile,
+        classes: [
+          {
+            className: 'NoDecoratorController',
+            decorators: [{ name: 'Controller', arguments: [] }],
+            methods: [
+              {
+                name: 'getUser',
+                decorators: [{ name: 'Get', arguments: [] }],
+                parameters: [
+                  {
+                    name: 'userId',
+                    type: 'number',
+                    decorators: [],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        reExports: [],
+        exports: [],
+        importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
+      };
+
+      fileMap.set(controllerFile, controllerAnalysis);
+
+      const adapterClass = createTestAdapterClass();
+      const entryAnalysis: FileAnalysis = {
+        filePath: entryFile,
+        classes: [adapterClass],
+        reExports: [],
+        exports: ['adapterDefinition'],
+        exportedValues: { adapterDefinition: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
+      };
+
+      fileMap.set(entryFile, entryAnalysis);
+
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert — should succeed but emit warning about unresolvable parameter
+      expect(isErr(result)).toBe(false);
+
+      const warnCalls = warnSpy.mock.calls.map((call) => String(call[0]));
+      const noDecWarn = warnCalls.find((msg) => msg.includes('userId') && msg.includes('no decorator'));
+      expect(noDecWarn).toBeDefined();
+
+      warnSpy.mockRestore();
+    });
+
+    // E-4 negative: Parameter without decorator but name matches param kind → no warning
+    it('should NOT warn when parameter has no decorator but name matches a known param kind', async () => {
+      // Arrange — getUser(body: CreateUserDto) — no decorator, but "body" matches normalizeParamKind
+      const warnSpy = spyOn(Logger.prototype, 'warn');
+      const fileMap = new Map<string, FileAnalysis>();
+
+      const controllerAnalysis: FileAnalysis = {
+        filePath: controllerFile,
+        classes: [
+          {
+            className: 'NameMatchController',
+            decorators: [{ name: 'Controller', arguments: [] }],
+            methods: [
+              {
+                name: 'create',
+                decorators: [{ name: 'Post', arguments: [] }],
+                parameters: [
+                  {
+                    name: 'body',
+                    type: 'CreateUserDto',
+                    decorators: [],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        reExports: [],
+        exports: [],
+        importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
+      };
+
+      fileMap.set(controllerFile, controllerAnalysis);
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        decorators: {
+          controller: { __zipbul_ref: 'Controller' },
+          handlers: [{ __zipbul_ref: 'Post' }],
+        },
+      });
+      const entryAnalysis: FileAnalysis = {
+        filePath: entryFile,
+        classes: [adapterClass],
+        reExports: [],
+        exports: ['adapterDefinition'],
+        exportedValues: { adapterDefinition: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
+      };
+
+      fileMap.set(entryFile, entryAnalysis);
+
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert — should succeed without parameter warnings
+      expect(isErr(result)).toBe(false);
+
+      const warnCalls = warnSpy.mock.calls.map((call) => String(call[0]));
+      const paramWarn = warnCalls.find((msg) => msg.includes('no decorator'));
+      expect(paramWarn).toBeUndefined();
+
+      warnSpy.mockRestore();
+    });
+
     // E-1: Multiple parameter decorators → error
     it('should return diagnostic error when a parameter has multiple decorators', async () => {
       // Arrange — parameter has both @Body and @Query

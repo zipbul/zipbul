@@ -5,7 +5,7 @@ import { registerRuntimeContext } from '../runtime/runtime-context';
 import type { RpcArgs, RpcCallable } from './types';
 import { exposeWorker } from './rpc-expose';
 
-const RPC_METHODS = ['init', 'bootstrap', 'destroy', 'getStats'] as const;
+const RPC_METHODS = ['init', 'bootstrap', 'destroy', 'getStats', 'getStatsAfterGC'] as const;
 
 /**
  * Adapter-agnostic worker that loads the AOT runtime and boots
@@ -86,13 +86,15 @@ const destroyRpc: RpcCallable = async () => {
 };
 
 const getStatsRpc: RpcCallable = () => {
-  const stats = worker.getStats();
+  return worker.getStats();
+};
 
-  return { cpu: stats.cpu, memory: stats.memory };
+const getStatsAfterGCRpc: RpcCallable = () => {
+  return worker.getStatsAfterGC();
 };
 
 exposeWorker(
-  { init: initRpc, bootstrap: bootstrapRpc, destroy: destroyRpc, getStats: getStatsRpc },
+  { init: initRpc, bootstrap: bootstrapRpc, destroy: destroyRpc, getStats: getStatsRpc, getStatsAfterGC: getStatsAfterGCRpc },
   RPC_METHODS,
 );
 

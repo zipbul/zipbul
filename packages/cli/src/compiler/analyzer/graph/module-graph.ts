@@ -7,7 +7,8 @@ import type { AnalyzerValue, AnalyzerValueRecord } from '../types';
 import type { CyclePath, ProviderRef, FileAnalysis } from './interfaces';
 
 import {
-  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_SPREAD, ZIPBUL_UNRESOLVABLE,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_SPREAD, ZIPBUL_CALL, ZIPBUL_UNRESOLVABLE,
+  ZIPBUL_FACTORY_CODE,
   VISIBILITY_ALL, VISIBILITY_MODULE,
   SCOPE_SINGLETON, SCOPE_REQUEST, SCOPE_TRANSIENT,
   SCOPED_KEY_SEPARATOR,
@@ -58,7 +59,22 @@ export class ModuleGraph {
     private readonly gildash?: Gildash,
   ) {}
 
-  build(): Map<string, ModuleNode> {
+  /**
+   * Population only. Discovers modules, creates nodes, registers providers.
+   *
+   * @returns The populated module map.
+   * @public
+   */
+  buildStructure(): Map<string, ModuleNode> {
+    this.modules.clear();
+    this.classMap.clear();
+    this.classDefinitions.clear();
+    this.warnings = [];
+    this.moduleFileSet.clear();
+    this.moduleNameByPath.clear();
+    this.moduleMarkerExports.clear();
+    this.moduleInjectDeps.clear();
+
     const sourceDir = this.sourceDir;
     const allFiles = Array.from(this.fileMap.keys())
       .filter(filePath => sourceDir === undefined || filePath.startsWith(sourceDir))
@@ -183,66 +199,41 @@ export class ModuleGraph {
         rawDef.providers.forEach((p: ProviderTokenValue) => {
           const record = this.asRecord(p);
 
-          if (record && typeof record[ZIPBUL_SPREAD] === 'string') {
-            node.dynamicProviderBundles.add(record[ZIPBUL_SPREAD]);
+          if (record && record[ZIPBUL_SPREAD] !== undefined) {
+            const resolved = this.resolveSpreadBundle(record[ZIPBUL_SPREAD], modulePath, moduleName);
+
+            for (const entry of resolved) {
+              const ref = this.normalizeProvider(entry, modulePath, moduleName);
+
+              this.mergeProviderRef(node, ref, moduleName);
+            }
 
             return;
           }
 
           const ref = this.normalizeProvider(p, modulePath, moduleName);
 
-          if (node.providers.has(ref.token) && !this.isImplicit(node.providers.get(ref.token))) {
-            throw new Error(
-              `[Zipbul AOT] Ambiguous provider '${ref.token}' in module '${node.name}' (${node.filePath}). Duplicate explicit definition.`,
-            );
-          }
-
-          if (node.providers.has(ref.token)) {
-            const prev = node.providers.get(ref.token);
-
-            if (this.isImplicit(prev)) {
-              const metaRecord = this.asRecord(ref.metadata);
-
-              if (metaRecord && typeof metaRecord[ZIPBUL_REF] === 'string') {
-                const prevMeta = prev?.metadata;
-                const prevFilePath = prev?.filePath;
-                const prevScope = prev?.scope;
-                const prevVisibility = prev?.visibility;
-                const prevVisibleTo = prev?.visibleTo;
-
-                if (prevMeta !== undefined) {
-                  ref.metadata = prevMeta;
-                }
-
-                if (prevFilePath !== undefined) {
-                  ref.filePath = prevFilePath;
-                }
-
-                if (ref.scope === undefined && prevScope !== undefined) {
-                  ref.scope = prevScope;
-                }
-
-                if (ref.visibility === VISIBILITY_MODULE && prevVisibility !== undefined) {
-                  ref.visibility = prevVisibility;
-                }
-
-                if (ref.visibleTo === undefined && prevVisibleTo !== undefined) {
-                  ref.visibleTo = prevVisibleTo;
-                }
-              }
-            }
-          }
-
-          node.providers.set(ref.token, ref);
+          this.mergeProviderRef(node, ref, moduleName);
         });
       }
     }
 
+    return this.modules;
+  }
+
+  /**
+   * Runs all synchronous validations. Must be called after `buildStructure()`.
+   *
+   * @public
+   */
+  validate(): void {
     this.validateModuleNameUniqueness();
     this.validateVisibilityAndScope();
 
     if (this.gildash) {
       this.validateProviderImplementations();
+      this.validateProviderTypeCompatibility();
+      this.validateFactoryParamTypes();
     }
 
     this.validateFactoryInjectTokens();
@@ -254,8 +245,59 @@ export class ModuleGraph {
 
       throw new Error(`[Zipbul AOT] Circular dependency detected:\n${summary}`);
     }
+  }
 
+  /**
+   * Backward-compatible entry point. Calls `buildStructure()` then `validate()`.
+   *
+   * @returns The populated module map.
+   * @public
+   */
+  build(): Map<string, ModuleNode> {
+    this.buildStructure();
+    this.validate();
     return this.modules;
+  }
+
+  /**
+   * Computes a deterministic DI signature hash per module.
+   * Two graphs with identical DI structure produce identical signatures.
+   *
+   * @returns Map of module file path to signature string.
+   * @public
+   */
+  computeSignatures(): Map<string, string> {
+    const signatures = new Map<string, string>();
+
+    for (const [modulePath, node] of this.modules) {
+      signatures.set(modulePath, this.computeModuleSignature(node));
+    }
+
+    return signatures;
+  }
+
+  /**
+   * Detects providers that are registered but never referenced by any consumer.
+   * Must be called after `registerControllers()` so controller deps are visible.
+   *
+   * @public
+   */
+  validateUnusedProviders(): void {
+    for (const node of this.modules.values()) {
+      const referencedTokens = this.collectReferencedTokens(node);
+
+      for (const token of node.providers.keys()) {
+        if (node.controllers.has(token)) {
+          continue;
+        }
+
+        if (!referencedTokens.has(token)) {
+          this.warnings.push(
+            `[Zipbul AOT] Provider '${token}' in module '${node.name}' is registered but never referenced.`,
+          );
+        }
+      }
+    }
   }
 
   detectCycles(): CyclePath[] {
@@ -392,6 +434,237 @@ export class ModuleGraph {
     return keys;
   }
 
+  private mergeProviderRef(node: ModuleNode, ref: ProviderRef, moduleName: string): void {
+    if (node.providers.has(ref.token) && !this.isImplicit(node.providers.get(ref.token))) {
+      throw new Error(
+        `[Zipbul AOT] Ambiguous provider '${ref.token}' in module '${moduleName}' (${node.filePath}). Duplicate explicit definition.`,
+      );
+    }
+
+    if (node.providers.has(ref.token)) {
+      const prev = node.providers.get(ref.token);
+
+      if (this.isImplicit(prev)) {
+        const metaRecord = this.asRecord(ref.metadata);
+
+        if (metaRecord && typeof metaRecord[ZIPBUL_REF] === 'string') {
+          const prevMeta = prev?.metadata;
+          const prevFilePath = prev?.filePath;
+          const prevScope = prev?.scope;
+          const prevVisibility = prev?.visibility;
+          const prevVisibleTo = prev?.visibleTo;
+
+          if (prevMeta !== undefined) {
+            ref.metadata = prevMeta;
+          }
+
+          if (prevFilePath !== undefined) {
+            ref.filePath = prevFilePath;
+          }
+
+          if (ref.scope === undefined && prevScope !== undefined) {
+            ref.scope = prevScope;
+          }
+
+          if (ref.visibility === VISIBILITY_MODULE && prevVisibility !== undefined) {
+            ref.visibility = prevVisibility;
+          }
+
+          if (ref.visibleTo === undefined && prevVisibleTo !== undefined) {
+            ref.visibleTo = prevVisibleTo;
+          }
+        }
+      }
+    }
+
+    node.providers.set(ref.token, ref);
+  }
+
+  private resolveSpreadBundle(spreadValue: AnalyzerValue, modulePath: string, moduleName: string): AnalyzerValue[] {
+    if (isAnalyzerValueArray(spreadValue)) {
+      return this.flattenSpreadArray(spreadValue, modulePath, moduleName);
+    }
+
+    const record = this.asRecord(spreadValue);
+
+    if (record && typeof record[ZIPBUL_REF] === 'string') {
+      const refString = record[ZIPBUL_REF];
+      const importSource = typeof record[ZIPBUL_IMPORT_SOURCE] === 'string' ? record[ZIPBUL_IMPORT_SOURCE] : undefined;
+      const segments = refString.split('.');
+      const varName = segments[0];
+      let propertyPath = segments.slice(1);
+
+      if (!isNonEmptyString(varName)) {
+        throw this.buildSpreadError(moduleName, modulePath, refString, '변수명을 파싱할 수 없습니다.');
+      }
+
+      let targetValue: AnalyzerValue;
+
+      if (importSource !== undefined) {
+        let resolvedFile: string | undefined;
+        let resolvedName: string | undefined;
+
+        if (this.gildash) {
+          try {
+            const resolved = this.gildash.resolveSymbol(varName, importSource);
+
+            if (!resolved.circular) {
+              resolvedFile = resolved.filePath;
+              resolvedName = resolved.originalName;
+            }
+          } catch {
+            /* fallthrough to direct lookup */
+          }
+        }
+
+        if (resolvedFile === undefined) {
+          resolvedFile = importSource;
+          resolvedName = varName;
+        }
+
+        const fileAnalysis = this.findFileAnalysis(resolvedFile);
+        const exportedValues = fileAnalysis?.exportedValues;
+
+        if (exportedValues === undefined) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, `파일 '${resolvedFile}'에서 exported values를 찾을 수 없습니다.`);
+        }
+
+        targetValue = exportedValues[resolvedName ?? varName];
+
+        if (targetValue === undefined && propertyPath.length > 0) {
+          const firstProp = propertyPath[0];
+
+          if (isNonEmptyString(firstProp)) {
+            targetValue = exportedValues[firstProp];
+
+            if (targetValue !== undefined) {
+              propertyPath = propertyPath.slice(1);
+            }
+          }
+        }
+
+        if (targetValue === undefined) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, `'${resolvedName ?? varName}'를 찾을 수 없습니다.`);
+        }
+      } else {
+        const fileAnalysis = this.fileMap.get(modulePath);
+        const localValues = fileAnalysis?.localValues;
+
+        if (localValues === undefined) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, '로컬 변수를 찾을 수 없습니다.');
+        }
+
+        targetValue = localValues[varName];
+
+        if (targetValue === undefined) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, `로컬 변수 '${varName}'를 찾을 수 없습니다.`);
+        }
+      }
+
+      for (const prop of propertyPath) {
+        const propRecord = this.asRecord(targetValue);
+
+        if (propRecord === null) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, `프로퍼티 '${prop}' 접근 대상이 객체가 아닙니다.`);
+        }
+
+        targetValue = propRecord[prop];
+
+        if (targetValue === undefined) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, `프로퍼티 '${prop}'를 찾을 수 없습니다.`);
+        }
+      }
+
+      if (isAnalyzerValueArray(targetValue)) {
+        return this.flattenSpreadArray(targetValue, modulePath, moduleName);
+      }
+
+      throw this.buildSpreadError(moduleName, modulePath, refString, '해석된 값이 배열이 아닙니다.');
+    }
+
+    if (record && record[ZIPBUL_CALL] !== undefined) {
+      const callName = typeof record[ZIPBUL_CALL] === 'string' ? record[ZIPBUL_CALL] : 'unknown';
+
+      throw this.buildSpreadError(
+        moduleName, modulePath, `${callName}()`,
+        '함수 호출 결과는 빌드 타임에 결정할 수 없습니다.',
+        '프로바이더를 배열 리터럴 또는 exported const로 선언하세요.',
+      );
+    }
+
+    if (isUnresolvable(spreadValue)) {
+      throw this.buildSpreadError(
+        moduleName, modulePath, spreadValue.nodeType,
+        `'${spreadValue.nodeType}' 표현식은 빌드 타임에 결정할 수 없습니다.`,
+        '프로바이더를 배열 리터럴 또는 exported const로 선언하세요.',
+      );
+    }
+
+    const valueDescription = typeof spreadValue === 'string' ? spreadValue
+      : typeof spreadValue === 'number' ? String(spreadValue)
+      : typeof spreadValue === 'boolean' ? String(spreadValue)
+      : spreadValue === null ? 'null'
+      : spreadValue === undefined ? 'undefined'
+      : 'unknown expression';
+
+    throw this.buildSpreadError(
+      moduleName, modulePath, valueDescription,
+      '스프레드 표현식을 정적으로 해석할 수 없습니다.',
+      '프로바이더를 배열 리터럴 또는 exported const로 선언하세요.',
+    );
+  }
+
+  private flattenSpreadArray(items: readonly AnalyzerValue[], modulePath: string, moduleName: string): AnalyzerValue[] {
+    const result: AnalyzerValue[] = [];
+
+    for (const item of items) {
+      const record = this.asRecord(item);
+
+      if (record && record[ZIPBUL_SPREAD] !== undefined) {
+        const nested = this.resolveSpreadBundle(record[ZIPBUL_SPREAD], modulePath, moduleName);
+
+        result.push(...nested);
+      } else {
+        result.push(item);
+      }
+    }
+
+    return result;
+  }
+
+  private findFileAnalysis(filePath: string): FileAnalysis | undefined {
+    const direct = this.fileMap.get(filePath);
+
+    if (direct !== undefined) {
+      return direct;
+    }
+
+    const candidates = [
+      `${filePath}.ts`,
+      `${filePath}/index.ts`,
+    ];
+
+    for (const candidate of candidates) {
+      const found = this.fileMap.get(candidate);
+
+      if (found !== undefined) {
+        return found;
+      }
+    }
+
+    return undefined;
+  }
+
+  private buildSpreadError(moduleName: string, modulePath: string, expression: string, reason: string, solution?: string): Error {
+    let message = `[Zipbul AOT] Module '${moduleName}' (${modulePath}):\n  스프레드 표현식 '${expression}' 를 정적으로 해석할 수 없습니다.\n  원인: ${reason}`;
+
+    if (solution !== undefined) {
+      message += `\n  해결: ${solution}`;
+    }
+
+    return new Error(message);
+  }
+
   private isImplicit(ref: ProviderRef | undefined): boolean {
     return this.isClassMetadata(ref?.metadata);
   }
@@ -442,23 +715,51 @@ export class ModuleGraph {
   private validateProviderImplementations(): void {
     if (!this.gildash) return;
 
+    let interfaceNames: Set<string>;
+
+    try {
+      const interfaces = this.gildash.searchSymbols({ kind: 'interface', isExported: true });
+
+      interfaceNames = new Set(interfaces.map(sym => sym.name));
+    } catch {
+      logger.warn('searchSymbols failed. Provider implementation validation disabled for this build.');
+      interfaceNames = new Set();
+    }
+
     for (const node of this.modules.values()) {
       for (const provider of node.providers.values()) {
+        if (!interfaceNames.has(provider.token)) {
+          continue;
+        }
+
         const lookupPath = provider.filePath ?? this.classDefinitions.get(provider.token)?.filePath;
-        if (!lookupPath) continue;
+
+        if (!lookupPath) {
+          continue;
+        }
 
         try {
           const sym = this.gildash.getFullSymbol(provider.token, lookupPath);
-          if (!sym || sym.kind !== 'interface') continue;
+
+          if (!sym || sym.kind !== 'interface') {
+            continue;
+          }
 
           const impls = this.gildash.getImplementations(provider.token, lookupPath);
-          if (impls.length === 0) continue;
 
-          const implNames = new Set(impls.map(i => i.symbolName));
+          if (impls.length === 0) {
+            continue;
+          }
+
+          const implNames = new Set(impls.map(impl => impl.symbolName));
 
           for (const candidate of node.providers.values()) {
-            if (!this.isClassMetadata(candidate.metadata)) continue;
+            if (!this.isClassMetadata(candidate.metadata)) {
+              continue;
+            }
+
             const cls = (candidate.metadata as ClassMetadata).className;
+
             if (!implNames.has(cls)) {
               this.warnings.push(
                 `[Zipbul AOT] Provider '${cls}' in module '${node.name}' is registered for interface '${provider.token}' but does not implement it.`,
@@ -469,6 +770,146 @@ export class ModuleGraph {
           this.warnings.push(
             `[Zipbul AOT] Could not validate provider implementation for '${provider.token}' in module '${node.name}'. Symbol resolution failed.`,
           );
+        }
+      }
+    }
+  }
+
+  /**
+   * Validates that useClass/useExisting providers are type-compatible with
+   * their `provide` token using gildash semantic type checking.
+   * Only runs when gildash is available in semantic mode.
+   */
+  private validateProviderTypeCompatibility(): void {
+    if (!this.gildash) return;
+
+    for (const node of this.modules.values()) {
+      for (const [token, ref] of node.providers) {
+        const record = this.asRecord(ref.metadata ?? undefined);
+
+        if (record === null) {
+          continue;
+        }
+
+        let implToken: string | undefined;
+
+        if (typeof record.useClass === 'string') {
+          implToken = record.useClass;
+        } else {
+          const useClassRecord = this.asRecord(record.useClass);
+
+          if (useClassRecord !== null && typeof useClassRecord[ZIPBUL_REF] === 'string') {
+            implToken = useClassRecord[ZIPBUL_REF];
+          }
+        }
+
+        if (typeof record.useExisting === 'string') {
+          implToken = record.useExisting;
+        } else if (implToken === undefined) {
+          const useExistingRecord = this.asRecord(record.useExisting);
+
+          if (useExistingRecord !== null && typeof useExistingRecord[ZIPBUL_REF] === 'string') {
+            implToken = useExistingRecord[ZIPBUL_REF];
+          }
+        }
+
+        if (implToken === undefined) {
+          continue;
+        }
+
+        const tokenPath = ref.filePath ?? this.classDefinitions.get(token)?.filePath;
+        const implPath = this.classDefinitions.get(implToken)?.filePath;
+
+        if (!tokenPath || !implPath) {
+          continue;
+        }
+
+        try {
+          const compatible = this.gildash.isTypeAssignableTo(implToken, implPath, token, tokenPath);
+
+          if (compatible === false) {
+            this.warnings.push(
+              `[Zipbul AOT] Provider '${implToken}' in module '${node.name}' is not assignable to '${token}'.`,
+            );
+          }
+        } catch {
+          /* semantic check unavailable — skip silently */
+        }
+      }
+    }
+  }
+
+  /**
+   * Validates that useFactory inject() tokens match the factory parameter types.
+   * Uses gildash `isTypeAssignableTo` for semantic type checking.
+   */
+  private validateFactoryParamTypes(): void {
+    if (!this.gildash) return;
+
+    for (const node of this.modules.values()) {
+      for (const [token, ref] of node.providers) {
+        const record = this.asRecord(ref.metadata ?? undefined);
+
+        if (record === null || record.useFactory === undefined) {
+          continue;
+        }
+
+        const factoryRecord = this.asRecord(record.useFactory);
+
+        if (factoryRecord === null) {
+          continue;
+        }
+
+        const factoryInjects = isAnalyzerValueArray(factoryRecord.__zipbul_factory_injects)
+          ? factoryRecord.__zipbul_factory_injects
+          : [];
+        const factoryParams = isAnalyzerValueArray(factoryRecord.__zipbul_factory_params)
+          ? factoryRecord.__zipbul_factory_params
+          : [];
+
+        if (factoryInjects.length === 0 || factoryParams.length === 0) {
+          continue;
+        }
+
+        for (let paramIndex = 0; paramIndex < Math.min(factoryInjects.length, factoryParams.length); paramIndex++) {
+          const injectRecord = this.asRecord(factoryInjects[paramIndex]);
+          const paramRecord = this.asRecord(factoryParams[paramIndex]);
+
+          if (injectRecord === null || paramRecord === null) {
+            continue;
+          }
+
+          const injectTokenName = this.extractTokenName(injectRecord.token);
+          const paramTypeName = typeof paramRecord.typeName === 'string' ? paramRecord.typeName : null;
+
+          if (injectTokenName === 'UNKNOWN' || paramTypeName === null) {
+            continue;
+          }
+
+          const injectDef = this.classDefinitions.get(injectTokenName);
+          const paramImportSource = typeof paramRecord.importSource === 'string' ? paramRecord.importSource : undefined;
+          const paramDef = paramImportSource !== undefined
+            ? { filePath: paramImportSource }
+            : this.classDefinitions.get(paramTypeName);
+
+          if (!injectDef || !paramDef) {
+            continue;
+          }
+
+          try {
+            const compatible = this.gildash.isTypeAssignableTo(
+              injectTokenName, injectDef.filePath,
+              paramTypeName, paramDef.filePath,
+            );
+
+            if (compatible === false) {
+              this.warnings.push(
+                `[Zipbul AOT] useFactory of '${token}' in module '${node.name}': inject[${String(paramIndex)}] '${injectTokenName}' is not assignable to parameter type '${paramTypeName}'.`,
+              );
+            }
+          } catch {
+            /* semantic check unavailable — skip */
+          }
         }
       }
     }
@@ -652,12 +1093,41 @@ export class ModuleGraph {
     }
 
     const record = this.asRecord(provider.metadata);
+    const deps: string[] = [];
 
     if (record && isAnalyzerValueArray(record.inject)) {
-      return record.inject.map(v => this.extractTokenName(v)).filter(v => v !== 'UNKNOWN');
+      for (const value of record.inject) {
+        const name = this.extractTokenName(value);
+
+        if (name !== 'UNKNOWN') {
+          deps.push(name);
+        }
+      }
     }
 
-    return [];
+    if (record) {
+      const factoryRecord = this.asRecord(record.useFactory);
+
+      if (factoryRecord !== null) {
+        const factoryInjects = isAnalyzerValueArray(factoryRecord.__zipbul_factory_injects)
+          ? factoryRecord.__zipbul_factory_injects
+          : [];
+
+        for (const entry of factoryInjects) {
+          const entryRecord = this.asRecord(entry);
+
+          if (entryRecord !== null) {
+            const tokenName = this.extractTokenName(entryRecord.token);
+
+            if (tokenName !== 'UNKNOWN') {
+              deps.push(tokenName);
+            }
+          }
+        }
+      }
+    }
+
+    return deps;
   }
 
   private normalizeProvider(p: ProviderTokenValue, modulePath: string, moduleName: string): ProviderRef {
@@ -1010,5 +1480,225 @@ export class ModuleGraph {
     }
 
     return value;
+  }
+
+  private computeModuleSignature(node: ModuleNode): string {
+    const parts: string[] = [node.name];
+
+    const sortedProviders = Array.from(node.providers.entries()).sort(([a], [b]) => compareCodePoint(a, b));
+
+    for (const [token, ref] of sortedProviders) {
+      const deps = this.extractDeps(ref).sort(compareCodePoint);
+      const metaKind = this.classifyProviderMetadata(ref);
+      const factoryCode = this.extractFactoryCode(ref);
+      const visibleTo = ref.visibleTo !== undefined ? ref.visibleTo.join(',') : '';
+      const target = this.extractProviderTarget(ref);
+
+      parts.push(`p:${token}|${ref.visibility}|${visibleTo}|${ref.scope ?? ''}|${deps.join(',')}|${metaKind}|${target}|${factoryCode}|${ref.filePath ?? ''}`);
+    }
+
+    const sortedControllers = Array.from(node.controllers).sort(compareCodePoint);
+
+    for (const ctrl of sortedControllers) {
+      parts.push(`c:${ctrl}`);
+    }
+
+    const injectDeps = this.moduleInjectDeps.get(node.filePath);
+
+    if (injectDeps !== undefined) {
+      for (const dep of injectDeps) {
+        parts.push(`i:${dep}`);
+      }
+    }
+
+    const sortedDynamicImports = Array.from(node.dynamicImports)
+      .map(value => {
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          const sorted = Object.keys(value).sort();
+
+          return JSON.stringify(value, sorted);
+        }
+
+        return JSON.stringify(value);
+      })
+      .sort(compareCodePoint);
+
+    for (const key of sortedDynamicImports) {
+      parts.push(`d:${key}`);
+    }
+
+    return Bun.hash(parts.join('\n')).toString(36);
+  }
+
+  private classifyProviderMetadata(ref: ProviderRef): string {
+    if (ref.metadata === undefined) {
+      return 'none';
+    }
+
+    if (this.isClassMetadata(ref.metadata)) {
+      return 'class';
+    }
+
+    const record = this.asRecord(ref.metadata);
+
+    if (record === null) {
+      return 'unknown';
+    }
+
+    if (record.useFactory !== undefined) {
+      return 'useFactory';
+    }
+
+    if (record.useClass !== undefined) {
+      return 'useClass';
+    }
+
+    if (record.useValue !== undefined) {
+      return 'useValue';
+    }
+
+    if (record.useExisting !== undefined) {
+      return 'useExisting';
+    }
+
+    return 'ref';
+  }
+
+  private extractProviderTarget(ref: ProviderRef): string {
+    const record = this.asRecord(ref.metadata ?? undefined);
+
+    if (record === null) {
+      return '';
+    }
+
+    if (typeof record.useClass === 'string') {
+      return record.useClass;
+    }
+
+    const useClassRecord = this.asRecord(record.useClass);
+
+    if (useClassRecord !== null && typeof useClassRecord[ZIPBUL_REF] === 'string') {
+      return useClassRecord[ZIPBUL_REF];
+    }
+
+    if (typeof record.useExisting === 'string') {
+      return record.useExisting;
+    }
+
+    const useExistingRecord = this.asRecord(record.useExisting);
+
+    if (useExistingRecord !== null && typeof useExistingRecord[ZIPBUL_REF] === 'string') {
+      return useExistingRecord[ZIPBUL_REF];
+    }
+
+    return '';
+  }
+
+  private extractFactoryCode(ref: ProviderRef): string {
+    const record = this.asRecord(ref.metadata ?? undefined);
+
+    if (record === null) {
+      return '';
+    }
+
+    const factoryRecord = this.asRecord(record.useFactory);
+
+    if (factoryRecord === null) {
+      return '';
+    }
+
+    const code = factoryRecord[ZIPBUL_FACTORY_CODE];
+
+    return typeof code === 'string' ? code : '';
+  }
+
+  private collectReferencedTokens(node: ModuleNode): Set<string> {
+    const referenced = new Set<string>();
+
+    for (const provider of node.providers.values()) {
+      const deps = this.extractDeps(provider);
+
+      for (const dep of deps) {
+        referenced.add(dep);
+      }
+
+      const record = this.asRecord(provider.metadata ?? undefined);
+
+      if (record !== null) {
+        if (typeof record.useExisting === 'string') {
+          referenced.add(record.useExisting);
+        }
+
+        const useExistingRecord = this.asRecord(record.useExisting);
+
+        if (useExistingRecord !== null && typeof useExistingRecord[ZIPBUL_REF] === 'string') {
+          referenced.add(useExistingRecord[ZIPBUL_REF]);
+        }
+
+        this.collectFactoryInjectTokens(record, referenced);
+      }
+    }
+
+    const injectDeps = this.moduleInjectDeps.get(node.filePath);
+
+    if (injectDeps !== undefined) {
+      for (const dep of injectDeps) {
+        referenced.add(dep);
+      }
+    }
+
+    for (const ctrlName of node.controllers) {
+      const classDef = this.classDefinitions.get(ctrlName);
+
+      if (classDef === undefined) {
+        continue;
+      }
+
+      for (const param of classDef.metadata.constructorParams) {
+        const tokenName = this.extractTokenName(param.type);
+
+        if (tokenName !== 'UNKNOWN') {
+          referenced.add(tokenName);
+        }
+      }
+    }
+
+    return referenced;
+  }
+
+  private collectFactoryInjectTokens(record: AnalyzerValueRecord, referenced: Set<string>): void {
+    const factoryRecord = this.asRecord(record.useFactory);
+
+    if (factoryRecord === null) {
+      return;
+    }
+
+    const factoryInjects = isAnalyzerValueArray(factoryRecord.__zipbul_factory_injects)
+      ? factoryRecord.__zipbul_factory_injects
+      : [];
+
+    for (const entry of factoryInjects) {
+      const entryRecord = this.asRecord(entry);
+
+      if (entryRecord === null) {
+        continue;
+      }
+
+      const tokenName = this.extractTokenName(entryRecord.token);
+
+      if (tokenName !== 'UNKNOWN') {
+        referenced.add(tokenName);
+      }
+    }
+
+    if (isAnalyzerValueArray(record.inject)) {
+      for (const token of record.inject) {
+        const tokenName = this.extractTokenName(token);
+
+        if (tokenName !== 'UNKNOWN') {
+          referenced.add(tokenName);
+        }
+      }
+    }
   }
 }

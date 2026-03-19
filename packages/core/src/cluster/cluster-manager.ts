@@ -11,6 +11,8 @@ import type {
 } from './interfaces';
 import { wrapWorker } from './rpc-proxy';
 import type { ClusterBootstrapParams, ClusterInitParams, RpcCallable } from './types';
+import { extractCrashDiagnostics } from './crash-diagnostics';
+import { evaluateMemoryAction, MemoryAction } from './memory-pressure';
 import { createSlot, disposeSlot, transition } from './worker-state';
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 60_000;
@@ -24,7 +26,7 @@ const DEFAULT_REVIVE_STARTING_DELAY_MS = 300;
 const DEFAULT_REVIVE_MAX_DELAY_MS = 30_000;
 const DEFAULT_CRASH_WINDOW_MS = 60_000;
 const DEFAULT_MAX_CRASHES_IN_WINDOW = 5;
-const RPC_METHODS: ReadonlyArray<string> = ['init', 'bootstrap', 'destroy', 'getStats'];
+const RPC_METHODS: ReadonlyArray<string> = ['init', 'bootstrap', 'destroy', 'getStats', 'getStatsAfterGC'];
 
 interface ClusterManagerConfig {
   readonly startupTimeoutMs?: number;
@@ -341,25 +343,41 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     return new Promise<void>((resolve, reject) => {
       const gen = slot.generation;
 
-      const check = () => {
+      // Use event listener instead of timer polling.
+      // clearSlotTimers() (called by transition()) only clears timers in slot.timers,
+      // not event listeners. Listeners are only removed by disposeSlot().
+      // This avoids the deadlock where the Spawning→Ready transition
+      // would cancel the very timer that detects it.
+      const onOpen = () => {
+        cleanup();
+
         if (slot.generation !== gen) {
           reject(new Error('Worker generation changed while waiting for open'));
           return;
         }
 
-        if (slot.state !== WorkerState.Spawning) {
-          resolve();
-          return;
-        }
-
-        // Polling timers are intentionally NOT tracked in slot.timers.
-        // They are short-lived (10ms) and self-terminate when state changes.
-        // Adding them to slot.timers would cause clearSlotTimers() during
-        // Spawning→Ready transition to cancel the very check that detects the transition.
-        setTimeout(check, 10);
+        resolve();
       };
 
-      check();
+      const onError = () => {
+        cleanup();
+        reject(new Error(`Worker #${slot.id} errored before open`));
+      };
+
+      const onClose = () => {
+        cleanup();
+        reject(new Error(`Worker #${slot.id} closed before open`));
+      };
+
+      const cleanup = () => {
+        slot.native?.removeEventListener('open', onOpen);
+        slot.native?.removeEventListener('error', onError);
+        slot.native?.removeEventListener('close', onClose);
+      };
+
+      slot.native!.addEventListener('open', onOpen, { once: true });
+      slot.native!.addEventListener('error', onError, { once: true });
+      slot.native!.addEventListener('close', onClose, { once: true });
     });
   }
 
@@ -387,8 +405,12 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     slot.generation++;
     slot.lastCrashTime = Date.now();
 
-    const meta = error instanceof Error ? error : undefined;
-    this.logger.error(`Worker #${slot.id} [gen=${slot.generation - 1}] ${event}`, meta);
+    const diagnostics = extractCrashDiagnostics(error);
+    const crashError = diagnostics.type === 'error' ? diagnostics.error
+      : diagnostics.type === 'error-event' ? diagnostics.error
+      : undefined;
+
+    this.logger.error(`Worker #${slot.id} [gen=${slot.generation - 1}] ${event}`, crashError, diagnostics.type);
 
     // Clean up resources — capture native ref before dispose nulls it
     const native = slot.native;
@@ -777,12 +799,12 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
         healthTimeout.promise,
       ]);
 
-      slot.healthCheckPending = false;
       slot.healthCheckFailures = 0;
       slot.lastStats = stats as ClusterWorkerStats;
 
       // Memory pressure evaluation (integrated with health check)
-      this.evaluateMemoryPressure(slot, stats as ClusterWorkerStats);
+      await this.evaluateMemoryPressure(slot, stats as ClusterWorkerStats);
+      slot.healthCheckPending = false;
     } catch {
       slot.healthCheckPending = false;
 
@@ -802,7 +824,7 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
 
   // ── Memory Pressure ────────────────────────────────────────
 
-  private evaluateMemoryPressure(slot: ClusterWorkerSlot<T>, stats: ClusterWorkerStats): void {
+  private async evaluateMemoryPressure(slot: ClusterWorkerSlot<T>, stats: ClusterWorkerStats): Promise<void> {
     const limitBytes = this.config.memoryLimitBytes;
 
     if (limitBytes === undefined || limitBytes <= 0) {
@@ -813,14 +835,46 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
       return; // Slot limits not yet set or rounded to zero from pathological config
     }
 
-    if (stats.memory >= slot.hardMemoryLimit) {
+    const action = evaluateMemoryAction(stats, slot.softMemoryLimit, slot.hardMemoryLimit);
+
+    if (action === MemoryAction.HardCrash) {
       this.logger.error(`Worker #${slot.id} hard memory limit: ${stats.memory}/${slot.hardMemoryLimit} bytes`);
       this.handleCrash('memory-hard', slot, new Error(`RSS ${stats.memory} exceeds hard limit ${slot.hardMemoryLimit}`));
 
       return;
     }
 
-    if (stats.memory >= slot.softMemoryLimit && !this.replacementInProgress) {
+    if (action === MemoryAction.SoftRecycle && !this.replacementInProgress) {
+      // Try GC before recycling — if post-GC stats drop below soft limit, skip recycle
+      if (slot.remote && slot.state === WorkerState.Running) {
+        try {
+          const postGcStats = await slot.remote.getStatsAfterGC() as ClusterWorkerStats;
+          const postGcAction = evaluateMemoryAction(postGcStats, slot.softMemoryLimit, slot.hardMemoryLimit);
+
+          slot.lastStats = postGcStats;
+
+          if (postGcAction === MemoryAction.None) {
+            this.logger.info(`Worker #${slot.id} soft limit recovered after GC: ${postGcStats.memory}/${slot.softMemoryLimit} bytes`);
+
+            return;
+          }
+
+          if (postGcAction === MemoryAction.HardCrash) {
+            this.logger.error(`Worker #${slot.id} hard memory limit after GC: ${postGcStats.memory}/${slot.hardMemoryLimit} bytes`);
+            this.handleCrash('memory-hard', slot, new Error(`RSS ${postGcStats.memory} exceeds hard limit ${slot.hardMemoryLimit} after GC`));
+
+            return;
+          }
+        } catch {
+          // GC RPC failed — proceed with recycle
+        }
+      }
+
+      // Re-check state after async GC RPC — slot may have transitioned
+      if (slot.state !== WorkerState.Running || this.replacementInProgress) {
+        return;
+      }
+
       this.logger.warn(`Worker #${slot.id} soft memory limit: ${stats.memory}/${slot.softMemoryLimit} bytes — recycling`);
       void this.recycleWorker(slot);
     }

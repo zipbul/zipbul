@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
-import { ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
+import { ZIPBUL_FACTORY_CODE, ZIPBUL_IMPORT_SOURCE, ZIPBUL_REF, ZIPBUL_SPREAD, ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
 
 import type { ParseResult } from './parser-models';
 import type { AnalyzerValueRecord } from './types';
@@ -402,6 +402,243 @@ describe('AstParser', () => {
 
       expect(result.classes).toHaveLength(1);
       expect(result.classes[0]?.className).toBe('UserService');
+    });
+  });
+
+  describe('MemberExpression parsing (F-1)', () => {
+    it('should parse nested MemberExpression (a.b.c) into dotted ref', () => {
+      const source = [
+        "import { obj } from './data';",
+        '',
+        'export const result = obj.nested.value;',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/test.ts', source);
+      const exported = result.exportedValues as AnalyzerValueRecord;
+      const record = exported?.result as AnalyzerValueRecord;
+
+      expect(typeof record[ZIPBUL_REF]).toBe('string');
+      expect(record[ZIPBUL_REF]).toBe('obj.nested.value');
+      expect(record[ZIPBUL_IMPORT_SOURCE]).toBe('/app/src/data');
+    });
+
+    it('should parse computed property with StringLiteral (obj["key"])', () => {
+      const source = [
+        "import { bundle } from './bundle';",
+        '',
+        'export const result = bundle["providers"];',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/test.ts', source);
+      const exported = result.exportedValues as AnalyzerValueRecord;
+      const record = exported?.result as AnalyzerValueRecord;
+
+      expect(typeof record[ZIPBUL_REF]).toBe('string');
+      expect(record[ZIPBUL_REF]).toBe('bundle.providers');
+    });
+
+    it('should parse ChainExpression (obj?.key) by unwrapping', () => {
+      const source = [
+        "import { bundle } from './bundle';",
+        '',
+        'export const result = bundle?.providers;',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/test.ts', source);
+      const exported = result.exportedValues as AnalyzerValueRecord;
+      const record = exported?.result as AnalyzerValueRecord;
+
+      expect(typeof record[ZIPBUL_REF]).toBe('string');
+      expect(record[ZIPBUL_REF]).toBe('bundle.providers');
+    });
+
+    it('should parse spread of MemberExpression into ZIPBUL_SPREAD with ref', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        "import { bundle } from './providers';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [',
+        '    ...bundle.items,',
+        '  ],',
+        '});',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/__module__.ts', source);
+      const callArgs = result.defineModuleCalls?.[0]?.args;
+
+      expect(Array.isArray(callArgs)).toBe(true);
+
+      const firstArg = callArgs?.[0] as AnalyzerValueRecord;
+      const providers = firstArg?.providers as AnalyzerValueRecord[];
+
+      expect(Array.isArray(providers)).toBe(true);
+      expect(providers).toHaveLength(1);
+
+      const spreadEntry = providers[0] as AnalyzerValueRecord;
+
+      expect(spreadEntry[ZIPBUL_SPREAD]).toBeDefined();
+
+      const spreadValue = spreadEntry[ZIPBUL_SPREAD] as AnalyzerValueRecord;
+
+      expect(spreadValue[ZIPBUL_REF]).toBe('bundle.items');
+      expect(spreadValue[ZIPBUL_IMPORT_SOURCE]).toBe('/app/src/providers');
+    });
+
+    it('should parse spread of optional chaining into ZIPBUL_SPREAD with ref', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        "import { bundle } from './providers';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [',
+        '    ...bundle?.items,',
+        '  ],',
+        '});',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/__module__.ts', source);
+      const callArgs = result.defineModuleCalls?.[0]?.args;
+
+      expect(Array.isArray(callArgs)).toBe(true);
+
+      const firstArg = callArgs?.[0] as AnalyzerValueRecord;
+      const providers = firstArg?.providers as AnalyzerValueRecord[];
+
+      expect(Array.isArray(providers)).toBe(true);
+      expect(providers).toHaveLength(1);
+
+      const spreadEntry = providers[0] as AnalyzerValueRecord;
+
+      expect(spreadEntry[ZIPBUL_SPREAD]).toBeDefined();
+
+      const spreadValue = spreadEntry[ZIPBUL_SPREAD] as AnalyzerValueRecord;
+
+      expect(spreadValue[ZIPBUL_REF]).toBe('bundle.items');
+    });
+
+    it('should return null for computed property with non-StringLiteral', () => {
+      const source = [
+        "import { obj } from './data';",
+        'const key = "dynamic";',
+        '',
+        'export const result = obj[key];',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/test.ts', source);
+      const exported = result.exportedValues as AnalyzerValueRecord;
+
+      expect(exported?.result).toBeNull();
+    });
+  });
+
+  describe('extractFactoryParamTypes', () => {
+    function extractFactoryParams(code: string): AnalyzerValueRecord[] {
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/__module__.ts', code);
+      const callArgs = result.defineModuleCalls?.[0]?.args;
+      const firstArg = (callArgs?.[0] ?? {}) as AnalyzerValueRecord;
+      const providers = firstArg.providers as AnalyzerValueRecord[];
+      const factoryProvider = providers[0] as AnalyzerValueRecord;
+      const factoryRecord = factoryProvider.useFactory as AnalyzerValueRecord;
+
+      expect(factoryRecord[ZIPBUL_FACTORY_CODE]).toBeDefined();
+
+      return (factoryRecord.__zipbul_factory_params ?? []) as AnalyzerValueRecord[];
+    }
+
+    it('should extract typed param from arrow function with single typed parameter', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        "import { ConfigService } from './config.service';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [{',
+        "    provide: 'MyService',",
+        '    useFactory: (config: ConfigService) => new Foo(config),',
+        '  }],',
+        '});',
+      ].join('\n');
+      const params = extractFactoryParams(source);
+
+      expect(params).toHaveLength(1);
+      expect(params[0]?.name).toBe('config');
+      expect(params[0]?.typeName).toBe('ConfigService');
+    });
+
+    it('should extract param with null typeName when no type annotation is present', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [{',
+        "    provide: 'MyService',",
+        '    useFactory: (a) => a,',
+        '  }],',
+        '});',
+      ].join('\n');
+      const params = extractFactoryParams(source);
+
+      expect(params).toHaveLength(1);
+      expect(params[0]?.name).toBe('a');
+      expect(params[0]?.typeName).toBeNull();
+    });
+
+    it('should extract multiple typed params from arrow function', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        "import { Foo } from './foo';",
+        "import { Bar } from './bar';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [{',
+        "    provide: 'MyService',",
+        '    useFactory: (a: Foo, b: Bar) => new MyService(a, b),',
+        '  }],',
+        '});',
+      ].join('\n');
+      const params = extractFactoryParams(source);
+
+      expect(params).toHaveLength(2);
+      expect(params[0]?.name).toBe('a');
+      expect(params[0]?.typeName).toBe('Foo');
+      expect(params[1]?.name).toBe('b');
+      expect(params[1]?.typeName).toBe('Bar');
+    });
+
+    it('should extract empty array when arrow function has no params', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [{',
+        "    provide: 'MyService',",
+        '    useFactory: () => new Foo(),',
+        '  }],',
+        '});',
+      ].join('\n');
+      const params = extractFactoryParams(source);
+
+      expect(params).toHaveLength(0);
+    });
+
+    it('should degrade destructured param name to unknown while preserving type annotation', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        "import { Config } from './config';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [{',
+        "    provide: 'MyService',",
+        '    useFactory: ({ a }: Config) => new Foo(a),',
+        '  }],',
+        '});',
+      ].join('\n');
+      const params = extractFactoryParams(source);
+
+      expect(params).toHaveLength(1);
+      expect(params[0]?.name).toBe('unknown');
+      expect(params[0]?.typeName).toBe('Config');
     });
   });
 });

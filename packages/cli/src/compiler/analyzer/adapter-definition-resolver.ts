@@ -31,6 +31,19 @@ const logger = new Logger('AdapterDefinitionResolver');
 
 const VALID_HOOKS = new Set<string>(Object.values(MiddlewareHook));
 
+/** Primitive TS type names that cannot be deserialized as a DTO class. */
+const PRIMITIVE_TYPE_NAMES = new Set(['string', 'number', 'boolean', 'any', 'object', 'array', 'void', 'undefined', 'null', 'never', 'unknown']);
+
+/** Body-like decorators that expect a class type for deserialization. */
+const BODY_LIKE_DECORATORS = new Set(['Body', 'Query']);
+
+/** Parameter names recognized at runtime by normalizeParamKind (case-insensitive). */
+const KNOWN_PARAM_NAMES = new Set([
+  'body', 'param', 'params', 'query', 'queries',
+  'header', 'headers', 'cookie', 'cookies',
+  'request', 'req', 'response', 'res', 'ip',
+]);
+
 export class AdapterDefinitionResolver {
   private parser = new AstParser();
 
@@ -407,19 +420,47 @@ export class AdapterDefinitionResolver {
       entryDecorators: extraction.staticSchema.entryDecorators,
     }));
 
+    // Pre-index: controller decorator name → adapter entries that own it
+    const adaptersByDecoratorName = new Map<string, typeof adapters>();
+
+    for (const adapter of adapters) {
+      const decoratorName = adapter.entryDecorators.controller;
+      let list = adaptersByDecoratorName.get(decoratorName);
+
+      if (list === undefined) {
+        list = [];
+        adaptersByDecoratorName.set(decoratorName, list);
+      }
+
+      list.push(adapter);
+    }
+
+    const controllerDecoratorNames = new Set(adaptersByDecoratorName.keys());
+
     for (const analysis of fileMap.values()) {
       for (const cls of analysis.classes) {
-        let controllerAdapters = adapters.filter(adapter =>
-          cls.decorators.some(dec => dec.name === adapter.entryDecorators.controller),
-        );
+        const matchedDecorators = cls.decorators.filter(dec => controllerDecoratorNames.has(dec.name));
+
+        if (matchedDecorators.length === 0) {
+          continue;
+        }
+
+        // Collect all matching adapters across all controller decorators
+        let controllerAdapters: typeof adapters = [];
+
+        for (const decorator of matchedDecorators) {
+          const matched = adaptersByDecoratorName.get(decorator.name);
+
+          if (matched !== undefined) {
+            controllerAdapters.push(...matched);
+          }
+        }
 
         // adapterNames constraint (ADAPTER-R-010): filter by explicit adapterNames if present
-        const controllerDecorator = cls.decorators.find(dec =>
-          adapters.some(a => a.entryDecorators.controller === dec.name),
-        );
+        const firstDecorator = matchedDecorators[0];
 
-        if (controllerDecorator) {
-          const adapterNames = this.extractAdapterNames(controllerDecorator, extractions);
+        if (firstDecorator !== undefined) {
+          const adapterNames = this.extractAdapterNames(firstDecorator, extractions);
           if (isErr(adapterNames)) return adapterNames;
 
           if (adapterNames !== null) {
@@ -516,6 +557,15 @@ export class AdapterDefinitionResolver {
     const routeRegistrations: RouteRegistration[] = [];
     const seen = new Set<string>();
 
+    // E-3: Pre-build set of all known class names for metatypeKey validation
+    const knownClassNames = new Set<string>();
+
+    for (const fa of fileMap.values()) {
+      for (const cls of fa.classes) {
+        knownClassNames.add(cls.className);
+      }
+    }
+
     for (const analysis of fileMap.values()) {
       for (const cls of analysis.classes) {
         const controllerAdapterId = controllerAdapterMap.get(cls.className);
@@ -603,6 +653,21 @@ export class AdapterDefinitionResolver {
               const paramDec = param.decorators[0];
               const metatypeKey = typeof param.type === 'string' ? param.type : undefined;
 
+              // E-2: Warn when body-like decorator is used with a primitive type
+              if (paramDec !== undefined && BODY_LIKE_DECORATORS.has(paramDec.name) && metatypeKey !== undefined && PRIMITIVE_TYPE_NAMES.has(metatypeKey.toLowerCase())) {
+                logger.warn(`[Zipbul AOT] Parameter '${param.name}' in '${cls.className}.${method.name}' uses @${paramDec.name}() with primitive type '${metatypeKey}'. Deserialization will be skipped at runtime. Use a DTO class for structured data.`);
+              }
+
+              // E-3: Warn when metatypeKey looks like a class name but is not in any analyzed file
+              if (metatypeKey !== undefined && !PRIMITIVE_TYPE_NAMES.has(metatypeKey.toLowerCase()) && !knownClassNames.has(metatypeKey)) {
+                logger.warn(`[Zipbul AOT] Type '${metatypeKey}' used in '${cls.className}.${method.name}' parameter '${param.name}' was not found in any analyzed file. Deserialization will be skipped at runtime.`);
+              }
+
+              // E-4: Warn when parameter has no decorator and name doesn't match any known param kind
+              if (paramDec === undefined && !KNOWN_PARAM_NAMES.has(param.name.toLowerCase())) {
+                logger.warn(`[Zipbul AOT] Parameter '${param.name}' in '${cls.className}.${method.name}' has no decorator and its name does not match any known param kind. It will receive undefined at runtime.`);
+              }
+
               params.push({
                 name: param.name,
                 ...(paramDec !== undefined ? { decoratorName: paramDec.name } : {}),
@@ -671,33 +736,30 @@ export class AdapterDefinitionResolver {
     extractions: AdapterExtraction[],
     fileMap: Map<string, FileAnalysis>,
   ): Result<void, Diagnostic> {
-    const controllerPrefixCache = new Map<string, string>();
     const controllerDecoratorNames = new Set(
       extractions.map(extraction => extraction.staticSchema.entryDecorators.controller),
     );
 
-    const getControllerPrefix = (className: string): string => {
-      const cached = controllerPrefixCache.get(className);
-      if (cached !== undefined) return cached;
+    // Pre-index: className → controller decorator prefix
+    const controllerPrefixIndex = new Map<string, string>();
 
-      for (const analysis of fileMap.values()) {
-        for (const cls of analysis.classes) {
-          if (cls.className !== className) continue;
+    for (const analysis of fileMap.values()) {
+      for (const cls of analysis.classes) {
+        const decorator = cls.decorators.find(dec => controllerDecoratorNames.has(dec.name));
 
-          for (const decorator of cls.decorators) {
-            if (!controllerDecoratorNames.has(decorator.name)) continue;
-
-            const firstArg = decorator.arguments[0];
-            const prefix = typeof firstArg === 'string' ? firstArg : '';
-
-            controllerPrefixCache.set(className, prefix);
-            return prefix;
-          }
+        if (decorator === undefined) {
+          continue;
         }
-      }
 
-      controllerPrefixCache.set(className, '');
-      return '';
+        const firstArg = decorator.arguments[0];
+        const prefix = typeof firstArg === 'string' ? firstArg : '';
+
+        controllerPrefixIndex.set(cls.className, prefix);
+      }
+    }
+
+    const getControllerPrefix = (className: string): string => {
+      return controllerPrefixIndex.get(className) ?? '';
     };
 
     const routeKeyToEntry = new Map<string, HandlerIndexEntry>();

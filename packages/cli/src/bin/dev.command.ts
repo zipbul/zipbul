@@ -12,7 +12,7 @@ import { outputDirPath, scanGlobSorted, writeIfChanged } from '../common';
 import { isErr } from '@zipbul/result';
 import { buildDiagnostic, DiagnosticError } from '../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
-import { Gildash, type GildashOptions } from '@zipbul/gildash';
+import { Gildash, GildashError, type GildashOptions } from '@zipbul/gildash';
 import type { IndexResult } from '@zipbul/gildash';
 
 import { buildFileAnalysis } from './build-analysis';
@@ -57,6 +57,7 @@ export function createDevCommand(deps: DevCommandDeps) {
     const entryGen = deps.createEntryGenerator();
     const fileCache = new Map<string, FileAnalysis>();
     const fingerprintCache = new Map<string, string>();
+    let previousSignatures: Map<string, string> | undefined;
 
     function computeStructuralFingerprint(analysis: FileAnalysis): string {
       const { filePath: _, ...structural } = analysis;
@@ -103,28 +104,34 @@ export function createDevCommand(deps: DevCommandDeps) {
       handlerIndex: readonly { id: string }[];
     }
 
-    async function rebuild(): Promise<RebuildResult> {
+    interface RebuildOptions {
+      skipCycleCheck?: boolean;
+    }
+
+    async function rebuild(options?: RebuildOptions): Promise<RebuildResult> {
       // File-level import cycle detection (treated as build error, watcher stays alive)
-      try {
-        const hasCycle = await ledger.hasCycle();
-        if (hasCycle) {
-          const cyclePaths = await ledger.getCyclePaths(undefined, { maxCycles: 3 });
-          const summary = cyclePaths.map(c => c.join(' \u2192 ')).join('\n');
-          throw new DiagnosticError(
-            buildDiagnostic({ reason: `Circular import chain detected:\n${summary}` }),
-          );
+      if (!options?.skipCycleCheck) {
+        try {
+          const hasCycle = await ledger.hasCycle();
+          if (hasCycle) {
+            const cyclePaths = await ledger.getCyclePaths(undefined, { maxCycles: 3 });
+            const summary = cyclePaths.map(c => c.join(' \u2192 ')).join('\n');
+            throw new DiagnosticError(
+              buildDiagnostic({ reason: `Circular import chain detected:\n${summary}` }),
+            );
+          }
+        } catch (cycleError) {
+          if (cycleError instanceof DiagnosticError) {
+            throw cycleError;
+          }
+          /* Gildash cycle detection failure — ignore */
         }
-      } catch (cycleError) {
-        if (cycleError instanceof DiagnosticError) {
-          throw cycleError;
-        }
-        /* Gildash cycle detection failure — ignore */
       }
 
       const fileMap = new Map(fileCache.entries());
       const graph = new ModuleGraph(fileMap, moduleFileName, srcDir, ledger);
 
-      graph.build();
+      graph.buildStructure();
 
       try {
         await graph.validateInheritedScopes();
@@ -143,6 +150,18 @@ export function createDevCommand(deps: DevCommandDeps) {
         .map(schema => schema.entryDecorators.controller);
 
       graph.registerControllers(controllerDecoratorNames);
+      graph.validateUnusedProviders();
+
+      const currentSignatures = graph.computeSignatures();
+      const signatureChanged = !previousSignatures
+        || previousSignatures.size !== currentSignatures.size
+        || [...currentSignatures].some(([path, sig]) => previousSignatures!.get(path) !== sig);
+
+      if (signatureChanged) {
+        graph.validate();
+      }
+
+      previousSignatures = currentSignatures;
 
       const manifestJson = manifestGen.generateJson({
         graph,
@@ -277,9 +296,13 @@ export function createDevCommand(deps: DevCommandDeps) {
     try {
       ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true });
     } catch (e) {
-      semanticAvailable = false;
-      renderer.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
-      ledger = await openGildash({ projectRoot, ignorePatterns });
+      if (e instanceof GildashError && e.type === 'semantic') {
+        semanticAvailable = false;
+        renderer.warn(`Semantic mode unavailable, falling back: ${e.message}`);
+        ledger = await openGildash({ projectRoot, ignorePatterns });
+      } else {
+        throw e;
+      }
     }
     gildashSpinner.stop('Code intelligence ready');
 
@@ -300,6 +323,14 @@ export function createDevCommand(deps: DevCommandDeps) {
     const bootStartedAt = performance.now();
 
     const initialResult = await rebuild();
+
+    try {
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      ledger.pruneChangelog(oneDayAgo);
+    } catch (pruneError) {
+      renderer.warn(`Changelog pruning failed: ${pruneError instanceof Error ? pruneError.message : 'unknown'}`);
+    }
 
     const bootDuration = ((performance.now() - bootStartedAt) / 1000).toFixed(1);
     const { graph, handlerIndex } = initialResult;
@@ -377,10 +408,42 @@ export function createDevCommand(deps: DevCommandDeps) {
             }
           }
 
+          if (result.renamedSymbols.length > 0) {
+            for (const renamed of result.renamedSymbols) {
+              renderer.info(`Renamed: ${renamed.oldName} → ${renamed.newName} in ${toProjectRelativePath(renamed.filePath)}`);
+            }
+          }
+
+          if (result.movedSymbols.length > 0) {
+            for (const moved of result.movedSymbols) {
+              renderer.info(`Moved: ${moved.name} from ${toProjectRelativePath(moved.oldFilePath)} → ${toProjectRelativePath(moved.newFilePath)}`);
+            }
+          }
+
           // 4. Skip if only non-app files changed
           const hasAppChanges = result.changedFiles.some(shouldAnalyzeFile);
           if (!hasAppChanges && result.deletedFiles.length === 0) {
             renderer.info('No app files changed, skipping restart');
+            return;
+          }
+
+          // 4-B. Fast path: skip re-parse + rebuild when no exported symbols changed
+          const hasExportedChange = result.changedSymbols.modified.some(s => s.isExported)
+            || result.changedSymbols.added.some(s => s.isExported)
+            || result.changedSymbols.removed.some(s => s.isExported);
+          const hasReExportChange = result.changedRelations.added.some(r => r.type === 're-exports')
+            || result.changedRelations.removed.some(r => r.type === 're-exports');
+
+          if (!hasExportedChange && !hasReExportChange && result.deletedFiles.length === 0) {
+            // Only internal changes — re-analyze files but skip rebuild
+            for (const file of result.changedFiles) {
+              if (shouldAnalyzeFile(file)) {
+                await analyzeFile(file);
+              }
+            }
+
+            renderer.info('No exported changes, skipping rebuild');
+            await processManager.restart();
             return;
           }
 
@@ -446,6 +509,11 @@ export function createDevCommand(deps: DevCommandDeps) {
 
           // 10. Conditional rebuild
           if (needsRebuild) {
+            const importRelationTypes = new Set(['imports', 're-exports', 'type-references']);
+            const importsChanged = result.changedRelations.added.some(r => importRelationTypes.has(r.type))
+              || result.changedRelations.removed.some(r => importRelationTypes.has(r.type))
+              || result.deletedFiles.length > 0;
+
             const rebuildStartedAt = performance.now();
             const allAffected = [...result.changedFiles, ...affectedFiles];
             const impactLog = buildDevIncrementalImpactLog({
@@ -455,7 +523,7 @@ export function createDevCommand(deps: DevCommandDeps) {
               toProjectRelativePath,
             });
 
-            await rebuild();
+            await rebuild({ skipCycleCheck: !importsChanged });
 
             const rebuildDuration = ((performance.now() - rebuildStartedAt) / 1000).toFixed(1);
 

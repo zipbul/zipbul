@@ -1,3 +1,4 @@
+import { heapStats, edenGC, fullGC } from 'bun:jsc';
 import type { ClusterWorkerStats } from './interfaces';
 import type { ClusterBootstrapParams, ClusterInitParams, ClusterWorkerId } from './types';
 
@@ -35,9 +36,39 @@ export abstract class ClusterBaseWorker {
     this.prevCpu = process.cpuUsage();
     this.prevTime = now;
 
+    const heap = heapStats();
+
     return {
       cpu: elapsedSeconds > 0 ? Math.min(1, cpuSeconds / elapsedSeconds) : 0,
       memory: process.memoryUsage.rss(),
+      heapSize: heap.heapSize,
+      heapCapacity: heap.heapCapacity,
+    };
+  }
+
+  /**
+   * Triggers a young-generation GC (eden collection) then returns fresh stats.
+   *
+   * Used by the master process when soft memory limit is reached:
+   * if post-GC stats drop below the limit, the recycle is skipped.
+   *
+   * @returns Worker stats collected after GC.
+   * @public
+   */
+  getStatsAfterGC(): ClusterWorkerStats {
+    edenGC();
+    fullGC();
+
+    // Collect memory/heap stats without updating CPU baseline.
+    // getStats() resets prevCpu/prevTime — calling it here would
+    // skew the next health check's CPU ratio calculation.
+    const heap = heapStats();
+
+    return {
+      cpu: 0,
+      memory: process.memoryUsage.rss(),
+      heapSize: heap.heapSize,
+      heapCapacity: heap.heapCapacity,
     };
   }
 }

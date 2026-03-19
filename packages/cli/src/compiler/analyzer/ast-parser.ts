@@ -1614,21 +1614,36 @@ export class AstParser {
         const factoryCode = this.currentCode.slice(start, end);
         const deps = this.extractDependencies(expr, start);
         const injectCalls = this.extractFactoryInjectCalls(expr, start);
+        const paramTypes = this.extractFactoryParamTypes(expr);
 
         return {
           [ZIPBUL_FACTORY_CODE]: factoryCode,
           __zipbul_factory_deps: deps,
           __zipbul_factory_injects: injectCalls,
+          ...(paramTypes.length > 0 ? { __zipbul_factory_params: paramTypes } : {}),
         };
       }
 
       case 'MemberExpression': {
         const obj = this.asNode(expr.object);
         const prop = this.asNode(expr.property);
-        const objName = obj?.type === 'Identifier' ? this.getString(obj, 'name') : null;
-        const propName = prop ? this.getString(prop, 'name') : null;
+        const computed = expr.computed === true;
 
-        if (isNonEmptyString(objName) && isNonEmptyString(propName)) {
+        let propName: string | null = null;
+
+        if (computed && (prop?.type === 'StringLiteral' || prop?.type === 'Literal') && typeof prop.value === 'string') {
+          propName = prop.value;
+        } else if (!computed) {
+          propName = prop ? this.getString(prop, 'name') : null;
+        }
+
+        if (!isNonEmptyString(propName)) return null;
+
+        if (obj?.type === 'Identifier') {
+          const objName = this.getString(obj, 'name');
+
+          if (!isNonEmptyString(objName)) return null;
+
           const importSource = this.currentImports[objName];
 
           return {
@@ -1637,8 +1652,23 @@ export class AstParser {
           };
         }
 
+        if (obj !== null && obj !== undefined) {
+          const inner = this.parseExpression(obj);
+          const innerRecord = isAnalyzerRecord(inner) ? inner : null;
+
+          if (innerRecord && typeof innerRecord[ZIPBUL_REF] === 'string') {
+            return {
+              [ZIPBUL_REF]: `${innerRecord[ZIPBUL_REF]}.${propName}`,
+              [ZIPBUL_IMPORT_SOURCE]: innerRecord[ZIPBUL_IMPORT_SOURCE],
+            };
+          }
+        }
+
         return null;
       }
+
+      case 'ChainExpression':
+        return this.parseExpression(expr.expression);
 
       case 'TSAsExpression':
         return this.parseExpression(expr.expression);
@@ -1723,6 +1753,55 @@ export class AstParser {
     visit(funcNode.body);
 
     return deps;
+  }
+
+  private extractFactoryParamTypes(funcNode: NodeRecord): AnalyzerValueRecord[] {
+    const params = asAnalyzerArray(funcNode.params);
+
+    if (!params) {
+      return [];
+    }
+
+    const result: AnalyzerValueRecord[] = [];
+
+    for (const paramValue of params) {
+      const param = this.asNode(paramValue);
+
+      if (!param) {
+        result.push({ name: 'unknown', typeName: null });
+        continue;
+      }
+
+      const paramName = param.type === 'Identifier' ? this.getString(param, 'name') : 'unknown';
+      const typeAnnotation = this.asNode(param.typeAnnotation);
+      const innerType = typeAnnotation ? this.asNode(typeAnnotation.typeAnnotation) : null;
+
+      let typeName: string | null = null;
+      let importSource: string | undefined;
+
+      if (innerType?.type === 'TSTypeReference') {
+        const typeName_ = this.asNode(innerType.typeName);
+
+        if (typeName_?.type === 'Identifier') {
+          const name = this.getString(typeName_, 'name');
+
+          if (isNonEmptyString(name)) {
+            typeName = this.resolveOriginalName(name);
+            importSource = this.currentImports[name];
+          }
+        }
+      }
+
+      const entry: AnalyzerValueRecord = { name: paramName ?? 'unknown', typeName };
+
+      if (importSource !== undefined) {
+        entry.importSource = importSource;
+      }
+
+      result.push(entry);
+    }
+
+    return result;
   }
 
   private extractFactoryInjectCalls(funcNode: NodeRecord, offset: number): FactoryInjectCall[] {

@@ -8,6 +8,7 @@
  *   - { slowInit: number }  → delays init by N ms
  *   - (default)             → normal init/bootstrap/destroy
  */
+import { edenGC, fullGC } from 'bun:jsc';
 import { exposeWorker } from '../../../src/cluster/rpc-expose';
 import type { RpcCallable, RpcArgs } from '../../../src/cluster/types';
 import type { ZipbulValue } from '@zipbul/common';
@@ -77,7 +78,14 @@ const getStats: RpcCallable = () => {
   };
 };
 
+const getStatsAfterGC: RpcCallable = () => {
+  edenGC();
+  fullGC();
+
+  return getStats();
+};
+
 exposeWorker(
-  { init, bootstrap, destroy, getStats },
-  ['init', 'bootstrap', 'destroy', 'getStats'],
+  { init, bootstrap, destroy, getStats, getStatsAfterGC },
+  ['init', 'bootstrap', 'destroy', 'getStats', 'getStatsAfterGC'],
 );

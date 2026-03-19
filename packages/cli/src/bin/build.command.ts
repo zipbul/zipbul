@@ -6,12 +6,13 @@ import { gzipSync } from 'node:zlib';
 import type { CliRendererLike, CollectedClass, CommandOptions } from './interfaces';
 
 import { isErr } from '@zipbul/result';
-import { Gildash, type GildashOptions } from '@zipbul/gildash';
+import { Gildash, GildashError, type GildashOptions } from '@zipbul/gildash';
 import { AdapterDefinitionResolver, AstParser, ModuleGraph, type FileAnalysis } from '../compiler/analyzer';
 import { validateCreateApplication } from '../compiler/analyzer/validation';
 import {
   outputDirPath,
   tempDirPath,
+  cacheFilePath,
   compareCodePoint,
   scanGlobSorted,
   writeIfChanged,
@@ -23,6 +24,7 @@ import { EntryGenerator, ManifestGenerator } from '../compiler/generator';
 import { CliRenderer } from './cli-renderer';
 import { buildFileAnalysis } from './build-analysis';
 import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from './build-artifact-writer';
+import { loadBuildCache, saveBuildCache, computeTsconfigHash } from './build-cache';
 import { formatCount, buildModuleTree } from './module-tree-renderer';
 
 // ---------------------------------------------------------------------------
@@ -108,7 +110,14 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const manifestGen = deps.createManifestGenerator();
       const adapterDefinitionResolver = deps.createAdapterDefinitionResolver();
       const fileMap = new Map<string, FileAnalysis>();
+      const contentHashes = new Map<string, string>();
       const allClasses: CollectedClass[] = [];
+
+      // Load build cache
+      const buildCachePath = cacheFilePath(projectRoot, 'file-analysis-cache.json');
+      const tsconfigHash = await computeTsconfigHash(projectRoot);
+      const buildCache = await loadBuildCache(buildCachePath, tsconfigHash);
+      let cacheHits = 0;
 
       const scanSpinner = renderer.startSpinner('[1/4] 🔍 Scanning source files');
 
@@ -123,6 +132,62 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         if (fullPath !== userMain) {
           queue.push(fullPath);
+        }
+      }
+
+      async function enqueueImports(
+        imports: Record<string, string> | undefined,
+        reExports: readonly { module: string }[],
+        fromFilePath: string,
+      ): Promise<void> {
+        const pathsToFollow = new Set<string>();
+
+        if (imports !== undefined) {
+          Object.values(imports).forEach(p => pathsToFollow.add(p));
+        }
+
+        if (reExports.length > 0) {
+          reExports.forEach(re => pathsToFollow.add(re.module));
+        }
+
+        const orderedPaths = Array.from(pathsToFollow).sort(compareCodePoint);
+
+        for (const rawImportPath of orderedPaths) {
+          let resolvedPath = rawImportPath;
+
+          if (!resolvedPath.startsWith('/') && !resolvedPath.match(/^[a-zA-Z]:/)) {
+            try {
+              resolvedPath = deps.resolveImport(resolvedPath, dirname(fromFilePath));
+            } catch {
+              if (rawImportPath.startsWith('.') || rawImportPath.startsWith('/')) {
+                renderer.warn(`Could not resolve import '${rawImportPath}' in '${fromFilePath}'`);
+              }
+
+              continue;
+            }
+          }
+
+          if (resolvedPath && !resolvedPath.endsWith('.ts') && !resolvedPath.endsWith('.d.ts')) {
+            if (await Bun.file(resolvedPath + '.ts').exists()) {
+              resolvedPath += '.ts';
+            } else if (await Bun.file(resolvedPath + '/index.ts').exists()) {
+              resolvedPath += '/index.ts';
+            } else {
+              const sourceCandidate = await resolveDistToSource(resolvedPath);
+
+              if (sourceCandidate !== null) {
+                resolvedPath = sourceCandidate;
+              }
+            }
+          }
+
+          if (resolvedPath && !visited.has(resolvedPath) && !resolvedPath.endsWith('.d.ts') && resolvedPath.endsWith('.ts')) {
+            const normalizedPath = resolvedPath.replaceAll('\\', '/');
+
+            if (!normalizedPath.includes('/node_modules/')) {
+              queue.push(resolvedPath);
+            }
+          }
         }
       }
 
@@ -148,6 +213,24 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         try {
           const fileContent = await Bun.file(filePath).text();
+          const fileHash = Bun.hash(fileContent).toString(36);
+
+          contentHashes.set(filePath, fileHash);
+
+          const cached = buildCache.get(filePath, fileHash);
+
+          if (cached !== undefined) {
+            const classInfos = cached.classes.map(meta => ({ metadata: meta, filePath }));
+
+            allClasses.push(...classInfos);
+            fileMap.set(filePath, cached);
+            cacheHits++;
+
+            await enqueueImports(cached.imports, cached.reExports, filePath);
+
+            continue;
+          }
+
           const parseResult = parser.parse(filePath, fileContent);
 
           if (isErr(parseResult)) {
@@ -162,61 +245,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
           fileMap.set(filePath, analysis);
 
-          const pathsToFollow = new Set<string>();
-
-          if (parseResult.imports !== undefined) {
-            Object.values(parseResult.imports).forEach(p => pathsToFollow.add(p));
-          }
-
-          if (parseResult.reExports.length > 0) {
-            parseResult.reExports.forEach(re => pathsToFollow.add(re.module));
-          }
-
-          const orderedPathsToFollow = Array.from(pathsToFollow).sort(compareCodePoint);
-
-          for (const rawImportPath of orderedPathsToFollow) {
-            let resolvedPath = rawImportPath;
-
-            if (!resolvedPath.startsWith('/') && !resolvedPath.match(/^[a-zA-Z]:/)) {
-              try {
-                resolvedPath = deps.resolveImport(resolvedPath, dirname(filePath));
-              } catch {
-                if (rawImportPath.startsWith('.') || rawImportPath.startsWith('/')) {
-                  renderer.warn(`Could not resolve import '${rawImportPath}' in '${filePath}'`);
-                }
-                continue;
-              }
-            }
-
-            if (
-              resolvedPath &&
-              !resolvedPath.endsWith('.ts') &&
-              !resolvedPath.endsWith('.d.ts')
-            ) {
-              if (await Bun.file(resolvedPath + '.ts').exists()) {
-                resolvedPath += '.ts';
-              } else if (await Bun.file(resolvedPath + '/index.ts').exists()) {
-                resolvedPath += '/index.ts';
-              } else {
-                const sourceCandidate = await resolveDistToSource(resolvedPath);
-
-                if (sourceCandidate !== null) {
-                  resolvedPath = sourceCandidate;
-                }
-              }
-            }
-
-            if (resolvedPath && !visited.has(resolvedPath)) {
-              if (!resolvedPath.endsWith('.d.ts') && resolvedPath.endsWith('.ts')) {
-                const normalizedPath = resolvedPath.replaceAll('\\', '/');
-                if (normalizedPath.includes('/node_modules/')) {
-                  continue;
-                }
-
-                queue.push(resolvedPath);
-              }
-            }
-          }
+          await enqueueImports(parseResult.imports, parseResult.reExports, filePath);
         } catch (error) {
           if (error instanceof DiagnosticError) {
             throw error;
@@ -231,7 +260,9 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
       }
 
-      scanSpinner.stop(`[1/4] 🔍 Scanned ${formatCount(fileMap.size)} files (${formatCount(allClasses.length)} classes)`);
+      const cacheSuffix = cacheHits > 0 ? `, ${formatCount(cacheHits)} cached` : '';
+
+      scanSpinner.stop(`[1/4] 🔍 Scanned ${formatCount(fileMap.size)} files (${formatCount(allClasses.length)} classes${cacheSuffix})`);
 
       const appEntry = validateCreateApplication(fileMap);
 
@@ -250,9 +281,13 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       try {
         ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true, watchMode: false });
       } catch (e) {
-        semanticAvailable = false;
-        renderer.warn(`Semantic mode unavailable, falling back: ${e instanceof Error ? e.message : 'unknown'}`);
-        ledger = await openGildash({ projectRoot, ignorePatterns, watchMode: false });
+        if (e instanceof GildashError && e.type === 'semantic') {
+          semanticAvailable = false;
+          renderer.warn(`Semantic mode unavailable, falling back: ${e.message}`);
+          ledger = await openGildash({ projectRoot, ignorePatterns, watchMode: false });
+        } else {
+          throw e;
+        }
       }
 
       const unsubscribeError = ledger.onError((error) => {
@@ -286,6 +321,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           .map(schema => schema.entryDecorators.controller);
 
         graph.registerControllers(controllerDecoratorNames);
+        graph.validateUnusedProviders();
 
         let providerCount = 0;
         for (const mod of graph.modules.values()) {
@@ -410,6 +446,9 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
 
         bundleSpinner.stop('[4/4] 📦 Application bundled');
+
+        // Persist build cache for next run
+        await saveBuildCache(buildCachePath, tsconfigHash, fileMap, contentHashes);
 
         const moduleTreeResult = buildModuleTree(
           { modules: graph.modules, handlerIndex: adapterResolution.handlerIndex },

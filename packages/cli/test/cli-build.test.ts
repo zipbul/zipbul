@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { err } from '@zipbul/result';
-import type { Gildash, GildashOptions } from '@zipbul/gildash';
+import { GildashError, type Gildash, type GildashOptions } from '@zipbul/gildash';
 
 import type { BuildCommandDeps } from '../src/bin/build.command';
 import { __testing__ } from '../src/bin/build.command';
@@ -95,6 +95,8 @@ const makeGildashLedgerMock = () => ({
   getStats: mock(() => ({ totalFiles: 0, totalSymbols: 0, totalRelations: 0 })),
   getModuleInterface: mock((_file: string) => ({ exports: [] })),
   getSemanticModuleInterface: mock((_file: string) => ({ exports: [] })),
+  pruneChangelog: mock((_before: unknown) => 0),
+  getSymbolChanges: mock((_since: unknown, _opts?: unknown) => []),
   close: mock(async () => {}),
 }) as unknown as Gildash;
 
@@ -146,8 +148,9 @@ const makeDeps = (overrides?: Partial<BuildCommandDeps>): BuildCommandDeps => ({
 describe('createBuildCommand', () => {
   let cwdSpy: ReturnType<typeof spyOn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     cwdSpy = spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    await rm(join(tmpDir, '.zipbul', 'cache'), { recursive: true, force: true });
   });
 
   afterEach(() => {
@@ -427,5 +430,63 @@ describe('createBuildCommand', () => {
 
     // Act & Assert - if @types path is NOT skipped, it would trigger Bun.file() on a non-existent path
     await expect(build()).resolves.toBeUndefined();
+  });
+
+  // -- Gildash error handling (K-2) --
+
+  it('should fall back to non-semantic mode when gildash throws a semantic GildashError', async () => {
+    let callCount = 0;
+    const deps = makeDeps({
+      createGildash: mock(async (opts: GildashOptions) => {
+        callCount++;
+        if (callCount === 1 && opts.semantic === true) {
+          throw new GildashError('semantic', 'tsconfig not found');
+        }
+        return makeGildashLedgerMock();
+      }),
+    });
+    const build = createBuildCommand(deps);
+
+    // Act — should succeed because semantic error triggers fallback
+    await expect(build()).resolves.toBeUndefined();
+
+    // Assert — createGildash was called twice (semantic failed, non-semantic succeeded)
+    expect(callCount).toBe(2);
+    expect(deps.renderer.warn).toHaveBeenCalled();
+  });
+
+  it('should re-throw non-semantic GildashError instead of falling back', async () => {
+    // The critical scenario: first call throws non-semantic error,
+    // second call (without semantic) would succeed — the error must NOT be swallowed
+    let callCount = 0;
+    const deps = makeDeps({
+      createGildash: mock(async (opts: GildashOptions) => {
+        callCount++;
+        if (callCount === 1) {
+          throw new GildashError('store', 'database corruption detected');
+        }
+        // Second call would succeed — but should never reach here for non-semantic errors
+        return makeGildashLedgerMock();
+      }),
+    });
+    const build = createBuildCommand(deps);
+
+    // Act & Assert — non-semantic error should propagate, not be caught by semantic fallback
+    await expect(build()).rejects.toThrow('database corruption detected');
+
+    // The second call should NOT have been made
+    expect(callCount).toBe(1);
+  });
+
+  it('should re-throw non-GildashError errors instead of falling back', async () => {
+    const deps = makeDeps({
+      createGildash: mock(async (_opts: GildashOptions) => {
+        throw new Error('unexpected filesystem error');
+      }),
+    });
+    const build = createBuildCommand(deps);
+
+    // Act & Assert — generic errors should not trigger semantic fallback
+    await expect(build()).rejects.toThrow('unexpected filesystem error');
   });
 });
