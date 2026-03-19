@@ -11,6 +11,7 @@ import type {
   ModuleFileAnalysisParams,
 } from './module-graph.spec.interfaces';
 
+import { ZIPBUL_CALL, ZIPBUL_IMPORT_SOURCE, ZIPBUL_REF, ZIPBUL_SPREAD, ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
 import { ModuleGraph } from './module-graph';
 
 const requireNode = (node: ModuleNode | undefined): ModuleNode => {
@@ -48,9 +49,8 @@ function createInjectableClassMetadata(params: InjectableClassParams): ClassMeta
 }
 
 function createModuleFileAnalysis(params: ModuleFileAnalysisParams): FileAnalysis {
-  const { filePath, name, exportedName } = params;
-
-  return {
+  const { filePath, name, exportedName, providers, localValues } = params;
+  const analysis: FileAnalysis = {
     filePath,
     classes: [],
     reExports: [],
@@ -66,22 +66,33 @@ function createModuleFileAnalysis(params: ModuleFileAnalysisParams): FileAnalysi
     ],
     moduleDefinition: {
       name,
-      providers: [],
+      providers: providers !== undefined ? [...providers] : [],
       imports: {},
     },
   };
+
+  if (localValues !== undefined) {
+    analysis.localValues = localValues;
+  }
+
+  return analysis;
 }
 
 function createClassFileAnalysis(params: ClassFileAnalysisParams): FileAnalysis {
-  const { filePath, classes } = params;
-
-  return {
+  const { filePath, classes, exportedValues } = params;
+  const analysis: FileAnalysis = {
     filePath,
     classes,
     reExports: [],
     exports: [],
     imports: {},
   };
+
+  if (exportedValues !== undefined) {
+    analysis.exportedValues = exportedValues;
+  }
+
+  return analysis;
 }
 
 describe('ModuleGraph', () => {
@@ -569,6 +580,619 @@ describe('ModuleGraph', () => {
     const graph = new ModuleGraph(fileMap, '__module__.ts');
 
     expect(() => graph.build()).toThrow(/inject\(\) token in useFactory of provider 'DbService'/);
+  });
+
+  describe('spread bundle resolution (F-1)', () => {
+    it('should resolve imported bundle with property path', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const bundlePath = '/app/src/app/bundle.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'bundle.providers',
+              [ZIPBUL_IMPORT_SOURCE]: bundlePath,
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(bundlePath, createClassFileAnalysis({
+        filePath: bundlePath,
+        classes: [],
+        exportedValues: {
+          bundle: {
+            providers: [
+              { [ZIPBUL_REF]: 'TokenA' },
+              { [ZIPBUL_REF]: 'TokenB' },
+            ],
+          },
+        },
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.has('TokenA')).toBe(true);
+      expect(node.providers.has('TokenB')).toBe(true);
+    });
+
+    it('should resolve local variable spread without property path', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'localProviders',
+            },
+          } as never,
+        ],
+        localValues: {
+          localProviders: [
+            { [ZIPBUL_REF]: 'LocalToken' },
+          ],
+        },
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.has('LocalToken')).toBe(true);
+    });
+
+    it('should resolve inline array spread directly', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: [
+              { [ZIPBUL_REF]: 'InlineA' },
+              { [ZIPBUL_REF]: 'InlineB' },
+            ],
+          } as never,
+        ],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.has('InlineA')).toBe(true);
+      expect(node.providers.has('InlineB')).toBe(true);
+    });
+
+    it('should resolve deep nested property path (obj.a.b.providers)', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const deepPath = '/app/src/app/deep.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'obj.a.b.providers',
+              [ZIPBUL_IMPORT_SOURCE]: deepPath,
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(deepPath, createClassFileAnalysis({
+        filePath: deepPath,
+        classes: [],
+        exportedValues: {
+          obj: {
+            a: {
+              b: {
+                providers: [
+                  { [ZIPBUL_REF]: 'DeepToken' },
+                ],
+              },
+            },
+          },
+        },
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.has('DeepToken')).toBe(true);
+    });
+
+    it('should resolve namespace import by falling back to exported property name', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const nsPath = '/app/src/app/ns.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'ns.providers',
+              [ZIPBUL_IMPORT_SOURCE]: nsPath,
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(nsPath, createClassFileAnalysis({
+        filePath: nsPath,
+        classes: [],
+        exportedValues: {
+          providers: [
+            { [ZIPBUL_REF]: 'NsToken' },
+          ],
+        },
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.has('NsToken')).toBe(true);
+    });
+
+    it('should flatten nested spread recursively', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: [
+              { [ZIPBUL_SPREAD]: [{ [ZIPBUL_REF]: 'NestedA' }] },
+              { [ZIPBUL_REF]: 'TopC' },
+            ],
+          } as never,
+        ],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.has('NestedA')).toBe(true);
+      expect(node.providers.has('TopC')).toBe(true);
+    });
+
+    it('should resolve re-export chain via gildash resolveSymbol', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const reexportPath = '/app/src/app/reexport.ts';
+      const originalPath = '/app/src/app/original.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'bundle.providers',
+              [ZIPBUL_IMPORT_SOURCE]: reexportPath,
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(reexportPath, createClassFileAnalysis({
+        filePath: reexportPath,
+        classes: [],
+      }));
+      fileMap.set(originalPath, createClassFileAnalysis({
+        filePath: originalPath,
+        classes: [],
+        exportedValues: {
+          bundle: {
+            providers: [
+              { [ZIPBUL_REF]: 'ReExportedToken' },
+            ],
+          },
+        },
+      }));
+
+      const mockGildash = {
+        resolveSymbol: (name: string, _source: string) => ({
+          originalName: name,
+          filePath: originalPath,
+          circular: false,
+        }),
+      };
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts', undefined, mockGildash as never);
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.has('ReExportedToken')).toBe(true);
+    });
+
+    it('should accept empty spread array without error', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          { [ZIPBUL_SPREAD]: [] } as never,
+        ],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.size).toBe(0);
+    });
+
+    it('should merge spread providers with normal providers in same module', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const servicePath = '/app/src/app/existing.service.ts';
+      const bundlePath = '/app/src/app/bundle.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          { [ZIPBUL_REF]: 'ExplicitToken' } as never,
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'bundle.providers',
+              [ZIPBUL_IMPORT_SOURCE]: bundlePath,
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'ExistingService' })],
+      }));
+      fileMap.set(bundlePath, createClassFileAnalysis({
+        filePath: bundlePath,
+        classes: [],
+        exportedValues: {
+          bundle: {
+            providers: [
+              { [ZIPBUL_REF]: 'SpreadToken' },
+            ],
+          },
+        },
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.has('ExistingService')).toBe(true);
+      expect(node.providers.has('ExplicitToken')).toBe(true);
+      expect(node.providers.has('SpreadToken')).toBe(true);
+    });
+
+    it('should resolve multiple spreads in same providers array', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const bundleAPath = '/app/src/app/bundle-a.ts';
+      const bundleBPath = '/app/src/app/bundle-b.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'bundleA.providers',
+              [ZIPBUL_IMPORT_SOURCE]: bundleAPath,
+            },
+          } as never,
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'bundleB.providers',
+              [ZIPBUL_IMPORT_SOURCE]: bundleBPath,
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(bundleAPath, createClassFileAnalysis({
+        filePath: bundleAPath,
+        classes: [],
+        exportedValues: {
+          bundleA: { providers: [{ [ZIPBUL_REF]: 'FromA' }] },
+        },
+      }));
+      fileMap.set(bundleBPath, createClassFileAnalysis({
+        filePath: bundleBPath,
+        classes: [],
+        exportedValues: {
+          bundleB: { providers: [{ [ZIPBUL_REF]: 'FromB' }] },
+        },
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.has('FromA')).toBe(true);
+      expect(node.providers.has('FromB')).toBe(true);
+    });
+
+    it('should throw when spread resolves to function call (ZIPBUL_CALL)', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_CALL]: 'getProviders',
+              [ZIPBUL_IMPORT_SOURCE]: '/app/src/app/fn.ts',
+              args: [],
+            },
+          } as never,
+        ],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      expect(() => graph.build()).toThrow(/스프레드 표현식.*정적으로 해석할 수 없습니다/);
+      expect(() => graph.build()).toThrow(/함수 호출/);
+      expect(() => graph.build()).toThrow(/해결:/);
+    });
+
+    it('should throw when spread is unresolvable expression with reason and solution', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_UNRESOLVABLE]: true,
+              nodeType: 'ConditionalExpression',
+            },
+          } as never,
+        ],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      expect(() => graph.build()).toThrow(/원인:.*ConditionalExpression/);
+      expect(() => graph.build()).toThrow(/해결:/);
+    });
+
+    it('should throw when resolved spread value is not an array', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const bundlePath = '/app/src/app/bundle.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'bundle.providers',
+              [ZIPBUL_IMPORT_SOURCE]: bundlePath,
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(bundlePath, createClassFileAnalysis({
+        filePath: bundlePath,
+        classes: [],
+        exportedValues: {
+          bundle: {
+            providers: 'not-an-array',
+          },
+        },
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      expect(() => graph.build()).toThrow(/해석된 값이 배열이 아닙니다/);
+    });
+
+    it('should throw when property path segment is missing', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const bundlePath = '/app/src/app/bundle.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'bundle.nonexistent',
+              [ZIPBUL_IMPORT_SOURCE]: bundlePath,
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(bundlePath, createClassFileAnalysis({
+        filePath: bundlePath,
+        classes: [],
+        exportedValues: {
+          bundle: { other: [] },
+        },
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      expect(() => graph.build()).toThrow(/프로퍼티 'nonexistent'를 찾을 수 없습니다/);
+    });
+
+    it('should throw when local variable does not exist', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'nonExistentVar',
+            },
+          } as never,
+        ],
+        localValues: {},
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      expect(() => graph.build()).toThrow(/로컬 변수 'nonExistentVar'를 찾을 수 없습니다/);
+    });
+
+    it('should throw when spread value is a primitive', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          { [ZIPBUL_SPREAD]: 42 } as never,
+        ],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      expect(() => graph.build()).toThrow(/스프레드 표현식.*정적으로 해석할 수 없습니다/);
+    });
+
+    it('should throw when property path traverses a non-object value', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const bundlePath = '/app/src/app/bundle.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'bundle.deep.providers',
+              [ZIPBUL_IMPORT_SOURCE]: bundlePath,
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(bundlePath, createClassFileAnalysis({
+        filePath: bundlePath,
+        classes: [],
+        exportedValues: {
+          bundle: {
+            deep: 'string-not-object',
+          },
+        },
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      expect(() => graph.build()).toThrow(/프로퍼티 'providers' 접근 대상이 객체가 아닙니다/);
+    });
+
+    it('should throw when imported file has no exported values', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const emptyPath = '/app/src/app/empty.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'bundle.providers',
+              [ZIPBUL_IMPORT_SOURCE]: emptyPath,
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(emptyPath, createClassFileAnalysis({
+        filePath: emptyPath,
+        classes: [],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      expect(() => graph.build()).toThrow(/exported values를 찾을 수 없습니다/);
+    });
+
+    it('should include module name and file path in all error messages', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          { [ZIPBUL_SPREAD]: null } as never,
+        ],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      expect(() => graph.build()).toThrow(/AppModule/);
+      expect(() => graph.build()).toThrow(/\/app\/src\/app\/__module__\.ts/);
+    });
+
+    it('should resolve file with .ts extension fallback in findFileAnalysis', () => {
+      const modulePath = '/app/src/app/__module__.ts';
+      const bundlePath = '/app/src/app/bundle.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AppModule',
+        providers: [
+          {
+            [ZIPBUL_SPREAD]: {
+              [ZIPBUL_REF]: 'bundle.providers',
+              [ZIPBUL_IMPORT_SOURCE]: '/app/src/app/bundle',
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(bundlePath, createClassFileAnalysis({
+        filePath: bundlePath,
+        classes: [],
+        exportedValues: {
+          bundle: {
+            providers: [
+              { [ZIPBUL_REF]: 'FallbackToken' },
+            ],
+          },
+        },
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.build();
+      const node = requireNode(modules.get(modulePath));
+
+      expect(node.providers.has('FallbackToken')).toBe(true);
+    });
   });
 });
 

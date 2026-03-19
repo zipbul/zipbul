@@ -1,4 +1,4 @@
-import type { AnalyzerValue } from '../types';
+import type { AnalyzerValue, AnalyzerValueRecord } from '../types';
 import type { ClassMetadata } from '../interfaces';
 
 export interface InjectableClassParams {
@@ -12,9 +12,12 @@ export interface ModuleFileAnalysisParams {
   readonly filePath: string;
   readonly name: string;
   readonly exportedName?: string;
+  readonly providers?: readonly AnalyzerValue[];
+  readonly localValues?: AnalyzerValueRecord;
 }
 
 export interface ClassFileAnalysisParams {
   readonly filePath: string;
   readonly classes: ClassMetadata[];
+  readonly exportedValues?: AnalyzerValueRecord;
 }

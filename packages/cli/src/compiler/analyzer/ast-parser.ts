@@ -1625,10 +1625,23 @@ export class AstParser {
       case 'MemberExpression': {
         const obj = this.asNode(expr.object);
         const prop = this.asNode(expr.property);
-        const objName = obj?.type === 'Identifier' ? this.getString(obj, 'name') : null;
-        const propName = prop ? this.getString(prop, 'name') : null;
+        const computed = expr.computed === true;
 
-        if (isNonEmptyString(objName) && isNonEmptyString(propName)) {
+        let propName: string | null = null;
+
+        if (computed && (prop?.type === 'StringLiteral' || prop?.type === 'Literal') && typeof prop.value === 'string') {
+          propName = prop.value;
+        } else if (!computed) {
+          propName = prop ? this.getString(prop, 'name') : null;
+        }
+
+        if (!isNonEmptyString(propName)) return null;
+
+        if (obj?.type === 'Identifier') {
+          const objName = this.getString(obj, 'name');
+
+          if (!isNonEmptyString(objName)) return null;
+
           const importSource = this.currentImports[objName];
 
           return {
@@ -1637,8 +1650,23 @@ export class AstParser {
           };
         }
 
+        if (obj !== null && obj !== undefined) {
+          const inner = this.parseExpression(obj);
+          const innerRecord = isAnalyzerRecord(inner) ? inner : null;
+
+          if (innerRecord && typeof innerRecord[ZIPBUL_REF] === 'string') {
+            return {
+              [ZIPBUL_REF]: `${innerRecord[ZIPBUL_REF]}.${propName}`,
+              [ZIPBUL_IMPORT_SOURCE]: innerRecord[ZIPBUL_IMPORT_SOURCE],
+            };
+          }
+        }
+
         return null;
       }
+
+      case 'ChainExpression':
+        return this.parseExpression(expr.expression);
 
       case 'TSAsExpression':
         return this.parseExpression(expr.expression);

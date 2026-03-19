@@ -80,11 +80,7 @@ async function run() {
     console.log(`Graph built successfully. Found ${modules.size} modules.`);
 
     modules.forEach(node => {
-      console.log(`- Module: ${node.name} (${node.providers.size} providers, ${node.dynamicProviderBundles.size} bundles)`);
-
-      if (node.dynamicProviderBundles.size > 0) {
-        console.log('  Has dynamic bundles!');
-      }
+      console.log(`- Module: ${node.name} (${node.providers.size} providers)`);
 
       if (node.moduleDefinition?.adapters !== undefined) {
         console.log('  Has Adapters:', JSON.stringify(node.moduleDefinition.adapters, null, 2));

@@ -13,7 +13,6 @@ export class ModuleNode {
   providers: Map<string, ProviderRef> = new Map();
   exports: Set<string> = new Set();
   controllers: Set<string> = new Set();
-  dynamicProviderBundles: Set<AnalyzerValue> = new Set();
 
   visiting: boolean = false;
   visited: boolean = false;

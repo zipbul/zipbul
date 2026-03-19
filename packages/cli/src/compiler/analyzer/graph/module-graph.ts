@@ -7,7 +7,7 @@ import type { AnalyzerValue, AnalyzerValueRecord } from '../types';
 import type { CyclePath, ProviderRef, FileAnalysis } from './interfaces';
 
 import {
-  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_SPREAD, ZIPBUL_UNRESOLVABLE,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_SPREAD, ZIPBUL_CALL, ZIPBUL_UNRESOLVABLE,
   VISIBILITY_ALL, VISIBILITY_MODULE,
   SCOPE_SINGLETON, SCOPE_REQUEST, SCOPE_TRANSIENT,
   SCOPED_KEY_SEPARATOR,
@@ -183,57 +183,21 @@ export class ModuleGraph {
         rawDef.providers.forEach((p: ProviderTokenValue) => {
           const record = this.asRecord(p);
 
-          if (record && typeof record[ZIPBUL_SPREAD] === 'string') {
-            node.dynamicProviderBundles.add(record[ZIPBUL_SPREAD]);
+          if (record && record[ZIPBUL_SPREAD] !== undefined) {
+            const resolved = this.resolveSpreadBundle(record[ZIPBUL_SPREAD], modulePath, moduleName);
+
+            for (const entry of resolved) {
+              const ref = this.normalizeProvider(entry, modulePath, moduleName);
+
+              this.mergeProviderRef(node, ref, moduleName);
+            }
 
             return;
           }
 
           const ref = this.normalizeProvider(p, modulePath, moduleName);
 
-          if (node.providers.has(ref.token) && !this.isImplicit(node.providers.get(ref.token))) {
-            throw new Error(
-              `[Zipbul AOT] Ambiguous provider '${ref.token}' in module '${node.name}' (${node.filePath}). Duplicate explicit definition.`,
-            );
-          }
-
-          if (node.providers.has(ref.token)) {
-            const prev = node.providers.get(ref.token);
-
-            if (this.isImplicit(prev)) {
-              const metaRecord = this.asRecord(ref.metadata);
-
-              if (metaRecord && typeof metaRecord[ZIPBUL_REF] === 'string') {
-                const prevMeta = prev?.metadata;
-                const prevFilePath = prev?.filePath;
-                const prevScope = prev?.scope;
-                const prevVisibility = prev?.visibility;
-                const prevVisibleTo = prev?.visibleTo;
-
-                if (prevMeta !== undefined) {
-                  ref.metadata = prevMeta;
-                }
-
-                if (prevFilePath !== undefined) {
-                  ref.filePath = prevFilePath;
-                }
-
-                if (ref.scope === undefined && prevScope !== undefined) {
-                  ref.scope = prevScope;
-                }
-
-                if (ref.visibility === VISIBILITY_MODULE && prevVisibility !== undefined) {
-                  ref.visibility = prevVisibility;
-                }
-
-                if (ref.visibleTo === undefined && prevVisibleTo !== undefined) {
-                  ref.visibleTo = prevVisibleTo;
-                }
-              }
-            }
-          }
-
-          node.providers.set(ref.token, ref);
+          this.mergeProviderRef(node, ref, moduleName);
         });
       }
     }
@@ -390,6 +354,237 @@ export class ModuleGraph {
     }
 
     return keys;
+  }
+
+  private mergeProviderRef(node: ModuleNode, ref: ProviderRef, moduleName: string): void {
+    if (node.providers.has(ref.token) && !this.isImplicit(node.providers.get(ref.token))) {
+      throw new Error(
+        `[Zipbul AOT] Ambiguous provider '${ref.token}' in module '${moduleName}' (${node.filePath}). Duplicate explicit definition.`,
+      );
+    }
+
+    if (node.providers.has(ref.token)) {
+      const prev = node.providers.get(ref.token);
+
+      if (this.isImplicit(prev)) {
+        const metaRecord = this.asRecord(ref.metadata);
+
+        if (metaRecord && typeof metaRecord[ZIPBUL_REF] === 'string') {
+          const prevMeta = prev?.metadata;
+          const prevFilePath = prev?.filePath;
+          const prevScope = prev?.scope;
+          const prevVisibility = prev?.visibility;
+          const prevVisibleTo = prev?.visibleTo;
+
+          if (prevMeta !== undefined) {
+            ref.metadata = prevMeta;
+          }
+
+          if (prevFilePath !== undefined) {
+            ref.filePath = prevFilePath;
+          }
+
+          if (ref.scope === undefined && prevScope !== undefined) {
+            ref.scope = prevScope;
+          }
+
+          if (ref.visibility === VISIBILITY_MODULE && prevVisibility !== undefined) {
+            ref.visibility = prevVisibility;
+          }
+
+          if (ref.visibleTo === undefined && prevVisibleTo !== undefined) {
+            ref.visibleTo = prevVisibleTo;
+          }
+        }
+      }
+    }
+
+    node.providers.set(ref.token, ref);
+  }
+
+  private resolveSpreadBundle(spreadValue: AnalyzerValue, modulePath: string, moduleName: string): AnalyzerValue[] {
+    if (isAnalyzerValueArray(spreadValue)) {
+      return this.flattenSpreadArray(spreadValue, modulePath, moduleName);
+    }
+
+    const record = this.asRecord(spreadValue);
+
+    if (record && typeof record[ZIPBUL_REF] === 'string') {
+      const refString = record[ZIPBUL_REF];
+      const importSource = typeof record[ZIPBUL_IMPORT_SOURCE] === 'string' ? record[ZIPBUL_IMPORT_SOURCE] : undefined;
+      const segments = refString.split('.');
+      const varName = segments[0];
+      let propertyPath = segments.slice(1);
+
+      if (!isNonEmptyString(varName)) {
+        throw this.buildSpreadError(moduleName, modulePath, refString, '변수명을 파싱할 수 없습니다.');
+      }
+
+      let targetValue: AnalyzerValue;
+
+      if (importSource !== undefined) {
+        let resolvedFile: string | undefined;
+        let resolvedName: string | undefined;
+
+        if (this.gildash) {
+          try {
+            const resolved = this.gildash.resolveSymbol(varName, importSource);
+
+            if (!resolved.circular) {
+              resolvedFile = resolved.filePath;
+              resolvedName = resolved.originalName;
+            }
+          } catch {
+            /* fallthrough to direct lookup */
+          }
+        }
+
+        if (resolvedFile === undefined) {
+          resolvedFile = importSource;
+          resolvedName = varName;
+        }
+
+        const fileAnalysis = this.findFileAnalysis(resolvedFile);
+        const exportedValues = fileAnalysis?.exportedValues;
+
+        if (exportedValues === undefined) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, `파일 '${resolvedFile}'에서 exported values를 찾을 수 없습니다.`);
+        }
+
+        targetValue = exportedValues[resolvedName ?? varName];
+
+        if (targetValue === undefined && propertyPath.length > 0) {
+          const firstProp = propertyPath[0];
+
+          if (isNonEmptyString(firstProp)) {
+            targetValue = exportedValues[firstProp];
+
+            if (targetValue !== undefined) {
+              propertyPath = propertyPath.slice(1);
+            }
+          }
+        }
+
+        if (targetValue === undefined) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, `'${resolvedName ?? varName}'를 찾을 수 없습니다.`);
+        }
+      } else {
+        const fileAnalysis = this.fileMap.get(modulePath);
+        const localValues = fileAnalysis?.localValues;
+
+        if (localValues === undefined) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, '로컬 변수를 찾을 수 없습니다.');
+        }
+
+        targetValue = localValues[varName];
+
+        if (targetValue === undefined) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, `로컬 변수 '${varName}'를 찾을 수 없습니다.`);
+        }
+      }
+
+      for (const prop of propertyPath) {
+        const propRecord = this.asRecord(targetValue);
+
+        if (propRecord === null) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, `프로퍼티 '${prop}' 접근 대상이 객체가 아닙니다.`);
+        }
+
+        targetValue = propRecord[prop];
+
+        if (targetValue === undefined) {
+          throw this.buildSpreadError(moduleName, modulePath, refString, `프로퍼티 '${prop}'를 찾을 수 없습니다.`);
+        }
+      }
+
+      if (isAnalyzerValueArray(targetValue)) {
+        return this.flattenSpreadArray(targetValue, modulePath, moduleName);
+      }
+
+      throw this.buildSpreadError(moduleName, modulePath, refString, '해석된 값이 배열이 아닙니다.');
+    }
+
+    if (record && record[ZIPBUL_CALL] !== undefined) {
+      const callName = typeof record[ZIPBUL_CALL] === 'string' ? record[ZIPBUL_CALL] : 'unknown';
+
+      throw this.buildSpreadError(
+        moduleName, modulePath, `${callName}()`,
+        '함수 호출 결과는 빌드 타임에 결정할 수 없습니다.',
+        '프로바이더를 배열 리터럴 또는 exported const로 선언하세요.',
+      );
+    }
+
+    if (isUnresolvable(spreadValue)) {
+      throw this.buildSpreadError(
+        moduleName, modulePath, spreadValue.nodeType,
+        `'${spreadValue.nodeType}' 표현식은 빌드 타임에 결정할 수 없습니다.`,
+        '프로바이더를 배열 리터럴 또는 exported const로 선언하세요.',
+      );
+    }
+
+    const valueDescription = typeof spreadValue === 'string' ? spreadValue
+      : typeof spreadValue === 'number' ? String(spreadValue)
+      : typeof spreadValue === 'boolean' ? String(spreadValue)
+      : spreadValue === null ? 'null'
+      : spreadValue === undefined ? 'undefined'
+      : 'unknown expression';
+
+    throw this.buildSpreadError(
+      moduleName, modulePath, valueDescription,
+      '스프레드 표현식을 정적으로 해석할 수 없습니다.',
+      '프로바이더를 배열 리터럴 또는 exported const로 선언하세요.',
+    );
+  }
+
+  private flattenSpreadArray(items: readonly AnalyzerValue[], modulePath: string, moduleName: string): AnalyzerValue[] {
+    const result: AnalyzerValue[] = [];
+
+    for (const item of items) {
+      const record = this.asRecord(item);
+
+      if (record && record[ZIPBUL_SPREAD] !== undefined) {
+        const nested = this.resolveSpreadBundle(record[ZIPBUL_SPREAD], modulePath, moduleName);
+
+        result.push(...nested);
+      } else {
+        result.push(item);
+      }
+    }
+
+    return result;
+  }
+
+  private findFileAnalysis(filePath: string): FileAnalysis | undefined {
+    const direct = this.fileMap.get(filePath);
+
+    if (direct !== undefined) {
+      return direct;
+    }
+
+    const candidates = [
+      `${filePath}.ts`,
+      `${filePath}/index.ts`,
+    ];
+
+    for (const candidate of candidates) {
+      const found = this.fileMap.get(candidate);
+
+      if (found !== undefined) {
+        return found;
+      }
+    }
+
+    return undefined;
+  }
+
+  private buildSpreadError(moduleName: string, modulePath: string, expression: string, reason: string, solution?: string): Error {
+    let message = `[Zipbul AOT] Module '${moduleName}' (${modulePath}):\n  스프레드 표현식 '${expression}' 를 정적으로 해석할 수 없습니다.\n  원인: ${reason}`;
+
+    if (solution !== undefined) {
+      message += `\n  해결: ${solution}`;
+    }
+
+    return new Error(message);
   }
 
   private isImplicit(ref: ProviderRef | undefined): boolean {

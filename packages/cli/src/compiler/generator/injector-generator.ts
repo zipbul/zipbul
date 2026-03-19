@@ -437,32 +437,6 @@ export class InjectorGenerator {
         }
       });
 
-      const dynamicBundles = Array.from(node.dynamicProviderBundles).sort((a, b) => compareCodePoint(stableKey(a), stableKey(b)));
-
-      dynamicBundles.forEach(bundle => {
-        const stable = this.serializeValue(bundle, registry);
-
-        factoryEntries.push(`  (${stable} || []).forEach(p => {`);
-        factoryEntries.push('    let token = p.provide;');
-        factoryEntries.push("    if (typeof p === 'function') token = p.name;");
-        factoryEntries.push('');
-        factoryEntries.push('    let factory;');
-        factoryEntries.push("    if (Object.prototype.hasOwnProperty.call(p, 'useValue')) factory = () => p.useValue;");
-        factoryEntries.push('    else if (p.useClass) factory = () => new p.useClass();');
-        factoryEntries.push('    else if (p.useFactory) {');
-        factoryEntries.push('      factory = (c) => {');
-        factoryEntries.push('        const args = (p.inject || []).map(t => c.get(t));');
-        factoryEntries.push('        return p.useFactory(...args);');
-        factoryEntries.push('      };');
-        factoryEntries.push('    }');
-        factoryEntries.push('');
-        factoryEntries.push(
-          `    const key = token ? '${node.name}${SCOPED_KEY_SEPARATOR}' + (typeof token === 'symbol' ? token.description : token) : null;`,
-        );
-        factoryEntries.push('    if (key && factory) container.set(key, factory);');
-        factoryEntries.push('  });');
-      });
-
       if (node.moduleDefinition?.adapters !== undefined) {
         const adaptersArray = Array.isArray(node.moduleDefinition.adapters) ? node.moduleDefinition.adapters : null;
 

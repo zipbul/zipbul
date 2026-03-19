@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
-import { ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
+import { ZIPBUL_IMPORT_SOURCE, ZIPBUL_REF, ZIPBUL_SPREAD, ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
 
 import type { ParseResult } from './parser-models';
 import type { AnalyzerValueRecord } from './types';
@@ -402,6 +402,133 @@ describe('AstParser', () => {
 
       expect(result.classes).toHaveLength(1);
       expect(result.classes[0]?.className).toBe('UserService');
+    });
+  });
+
+  describe('MemberExpression parsing (F-1)', () => {
+    it('should parse nested MemberExpression (a.b.c) into dotted ref', () => {
+      const source = [
+        "import { obj } from './data';",
+        '',
+        'export const result = obj.nested.value;',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/test.ts', source);
+      const exported = result.exportedValues as AnalyzerValueRecord;
+      const record = exported?.result as AnalyzerValueRecord;
+
+      expect(typeof record[ZIPBUL_REF]).toBe('string');
+      expect(record[ZIPBUL_REF]).toBe('obj.nested.value');
+      expect(record[ZIPBUL_IMPORT_SOURCE]).toBe('/app/src/data');
+    });
+
+    it('should parse computed property with StringLiteral (obj["key"])', () => {
+      const source = [
+        "import { bundle } from './bundle';",
+        '',
+        'export const result = bundle["providers"];',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/test.ts', source);
+      const exported = result.exportedValues as AnalyzerValueRecord;
+      const record = exported?.result as AnalyzerValueRecord;
+
+      expect(typeof record[ZIPBUL_REF]).toBe('string');
+      expect(record[ZIPBUL_REF]).toBe('bundle.providers');
+    });
+
+    it('should parse ChainExpression (obj?.key) by unwrapping', () => {
+      const source = [
+        "import { bundle } from './bundle';",
+        '',
+        'export const result = bundle?.providers;',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/test.ts', source);
+      const exported = result.exportedValues as AnalyzerValueRecord;
+      const record = exported?.result as AnalyzerValueRecord;
+
+      expect(typeof record[ZIPBUL_REF]).toBe('string');
+      expect(record[ZIPBUL_REF]).toBe('bundle.providers');
+    });
+
+    it('should parse spread of MemberExpression into ZIPBUL_SPREAD with ref', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        "import { bundle } from './providers';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [',
+        '    ...bundle.items,',
+        '  ],',
+        '});',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/__module__.ts', source);
+      const callArgs = result.defineModuleCalls?.[0]?.args;
+
+      expect(Array.isArray(callArgs)).toBe(true);
+
+      const firstArg = callArgs?.[0] as AnalyzerValueRecord;
+      const providers = firstArg?.providers as AnalyzerValueRecord[];
+
+      expect(Array.isArray(providers)).toBe(true);
+      expect(providers).toHaveLength(1);
+
+      const spreadEntry = providers[0] as AnalyzerValueRecord;
+
+      expect(spreadEntry[ZIPBUL_SPREAD]).toBeDefined();
+
+      const spreadValue = spreadEntry[ZIPBUL_SPREAD] as AnalyzerValueRecord;
+
+      expect(spreadValue[ZIPBUL_REF]).toBe('bundle.items');
+      expect(spreadValue[ZIPBUL_IMPORT_SOURCE]).toBe('/app/src/providers');
+    });
+
+    it('should parse spread of optional chaining into ZIPBUL_SPREAD with ref', () => {
+      const source = [
+        "import { defineModule } from '@zipbul/core';",
+        "import { bundle } from './providers';",
+        '',
+        'export const mod = defineModule({',
+        '  providers: [',
+        '    ...bundle?.items,',
+        '  ],',
+        '});',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/__module__.ts', source);
+      const callArgs = result.defineModuleCalls?.[0]?.args;
+
+      expect(Array.isArray(callArgs)).toBe(true);
+
+      const firstArg = callArgs?.[0] as AnalyzerValueRecord;
+      const providers = firstArg?.providers as AnalyzerValueRecord[];
+
+      expect(Array.isArray(providers)).toBe(true);
+      expect(providers).toHaveLength(1);
+
+      const spreadEntry = providers[0] as AnalyzerValueRecord;
+
+      expect(spreadEntry[ZIPBUL_SPREAD]).toBeDefined();
+
+      const spreadValue = spreadEntry[ZIPBUL_SPREAD] as AnalyzerValueRecord;
+
+      expect(spreadValue[ZIPBUL_REF]).toBe('bundle.items');
+    });
+
+    it('should return null for computed property with non-StringLiteral', () => {
+      const source = [
+        "import { obj } from './data';",
+        'const key = "dynamic";',
+        '',
+        'export const result = obj[key];',
+      ].join('\n');
+      const parser = new AstParser();
+      const result = parseOrFail(parser, '/app/src/test.ts', source);
+      const exported = result.exportedValues as AnalyzerValueRecord;
+
+      expect(exported?.result).toBeNull();
     });
   });
 });
