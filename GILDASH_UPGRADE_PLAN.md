@@ -1,0 +1,279 @@
+# Gildash 업그레이드 계획: 0.8.2 → 0.9.4
+
+> 작성일: 2026-03-19
+> 현재 버전: `@zipbul/gildash` 0.8.2
+> 목표 버전: `@zipbul/gildash` 0.9.4 (latest)
+
+---
+
+## 0. 버전 업그레이드 + 즉시 수혜
+
+### 작업
+
+`packages/cli/package.json`에서 `"@zipbul/gildash": "0.8.2"` → `"0.9.4"` 변경 후 `bun install`.
+
+### Breaking Change
+
+없음. 기존 API 시그니처 동일.
+
+### 즉시 수혜
+
+**버그 수정 (v0.9.1-0.9.2):**
+
+- reader→owner 승격 시 `ctx.role` 미갱신 + heartbeat 타이머 미정리
+- fullIndex 경로에서 파일 읽기 실패 추적 누락
+- closed 인스턴스 에러 메시지 비표준
+- `searchByQuery` regex 옵션에서 결과가 `limit`보다 적고 전체 레코드가 `limit*100` 초과 시 빈 배열 반환
+- `searchAnnotations` whitespace-only 텍스트로 FTS5 크래시
+- null byte가 SQLite로 전달되어 "unterminated string" 에러
+
+**성능 개선 (v0.9.1):**
+
+- symbol/annotation/changelog INSERT 배치화
+- 이진탐색 JSDoc 코멘트 연결 (extractSymbols)
+- progressive regex fetch 전략 (고정 5000행 over-fetch 제거)
+- `getQualifiedName`에서 O(n²) unshift → push+reverse
+
+**DB 마이그레이션:**
+
+- `0006_annotations`, `0007_symbol_changelog` 자동 적용 (`Gildash.open()` 시)
+- `.gildash/` 디렉토리는 이미 `.gitignore`에 포함
+
+### 신규 API (0.9.0+)
+
+| 메서드 | 설명 |
+|--------|------|
+| `searchAnnotations(query: AnnotationSearchQuery)` | FTS5 기반 코멘트 annotation 검색 |
+| `getSymbolChanges(since, options?)` | 심볼 변경 이력 조회 (rename/move 감지 포함) |
+| `pruneChangelog(before)` | 오래된 changelog 엔트리 정리 |
+
+신규 타입: `AnnotationSource`, `ExtractedAnnotation`, `AnnotationSearchQuery`, `AnnotationSearchResult`, `SymbolChange`, `SymbolChangeType`, `SymbolChangeQueryOptions`
+
+### 테스트
+
+- 기존 테스트 전체 통과 확인 (`bun test packages/cli/`)
+- dev/build 명령 수동 실행 → gildash 초기화 정상 확인
+- `.gildash/` DB 마이그레이션 자동 적용 확인
+
+---
+
+## 1. `pruneChangelog()` — Dev 세션 메모리 관리
+
+장시간 dev 세션에서 `0007_symbol_changelog` 테이블 무한 성장 방지.
+
+`packages/cli/src/bin/dev.command.ts` — dev 서버 최초 부트 시, `rebuild()` 직후 1회 호출.
+
+```typescript
+const ONE_DAY_AGO = new Date(Date.now() - 24 * 60 * 60 * 1000);
+ledger.pruneChangelog(ONE_DAY_AGO);
+```
+
+### 테스트
+
+- `pruneChangelog` mock 추가 (`cli-dev.test.ts`)
+- 최초 부트 시 호출되는지 확인
+- 에러 발생 시 dev 서버가 중단되지 않는지 확인
+
+---
+
+## 2. Dev 모드 — Watch Loop 최적화
+
+### 2-A. `getSymbolChanges()` 진단 로깅
+
+#### 현재 문제
+
+`computeStructuralFingerprint()` (`dev.command.ts` line 61-64)가 `FileAnalysis` 전체를 `JSON.stringify`. 현재 fingerprint 로직은 올바르게 동작하고 있으며 변경하지 않는다.
+
+#### ~~원래 계획: fingerprint를 gildash `diffSymbols()`로 교체~~
+
+#### 교체 불가 사유
+
+1. **`IndexResult.changedSymbols`에 `isExported` 필드 없음** — `{name, filePath, kind}` 3개 필드만 존재 (index-coordinator.d.ts line 39-55). export 상태 변경 감지 불가.
+2. **Re-export 변경이 changedSymbols에 미반영** — `export { X } from './lib'` 변경은 심볼 추가/수정/삭제가 아니라 CodeRelation (`type: 're-exports'`) 변경. changedSymbols에 나타나지 않음.
+3. **Spread bundle의 `exportedValues` 변경 감지 불가** — `exportedValues`는 AST에서 추출한 오브젝트 구조(AnalyzerValueRecord)로, gildash 심볼 시스템에 없음. spread provider 해석에 필수.
+4. **Import source 변경 감지 불가** — 동일 심볼을 다른 파일에서 import하도록 변경 시, changedSymbols가 변경을 보고하지 않음.
+
+#### ~~수정된 계획: localValues 제외~~
+
+#### localValues 제외도 불가 사유
+
+`localValues`는 `resolveSpreadBundle()` (`module-graph.ts` line 473, 479)에서 **직접 사용**됨. fingerprint에서 제외하면 spread bundle 변경을 감지 못해 provider 목록이 오염됨.
+
+#### 구현: 진단 로깅만 추가
+
+```typescript
+// onIndexed 콜백 내부 — 개발자 피드백 강화
+const changes = ledger.getSymbolChanges(lastRebuildTime);
+const renames = changes.filter(c => c.changeType === 'renamed');
+if (renames.length > 0) {
+  renderer.info(`Renamed: ${renames.map(r => `${r.oldName} → ${r.symbolName}`).join(', ')}`);
+}
+```
+
+#### 테스트
+
+- `getSymbolChanges()` rename 로깅 정상 출력 확인
+- `getSymbolChanges()` 호출 실패 시 dev 서버 중단 없음 확인
+
+### 2-B. Cycle Detection 조건부 스킵
+
+import 구조가 바뀌지 않았으면 `hasCycle()` 호출을 스킵.
+
+```typescript
+const importsChanged = changedFiles.some(file => {
+  const oldAnalysis = oldFileAnalysisCache.get(file);
+  const newAnalysis = fileCache.get(file);
+  return JSON.stringify(oldAnalysis?.imports) !== JSON.stringify(newAnalysis?.imports);
+});
+
+if (importsChanged) {
+  const hasCycle = await ledger.hasCycle();
+}
+```
+
+#### 테스트
+
+- import 구조 변경 시 → cycle detection 실행 확인
+- import 미변경 시 → cycle detection 스킵 확인
+- 새 파일 추가 시 → cycle detection 실행 확인
+
+---
+
+## 3. ModuleGraph — 배치 Gildash 호출 최적화
+
+### 3-A. `validateProviderImplementations()` 배치화
+
+`module-graph.ts` line 637-669에서 모든 provider에 대해 `getFullSymbol()` + `getImplementations()` 개별 호출 (provider 100개 → 200+ gildash 왕복, ~150ms).
+
+`searchSymbols({ kind: 'interface', isExported: true })` 1회 배치 조회 → Set lookup으로 교체. ~150ms → ~20ms.
+
+#### 테스트
+
+- 인터페이스 provider → 기존과 동일한 검증 결과
+- 클래스 provider → getImplementations 호출 스킵 확인
+
+### 3-B. `searchSymbols({ decorator })` 컨트롤러 발견
+
+`registerControllers()` (line 740-756)에서 전체 `classDefinitions` 순회를 `searchSymbols({ decorator: controllerName, kind: 'class' })` 직접 조회로 교체.
+
+제한사항: `decorator` 필드는 이름으로만 매칭. 인자 필터링 불가. 현재 `registerControllers()`는 인자를 검사하지 않으므로 영향 없음.
+
+### 3-C. Adapter Definition Resolver 최적화
+
+`adapter-definition-resolver.ts`에서 triple-nested iteration을 `searchSymbols({ decorator })`로 controller 후보 직접 조회하여 O(n²) → O(n).
+
+난이도 중간 — adapter resolver 내부 구조 리팩토링 동반.
+
+---
+
+## 4. Build 모드 — 빌드 타임 검증 강화
+
+### 4-A. DI Token 타입 호환성 검증
+
+useClass/useExisting 토큰이 올바른 인터페이스를 구현하는지 `getImplementations()`로 빌드 타임 검증.
+
+제한사항:
+- semantic 모드 필수 (현재 사용 중이나 fallback 경로 존재)
+- 인터페이스/추상 클래스에만 동작
+- string 토큰 불가 (`provide: 'CONFIG'`)
+
+#### 테스트
+
+- 클래스가 인터페이스를 `implements`로 구현 → 검증 통과
+- 클래스가 인터페이스 미구현 → warning 발생
+- string 토큰 → 검증 스킵
+- semantic 모드 비가용 → graceful skip
+
+---
+
+## 5. `findPattern()` — 정책 자동 강제
+
+Zipbul 핵심 원칙 "런타임 리플렉션 절대 금지"를 빌드 타임에 ast-grep 패턴으로 강제.
+
+```typescript
+const patterns = [
+  'import "reflect-metadata"',
+  'import { $$$ } from "reflect-metadata"',
+  'import * as $_ from "reflect-metadata"',
+];
+```
+
+제한사항: `findPattern()`은 비동기. dynamic `import()` 감지는 별도 패턴 필요.
+
+---
+
+## 6. 크로스패키지 Deep Import 검증
+
+CLAUDE.md 정책 "deep import(`@zipbul/*/src/`) 금지"를 빌드 타임에 강제.
+
+`searchRelations()` 패턴 매칭 미지원이므로 `searchAllRelations({ type: 'imports' })` 전체 조회 후 수동 필터링. gildash `project` 필터로 크로스패키지 import만 추출 가능.
+
+사전 설계 결정 필요: 대상 패키지 범위, 허용 deep import, 강제 수준 (에러 vs warning).
+
+---
+
+## 7. Interface Catalog 확장
+
+`interface-catalog.json`에 `getFileStats()` (lineCount, symbolCount, exportedSymbolCount, size) 추가. Build profile `full`에서만 `getFanMetrics()` (fanIn, fanOut) 추가.
+
+---
+
+## 테스트 Mock 업데이트
+
+```typescript
+const makeGildashLedgerMock = () => ({
+  // 기존 mock 유지...
+  pruneChangelog: mock((_before: unknown) => 0),
+  getSymbolChanges: mock((_since: unknown, _opts?: unknown) => []),
+  searchSymbols: mock((_query: unknown) => []),
+  findPattern: mock(async (_pattern: unknown, _opts?: unknown) => []),
+  searchAllRelations: mock((_query: unknown) => []),
+});
+```
+
+---
+
+## 실행 순서
+
+| 순서 | Phase | 작업 | 난이도 | 효과 |
+|------|-------|------|--------|------|
+| 1 | 0 | 버전 업그레이드 | 매우 낮음 | 버그/성능 즉시 수혜 |
+| 2 | 1 | `pruneChangelog()` | 매우 낮음 | 장기 세션 안정성 |
+| 3 | 2-A | `getSymbolChanges()` 진단 로깅 | 낮음 | 개발자 피드백 강화 |
+| 4 | 2-B | Cycle detection 조건부 스킵 | 낮음 | ~20-50ms 절약 |
+| 5 | 3-A | validateProviderImplementations 배치화 | 낮음 | ~130ms 절약 |
+| 6 | 5 | findPattern() 리플렉션 금지 | 낮음 | 정책 자동 강제 |
+| 7 | 3-B | searchSymbols 컨트롤러 발견 | 낮음 | 스케일링 개선 |
+| 8 | 4-A | DI 타입 호환성 검증 | 중간 | 런타임 에러 → 빌드 에러 |
+| 9 | 6 | 크로스패키지 deep import 검증 | 중간 | 아키텍처 규칙 강제 |
+| 10 | 7 | Interface catalog 확장 | 낮음 | 다운스트림 도구 지원 |
+| 11 | 3-C | Adapter resolver 최적화 | 중간 | O(n²)→O(n) |
+
+---
+
+## 절대 불가
+
+| 항목 | 사유 |
+|------|------|
+| fingerprint 교체/localValues 제외 | `resolveSpreadBundle()`이 `localValues` 직접 참조. 제외 시 spread 변경 미감지 → 무성 버그 |
+| Bun.build() splitting 힌트 | Bun.build() API에 chunk 경계 제어 옵션 미존재. [oven-sh/bun#26504](https://github.com/oven-sh/bun/issues/26504) open |
+
+---
+
+## gildash 개선 시 가능
+
+| 항목 | 필요한 개선 |
+|------|-------------|
+| fingerprint 교체 (재파싱 스킵) | `IndexResult.changedSymbols`에 `isExported` 추가, `changedRelations` 추가 |
+| useFactory 파라미터 타입 검증 | `isTypeAssignableTo()` API 노출 |
+| 크로스패키지 검증 효율화 | `RelationSearchQuery`에 glob/regex 패턴 매칭 |
+
+---
+
+## AOT 컴파일러 별도 최적화 (gildash 무관)
+
+| 순서 | 작업 | 난이도 | 효과 |
+|------|------|--------|------|
+| 1 | 미사용 provider 감지 (AOT 컴파일러 내부 데이터) | 낮음 | 데드 코드 발견 |
+| 2 | DI Signature Hash early cutoff (`build()` → `buildStructure()` + `validate()` 분리) | 중간 | 리빌드 ~70% 단축 |
+| 3 | 빌드 캐싱 (`getTransitiveDependencies()` + FileAnalysis 캐시) | 중간 | 후속 빌드 가속 |
