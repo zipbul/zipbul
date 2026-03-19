@@ -248,32 +248,8 @@ const makeGildashLedgerMock = () => ({
 | 9 | 6 | 크로스패키지 deep import 검증 | 중간 | 아키텍처 규칙 강제 |
 | 10 | 7 | Interface catalog 확장 | 낮음 | 다운스트림 도구 지원 |
 | 11 | 3-C | Adapter resolver 최적화 | 중간 | O(n²)→O(n) |
-
----
-
-## 절대 불가
-
-| 항목 | 사유 |
-|------|------|
-| fingerprint 교체/localValues 제외 | `resolveSpreadBundle()`이 `localValues` 직접 참조. 제외 시 spread 변경 미감지 → 무성 버그 |
-| Bun.build() splitting 힌트 | Bun.build() API에 chunk 경계 제어 옵션 미존재. [oven-sh/bun#26504](https://github.com/oven-sh/bun/issues/26504) open |
-
----
-
-## gildash 개선 시 가능
-
-| 항목 | 필요한 개선 |
-|------|-------------|
-| fingerprint 교체 (재파싱 스킵) | `IndexResult.changedSymbols`에 `isExported` 추가, `changedRelations` 추가 |
-| useFactory 파라미터 타입 검증 | `isTypeAssignableTo()` API 노출 |
-| 크로스패키지 검증 효율화 | `RelationSearchQuery`에 glob/regex 패턴 매칭 |
-
----
-
-## AOT 컴파일러 별도 최적화 (gildash 무관)
-
-| 순서 | 작업 | 난이도 | 효과 |
-|------|------|--------|------|
-| 1 | 미사용 provider 감지 (AOT 컴파일러 내부 데이터) | 낮음 | 데드 코드 발견 |
-| 2 | DI Signature Hash early cutoff (`build()` → `buildStructure()` + `validate()` 분리) | 중간 | 리빌드 ~70% 단축 |
-| 3 | 빌드 캐싱 (`getTransitiveDependencies()` + FileAnalysis 캐시) | 중간 | 후속 빌드 가속 |
+| 12 | 8 | fingerprint 교체 (재파싱 스킵) — gildash `isExported` + `changedRelations` 선행 | 중간 | dev 체감 속도 대폭 향상 |
+| 13 | 9 | useFactory 파라미터 타입 검증 — gildash `isTypeAssignableTo()` 선행 | 중간 | 런타임 에러 → 빌드 에러 |
+| 14 | 10 | 미사용 provider 감지 (AOT 컴파일러 내부 데이터) | 낮음 | 데드 코드 발견 |
+| 15 | 11 | DI Signature Hash early cutoff | 중간 | 리빌드 ~70% 단축 |
+| 16 | 12 | 빌드 캐싱 (`getTransitiveDependencies()` + FileAnalysis 캐시) | 중간 | 후속 빌드 가속 |
