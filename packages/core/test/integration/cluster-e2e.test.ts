@@ -136,29 +136,31 @@ describe('Cluster E2E — reusePort HTTP', () => {
     await manager.bootstrap();
 
     // Wait for worker #0 to crash (crashAfterMs=200 + processing margin)
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise(resolve => setTimeout(resolve, 800));
 
     // The surviving worker should still serve requests — retry on transient failures
     let successCount = 0;
 
-    for (let attempt = 0; attempt < 20; attempt++) {
+    for (let attempt = 0; attempt < 10; attempt++) {
       try {
         const response = await fetch(`http://localhost:${port}/`, {
-          signal: AbortSignal.timeout(2_000),
+          signal: AbortSignal.timeout(1_000),
         });
 
         if (response.status === 200) {
           successCount++;
+
+          break;
         }
       } catch {
         // transient failure during crash processing
       }
 
-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
     }
 
     expect(successCount).toBeGreaterThan(0);
-  });
+  }, 15_000);
 
   it('should handle concurrent requests across multiple workers', async () => {
     const port = await findAvailablePort();
