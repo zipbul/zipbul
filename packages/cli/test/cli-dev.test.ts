@@ -506,9 +506,16 @@ describe('createDevCommand', () => {
     // Clear initial parse calls
     analyzeOrder.length = 0;
 
-    // Act: simulate file change
+    // Act: simulate file change (with exported symbol modification to bypass fast path)
     expect(onIndexedCallback).not.toBeNull();
-    onIndexedCallback!(makeIndexResult({ changedFiles: [changedFile] }));
+    onIndexedCallback!(makeIndexResult({
+      changedFiles: [changedFile],
+      changedSymbols: {
+        added: [],
+        modified: [{ name: 'TestSymbol', filePath: changedFile, kind: 'function', isExported: true }],
+        removed: [],
+      },
+    }));
 
     // Wait for the async queue to process
     await new Promise(resolve => setTimeout(resolve, 50));

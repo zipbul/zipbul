@@ -427,6 +427,26 @@ export function createDevCommand(deps: DevCommandDeps) {
             return;
           }
 
+          // 4-B. Fast path: skip re-parse + rebuild when no exported symbols changed
+          const hasExportedChange = result.changedSymbols.modified.length > 0
+            || result.changedSymbols.added.some(s => s.isExported)
+            || result.changedSymbols.removed.some(s => s.isExported);
+          const hasReExportChange = result.changedRelations.added.some(r => r.type === 're-exports')
+            || result.changedRelations.removed.some(r => r.type === 're-exports');
+
+          if (!hasExportedChange && !hasReExportChange && result.deletedFiles.length === 0) {
+            // Only internal changes — re-analyze files but skip rebuild
+            for (const file of result.changedFiles) {
+              if (shouldAnalyzeFile(file)) {
+                await analyzeFile(file);
+              }
+            }
+
+            renderer.info('No exported changes, skipping rebuild');
+            await processManager.restart();
+            return;
+          }
+
           // 5. Save fingerprints before re-analyzing changed files
           const oldFingerprints = new Map<string, string>();
           for (const file of result.changedFiles) {
