@@ -406,7 +406,11 @@ export class ClusterManager<T extends ClusterBaseWorker & Record<string, RpcCall
     slot.lastCrashTime = Date.now();
 
     const diagnostics = extractCrashDiagnostics(error);
-    this.logger.error(`Worker #${slot.id} [gen=${slot.generation - 1}] ${event}`, diagnostics);
+    const crashError = diagnostics.type === 'error' ? diagnostics.error
+      : diagnostics.type === 'error-event' ? diagnostics.error
+      : undefined;
+
+    this.logger.error(`Worker #${slot.id} [gen=${slot.generation - 1}] ${event}`, crashError, diagnostics.type);
 
     // Clean up resources — capture native ref before dispose nulls it
     const native = slot.native;
