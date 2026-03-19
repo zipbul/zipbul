@@ -199,6 +199,69 @@ CLAUDE.md 정책 "deep import(`@zipbul/*/src/`) 금지"를 빌드 타임에 강�
 
 ---
 
+## 8. Fingerprint 교체 — 재파싱 스킵 (gildash 선행)
+
+gildash에 `changedSymbols[].isExported` + `changedRelations` 구현 후 착수.
+
+`onIndexed` 콜백에서 `changedSymbols`의 `isExported: true` 변경 + `changedRelations`의 re-export 변경 여부로 재파싱 + 리빌드 스킵 판단.
+
+### gildash API 유의사항
+
+- **`isExported`는 변경 후 값만 제공** — `modified`에 항목이 있으면 `isExported` 무관하게 해당 파일을 검사하는 것이 안전.
+- **`export *` 간접 변경은 미감지** — 문서화된 한계. periodic full rebuild 또는 기존 fingerprint fallback으로 보완.
+
+### 구현
+
+```typescript
+const result: IndexResult = /* onIndexed callback */;
+
+const hasExportedChange = result.changedSymbols.modified.some(s => s.isExported)
+  || result.changedSymbols.added.some(s => s.isExported)
+  || result.changedSymbols.removed.some(s => s.isExported);
+
+const hasReExportChange = result.changedRelations.added.some(r => r.type === 're-exports')
+  || result.changedRelations.removed.some(r => r.type === 're-exports');
+
+if (!hasExportedChange && !hasReExportChange) {
+  // fast path: 재파싱 + 리빌드 스킵
+} else {
+  // 기존 fingerprint 플로우
+}
+```
+
+`export *` 간접 변경 보완: N회 리빌드마다 1회 full fingerprint 검증 실행.
+
+---
+
+## 9. useFactory 파라미터 타입 검증 (gildash 선행)
+
+gildash에 `isTypeAssignableTo()` + `isTypeAssignableToAt()` 구현 후 착수.
+
+### gildash API 유의사항
+
+- **`isTypeAssignableTo()` 반환 타입은 `boolean | null`** — `null`은 tsc 해석 실패. 검증 스킵 처리.
+- **파라미터 레벨 비교는 `isTypeAssignableToAt()` 사용** — 심볼 레벨 API로 부족한 경우 position 기반 API로 정밀 비교.
+
+### 구현
+
+```typescript
+for (let i = 0; i < injectTokens.length; i++) {
+  const compatible = this.gildash.isTypeAssignableToAt(
+    injectTokenFilePath, injectTokenPosition,
+    factoryFilePath, factoryParamPosition,
+  );
+
+  if (compatible === false) {
+    this.warnings.push(
+      `Factory '${factoryName}': inject[${i}] type mismatch`
+    );
+  }
+  // compatible === null → tsc 해석 실패, 스킵
+}
+```
+
+---
+
 ## 테스트 Mock 업데이트
 
 ```typescript
@@ -209,6 +272,8 @@ const makeGildashLedgerMock = () => ({
   searchSymbols: mock((_query: unknown) => []),
   findPattern: mock(async (_pattern: unknown, _opts?: unknown) => []),
   searchAllRelations: mock((_query: unknown) => []),
+  isTypeAssignableTo: mock(() => true),
+  isTypeAssignableToAt: mock(() => true),
 });
 ```
 
@@ -229,8 +294,8 @@ const makeGildashLedgerMock = () => ({
 | 9 | 6 | 크로스패키지 deep import 검증 | 중간 | 아키텍처 규칙 강제 |
 | 10 | 7 | Interface catalog 확장 | 낮음 | 다운스트림 도구 지원 |
 | 11 | 3-C | Adapter resolver 최적화 | 중간 | O(n²)→O(n) |
-| 12 | 8 | fingerprint 교체 (재파싱 스킵) — gildash `isExported` + `changedRelations` 선행 | 중간 | dev 체감 속도 대폭 향상 |
-| 13 | 9 | useFactory 파라미터 타입 검증 — gildash `isTypeAssignableTo()` 선행 | 중간 | 런타임 에러 → 빌드 에러 |
+| 12 | 8 | fingerprint 교체 (재파싱 스킵) — gildash `isExported` + `changedRelations` 선행 (구현 확정) | 중간 | dev 체감 속도 대폭 향상 |
+| 13 | 9 | useFactory 파라미터 타입 검증 — gildash `isTypeAssignableTo()` / `isTypeAssignableToAt()` 선행 (구현 확정) | 중간 | 런타임 에러 → 빌드 에러 |
 | 14 | 10 | 미사용 provider 감지 (AOT 컴파일러 내부 데이터) | 낮음 | 데드 코드 발견 |
 | 15 | 11 | DI Signature Hash early cutoff | 중간 | 리빌드 ~70% 단축 |
 | 16 | 12 | 빌드 캐싱 (`getTransitiveDependencies()` + FileAnalysis 캐시) | 중간 | 후속 빌드 가속 |
