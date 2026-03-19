@@ -1614,11 +1614,13 @@ export class AstParser {
         const factoryCode = this.currentCode.slice(start, end);
         const deps = this.extractDependencies(expr, start);
         const injectCalls = this.extractFactoryInjectCalls(expr, start);
+        const paramTypes = this.extractFactoryParamTypes(expr);
 
         return {
           [ZIPBUL_FACTORY_CODE]: factoryCode,
           __zipbul_factory_deps: deps,
           __zipbul_factory_injects: injectCalls,
+          ...(paramTypes.length > 0 ? { __zipbul_factory_params: paramTypes } : {}),
         };
       }
 
@@ -1751,6 +1753,55 @@ export class AstParser {
     visit(funcNode.body);
 
     return deps;
+  }
+
+  private extractFactoryParamTypes(funcNode: NodeRecord): AnalyzerValueRecord[] {
+    const params = asAnalyzerArray(funcNode.params);
+
+    if (!params) {
+      return [];
+    }
+
+    const result: AnalyzerValueRecord[] = [];
+
+    for (const paramValue of params) {
+      const param = this.asNode(paramValue);
+
+      if (!param) {
+        result.push({ name: 'unknown', typeName: null });
+        continue;
+      }
+
+      const paramName = param.type === 'Identifier' ? this.getString(param, 'name') : 'unknown';
+      const typeAnnotation = this.asNode(param.typeAnnotation);
+      const innerType = typeAnnotation ? this.asNode(typeAnnotation.typeAnnotation) : null;
+
+      let typeName: string | null = null;
+      let importSource: string | undefined;
+
+      if (innerType?.type === 'TSTypeReference') {
+        const typeName_ = this.asNode(innerType.typeName);
+
+        if (typeName_?.type === 'Identifier') {
+          const name = this.getString(typeName_, 'name');
+
+          if (isNonEmptyString(name)) {
+            typeName = this.resolveOriginalName(name);
+            importSource = this.currentImports[name];
+          }
+        }
+      }
+
+      const entry: AnalyzerValueRecord = { name: paramName ?? 'unknown', typeName };
+
+      if (importSource !== undefined) {
+        entry.importSource = importSource;
+      }
+
+      result.push(entry);
+    }
+
+    return result;
   }
 
   private extractFactoryInjectCalls(funcNode: NodeRecord, offset: number): FactoryInjectCall[] {

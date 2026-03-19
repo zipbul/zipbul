@@ -420,19 +420,47 @@ export class AdapterDefinitionResolver {
       entryDecorators: extraction.staticSchema.entryDecorators,
     }));
 
+    // Pre-index: controller decorator name → adapter entries that own it
+    const adaptersByDecoratorName = new Map<string, typeof adapters>();
+
+    for (const adapter of adapters) {
+      const decoratorName = adapter.entryDecorators.controller;
+      let list = adaptersByDecoratorName.get(decoratorName);
+
+      if (list === undefined) {
+        list = [];
+        adaptersByDecoratorName.set(decoratorName, list);
+      }
+
+      list.push(adapter);
+    }
+
+    const controllerDecoratorNames = new Set(adaptersByDecoratorName.keys());
+
     for (const analysis of fileMap.values()) {
       for (const cls of analysis.classes) {
-        let controllerAdapters = adapters.filter(adapter =>
-          cls.decorators.some(dec => dec.name === adapter.entryDecorators.controller),
-        );
+        const matchedDecorators = cls.decorators.filter(dec => controllerDecoratorNames.has(dec.name));
+
+        if (matchedDecorators.length === 0) {
+          continue;
+        }
+
+        // Collect all matching adapters across all controller decorators
+        let controllerAdapters: typeof adapters = [];
+
+        for (const decorator of matchedDecorators) {
+          const matched = adaptersByDecoratorName.get(decorator.name);
+
+          if (matched !== undefined) {
+            controllerAdapters.push(...matched);
+          }
+        }
 
         // adapterNames constraint (ADAPTER-R-010): filter by explicit adapterNames if present
-        const controllerDecorator = cls.decorators.find(dec =>
-          adapters.some(a => a.entryDecorators.controller === dec.name),
-        );
+        const firstDecorator = matchedDecorators[0];
 
-        if (controllerDecorator) {
-          const adapterNames = this.extractAdapterNames(controllerDecorator, extractions);
+        if (firstDecorator !== undefined) {
+          const adapterNames = this.extractAdapterNames(firstDecorator, extractions);
           if (isErr(adapterNames)) return adapterNames;
 
           if (adapterNames !== null) {
@@ -708,33 +736,30 @@ export class AdapterDefinitionResolver {
     extractions: AdapterExtraction[],
     fileMap: Map<string, FileAnalysis>,
   ): Result<void, Diagnostic> {
-    const controllerPrefixCache = new Map<string, string>();
     const controllerDecoratorNames = new Set(
       extractions.map(extraction => extraction.staticSchema.entryDecorators.controller),
     );
 
-    const getControllerPrefix = (className: string): string => {
-      const cached = controllerPrefixCache.get(className);
-      if (cached !== undefined) return cached;
+    // Pre-index: className → controller decorator prefix
+    const controllerPrefixIndex = new Map<string, string>();
 
-      for (const analysis of fileMap.values()) {
-        for (const cls of analysis.classes) {
-          if (cls.className !== className) continue;
+    for (const analysis of fileMap.values()) {
+      for (const cls of analysis.classes) {
+        const decorator = cls.decorators.find(dec => controllerDecoratorNames.has(dec.name));
 
-          for (const decorator of cls.decorators) {
-            if (!controllerDecoratorNames.has(decorator.name)) continue;
-
-            const firstArg = decorator.arguments[0];
-            const prefix = typeof firstArg === 'string' ? firstArg : '';
-
-            controllerPrefixCache.set(className, prefix);
-            return prefix;
-          }
+        if (decorator === undefined) {
+          continue;
         }
-      }
 
-      controllerPrefixCache.set(className, '');
-      return '';
+        const firstArg = decorator.arguments[0];
+        const prefix = typeof firstArg === 'string' ? firstArg : '';
+
+        controllerPrefixIndex.set(cls.className, prefix);
+      }
+    }
+
+    const getControllerPrefix = (className: string): string => {
+      return controllerPrefixIndex.get(className) ?? '';
     };
 
     const routeKeyToEntry = new Map<string, HandlerIndexEntry>();

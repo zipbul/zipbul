@@ -224,6 +224,7 @@ export class ModuleGraph {
     if (this.gildash) {
       this.validateProviderImplementations();
       this.validateProviderTypeCompatibility();
+      this.validateFactoryParamTypes();
     }
 
     this.validateFactoryInjectTokens();
@@ -818,6 +819,82 @@ export class ModuleGraph {
           }
         } catch {
           /* semantic check unavailable — skip silently */
+        }
+      }
+    }
+  }
+
+  /**
+   * Validates that useFactory inject() tokens match the factory parameter types.
+   * Uses gildash `isTypeAssignableTo` for semantic type checking.
+   */
+  private validateFactoryParamTypes(): void {
+    if (!this.gildash) return;
+
+    for (const node of this.modules.values()) {
+      for (const [token, ref] of node.providers) {
+        const record = this.asRecord(ref.metadata ?? undefined);
+
+        if (record === null || record.useFactory === undefined) {
+          continue;
+        }
+
+        const factoryRecord = this.asRecord(record.useFactory);
+
+        if (factoryRecord === null) {
+          continue;
+        }
+
+        const factoryInjects = isAnalyzerValueArray(factoryRecord.__zipbul_factory_injects)
+          ? factoryRecord.__zipbul_factory_injects
+          : [];
+        const factoryParams = isAnalyzerValueArray(factoryRecord.__zipbul_factory_params)
+          ? factoryRecord.__zipbul_factory_params
+          : [];
+
+        if (factoryInjects.length === 0 || factoryParams.length === 0) {
+          continue;
+        }
+
+        for (let paramIndex = 0; paramIndex < Math.min(factoryInjects.length, factoryParams.length); paramIndex++) {
+          const injectRecord = this.asRecord(factoryInjects[paramIndex]);
+          const paramRecord = this.asRecord(factoryParams[paramIndex]);
+
+          if (injectRecord === null || paramRecord === null) {
+            continue;
+          }
+
+          const injectTokenName = this.extractTokenName(injectRecord.token);
+          const paramTypeName = typeof paramRecord.typeName === 'string' ? paramRecord.typeName : null;
+
+          if (injectTokenName === 'UNKNOWN' || paramTypeName === null) {
+            continue;
+          }
+
+          const injectDef = this.classDefinitions.get(injectTokenName);
+          const paramImportSource = typeof paramRecord.importSource === 'string' ? paramRecord.importSource : undefined;
+          const paramDef = paramImportSource !== undefined
+            ? { filePath: paramImportSource }
+            : this.classDefinitions.get(paramTypeName);
+
+          if (!injectDef || !paramDef) {
+            continue;
+          }
+
+          try {
+            const compatible = this.gildash.isTypeAssignableTo(
+              injectTokenName, injectDef.filePath,
+              paramTypeName, paramDef.filePath,
+            );
+
+            if (compatible === false) {
+              this.warnings.push(
+                `[Zipbul AOT] useFactory of '${token}' in module '${node.name}': inject[${String(paramIndex)}] '${injectTokenName}' is not assignable to parameter type '${paramTypeName}'.`,
+              );
+            }
+          } catch {
+            /* semantic check unavailable — skip */
+          }
         }
       }
     }
