@@ -223,6 +223,7 @@ export class ModuleGraph {
 
     if (this.gildash) {
       this.validateProviderImplementations();
+      this.validateProviderTypeCompatibility();
     }
 
     this.validateFactoryInjectTokens();
@@ -704,23 +705,45 @@ export class ModuleGraph {
   private validateProviderImplementations(): void {
     if (!this.gildash) return;
 
+    let interfaceNames: Set<string>;
+
+    try {
+      const interfaces = this.gildash.searchSymbols({ kind: 'interface', isExported: true });
+
+      interfaceNames = new Set(interfaces.map(sym => sym.name));
+    } catch {
+      logger.warn('searchSymbols failed, falling back to per-provider validation.');
+      interfaceNames = new Set();
+    }
+
     for (const node of this.modules.values()) {
       for (const provider of node.providers.values()) {
+        if (!interfaceNames.has(provider.token)) {
+          continue;
+        }
+
         const lookupPath = provider.filePath ?? this.classDefinitions.get(provider.token)?.filePath;
-        if (!lookupPath) continue;
+
+        if (!lookupPath) {
+          continue;
+        }
 
         try {
-          const sym = this.gildash.getFullSymbol(provider.token, lookupPath);
-          if (!sym || sym.kind !== 'interface') continue;
-
           const impls = this.gildash.getImplementations(provider.token, lookupPath);
-          if (impls.length === 0) continue;
 
-          const implNames = new Set(impls.map(i => i.symbolName));
+          if (impls.length === 0) {
+            continue;
+          }
+
+          const implNames = new Set(impls.map(impl => impl.symbolName));
 
           for (const candidate of node.providers.values()) {
-            if (!this.isClassMetadata(candidate.metadata)) continue;
+            if (!this.isClassMetadata(candidate.metadata)) {
+              continue;
+            }
+
             const cls = (candidate.metadata as ClassMetadata).className;
+
             if (!implNames.has(cls)) {
               this.warnings.push(
                 `[Zipbul AOT] Provider '${cls}' in module '${node.name}' is registered for interface '${provider.token}' but does not implement it.`,
@@ -731,6 +754,70 @@ export class ModuleGraph {
           this.warnings.push(
             `[Zipbul AOT] Could not validate provider implementation for '${provider.token}' in module '${node.name}'. Symbol resolution failed.`,
           );
+        }
+      }
+    }
+  }
+
+  /**
+   * Validates that useClass/useExisting providers are type-compatible with
+   * their `provide` token using gildash semantic type checking.
+   * Only runs when gildash is available in semantic mode.
+   */
+  private validateProviderTypeCompatibility(): void {
+    if (!this.gildash) return;
+
+    for (const node of this.modules.values()) {
+      for (const [token, ref] of node.providers) {
+        const record = this.asRecord(ref.metadata ?? undefined);
+
+        if (record === null) {
+          continue;
+        }
+
+        let implToken: string | undefined;
+
+        if (typeof record.useClass === 'string') {
+          implToken = record.useClass;
+        } else {
+          const useClassRecord = this.asRecord(record.useClass);
+
+          if (useClassRecord !== null && typeof useClassRecord[ZIPBUL_REF] === 'string') {
+            implToken = useClassRecord[ZIPBUL_REF];
+          }
+        }
+
+        if (typeof record.useExisting === 'string') {
+          implToken = record.useExisting;
+        } else if (implToken === undefined) {
+          const useExistingRecord = this.asRecord(record.useExisting);
+
+          if (useExistingRecord !== null && typeof useExistingRecord[ZIPBUL_REF] === 'string') {
+            implToken = useExistingRecord[ZIPBUL_REF];
+          }
+        }
+
+        if (implToken === undefined) {
+          continue;
+        }
+
+        const tokenPath = ref.filePath ?? this.classDefinitions.get(token)?.filePath;
+        const implPath = this.classDefinitions.get(implToken)?.filePath;
+
+        if (!tokenPath || !implPath) {
+          continue;
+        }
+
+        try {
+          const compatible = this.gildash.isTypeAssignableTo(implToken, implPath, token, tokenPath);
+
+          if (compatible === false) {
+            this.warnings.push(
+              `[Zipbul AOT] Provider '${implToken}' in module '${node.name}' is not assignable to '${token}'.`,
+            );
+          }
+        } catch {
+          /* semantic check unavailable — skip silently */
         }
       }
     }

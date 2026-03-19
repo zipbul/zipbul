@@ -35,11 +35,24 @@ export async function writeInterfaceCatalog(params: InterfaceCatalogParams): Pro
         ? ledger.getSemanticModuleInterface(modulePath)
         : ledger.getModuleInterface(modulePath);
 
+      let fileStats: { lineCount: number; symbolCount: number; exportedSymbolCount: number } | undefined;
+
+      try {
+        const stats = ledger.getFileStats(modulePath);
+
+        fileStats = {
+          lineCount: stats.lineCount,
+          symbolCount: stats.symbolCount,
+          exportedSymbolCount: stats.exportedSymbolCount,
+        };
+      } catch { /* stats unavailable */ }
+
       catalogEntries.push({
         module: moduleNode.name,
         filePath: relative(projectRoot, modulePath),
         exports: iface.exports,
         semantic: semanticAvailable,
+        ...(fileStats !== undefined ? { fileStats } : {}),
       });
     } catch {
       try {
@@ -56,7 +69,7 @@ export async function writeInterfaceCatalog(params: InterfaceCatalogParams): Pro
   }
 
   const catalogJson = JSON.stringify(
-    { schemaVersion: '2', entries: catalogEntries },
+    { schemaVersion: '3', entries: catalogEntries },
     null,
     2,
   );
