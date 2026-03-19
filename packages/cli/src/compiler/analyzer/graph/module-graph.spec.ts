@@ -1194,5 +1194,440 @@ describe('ModuleGraph', () => {
       expect(node.providers.has('FallbackToken')).toBe(true);
     });
   });
+
+  describe('buildStructure / validate split (Phase 11)', () => {
+    it('should return modules from buildStructure without running validation', () => {
+      const moduleAPath = '/app/src/a/__module__.ts';
+      const moduleBPath = '/app/src/b/__module__.ts';
+      const serviceAPath = '/app/src/a/a.service.ts';
+      const serviceBPath = '/app/src/b/b.service.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(moduleAPath, createModuleFileAnalysis({ filePath: moduleAPath, name: 'AModule' }));
+      fileMap.set(moduleBPath, createModuleFileAnalysis({ filePath: moduleBPath, name: 'BModule' }));
+      fileMap.set(serviceAPath, createClassFileAnalysis({
+        filePath: serviceAPath,
+        classes: [createInjectableClassMetadata({ className: 'AService', injectedTokens: ['BService'] })],
+      }));
+      fileMap.set(serviceBPath, createClassFileAnalysis({
+        filePath: serviceBPath,
+        classes: [createInjectableClassMetadata({ className: 'BService', injectedTokens: ['AService'] })],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+      const modules = graph.buildStructure();
+
+      expect(modules.size).toBe(2);
+      expect(modules.get(moduleAPath)?.name).toBe('AModule');
+    });
+
+    it('should throw from validate when circular dependency exists', () => {
+      const moduleAPath = '/app/src/a/__module__.ts';
+      const moduleBPath = '/app/src/b/__module__.ts';
+      const serviceAPath = '/app/src/a/a.service.ts';
+      const serviceBPath = '/app/src/b/b.service.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(moduleAPath, createModuleFileAnalysis({ filePath: moduleAPath, name: 'AModule' }));
+      fileMap.set(moduleBPath, createModuleFileAnalysis({ filePath: moduleBPath, name: 'BModule' }));
+      fileMap.set(serviceAPath, createClassFileAnalysis({
+        filePath: serviceAPath,
+        classes: [createInjectableClassMetadata({ className: 'AService', injectedTokens: ['BService'] })],
+      }));
+      fileMap.set(serviceBPath, createClassFileAnalysis({
+        filePath: serviceBPath,
+        classes: [createInjectableClassMetadata({ className: 'BService', injectedTokens: ['AService'] })],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.buildStructure();
+
+      expect(() => graph.validate()).toThrow(/Circular dependency detected/);
+    });
+
+    it('should produce identical result from build() and buildStructure()+validate()', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+      fileMap.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }));
+
+      const graph1 = new ModuleGraph(new Map(fileMap), '__module__.ts');
+      const result1 = graph1.build();
+
+      const graph2 = new ModuleGraph(new Map(fileMap), '__module__.ts');
+
+      graph2.buildStructure();
+      graph2.validate();
+
+      expect(Array.from(result1.keys())).toEqual(Array.from(graph2.modules.keys()));
+      expect(Array.from(result1.get(modulePath)!.providers.keys())).toEqual(
+        Array.from(graph2.modules.get(modulePath)!.providers.keys()),
+      );
+    });
+  });
+
+  describe('computeSignatures (Phase 11)', () => {
+    it('should return identical signatures for identical input', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+      fileMap.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }));
+
+      const graph1 = new ModuleGraph(new Map(fileMap), '__module__.ts');
+
+      graph1.buildStructure();
+      const sig1 = graph1.computeSignatures();
+
+      const graph2 = new ModuleGraph(new Map(fileMap), '__module__.ts');
+
+      graph2.buildStructure();
+      const sig2 = graph2.computeSignatures();
+
+      expect(sig1.get(modulePath)).toBe(sig2.get(modulePath));
+    });
+
+    it('should change signature when a provider is added', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+
+      const fileMap1 = new Map<string, FileAnalysis>();
+
+      fileMap1.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+
+      const graph1 = new ModuleGraph(fileMap1, '__module__.ts');
+
+      graph1.buildStructure();
+      const sig1 = graph1.computeSignatures();
+
+      const fileMap2 = new Map<string, FileAnalysis>();
+
+      fileMap2.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+      fileMap2.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }));
+
+      const graph2 = new ModuleGraph(fileMap2, '__module__.ts');
+
+      graph2.buildStructure();
+      const sig2 = graph2.computeSignatures();
+
+      expect(sig1.get(modulePath)).not.toBe(sig2.get(modulePath));
+    });
+
+    it('should change signature when provider metadata type changes', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+
+      const fileMap1 = new Map<string, FileAnalysis>();
+
+      fileMap1.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+      fileMap1.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }));
+
+      const graph1 = new ModuleGraph(fileMap1, '__module__.ts');
+
+      graph1.buildStructure();
+      const sig1 = graph1.computeSignatures();
+
+      const fileMap2 = new Map<string, FileAnalysis>();
+
+      fileMap2.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AModule',
+        providers: [{
+          provide: 'AService',
+          useFactory: { __zipbul_factory_code: '() => new AService()' },
+        } as never],
+      }));
+
+      const graph2 = new ModuleGraph(fileMap2, '__module__.ts');
+
+      graph2.buildStructure();
+      const sig2 = graph2.computeSignatures();
+
+      expect(sig1.get(modulePath)).not.toBe(sig2.get(modulePath));
+    });
+
+    it('should not change signature when non-injectable class is added', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+
+      const fileMap1 = new Map<string, FileAnalysis>();
+
+      fileMap1.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+      fileMap1.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [],
+      }));
+
+      const graph1 = new ModuleGraph(fileMap1, '__module__.ts');
+
+      graph1.buildStructure();
+      const sig1 = graph1.computeSignatures();
+
+      const nonInjectableClass: ClassMetadata = {
+        className: 'PlainClass',
+        heritage: undefined,
+        decorators: [],
+        constructorParams: [],
+        methods: [],
+        properties: [],
+        imports: {},
+      };
+
+      const fileMap2 = new Map<string, FileAnalysis>();
+
+      fileMap2.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+      fileMap2.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [nonInjectableClass],
+      }));
+
+      const graph2 = new ModuleGraph(fileMap2, '__module__.ts');
+
+      graph2.buildStructure();
+      const sig2 = graph2.computeSignatures();
+
+      expect(sig1.get(modulePath)).toBe(sig2.get(modulePath));
+    });
+  });
+
+  describe('validateUnusedProviders (Phase 10)', () => {
+    it('should warn for unused provider', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+      fileMap.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.buildStructure();
+      graph.validateUnusedProviders();
+
+      expect(graph.warnings.some(w => w.includes('AService') && w.includes('never referenced'))).toBe(true);
+    });
+
+    it('should not warn for provider injected via constructorParam', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const serviceAPath = '/app/src/a/a.service.ts';
+      const serviceBPath = '/app/src/a/b.service.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+      fileMap.set(serviceAPath, createClassFileAnalysis({
+        filePath: serviceAPath,
+        classes: [createInjectableClassMetadata({ className: 'AService', injectedTokens: ['BService'] })],
+      }));
+      fileMap.set(serviceBPath, createClassFileAnalysis({
+        filePath: serviceBPath,
+        classes: [createInjectableClassMetadata({ className: 'BService' })],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.buildStructure();
+      graph.validateUnusedProviders();
+
+      expect(graph.warnings.some(w => w.includes('BService') && w.includes('never referenced'))).toBe(false);
+    });
+
+    it('should not warn for provider injected by controller', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+      const controllerPath = '/app/src/a/a.controller.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+      fileMap.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }));
+
+      const controllerMeta: ClassMetadata = {
+        className: 'AController',
+        heritage: undefined,
+        decorators: [{ name: 'RestController', arguments: [] }],
+        constructorParams: [{ name: 'service', type: { __zipbul_ref: 'AService' }, decorators: [] }],
+        methods: [],
+        properties: [],
+        imports: {},
+      };
+
+      fileMap.set(controllerPath, createClassFileAnalysis({
+        filePath: controllerPath,
+        classes: [controllerMeta],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.buildStructure();
+      graph.registerControllers(['RestController']);
+      graph.validateUnusedProviders();
+
+      expect(graph.warnings.some(w => w.includes('AService') && w.includes('never referenced'))).toBe(false);
+    });
+
+    it('should not warn for controller itself', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const controllerPath = '/app/src/a/a.controller.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+
+      const controllerMeta: ClassMetadata = {
+        className: 'AController',
+        heritage: undefined,
+        decorators: [{ name: 'RestController', arguments: [] }, { name: 'Injectable', arguments: [{ visibleTo: 'all', scope: 'singleton' }] }],
+        constructorParams: [],
+        methods: [],
+        properties: [],
+        imports: {},
+      };
+
+      fileMap.set(controllerPath, createClassFileAnalysis({
+        filePath: controllerPath,
+        classes: [controllerMeta],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.buildStructure();
+      graph.registerControllers(['RestController']);
+      graph.validateUnusedProviders();
+
+      expect(graph.warnings.some(w => w.includes('AController') && w.includes('never referenced'))).toBe(false);
+    });
+
+    it('should not warn for useExisting target token', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AModule',
+        providers: [
+          { provide: 'AliasToken', useExisting: 'AService' } as never,
+        ],
+      }));
+      fileMap.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.buildStructure();
+      graph.validateUnusedProviders();
+
+      expect(graph.warnings.some(w => w.includes('AService') && w.includes('never referenced'))).toBe(false);
+    });
+
+    it('should warn for useExisting provide token when unreferenced', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AModule',
+        providers: [
+          { provide: 'AliasToken', useExisting: 'AService' } as never,
+        ],
+      }));
+      fileMap.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.buildStructure();
+      graph.validateUnusedProviders();
+
+      expect(graph.warnings.some(w => w.includes('AliasToken') && w.includes('never referenced'))).toBe(true);
+    });
+
+    it('should not warn for provider referenced by useFactory inject()', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({
+        filePath: modulePath,
+        name: 'AModule',
+        providers: [
+          {
+            provide: 'ConfigService',
+            useFactory: {
+              __zipbul_factory_injects: [
+                { tokenKind: 'token', token: 'AService' },
+              ],
+            },
+          } as never,
+        ],
+      }));
+      fileMap.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }));
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.buildStructure();
+      graph.validateUnusedProviders();
+
+      expect(graph.warnings.some(w => w.includes('AService') && w.includes('never referenced'))).toBe(false);
+    });
+
+    it('should not warn for provider referenced by top-level inject()', () => {
+      const modulePath = '/app/src/a/__module__.ts';
+      const servicePath = '/app/src/a/a.service.ts';
+      const filePath = '/app/src/a/consumer.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, createModuleFileAnalysis({ filePath: modulePath, name: 'AModule' }));
+      fileMap.set(servicePath, createClassFileAnalysis({
+        filePath: servicePath,
+        classes: [createInjectableClassMetadata({ className: 'AService' })],
+      }));
+      fileMap.set(filePath, {
+        filePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        imports: {},
+        injectCalls: [
+          { tokenKind: 'token', token: 'AService', callee: 'inject', importSource: '@zipbul/common' },
+        ],
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.buildStructure();
+      graph.validateUnusedProviders();
+
+      expect(graph.warnings.some(w => w.includes('AService') && w.includes('never referenced'))).toBe(false);
+    });
+  });
 });
 

@@ -6,6 +6,24 @@ import { tmpdir } from 'node:os';
 
 import type { Gildash, GildashOptions, IndexResult } from '@zipbul/gildash';
 
+function makeIndexResult(overrides: Partial<IndexResult> & { changedFiles: string[] }): IndexResult {
+  return {
+    deletedFiles: [],
+    failedFiles: [],
+    indexedFiles: overrides.changedFiles.length,
+    removedFiles: 0,
+    totalSymbols: 0,
+    totalRelations: 0,
+    totalAnnotations: 0,
+    durationMs: 0,
+    changedSymbols: { added: [], modified: [], removed: [] },
+    renamedSymbols: [],
+    movedSymbols: [],
+    changedRelations: { added: [], removed: [] },
+    ...overrides,
+  };
+}
+
 import type { DevCommandDeps } from '../src/bin/dev.command';
 import { __testing__ } from '../src/bin/dev.command';
 import type { CliRendererLike } from '../src/bin/interfaces';
@@ -112,6 +130,8 @@ const makeGildashLedgerMock = () => ({
   getAffected: mock(async (_files: string[]) => [] as string[]),
   getModuleInterface: mock((_file: string) => ({ exports: [] })),
   getSemanticModuleInterface: mock((_file: string) => ({ exports: [] })),
+  pruneChangelog: mock((_before: unknown) => 0),
+  getSymbolChanges: mock((_since: unknown, _opts?: unknown) => []),
   close: mock(async () => {}),
 }) as unknown as Gildash;
 
@@ -488,17 +508,7 @@ describe('createDevCommand', () => {
 
     // Act: simulate file change
     expect(onIndexedCallback).not.toBeNull();
-    onIndexedCallback!({
-      changedFiles: [changedFile],
-      deletedFiles: [],
-      failedFiles: [],
-      indexedFiles: 1,
-      removedFiles: 0,
-      totalSymbols: 0,
-      totalRelations: 0,
-      durationMs: 0,
-      changedSymbols: { added: [], modified: [], removed: [] },
-    } satisfies IndexResult);
+    onIndexedCallback!(makeIndexResult({ changedFiles: [changedFile] }));
 
     // Wait for the async queue to process
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -538,17 +548,7 @@ describe('createDevCommand', () => {
     expect(spawnFn).toHaveBeenCalledTimes(1);
 
     // Act: simulate file change
-    onIndexedCallback!({
-      changedFiles: [changedFile],
-      deletedFiles: [],
-      failedFiles: [],
-      indexedFiles: 1,
-      removedFiles: 0,
-      totalSymbols: 0,
-      totalRelations: 0,
-      durationMs: 0,
-      changedSymbols: { added: [], modified: [], removed: [] },
-    } satisfies IndexResult);
+    onIndexedCallback!(makeIndexResult({ changedFiles: [changedFile] }));
 
     await new Promise(resolve => setTimeout(resolve, 50));
 
@@ -598,17 +598,11 @@ describe('createDevCommand', () => {
 
     // Act: simulate file change that triggers a failing rebuild
     // deletedFiles forces needsRebuild = true, so rebuild() is called and throws
-    onIndexedCallback!({
+    onIndexedCallback!(makeIndexResult({
       changedFiles: [changedFile],
       deletedFiles: ['/tmp/nonexistent-deleted.ts'],
-      failedFiles: [],
-      indexedFiles: 1,
       removedFiles: 1,
-      totalSymbols: 0,
-      totalRelations: 0,
-      durationMs: 0,
-      changedSymbols: { added: [], modified: [], removed: [] },
-    } satisfies IndexResult);
+    }));
 
     await new Promise(resolve => setTimeout(resolve, 50));
 
@@ -655,17 +649,11 @@ describe('createDevCommand', () => {
     const dev = createDevCommand(deps);
     await dev();
 
-    const indexEvent = {
+    const indexEvent = makeIndexResult({
       changedFiles: [changedFile],
       deletedFiles: ['/tmp/nonexistent-deleted.ts'],
-      failedFiles: [],
-      indexedFiles: 1,
       removedFiles: 1,
-      totalSymbols: 0,
-      totalRelations: 0,
-      durationMs: 0,
-      changedSymbols: { added: [], modified: [], removed: [] },
-    } satisfies IndexResult;
+    });
 
     // 1st watch event: rebuild fails (rebuildCount=2, throws)
     onIndexedCallback!(indexEvent);

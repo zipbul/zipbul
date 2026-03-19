@@ -95,6 +95,8 @@ const makeGildashLedgerMock = () => ({
   getStats: mock(() => ({ totalFiles: 0, totalSymbols: 0, totalRelations: 0 })),
   getModuleInterface: mock((_file: string) => ({ exports: [] })),
   getSemanticModuleInterface: mock((_file: string) => ({ exports: [] })),
+  pruneChangelog: mock((_before: unknown) => 0),
+  getSymbolChanges: mock((_since: unknown, _opts?: unknown) => []),
   close: mock(async () => {}),
 }) as unknown as Gildash;
 

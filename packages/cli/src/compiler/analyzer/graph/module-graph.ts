@@ -8,6 +8,7 @@ import type { CyclePath, ProviderRef, FileAnalysis } from './interfaces';
 
 import {
   ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_SPREAD, ZIPBUL_CALL, ZIPBUL_UNRESOLVABLE,
+  ZIPBUL_FACTORY_CODE,
   VISIBILITY_ALL, VISIBILITY_MODULE,
   SCOPE_SINGLETON, SCOPE_REQUEST, SCOPE_TRANSIENT,
   SCOPED_KEY_SEPARATOR,
@@ -58,7 +59,13 @@ export class ModuleGraph {
     private readonly gildash?: Gildash,
   ) {}
 
-  build(): Map<string, ModuleNode> {
+  /**
+   * Population only. Discovers modules, creates nodes, registers providers.
+   *
+   * @returns The populated module map.
+   * @public
+   */
+  buildStructure(): Map<string, ModuleNode> {
     const sourceDir = this.sourceDir;
     const allFiles = Array.from(this.fileMap.keys())
       .filter(filePath => sourceDir === undefined || filePath.startsWith(sourceDir))
@@ -202,6 +209,15 @@ export class ModuleGraph {
       }
     }
 
+    return this.modules;
+  }
+
+  /**
+   * Runs all synchronous validations. Must be called after `buildStructure()`.
+   *
+   * @public
+   */
+  validate(): void {
     this.validateModuleNameUniqueness();
     this.validateVisibilityAndScope();
 
@@ -218,8 +234,59 @@ export class ModuleGraph {
 
       throw new Error(`[Zipbul AOT] Circular dependency detected:\n${summary}`);
     }
+  }
 
+  /**
+   * Backward-compatible entry point. Calls `buildStructure()` then `validate()`.
+   *
+   * @returns The populated module map.
+   * @public
+   */
+  build(): Map<string, ModuleNode> {
+    this.buildStructure();
+    this.validate();
     return this.modules;
+  }
+
+  /**
+   * Computes a deterministic DI signature hash per module.
+   * Two graphs with identical DI structure produce identical signatures.
+   *
+   * @returns Map of module file path to signature string.
+   * @public
+   */
+  computeSignatures(): Map<string, string> {
+    const signatures = new Map<string, string>();
+
+    for (const [modulePath, node] of this.modules) {
+      signatures.set(modulePath, this.computeModuleSignature(node));
+    }
+
+    return signatures;
+  }
+
+  /**
+   * Detects providers that are registered but never referenced by any consumer.
+   * Must be called after `registerControllers()` so controller deps are visible.
+   *
+   * @public
+   */
+  validateUnusedProviders(): void {
+    for (const node of this.modules.values()) {
+      const referencedTokens = this.collectReferencedTokens(node);
+
+      for (const token of node.providers.keys()) {
+        if (node.controllers.has(token)) {
+          continue;
+        }
+
+        if (!referencedTokens.has(token)) {
+          this.warnings.push(
+            `[Zipbul AOT] Provider '${token}' in module '${node.name}' is registered but never referenced.`,
+          );
+        }
+      }
+    }
   }
 
   detectCycles(): CyclePath[] {
@@ -1205,5 +1272,185 @@ export class ModuleGraph {
     }
 
     return value;
+  }
+
+  private computeModuleSignature(node: ModuleNode): string {
+    const parts: string[] = [node.name];
+
+    const sortedProviders = Array.from(node.providers.entries()).sort(([a], [b]) => compareCodePoint(a, b));
+
+    for (const [token, ref] of sortedProviders) {
+      const deps = this.extractDeps(ref).sort(compareCodePoint);
+      const metaKind = this.classifyProviderMetadata(ref);
+      const factoryCode = this.extractFactoryCode(ref);
+
+      parts.push(`p:${token}|${ref.visibility}|${ref.scope ?? ''}|${deps.join(',')}|${metaKind}|${factoryCode}|${ref.filePath ?? ''}`);
+    }
+
+    const sortedControllers = Array.from(node.controllers).sort(compareCodePoint);
+
+    for (const ctrl of sortedControllers) {
+      parts.push(`c:${ctrl}`);
+    }
+
+    const injectDeps = this.moduleInjectDeps.get(node.filePath);
+
+    if (injectDeps !== undefined) {
+      for (const dep of injectDeps) {
+        parts.push(`i:${dep}`);
+      }
+    }
+
+    const sortedDynamicImports = Array.from(node.dynamicImports)
+      .map(value => JSON.stringify(value))
+      .sort(compareCodePoint);
+
+    for (const key of sortedDynamicImports) {
+      parts.push(`d:${key}`);
+    }
+
+    return Bun.hash(parts.join('\n')).toString(36);
+  }
+
+  private classifyProviderMetadata(ref: ProviderRef): string {
+    if (ref.metadata === undefined) {
+      return 'none';
+    }
+
+    if (this.isClassMetadata(ref.metadata)) {
+      return 'class';
+    }
+
+    const record = this.asRecord(ref.metadata);
+
+    if (record === null) {
+      return 'unknown';
+    }
+
+    if (record.useFactory !== undefined) {
+      return 'useFactory';
+    }
+
+    if (record.useClass !== undefined) {
+      return 'useClass';
+    }
+
+    if (record.useValue !== undefined) {
+      return 'useValue';
+    }
+
+    if (record.useExisting !== undefined) {
+      return 'useExisting';
+    }
+
+    return 'ref';
+  }
+
+  private extractFactoryCode(ref: ProviderRef): string {
+    const record = this.asRecord(ref.metadata ?? undefined);
+
+    if (record === null) {
+      return '';
+    }
+
+    const factoryRecord = this.asRecord(record.useFactory);
+
+    if (factoryRecord === null) {
+      return '';
+    }
+
+    const code = factoryRecord[ZIPBUL_FACTORY_CODE];
+
+    return typeof code === 'string' ? code : '';
+  }
+
+  private collectReferencedTokens(node: ModuleNode): Set<string> {
+    const referenced = new Set<string>();
+
+    for (const provider of node.providers.values()) {
+      const deps = this.extractDeps(provider);
+
+      for (const dep of deps) {
+        referenced.add(dep);
+      }
+
+      const record = this.asRecord(provider.metadata ?? undefined);
+
+      if (record !== null) {
+        if (typeof record.useExisting === 'string') {
+          referenced.add(record.useExisting);
+        }
+
+        const useExistingRecord = this.asRecord(record.useExisting);
+
+        if (useExistingRecord !== null && typeof useExistingRecord[ZIPBUL_REF] === 'string') {
+          referenced.add(useExistingRecord[ZIPBUL_REF]);
+        }
+
+        this.collectFactoryInjectTokens(record, referenced);
+      }
+    }
+
+    const injectDeps = this.moduleInjectDeps.get(node.filePath);
+
+    if (injectDeps !== undefined) {
+      for (const dep of injectDeps) {
+        referenced.add(dep);
+      }
+    }
+
+    for (const ctrlName of node.controllers) {
+      const classDef = this.classDefinitions.get(ctrlName);
+
+      if (classDef === undefined) {
+        continue;
+      }
+
+      for (const param of classDef.metadata.constructorParams) {
+        const tokenName = this.extractTokenName(param.type);
+
+        if (tokenName !== 'UNKNOWN') {
+          referenced.add(tokenName);
+        }
+      }
+    }
+
+    return referenced;
+  }
+
+  private collectFactoryInjectTokens(record: AnalyzerValueRecord, referenced: Set<string>): void {
+    const factoryRecord = this.asRecord(record.useFactory);
+
+    if (factoryRecord === null) {
+      return;
+    }
+
+    const factoryInjects = isAnalyzerValueArray(factoryRecord.__zipbul_factory_injects)
+      ? factoryRecord.__zipbul_factory_injects
+      : [];
+
+    for (const entry of factoryInjects) {
+      const entryRecord = this.asRecord(entry);
+
+      if (entryRecord === null) {
+        continue;
+      }
+
+      const tokenName = this.extractTokenName(entryRecord.token);
+
+      if (tokenName !== 'UNKNOWN') {
+        referenced.add(tokenName);
+      }
+    }
+
+    if (isAnalyzerValueArray(record.inject)) {
+      for (const token of record.inject) {
+        const tokenName = this.extractTokenName(token);
+
+        if (tokenName !== 'UNKNOWN') {
+          referenced.add(tokenName);
+        }
+      }
+    }
   }
 }

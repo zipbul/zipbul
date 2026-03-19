@@ -290,6 +290,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           .map(schema => schema.entryDecorators.controller);
 
         graph.registerControllers(controllerDecoratorNames);
+        graph.validateUnusedProviders();
 
         let providerCount = 0;
         for (const mod of graph.modules.values()) {
