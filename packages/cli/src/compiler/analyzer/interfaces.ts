@@ -98,6 +98,7 @@ export interface AdapterEntryDecoratorsSchema {
 
 export interface AdapterStaticSchema {
   entryDecorators: AdapterEntryDecoratorsSchema;
+  validPhases?: Set<string>;
 }
 
 export interface AdapterExtraction {

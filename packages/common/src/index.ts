@@ -4,9 +4,8 @@ export type { Result, Err, ResultAsync } from '@zipbul/result';
 export { Adapter } from './adapter/adapter';
 export type { ResolvedMiddleware, ResolvedGuard, ResolvedExceptionFilter } from './adapter/adapter';
 export { defineAdapter } from './adapter/define-adapter';
-export { MiddlewareHook, ClusterStrategy } from './adapter/types';
+export { ClusterStrategy } from './adapter/types';
 export type {
-  MiddlewareRegistry,
   AdapterDependsOn,
   DecoratorRef,
   AdapterEntryDecorators,

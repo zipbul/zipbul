@@ -8,23 +8,23 @@ import { Adapter } from './adapter/adapter';
 import { defineExceptionFilter } from './define-exception-filter';
 
 class FakeAdapterA extends Adapter {
+  static readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators = { controller: () => {}, handler: [] };
-  parseInput() {}
-  resolveHandler() { return undefined; }
   handleResult() {}
-  forceCloseConnection() {}
-
+  protected emergencyTeardown() {}
+  protected async executePipeline() { return undefined as never; }
+  applyMiddlewareConfig() {}
   async start() {}
   async stop() {}
 }
 
 class FakeAdapterB extends Adapter {
+  static readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators = { controller: () => {}, handler: [] };
-  parseInput() {}
-  resolveHandler() { return undefined; }
   handleResult() {}
-  forceCloseConnection() {}
-
+  protected emergencyTeardown() {}
+  protected async executePipeline() { return undefined as never; }
+  applyMiddlewareConfig() {}
   async start() {}
   async stop() {}
 }

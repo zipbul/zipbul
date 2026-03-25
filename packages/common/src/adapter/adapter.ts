@@ -3,8 +3,8 @@ import type { Err, Result, ResultAsync } from '@zipbul/result';
 import type { MiddlewareDefinition, MiddlewareHandlerFn } from '../define-middleware';
 import type { GuardDefinition, GuardHandlerFn } from '../define-guard';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '../define-exception-filter';
-import type { AdapterClass, AdapterEntryDecorators, MiddlewareRegistry } from './types';
-import { ClusterStrategy, MiddlewareHook } from './types';
+import type { AdapterClass, AdapterEntryDecorators } from './types';
+import { ClusterStrategy } from './types';
 import type { Context, ZipbulContainer } from '../interfaces';
 import { runInInjectionContext } from '../injection-context';
 
@@ -39,14 +39,24 @@ export interface ResolvedExceptionFilter {
 /**
  * Base class for all Zipbul adapters.
  *
- * Provides framework-level pipeline orchestration, middleware registration,
- * exception filter dispatch, and guard execution.
- * Subclasses implement protocol-specific hooks via abstract methods.
+ * Provides framework-level pipeline orchestration (3-Phase error boundary),
+ * middleware/guard/exception-filter execution primitives, and DI resolution.
+ * Subclasses own their pipeline assembly via `executePipeline` and declare
+ * protocol-specific phases via `static readonly validPhases`.
  *
  * @public
  */
 export abstract class Adapter {
   abstract readonly decorators: AdapterEntryDecorators;
+
+  /**
+   * Set of valid middleware phase identifiers for this adapter.
+   * AOT compiler extracts this statically for build-time phase validation.
+   * Every adapter subclass must declare this as a static readonly property.
+   *
+   * @public
+   */
+  static readonly validPhases: ReadonlySet<string>;
 
   /**
    * Clustering strategy for this adapter.
@@ -57,27 +67,40 @@ export abstract class Adapter {
    */
   readonly clusterStrategy: ClusterStrategy = ClusterStrategy.Shared;
 
-  protected middlewareRegistry: MiddlewareRegistry = {};
   protected exceptionFilterDefs: ExceptionFilterDefinition[] = [];
   protected guardDefs: GuardDefinition[] = [];
 
-  protected resolvedMiddlewareRegistry: Partial<Record<MiddlewareHook, ResolvedMiddleware[]>> = {};
   protected resolvedExceptionFilters: ResolvedExceptionFilter[] = [];
   protected resolvedGuards: ResolvedGuard[] = [];
 
   // ── Abstract hooks (subclass implements) ────────────────────
 
-  /** Protocol-specific input parsing (e.g. HTTP body/query). */
-  abstract parseInput(context: Context): Promise<void> | void;
-
-  /** Route resolution + handler invocation. Returns the handler result. */
-  abstract resolveHandler(context: Context): Promise<Result<unknown, unknown>> | Result<unknown, unknown>;
+  /**
+   * Assembles and executes the adapter-specific pipeline.
+   * The adapter controls step ordering, phase hooks, and protocol-specific
+   * logic (parsing, routing, handler invocation).
+   *
+   * @param context - The current execution context.
+   * @returns `Result<unknown, unknown>` — domain `Err` or handler success value.
+   *
+   * @public
+   */
+  protected abstract executePipeline(context: Context): Promise<Result<unknown, unknown>>;
 
   /** Converts a `Result` into a protocol-specific response. */
-  abstract handleResult(result: Result<unknown, unknown>, context: Context): Promise<void> | void;
+  protected abstract handleResult(result: Result<unknown, unknown>, context: Context): Promise<void> | void;
 
-  /** Emergency connection teardown when `handleResult` itself throws. */
-  abstract forceCloseConnection(context: Context, error?: unknown): void;
+  /**
+   * Emergency teardown when `handleResult` itself throws.
+   * Replaces `forceCloseConnection` — async is allowed for protocols
+   * that need I/O (e.g. MQ nack).
+   *
+   * @param context - The current execution context.
+   * @param error - The error thrown by `handleResult`.
+   *
+   * @public
+   */
+  protected abstract emergencyTeardown(context: Context, error?: unknown): Promise<void> | void;
 
   /**
    * Boots the adapter and begins accepting requests.
@@ -111,21 +134,17 @@ export abstract class Adapter {
   // ── Registration ────────────────────────────────────────────
 
   /**
-   * Registers middlewares for a given pipeline hook.
+   * Receives AOT-generated middleware configuration.
+   * The adapter validates phase keys against its own enum and stores them
+   * in its own registry.
    *
-   * @param hook - The pipeline hook to attach middlewares to.
-   * @param middlewares - Ordered list of middleware definitions to append.
-   * @returns `this` for chaining.
+   * @param config - Phase-keyed middleware definitions (string keys from AOT serialization).
    *
    * @public
    */
-  addMiddlewares(hook: MiddlewareHook, middlewares: readonly MiddlewareDefinition[]): this {
-    this.validateAdapterCompatibility(middlewares, 'Middleware');
-
-    const current = this.middlewareRegistry[hook];
-    this.middlewareRegistry[hook] = current ? [...current, ...middlewares] : [...middlewares];
-    return this;
-  }
+  abstract applyMiddlewareConfig(
+    config: Readonly<Record<string, readonly MiddlewareDefinition[]>>,
+  ): void;
 
   /**
    * Registers exception filter definitions.
@@ -157,28 +176,18 @@ export abstract class Adapter {
   // ── Pipeline initialization ────────────────────────────────
 
   /**
-   * Resolves all registered definition factories within the given DI container,
-   * producing ready-to-call handler functions for middlewares, guards, and
-   * exception filters.
+   * Resolves guard and exception filter definition factories within the given
+   * DI container, producing ready-to-call handler functions.
    *
-   * Must be called once after all definitions have been registered and
-   * the container is fully assembled.
+   * Middleware resolution is delegated to each adapter — override this method,
+   * call `super.initializePipeline(container)`, then resolve your own
+   * middleware registry via `resolveMiddlewareDefs()`.
    *
    * @param container - The application DI container.
    *
    * @public
    */
   initializePipeline(container: ZipbulContainer): void {
-    for (const [hook, defs] of Object.entries(this.middlewareRegistry)) {
-      if (defs === undefined) {
-        continue;
-      }
-
-      this.resolvedMiddlewareRegistry[hook as MiddlewareHook] = defs.map((def) => ({
-        handler: runInInjectionContext(container, def.factory),
-      }));
-    }
-
     this.resolvedGuards = this.guardDefs.map((def) => ({
       handler: runInInjectionContext(container, def.factory),
     }));
@@ -189,70 +198,88 @@ export abstract class Adapter {
     }));
   }
 
-  // ── Pipeline orchestration ──────────────────────────────────
+  // ── Pipeline orchestration: 3-Phase error boundary ─────────
 
   /**
-   * Template Method: drives the full request pipeline.
+   * Drives the full request pipeline with a 3-Phase error boundary.
    *
-   * ```
-   * OnReceive → [parseInput] → PostParseData → [runGuards] → PreHandle
-   *   → [resolveHandler] → [handleResult] → OnComplete
-   * ```
-   *
-   * Throws are routed through `runExceptionFilters` → `handleResult`.
-   * `OnComplete` errors are swallowed (response already sent).
+   * Phase 1: Execute pipeline → obtain `Result`. Panics go through exception filters.
+   * Phase 2: `handleResult` — exactly once. If it throws → `emergencyTeardown`.
+   * Phase 3: Finalize middlewares — always runs. Errors are swallowed.
    *
    * @param context - The current execution context.
    * @public
    */
   async dispatchRequest(context: Context): Promise<void> {
+    // ── Phase 1: Pipeline execution → Result ──
+    let result: Result<unknown, unknown>;
+
     try {
-      const pipelineResult = await this.executePipeline(context);
-      await this.handleResult(pipelineResult, context);
-    } catch (pipelineError) {
-      let filterResult: Err<unknown>;
-
+      result = await this.executePipeline(context);
+    } catch (thrown) {
       try {
-        filterResult = await this.runExceptionFilters(pipelineError, context);
+        result = await this.runExceptionFilters(thrown, context);
       } catch (filterError) {
-        filterResult = err({ message: 'Unhandled error', cause: pipelineError, filterError });
-      }
-
-      try {
-        await this.handleResult(filterResult, context);
-      } catch (handleError) {
-        this.forceCloseConnection(context, handleError);
-      }
-    } finally {
-      try {
-        await this.runMiddlewares(MiddlewareHook.OnComplete, context);
-      } catch {
-        // OnComplete errors are swallowed — response already sent.
+        result = err({ message: 'Unhandled error', cause: thrown, filterError });
       }
     }
+
+    // ── Phase 2: Result handling (exactly once) ──
+    try {
+      await this.handleResult(result, context);
+    } catch (handleThrown) {
+      try {
+        await this.emergencyTeardown(context, handleThrown);
+      } catch { /* swallow — last resort */ }
+    }
+
+    // ── Phase 3: Finalize (always runs) ──
+    try {
+      const finalizeList = this.getFinalizeMiddlewares();
+
+      if (finalizeList.length > 0) {
+        await this.runMiddlewares(finalizeList, context);
+      }
+    } catch { /* swallow — response already sent */ }
   }
 
-  // ── Middleware execution ─────────────────────────────────────
+  // ── Building blocks: adapters call these inside executePipeline ──
 
   /**
-   * Executes resolved middlewares for a given hook or from a direct list.
+   * Executes an ordered list of resolved middlewares.
    *
-   * @param hookOrList - A pipeline hook to look up, or a direct array of resolved middlewares.
+   * @param list - Resolved middlewares to execute in order.
    * @param context - The current execution context.
    * @returns `void` on success, `Err<unknown>` when a middleware halts the pipeline.
    *
    * @public
    */
-  async runMiddlewares(
-    hookOrList: MiddlewareHook | readonly ResolvedMiddleware[],
+  protected async runMiddlewares(
+    list: readonly ResolvedMiddleware[],
     context: Context,
   ): ResultAsync<void, unknown> {
-    const list = typeof hookOrList === 'string'
-      ? (this.resolvedMiddlewareRegistry[hookOrList] ?? [])
-      : hookOrList;
-
     for (const mw of list) {
       const result = await mw.handler(context);
+
+      if (isErr(result)) {
+        return result;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Executes all registered guards in order.
+   *
+   * @param context - The current execution context.
+   * @returns `void` on success, `Err<unknown>` when a guard denies access.
+   *
+   * @public
+   */
+  protected async runGuards(context: Context): ResultAsync<void, unknown> {
+    for (const guard of this.resolvedGuards) {
+      const result = await guard.handler(context);
 
       if (isErr(result)) {
         return result;
@@ -269,6 +296,9 @@ export abstract class Adapter {
    * from the first matching filter. Falls back to a generic error
    * if no filter matches.
    *
+   * Filter return values are validated: must be `Err`. If a filter returns
+   * a non-Err value, a synthetic `Err` wrapping the original error is returned.
+   *
    * @param error - The thrown error.
    * @param context - The current execution context.
    * @returns `Err<unknown>` to feed into `handleResult`.
@@ -281,55 +311,56 @@ export abstract class Adapter {
         continue;
       }
 
-      return await entry.handler(error, context);
+      const filterResult = await entry.handler(error, context);
+
+      if (!isErr(filterResult)) {
+        return err({ message: 'Exception filter must return Err', cause: error });
+      }
+
+      return filterResult;
     }
 
     return err({ message: 'Unhandled error', cause: error });
   }
 
+  // ── Middleware definition resolution utility ─────────────────
+
+  /**
+   * Resolves middleware definitions into ready-to-call handlers using
+   * the DI container. Adapters call this in their `initializePipeline`
+   * override for each phase in their registry.
+   *
+   * @param definitions - Middleware definitions with factory functions.
+   * @param container - The DI container for injection context.
+   * @returns Array of resolved middlewares with callable handlers.
+   *
+   * @public
+   */
+  protected resolveMiddlewareDefs(
+    definitions: readonly MiddlewareDefinition[],
+    container: ZipbulContainer,
+  ): ResolvedMiddleware[] {
+    return definitions.map((def) => ({
+      handler: runInInjectionContext(container, def.factory),
+    }));
+  }
+
+  // ── Finalize middlewares ─────────────────────────────────────
+
+  /**
+   * Returns the finalize middleware list for Phase 3 of `dispatchRequest`.
+   * Override in adapters to provide protocol-specific finalize middlewares
+   * (e.g. `OnComplete` for HTTP).
+   *
+   * @returns Resolved middlewares to run after response. Default: empty.
+   *
+   * @public
+   */
+  protected getFinalizeMiddlewares(): readonly ResolvedMiddleware[] {
+    return [];
+  }
+
   // ── Internal ────────────────────────────────────────────────
-
-  private async executePipeline(context: Context): Promise<Result<unknown, unknown>> {
-    const onReceiveResult = await this.runMiddlewares(MiddlewareHook.OnReceive, context);
-
-    if (isErr(onReceiveResult)) {
-      return onReceiveResult;
-    }
-
-    await this.parseInput(context);
-
-    const postParseResult = await this.runMiddlewares(MiddlewareHook.PostParseData, context);
-
-    if (isErr(postParseResult)) {
-      return postParseResult;
-    }
-
-    const guardResult = await this.runGuards(context);
-
-    if (isErr(guardResult)) {
-      return guardResult;
-    }
-
-    const preHandleResult = await this.runMiddlewares(MiddlewareHook.PreHandle, context);
-
-    if (isErr(preHandleResult)) {
-      return preHandleResult;
-    }
-
-    return await this.resolveHandler(context);
-  }
-
-  private async runGuards(context: Context): ResultAsync<void, unknown> {
-    for (const guard of this.resolvedGuards) {
-      const result = await guard.handler(context);
-
-      if (isErr(result)) {
-        return result;
-      }
-    }
-
-    return undefined;
-  }
 
   /**
    * Checks whether an error matches a given exception filter entry.
@@ -341,7 +372,21 @@ export abstract class Adapter {
    *
    * @public
    */
-  private validateAdapterCompatibility(
+  protected matchesExceptionFilter(error: unknown, entry: ResolvedExceptionFilter): boolean {
+    if (entry.catchTypes.length === 0) {
+      return true;
+    }
+
+    for (const exceptionType of entry.catchTypes) {
+      if (error instanceof exceptionType) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  protected validateAdapterCompatibility(
     definitions: readonly { readonly adapters?: readonly AdapterClass[] }[],
     label: string,
   ): void {
@@ -360,19 +405,5 @@ export abstract class Adapter {
         }
       }
     }
-  }
-
-  protected matchesExceptionFilter(error: unknown, entry: ResolvedExceptionFilter): boolean {
-    if (entry.catchTypes.length === 0) {
-      return true;
-    }
-
-    for (const exceptionType of entry.catchTypes) {
-      if (error instanceof exceptionType) {
-        return true;
-      }
-    }
-
-    return false;
   }
 }

@@ -11,15 +11,16 @@ const getDeco = () => {};
 const postDeco = () => {};
 
 class FakeAdapter extends Adapter {
+  static readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators: AdapterEntryDecorators = {
     controller: controllerDeco,
     handler: [getDeco, postDeco],
   };
 
-  parseInput() {}
-  resolveHandler() { return undefined; }
   handleResult() {}
-  forceCloseConnection() {}
+  protected emergencyTeardown() {}
+  protected async executePipeline() { return undefined as never; }
+  applyMiddlewareConfig() {}
   async start(_context: Context): Promise<void> {}
   async stop(): Promise<void> {}
 }

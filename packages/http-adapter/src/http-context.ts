@@ -2,11 +2,13 @@ import { ContextError, type ClassToken, type ResolvedExceptionFilter, type Zipbu
 
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
+import type { RouteHandlerEntry } from './interfaces';
 
 import { HTTP_CONTEXT_TYPE } from './constants';
 
 export class HttpContext {
   private _routeExceptionFilters: readonly ResolvedExceptionFilter[] | undefined;
+  private _matchedRoute: RouteHandlerEntry | undefined;
 
   constructor(
     private readonly _request: HttpRequest,
@@ -53,5 +55,13 @@ export class HttpContext {
 
   setRouteExceptionFilters(filters: readonly ResolvedExceptionFilter[]): void {
     this._routeExceptionFilters = filters;
+  }
+
+  get matchedRoute(): RouteHandlerEntry | undefined {
+    return this._matchedRoute;
+  }
+
+  set matchedRoute(route: RouteHandlerEntry | undefined) {
+    this._matchedRoute = route;
   }
 }

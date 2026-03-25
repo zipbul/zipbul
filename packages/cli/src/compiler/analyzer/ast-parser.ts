@@ -87,6 +87,7 @@ export class AstParser {
     this.currentImports = {};
     this.currentImportSources = {};
     this.currentOriginalNames = {};
+    const enumDeclarations = new Map<string, Map<string, string>>();
 
     let moduleDefinition: ModuleDefinition | undefined;
     let parseError: ReturnType<typeof err<Diagnostic>> | null = null;
@@ -281,6 +282,19 @@ export class AstParser {
           return;
         }
 
+        if (declaration?.type === 'TSEnumDeclaration') {
+          const declId = this.asNode(declaration.id);
+          const name = declId ? this.getString(declId, 'name') : null;
+
+          if (isNonEmptyString(name)) {
+            localExports.push(name);
+          }
+
+          traverse(declaration);
+
+          return;
+        }
+
         if (declaration?.type === 'VariableDeclaration') {
           const declarationsValue = declaration.declarations;
           const declarations = asAnalyzerArray(declarationsValue);
@@ -463,6 +477,43 @@ export class AstParser {
         return;
       }
 
+      if (node.type === 'TSEnumDeclaration') {
+        const enumId = this.asNode(node.id);
+        const enumName = enumId ? this.getString(enumId, 'name') : null;
+
+        if (isNonEmptyString(enumName)) {
+          const bodyNode = this.asNode(node.body);
+          const membersValue = bodyNode !== null ? asAnalyzerArray(bodyNode.members) : null;
+
+          if (membersValue !== null) {
+            const members = new Map<string, string>();
+
+            for (const memberValue of membersValue) {
+              const member = this.asNode(memberValue);
+
+              if (!member) {
+                continue;
+              }
+
+              const memberId = this.asNode(member.id);
+              const memberName = memberId ? this.getString(memberId, 'name') : null;
+              const initializer = this.asNode(member.initializer);
+              const memberValue2 = initializer ? this.getString(initializer, 'value') : null;
+
+              if (isNonEmptyString(memberName) && isNonEmptyString(memberValue2)) {
+                members.set(memberName, memberValue2);
+              }
+            }
+
+            if (members.size > 0) {
+              enumDeclarations.set(enumName, members);
+            }
+          }
+        }
+
+        return;
+      }
+
       if (node.type === 'ClassDeclaration') {
         const classResult = this.extractClassMetadata(node);
 
@@ -542,6 +593,7 @@ export class AstParser {
       createApplicationCalls,
       defineModuleCalls,
       injectCalls: this.currentInjectCalls,
+      ...(enumDeclarations.size > 0 ? { enums: enumDeclarations } : {}),
     };
   }
 

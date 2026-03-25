@@ -1,27 +1,4 @@
 import type { Adapter } from './adapter';
-import type { MiddlewareDefinition } from '../define-middleware';
-
-/**
- * Fixed pipeline hooks provided by the framework.
- *
- * The pipeline execution order is:
- * `OnReceive → [parseInput] → PostParseData → Guards → PreHandle → Handler → [sendResult] → OnComplete`
- *
- * @public
- */
-export enum MiddlewareHook {
-  /** Runs immediately when a request is received, before any parsing. */
-  OnReceive = 'OnReceive',
-  /** Runs after the request body and query string have been parsed. */
-  PostParseData = 'PostParseData',
-  /** Runs just before the route handler is invoked, after guards pass. */
-  PreHandle = 'PreHandle',
-  /** Runs after the response has been sent; errors are suppressed. */
-  OnComplete = 'OnComplete',
-}
-
-/** Registry mapping each middleware hook to its ordered middleware list. */
-export type MiddlewareRegistry = Partial<Record<MiddlewareHook, MiddlewareDefinition[]>>;
 
 /**
  * Adapter dependency declaration.

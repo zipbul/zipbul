@@ -1,5 +1,5 @@
 import type { ZipbulValue, Class, ClassToken, ValueLike, ModuleMarker, ProviderFactoryFn } from './types';
-import type { AdapterClass, MiddlewareHook } from './adapter/types';
+import type { AdapterClass } from './adapter/types';
 import type { MiddlewareDefinition } from './define-middleware';
 import type { GuardDefinition } from './define-guard';
 import type { ExceptionFilterDefinition } from './define-exception-filter';
@@ -155,6 +155,7 @@ export interface AdapterModuleConfig {
   guards?: readonly GuardDefinition[];
 }
 
-export type MiddlewareConfig = Partial<Record<MiddlewareHook, readonly MiddlewareDefinition[]>>;
+/** Phase-keyed middleware configuration. Keys are adapter-specific phase identifiers (e.g. `HttpPhase.OnReceive`). */
+export type MiddlewareConfig = Readonly<Record<string, readonly MiddlewareDefinition[]>>;
 
 export type Provider = ProviderUseValue | ProviderUseClass | ProviderUseExisting | ProviderUseFactory | Class;

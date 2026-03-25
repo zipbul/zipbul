@@ -1,5 +1,7 @@
-import type { Class, Context, AdapterEntryDecorators, Result, Err } from '@zipbul/common';
+import type { Context, AdapterEntryDecorators, Result, ResultAsync, Err, ZipbulContainer } from '@zipbul/common';
+import type { MiddlewareDefinition } from '@zipbul/common';
 import { Adapter, isErr, err, safe } from '@zipbul/common';
+import type { ResolvedMiddleware } from '@zipbul/common';
 import { StatusCodes } from 'http-status-codes';
 import { Logger } from '@zipbul/logger';
 
@@ -17,16 +19,17 @@ import type {
   InternalRouteEntry,
 } from './interfaces';
 import type { ClassMetadata, JsonValue, MetadataRegistryKey, ParamTypeReference, RequestBodyValue, ResponseBodyValue } from './types';
+import type { Class } from '@zipbul/common';
 
 import { HttpContext } from './http-context';
 import { HttpServer } from './http-server';
 import { HttpError } from './errors/http-error';
 import { HttpResponse } from './http-response';
-import { BadRequestError } from './errors/errors';
 import { BakerValidationError } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
 import type { RouteHandler } from './route-handler';
+import { HttpPhase, isHttpPhase } from './enums';
 
 
 interface ErrorResponseData {
@@ -36,6 +39,8 @@ interface ErrorResponseData {
 }
 
 export class HttpAdapter extends Adapter {
+  static override readonly validPhases: ReadonlySet<string> = new Set(Object.values(HttpPhase));
+
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
     handlers: [Get, Post, Put, Delete, Patch, Options, Head],
@@ -47,6 +52,9 @@ export class HttpAdapter extends Adapter {
   private readonly logger = new Logger('HttpAdapter');
 
   private internalRoutes: InternalRouteEntry[] = [];
+
+  private middlewareRegistry = new Map<HttpPhase, MiddlewareDefinition[]>();
+  private resolvedMiddlewareRegistry = new Map<HttpPhase, ResolvedMiddleware[]>();
 
   constructor(options: HttpServerOptions = {}) {
     super();
@@ -75,17 +83,184 @@ export class HttpAdapter extends Adapter {
     this.internalRoutes.push({ method, path, handler });
   }
 
-  // ── Abstract hook implementations ─────────────────────────────
+  // ── Middleware configuration ─────────────────────────────────
+
+  /**
+   * Receives AOT-generated middleware configuration.
+   * Validates phase keys against `HttpPhase` and stores definitions.
+   *
+   * @param config - Phase-keyed middleware definitions from AOT.
+   * @public
+   */
+  applyMiddlewareConfig(
+    config: Readonly<Record<string, readonly MiddlewareDefinition[]>>,
+  ): void {
+    for (const [key, definitions] of Object.entries(config)) {
+      if (!isHttpPhase(key)) {
+        throw new Error(
+          `Invalid middleware phase '${key}' for HttpAdapter. Valid phases: ${Object.values(HttpPhase).join(', ')}.`,
+        );
+      }
+
+      const existing = this.middlewareRegistry.get(key) ?? [];
+      this.middlewareRegistry.set(key, [...existing, ...definitions]);
+    }
+  }
+
+  /**
+   * Convenience method for programmatic middleware registration.
+   *
+   * @param phase - The HTTP pipeline phase.
+   * @param middlewares - Middleware definitions to append.
+   * @returns `this` for chaining.
+   * @public
+   */
+  addMiddlewares(phase: HttpPhase, middlewares: readonly MiddlewareDefinition[]): this {
+    this.validateAdapterCompatibility(middlewares, 'Middleware');
+
+    const existing = this.middlewareRegistry.get(phase) ?? [];
+    this.middlewareRegistry.set(phase, [...existing, ...middlewares]);
+    return this;
+  }
+
+  // ── Pipeline initialization ─────────────────────────────────
+
+  /**
+   * Resolves guards, exception filters (Common), and middleware factories (HttpAdapter).
+   *
+   * @param container - The application DI container.
+   * @public
+   */
+  override initializePipeline(container: ZipbulContainer): void {
+    super.initializePipeline(container);
+
+    for (const [phase, definitions] of this.middlewareRegistry) {
+      this.resolvedMiddlewareRegistry.set(
+        phase,
+        this.resolveMiddlewareDefs(definitions, container),
+      );
+    }
+  }
+
+  // ── Finalize middlewares ─────────────────────────────────────
+
+  /**
+   * Returns `OnComplete` phase middlewares for Phase 3 finalize.
+   *
+   * @returns Resolved OnComplete middlewares.
+   * @public
+   */
+  protected override getFinalizeMiddlewares(): readonly ResolvedMiddleware[] {
+    return this.resolvedMiddlewareRegistry.get(HttpPhase.OnComplete) ?? [];
+  }
+
+  // ── Pipeline assembly ───────────────────────────────────────
+
+  /**
+   * HTTP-specific pipeline:
+   * OnReceive → resolveRoute → parseBody → PostParse → Guards → PreHandle → executeHandler
+   *
+   * @param context - The HTTP context.
+   * @returns Pipeline result.
+   * @public
+   */
+  protected async executePipeline(context: Context): Promise<Result<unknown, unknown>> {
+    const http = context.to(HttpContext);
+
+    // 1. OnReceive — CORS, logging, method override, URL rewriting
+    const onReceive = await this.runMiddlewares(
+      this.resolvedMiddlewareRegistry.get(HttpPhase.OnReceive) ?? [], context,
+    );
+
+    if (isErr(onReceive)) {
+      return onReceive;
+    }
+
+    // 2. Route Match — match against final method/path. 404/405 early return
+    const routeResult = this.resolveRoute(http);
+
+    if (isErr(routeResult)) {
+      return routeResult;
+    }
+
+    // 3. Parse Body — @RawBody flag accessible via matchedRoute
+    const parseResult = await this.parseBody(http);
+
+    if (isErr(parseResult)) {
+      return parseResult;
+    }
+
+    // 4. PostParse — query parsing, cookie parsing, body transformation
+    const postParse = await this.runMiddlewares(
+      this.resolvedMiddlewareRegistry.get(HttpPhase.PostParse) ?? [], context,
+    );
+
+    if (isErr(postParse)) {
+      return postParse;
+    }
+
+    // 5. Guards — global access control
+    const guards = await this.runGuards(context);
+
+    if (isErr(guards)) {
+      return guards;
+    }
+
+    // 6. PreHandle — final processing before handler
+    const preHandle = await this.runMiddlewares(
+      this.resolvedMiddlewareRegistry.get(HttpPhase.PreHandle) ?? [], context,
+    );
+
+    if (isErr(preHandle)) {
+      return preHandle;
+    }
+
+    // 7. Execute Handler — route MW → route guards → param resolve → handler
+    return this.executeHandler(http, context);
+  }
+
+  // ── Pipeline steps ──────────────────────────────────────────
+
+  /**
+   * Matches the request to a route and stores metadata on the context.
+   * Extracted from the former `resolveHandler` front-half.
+   *
+   * @param http - The HTTP context.
+   * @returns `Ok` on match, `Err` for 404/500.
+   */
+  private resolveRoute(http: HttpContext): Result<unknown, unknown> {
+    const req = http.request;
+    const method = req.httpMethod;
+    const path = req.path;
+
+    if (this.routeHandler === undefined) {
+      return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Router not initialized' });
+    }
+
+    const matchResult = this.routeHandler.match(method, path);
+
+    if (matchResult === undefined) {
+      return err({ status: StatusCodes.NOT_FOUND, message: `Route not found: ${method} ${path}` });
+    }
+
+    req.params = matchResult.params;
+    http.matchedRoute = matchResult.value;
+
+    if (matchResult.value.exceptionFilters.length > 0) {
+      http.setRouteExceptionFilters(matchResult.value.exceptionFilters);
+    }
+
+    return undefined;
+  }
 
   /**
    * Parses the HTTP request body from the raw Bun `Request`.
-   * Runs after `OnReceive` middlewares, before `PostParseData`.
+   * Runs after `resolveRoute` so `@RawBody()` flag is accessible.
    *
-   * @param context - The HTTP context.
-   * @public
+   * @param http - The HTTP context.
+   * @returns `void` on success, `Err` with 400 status on invalid JSON.
    */
-  async parseInput(context: Context): Promise<void> {
-    const http = context.to(HttpContext);
+  private async parseBody(http: HttpContext): ResultAsync<void, unknown> {
     const req = http.request;
     const rawReq = http.rawRequest;
 
@@ -112,7 +287,7 @@ export class HttpAdapter extends Adapter {
 
         req.body = parsed as RequestBodyValue;
       } catch {
-        throw new BadRequestError('Invalid JSON in request body');
+        return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
       }
     } else {
       req.body = await rawReq.text();
@@ -120,60 +295,38 @@ export class HttpAdapter extends Adapter {
   }
 
   /**
-   * Matches the request to a route, runs scoped middlewares, and invokes the handler.
-   * Returns the handler's result as a `Result<unknown, unknown>`.
+   * Runs route-scoped middleware, guards, param resolution, and handler invocation.
+   * Extracted from the former `resolveHandler` back-half.
    *
-   * @param context - The HTTP context.
-   * @returns The handler result (success value or `Err`).
-   * @public
+   * @param http - The HTTP context.
+   * @param context - The base context for middleware/guard execution.
+   * @returns Handler result.
    */
-  async resolveHandler(context: Context): Promise<Result<unknown, unknown>> {
-    const http = context.to(HttpContext);
-    const req = http.request;
-    const res = http.response;
-    const method = req.httpMethod;
-    const path = req.path;
+  private async executeHandler(http: HttpContext, context: Context): Promise<Result<unknown, unknown>> {
+    const route = http.matchedRoute!;
 
-    if (!this.routeHandler) {
-      return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Router not initialized' });
-    }
+    this.logger.debug(`Pipeline: mw=${route.middlewares.length} guards=${route.guards.length} filters=${route.exceptionFilters.length}`);
 
-    const matchResult = this.routeHandler.match(method, path);
-
-    if (!matchResult) {
-      return err({ status: StatusCodes.NOT_FOUND, message: `Route not found: ${method} ${path}` });
-    }
-
-    req.params = matchResult.params;
-
-    if (matchResult.value.exceptionFilters.length > 0) {
-      http.setRouteExceptionFilters(matchResult.value.exceptionFilters);
-    }
-
-    this.logger.debug(`Pipeline: mw=${matchResult.value.middlewares.length} guards=${matchResult.value.guards.length} filters=${matchResult.value.exceptionFilters.length}`);
-
-    const scopedResult = await this.runMiddlewares(matchResult.value.middlewares, context);
+    // Route-scoped middlewares
+    const scopedResult = await this.runMiddlewares(route.middlewares, context);
 
     if (isErr(scopedResult)) {
       return scopedResult;
     }
 
     // Route-level guards: after route middlewares, before param resolution
-    if (matchResult.value.guards.length > 0) {
-      for (const guard of matchResult.value.guards) {
-        const guardResult = await guard(context);
+    for (const guard of route.guards) {
+      const guardResult = await guard(context);
 
-        if (isErr(guardResult)) {
-          return guardResult;
-        }
+      if (isErr(guardResult)) {
+        return guardResult;
       }
     }
 
-    this.logger.debug(`Matched Route: ${method}:${path}`);
+    this.logger.debug(`Matched Route: ${http.request.httpMethod}:${http.request.path}`);
 
-    const routeEntry = matchResult.value;
     const handlerArgs = await safe(
-      routeEntry.paramFactory(req, res),
+      route.paramFactory(http.request, http.response),
       (thrown) => {
         if (thrown instanceof BakerValidationError) {
           return {
@@ -195,10 +348,10 @@ export class HttpAdapter extends Adapter {
       return handlerArgs;
     }
 
-    const result = await routeEntry.handler(...handlerArgs);
-
-    return result;
+    return route.handler(...handlerArgs);
   }
+
+  // ── Result handling ─────────────────────────────────────────
 
   /**
    * Converts a `Result` into an HTTP response.
@@ -209,7 +362,7 @@ export class HttpAdapter extends Adapter {
    * @param context - The HTTP context.
    * @public
    */
-  async handleResult(result: Result<unknown, unknown>, context: Context): Promise<void> {
+  protected override async handleResult(result: Result<unknown, unknown>, context: Context): Promise<void> {
     const http = context.to(HttpContext);
     const res = http.response;
 
@@ -227,14 +380,17 @@ export class HttpAdapter extends Adapter {
   }
 
   /**
-   * Emergency connection teardown. Sets a 500 status on the response.
+   * Emergency teardown. Sets a 500 status on the response.
    *
    * @param context - The HTTP context.
+   * @param error - The error that triggered teardown.
    * @public
    */
-  forceCloseConnection(context: Context, error?: unknown): void {
+  protected emergencyTeardown(context: Context, error?: unknown): void {
     if (error instanceof Error) {
-      this.logger.error(`forceCloseConnection: ${error.message}`, error);
+      this.logger.error(`emergencyTeardown: ${error.message}`, error);
+    } else if (error !== undefined) {
+      this.logger.error(`emergencyTeardown: ${String(error)}`);
     }
 
     const http = context.to(HttpContext);
@@ -264,7 +420,13 @@ export class HttpAdapter extends Adapter {
           continue;
         }
 
-        return await entry.handler(error, context);
+        const filterResult = await entry.handler(error, context);
+
+        if (!isErr(filterResult)) {
+          return err({ message: 'Exception filter must return Err', cause: error });
+        }
+
+        return filterResult;
       }
     }
 
@@ -272,7 +434,7 @@ export class HttpAdapter extends Adapter {
   }
 
   /**
-   * Stores the RouteHandler reference for use by `resolveHandler`.
+   * Stores the RouteHandler reference for use by `resolveRoute`.
    * Called by HttpServer during boot.
    *
    * @param routeHandler - The route handler instance.

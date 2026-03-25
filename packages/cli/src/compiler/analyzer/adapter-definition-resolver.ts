@@ -16,8 +16,7 @@ import type { Diagnostic } from '../../diagnostics';
 
 import { err, isErr } from '@zipbul/result';
 import {
-  MiddlewareHook,
-  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_COMPUTED_PREFIX,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_COMPUTED_PREFIX, ZIPBUL_NEW,
   ZIPBUL_UNRESOLVABLE,
   FRAMEWORK_DEFINE_ADAPTER,
 } from '@zipbul/common';
@@ -28,8 +27,6 @@ import { AstParser } from './ast-parser';
 import { isRecordValue, isAnalyzerValueArray, isNonEmptyString, isUnresolvable } from './type-guards';
 
 const logger = new Logger('AdapterDefinitionResolver');
-
-const VALID_HOOKS = new Set<string>(Object.values(MiddlewareHook));
 
 /** Primitive TS type names that cannot be deserialized as a DTO class. */
 const PRIMITIVE_TYPE_NAMES = new Set(['string', 'number', 'boolean', 'any', 'object', 'array', 'void', 'undefined', 'null', 'never', 'unknown']);
@@ -98,7 +95,7 @@ export class AdapterDefinitionResolver {
         }));
       }
 
-      const extraction = this.extractFromClassProperties(classMetadata, resolvedExport.sourceFile);
+      const extraction = await this.extractFromClassProperties(classMetadata, resolvedExport.sourceFile, fileMap);
       if (isErr(extraction)) return extraction;
 
       adapterExtractions.push({ adapterId: extraction.adapterId, staticSchema: extraction.staticSchema });
@@ -285,6 +282,10 @@ export class AdapterDefinitionResolver {
       analysis.moduleDefinition = parseResult.moduleDefinition;
     }
 
+    if (parseResult.enums !== undefined) {
+      analysis.enums = parseResult.enums;
+    }
+
     fileMap.set(normalizedPath, analysis);
 
     return analysis;
@@ -336,7 +337,7 @@ export class AdapterDefinitionResolver {
     return null;
   }
 
-  private extractFromClassProperties(classMetadata: ClassMetadata, sourceFile: string): Result<AdapterStaticSchemaResult, Diagnostic> {
+  private async extractFromClassProperties(classMetadata: ClassMetadata, sourceFile: string, fileMap: Map<string, FileAnalysis>): Promise<Result<AdapterStaticSchemaResult, Diagnostic>> {
     const adapterId = classMetadata.className;
 
     const decoratorsProperty = classMetadata.properties.find(p => p.name === 'decorators');
@@ -385,12 +386,119 @@ export class AdapterDefinitionResolver {
 
     const entryDecorators: AdapterEntryDecoratorsSchema = { controller, handlers };
 
+    // Extract validPhases from static property
+    const validPhasesProperty = classMetadata.properties.find(p => p.name === 'validPhases');
+    let validPhases: Set<string> | undefined;
+
+    if (validPhasesProperty !== undefined) {
+      validPhases = await this.resolveValidPhases(validPhasesProperty.initializer, fileMap);
+    }
+
     return {
       adapterId,
       staticSchema: {
         entryDecorators,
+        ...(validPhases !== undefined ? { validPhases } : {}),
       },
     };
+  }
+
+  /**
+   * Resolves `static readonly validPhases = new Set(Object.values(SomeEnum))`
+   * by statically evaluating the AST structure and looking up enum member values.
+   *
+   * @param value - The property initializer AST value.
+   * @returns Set of valid phase strings, or undefined if unresolvable.
+   */
+  private async resolveValidPhases(value: AnalyzerValue | undefined, fileMap: Map<string, FileAnalysis>): Promise<Set<string> | undefined> {
+    const rec = this.asRecord(value);
+
+    if (rec === null) {
+      return undefined;
+    }
+
+    // Check for `new Set(...)` structure
+    if (rec[ZIPBUL_NEW] !== 'Set') {
+      return undefined;
+    }
+
+    const setArgs = isAnalyzerValueArray(rec.args) ? rec.args : null;
+
+    if (setArgs === null || setArgs.length !== 1) {
+      return undefined;
+    }
+
+    const setArg = this.asRecord(setArgs[0]);
+
+    if (setArg === null) {
+      return undefined;
+    }
+
+    // Check for `Object.values(...)` structure
+    if (setArg[ZIPBUL_CALL] !== 'Object.values') {
+      return undefined;
+    }
+
+    const callArgs = isAnalyzerValueArray(setArg.args) ? setArg.args : null;
+
+    if (callArgs === null || callArgs.length !== 1) {
+      return undefined;
+    }
+
+    const enumRef = this.asRecord(callArgs[0]);
+
+    if (enumRef === null || typeof enumRef[ZIPBUL_REF] !== 'string') {
+      return undefined;
+    }
+
+    const enumName = enumRef[ZIPBUL_REF] as string;
+    const importSource = typeof enumRef[ZIPBUL_IMPORT_SOURCE] === 'string' ? enumRef[ZIPBUL_IMPORT_SOURCE] as string : null;
+
+    // Look up enum members from file analysis
+    return await this.resolveEnumValues(enumName, importSource, fileMap);
+  }
+
+  /**
+   * Looks up enum member values by resolving the enum from file analyses.
+   * Falls back to scanning all file analyses if import source is not available.
+   *
+   * @param enumName - The enum identifier name.
+   * @param importSource - The import source file path (if available).
+   * @param fileMap - Map of file paths to their analysis results.
+   * @returns Set of enum member values, or undefined if not found.
+   */
+  private async resolveEnumValues(enumName: string, importSource: string | null, fileMap: Map<string, FileAnalysis>): Promise<Set<string> | undefined> {
+    if (importSource !== null) {
+      const normalizedPath = importSource.endsWith('.ts') ? importSource : `${importSource}.ts`;
+      const analysis = await this.getFileAnalysis(normalizedPath, fileMap);
+      const enumMembers = analysis?.enums?.get(enumName);
+
+      if (enumMembers !== undefined) {
+        return new Set(enumMembers.values());
+      }
+
+      // Try index.ts fallback
+      if (!importSource.endsWith('.ts')) {
+        const indexPath = `${importSource}/index.ts`;
+        const indexAnalysis = await this.getFileAnalysis(indexPath, fileMap);
+        const indexEnumMembers = indexAnalysis?.enums?.get(enumName);
+
+        if (indexEnumMembers !== undefined) {
+          return new Set(indexEnumMembers.values());
+        }
+      }
+    }
+
+    // Fallback: scan all files
+    for (const analysis of fileMap.values()) {
+      const enumMembers = analysis.enums?.get(enumName);
+
+      if (enumMembers !== undefined) {
+        return new Set(enumMembers.values());
+      }
+    }
+
+    return undefined;
   }
 
   private buildAdapterStaticSchemaSet(extractions: AdapterExtraction[]): Result<Record<string, AdapterStaticSchema>, Diagnostic> {
@@ -986,6 +1094,14 @@ export class AdapterDefinitionResolver {
     controllerAdapterMap: Map<string, string>,
   ): Result<void, Diagnostic> {
     for (const extraction of extractions) {
+      const validPhases = extraction.staticSchema.validPhases;
+
+      if (validPhases === undefined) {
+        return err(buildDiagnostic({
+          reason: `Adapter '${extraction.adapterId}' does not declare validPhases. All adapters must declare static readonly validPhases: ReadonlySet<string>.`,
+        }));
+      }
+
       const modulePhaseIds = this.collectModuleMiddlewarePhaseIds(fileMap, extraction.adapterId);
       if (isErr(modulePhaseIds)) return modulePhaseIds;
 
@@ -1000,9 +1116,9 @@ export class AdapterDefinitionResolver {
       const combinedPhaseIds = [...modulePhaseIds, ...decoratorPhaseIds];
 
       for (const phaseId of combinedPhaseIds) {
-        if (!VALID_HOOKS.has(phaseId)) {
+        if (!validPhases.has(phaseId)) {
           return err(buildDiagnostic({
-            reason: `Unsupported middleware hook '${phaseId}' for adapter '${extraction.adapterId}'. Valid hooks: ${[...VALID_HOOKS].join(', ')}.`,
+            reason: `Unsupported middleware phase '${phaseId}' for adapter '${extraction.adapterId}'. Valid phases: ${[...validPhases].join(', ')}.`,
           }));
         }
       }

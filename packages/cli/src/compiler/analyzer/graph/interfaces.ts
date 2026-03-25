@@ -24,6 +24,8 @@ export interface FileAnalysis {
   createApplicationCalls?: CreateApplicationCall[];
   defineModuleCalls?: DefineModuleCall[];
   injectCalls?: InjectCall[];
+  /** Enum declarations: enumName → Map<memberName, memberValue> */
+  enums?: Map<string, Map<string, string>>;
 }
 
 export interface AdapterResolveParams {

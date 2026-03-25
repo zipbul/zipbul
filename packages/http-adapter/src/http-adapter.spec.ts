@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import type { Context, ZipbulContainer } from '@zipbul/common';
-import { err, isErr, defineMiddleware, defineGuard, defineExceptionFilter, MiddlewareHook } from '@zipbul/common';
+import { err, isErr, defineMiddleware, defineGuard, defineExceptionFilter } from '@zipbul/common';
+import { HttpPhase } from './enums';
 
 const mockGetRuntimeContext = mock(() => ({
   isAotRuntime: false,
@@ -103,7 +104,7 @@ describe('HttpAdapter', () => {
 
   // ── Route-Level Guard Execution ─────────────────────────
 
-  describe('resolveHandler route-level guards', () => {
+  describe('executeHandler route-level guards', () => {
     let adapter: HttpAdapterInstance;
 
     beforeEach(() => {
@@ -131,7 +132,7 @@ describe('HttpAdapter', () => {
       const context = createHttpContext('GET', '/test');
 
       // Act
-      const result = await adapter.resolveHandler(context);
+      await adapter.dispatchRequest(context);
 
       // Assert
       expect(handlerFn).toHaveBeenCalled();
@@ -159,15 +160,22 @@ describe('HttpAdapter', () => {
       const context = createHttpContext('GET', '/test');
 
       // Act
-      const result = await adapter.resolveHandler(context);
+      await adapter.dispatchRequest(context);
 
       // Assert
       expect(guardHandler).toHaveBeenCalledTimes(1);
       expect(handlerFn).toHaveBeenCalled();
     });
 
-    it('should return Err and skip handler when guard denies', async () => {
+    it('should skip handler when guard denies', async () => {
       // Arrange
+      let receivedResult: unknown;
+      const originalHandleResult = adapter['handleResult'].bind(adapter);
+      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
+        receivedResult = result;
+        await originalHandleResult(result as never, ctx);
+      };
+
       const guardHandler = mock(() => err({ status: 403, message: 'Forbidden' }));
       const handlerFn = mock(() => ({ data: 'ok' }));
       const mockRouteHandler = {
@@ -188,10 +196,10 @@ describe('HttpAdapter', () => {
       const context = createHttpContext('GET', '/test');
 
       // Act
-      const result = await adapter.resolveHandler(context);
+      await adapter.dispatchRequest(context);
 
       // Assert
-      expect(isErr(result)).toBe(true);
+      expect(isErr(receivedResult)).toBe(true);
       expect(handlerFn).not.toHaveBeenCalled();
     });
 
@@ -219,7 +227,7 @@ describe('HttpAdapter', () => {
       const context = createHttpContext('GET', '/test');
 
       // Act
-      await adapter.resolveHandler(context);
+      await adapter.dispatchRequest(context);
 
       // Assert
       expect(callOrder).toEqual([1, 2]);
@@ -248,7 +256,7 @@ describe('HttpAdapter', () => {
       const context = createHttpContext('GET', '/test');
 
       // Act
-      await adapter.resolveHandler(context);
+      await adapter.dispatchRequest(context);
 
       // Assert
       expect(guard1).toHaveBeenCalledTimes(1);
@@ -278,7 +286,7 @@ describe('HttpAdapter', () => {
       const context = createHttpContext('GET', '/test');
 
       // Act
-      const result = await adapter.resolveHandler(context);
+      await adapter.dispatchRequest(context);
 
       // Assert
       expect(handlerFn).toHaveBeenCalled();
@@ -307,7 +315,7 @@ describe('HttpAdapter', () => {
       const context = createHttpContext('GET', '/test');
 
       // Act
-      await adapter.resolveHandler(context);
+      await adapter.dispatchRequest(context);
 
       // Assert
       expect(receivedContext).toBe(context);
@@ -375,23 +383,16 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── Execution Order ──────────────────────────────────────────
 
   describe('execution order', () => {
-    it('should execute full pipeline: OnReceive → parseInput → PostParseData → GlobalGuards → PreHandle → RouteMW → RouteGuards → Handler → OnComplete', async () => {
+    it('should execute full pipeline: OnReceive → resolveRoute → parseBody → PostParse → GlobalGuards → PreHandle → RouteMW → RouteGuards → Handler → OnComplete', async () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
-      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => () => { order.push('global:PostParseData'); })]);
-      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => () => { order.push('global:PreHandle'); })]);
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
+      adapter.addMiddlewares(HttpPhase.OnReceive, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
+      adapter.addMiddlewares(HttpPhase.PostParse, [defineMiddleware(() => () => { order.push('global:PostParse'); })]);
+      adapter.addMiddlewares(HttpPhase.PreHandle, [defineMiddleware(() => () => { order.push('global:PreHandle'); })]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
       adapter.addGuards([defineGuard(() => () => { order.push('global:guard'); })]);
       adapter.initializePipeline(createMockContainer());
-
-      // Spy on parseInput to track its position in the pipeline
-      const originalParseInput = adapter.parseInput.bind(adapter);
-      adapter.parseInput = async (ctx: Context) => {
-        order.push('parseInput');
-        await originalParseInput(ctx);
-      };
 
       const routeHandler = createMockRouteHandler({
         middlewares: [
@@ -409,8 +410,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Assert
       expect(order).toEqual([
         'global:OnReceive',
-        'parseInput',
-        'global:PostParseData',
+        'global:PostParse',
         'global:guard',
         'global:PreHandle',
         'route:mw1',
@@ -425,14 +425,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [
+      adapter.addMiddlewares(HttpPhase.OnReceive, [
         defineMiddleware(() => () => { order.push('OnReceive:1'); }),
         defineMiddleware(() => () => { order.push('OnReceive:2'); }),
       ]);
-      adapter.addMiddlewares(MiddlewareHook.PreHandle, [
+      adapter.addMiddlewares(HttpPhase.PreHandle, [
         defineMiddleware(() => () => { order.push('PreHandle:1'); }),
       ]);
-      adapter.addMiddlewares(MiddlewareHook.PreHandle, [
+      adapter.addMiddlewares(HttpPhase.PreHandle, [
         defineMiddleware(() => () => { order.push('PreHandle:2'); }),
       ]);
       adapter.initializePipeline(createMockContainer());
@@ -457,12 +457,12 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       ]);
     });
 
-    it('should place global guards after PostParseData and before PreHandle', async () => {
+    it('should place global guards after PostParse and before PreHandle', async () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => () => { order.push('PostParseData'); })]);
-      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => () => { order.push('PreHandle'); })]);
+      adapter.addMiddlewares(HttpPhase.PostParse, [defineMiddleware(() => () => { order.push('PostParse'); })]);
+      adapter.addMiddlewares(HttpPhase.PreHandle, [defineMiddleware(() => () => { order.push('PreHandle'); })]);
       adapter.addGuards([defineGuard(() => () => { order.push('global:guard'); })]);
       adapter.initializePipeline(createMockContainer());
 
@@ -475,7 +475,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
 
       // Assert
-      expect(order).toEqual(['PostParseData', 'global:guard', 'PreHandle', 'handler']);
+      expect(order).toEqual(['PostParse', 'global:guard', 'PreHandle', 'handler']);
     });
   });
 
@@ -486,12 +486,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const routeMw = mock((_ctx: Context) => {});
       const handlerFn = mock(() => 'ok');
-      const parseInputCalled = { value: false };
 
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => err({ status: 429 }))]);
-      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => () => { throw new Error('should not run'); })]);
+      adapter.addMiddlewares(HttpPhase.OnReceive, [defineMiddleware(() => () => err({ status: 429 }))]);
+      adapter.addMiddlewares(HttpPhase.PostParse, [defineMiddleware(() => () => { throw new Error('should not run'); })]);
       adapter.initializePipeline(createMockContainer());
-      adapter.parseInput = async () => { parseInputCalled.value = true; };
 
       const routeHandler = createMockRouteHandler({
         middlewares: [routeMw],
@@ -503,19 +501,17 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
 
       // Assert
-      expect(parseInputCalled.value).toBe(false);
       expect(routeMw).not.toHaveBeenCalled();
       expect(handlerFn).not.toHaveBeenCalled();
     });
 
-    it('should skip route-level after PostParseData Err but run OnReceive and parseInput', async () => {
+    it('should skip route-level after PostParse Err but run OnReceive', async () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
-      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => () => { order.push('PostParseData:halt'); return err({ status: 400 }); })]);
+      adapter.addMiddlewares(HttpPhase.OnReceive, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.addMiddlewares(HttpPhase.PostParse, [defineMiddleware(() => () => { order.push('PostParse:halt'); return err({ status: 400 }); })]);
       adapter.initializePipeline(createMockContainer());
-      adapter.parseInput = async () => { order.push('parseInput'); };
 
       const routeMw = mock((_ctx: Context) => {});
       const routeHandler = createMockRouteHandler({ middlewares: [routeMw] });
@@ -525,7 +521,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
 
       // Assert
-      expect(order).toEqual(['OnReceive', 'parseInput', 'PostParseData:halt']);
+      expect(order).toEqual(['OnReceive', 'PostParse:halt']);
       expect(routeMw).not.toHaveBeenCalled();
     });
 
@@ -533,7 +529,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const routeMw = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => () => err({ status: 503 }))]);
+      adapter.addMiddlewares(HttpPhase.PreHandle, [defineMiddleware(() => () => err({ status: 503 }))]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({ middlewares: [routeMw] });
@@ -552,7 +548,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeMw = mock((_ctx: Context) => { order.push('route:mw'); });
       const preHandleMw = mock((_ctx: Context) => { order.push('PreHandle'); });
 
-      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => preHandleMw)]);
+      adapter.addMiddlewares(HttpPhase.PreHandle, [defineMiddleware(() => preHandleMw)]);
       adapter.addGuards([defineGuard(() => () => { order.push('global:guard:deny'); return err({ status: 403 }); })]);
       adapter.initializePipeline(createMockContainer());
 
@@ -624,8 +620,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const guardFn = mock((_ctx: Context) => { order.push('guard'); });
       const handlerFn = mock(() => { order.push('handler'); return 'ok'; });
 
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
+      adapter.addMiddlewares(HttpPhase.OnReceive, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -657,7 +653,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -677,7 +673,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const onCompleteFn = mock((_ctx: Context) => {});
 
       adapter.addGuards([defineGuard(() => () => err({ status: 403 }))]);
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({});
@@ -697,8 +693,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should flow route-level middleware Err data through to handleResult', async () => {
       // Arrange
       let receivedResult: unknown;
-      const originalHandleResult = adapter.handleResult.bind(adapter);
-      adapter.handleResult = async (result: unknown, ctx: Context) => {
+      const originalHandleResult = adapter['handleResult'].bind(adapter);
+      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
         receivedResult = result;
         await originalHandleResult(result as never, ctx);
       };
@@ -721,8 +717,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should flow route-level guard Err data through to handleResult', async () => {
       // Arrange
       let receivedResult: unknown;
-      const originalHandleResult = adapter.handleResult.bind(adapter);
-      adapter.handleResult = async (result: unknown, ctx: Context) => {
+      const originalHandleResult = adapter['handleResult'].bind(adapter);
+      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
         receivedResult = result;
         await originalHandleResult(result as never, ctx);
       };
@@ -978,10 +974,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const contexts: Context[] = [];
 
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
-      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
-      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.addMiddlewares(HttpPhase.OnReceive, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.addMiddlewares(HttpPhase.PostParse, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.addMiddlewares(HttpPhase.PreHandle, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
       adapter.addGuards([defineGuard(() => (ctx) => { contexts.push(ctx); })]);
       adapter.initializePipeline(createMockContainer());
 
@@ -1057,8 +1053,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
+      adapter.addMiddlewares(HttpPhase.OnReceive, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const noMatchRouteHandler = {
@@ -1076,8 +1072,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should return 404 Err when no route matches', async () => {
       // Arrange
       let receivedResult: unknown;
-      const originalHandleResult = adapter.handleResult.bind(adapter);
-      adapter.handleResult = async (result: unknown, ctx: Context) => {
+      const originalHandleResult = adapter['handleResult'].bind(adapter);
+      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
         receivedResult = result;
         await originalHandleResult(result as never, ctx);
       };
@@ -1105,7 +1101,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('global'); })]);
+      adapter.addMiddlewares(HttpPhase.OnReceive, [defineMiddleware(() => () => { order.push('global'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1168,8 +1164,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Do NOT call setRouteHandler
 
       let receivedResult: unknown;
-      const originalHandleResult = adapter.handleResult.bind(adapter);
-      adapter.handleResult = async (result: unknown, ctx: Context) => {
+      const originalHandleResult = adapter['handleResult'].bind(adapter);
+      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
         receivedResult = result;
         await originalHandleResult(result as never, ctx);
       };
@@ -1186,32 +1182,30 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── Failure Propagation Paths ─────────────────────────────
 
   describe('failure propagation paths', () => {
-    it('should skip PostParseData and all subsequent stages when parseInput throws', async () => {
+    it('should route handler throw through exception filter and run OnComplete', async () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(MiddlewareHook.OnReceive, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
-      adapter.addMiddlewares(MiddlewareHook.PostParseData, [defineMiddleware(() => () => { order.push('PostParseData'); })]);
-      adapter.addMiddlewares(MiddlewareHook.PreHandle, [defineMiddleware(() => () => { order.push('PreHandle'); })]);
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
+      adapter.addMiddlewares(HttpPhase.OnReceive, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.addMiddlewares(HttpPhase.PostParse, [defineMiddleware(() => () => { order.push('PostParse'); })]);
+      adapter.addMiddlewares(HttpPhase.PreHandle, [defineMiddleware(() => () => { order.push('PreHandle'); })]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
       adapter.addExceptionFilters([defineExceptionFilter([], () => (_error, _ctx) => {
         order.push('exceptionFilter');
         return err({ caught: true });
       })]);
       adapter.initializePipeline(createMockContainer());
 
-      adapter.parseInput = async () => { throw new Error('parse failed'); };
-
-      const routeMw = mock((_ctx: Context) => {});
-      const routeHandler = createMockRouteHandler({ middlewares: [routeMw] });
+      const routeHandler = createMockRouteHandler({
+        handler: () => { throw new Error('handler failed'); },
+      });
       adapter.setRouteHandler(routeHandler as never);
 
       // Act
       await adapter.dispatchRequest(createHttpContext('POST', '/test'));
 
-      // Assert — OnReceive runs, parseInput throws, exception filter catches, OnComplete runs
-      expect(order).toEqual(['OnReceive', 'exceptionFilter', 'OnComplete']);
-      expect(routeMw).not.toHaveBeenCalled();
+      // Assert — pipeline runs up to handler, handler throws, exception filter catches, OnComplete runs
+      expect(order).toEqual(['OnReceive', 'PostParse', 'PreHandle', 'exceptionFilter', 'OnComplete']);
     });
 
     it('should route global guard throw (not Err) to exception filters', async () => {
@@ -1265,10 +1259,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect(thirdMw).not.toHaveBeenCalled();
     });
 
-    it('should call forceCloseConnection when route exception filter itself throws', async () => {
+    it('should call emergencyTeardown when route exception filter itself throws', async () => {
       // Arrange
       adapter.initializePipeline(createMockContainer());
-      adapter.forceCloseConnection = mock(() => {});
+      (adapter as any).emergencyTeardown = mock(() => {});
 
       const routeHandler = createMockRouteHandler({
         exceptionFilters: [{
@@ -1283,19 +1277,19 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
 
       // Assert — filter throw is caught by dispatchRequest, creates synthetic Err,
-      // handleResult receives it. If handleResult also fails → forceCloseConnection.
-      // But handleResult should succeed with the synthetic Err, so forceCloseConnection
+      // handleResult receives it. If handleResult also fails → emergencyTeardown.
+      // But handleResult should succeed with the synthetic Err, so emergencyTeardown
       // should NOT be called. Let's verify handleResult gets the synthetic error.
       // Actually: dispatchRequest catches filter throw → filterResult = err({message, cause, filterError})
-      // → handleResult(filterResult) should work → no forceCloseConnection
-      expect(adapter.forceCloseConnection).not.toHaveBeenCalled();
+      // → handleResult(filterResult) should work → no emergencyTeardown
+      expect((adapter as any).emergencyTeardown).not.toHaveBeenCalled();
     });
 
     it('should produce synthetic Err with cause and filterError when route exception filter throws', async () => {
       // Arrange
       let receivedResult: unknown;
-      const originalHandleResult = adapter.handleResult.bind(adapter);
-      adapter.handleResult = async (result: unknown, ctx: Context) => {
+      const originalHandleResult = adapter['handleResult'].bind(adapter);
+      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
         receivedResult = result;
         await originalHandleResult(result as never, ctx);
       };
@@ -1324,14 +1318,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect((data.filterError as Error).message).toBe('filter crash');
     });
 
-    it('should call forceCloseConnection when handleResult throws on error-path result', async () => {
+    it('should call emergencyTeardown when handleResult throws on error-path result', async () => {
       // Arrange
       adapter.initializePipeline(createMockContainer());
-      adapter.forceCloseConnection = mock(() => {});
+      (adapter as any).emergencyTeardown = mock(() => {});
 
       // Make handleResult throw only on error path
       const callCount = { value: 0 };
-      adapter.handleResult = async () => {
+      adapter['handleResult'] = async () => {
         callCount.value++;
         throw new Error('handleResult broken');
       };
@@ -1345,19 +1339,19 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
 
       // Assert
-      expect(adapter.forceCloseConnection).toHaveBeenCalledTimes(1);
+      expect((adapter as any).emergencyTeardown).toHaveBeenCalledTimes(1);
     });
 
     it('should not affect request result when OnComplete middleware throws', async () => {
       // Arrange
       let receivedResult: unknown;
-      const originalHandleResult = adapter.handleResult.bind(adapter);
-      adapter.handleResult = async (result: unknown, ctx: Context) => {
+      const originalHandleResult = adapter['handleResult'].bind(adapter);
+      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
         receivedResult = result;
         await originalHandleResult(result as never, ctx);
       };
 
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [
+      adapter.addMiddlewares(HttpPhase.OnComplete, [
         defineMiddleware(() => () => { throw new Error('OnComplete crash'); }),
       ]);
       adapter.initializePipeline(createMockContainer());
@@ -1377,13 +1371,13 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should not affect request result when OnComplete middleware returns Err', async () => {
       // Arrange
       let receivedResult: unknown;
-      const originalHandleResult = adapter.handleResult.bind(adapter);
-      adapter.handleResult = async (result: unknown, ctx: Context) => {
+      const originalHandleResult = adapter['handleResult'].bind(adapter);
+      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
         receivedResult = result;
         await originalHandleResult(result as never, ctx);
       };
 
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [
+      adapter.addMiddlewares(HttpPhase.OnComplete, [
         defineMiddleware(() => () => err({ reason: 'OnComplete err' })),
       ]);
       adapter.initializePipeline(createMockContainer());
@@ -1496,7 +1490,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
   describe('Err vs throw distinction', () => {
     it('should not register route exception filters when route MW Err halts before route matching sets them', async () => {
-      // This tests an important subtlety: route exception filters are set in resolveHandler
+      // This tests an important subtlety: route exception filters are set in resolveRoute
       // AFTER route match but BEFORE route MW execution. So if route MW returns Err,
       // the Err flows back as a normal Result, never touching exception filters.
       // But if route MW THROWS, it DOES go through exception filters (including route-level ones).
@@ -1587,7 +1581,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     });
 
     it('should route to route-level exception filter when route guard throws', async () => {
-      // Arrange — route exception filters are set BEFORE guards run in resolveHandler,
+      // Arrange — route exception filters are set in resolveRoute BEFORE guards run in executeHandler,
       // so a guard throw should be caught by route-level filters
       const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route-filter' }));
       const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
@@ -1660,7 +1654,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1679,7 +1673,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1698,7 +1692,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => onCompleteFn)]);
       adapter.addExceptionFilters([defineExceptionFilter([], () => (_error, _ctx) => err({ caught: true }))]);
       adapter.initializePipeline(createMockContainer());
 
@@ -1714,15 +1708,15 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect(onCompleteFn).toHaveBeenCalledTimes(1);
     });
 
-    it('should run OnComplete even when forceCloseConnection is called', async () => {
+    it('should run OnComplete even when emergencyTeardown is called', async () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(MiddlewareHook.OnComplete, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpPhase.OnComplete, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
 
-      adapter.handleResult = async () => { throw new Error('handleResult broken'); };
-      adapter.forceCloseConnection = mock(() => {});
+      adapter['handleResult'] = async () => { throw new Error('handleResult broken'); };
+      (adapter as any).emergencyTeardown = mock(() => {});
 
       const routeHandler = createMockRouteHandler({
         handler: () => { throw new Error('handler crash'); },
@@ -1733,7 +1727,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
 
       // Assert
-      expect(adapter.forceCloseConnection).toHaveBeenCalledTimes(1);
+      expect((adapter as any).emergencyTeardown).toHaveBeenCalledTimes(1);
       expect(onCompleteFn).toHaveBeenCalledTimes(1);
     });
   });
@@ -1766,8 +1760,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should produce default unhandled error when no filters registered at all and handler throws', async () => {
       // Arrange
       let receivedResult: unknown;
-      const originalHandleResult = adapter.handleResult.bind(adapter);
-      adapter.handleResult = async (result: unknown, ctx: Context) => {
+      const originalHandleResult = adapter['handleResult'].bind(adapter);
+      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
         receivedResult = result;
         await originalHandleResult(result as never, ctx);
       };
@@ -1789,6 +1783,447 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect(data.message).toBe('Unhandled error');
       expect(data.cause).toBeInstanceOf(Error);
       expect((data.cause as Error).message).toBe('totally unhandled');
+    });
+  });
+
+  // ── applyMiddlewareConfig validation ─────────────────────────
+
+  describe('applyMiddlewareConfig', () => {
+    it('should throw when given an invalid phase key', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const invalidConfig = { InvalidPhase: [defineMiddleware(() => () => {})] };
+
+      // Act & Assert
+      expect(() => adapter.applyMiddlewareConfig(invalidConfig)).toThrow(/Invalid middleware phase 'InvalidPhase'/);
+    });
+
+    it('should accept all valid HttpPhase keys', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const mw = defineMiddleware(() => () => {});
+
+      // Act & Assert — should not throw
+      expect(() => adapter.applyMiddlewareConfig({
+        OnReceive: [mw],
+        PostParse: [mw],
+        PreHandle: [mw],
+        OnComplete: [mw],
+      })).not.toThrow();
+    });
+
+    it('should accumulate definitions when called multiple times for the same phase', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const mw1 = defineMiddleware(() => () => {});
+      const mw2 = defineMiddleware(() => () => {});
+
+      // Act
+      adapter.applyMiddlewareConfig({ OnReceive: [mw1] });
+      adapter.applyMiddlewareConfig({ OnReceive: [mw2] });
+      adapter.initializePipeline(createMockContainer());
+
+      // Assert — both middlewares should be registered
+      const registry = (adapter as any).resolvedMiddlewareRegistry as Map<string, unknown[]>;
+      expect(registry.get('OnReceive')).toHaveLength(2);
+    });
+  });
+
+  // ── parseBody ──────────────────────────────────────────────────
+
+  describe('parseBody', () => {
+    it('should parse JSON body for POST request with application/json content-type', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      adapter.initializePipeline(createMockContainer());
+
+      const jsonBody = JSON.stringify({ name: 'test' });
+      const rawRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: jsonBody,
+      });
+
+      const { HttpContext } = require('./http-context');
+      const { HttpRequest } = require('./http-request');
+      const { HttpResponse } = require('./http-response');
+
+      const req = new HttpRequest({
+        httpMethod: 'POST',
+        url: 'http://localhost/test',
+        headers: { 'content-type': 'application/json' },
+        params: {},
+        query: {},
+      });
+      const res = new HttpResponse(req, new Headers());
+      const http = new HttpContext(req, res, rawRequest);
+
+      // Act
+      await (adapter as any).parseBody(http);
+
+      // Assert
+      expect(req.body).toEqual({ name: 'test' });
+    });
+
+    it('should parse text body for POST request without JSON content-type', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const rawRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain' },
+        body: 'hello world',
+      });
+
+      const { HttpContext } = require('./http-context');
+      const { HttpRequest } = require('./http-request');
+      const { HttpResponse } = require('./http-response');
+
+      const req = new HttpRequest({
+        httpMethod: 'POST',
+        url: 'http://localhost/test',
+        headers: { 'content-type': 'text/plain' },
+        params: {},
+        query: {},
+      });
+      const res = new HttpResponse(req, new Headers());
+      const http = new HttpContext(req, res, rawRequest);
+
+      // Act
+      await (adapter as any).parseBody(http);
+
+      // Assert
+      expect(req.body).toBe('hello world');
+    });
+
+    it('should return Err with 400 status for invalid JSON', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const rawRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{invalid json',
+      });
+
+      const { HttpContext } = require('./http-context');
+      const { HttpRequest } = require('./http-request');
+      const { HttpResponse } = require('./http-response');
+
+      const req = new HttpRequest({
+        httpMethod: 'POST',
+        url: 'http://localhost/test',
+        headers: { 'content-type': 'application/json' },
+        params: {},
+        query: {},
+      });
+      const res = new HttpResponse(req, new Headers());
+      const http = new HttpContext(req, res, rawRequest);
+
+      // Act
+      const result = await (adapter as any).parseBody(http);
+
+      // Assert
+      expect(isErr(result)).toBe(true);
+      expect(result.data).toEqual({ status: 400, message: 'Invalid JSON in request body' });
+    });
+
+    it('should skip body parsing for GET requests', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const rawRequest = new Request('http://localhost/test');
+
+      const { HttpContext } = require('./http-context');
+      const { HttpRequest } = require('./http-request');
+      const { HttpResponse } = require('./http-response');
+
+      const req = new HttpRequest({
+        httpMethod: 'GET',
+        url: 'http://localhost/test',
+        headers: {},
+        params: {},
+        query: {},
+      });
+      const res = new HttpResponse(req, new Headers());
+      const http = new HttpContext(req, res, rawRequest);
+
+      // Act
+      await (adapter as any).parseBody(http);
+
+      // Assert — body should remain at its initial value (null)
+      expect(req.body).toBeNull();
+    });
+
+    it('should skip body parsing for HEAD requests', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+
+      const { HttpContext } = require('./http-context');
+      const { HttpRequest } = require('./http-request');
+      const { HttpResponse } = require('./http-response');
+
+      const req = new HttpRequest({
+        httpMethod: 'HEAD',
+        url: 'http://localhost/test',
+        headers: {},
+        params: {},
+        query: {},
+      });
+      const res = new HttpResponse(req, new Headers());
+      const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'HEAD' }));
+
+      // Act
+      await (adapter as any).parseBody(http);
+
+      // Assert
+      expect(req.body).toBeNull();
+    });
+
+    it('should skip body parsing for DELETE requests', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+
+      const { HttpContext } = require('./http-context');
+      const { HttpRequest } = require('./http-request');
+      const { HttpResponse } = require('./http-response');
+
+      const req = new HttpRequest({
+        httpMethod: 'DELETE',
+        url: 'http://localhost/test',
+        headers: {},
+        params: {},
+        query: {},
+      });
+      const res = new HttpResponse(req, new Headers());
+      const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'DELETE' }));
+
+      // Act
+      await (adapter as any).parseBody(http);
+
+      // Assert
+      expect(req.body).toBeNull();
+    });
+
+    it('should skip body parsing for OPTIONS requests', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+
+      const { HttpContext } = require('./http-context');
+      const { HttpRequest } = require('./http-request');
+      const { HttpResponse } = require('./http-response');
+
+      const req = new HttpRequest({
+        httpMethod: 'OPTIONS',
+        url: 'http://localhost/test',
+        headers: {},
+        params: {},
+        query: {},
+      });
+      const res = new HttpResponse(req, new Headers());
+      const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'OPTIONS' }));
+
+      // Act
+      await (adapter as any).parseBody(http);
+
+      // Assert
+      expect(req.body).toBeNull();
+    });
+
+    it('should skip body parsing when rawRequest is undefined', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+
+      const { HttpContext } = require('./http-context');
+      const { HttpRequest } = require('./http-request');
+      const { HttpResponse } = require('./http-response');
+
+      const req = new HttpRequest({
+        httpMethod: 'POST',
+        url: 'http://localhost/test',
+        headers: { 'content-type': 'application/json' },
+        params: {},
+        query: {},
+      });
+      const res = new HttpResponse(req, new Headers());
+      const http = new HttpContext(req, res); // no rawRequest
+
+      // Act
+      await (adapter as any).parseBody(http);
+
+      // Assert
+      expect(req.body).toBeNull();
+    });
+  });
+
+  // ── handleResult ──────────────────────────────────────────────
+
+  describe('handleResult', () => {
+    it('should skip response when already sent', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const context = createHttpContext('GET', '/test');
+      const http = context.to(require('./http-context').HttpContext);
+      const res = http.response;
+      res.setStatus(200);
+      res.setBody('already done');
+      res.end();
+
+      // Act — should not throw even with weird result
+      await adapter['handleResult']({ value: 'ignored' } as never, context);
+
+      // Assert — response was already sent, status unchanged
+      expect(res.isSent()).toBe(true);
+    });
+
+    it('should write error response for Err result with status', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const context = createHttpContext('GET', '/test');
+      const http = context.to(require('./http-context').HttpContext);
+
+      // Act
+      await adapter['handleResult'](err({ status: 404, message: 'Not Found' }), context);
+
+      // Assert
+      const res = http.response;
+      expect(res.getStatus()).toBe(404);
+    });
+
+    it('should write error response for HttpError', async () => {
+      // Arrange
+      const { HttpError } = require('./errors/http-error');
+      const adapter = new HttpAdapter();
+      const context = createHttpContext('GET', '/test');
+      const http = context.to(require('./http-context').HttpContext);
+
+      // Act
+      await adapter['handleResult'](err(new HttpError(403, 'Forbidden')), context);
+
+      // Assert
+      expect(http.response.getStatus()).toBe(403);
+    });
+
+    it('should write 500 for unknown error data shape', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const context = createHttpContext('GET', '/test');
+      const http = context.to(require('./http-context').HttpContext);
+
+      // Act
+      await adapter['handleResult'](err('some string error'), context);
+
+      // Assert
+      expect(http.response.getStatus()).toBe(500);
+    });
+
+    it('should write success response for non-Err result', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const context = createHttpContext('GET', '/test');
+      const http = context.to(require('./http-context').HttpContext);
+
+      // Act
+      await adapter['handleResult']({ data: 'success' } as never, context);
+
+      // Assert
+      const body = http.response.getBody();
+      expect(body).toEqual({ data: 'success' });
+    });
+
+    it('should handle null result without error', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const context = createHttpContext('GET', '/test');
+
+      // Act & Assert — should not throw
+      await expect(adapter['handleResult'](null as never, context)).resolves.toBeUndefined();
+    });
+
+    it('should handle undefined result without error', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const context = createHttpContext('GET', '/test');
+
+      // Act & Assert
+      await expect(adapter['handleResult'](undefined as never, context)).resolves.toBeUndefined();
+    });
+  });
+
+  // ── emergencyTeardown ────────────────────────────────────────
+
+  describe('emergencyTeardown', () => {
+    it('should set 500 status and Internal Server Error body', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const context = createHttpContext('GET', '/test');
+      const http = context.to(require('./http-context').HttpContext);
+
+      // Act
+      (adapter as any).emergencyTeardown(context, new Error('crash'));
+
+      // Assert
+      expect(http.response.getStatus()).toBe(500);
+      expect(http.response.getBody()).toBe('Internal Server Error');
+    });
+
+    it('should skip setting response when already sent', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const context = createHttpContext('GET', '/test');
+      const http = context.to(require('./http-context').HttpContext);
+      const res = http.response;
+      res.setStatus(200);
+      res.setBody('already sent');
+      res.end();
+
+      // Act
+      (adapter as any).emergencyTeardown(context, new Error('crash'));
+
+      // Assert — status should remain 200, not overwritten to 500
+      expect(res.getStatus()).toBe(200);
+    });
+  });
+
+  // ── validPhases ────────────────────────────────────────────────
+
+  describe('validPhases', () => {
+    it('should contain all four HttpPhase values', () => {
+      // Assert
+      expect(HttpAdapter.validPhases).toContain('OnReceive');
+      expect(HttpAdapter.validPhases).toContain('PostParse');
+      expect(HttpAdapter.validPhases).toContain('PreHandle');
+      expect(HttpAdapter.validPhases).toContain('OnComplete');
+      expect(HttpAdapter.validPhases.size).toBe(4);
+    });
+  });
+
+  // ── addMiddlewares convenience method ──────────────────────────
+
+  describe('addMiddlewares', () => {
+    it('should register middlewares for a given phase', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const order: string[] = [];
+
+      adapter.addMiddlewares(HttpPhase.OnReceive, [defineMiddleware(() => () => { order.push('mw1'); })]);
+      adapter.initializePipeline(createMockContainer());
+
+      const routeHandler = createMockRouteHandler({
+        handler: () => { order.push('handler'); return 'ok'; },
+      });
+      adapter.setRouteHandler(routeHandler as never);
+
+      // Act
+      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+
+      // Assert
+      expect(order).toEqual(['mw1', 'handler']);
+    });
+
+    it('should return this for chaining', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+
+      // Act & Assert
+      expect(adapter.addMiddlewares(HttpPhase.OnReceive, [])).toBe(adapter);
     });
   });
 });

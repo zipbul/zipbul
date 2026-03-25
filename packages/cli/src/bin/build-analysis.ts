@@ -51,5 +51,9 @@ export function buildFileAnalysis(filePath: string, parseResult: ParseResult): F
     analysis.moduleDefinition = parseResult.moduleDefinition;
   }
 
+  if (parseResult.enums !== undefined) {
+    analysis.enums = parseResult.enums;
+  }
+
   return analysis;
 }

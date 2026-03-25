@@ -7,7 +7,7 @@ import type {
   ClassToken,
   ModuleMarker,
 } from '@zipbul/common';
-import { ClusterStrategy, MiddlewareHook } from '@zipbul/common';
+import { ClusterStrategy } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 
 import { seal } from '@zipbul/baker';
@@ -211,14 +211,8 @@ export class Application {
       const configKey = this.resolveAdapterConfigKey(entry);
       const config = runtimeCtx.adapterConfig?.[configKey];
 
-      if (config?.middlewares) {
-        for (const hook of Object.values(MiddlewareHook)) {
-          const middlewares = config.middlewares[hook];
-
-          if (middlewares !== undefined && middlewares.length > 0) {
-            entry.adapter.addMiddlewares(hook, middlewares);
-          }
-        }
+      if (config?.middlewares !== undefined) {
+        entry.adapter.applyMiddlewareConfig(config.middlewares);
       }
 
       if (config?.exceptionFilters !== undefined && config.exceptionFilters.length > 0) {

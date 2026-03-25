@@ -55,4 +55,6 @@ export interface ParseResult {
   createApplicationCalls?: CreateApplicationCall[] | undefined;
   defineModuleCalls?: DefineModuleCall[] | undefined;
   injectCalls?: InjectCall[] | undefined;
+  /** Enum declarations: enumName → Map<memberName, memberValue> */
+  enums?: Map<string, Map<string, string>> | undefined;
 }
