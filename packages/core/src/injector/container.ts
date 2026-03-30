@@ -243,13 +243,19 @@ export class Container implements ZipbulContainer {
       }
 
       if (tokenName === undefined) {
-        return undefined;
+        throw new Error(
+          `[Zipbul DI] Cannot resolve constructor parameter of '${ctor.name}': token could not be normalized. ` +
+          `Ensure the parameter type is a class, string, or symbol registered in the container.`,
+        );
       }
 
       try {
         return this.get(tokenName);
       } catch {
-        return undefined;
+        throw new Error(
+          `[Zipbul DI] Cannot resolve constructor parameter of '${ctor.name}': no provider for '${tokenName}'. ` +
+          `Register a provider for this token in the module or check the import path.`,
+        );
       }
     });
   }

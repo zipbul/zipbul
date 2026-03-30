@@ -1,21 +1,14 @@
 /**
- * AOT-compiled parameter metadata.
- *
- * The compiler emits decorator names as-is (e.g. `"Body"`, `"Param"`).
- * The adapter is responsible for interpreting what each name means
- * at runtime.
+ * AOT-compiled validation entry.
+ * Extracted from `Validated<T>` method calls in handler body.
  *
  * @public
  */
-export interface CompiledParamEntry {
-  /** Parameter variable name from source code. */
-  readonly name: string;
-  /** Decorator name if present (e.g. `"Body"`, `"Query"`). Adapter interprets meaning. */
-  readonly decoratorName?: string;
-  /** Decorator arguments (e.g. `["id"]` for `@Param('id')`). */
-  readonly decoratorArgs?: readonly unknown[];
-  /** Container key or primitive type name (e.g. `"string"`, `"AppModule::CreateUserDto"`). */
-  readonly metatypeKey?: string;
+export interface CompiledValidationEntry {
+  /** Access kind. Adapter uses this to determine the validation input (e.g. 'body', 'query', 'params'). */
+  readonly kind: string;
+  /** Type name of T. Container key or import-path-qualified class name. */
+  readonly metatypeKey: string;
 }
 
 /**
@@ -40,12 +33,12 @@ export interface CompiledHandlerEntry {
   readonly handlerDecorator: string;
   /** Handler decorator arguments (e.g. `["/users"]`). Adapter interprets meaning. */
   readonly handlerDecoratorArgs: readonly unknown[];
-  /** Compiled parameter metadata for this handler. */
-  readonly params: readonly CompiledParamEntry[];
   /** Container keys for route-level middleware definitions. Empty when no `@UseMiddlewares`/`@Middlewares`. */
   readonly middlewareKeys?: readonly string[];
   /** Container keys for route-level exception filter definitions. Empty when no `@UseExceptionFilters`. */
   readonly exceptionFilterKeys?: readonly string[];
   /** Container keys for route-level guard definitions. Empty when no `@UseGuards`. */
   readonly guardKeys?: readonly string[];
+  /** Validated<T> accessor list extracted from handler body. Empty when no validations. */
+  readonly validations?: readonly CompiledValidationEntry[];
 }
