@@ -10,12 +10,27 @@ export { HttpPhase, ContentType, HeaderField } from './src/enums';
 export type { HttpMethod } from './src/enums';
 export {
   type HttpServerOptions,
+  type HttpTlsOptions,
   type HttpWorkerResponse,
-  type RouteHandlerEntry,
 } from './src/interfaces';
+
+export type {
+  ContentTypeInfo,
+  ErrorResponseData,
+  HttpRequestData,
+  MatchedRouteMetadata,
+  MatchRouteOutput,
+  RequestBodyValue,
+  RequestIdOptions,
+  ResolvedValidationEntry,
+  TrustProxyConfig,
+} from './src/types';
 
 export { HttpError } from './src/errors/http-error';
 
+export { ServerSentEvent, isAsyncIterable, formatSSEChunk } from './src/server-sent-event';
+export type { ServerSentEventOptions } from './src/server-sent-event';
+
 export { RestController, Controller } from './src/decorators/class.decorator';
 export { Delete, Get, Head, Options, Patch, Post, Put } from './src/decorators/method.decorator';
-export { Body, Cookie, Ip, Param, Params, Query, Req, Request, Res, Response } from './src/decorators/parameter.decorator';
+export { RawBody } from './src/decorators/method-option.decorator';

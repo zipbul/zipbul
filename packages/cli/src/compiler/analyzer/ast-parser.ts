@@ -1032,10 +1032,13 @@ export class AstParser {
             }
 
             if (methodDecorators.length > 0 || methodParams.some(param => param.decorators.length > 0)) {
+              const typedCalls = value ? this.extractTypedCalls(value) : undefined;
+
               methods.push({
                 name: methodName,
                 decorators: methodDecorators,
                 parameters: methodParams,
+                ...(typedCalls !== undefined ? { typedCalls } : {}),
                 isStatic: isStatic || undefined,
                 isComputed: isComputed || undefined,
                 isPrivateName: isPrivateName || undefined,
@@ -1306,6 +1309,73 @@ export class AstParser {
     }
 
     return exceptionFilters;
+  }
+
+  /**
+   * Scans a method body for member-access call expressions with type arguments.
+   * Extracts calls like `ctx.getBody<UserDto>()` → `{ methodName: 'getBody', typeArgs: ['UserDto'] }`.
+   *
+   * @param funcNode - The method's function AST node.
+   * @returns Array of typed call metadata found in the body.
+   */
+  private extractTypedCalls(funcNode: NodeRecord): ClassMetadata['methods'][number]['typedCalls'] {
+    const calls: NonNullable<ClassMetadata['methods'][number]['typedCalls']> = [];
+    const typeResolver = new AstTypeResolver();
+
+    const visit = (n: AnalyzerValue): void => {
+      const node = this.asNode(n);
+
+      if (!node) {
+        return;
+      }
+
+      if (node.type === 'CallExpression') {
+        const callee = this.asNode(node.callee);
+
+        if (callee?.type === 'MemberExpression') {
+          const property = this.asNode(callee.property);
+          const methodName = property ? this.getString(property, 'name') : null;
+
+          if (isNonEmptyString(methodName)) {
+            // oxc-parser: type arguments on CallExpression are in `typeArguments`
+            const typeArgs = this.asNode(node.typeArguments);
+            const params = typeArgs ? (asAnalyzerArray(typeArgs.params) ?? []) : [];
+
+            if (params.length > 0) {
+              const typeArgs: string[] = [];
+
+              for (const param of params) {
+                const resolved = typeResolver.resolve(param);
+                typeArgs.push(resolved.typeName);
+              }
+
+              calls.push({ methodName, typeArgs });
+            }
+          }
+        }
+      }
+
+      Object.keys(node).forEach(key => {
+        if (['type', 'loc', 'start', 'end'].includes(key)) {
+          return;
+        }
+
+        const val = node[key];
+        const values = asAnalyzerArray(val);
+
+        if (values) {
+          values.forEach(visit);
+
+          return;
+        }
+
+        visit(val);
+      });
+    };
+
+    visit(funcNode.body);
+
+    return calls.length > 0 ? calls : undefined;
   }
 
   private extractMiddlewaresFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['middlewares'], Diagnostic> {

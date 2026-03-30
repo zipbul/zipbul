@@ -2,7 +2,7 @@ export { err, isErr, safe } from '@zipbul/result';
 export type { Result, Err, ResultAsync } from '@zipbul/result';
 
 export { Adapter } from './adapter/adapter';
-export type { ResolvedMiddleware, ResolvedGuard, ResolvedExceptionFilter } from './adapter/adapter';
+export type { ResolvedMiddleware, ResolvedGuard, ResolvedExceptionFilter, ResolvedValidationEntry } from './adapter/adapter';
 export { defineAdapter } from './adapter/define-adapter';
 export { ClusterStrategy } from './adapter/types';
 export type {
@@ -11,7 +11,7 @@ export type {
   AdapterEntryDecorators,
   AdapterClass,
 } from './adapter/types';
-export type { CompiledHandlerEntry, CompiledParamEntry } from './adapter/compiled-handler';
+export type { CompiledHandlerEntry, CompiledOptionEntry, CompiledValidationEntry } from './adapter/compiled-handler';
 
 export { LogLevel, ZipbulSymbol } from './enums';
 
@@ -73,6 +73,7 @@ export type {
   DecoratorTarget,
   ModuleMarker,
   ModuleMarkers,
+  Validated,
 } from './types';
 
 export { ZipbulError } from './errors/errors';

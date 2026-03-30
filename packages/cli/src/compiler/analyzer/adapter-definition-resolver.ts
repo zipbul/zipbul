@@ -7,8 +7,10 @@ import type {
   AdapterStaticSchema,
   AdapterEntryDecoratorsSchema,
   HandlerIndexEntry,
+  TypedCallMetadata,
   RouteRegistration,
 } from './interfaces';
+import type { CompiledOptionEntry, CompiledValidationEntry } from '@zipbul/common';
 import type { ClassMetadata } from './interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord, DecoratorArguments } from './types';
 import type { Result } from '@zipbul/result';
@@ -27,19 +29,6 @@ import { AstParser } from './ast-parser';
 import { isRecordValue, isAnalyzerValueArray, isNonEmptyString, isUnresolvable } from './type-guards';
 
 const logger = new Logger('AdapterDefinitionResolver');
-
-/** Primitive TS type names that cannot be deserialized as a DTO class. */
-const PRIMITIVE_TYPE_NAMES = new Set(['string', 'number', 'boolean', 'any', 'object', 'array', 'void', 'undefined', 'null', 'never', 'unknown']);
-
-/** Body-like decorators that expect a class type for deserialization. */
-const BODY_LIKE_DECORATORS = new Set(['Body', 'Query']);
-
-/** Parameter names recognized at runtime by normalizeParamKind (case-insensitive). */
-const KNOWN_PARAM_NAMES = new Set([
-  'body', 'param', 'params', 'query', 'queries',
-  'header', 'headers', 'cookie', 'cookies',
-  'request', 'req', 'response', 'res', 'ip',
-]);
 
 export class AdapterDefinitionResolver {
   private parser = new AstParser();
@@ -384,7 +373,39 @@ export class AdapterDefinitionResolver {
       handlers.push(rec[ZIPBUL_REF]);
     }
 
-    const entryDecorators: AdapterEntryDecoratorsSchema = { controller, handlers };
+    // Extract optional option decorators
+    const optionsRaw = decsRaw.options;
+    let options: string[] | undefined;
+
+    if (optionsRaw !== undefined) {
+      if (!Array.isArray(optionsRaw)) {
+        return err(buildDiagnostic({
+          reason: `Adapter class '${classMetadata.className}' decorators.options must be an Identifier array in ${sourceFile}.`,
+          file: sourceFile,
+        }));
+      }
+
+      options = [];
+
+      for (const optionNode of optionsRaw) {
+        const rec = this.asRecord(optionNode);
+
+        if (rec === null || typeof rec[ZIPBUL_REF] !== 'string') {
+          return err(buildDiagnostic({
+            reason: `Adapter class '${classMetadata.className}' decorators.options elements must be Identifiers in ${sourceFile}.`,
+            file: sourceFile,
+          }));
+        }
+
+        options.push(rec[ZIPBUL_REF]);
+      }
+    }
+
+    const entryDecorators: AdapterEntryDecoratorsSchema = {
+      controller,
+      handlers,
+      ...(options !== undefined && options.length > 0 ? { options } : {}),
+    };
 
     // Extract validPhases from static property
     const validPhasesProperty = classMetadata.properties.find(p => p.name === 'validPhases');
@@ -394,11 +415,20 @@ export class AdapterDefinitionResolver {
       validPhases = await this.resolveValidPhases(validPhasesProperty.initializer, fileMap);
     }
 
+    // Extract validatedAccessors from static property
+    const validatedAccessorsProperty = classMetadata.properties.find(p => p.name === 'validatedAccessors');
+    let validatedAccessors: Record<string, string> | undefined;
+
+    if (validatedAccessorsProperty !== undefined) {
+      validatedAccessors = this.resolveValidatedAccessors(validatedAccessorsProperty.initializer);
+    }
+
     return {
       adapterId,
       staticSchema: {
         entryDecorators,
         ...(validPhases !== undefined ? { validPhases } : {}),
+        ...(validatedAccessors !== undefined ? { validatedAccessors } : {}),
       },
     };
   }
@@ -499,6 +529,81 @@ export class AdapterDefinitionResolver {
     }
 
     return undefined;
+  }
+
+  /**
+   * Resolves `static readonly validatedAccessors = { getBody: 'body', getQuery: 'query', ... }`.
+   * Reads a plain object literal with string values.
+   *
+   * @param value - The property initializer AST value.
+   * @returns Record mapping accessor method names to validation kinds.
+   */
+  private resolveValidatedAccessors(value: AnalyzerValue | undefined): Record<string, string> | undefined {
+    const rec = this.asRecord(value);
+
+    if (rec === null) {
+      return undefined;
+    }
+
+    const result: Record<string, string> = {};
+    let hasEntries = false;
+
+    for (const [key, val] of Object.entries(rec)) {
+      if (key.startsWith('__zipbul')) {
+        continue;
+      }
+
+      if (typeof val === 'string') {
+        result[key] = val;
+        hasEntries = true;
+      }
+    }
+
+    return hasEntries ? result : undefined;
+  }
+
+  /**
+   * Builds `CompiledValidationEntry[]` by matching typed calls against validatedAccessors.
+   *
+   * @param typedCalls - Typed member calls found in the handler body.
+   * @param accessors - Adapter's validatedAccessors mapping (e.g. `{ getBody: 'body' }`).
+   * @param knownClassNames - Set of all class names in the project for metatypeKey validation.
+   * @returns Validation entries. Empty array when no matches.
+   */
+  private buildValidationEntries(
+    typedCalls: readonly TypedCallMetadata[] | undefined,
+    accessors: Record<string, string> | undefined,
+  ): CompiledValidationEntry[] {
+    if (typedCalls === undefined || accessors === undefined) {
+      return [];
+    }
+
+    const result: CompiledValidationEntry[] = [];
+    const seen = new Set<string>();
+
+    for (const call of typedCalls) {
+      const kind = accessors[call.methodName];
+
+      if (kind === undefined) {
+        continue;
+      }
+
+      const metatypeKey = call.typeArgs[0];
+
+      if (metatypeKey === undefined || metatypeKey === 'never' || metatypeKey === 'any' || metatypeKey === 'unknown') {
+        continue;
+      }
+
+      // Deduplicate by kind — same kind validated once
+      if (seen.has(kind)) {
+        continue;
+      }
+
+      seen.add(kind);
+      result.push({ kind, metatypeKey });
+    }
+
+    return result;
   }
 
   private buildAdapterStaticSchemaSet(extractions: AdapterExtraction[]): Result<Record<string, AdapterStaticSchema>, Diagnostic> {
@@ -747,42 +852,6 @@ export class AdapterDefinitionResolver {
             }
 
             const handlerDec = matchingDecorators[0];
-            const params: { name: string; decoratorName?: string; decoratorArgs?: readonly AnalyzerValue[]; metatypeKey?: string }[] = [];
-
-            for (const param of method.parameters ?? []) {
-              if (param.decorators.length > 1) {
-                return err(buildDiagnostic({
-                  reason: `[Zipbul AOT] Parameter '${param.name}' in '${cls.className}.${method.name}' has multiple decorators (${param.decorators.map(dec => '@' + dec.name).join(', ')}). Only one parameter decorator is allowed.`,
-                  file: analysis.filePath,
-                  symbol: `${cls.className}.${method.name}`,
-                }));
-              }
-
-              const paramDec = param.decorators[0];
-              const metatypeKey = typeof param.type === 'string' ? param.type : undefined;
-
-              // E-2: Warn when body-like decorator is used with a primitive type
-              if (paramDec !== undefined && BODY_LIKE_DECORATORS.has(paramDec.name) && metatypeKey !== undefined && PRIMITIVE_TYPE_NAMES.has(metatypeKey.toLowerCase())) {
-                logger.warn(`[Zipbul AOT] Parameter '${param.name}' in '${cls.className}.${method.name}' uses @${paramDec.name}() with primitive type '${metatypeKey}'. Deserialization will be skipped at runtime. Use a DTO class for structured data.`);
-              }
-
-              // E-3: Warn when metatypeKey looks like a class name but is not in any analyzed file
-              if (metatypeKey !== undefined && !PRIMITIVE_TYPE_NAMES.has(metatypeKey.toLowerCase()) && !knownClassNames.has(metatypeKey)) {
-                logger.warn(`[Zipbul AOT] Type '${metatypeKey}' used in '${cls.className}.${method.name}' parameter '${param.name}' was not found in any analyzed file. Deserialization will be skipped at runtime.`);
-              }
-
-              // E-4: Warn when parameter has no decorator and name doesn't match any known param kind
-              if (paramDec === undefined && !KNOWN_PARAM_NAMES.has(param.name.toLowerCase())) {
-                logger.warn(`[Zipbul AOT] Parameter '${param.name}' in '${cls.className}.${method.name}' has no decorator and its name does not match any known param kind. It will receive undefined at runtime.`);
-              }
-
-              params.push({
-                name: param.name,
-                ...(paramDec !== undefined ? { decoratorName: paramDec.name } : {}),
-                ...(paramDec !== undefined && paramDec.arguments.length > 0 ? { decoratorArgs: paramDec.arguments } : {}),
-                ...(metatypeKey !== undefined ? { metatypeKey } : {}),
-              });
-            }
 
             // Extract route-level pipeline decorator references
             const middlewareKeys = this.extractDecoratorRefKeys(cls, method, 'UseMiddlewares', `__route_mw__:${cls.className}.${method.name}`, routeRegistrations);
@@ -790,6 +859,14 @@ export class AdapterDefinitionResolver {
             const allMiddlewareKeys = [...middlewareKeys, ...phaseMiddlewareKeys];
             const exceptionFilterKeys = this.extractDecoratorRefKeys(cls, method, 'UseExceptionFilters', `__route_ef__:${cls.className}.${method.name}`, routeRegistrations);
             const guardKeys = this.extractDecoratorRefKeys(cls, method, 'UseGuards', `__route_gd__:${cls.className}.${method.name}`, routeRegistrations);
+
+            // Extract option decorators (class-level + method-level)
+            const optionDecorators = extraction.staticSchema.entryDecorators.options;
+            const handlerOptions = this.extractOptionDecorators(cls, method, optionDecorators);
+
+            // Build validations from typed calls + validatedAccessors
+            const validatedAccessors = extraction.staticSchema.validatedAccessors;
+            const validations = this.buildValidationEntries(method.typedCalls, validatedAccessors);
 
             seen.add(id);
             entries.push({
@@ -799,10 +876,11 @@ export class AdapterDefinitionResolver {
               methodName: method.name,
               handlerDecorator: handlerDec?.name ?? '',
               handlerDecoratorArgs: handlerDec?.arguments ?? [],
-              params,
               ...(allMiddlewareKeys.length > 0 ? { middlewareKeys: allMiddlewareKeys } : {}),
               ...(exceptionFilterKeys.length > 0 ? { exceptionFilterKeys } : {}),
               ...(guardKeys.length > 0 ? { guardKeys } : {}),
+              ...(handlerOptions.length > 0 ? { options: handlerOptions } : {}),
+              ...(validations.length > 0 ? { validations } : {}),
             });
           }
         }
@@ -905,6 +983,55 @@ export class AdapterDefinitionResolver {
     const normalizedHandler = handlerPath.startsWith('/') ? handlerPath : `/${handlerPath}`;
 
     return `${normalizedPrefix}${normalizedHandler}`;
+  }
+
+  /**
+   * Collects option decorators from class-level and method-level.
+   * Class-level options apply to all handlers in the controller.
+   * Method-level options apply to the specific handler. Duplicates are deduplicated by name.
+   *
+   * @param cls - The class metadata.
+   * @param method - The method metadata.
+   * @param optionNames - Adapter-declared option decorator names.
+   * @returns Array of option entries with name and arguments.
+   */
+  private extractOptionDecorators(
+    cls: ClassMetadata,
+    method: { decorators: readonly { name: string; arguments: readonly AnalyzerValue[] }[] },
+    optionNames: readonly string[] | undefined,
+  ): CompiledOptionEntry[] {
+    if (optionNames === undefined || optionNames.length === 0) {
+      return [];
+    }
+
+    const result: CompiledOptionEntry[] = [];
+    const seen = new Set<string>();
+
+    // Class-level first
+    for (const decorator of cls.decorators) {
+      if (optionNames.includes(decorator.name) && !seen.has(decorator.name)) {
+        result.push({ name: decorator.name, arguments: decorator.arguments });
+        seen.add(decorator.name);
+      }
+    }
+
+    // Method-level overrides class-level (deduplicate by name)
+    for (const decorator of method.decorators) {
+      if (optionNames.includes(decorator.name)) {
+        if (seen.has(decorator.name)) {
+          // Method-level overrides class-level
+          const index = result.findIndex(entry => entry.name === decorator.name);
+          if (index !== -1) {
+            result[index] = { name: decorator.name, arguments: decorator.arguments };
+          }
+        } else {
+          result.push({ name: decorator.name, arguments: decorator.arguments });
+          seen.add(decorator.name);
+        }
+      }
+    }
+
+    return result;
   }
 
   /**

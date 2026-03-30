@@ -1,4 +1,17 @@
 /**
+ * AOT-compiled option decorator entry.
+ * Extracted from adapter-declared option decorators on handler methods/classes.
+ *
+ * @public
+ */
+export interface CompiledOptionEntry {
+  /** Decorator name (e.g. `'RawBody'`). */
+  readonly name: string;
+  /** Decorator arguments. Empty array when the decorator takes no arguments. */
+  readonly arguments: readonly unknown[];
+}
+
+/**
  * AOT-compiled validation entry.
  * Extracted from `Validated<T>` method calls in handler body.
  *
@@ -41,4 +54,6 @@ export interface CompiledHandlerEntry {
   readonly guardKeys?: readonly string[];
   /** Validated<T> accessor list extracted from handler body. Empty when no validations. */
   readonly validations?: readonly CompiledValidationEntry[];
+  /** Option decorators from adapter-declared `decorators.options`. Adapter interprets meaning. */
+  readonly options?: readonly CompiledOptionEntry[];
 }

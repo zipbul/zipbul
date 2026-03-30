@@ -617,6 +617,10 @@ export class HttpServer {
       serveOptions.maxRequestBodySize = this.options.bodyLimit;
     }
 
+    if (this.options.tls !== undefined) {
+      serveOptions.tls = this.options.tls;
+    }
+
     this.server = Bun.serve<unknown>(serveOptions);
 
     this.logger.info(`Listening on :${this.options.port}`);

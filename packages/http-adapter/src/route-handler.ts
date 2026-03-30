@@ -28,9 +28,7 @@ import type {
 import type { HttpContext } from './http-context';
 import { Router } from '@zipbul/router';
 
-interface HttpCompiledHandlerEntry extends CompiledHandlerEntry {
-  readonly rawBody?: boolean;
-}
+type HttpCompiledHandlerEntry = CompiledHandlerEntry;
 
 interface RouteHandlerDecoratorConfig {
   readonly adapterId: string;
@@ -138,9 +136,11 @@ export class RouteHandler {
       const guards = this.resolveGuardKeys(entry.guardKeys ?? []);
       const validations = this.resolveValidations(entry);
 
+      const hasRawBody = entry.options?.some(option => option.name === 'RawBody') === true;
+
       const routeEntry: MatchedRouteMetadata = {
         handler,
-        rawBody: entry.rawBody === true,
+        rawBody: hasRawBody,
         middlewares,
         exceptionFilters,
         guards,
@@ -150,6 +150,12 @@ export class RouteHandler {
       this.router.add(httpMethod, fullPath, routeEntry);
       this.registeredMethods.add(httpMethod);
       this.logger.debug(`${httpMethod} ${fullPath} → ${entry.controllerKey}.${entry.methodName} (AOT)`);
+
+      if (httpMethod === 'GET') {
+        this.router.add('HEAD', fullPath, routeEntry);
+        this.registeredMethods.add('HEAD');
+        this.logger.debug(`HEAD ${fullPath} → ${entry.controllerKey}.${entry.methodName} (auto from GET)`);
+      }
       routeCount++;
     }
 
@@ -189,8 +195,13 @@ export class RouteHandler {
 
       this.router.add(method, fullPath, entry);
       this.registeredMethods.add(method);
-
       this.logger.debug(`${method} ${fullPath} (internal)`);
+
+      if (method === 'GET') {
+        this.router.add('HEAD', fullPath, entry);
+        this.registeredMethods.add('HEAD');
+        this.logger.debug(`HEAD ${fullPath} (internal, auto from GET)`);
+      }
     }
 
     this.router.build();

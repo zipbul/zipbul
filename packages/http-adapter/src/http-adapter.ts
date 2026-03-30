@@ -1,6 +1,6 @@
-import type { Context, AdapterEntryDecorators, Result, ResultAsync, Err, ZipbulContainer } from '@zipbul/common';
+import type { Context, AdapterEntryDecorators, Result, Err, ResolvedExceptionFilter } from '@zipbul/common';
 import type { MiddlewareDefinition } from '@zipbul/common';
-import { Adapter, isErr, err, safe } from '@zipbul/common';
+import { Adapter, isErr, err } from '@zipbul/common';
 import type { ResolvedMiddleware } from '@zipbul/common';
 import { StatusCodes } from 'http-status-codes';
 import { Logger } from '@zipbul/logger';
@@ -18,43 +18,104 @@ import type {
   InternalRouteHandler,
   InternalRouteEntry,
 } from './interfaces';
-import type { ClassMetadata, JsonValue, MetadataRegistryKey, ParamTypeReference, RequestBodyValue, ResponseBodyValue } from './types';
+import type { ClassMetadata, ErrorResponseData, MetadataRegistryKey, ParamTypeReference, ResponseBodyValue } from './types';
 import type { Class } from '@zipbul/common';
 
 import { HttpContext } from './http-context';
 import { HttpServer } from './http-server';
+import { __internals as httpServerInternals } from './http-server';
 import { HttpError } from './errors/http-error';
 import { HttpResponse } from './http-response';
 import { BakerValidationError } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
+import { RawBody } from './decorators/method-option.decorator';
 import type { RouteHandler } from './route-handler';
-import { HttpPhase, isHttpPhase } from './enums';
+import { HttpPhase, HeaderField } from './enums';
+import { isAsyncIterable, formatSSEChunk } from './server-sent-event';
 
+// ── readBodyWithLimit ─────────────────────────────────────────
 
-interface ErrorResponseData {
-  readonly status: number;
-  readonly message?: string;
-  readonly errors?: readonly JsonValue[];
+async function readBodyWithLimit(
+  rawReq: Request,
+  contentLength: number | null,
+  bodyLimit: number,
+): Promise<Result<Uint8Array, ErrorResponseData>> {
+  // CL 존재 — fast path.
+  // INVARIANT: Bun.serve({ maxRequestBodySize: bodyLimit })가 CL > bodyLimit인 요청을 HTTP 파서 레벨에서 선차단.
+  if (contentLength !== null) {
+    return new Uint8Array(await rawReq.arrayBuffer());
+  }
+
+  // CL 없음 (chunked TE) — 점진적 size 체크
+  const body = rawReq.body;
+  if (body === null) {
+    return new Uint8Array(0);
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalSize = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      totalSize += value.byteLength;
+      if (totalSize > bodyLimit) {
+        return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
+      }
+
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (chunks.length === 1) {
+    return chunks[0]!;
+  }
+
+  const result = new Uint8Array(totalSize);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
 }
+
+// ── HttpAdapter ──────────────────────────────────────────────
 
 export class HttpAdapter extends Adapter {
   static override readonly validPhases: ReadonlySet<string> = new Set(Object.values(HttpPhase));
 
+  /**
+   * AOT 컴파일러가 메서드명 → validation kind 매핑에 사용.
+   * `getBody` → `'body'`, `getQuery` → `'query'`, `getParams` → `'params'`.
+   *
+   * @public
+   */
+  static readonly validatedAccessors: Readonly<Record<string, string>> = {
+    getBody: 'body',
+    getQuery: 'query',
+    getParams: 'params',
+  };
+
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
     handlers: [Get, Post, Put, Delete, Patch, Options, Head],
+    options: [RawBody],
   };
 
   private readonly options: HttpServerOptions;
+  private readonly textMediaTypes: ReadonlySet<string>;
   private httpServer: HttpServer | undefined;
   private routeHandler: RouteHandler | undefined;
   private readonly logger = new Logger('HttpAdapter');
 
   private internalRoutes: InternalRouteEntry[] = [];
-
-  private middlewareRegistry = new Map<HttpPhase, MiddlewareDefinition[]>();
-  private resolvedMiddlewareRegistry = new Map<HttpPhase, ResolvedMiddleware[]>();
 
   constructor(options: HttpServerOptions = {}) {
     super();
@@ -69,6 +130,7 @@ export class HttpAdapter extends Adapter {
     };
 
     this.options = normalizedOptions;
+    this.textMediaTypes = new Set(normalizedOptions.textMediaTypes ?? []);
   }
 
   /**
@@ -86,29 +148,7 @@ export class HttpAdapter extends Adapter {
   // ── Middleware configuration ─────────────────────────────────
 
   /**
-   * Receives AOT-generated middleware configuration.
-   * Validates phase keys against `HttpPhase` and stores definitions.
-   *
-   * @param config - Phase-keyed middleware definitions from AOT.
-   * @public
-   */
-  applyMiddlewareConfig(
-    config: Readonly<Record<string, readonly MiddlewareDefinition[]>>,
-  ): void {
-    for (const [key, definitions] of Object.entries(config)) {
-      if (!isHttpPhase(key)) {
-        throw new Error(
-          `Invalid middleware phase '${key}' for HttpAdapter. Valid phases: ${Object.values(HttpPhase).join(', ')}.`,
-        );
-      }
-
-      const existing = this.middlewareRegistry.get(key) ?? [];
-      this.middlewareRegistry.set(key, [...existing, ...definitions]);
-    }
-  }
-
-  /**
-   * Convenience method for programmatic middleware registration.
+   * Typed programmatic middleware registration for HTTP phases.
    *
    * @param phase - The HTTP pipeline phase.
    * @param middlewares - Middleware definitions to append.
@@ -116,49 +156,27 @@ export class HttpAdapter extends Adapter {
    * @public
    */
   addMiddlewares(phase: HttpPhase, middlewares: readonly MiddlewareDefinition[]): this {
-    this.validateAdapterCompatibility(middlewares, 'Middleware');
-
-    const existing = this.middlewareRegistry.get(phase) ?? [];
-    this.middlewareRegistry.set(phase, [...existing, ...middlewares]);
+    this.registerMiddleware(phase, middlewares);
     return this;
-  }
-
-  // ── Pipeline initialization ─────────────────────────────────
-
-  /**
-   * Resolves guards, exception filters (Common), and middleware factories (HttpAdapter).
-   *
-   * @param container - The application DI container.
-   * @public
-   */
-  override initializePipeline(container: ZipbulContainer): void {
-    super.initializePipeline(container);
-
-    for (const [phase, definitions] of this.middlewareRegistry) {
-      this.resolvedMiddlewareRegistry.set(
-        phase,
-        this.resolveMiddlewareDefs(definitions, container),
-      );
-    }
   }
 
   // ── Finalize middlewares ─────────────────────────────────────
 
   /**
-   * Returns `OnComplete` phase middlewares for Phase 3 finalize.
+   * Returns `AfterResponse` phase middlewares for Phase 3 finalize.
    *
-   * @returns Resolved OnComplete middlewares.
+   * @returns Resolved AfterResponse middlewares.
    * @public
    */
   protected override getFinalizeMiddlewares(): readonly ResolvedMiddleware[] {
-    return this.resolvedMiddlewareRegistry.get(HttpPhase.OnComplete) ?? [];
+    return this.getPhaseMiddlewares(HttpPhase.AfterResponse);
   }
 
   // ── Pipeline assembly ───────────────────────────────────────
 
   /**
    * HTTP-specific pipeline:
-   * OnReceive → resolveRoute → parseBody → PostParse → Guards → PreHandle → executeHandler
+   * OnRequest → resolveRoute → BeforeParsing → readBody → BeforeValidation → runValidations → BeforeHandler → handler → [handleResult] → BeforeResponse → AfterResponse
    *
    * @param context - The HTTP context.
    * @returns Pipeline result.
@@ -167,56 +185,77 @@ export class HttpAdapter extends Adapter {
   protected async executePipeline(context: Context): Promise<Result<unknown, unknown>> {
     const http = context.to(HttpContext);
 
-    // 1. OnReceive — CORS, logging, method override, URL rewriting
-    const onReceive = await this.runMiddlewares(
-      this.resolvedMiddlewareRegistry.get(HttpPhase.OnReceive) ?? [], context,
+    // 1. OnRequest — CORS, logging, method override, URL rewriting
+    const onRequest = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.OnRequest), http,
     );
-
-    if (isErr(onReceive)) {
-      return onReceive;
-    }
+    if (isErr(onRequest)) return onRequest;
+    if (http.response.isSent()) return undefined;
 
     // 2. Route Match — match against final method/path. 404/405 early return
     const routeResult = this.resolveRoute(http);
+    if (isErr(routeResult)) return routeResult;
+    if (http.response.isSent()) return undefined;
 
-    if (isErr(routeResult)) {
-      return routeResult;
+    const route = http.matchedRoute;
+    if (route === undefined) {
+      return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Route metadata not available' });
     }
 
-    // 3. Parse Body — @RawBody flag accessible via matchedRoute
+    // 3. BeforeParsing — raw body interception, decryption
+    const beforeParsing = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.BeforeParsing), http,
+    );
+    if (isErr(beforeParsing)) return beforeParsing;
+    if (http.response.isSent()) return undefined;
+
+    // 4. readBody — Content-Type 기반 body 역직렬화
     const parseResult = await this.parseBody(http);
+    if (isErr(parseResult)) return parseResult;
 
-    if (isErr(parseResult)) {
-      return parseResult;
-    }
-
-    // 4. PostParse — query parsing, cookie parsing, body transformation
-    const postParse = await this.runMiddlewares(
-      this.resolvedMiddlewareRegistry.get(HttpPhase.PostParse) ?? [], context,
+    // 5. BeforeValidation — query parsing, multipart parsing, body transformation
+    const beforeValidation = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.BeforeValidation), http,
     );
+    if (isErr(beforeValidation)) return beforeValidation;
+    if (http.response.isSent()) return undefined;
 
-    if (isErr(postParse)) {
-      return postParse;
+    // 6. runValidations — baker DTO 검증
+    if (route.validations.length > 0) {
+      const validationResult = await this.runValidations(route.validations, http);
+      if (isErr(validationResult)) return validationResult;
     }
 
-    // 5. Guards — global access control
+    // 7. Guards — global access control
     const guards = await this.runGuards(context);
+    if (isErr(guards)) return guards;
+    if (http.response.isSent()) return undefined;
 
-    if (isErr(guards)) {
-      return guards;
-    }
-
-    // 6. PreHandle — final processing before handler
-    const preHandle = await this.runMiddlewares(
-      this.resolvedMiddlewareRegistry.get(HttpPhase.PreHandle) ?? [], context,
+    // 8. BeforeHandler — global MW
+    const beforeHandler = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.BeforeHandler), http,
     );
+    if (isErr(beforeHandler)) return beforeHandler;
+    if (http.response.isSent()) return undefined;
 
-    if (isErr(preHandle)) {
-      return preHandle;
+    // 9. BeforeHandler — handler-scoped MW
+    if (route.middlewares.length > 0) {
+      const scopedResult = await this.runHttpMiddlewares(route.middlewares, http);
+      if (isErr(scopedResult)) return scopedResult;
+      if (http.response.isSent()) return undefined;
     }
 
-    // 7. Execute Handler — route MW → route guards → param resolve → handler
-    return this.executeHandler(http, context);
+    // 10. Route-level guards
+    for (const guard of route.guards) {
+      const guardResult = await guard(context);
+      if (isErr(guardResult)) return guardResult;
+    }
+    if (http.response.isSent()) return undefined;
+
+    this.logger.debug(`Pipeline: mw=${route.middlewares.length} guards=${route.guards.length} filters=${route.exceptionFilters.length}`);
+
+    // 11. Handler
+    return route.handler(http);
   }
 
   // ── Pipeline steps ──────────────────────────────────────────
@@ -228,26 +267,37 @@ export class HttpAdapter extends Adapter {
    * @param http - The HTTP context.
    * @returns `Ok` on match, `Err` for 404/500.
    */
-  private resolveRoute(http: HttpContext): Result<unknown, unknown> {
+  private resolveRoute(http: HttpContext): Result<void, ErrorResponseData> {
     const req = http.request;
-    const method = req.httpMethod;
-    const path = req.path;
 
     if (this.routeHandler === undefined) {
       return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Router not initialized' });
     }
 
-    const matchResult = this.routeHandler.match(method, path);
+    const matchResult = this.routeHandler.matchRoute(req.method, req.path);
 
-    if (matchResult === undefined) {
-      return err({ status: StatusCodes.NOT_FOUND, message: `Route not found: ${method} ${path}` });
+    if (matchResult.kind === 'not-found') {
+      return err({ status: StatusCodes.NOT_FOUND, message: `Route not found: ${req.method} ${req.path}` });
+    }
+
+    if (matchResult.kind === 'method-not-allowed') {
+      if (req.method === 'OPTIONS') {
+        http.response.setHeader(HeaderField.Allow, matchResult.allowedMethods.join(', '));
+        http.response.setStatus(StatusCodes.NO_CONTENT);
+        http.response.send();
+        return undefined;
+      }
+
+      // RFC 9110 §15.5.6: Allow 헤더 필수
+      http.response.setHeader(HeaderField.Allow, matchResult.allowedMethods.join(', '));
+      return err({ status: StatusCodes.METHOD_NOT_ALLOWED, message: 'Method Not Allowed' });
     }
 
     req.params = matchResult.params;
-    http.matchedRoute = matchResult.value;
+    http.matchedRoute = matchResult.route;
 
-    if (matchResult.value.exceptionFilters.length > 0) {
-      http.setRouteExceptionFilters(matchResult.value.exceptionFilters);
+    if (matchResult.route.exceptionFilters.length > 0) {
+      http.setRouteExceptionFilters(matchResult.route.exceptionFilters);
     }
 
     return undefined;
@@ -260,95 +310,194 @@ export class HttpAdapter extends Adapter {
    * @param http - The HTTP context.
    * @returns `void` on success, `Err` with 400 status on invalid JSON.
    */
-  private async parseBody(http: HttpContext): ResultAsync<void, unknown> {
+  private async parseBody(http: HttpContext): Promise<Result<void, ErrorResponseData>> {
     const req = http.request;
-    const rawReq = http.rawRequest;
+    const rawReq = http.consumeRawRequest();
 
-    if (!rawReq) {
-      return;
+    if (rawReq === undefined) return undefined;
+    if (req.method === 'GET' || req.method === 'HEAD') return undefined;
+    if ((req.method === 'DELETE' || req.method === 'OPTIONS') && req.contentType === null) return undefined;
+
+    // Content-Length: 0 — body 없음. Content-Encoding보다 먼저 체크.
+    if (req.contentLength === 0) return undefined;
+
+    // Content-Encoding 감지
+    const contentEncoding = req.headers.get('content-encoding');
+    if (contentEncoding !== null && contentEncoding.toLowerCase() !== 'identity') {
+      // RFC 9110 §15.5.16
+      http.response.setHeader(HeaderField.AcceptEncoding, 'identity');
+      return err({
+        status: StatusCodes.UNSUPPORTED_MEDIA_TYPE,
+        message: `Content-Encoding '${contentEncoding}' is not supported. Send uncompressed request body.`,
+      });
     }
 
-    const httpMethod = req.httpMethod;
+    const mediaType = req.contentType?.mediaType ?? '';
+    const isJson = mediaType === 'application/json' || mediaType.endsWith('+json');
+    const isTextLike = mediaType.startsWith('text/')
+      || mediaType === 'application/x-www-form-urlencoded'
+      || this.textMediaTypes.has(mediaType);
+    const shouldBuffer = isJson || isTextLike;
+    const rawBodyEnabled = httpServerInternals.resolveRawBody(http.matchedRoute);
+    const charset = req.contentType?.charset ?? 'utf-8';
 
-    if (
-      httpMethod === 'GET' ||
-      httpMethod === 'DELETE' ||
-      httpMethod === 'HEAD' ||
-      httpMethod === 'OPTIONS'
-    ) {
-      return;
-    }
-
-    const contentType = req.contentType ?? '';
-
-    if (contentType.includes('application/json')) {
+    // JSON charset 제한: RFC 8259 §8.1 — UTF-8만 허용
+    if (isJson) {
       try {
-        const parsed = await rawReq.json();
-
-        req.body = parsed as RequestBodyValue;
+        if (new TextDecoder(charset as Bun.Encoding).encoding !== 'utf-8') {
+          return err({
+            status: StatusCodes.BAD_REQUEST,
+            message: `JSON requires UTF-8 encoding (RFC 8259 §8.1), received: ${charset}`,
+          });
+        }
       } catch {
-        return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
+        return err({
+          status: StatusCodes.BAD_REQUEST,
+          message: `JSON requires UTF-8 encoding (RFC 8259 §8.1), received: ${charset}`,
+        });
       }
-    } else {
-      req.body = await rawReq.text();
+    }
+
+    if (shouldBuffer && rawBodyEnabled) {
+      // ── 버퍼링 + rawBody (CL 유무 불문 readBodyWithLimit) ──
+      const bytesResult = await readBodyWithLimit(rawReq, req.contentLength, this.options.bodyLimit!);
+      if (isErr(bytesResult)) return bytesResult;
+
+      req.rawBody = bytesResult;
+
+      let text: string;
+      try {
+        text = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(bytesResult);
+      } catch {
+        return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
+      }
+
+      if (isJson) {
+        try {
+          req.body = httpServerInternals.parseJsonBody(JSON.parse(text));
+        } catch {
+          return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
+        }
+      } else {
+        req.body = text;
+      }
+      return undefined;
+    }
+
+    if (shouldBuffer) {
+      // ── 버퍼링, rawBody 비활성 ──
+      if (req.contentLength === null) {
+        // CL 없음 (chunked TE) — readBodyWithLimit으로 점진적 size 체크
+        const bytesResult = await readBodyWithLimit(rawReq, null, this.options.bodyLimit!);
+        if (isErr(bytesResult)) return bytesResult;
+
+        let text: string;
+        try {
+          text = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(bytesResult);
+        } catch {
+          return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
+        }
+
+        if (isJson) {
+          try {
+            req.body = httpServerInternals.parseJsonBody(JSON.parse(text));
+          } catch {
+            return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
+          }
+        } else {
+          req.body = text;
+        }
+        return undefined;
+      }
+
+      // CL 존재 — Bun 네이티브 fast path (maxRequestBodySize가 이미 CL 검증)
+      if (isJson) {
+        try {
+          req.body = httpServerInternals.parseJsonBody(await rawReq.json());
+        } catch (error) {
+          // SyntaxError = 클라이언트가 잘못된 JSON 전송 → err(400)
+          // TypeError/기타 = body 이중 소비, 네트워크 끊김 등 인프라 에러 → throw 전파
+          if (error instanceof SyntaxError) {
+            return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
+          }
+          throw error;
+        }
+      } else {
+        // rawReq.text()는 non-fatal 디코딩을 사용하므로 인코딩 에러를 throw하지 않는다 (Bun 1.3.9 실측 확인).
+        req.body = await rawReq.text();
+      }
+      return undefined;
+    }
+
+    // ── 스트리밍 — 버퍼링 없음 ──
+    if (rawReq.body !== null) {
+      // Bun Request.body는 ReadableStream<Uint8Array>이지만 TS 타입이 ReadableStream<any>로 선언됨
+      req.body = rawReq.body as ReadableStream<Uint8Array>;
+    }
+    return undefined;
+  }
+
+
+  /**
+   * Maps a validation kind to the corresponding raw input from the HTTP request.
+   *
+   * @param kind - The validation kind ('body', 'query', 'params').
+   * @param context - The current execution context.
+   * @returns The raw input value for baker to validate.
+   * @public
+   */
+  protected override resolveValidationInput(kind: string, context: Context): unknown {
+    const http = context.to(HttpContext);
+    switch (kind) {
+      case 'body': return http.request.body;
+      case 'query': return http.request.query;
+      case 'params': return http.request.params;
+      default: throw new Error(`Unknown validation kind: ${kind}`);
     }
   }
 
   /**
-   * Runs route-scoped middleware, guards, param resolution, and handler invocation.
-   * Extracted from the former `resolveHandler` back-half.
+   * Wraps baker validation errors as HTTP 400 with field-level details.
+   * Non-baker errors are re-thrown to enter the exception filter path.
    *
-   * @param http - The HTTP context.
-   * @param context - The base context for middleware/guard execution.
-   * @returns Handler result.
+   * @param _kind - The validation kind that failed.
+   * @param thrown - The error thrown by baker `deserialize()`.
+   * @returns `Err` with structured 400 response for baker errors.
+   * @public
    */
-  private async executeHandler(http: HttpContext, context: Context): Promise<Result<unknown, unknown>> {
-    const route = http.matchedRoute!;
-
-    this.logger.debug(`Pipeline: mw=${route.middlewares.length} guards=${route.guards.length} filters=${route.exceptionFilters.length}`);
-
-    // Route-scoped middlewares
-    const scopedResult = await this.runMiddlewares(route.middlewares, context);
-
-    if (isErr(scopedResult)) {
-      return scopedResult;
+  protected override wrapValidationError(_kind: string, thrown: unknown): Err<unknown> {
+    if (thrown instanceof BakerValidationError) {
+      return err({
+        status: StatusCodes.BAD_REQUEST,
+        message: thrown.message,
+        errors: thrown.errors.map(fieldError => ({
+          path: fieldError.path,
+          code: fieldError.code,
+          ...(fieldError.message !== undefined ? { message: fieldError.message } : {}),
+        })),
+      });
     }
+    throw thrown;
+  }
 
-    // Route-level guards: after route middlewares, before param resolution
-    for (const guard of route.guards) {
-      const guardResult = await guard(context);
-
-      if (isErr(guardResult)) {
-        return guardResult;
-      }
+  /**
+   * HTTP-specific middleware runner with `isSent()` check after each middleware.
+   * HttpContext는 Context 인터페이스를 구조적으로 만족한다.
+   *
+   * @param list - Resolved middlewares to execute.
+   * @param http - The HTTP context.
+   * @returns Middleware result.
+   */
+  private async runHttpMiddlewares(
+    list: readonly ResolvedMiddleware[],
+    http: HttpContext,
+  ): Promise<Result<void, unknown>> {
+    for (const mw of list) {
+      const result = await mw.handler(http);
+      if (isErr(result)) return result;
+      if (http.response.isSent()) return undefined;
     }
-
-    this.logger.debug(`Matched Route: ${http.request.httpMethod}:${http.request.path}`);
-
-    const handlerArgs = await safe(
-      route.paramFactory(http.request, http.response),
-      (thrown) => {
-        if (thrown instanceof BakerValidationError) {
-          return {
-            status: StatusCodes.BAD_REQUEST,
-            message: thrown.message,
-            errors: thrown.errors.map(fieldError => ({
-              path: fieldError.path,
-              code: fieldError.code,
-              ...(fieldError.message !== undefined ? { message: fieldError.message } : {}),
-            })),
-          };
-        }
-
-        throw thrown;
-      },
-    );
-
-    if (isErr(handlerArgs)) {
-      return handlerArgs;
-    }
-
-    return route.handler(...handlerArgs);
+    return undefined;
   }
 
   // ── Result handling ─────────────────────────────────────────
@@ -372,11 +521,19 @@ export class HttpAdapter extends Adapter {
 
     if (isErr(result)) {
       this.writeErrorResponse(res, result.data);
-
-      return;
+    } else {
+      await this.writeSuccessResponse(res, result, http.request.signal);
     }
 
-    await this.writeSuccessResponse(res, result);
+    // BeforeResponse — runs after serialization, before transmission.
+    // Skipped for native Response passthrough (SSE, raw Response) since
+    // the response is already finalized via setNativeResponse.
+    if (res.getNativeResponse() === undefined) {
+      const beforeResponse = this.getPhaseMiddlewares(HttpPhase.BeforeResponse);
+      if (beforeResponse.length > 0) {
+        await this.runHttpMiddlewares(beforeResponse, http);
+      }
+    }
   }
 
   /**
@@ -397,40 +554,15 @@ export class HttpAdapter extends Adapter {
     const res = http.response;
 
     if (!res.isSent()) {
+      // 부분 설정된 헤더를 초기화한 후 500 응답 설정
+      res.clearHeaders();
       res.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
       res.setBody('Internal Server Error');
     }
   }
 
-  /**
-   * Runs exception filters, checking route-level filters first, then global.
-   *
-   * @param error - The thrown error.
-   * @param context - The current execution context.
-   * @returns `Err<unknown>` to feed into `handleResult`.
-   * @public
-   */
-  override async runExceptionFilters(error: unknown, context: Context): Promise<Err<unknown>> {
-    const http = context.to(HttpContext);
-    const routeFilters = http.routeExceptionFilters;
-
-    if (routeFilters !== undefined) {
-      for (const entry of routeFilters) {
-        if (!this.matchesExceptionFilter(error, entry)) {
-          continue;
-        }
-
-        const filterResult = await entry.handler(error, context);
-
-        if (!isErr(filterResult)) {
-          return err({ message: 'Exception filter must return Err', cause: error });
-        }
-
-        return filterResult;
-      }
-    }
-
-    return super.runExceptionFilters(error, context);
+  protected override getLocalExceptionFilters(context: Context): readonly ResolvedExceptionFilter[] | undefined {
+    return context.to(HttpContext).routeExceptionFilters;
   }
 
   /**
@@ -517,7 +649,7 @@ export class HttpAdapter extends Adapter {
     if (this.isErrorResponseData(errorData)) {
       const body: ResponseBodyValue = {
         status: errorData.status,
-        message: String(errorData.message ?? 'Error'),
+        message: errorData.message,
         ...(errorData.errors !== undefined ? { errors: [...errorData.errors] } : {}),
       };
       res.setStatus(errorData.status);
@@ -542,21 +674,57 @@ export class HttpAdapter extends Adapter {
    *
    * @param res - The HTTP response builder.
    * @param result - The handler's return value.
+   * @param signal - The request's AbortSignal for client disconnect detection.
    */
-  private async writeSuccessResponse(res: HttpResponse, result: unknown): Promise<void> {
+  private async writeSuccessResponse(res: HttpResponse, result: unknown, signal: AbortSignal): Promise<void> {
+    // AsyncIterable → SSE ReadableStream → native Response passthrough
+    if (isAsyncIterable(result)) {
+      const iterator = result[Symbol.asyncIterator]();
+      const stream = new ReadableStream({
+        async pull(controller) {
+          if (signal.aborted) {
+            controller.close();
+            return;
+          }
+
+          try {
+            const { done, value } = await iterator.next();
+            if (done || signal.aborted) {
+              controller.close();
+              return;
+            }
+            controller.enqueue(formatSSEChunk(value));
+          } catch (error) {
+            if (!signal.aborted) {
+              controller.error(error);
+            } else {
+              controller.close();
+            }
+          }
+        },
+        cancel() {
+          try {
+            iterator.return?.();
+          } catch { /* swallow — cleanup best-effort */ }
+        },
+      });
+
+      const sseResponse = new Response(stream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+
+      res.setNativeResponse(sseResponse);
+      return;
+    }
+
+    // Native Response passthrough (handler-created Response)
     if (result instanceof Response) {
-      res.setStatus(result.status);
-
-      for (const [key, value] of result.headers.entries()) {
-        res.setHeader(key, value);
-      }
-
-      const arrayBuffer = await result.arrayBuffer();
-
-      if (arrayBuffer.byteLength > 0) {
-        res.setBody(new Uint8Array(arrayBuffer));
-      }
-
+      res.setNativeResponse(result);
       return;
     }
 

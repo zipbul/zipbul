@@ -23,10 +23,19 @@ export type AdapterDependsOn = readonly (AdapterClass | string)[];
 export type DecoratorRef = (...args: any[]) => any;
 
 /** Adapter-specific entry decorators provided to user code. */
-export type AdapterEntryDecorators = {
-  controller: DecoratorRef;
-  handlers: DecoratorRef[];
-};
+export interface AdapterEntryDecorators {
+  readonly controller: DecoratorRef;
+  readonly handlers: readonly DecoratorRef[];
+  /**
+   * Method/class decorators that configure handler behavior without creating routes.
+   * AOT scans both class-level and method-level decorators for these names.
+   * Class-level applies to all handlers in the controller; method-level to that handler only.
+   *
+   * @example `[RawBody]` (HTTP), `[Retry]` (Queue)
+   * @public
+   */
+  readonly options?: readonly DecoratorRef[];
+}
 
 /** Adapter class constructor type. Accepts any constructor args and produces an Adapter. */
 export type AdapterClass = new (...args: any[]) => Adapter;

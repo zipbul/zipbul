@@ -1,3 +1,4 @@
+import type { CompiledOptionEntry, CompiledValidationEntry } from '@zipbul/common';
 import type { AnalyzerValue } from './types';
 
 /**
@@ -51,10 +52,20 @@ export interface MethodParameterMetadata {
   index: number;
 }
 
+/** A member-access call with type arguments found in a method body (e.g. `ctx.getBody<UserDto>()`). */
+export interface TypedCallMetadata {
+  /** Called method name (e.g. `'getBody'`). */
+  readonly methodName: string;
+  /** Resolved type argument names (e.g. `['UserDto']`). */
+  readonly typeArgs: readonly string[];
+}
+
 export interface MethodMetadata {
   name: string;
   decorators: DecoratorMetadata[];
   parameters: MethodParameterMetadata[];
+  /** Typed member-access calls found in the method body. */
+  typedCalls?: readonly TypedCallMetadata[];
   isStatic?: boolean | undefined;
   isComputed?: boolean | undefined;
   isPrivateName?: boolean | undefined;
@@ -94,11 +105,14 @@ export interface ImportEntry {
 export interface AdapterEntryDecoratorsSchema {
   controller: string;
   handlers: string[];
+  options?: string[];
 }
 
 export interface AdapterStaticSchema {
   entryDecorators: AdapterEntryDecoratorsSchema;
   validPhases?: Set<string>;
+  /** Maps context accessor method names to validation kinds (e.g. `getBody → 'body'`). */
+  validatedAccessors?: Record<string, string>;
 }
 
 export interface AdapterExtraction {
@@ -128,6 +142,10 @@ export interface HandlerIndexEntry {
   middlewareKeys?: readonly string[];
   exceptionFilterKeys?: readonly string[];
   guardKeys?: readonly string[];
+  /** Option decorators found on the class and/or method. */
+  options?: readonly CompiledOptionEntry[];
+  /** Validated accessor calls extracted from the handler body. */
+  validations?: readonly CompiledValidationEntry[];
 }
 
 export interface HandlerParamEntry {

@@ -1,5 +1,6 @@
-import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import type { ZipbulContainer, MiddlewareDefinition, ExceptionFilterDefinition, GuardDefinition } from '@zipbul/common';
+import type { MatchRouteResult } from './types';
 
 mock.module('@zipbul/logger', () => ({
   Logger: class {
@@ -316,10 +317,10 @@ describe('RouteHandler', () => {
       }], controllerInstances);
 
       // Assert — resolved middleware has handler (factory was called)
-      const match = handler.match('GET', '/test');
+      const match = handler.matchRoute('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.middlewares).toHaveLength(1);
-      expect(typeof match!.value.middlewares[0]!.handler).toBe('function');
+      expect((match as MatchRouteResult).route.middlewares).toHaveLength(1);
+      expect(typeof (match as MatchRouteResult).route.middlewares[0]!.handler).toBe('function');
     });
 
     it('should resolve exceptionFilterKeys into route entry exceptionFilters', () => {
@@ -345,11 +346,11 @@ describe('RouteHandler', () => {
       }], controllerInstances);
 
       // Assert — resolved exception filter has handler and catchTypes
-      const match = handler.match('GET', '/test');
+      const match = handler.matchRoute('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.exceptionFilters).toHaveLength(1);
-      expect(typeof match!.value.exceptionFilters[0]!.handler).toBe('function');
-      expect(match!.value.exceptionFilters[0]!.catchTypes).toEqual([]);
+      expect((match as MatchRouteResult).route.exceptionFilters).toHaveLength(1);
+      expect(typeof (match as MatchRouteResult).route.exceptionFilters[0]!.handler).toBe('function');
+      expect((match as MatchRouteResult).route.exceptionFilters[0]!.catchTypes).toEqual([]);
     });
 
     it('should resolve guardKeys into route entry guards', () => {
@@ -375,10 +376,10 @@ describe('RouteHandler', () => {
       }], controllerInstances);
 
       // Assert — guards are resolved to GuardHandlerFn[] (plain functions)
-      const match = handler.match('GET', '/test');
+      const match = handler.matchRoute('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.guards).toHaveLength(1);
-      expect(typeof match!.value.guards[0]).toBe('function');
+      expect((match as MatchRouteResult).route.guards).toHaveLength(1);
+      expect(typeof (match as MatchRouteResult).route.guards[0]).toBe('function');
     });
 
     it('should resolve all three key types simultaneously', () => {
@@ -406,11 +407,11 @@ describe('RouteHandler', () => {
       }], controllerInstances);
 
       // Assert — all resolved from factories
-      const match = handler.match('GET', '/test');
+      const match = handler.matchRoute('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.middlewares).toHaveLength(1);
-      expect(match!.value.exceptionFilters).toHaveLength(1);
-      expect(match!.value.guards).toHaveLength(1);
+      expect((match as MatchRouteResult).route.middlewares).toHaveLength(1);
+      expect((match as MatchRouteResult).route.exceptionFilters).toHaveLength(1);
+      expect((match as MatchRouteResult).route.guards).toHaveLength(1);
     });
 
     it('should produce empty arrays when container is undefined but keys are present', () => {
@@ -434,11 +435,11 @@ describe('RouteHandler', () => {
       }], controllerInstances);
 
       // Assert
-      const match = handler.match('GET', '/test');
+      const match = handler.matchRoute('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.middlewares).toEqual([]);
-      expect(match!.value.exceptionFilters).toEqual([]);
-      expect(match!.value.guards).toEqual([]);
+      expect((match as MatchRouteResult).route.middlewares).toEqual([]);
+      expect((match as MatchRouteResult).route.exceptionFilters).toEqual([]);
+      expect((match as MatchRouteResult).route.guards).toEqual([]);
     });
 
     it('should resolve duplicate keys into duplicated entries', () => {
@@ -464,11 +465,279 @@ describe('RouteHandler', () => {
       }], controllerInstances);
 
       // Assert
-      const match = handler.match('GET', '/test');
+      const match = handler.matchRoute('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.middlewares).toHaveLength(2);
-      expect(typeof match!.value.middlewares[0]!.handler).toBe('function');
-      expect(typeof match!.value.middlewares[1]!.handler).toBe('function');
+      expect((match as MatchRouteResult).route.middlewares).toHaveLength(2);
+      expect(typeof (match as MatchRouteResult).route.middlewares[0]!.handler).toBe('function');
+      expect(typeof (match as MatchRouteResult).route.middlewares[1]!.handler).toBe('function');
+    });
+
+    it('should auto-create HEAD route when GET is registered', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { doSomething: () => 'result' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#TestCtrl.doSomething',
+        adapterId: 'TestAdapter',
+        controllerKey: 'TestCtrl',
+        methodName: 'doSomething',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['test'],
+        params: [],
+        middlewareKeys: [],
+        exceptionFilterKeys: [],
+        guardKeys: [],
+      }], controllerInstances);
+
+      // Assert — HEAD route should match the same path as GET
+      const headMatch = handler.matchRoute('HEAD', '/test');
+      expect(headMatch).toBeDefined();
+      expect(headMatch.kind).toBe('matched');
+    });
+
+    it('should use same handler for HEAD as GET', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { doSomething: () => 'result' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#TestCtrl.doSomething',
+        adapterId: 'TestAdapter',
+        controllerKey: 'TestCtrl',
+        methodName: 'doSomething',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['test'],
+        params: [],
+        middlewareKeys: [],
+        exceptionFilterKeys: [],
+        guardKeys: [],
+      }], controllerInstances);
+
+      // Assert — HEAD route entry should be the same object as GET route entry
+      const getMatch = handler.matchRoute('GET', '/test');
+      const headMatch = handler.matchRoute('HEAD', '/test');
+      expect(getMatch.kind).toBe('matched');
+      expect(headMatch.kind).toBe('matched');
+      expect((headMatch as MatchRouteResult).route).toBe((getMatch as MatchRouteResult).route);
+    });
+
+    it('should NOT auto-create HEAD route for non-GET methods', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { doPost: () => 'created', doPut: () => 'updated', doDelete: () => 'deleted' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([
+        {
+          id: 'TestAdapter:items#TestCtrl.doPost',
+          adapterId: 'TestAdapter',
+          controllerKey: 'TestCtrl',
+          methodName: 'doPost',
+          handlerDecorator: 'Post',
+          handlerDecoratorArgs: ['items'],
+          params: [],
+          middlewareKeys: [],
+          exceptionFilterKeys: [],
+          guardKeys: [],
+        },
+        {
+          id: 'TestAdapter:items#TestCtrl.doPut',
+          adapterId: 'TestAdapter',
+          controllerKey: 'TestCtrl',
+          methodName: 'doPut',
+          handlerDecorator: 'Put',
+          handlerDecoratorArgs: ['items'],
+          params: [],
+          middlewareKeys: [],
+          exceptionFilterKeys: [],
+          guardKeys: [],
+        },
+        {
+          id: 'TestAdapter:items#TestCtrl.doDelete',
+          adapterId: 'TestAdapter',
+          controllerKey: 'TestCtrl',
+          methodName: 'doDelete',
+          handlerDecorator: 'Delete',
+          handlerDecoratorArgs: ['items'],
+          params: [],
+          middlewareKeys: [],
+          exceptionFilterKeys: [],
+          guardKeys: [],
+        },
+      ], controllerInstances);
+
+      // Assert — HEAD should not be in the matched routes (only POST, PUT, DELETE are registered)
+      const headMatch = handler.matchRoute('HEAD', '/items');
+      expect(headMatch.kind).not.toBe('matched');
+      // HEAD is not registered, so it should be method-not-allowed (path exists with other methods)
+      expect(headMatch.kind).toBe('method-not-allowed');
+      if (headMatch.kind === 'method-not-allowed') {
+        expect(headMatch.allowedMethods).not.toContain('HEAD');
+      }
+    });
+
+    it('should add HEAD to registeredMethods when GET is registered', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { doSomething: () => 'result' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#TestCtrl.doSomething',
+        adapterId: 'TestAdapter',
+        controllerKey: 'TestCtrl',
+        methodName: 'doSomething',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['test'],
+        params: [],
+        middlewareKeys: [],
+        exceptionFilterKeys: [],
+        guardKeys: [],
+      }], controllerInstances);
+
+      // Assert — HEAD should appear in method-not-allowed allowedMethods for a different path
+      // We verify HEAD is registered by checking that matchRoute recognizes HEAD on /test
+      const headMatch = handler.matchRoute('HEAD', '/test');
+      expect(headMatch.kind).toBe('matched');
+
+      // Also verify POST /test returns method-not-allowed with both GET and HEAD in allowedMethods
+      const postMatch = handler.matchRoute('POST', '/test');
+      expect(postMatch.kind).toBe('method-not-allowed');
+      if (postMatch.kind === 'method-not-allowed') {
+        expect(postMatch.allowedMethods).toContain('GET');
+        expect(postMatch.allowedMethods).toContain('HEAD');
+      }
+    });
+
+    it('should auto-create HEAD for internal GET routes', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+
+      // Act — registerInternalRoutes with a GET route
+      handler.registerInternalRoutes([{
+        method: 'GET',
+        path: '/docs',
+        handler: () => '<html>docs</html>',
+      }]);
+
+      // Assert — HEAD should also be registered for the internal route
+      const headMatch = handler.matchRoute('HEAD', '/docs');
+      expect(headMatch).toBeDefined();
+      expect(headMatch.kind).toBe('matched');
+    });
+
+    it('should set rawBody true when options include RawBody', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Post',
+        handlerDecoratorArgs: ['rawtest'],
+        params: [],
+        options: [{ name: 'RawBody', arguments: [] }],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('POST', '/rawtest');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.rawBody).toBe(true);
+    });
+
+    it('should set rawBody false when no options', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Post',
+        handlerDecoratorArgs: ['noopt'],
+        params: [],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('POST', '/noopt');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.rawBody).toBe(false);
+    });
+
+    it('should set rawBody false when options has unrelated decorator', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Post',
+        handlerDecoratorArgs: ['other'],
+        params: [],
+        options: [{ name: 'SomeOther', arguments: [] }],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('POST', '/other');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.rawBody).toBe(false);
+    });
+
+    it('should set rawBody true when RawBody is among multiple options', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Post',
+        handlerDecoratorArgs: ['multi'],
+        params: [],
+        options: [
+          { name: 'SomeOther', arguments: ['val'] },
+          { name: 'RawBody', arguments: [] },
+        ],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('POST', '/multi');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.rawBody).toBe(true);
     });
 
     it('should not crash when entry has no middlewareKeys/exceptionFilterKeys/guardKeys fields', () => {
@@ -490,11 +759,11 @@ describe('RouteHandler', () => {
       } as never], controllerInstances);
 
       // Assert — should register route with empty pipeline arrays, no crash
-      const match = handler.match('GET', '/test');
+      const match = handler.matchRoute('GET', '/test');
       expect(match).toBeDefined();
-      expect(match!.value.middlewares).toEqual([]);
-      expect(match!.value.exceptionFilters).toEqual([]);
-      expect(match!.value.guards).toEqual([]);
+      expect((match as MatchRouteResult).route.middlewares).toEqual([]);
+      expect((match as MatchRouteResult).route.exceptionFilters).toEqual([]);
+      expect((match as MatchRouteResult).route.guards).toEqual([]);
     });
   });
 });
