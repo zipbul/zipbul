@@ -1,5 +1,6 @@
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result, ResultAsync } from '@zipbul/result';
+import { deserialize } from '@zipbul/baker';
 import type { MiddlewareDefinition, MiddlewareHandlerFn } from '../define-middleware';
 import type { GuardDefinition, GuardHandlerFn } from '../define-guard';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '../define-exception-filter';
@@ -7,6 +8,7 @@ import type { AdapterClass, AdapterEntryDecorators } from './types';
 import { ClusterStrategy } from './types';
 import type { Context, ZipbulContainer } from '../interfaces';
 import { runInInjectionContext } from '../injection-context';
+import { runInRequestContext } from '../request-context';
 
 /**
  * Resolved middleware: factory has been called, handler is ready.
@@ -34,6 +36,18 @@ export interface ResolvedGuard {
 export interface ResolvedExceptionFilter {
   readonly handler: ExceptionFilterHandlerFn;
   readonly catchTypes: readonly ExceptionConstructorLike[];
+}
+
+/**
+ * Resolved validation entry: AOT metatypeKey resolved to actual class constructor.
+ *
+ * @public
+ */
+export interface ResolvedValidationEntry {
+  /** Access kind. Adapter uses this to determine validation input (e.g. 'body', 'query', 'params'). */
+  readonly kind: string;
+  /** DTO class constructor. Passed to baker `deserialize()`. */
+  readonly metatype: new (...args: readonly unknown[]) => unknown;
 }
 
 /**
@@ -66,6 +80,9 @@ export abstract class Adapter {
    * @public
    */
   readonly clusterStrategy: ClusterStrategy = ClusterStrategy.Shared;
+
+  private middlewareRegistry = new Map<string, MiddlewareDefinition[]>();
+  private resolvedMiddlewareRegistry = new Map<string, ResolvedMiddleware[]>();
 
   protected exceptionFilterDefs: ExceptionFilterDefinition[] = [];
   protected guardDefs: GuardDefinition[] = [];
@@ -131,20 +148,61 @@ export abstract class Adapter {
     await this.stop();
   }
 
-  // ── Registration ────────────────────────────────────────────
+  // ── Middleware registry ──────────────────────────────────────
 
   /**
    * Receives AOT-generated middleware configuration.
-   * The adapter validates phase keys against its own enum and stores them
-   * in its own registry.
+   * Validates phase keys against `static validPhases` and accumulates definitions.
+   *
+   * Scope: global pipeline middlewares only. Handler-scoped middlewares are stored
+   * in route metadata and managed by each adapter's `executePipeline`.
    *
    * @param config - Phase-keyed middleware definitions (string keys from AOT serialization).
    *
    * @public
    */
-  abstract applyMiddlewareConfig(
+  applyMiddlewareConfig(
     config: Readonly<Record<string, readonly MiddlewareDefinition[]>>,
-  ): void;
+  ): void {
+    for (const [phase, definitions] of Object.entries(config)) {
+      this.validatePhase(phase);
+      const existing = this.middlewareRegistry.get(phase) ?? [];
+      this.middlewareRegistry.set(phase, [...existing, ...definitions]);
+    }
+  }
+
+  /**
+   * Stores middleware definitions for a given phase with adapter compatibility check.
+   * Adapters expose a typed public method (e.g. `addMiddlewares(phase: HttpPhase, ...)`)
+   * that delegates here.
+   *
+   * @param phase - Phase key (validated against `static validPhases`).
+   * @param middlewares - Middleware definitions to append.
+   *
+   * @public
+   */
+  protected registerMiddleware(phase: string, middlewares: readonly MiddlewareDefinition[]): void {
+    this.validatePhase(phase);
+    this.validateAdapterCompatibility(middlewares, 'Middleware');
+    const existing = this.middlewareRegistry.get(phase) ?? [];
+    this.middlewareRegistry.set(phase, [...existing, ...middlewares]);
+  }
+
+  /**
+   * Returns resolved middlewares for a given phase.
+   * Call from `executePipeline` to retrieve ready-to-call handlers for each phase.
+   *
+   * Returns an empty array for phases with no registered middlewares —
+   * phase validation happens at registration time, not at lookup time.
+   *
+   * @param phase - Phase key.
+   * @returns Resolved middlewares for the phase. Empty if none registered.
+   *
+   * @public
+   */
+  protected getPhaseMiddlewares(phase: string): readonly ResolvedMiddleware[] {
+    return this.resolvedMiddlewareRegistry.get(phase) ?? [];
+  }
 
   /**
    * Registers exception filter definitions.
@@ -176,12 +234,11 @@ export abstract class Adapter {
   // ── Pipeline initialization ────────────────────────────────
 
   /**
-   * Resolves guard and exception filter definition factories within the given
-   * DI container, producing ready-to-call handler functions.
+   * Resolves all definition factories (guards, exception filters, middlewares)
+   * within the given DI container, producing ready-to-call handler functions.
    *
-   * Middleware resolution is delegated to each adapter — override this method,
-   * call `super.initializePipeline(container)`, then resolve your own
-   * middleware registry via `resolveMiddlewareDefs()`.
+   * All factories are resolved in a single synchronous pass.
+   * Factory functions must not depend on other resolved handlers.
    *
    * @param container - The application DI container.
    *
@@ -196,6 +253,13 @@ export abstract class Adapter {
       handler: runInInjectionContext(container, def.factory),
       catchTypes: def.catchTypes,
     }));
+
+    for (const [phase, definitions] of this.middlewareRegistry) {
+      this.resolvedMiddlewareRegistry.set(
+        phase,
+        this.resolveMiddlewareDefs(definitions, container),
+      );
+    }
   }
 
   // ── Pipeline orchestration: 3-Phase error boundary ─────────
@@ -211,36 +275,104 @@ export abstract class Adapter {
    * @public
    */
   async dispatchRequest(context: Context): Promise<void> {
-    // ── Phase 1: Pipeline execution → Result ──
-    let result: Result<unknown, unknown>;
+    await runInRequestContext(context, async () => {
+      // ── Phase 1: Pipeline execution → Result ──
+      let result: Result<unknown, unknown>;
 
-    try {
-      result = await this.executePipeline(context);
-    } catch (thrown) {
       try {
-        result = await this.runExceptionFilters(thrown, context);
-      } catch (filterError) {
-        result = err({ message: 'Unhandled error', cause: thrown, filterError });
+        result = await this.executePipeline(context);
+      } catch (thrown) {
+        try {
+          result = await this.runExceptionFilters(thrown, context);
+        } catch (filterError) {
+          result = err({ message: 'Unhandled error', cause: thrown, filterError });
+        }
+      }
+
+      // ── Phase 2: Result handling (exactly once) ──
+      try {
+        await this.handleResult(result, context);
+      } catch (handleThrown) {
+        try {
+          await this.emergencyTeardown(context, handleThrown);
+        } catch { /* swallow — last resort */ }
+      }
+
+      // ── Phase 3: Finalize (always runs) ──
+      try {
+        const finalizeList = this.getFinalizeMiddlewares();
+
+        if (finalizeList.length > 0) {
+          await this.runMiddlewares(finalizeList, context);
+        }
+      } catch { /* swallow — response already sent */ }
+    });
+  }
+
+  // ── Validation primitives ──────────────────────────────────
+
+  /**
+   * Runs baker validation for each `Validated<T>` accessor declared in the handler.
+   * Results are cached in the context's validated store via `context.setValidated()`.
+   *
+   * Protocol-agnostic: the loop is identical for all adapters.
+   * Adapters provide `resolveValidationInput()` to map kind → raw input,
+   * and optionally override `wrapValidationError()` for protocol-specific error format.
+   *
+   * @param validations - Resolved validation entries from AOT manifest.
+   * @param context - The current execution context.
+   * @returns `void` on success, `Err<unknown>` on validation failure.
+   *
+   * @public
+   */
+  protected async runValidations(
+    validations: readonly ResolvedValidationEntry[],
+    context: Context,
+  ): ResultAsync<void, unknown> {
+    for (const validation of validations) {
+      const input = this.resolveValidationInput(validation.kind, context);
+
+      try {
+        const validated = await deserialize(validation.metatype, input);
+        context.setValidated(validation.kind, validated);
+      } catch (thrown) {
+        return this.wrapValidationError(validation.kind, thrown);
       }
     }
+    return undefined;
+  }
 
-    // ── Phase 2: Result handling (exactly once) ──
-    try {
-      await this.handleResult(result, context);
-    } catch (handleThrown) {
-      try {
-        await this.emergencyTeardown(context, handleThrown);
-      } catch { /* swallow — last resort */ }
-    }
+  /**
+   * Maps a validation kind to the corresponding raw input from the context.
+   * Each adapter implements this to extract protocol-specific data.
+   *
+   * @param kind - The validation kind (e.g. 'body', 'query', 'params' for HTTP).
+   * @param context - The current execution context.
+   * @returns The raw input value for baker to validate.
+   *
+   * @public
+   */
+  protected abstract resolveValidationInput(kind: string, context: Context): unknown;
 
-    // ── Phase 3: Finalize (always runs) ──
-    try {
-      const finalizeList = this.getFinalizeMiddlewares();
-
-      if (finalizeList.length > 0) {
-        await this.runMiddlewares(finalizeList, context);
-      }
-    } catch { /* swallow — response already sent */ }
+  /**
+   * Converts a baker validation error into a protocol-specific `Err`.
+   *
+   * Two paths:
+   * - Return `Err` → pipeline short-circuits with domain error (handleResult receives Err)
+   * - Throw → error enters exception filter path (dispatchRequest Phase 1 catch)
+   *
+   * Default: re-throws all errors (exception filter path).
+   * Adapters with validation (HTTP, WS, Queue, gRPC) override to return `Err`
+   * for `BakerValidationError` and re-throw the rest.
+   *
+   * @param _kind - The validation kind that failed.
+   * @param thrown - The error thrown by baker `deserialize()`.
+   * @returns `Err<unknown>` for the pipeline.
+   *
+   * @public
+   */
+  protected wrapValidationError(_kind: string, thrown: unknown): Err<unknown> {
+    throw thrown;
   }
 
   // ── Building blocks: adapters call these inside executePipeline ──
@@ -292,9 +424,25 @@ export abstract class Adapter {
   // ── Exception filter dispatch ───────────────────────────────
 
   /**
-   * Iterates registered exception filters, returning `Err<unknown>`
-   * from the first matching filter. Falls back to a generic error
-   * if no filter matches.
+   * Returns handler-scoped exception filters from the context.
+   * Default: `undefined` (no local filters). Adapters with handler-scoped
+   * exception filters override to extract them from the protocol-specific context.
+   *
+   * @param _context - The current execution context.
+   * @returns Local filters, or `undefined` if none.
+   *
+   * @public
+   */
+  protected getLocalExceptionFilters(_context: Context): readonly ResolvedExceptionFilter[] | undefined {
+    return undefined;
+  }
+
+  /**
+   * Two-stage exception filter dispatch: local (handler-scoped) → global.
+   *
+   * Stage 1: Iterates local filters from `getLocalExceptionFilters()`.
+   * Stage 2: Iterates globally registered filters.
+   * Falls back to a generic `Err` if no filter matches.
    *
    * Filter return values are validated: must be `Err`. If a filter returns
    * a non-Err value, a synthetic `Err` wrapping the original error is returned.
@@ -306,6 +454,26 @@ export abstract class Adapter {
    * @public
    */
   async runExceptionFilters(error: unknown, context: Context): Promise<Err<unknown>> {
+    // Stage 1: handler-scoped (local) filters
+    const localFilters = this.getLocalExceptionFilters(context);
+
+    if (localFilters !== undefined) {
+      for (const entry of localFilters) {
+        if (!this.matchesExceptionFilter(error, entry)) {
+          continue;
+        }
+
+        const filterResult = await entry.handler(error, context);
+
+        if (!isErr(filterResult)) {
+          return err({ message: 'Exception filter must return Err', cause: error });
+        }
+
+        return filterResult;
+      }
+    }
+
+    // Stage 2: global filters
     for (const entry of this.resolvedExceptionFilters) {
       if (!this.matchesExceptionFilter(error, entry)) {
         continue;
@@ -384,6 +552,23 @@ export abstract class Adapter {
     }
 
     return false;
+  }
+
+  private validatePhase(phase: string): void {
+    const phases = (this.constructor as typeof Adapter).validPhases;
+
+    if (phases === undefined) {
+      throw new Error(
+        `${this.constructor.name} must declare static validPhases.`,
+      );
+    }
+
+    if (!phases.has(phase)) {
+      throw new Error(
+        `Invalid middleware phase '${phase}' for ${this.constructor.name}. ` +
+        `Valid phases: ${[...phases].join(', ')}.`,
+      );
+    }
   }
 
   protected validateAdapterCompatibility(

@@ -2,18 +2,22 @@ import type {
   MiddlewareDefinition,
   Class,
   ClassToken,
+  GuardHandlerFn,
   PrimitiveArray,
   PrimitiveRecord,
   ProviderToken,
+  ResolvedExceptionFilter,
+  ResolvedMiddleware,
+  ResolvedValidationEntry,
 } from '@zipbul/common';
-import type { CookieMap } from 'bun';
+import { StatusCodes } from 'http-status-codes';
 
-import type { HttpRequest } from './http-request';
-import type { HttpResponse } from './http-response';
+import type { HttpContext } from './http-context';
 
 import type { HttpMethod } from '@zipbul/shared';
 
 export type { HttpMethod };
+export { StatusCodes };
 
 export type HeadersInit = Headers | Array<[string, string]> | Record<string, string>;
 
@@ -37,47 +41,101 @@ export interface JsonObject {
 
 export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
 
-export type RequestBodyValue = JsonValue;
-
-export type ResponseBodyValue = RequestBodyValue | string | Uint8Array | ArrayBuffer | null;
-
-export interface HttpRequestInit {
-  readonly url: string;
-  readonly httpMethod: HttpMethod;
-  readonly headers: HeadersInit;
-  readonly requestId?: string;
-  readonly params?: RequestParamMap;
-  readonly query?: RequestQueryMap;
-  readonly body?: RequestBodyValue;
-  readonly isTrustedProxy?: boolean;
-  readonly ip?: string | null;
-  readonly ips?: string[];
+export interface ContentTypeInfo {
+  readonly mediaType: string;
+  readonly charset: string | null;
+  readonly boundary: string | null;
+  readonly params: ReadonlyMap<string, string>;
 }
 
-export type HttpWorkerResponseBody = string | Uint8Array | ArrayBuffer | null;
+export interface HttpRequestData {
+  readonly requestId: string;
+  readonly originalMethod: HttpMethod;
+  readonly originalUrl: string;
+  readonly method: HttpMethod;
+  readonly url: string;
+  readonly path: string;
+  readonly headers: Headers;
+  readonly protocol: string | null;
+  readonly host: string | null;
+  readonly hostname: string | null;
+  readonly port: number;
+  readonly queryString: string | null;
+  readonly contentType: ContentTypeInfo | null;
+  readonly contentLength: number | null;
+  readonly ip: string | null;
+  readonly ips: readonly string[];
+  readonly isTrustedProxy: boolean;
+  readonly signal: AbortSignal;
+}
 
-export type RouteHandlerArgument =
-  | HttpRequest
-  | HttpResponse
-  | RequestBodyValue
-  | RequestParamMap
-  | RequestQueryMap
-  | Headers
-  | CookieMap
-  | bigint
-  | symbol
-  | null
-  | undefined;
+export interface ErrorResponseData {
+  readonly status: StatusCodes;
+  readonly message: string;
+  readonly errors?: readonly JsonValue[];
+}
 
-export type RouteHandlerResult = HttpResponse | Response | RequestBodyValue | bigint | null | undefined | void;
+export type RequestBodyValue = JsonValue | string | ReadableStream<Uint8Array> | undefined;
 
-export type RouteHandlerFunction = (...args: readonly RouteHandlerArgument[]) => RouteHandlerResult | Promise<RouteHandlerResult>;
+export type ResponseBodyValue =
+  | JsonValue | string | Uint8Array | ArrayBuffer
+  | ReadableStream<Uint8Array> | Blob
+  | null;
 
-export type ControllerInstance = Record<string, RouteHandlerArgument | RouteHandlerFunction>;
+export type RouteHandlerResult = Response | AsyncIterable<unknown> | RequestBodyValue | bigint | null | undefined | void;
+
+export type RouteHandlerFunction = (ctx: HttpContext) => RouteHandlerResult | Promise<RouteHandlerResult>;
+
+export type { ResolvedValidationEntry };
+
+export interface MatchedRouteMetadata {
+  /** rawBody 캡처 활성화 여부 */
+  readonly rawBody: boolean;
+  /** SSE 엔드포인트 여부 (@Sse 데코레이터) */
+  readonly sse: boolean;
+  /** 라우트별 body 크기 제한 (bytes). undefined이면 전역 bodyLimit 적용 */
+  readonly bodyLimit: number | undefined;
+  /** @Status 데코레이터 기본 상태 코드 */
+  readonly status: number | undefined;
+  /** @Redirect 데코레이터 정적 리다이렉트 */
+  readonly redirect: { readonly url: string; readonly status?: 301 | 302 | 303 | 307 | 308 } | undefined;
+  /** @ContentType 데코레이터 기본 Content-Type */
+  readonly contentType: string | undefined;
+  /** @Header 데코레이터 정적 응답 헤더 */
+  readonly headers: readonly (readonly [string, string])[];
+  /** 라우트에 등록된 미들웨어 */
+  readonly middlewares: readonly ResolvedMiddleware[];
+  /** 라우트에 등록된 가드 */
+  readonly guards: readonly GuardHandlerFn[];
+  /** 라우트에 등록된 예외 필터 */
+  readonly exceptionFilters: readonly ResolvedExceptionFilter[];
+  /** 핸들러 함수 — 항상 `(ctx: HttpContext)` 단일 시그니처 */
+  readonly handler: RouteHandlerFunction;
+  /** AOT에서 추출된 Validated<T> 접근 목록. 빈 배열이면 검증 없음 */
+  readonly validations: readonly ResolvedValidationEntry[];
+}
+
+export interface MatchRouteResult {
+  readonly kind: 'matched';
+  readonly route: MatchedRouteMetadata;
+  readonly params: Record<string, string | undefined>;
+}
+
+export interface MatchRouteNotFound {
+  readonly kind: 'not-found';
+}
+
+export interface MatchRouteMethodNotAllowed {
+  readonly kind: 'method-not-allowed';
+  readonly allowedMethods: readonly string[];
+}
+
+export type MatchRouteOutput = MatchRouteResult | MatchRouteNotFound | MatchRouteMethodNotAllowed;
+
+export type ControllerInstance = Record<string, unknown>;
 
 export type ContainerInstance =
   | ControllerInstance
-  | RouteHandlerArgument
   | RouteHandlerFunction
   | null
   | undefined;
@@ -114,26 +172,6 @@ export type DecoratorArgument =
 
 export type ParamTypeReference = ProviderToken;
 
-export type RouteParamType = ParamTypeReference;
-
-export type RouteParamValue = RouteHandlerArgument;
-
-export type RouteParamKind =
-  | 'body'
-  | 'param'
-  | 'params'
-  | 'query'
-  | 'queries'
-  | 'header'
-  | 'headers'
-  | 'cookie'
-  | 'cookies'
-  | 'request'
-  | 'req'
-  | 'response'
-  | 'res'
-  | 'ip';
-
 export interface DecoratorMetadata {
   readonly name: string;
   readonly arguments?: readonly DecoratorArgument[];
@@ -144,17 +182,9 @@ export interface ConstructorParamMetadata {
   readonly decorators?: readonly DecoratorMetadata[];
 }
 
-export interface ParameterMetadata {
-  readonly index?: number;
-  readonly name?: string;
-  readonly type?: ParamTypeReference;
-  readonly decorators?: readonly DecoratorMetadata[];
-}
-
 export interface MethodMetadata {
   readonly name: string;
   readonly decorators?: readonly DecoratorMetadata[];
-  readonly parameters?: readonly ParameterMetadata[];
 }
 
 export interface ClassMetadata {
@@ -168,4 +198,18 @@ export interface InternalRouteDefinition {
   readonly method: string;
   readonly path: string;
   readonly handler: RouteHandlerFunction;
+}
+
+export type TrustProxyConfig =
+  | boolean
+  | number
+  | string
+  | readonly string[]
+  | ((ip: string, hopIndex: number) => boolean);
+
+export interface RequestIdOptions {
+  /** 수신 요청에서 기존 ID를 추출할 헤더명 */
+  header?: string;
+  /** 헤더에 ID가 없을 때 생성 함수. 기본 crypto.randomUUID() */
+  generate?: () => string;
 }

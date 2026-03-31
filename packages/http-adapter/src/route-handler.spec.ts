@@ -740,6 +740,409 @@ describe('RouteHandler', () => {
       expect((match as MatchRouteResult).route.rawBody).toBe(true);
     });
 
+    // ── @Sse extraction ──────────────────────────────────
+
+    it('should set sse true when options include Sse', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:sse#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['sse-test'],
+        params: [],
+        options: [{ name: 'Sse' }],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/sse-test');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.sse).toBe(true);
+    });
+
+    it('should set sse false when options do not include Sse', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:no-sse#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['no-sse'],
+        params: [],
+        options: [{ name: 'SomeOther', arguments: [] }],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/no-sse');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.sse).toBe(false);
+    });
+
+    // ── @BodyLimit extraction ───────────────────────────────
+
+    it('should set bodyLimit when options include BodyLimit', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:bl#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Post',
+        handlerDecoratorArgs: ['body-limit'],
+        params: [],
+        options: [{ name: 'BodyLimit', arguments: [5242880] }],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('POST', '/body-limit');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.bodyLimit).toBe(5242880);
+    });
+
+    it('should set bodyLimit undefined when options do not include BodyLimit', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:no-bl#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Post',
+        handlerDecoratorArgs: ['no-body-limit'],
+        params: [],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('POST', '/no-body-limit');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.bodyLimit).toBeUndefined();
+    });
+
+    // ── @Status extraction ──────────────────────────────────
+
+    it('should set status when options include Status', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:st#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Post',
+        handlerDecoratorArgs: ['status-test'],
+        params: [],
+        options: [{ name: 'Status', arguments: [201] }],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('POST', '/status-test');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.status).toBe(201);
+    });
+
+    it('should set status undefined when options do not include Status', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:no-st#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Post',
+        handlerDecoratorArgs: ['no-status'],
+        params: [],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('POST', '/no-status');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.status).toBeUndefined();
+    });
+
+    // ── @Redirect extraction ────────────────────────────────
+
+    it('should set redirect with url only when Redirect has single argument', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:rd#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['redirect-test'],
+        params: [],
+        options: [{ name: 'Redirect', arguments: ['/target'] }],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/redirect-test');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.redirect).toEqual({ url: '/target', status: undefined });
+    });
+
+    it('should set redirect with url and status when Redirect has two arguments', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:rd2#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['redirect-status'],
+        params: [],
+        options: [{ name: 'Redirect', arguments: ['/target', 301] }],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/redirect-status');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.redirect).toEqual({ url: '/target', status: 301 });
+    });
+
+    it('should set redirect undefined when options do not include Redirect', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:no-rd#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['no-redirect'],
+        params: [],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/no-redirect');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.redirect).toBeUndefined();
+    });
+
+    // ── @ContentType extraction ─────────────────────────────
+
+    it('should set contentType when options include ContentType', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:ct#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['content-type-test'],
+        params: [],
+        options: [{ name: 'ContentType', arguments: ['text/csv'] }],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/content-type-test');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.contentType).toBe('text/csv');
+    });
+
+    it('should set contentType undefined when options do not include ContentType', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:no-ct#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['no-content-type'],
+        params: [],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/no-content-type');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.contentType).toBeUndefined();
+    });
+
+    // ── @Header extraction ──────────────────────────────────
+
+    it('should set headers when options include Header', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:hd#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['header-test'],
+        params: [],
+        options: [{ name: 'Header', arguments: ['X-Custom', 'value'] }],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/header-test');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.headers).toEqual([['X-Custom', 'value']]);
+    });
+
+    it('should collect multiple Header options into headers array', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:mhd#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['multi-header'],
+        params: [],
+        options: [
+          { name: 'Header', arguments: ['X-First', 'one'] },
+          { name: 'Header', arguments: ['X-Second', 'two'] },
+        ],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/multi-header');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.headers).toEqual([
+        ['X-First', 'one'],
+        ['X-Second', 'two'],
+      ]);
+    });
+
+    it('should set headers as empty array when options do not include Header', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:no-hd#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['no-header'],
+        params: [],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/no-header');
+      expect(match.kind).toBe('matched');
+      expect((match as MatchRouteResult).route.headers).toEqual([]);
+    });
+
+    // ── Combined decorators ─────────────────────────────────
+
+    it('should populate all decorator fields when multiple options are combined', () => {
+      // Arrange
+      const container = createStubContainer({});
+      const handler = createRouteHandler(container);
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['Ctrl', instance]]);
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:combo#Ctrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'Ctrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['combined'],
+        params: [],
+        options: [
+          { name: 'Sse' },
+          { name: 'BodyLimit', arguments: [1048576] },
+          { name: 'Status', arguments: [202] },
+          { name: 'Header', arguments: ['X-Powered-By', 'Zipbul'] },
+          { name: 'Header', arguments: ['X-Request-Id', 'abc'] },
+        ],
+      } as never], controllerInstances);
+
+      // Assert
+      const match = handler.matchRoute('GET', '/combined');
+      expect(match.kind).toBe('matched');
+      const route = (match as MatchRouteResult).route;
+      expect(route.sse).toBe(true);
+      expect(route.bodyLimit).toBe(1048576);
+      expect(route.status).toBe(202);
+      expect(route.headers).toEqual([
+        ['X-Powered-By', 'Zipbul'],
+        ['X-Request-Id', 'abc'],
+      ]);
+    });
+
     it('should not crash when entry has no middlewareKeys/exceptionFilterKeys/guardKeys fields', () => {
       // Arrange — simulates CompiledHandlerEntry from compiler that omits optional fields
       const container = createStubContainer({});

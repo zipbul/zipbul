@@ -18,7 +18,7 @@ import type {
   InternalRouteHandler,
   InternalRouteEntry,
 } from './interfaces';
-import type { ClassMetadata, ErrorResponseData, MetadataRegistryKey, ParamTypeReference, ResponseBodyValue } from './types';
+import type { ClassMetadata, ErrorResponseData, MatchedRouteMetadata, MetadataRegistryKey, ParamTypeReference, ResponseBodyValue } from './types';
 import type { Class } from '@zipbul/common';
 
 import { HttpContext } from './http-context';
@@ -29,10 +29,10 @@ import { HttpResponse } from './http-response';
 import { BakerValidationError } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
-import { RawBody } from './decorators/method-option.decorator';
+import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
 import type { RouteHandler } from './route-handler';
 import { HttpPhase, HeaderField } from './enums';
-import { isAsyncIterable, formatSSEChunk } from './server-sent-event';
+import { isAsyncIterable, formatSSEChunk, ServerSentEvent } from './server-sent-event';
 
 // ── readBodyWithLimit ─────────────────────────────────────────
 
@@ -41,9 +41,11 @@ async function readBodyWithLimit(
   contentLength: number | null,
   bodyLimit: number,
 ): Promise<Result<Uint8Array, ErrorResponseData>> {
-  // CL 존재 — fast path.
-  // INVARIANT: Bun.serve({ maxRequestBodySize: bodyLimit })가 CL > bodyLimit인 요청을 HTTP 파서 레벨에서 선차단.
+  // CL 존재 — fast path. bodyLimit 초과 시 즉시 거부.
   if (contentLength !== null) {
+    if (contentLength > bodyLimit) {
+      return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
+    }
     return new Uint8Array(await rawReq.arrayBuffer());
   }
 
@@ -106,7 +108,7 @@ export class HttpAdapter extends Adapter {
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
     handlers: [Get, Post, Put, Delete, Patch, Options, Head],
-    options: [RawBody],
+    options: [RawBody, Sse, BodyLimit, Status, Redirect, ContentTypeDecorator, Header],
   };
 
   private readonly options: HttpServerOptions;
@@ -163,20 +165,20 @@ export class HttpAdapter extends Adapter {
   // ── Finalize middlewares ─────────────────────────────────────
 
   /**
-   * Returns `AfterResponse` phase middlewares for Phase 3 finalize.
+   * Returns `Cleanup` phase middlewares for Phase 3 finalize.
    *
-   * @returns Resolved AfterResponse middlewares.
+   * @returns Resolved Cleanup middlewares.
    * @public
    */
   protected override getFinalizeMiddlewares(): readonly ResolvedMiddleware[] {
-    return this.getPhaseMiddlewares(HttpPhase.AfterResponse);
+    return this.getPhaseMiddlewares(HttpPhase.Cleanup);
   }
 
   // ── Pipeline assembly ───────────────────────────────────────
 
   /**
    * HTTP-specific pipeline:
-   * OnRequest → resolveRoute → BeforeParsing → readBody → BeforeValidation → runValidations → BeforeHandler → handler → [handleResult] → BeforeResponse → AfterResponse
+   * OnRequest → resolveRoute → BeforeParsing → readBody → BeforeValidation → runValidations → BeforeHandler → handler → [handleResult] → BeforeResponse → Cleanup
    *
    * @param context - The HTTP context.
    * @returns Pipeline result.
@@ -191,6 +193,11 @@ export class HttpAdapter extends Adapter {
     );
     if (isErr(onRequest)) return onRequest;
     if (http.response.isSent()) return undefined;
+
+    // 1.5. Pre-pipeline error (not-implemented, invalid CL) — after OnRequest so CORS headers apply
+    if (http.pipelineError !== undefined) {
+      return err(http.pipelineError);
+    }
 
     // 2. Route Match — match against final method/path. 404/405 early return
     const routeResult = this.resolveRoute(http);
@@ -254,11 +261,36 @@ export class HttpAdapter extends Adapter {
 
     this.logger.debug(`Pipeline: mw=${route.middlewares.length} guards=${route.guards.length} filters=${route.exceptionFilters.length}`);
 
-    // 11. Handler
+    // 11. Apply decorator metadata — defaults before handler (handler can override)
+    this.applyDecoratorMetadata(route, http.response);
+
+    // 12. Handler
     return route.handler(http);
   }
 
   // ── Pipeline steps ──────────────────────────────────────────
+
+  /**
+   * Applies decorator metadata as response defaults before handler invocation.
+   * Rule: decorator = default, imperative (handler `res.setX()`) = override.
+   *
+   * @param route - Matched route metadata containing decorator values.
+   * @param res - The HTTP response to apply defaults to.
+   */
+  private applyDecoratorMetadata(route: MatchedRouteMetadata, res: HttpResponse): void {
+    if (route.status !== undefined) {
+      res.setStatus(route.status as StatusCodes);
+    }
+    if (route.contentType !== undefined) {
+      res.setContentType(route.contentType);
+    }
+    for (const [name, value] of route.headers) {
+      res.setHeader(name, value);
+    }
+    if (route.redirect !== undefined) {
+      res.redirect(route.redirect.url, route.redirect.status);
+    }
+  }
 
   /**
    * Matches the request to a route and stores metadata on the context.
@@ -358,9 +390,11 @@ export class HttpAdapter extends Adapter {
       }
     }
 
+    const effectiveBodyLimit = http.matchedRoute?.bodyLimit ?? this.options.bodyLimit!;
+
     if (shouldBuffer && rawBodyEnabled) {
       // ── 버퍼링 + rawBody (CL 유무 불문 readBodyWithLimit) ──
-      const bytesResult = await readBodyWithLimit(rawReq, req.contentLength, this.options.bodyLimit!);
+      const bytesResult = await readBodyWithLimit(rawReq, req.contentLength, effectiveBodyLimit);
       if (isErr(bytesResult)) return bytesResult;
 
       req.rawBody = bytesResult;
@@ -388,7 +422,7 @@ export class HttpAdapter extends Adapter {
       // ── 버퍼링, rawBody 비활성 ──
       if (req.contentLength === null) {
         // CL 없음 (chunked TE) — readBodyWithLimit으로 점진적 size 체크
-        const bytesResult = await readBodyWithLimit(rawReq, null, this.options.bodyLimit!);
+        const bytesResult = await readBodyWithLimit(rawReq, null, effectiveBodyLimit);
         if (isErr(bytesResult)) return bytesResult;
 
         let text: string;
@@ -410,7 +444,10 @@ export class HttpAdapter extends Adapter {
         return undefined;
       }
 
-      // CL 존재 — Bun 네이티브 fast path (maxRequestBodySize가 이미 CL 검증)
+      // CL 존재 — fast path. bodyLimit 초과 시 즉시 거부.
+      if (req.contentLength! > effectiveBodyLimit) {
+        return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
+      }
       if (isJson) {
         try {
           req.body = httpServerInternals.parseJsonBody(await rawReq.json());
@@ -515,24 +552,28 @@ export class HttpAdapter extends Adapter {
     const http = context.to(HttpContext);
     const res = http.response;
 
-    if (res.isSent()) {
-      return;
-    }
+    try {
+      if (!res.isSent()) {
+        if (isErr(result)) {
+          this.writeErrorResponse(res, result.data);
+        } else {
+          await this.writeSuccessResponse(res, result, http);
+        }
 
-    if (isErr(result)) {
-      this.writeErrorResponse(res, result.data);
-    } else {
-      await this.writeSuccessResponse(res, result, http.request.signal);
-    }
-
-    // BeforeResponse — runs after serialization, before transmission.
-    // Skipped for native Response passthrough (SSE, raw Response) since
-    // the response is already finalized via setNativeResponse.
-    if (res.getNativeResponse() === undefined) {
-      const beforeResponse = this.getPhaseMiddlewares(HttpPhase.BeforeResponse);
-      if (beforeResponse.length > 0) {
-        await this.runHttpMiddlewares(beforeResponse, http);
+        // BeforeResponse — skipped for native Response paths (SSE, streaming, Blob, handler Response).
+        // hasNativeResponse() checks without triggering the lazy merge.
+        if (!res.hasNativeResponse()) {
+          const beforeResponse = this.getPhaseMiddlewares(HttpPhase.BeforeResponse);
+          if (beforeResponse.length > 0) {
+            await this.runHttpMiddlewares(beforeResponse, http);
+          }
+        }
       }
+    } finally {
+      // Structural guarantee — runs even if writeResponse/BeforeResponse throws.
+      // emergencyTeardown runs after this finally (Phase 2 catch), so
+      // finalizer → emergencyTeardown ordering is guaranteed.
+      await http.runResponseFinalizers(this.logger);
     }
   }
 
@@ -554,8 +595,8 @@ export class HttpAdapter extends Adapter {
     const res = http.response;
 
     if (!res.isSent()) {
-      // 부분 설정된 헤더를 초기화한 후 500 응답 설정
-      res.clearHeaders();
+      // Headers preserved — OnRequest에서 설정된 CORS/보안 헤더 유지.
+      // status + body만 덮어쓴다.
       res.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
       res.setBody('Internal Server Error');
     }
@@ -666,19 +707,20 @@ export class HttpAdapter extends Adapter {
   /**
    * Converts a successful handler result into an HTTP response.
    *
-   * When the handler returns a raw `Response` object, this method extracts
-   * its status, headers, and body into the `HttpResponse` builder. This is
-   * an escape hatch that bypasses the normal `HttpResponse` build chain —
-   * use it when direct control over the raw response is required (e.g.
-   * streaming, SSE, or proxied responses).
+   * AsyncIterable routing:
+   * - `@Sse()` decorated → SSE format (text/event-stream + data: framing)
+   * - No `@Sse()` → raw streaming (chunks sent as-is, Content-Type from @ContentType or imperative)
    *
    * @param res - The HTTP response builder.
    * @param result - The handler's return value.
-   * @param signal - The request's AbortSignal for client disconnect detection.
+   * @param http - The HTTP context (for route metadata and signal).
    */
-  private async writeSuccessResponse(res: HttpResponse, result: unknown, signal: AbortSignal): Promise<void> {
-    // AsyncIterable → SSE ReadableStream → native Response passthrough
+  private async writeSuccessResponse(res: HttpResponse, result: unknown, http: HttpContext): Promise<void> {
+    const signal = http.request.signal;
+
+    // AsyncIterable → SSE or raw streaming based on @Sse flag
     if (isAsyncIterable(result)) {
+      const isSse = http.matchedRoute?.sse === true;
       const iterator = result[Symbol.asyncIterator]();
       const stream = new ReadableStream({
         async pull(controller) {
@@ -693,7 +735,19 @@ export class HttpAdapter extends Adapter {
               controller.close();
               return;
             }
-            controller.enqueue(formatSSEChunk(value));
+
+            if (isSse) {
+              controller.enqueue(formatSSEChunk(value));
+            } else {
+              // Raw streaming — encode string chunks, pass Uint8Array through
+              if (typeof value === 'string') {
+                controller.enqueue(new TextEncoder().encode(value));
+              } else if (value instanceof Uint8Array) {
+                controller.enqueue(value);
+              } else {
+                controller.enqueue(new TextEncoder().encode(String(value)));
+              }
+            }
           } catch (error) {
             if (!signal.aborted) {
               controller.error(error);
@@ -709,16 +763,20 @@ export class HttpAdapter extends Adapter {
         },
       });
 
-      const sseResponse = new Response(stream, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          'X-Accel-Buffering': 'no',
-        },
-      });
-
-      res.setNativeResponse(sseResponse);
+      if (isSse) {
+        const sseResponse = new Response(stream, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          },
+        });
+        res.setNativeResponse(sseResponse);
+      } else {
+        // Raw streaming — Content-Type from @ContentType or imperative setContentType
+        res.setNativeResponse(new Response(stream));
+      }
       return;
     }
 
@@ -728,17 +786,12 @@ export class HttpAdapter extends Adapter {
       return;
     }
 
-    if (result instanceof HttpResponse) {
-      return;
-    }
-
     if (result === undefined || result === null) {
       return;
     }
 
     if (typeof result === 'bigint') {
       res.setBody(result.toString());
-
       return;
     }
 

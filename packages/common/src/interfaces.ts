@@ -3,13 +3,52 @@ import type { AdapterClass } from './adapter/types';
 import type { MiddlewareDefinition } from './define-middleware';
 import type { GuardDefinition } from './define-guard';
 import type { ExceptionFilterDefinition } from './define-exception-filter';
+import type { ContextKey } from './context-key';
 
 import type { Adapter } from './adapter/adapter';
 
 export interface Context {
   getType(): string;
-  get(key: string): ZipbulValue | undefined;
+
+  /**
+   * Returns a per-request value stored under the given typed key.
+   *
+   * @param key - A `ContextKey<T>` created via `contextKey()`.
+   * @returns The stored value, or `undefined` if not set.
+   * @public
+   */
+  get<T>(key: ContextKey<T>): T | undefined;
+
+  /**
+   * Stores a per-request value under the given typed key.
+   *
+   * @param key - A `ContextKey<T>` created via `contextKey()`.
+   * @param value - The value to store.
+   * @public
+   */
+  set<T>(key: ContextKey<T>, value: T): void;
+
   to<TContext extends ZipbulValue>(ctor: ClassToken<TContext>): TContext;
+
+  /**
+   * Stores a validated value by kind.
+   * Called by `Adapter.runValidations` after baker verification.
+   *
+   * @param kind - The validation kind (e.g. 'body', 'query', 'params').
+   * @param value - The validated value.
+   * @internal
+   */
+  setValidated(kind: string, value: unknown): void;
+
+  /**
+   * Returns the validated value for the given kind.
+   * Throws `ContextError` if the kind has not been validated.
+   *
+   * @param kind - The validation kind.
+   * @returns The validated value.
+   * @public
+   */
+  getValidated<T = unknown>(kind: string): T;
 }
 
 /**
@@ -155,7 +194,7 @@ export interface AdapterModuleConfig {
   guards?: readonly GuardDefinition[];
 }
 
-/** Phase-keyed middleware configuration. Keys are adapter-specific phase identifiers (e.g. `HttpPhase.OnReceive`). */
+/** Phase-keyed middleware configuration. Keys are adapter-specific phase identifiers (e.g. `HttpPhase.OnRequest`). */
 export type MiddlewareConfig = Readonly<Record<string, readonly MiddlewareDefinition[]>>;
 
 export type Provider = ProviderUseValue | ProviderUseClass | ProviderUseExisting | ProviderUseFactory | Class;

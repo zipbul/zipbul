@@ -1,8 +1,6 @@
-import { CookieMap, type CookieInit } from 'bun';
 import { StatusCodes, getReasonPhrase } from 'http-status-codes';
 
 import type { HttpRequest } from './http-request';
-import type { HttpWorkerResponse } from './interfaces';
 import type { ResponseBodyValue } from './types';
 
 import { ContentType, HeaderField } from './enums';
@@ -10,244 +8,328 @@ import { ContentType, HeaderField } from './enums';
 export class HttpResponse {
   private readonly req: HttpRequest;
   private _body: ResponseBodyValue | undefined;
-  private _cookies: CookieMap;
   private _headers: Headers;
   private _status: StatusCodes | 0 = 0;
   private _statusText: string | undefined;
-  private _workerResponse: HttpWorkerResponse;
-  private _nativeResponse: Response | undefined;
 
-  constructor(req: HttpRequest, res: Response | Headers) {
+  /** Cached final Response — once built via end(), never rebuilt. */
+  private _response: Response | undefined;
+
+  /** Middleware/handler committed flag — pipeline stops processing. */
+  private _committed = false;
+
+  /** Raw native Response before header merge (SSE, streaming, handler Response). */
+  private _rawNativeResponse: Response | undefined;
+
+  /** Cached merged native Response (raw + _headers). Created lazily in getNativeResponse(). */
+  private _mergedNativeResponse: Response | undefined;
+
+  constructor(req: HttpRequest, headers: Headers) {
     this.req = req;
-
-    if (res instanceof Headers) {
-      this._headers = new Headers(res);
-      this._cookies = new CookieMap(res.get(HeaderField.SetCookie) ?? {});
-
-      return;
-    }
-
-    this._headers = new Headers(res.headers);
-    this._cookies = new CookieMap(res.headers.get(HeaderField.SetCookie) ?? {});
-
-    if (res.status) {
-      this.setStatus(res.status).end();
-    }
+    this._headers = new Headers(headers);
   }
 
-  isSent() {
-    return this._workerResponse !== undefined;
+  // ── Pipeline control ────────────────────────────────────────
+
+  /**
+   * Marks the response as committed. The pipeline stops processing
+   * remaining phases but does not build the Response yet.
+   * Response finalizers still run.
+   *
+   * @public
+   */
+  send(): void {
+    this._committed = true;
   }
 
-  getWorkerResponse() {
-    return this._workerResponse;
+  /**
+   * Returns whether the response has been committed or already built.
+   *
+   * @public
+   */
+  isSent(): boolean {
+    return this._committed || this._response !== undefined;
   }
 
-  getStatus() {
+  /**
+   * Builds and caches the final `Response`. Idempotent — subsequent
+   * calls return the cached Response without rebuilding.
+   *
+   * @returns The built `Response`.
+   * @public
+   */
+  end(): Response {
+    if (this._response !== undefined) return this._response;
+    this._response = this.build();
+    return this._response;
+  }
+
+  // ── State reset ─────────────────────────────────────────────
+
+  /**
+   * Resets all response state including stream references.
+   * Used by error recovery paths that need a clean slate.
+   *
+   * @public
+   */
+  reset(): void {
+    this._rawNativeResponse?.body?.cancel();
+    this._headers = new Headers();
+    this._body = undefined;
+    this._status = 0;
+    this._statusText = undefined;
+    this._committed = false;
+    this._rawNativeResponse = undefined;
+    this._mergedNativeResponse = undefined;
+    this._response = undefined;
+  }
+
+  // ── Status ──────────────────────────────────────────────────
+
+  getStatus(): StatusCodes | 0 {
     return this._status;
   }
 
-  setStatus(status: StatusCodes, statusText?: string) {
+  setStatus(status: StatusCodes, statusText?: string): this {
     this._status = status;
     this._statusText = statusText ?? getReasonPhrase(status);
-
     return this;
   }
 
-  getHeader(name: string) {
+  // ── Headers ─────────────────────────────────────────────────
+
+  get headers(): Headers {
+    return this._headers;
+  }
+
+  getHeader(name: string): string | null {
     return this._headers.get(name);
   }
 
-  setHeader(name: string, value: string) {
+  setHeader(name: string, value: string): this {
     this._headers.set(name, value);
-
     return this;
   }
 
-  setHeaders(headers: Record<string, string>) {
-    Object.entries(headers).forEach(([name, value]) => {
-      this._headers.set(name, value);
-    });
-
-    return this;
-  }
-
-  appendHeader(name: string, value: string) {
-    const existing = this._headers.get(name);
-
-    if (typeof existing === 'string' && existing.length > 0) {
-      this._headers.set(name, `${existing}, ${value}`);
-    } else {
+  setHeaders(headers: Record<string, string>): this {
+    for (const [name, value] of Object.entries(headers)) {
       this._headers.set(name, value);
     }
-
     return this;
   }
 
-  removeHeader(name: string) {
+  removeHeader(name: string): this {
     this._headers.delete(name);
-
     return this;
   }
 
-  getContentType() {
+  getContentType(): string | null {
     return this.getHeader(HeaderField.ContentType);
   }
 
-  setContentType(contentType: string) {
-    this.setHeader(HeaderField.ContentType, `${contentType}; charset=utf-8`);
-
+  /**
+   * Sets the Content-Type header. Appends `charset=utf-8` only for
+   * text types and JSON — binary types are left as-is (F-RES-1 fix).
+   *
+   * @param contentType - The media type string.
+   * @returns `this` for chaining.
+   * @public
+   */
+  setContentType(contentType: string): this {
+    const needsCharset = contentType.startsWith('text/')
+      || contentType === 'application/json'
+      || contentType.endsWith('+json');
+    this.setHeader(
+      HeaderField.ContentType,
+      needsCharset ? `${contentType}; charset=utf-8` : contentType,
+    );
     return this;
   }
 
-  getCookies() {
-    return this._cookies;
-  }
-
-  setCookie(name: string, value: string, options?: CookieInit) {
-    this._cookies.set(name, value, options);
-
+  /**
+   * Appends a header value. Delegates to Web Headers API `append()`
+   * which correctly handles multi-value headers like Set-Cookie (RFC 6265).
+   *
+   * @param name - Header name.
+   * @param value - Header value to append.
+   * @returns `this` for chaining.
+   * @public
+   */
+  appendHeader(name: string, value: string): this {
+    this._headers.append(name, value);
     return this;
   }
+
+  // ── Body (all types unified) ────────────────────────────────
 
   getBody(): ResponseBodyValue | undefined {
     return this._body;
   }
 
-  setBody(data: ResponseBodyValue | undefined) {
-    this._body = data ?? '';
-
-    return this;
-  }
-
-  redirect(url: string) {
-    this.setHeader(HeaderField.Location, url);
-
-    return this;
-  }
-
   /**
-   * Finalizes the response and marks it as sent.
-   * Idempotent — if already sent, returns the cached response.
+   * Sets the response body. Handles all body types through a unified API:
+   * - `ReadableStream` → native Response passthrough
+   * - `Blob` → stream() conversion with manual Content-Length (prevents Blob.type auto-CT)
+   * - All others → buffered body path
    *
-   * @returns The built worker response.
-   * @public
-   */
-  end(): HttpWorkerResponse {
-    if (this.isSent()) {
-      return this._workerResponse;
-    }
-
-    this.build();
-
-    return this._workerResponse;
-  }
-
-  /**
-   * Convenience method for middlewares to finalize the response.
-   * Delegates to `end()`. Idempotent.
+   * Mutually exclusive: `_body` and `_rawNativeResponse` — last `setBody()` call wins.
    *
-   * @public
-   */
-  send(): void {
-    this.end();
-  }
-
-  /**
-   * Resets all response headers and cookies.
-   * Used by `emergencyTeardown` to clear partially-set headers before writing a 500 response.
-   *
+   * @param data - The response body value.
    * @returns `this` for chaining.
    * @public
    */
-  clearHeaders(): this {
-    this._headers = new Headers();
-    this._cookies = new CookieMap({});
+  setBody(data: ResponseBodyValue | undefined): this {
+    if (data instanceof ReadableStream) {
+      this._rawNativeResponse?.body?.cancel();
+      this._body = undefined;
+      this._rawNativeResponse = new Response(data);
+      this._mergedNativeResponse = undefined;
+      return this;
+    }
+
+    if (data instanceof Blob) {
+      this._rawNativeResponse?.body?.cancel();
+      this._body = undefined;
+      if (this.getContentType() === null && data.type) {
+        this.setContentType(data.type);
+      }
+      this.setHeader(HeaderField.ContentLength, data.size.toString());
+      this._rawNativeResponse = new Response(data.stream());
+      this._mergedNativeResponse = undefined;
+      return this;
+    }
+
+    // Buffered body — clear native path
+    this._rawNativeResponse?.body?.cancel();
+    this._body = data;
+    this._rawNativeResponse = undefined;
+    this._mergedNativeResponse = undefined;
     return this;
   }
 
+  // ── Convenience ─────────────────────────────────────────────
+
+  redirect(url: string, status?: 301 | 302 | 303 | 307 | 308): this {
+    if (status !== undefined) {
+      this.setStatus(status);
+    }
+    this.setHeader(HeaderField.Location, url);
+    return this;
+  }
+
+  // ── Native Response (lazy merge) ────────────────────────────
+
   /**
-   * Sets a native `Response` for passthrough.
-   * Bypasses the normal `HttpResponse.build()` chain — used for streaming (SSE)
-   * and handler-created `Response` objects.
-   *
-   * Merging rules:
-   * 1. native Response headers are the base (handler's explicit choice)
-   * 2. `Set-Cookie` from `_cookies` is always appended (RFC 6265: multiple allowed)
-   * 3. `_headers` keys not already in native Response are added (middleware defaults)
+   * Stores a native `Response` for passthrough (SSE, streaming, handler Response).
+   * Merging with `_headers` happens lazily in `getNativeResponse()`.
    *
    * @param response - The native Response to passthrough.
    * @public
    */
   setNativeResponse(response: Response): void {
-    const merged = new Headers(response.headers);
+    this._rawNativeResponse?.body?.cancel();
+    this._rawNativeResponse = response;
+    this._mergedNativeResponse = undefined;
+    this._body = undefined;
+  }
 
-    // Append Set-Cookie from middleware/handler cookies
-    if (this._cookies.size > 0) {
-      for (const header of this._cookies.toSetCookieHeaders()) {
-        merged.append(HeaderField.SetCookie, header);
-      }
-    }
+  /**
+   * Returns whether a native Response is set, without triggering the merge.
+   * Used by `handleResult` to decide whether to skip BeforeResponse phase.
+   *
+   * @public
+   */
+  hasNativeResponse(): boolean {
+    return this._rawNativeResponse !== undefined;
+  }
 
-    // Add middleware-set headers that native Response doesn't already have
+  /**
+   * Returns the native Response with `_headers` merged in.
+   * Creates and caches the merged Response on first call.
+   *
+   * INVARIANT: Call only in `fetch()` after all finalizers have completed.
+   * Calling earlier would cache a stale merge missing finalizer headers.
+   *
+   * Merge rules:
+   * 1. Native Response headers are the base (handler's explicit choice)
+   * 2. `Set-Cookie` from `_headers` is always appended (RFC 6265: multiple allowed)
+   * 3. `_headers` keys not already in native Response are added (middleware defaults)
+   *
+   * @returns The merged Response, or `undefined` if no native Response set.
+   * @public
+   */
+  getNativeResponse(): Response | undefined {
+    if (this._rawNativeResponse === undefined) return undefined;
+    if (this._mergedNativeResponse !== undefined) return this._mergedNativeResponse;
+
+    const merged = new Headers(this._rawNativeResponse.headers);
     for (const [key, value] of this._headers.entries()) {
-      if (!merged.has(key)) {
+      if (key === 'set-cookie') {
+        merged.append(key, value);
+      } else if (!merged.has(key)) {
         merged.set(key, value);
       }
     }
 
-    this._nativeResponse = new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
+    this._mergedNativeResponse = new Response(this._rawNativeResponse.body, {
+      status: this._rawNativeResponse.status,
+      statusText: this._rawNativeResponse.statusText,
       headers: merged,
     });
+    return this._mergedNativeResponse;
   }
 
   /**
-   * Returns the native Response if set, or `undefined`.
+   * Cancels the raw native Response stream. Used in error paths
+   * to release file descriptors when the response won't be sent.
    *
-   * @returns The native Response for passthrough.
    * @public
    */
-  getNativeResponse(): Response | undefined {
-    return this._nativeResponse;
+  cancelNativeStream(): void {
+    this._rawNativeResponse?.body?.cancel();
   }
 
-  build(): this {
-    if (this.isSent()) {
-      return this;
-    }
+  // ── Build (buffered body → Response) ────────────────────────
 
+  private build(): Response {
     const location = this.getHeader(HeaderField.Location);
 
+    // 1. Redirect: Location header → default 302, body removed
     if (typeof location === 'string' && location.length > 0) {
       if (!this._status) {
         this.setStatus(StatusCodes.MOVED_TEMPORARILY);
       }
-
-      return this.setBody(undefined).buildWorkerResponse();
+      this._body = undefined;
+      return this.createResponse();
     }
 
+    // 2. Content-Type inference from body type
     if (this.getContentType() === null) {
       this.setContentType(this.inferContentType());
     }
 
-    const contentType = this.getContentType();
-
+    // 3. 204/304: body removed per RFC
     if (this._status === StatusCodes.NO_CONTENT || this._status === StatusCodes.NOT_MODIFIED) {
-      return this.setBody(undefined).buildWorkerResponse();
+      this._body = undefined;
+      return this.createResponse();
     }
 
-    // body 직렬화 — HEAD에서도 Content-Length 계산에 필요하므로 먼저 수행
+    // 4. JSON serialization
+    const contentType = this.getContentType();
     if (contentType?.startsWith(ContentType.Json) === true) {
       try {
-        this.setBody(JSON.stringify(this._body));
-      } catch {
-        this.setContentType(ContentType.Text).setBody('[unserializable body]');
+        this._body = JSON.stringify(this._body);
+      } catch (error) {
+        this.setContentType(ContentType.Text);
+        this._body = '[unserializable body]';
+
+        if (typeof console !== 'undefined') {
+          console.error('JSON serialization failed in HttpResponse.build():', error);
+        }
       }
     }
 
-    // RFC 9110 §9.3.2: HEAD 응답은 GET과 동일한 헤더를 포함하되 body만 생략
+    // 5. HEAD: Content-Length from serialized body, then body removed (RFC 9110 §9.3.2)
     if (this.req.method === 'HEAD') {
       if (!this._status) {
         this.setStatus(StatusCodes.OK);
@@ -261,38 +343,48 @@ export class HttpResponse {
         this.setHeader(HeaderField.ContentLength, this._body.byteLength.toString());
       }
 
-      return this.setBody(undefined).buildWorkerResponse();
+      this._body = undefined;
+      return this.createResponse();
     }
 
+    // 6. Auto 204: no status + no body
     if (!this._status && this._body === undefined) {
-      return this.setStatus(StatusCodes.NO_CONTENT).setBody(undefined).buildWorkerResponse();
+      this.setStatus(StatusCodes.NO_CONTENT);
+      this._body = undefined;
+      return this.createResponse();
     }
 
-    return this.buildWorkerResponse();
+    return this.createResponse();
   }
 
-  private buildWorkerResponse(): this {
-    const headers = new Headers(this._headers);
+  /**
+   * Creates the final `Response` from current state.
+   * Validates status range — out-of-range status falls back to 500.
+   */
+  private createResponse(): Response {
+    const body = this.normalizeBody();
+    const status = this._status || StatusCodes.OK;
 
-    if (this._cookies.size > 0) {
-      headers.delete(HeaderField.SetCookie);
-      for (const setCookieHeader of this._cookies.toSetCookieHeaders()) {
-        headers.append(HeaderField.SetCookie, setCookieHeader);
-      }
+    // Status range validation (integrates former toResponse logic)
+    if (status < 100 || status > 599) {
+      return new Response('Internal Server Error', {
+        status: StatusCodes.INTERNAL_SERVER_ERROR,
+        headers: this._headers,
+      });
     }
 
-    const init: ResponseInit = this._status !== 0 ? this.buildStatusInit(headers) : { headers };
-    const body: HttpWorkerResponse['body'] = this.normalizeWorkerBody(this._body);
-
-    this._workerResponse = {
-      body,
-      init,
+    const init: ResponseInit = {
+      status,
+      headers: this._headers,
     };
+    if (this._statusText !== undefined) {
+      init.statusText = this._statusText;
+    }
 
-    return this;
+    return new Response(body, init);
   }
 
-  private inferContentType() {
+  private inferContentType(): string {
     if (
       this._body !== null &&
       (typeof this._body === 'object' ||
@@ -302,46 +394,25 @@ export class HttpResponse {
     ) {
       return ContentType.Json;
     }
-
     return ContentType.Text;
   }
 
-  private normalizeWorkerBody(body: ResponseBodyValue | undefined): HttpWorkerResponse['body'] {
-    if (body === undefined || body === null) {
+  private normalizeBody(): BodyInit | null {
+    if (this._body === undefined || this._body === null) {
       return null;
     }
-
-    if (typeof body === 'string') {
-      return body;
+    if (typeof this._body === 'string') {
+      return this._body;
     }
-
-    if (body instanceof Uint8Array) {
-      return body;
+    if (this._body instanceof Uint8Array) {
+      return this._body;
     }
-
-    if (body instanceof ArrayBuffer) {
-      return body;
+    if (this._body instanceof ArrayBuffer) {
+      return this._body;
     }
-
-    if (typeof body === 'number' || typeof body === 'boolean') {
-      return body.toString();
+    if (typeof this._body === 'number' || typeof this._body === 'boolean') {
+      return this._body.toString();
     }
-
-    throw new Error('normalizeWorkerBody received an unserialized object — build() should have serialized it');
-  }
-
-  private buildStatusInit(headers: Headers): ResponseInit {
-    if (this._statusText !== undefined) {
-      return {
-        headers,
-        status: this._status,
-        statusText: this._statusText,
-      };
-    }
-
-    return {
-      headers,
-      status: this._status,
-    };
+    throw new Error('normalizeBody received an unserialized object — build() should have serialized it');
   }
 }

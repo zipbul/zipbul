@@ -10,7 +10,6 @@ import type {
 import type {
   ClassMetadata,
   RouteHandlerResult,
-  HttpWorkerResponseBody,
   MetadataRegistryKey,
   TrustProxyConfig,
   RequestIdOptions,
@@ -27,6 +26,7 @@ export type HttpTlsOptions = import('bun').TLSOptions;
 
 export interface HttpServerOptions extends ApplicationOptions {
   readonly port?: number;
+  readonly hostname?: string;
   readonly bodyLimit?: number;
   readonly trustProxy?: TrustProxyConfig;
   readonly reusePort?: boolean;
@@ -35,6 +35,8 @@ export interface HttpServerOptions extends ApplicationOptions {
   readonly requestId?: RequestIdOptions;
   readonly customMethods?: readonly string[];
   readonly textMediaTypes?: readonly string[];
+  /** Idle connection timeout in seconds. Default: 30. */
+  readonly idleTimeout?: number;
   /** TLS configuration. When provided, the server starts with HTTPS. */
   readonly tls?: HttpTlsOptions;
 }
@@ -73,7 +75,3 @@ export interface HttpWorkerInitParams {
   readonly options: HttpServerOptions;
 }
 
-export interface HttpWorkerResponse {
-  readonly body: HttpWorkerResponseBody;
-  readonly init: ResponseInit;
-}

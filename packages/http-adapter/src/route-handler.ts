@@ -137,10 +137,30 @@ export class RouteHandler {
       const validations = this.resolveValidations(entry);
 
       const hasRawBody = entry.options?.some(option => option.name === 'RawBody') === true;
+      const hasSse = entry.options?.some(option => option.name === 'Sse') === true;
+      const bodyLimitOption = entry.options?.find(option => option.name === 'BodyLimit');
+      const bodyLimitValue = bodyLimitOption?.arguments?.[0];
+      const statusOption = entry.options?.find(option => option.name === 'Status');
+      const statusValue = statusOption?.arguments?.[0];
+      const redirectOption = entry.options?.find(option => option.name === 'Redirect');
+      const contentTypeOption = entry.options?.find(option => option.name === 'ContentType');
+      const contentTypeValue = contentTypeOption?.arguments?.[0];
+      const headerOptions = entry.options?.filter(option => option.name === 'Header') ?? [];
+      const headers: Array<readonly [string, string]> = headerOptions
+        .filter(option => typeof option.arguments?.[0] === 'string' && typeof option.arguments?.[1] === 'string')
+        .map(option => [option.arguments![0] as string, option.arguments![1] as string] as const);
 
       const routeEntry: MatchedRouteMetadata = {
         handler,
         rawBody: hasRawBody,
+        sse: hasSse,
+        bodyLimit: typeof bodyLimitValue === 'number' ? bodyLimitValue : undefined,
+        status: typeof statusValue === 'number' ? statusValue : undefined,
+        redirect: redirectOption !== undefined && typeof redirectOption.arguments?.[0] === 'string'
+          ? { url: redirectOption.arguments[0] as string, status: redirectOption.arguments?.[1] as 301 | 302 | 303 | 307 | 308 | undefined }
+          : undefined,
+        contentType: typeof contentTypeValue === 'string' ? contentTypeValue : undefined,
+        headers,
         middlewares,
         exceptionFilters,
         guards,
@@ -187,6 +207,12 @@ export class RouteHandler {
       const entry: MatchedRouteMetadata = {
         handler: route.handler,
         rawBody: false,
+        sse: false,
+        bodyLimit: undefined,
+        status: undefined,
+        redirect: undefined,
+        contentType: undefined,
+        headers: [],
         middlewares: [],
         exceptionFilters: [],
         guards: [],

@@ -266,13 +266,13 @@ describe('HttpServer', () => {
   });
 
   describe('toResponse status logging', () => {
-    it('should log warning when status is 199', async () => {
-      // Arrange
+    it('should return 500 when status is out of range (199)', async () => {
+      // Arrange — status validation moved to HttpResponse.build()
       const container = createMockContainer({ createRequestScope: mock(() => createMockContainer()) });
       const adapter = createMockAdapter();
       (adapter.dispatchRequest as ReturnType<typeof mock>).mockImplementation(async (context: Record<string, unknown>) => {
         const typedContext = context as unknown as { response: Record<string, unknown> & { setBody: (b: string) => { end: () => void } } };
-        typedContext.response._status = 199;
+        typedContext.response._status = 99;
         typedContext.response._statusText = 'Custom';
         typedContext.response.setBody('test').end();
       });
@@ -281,9 +281,7 @@ describe('HttpServer', () => {
       // Act
       const response = await server.fetch(createGetRequest(), mockBunServer);
 
-      // Assert
-      expect(mockLoggerWarn).toHaveBeenCalledTimes(1);
-      expect(mockLoggerWarn.mock.calls[0][0]).toContain('199');
+      // Assert — HttpResponse.build() corrects out-of-range status to 500
       expect(response.status).toBe(500);
     });
 
@@ -323,8 +321,8 @@ describe('HttpServer', () => {
       expect(mockLoggerWarn).not.toHaveBeenCalled();
     });
 
-    it('should log warning when status is 600', async () => {
-      // Arrange
+    it('should return 500 when status is out of range (600)', async () => {
+      // Arrange — status validation moved to HttpResponse.build()
       const container = createMockContainer({ createRequestScope: mock(() => createMockContainer()) });
       const adapter = createMockAdapter();
       (adapter.dispatchRequest as ReturnType<typeof mock>).mockImplementation(async (context: Record<string, unknown>) => {
@@ -338,9 +336,7 @@ describe('HttpServer', () => {
       // Act
       const response = await server.fetch(createGetRequest(), mockBunServer);
 
-      // Assert
-      expect(mockLoggerWarn).toHaveBeenCalledTimes(1);
-      expect(mockLoggerWarn.mock.calls[0][0]).toContain('600');
+      // Assert — HttpResponse.build() corrects out-of-range status to 500
       expect(response.status).toBe(500);
     });
 

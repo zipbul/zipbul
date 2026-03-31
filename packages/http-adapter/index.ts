@@ -11,7 +11,6 @@ export type { HttpMethod } from './src/enums';
 export {
   type HttpServerOptions,
   type HttpTlsOptions,
-  type HttpWorkerResponse,
 } from './src/interfaces';
 
 export type {
@@ -33,4 +32,5 @@ export type { ServerSentEventOptions } from './src/server-sent-event';
 
 export { RestController, Controller } from './src/decorators/class.decorator';
 export { Delete, Get, Head, Options, Patch, Post, Put } from './src/decorators/method.decorator';
-export { RawBody } from './src/decorators/method-option.decorator';
+export { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './src/decorators/method-option.decorator';
+export type { ResponseFinalizerFn } from './src/http-context';

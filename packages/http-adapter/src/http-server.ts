@@ -9,7 +9,6 @@ import { StatusCodes } from 'http-status-codes';
 import type {
   HttpServerBootOptions,
   HttpServerOptions,
-  HttpWorkerResponse,
 } from './interfaces';
 import type {
   ClassMetadata,
@@ -38,10 +37,13 @@ interface CreateHttpRequestResult {
 
 interface CreateHttpRequestNotImplemented {
   readonly kind: 'not-implemented';
+  readonly request: HttpRequest;
 }
 
 interface CreateHttpRequestBadRequest {
   readonly kind: 'bad-request';
+  readonly reason: 'invalid-url' | 'invalid-content-length';
+  readonly request?: HttpRequest;
 }
 
 type CreateHttpRequestOutput = CreateHttpRequestResult | CreateHttpRequestNotImplemented | CreateHttpRequestBadRequest;
@@ -485,18 +487,16 @@ function createHttpRequest(
   allowedMethods: ReadonlySet<string>,
   requestIdOptions?: RequestIdOptions,
 ): CreateHttpRequestOutput {
-  const method = validateHttpMethod(raw.method, allowedMethods);
-  if (method === null) return { kind: 'not-implemented' };
+  const validatedMethod = validateHttpMethod(raw.method, allowedMethods);
 
   let urlObj: URL;
   try {
     urlObj = new URL(raw.url);
   } catch {
-    return { kind: 'bad-request' };
+    return { kind: 'bad-request', reason: 'invalid-url' };
   }
 
   const contentLength = parseContentLength(raw.headers);
-  if (contentLength === 'invalid') return { kind: 'bad-request' };
 
   const rawProtocol = urlObj.protocol.slice(0, -1);
   const urlProtocol = rawProtocol.length > 0 ? rawProtocol : null;
@@ -529,29 +529,39 @@ function createHttpRequest(
     port = urlPort;
   }
 
-  return {
-    kind: 'ok',
-    request: new HttpRequest({
-      requestId: resolveRequestId(raw.headers, requestIdOptions),
-      originalMethod: method,
-      originalUrl: raw.url,
-      method,
-      url: raw.url,
-      path: urlObj.pathname,
-      headers: raw.headers,
-      protocol,
-      host,
-      hostname,
-      port,
-      queryString: urlObj.search.length > 0 ? urlObj.search : null,
-      contentType: parseContentTypeInfo(raw.headers.get('content-type')),
-      contentLength,
-      ip: normalizeIp(proxyInfo !== null ? (proxyInfo.clientIp ?? socketIp) : socketIp),
-      ips: proxyInfo !== null ? proxyInfo.ipChain : [],
-      isTrustedProxy,
-      signal: raw.signal,
-    }),
-  };
+  // Method string for HttpRequest — use raw method even if not in allowedMethods
+  const method = (validatedMethod ?? raw.method) as HttpMethod;
+
+  const request = new HttpRequest({
+    requestId: resolveRequestId(raw.headers, requestIdOptions),
+    originalMethod: method,
+    originalUrl: raw.url,
+    method,
+    url: raw.url,
+    path: urlObj.pathname,
+    headers: raw.headers,
+    protocol,
+    host,
+    hostname,
+    port,
+    queryString: urlObj.search.length > 0 ? urlObj.search : null,
+    contentType: parseContentTypeInfo(raw.headers.get('content-type')),
+    contentLength: contentLength === 'invalid' ? null : contentLength,
+    ip: normalizeIp(proxyInfo !== null ? (proxyInfo.clientIp ?? socketIp) : socketIp),
+    ips: proxyInfo !== null ? proxyInfo.ipChain : [],
+    isTrustedProxy,
+    signal: raw.signal,
+  });
+
+  if (validatedMethod === null) {
+    return { kind: 'not-implemented', request };
+  }
+
+  if (contentLength === 'invalid') {
+    return { kind: 'bad-request', reason: 'invalid-content-length', request };
+  }
+
+  return { kind: 'ok', request };
 }
 
 // ── HttpServer ────────────────────────────────────────────────
@@ -604,17 +614,27 @@ export class HttpServer {
 
     this.adapter.setRouteHandler(routeHandler);
 
+    const isProduction = process.env['NODE_ENV'] === 'production';
+
     const serveOptions: Parameters<typeof Bun.serve>[0] = {
       fetch: this.fetch.bind(this),
       reusePort: this.options.reusePort ?? true,
+      idleTimeout: this.options.idleTimeout ?? 30,
+      development: !isProduction,
+      // maxRequestBodySize 미설정 — 프레임워크 readBodyWithLimit()이 처리.
+      // Bun 파서의 413은 CORS 등 미들웨어를 우회하므로 사용하지 않는다.
+      error: (error: Error) => {
+        this.logger.error('Unhandled server error', error);
+        return new Response('Internal server error', { status: 500 });
+      },
     };
 
     if (this.options.port !== undefined) {
       serveOptions.port = this.options.port;
     }
 
-    if (this.options.bodyLimit !== undefined) {
-      serveOptions.maxRequestBodySize = this.options.bodyLimit;
+    if (this.options.hostname !== undefined) {
+      serveOptions.hostname = this.options.hostname;
     }
 
     if (this.options.tls !== undefined) {
@@ -657,11 +677,8 @@ export class HttpServer {
       this.options.requestId,
     );
 
-    // 파이프라인 진입 전 에러: 프로토콜 에러 형식 (상태 코드 + 빈 body)
-    if (createResult.kind === 'not-implemented') {
-      return new Response(null, { status: 501 });
-    }
-    if (createResult.kind === 'bad-request') {
+    // URL 파싱 실패: HttpRequest 생성 불가 → 고정 응답 (컨텍스트 없음)
+    if (createResult.kind === 'bad-request' && createResult.reason === 'invalid-url') {
       return new Response(null, { status: 400 });
     }
 
@@ -671,18 +688,22 @@ export class HttpServer {
     const requestContainer = this.container.createRequestScope?.(zipbulReq.requestId);
     const context = new HttpContext(zipbulReq, zipbulRes, req, requestContainer);
 
+    // not-implemented, 기타 bad-request: pipelineError로 설정.
+    // executePipeline이 OnRequest MW 실행 후 이 에러를 반환하여
+    // CORS 등 미들웨어 헤더가 응답에 포함된다.
+    if (createResult.kind === 'not-implemented') {
+      context.pipelineError = { status: StatusCodes.NOT_IMPLEMENTED, message: 'Not Implemented' };
+    } else if (createResult.kind === 'bad-request') {
+      context.pipelineError = { status: StatusCodes.BAD_REQUEST, message: 'Bad Request' };
+    }
+
     try {
       await this.adapter.dispatchRequest(context);
-
-      const nativeResponse = zipbulRes.getNativeResponse();
-      if (nativeResponse !== undefined) {
-        return nativeResponse;
-      }
-
-      return this.toResponse(zipbulRes.end());
+      return zipbulRes.getNativeResponse() ?? zipbulRes.end();
     } catch (error) {
+      zipbulRes.cancelNativeStream();
       this.logger.error('Fetch Error', error instanceof Error ? error : undefined);
-      return new Response('Internal server error', { status: StatusCodes.INTERNAL_SERVER_ERROR });
+      return new Response('Internal server error', { status: 500 });
     } finally {
       try {
         await requestContainer?.dispose?.();
@@ -690,28 +711,6 @@ export class HttpServer {
         this.logger.error('Request scope dispose failed', disposeError instanceof Error ? disposeError : undefined);
       }
     }
-  }
-
-  private toResponse(workerRes: HttpWorkerResponse): Response {
-    const init: ResponseInit = workerRes.init ?? {};
-    const status = init.status;
-
-    if (status === 0 || status === undefined) {
-      const { status: _status, statusText: _statusText, ...rest } = init;
-
-      return new Response(workerRes.body, rest);
-    }
-
-    if (typeof status === 'number' && status !== StatusCodes.SWITCHING_PROTOCOLS && (status < 200 || status > 599)) {
-      this.logger.warn(`Invalid HTTP status ${status} corrected to 500`);
-
-      return new Response(workerRes.body, {
-        ...init,
-        status: StatusCodes.INTERNAL_SERVER_ERROR,
-      });
-    }
-
-    return new Response(workerRes.body, init);
   }
 }
 
