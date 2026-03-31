@@ -18,7 +18,7 @@ import type { RpcCallable } from '../cluster/types';
 import { Container } from '../injector/container';
 import { runInitHooks, runDestroyHooks } from '../injector/lifecycle-runner';
 import { formatToken } from '../injector/token-resolver';
-import { getRuntimeContext } from '../runtime/runtime-context';
+import { getRuntimeContext, clearMetadataRegistry } from '../runtime/runtime-context';
 import type { AdapterEntry, AttachOptions, CreateApplicationOptions } from './interfaces';
 
 const APPLICATION_CONTEXT_TYPE = 'application';
@@ -253,6 +253,9 @@ export class Application {
       this.stopped = true;
       throw error;
     }
+
+    // INVARIANTS §4 — Metadata Volatility: 부트스트랩 완료 후 설계도 소거
+    clearMetadataRegistry();
   }
 
   // ── Cluster Mode ──────────────────────────────────────────

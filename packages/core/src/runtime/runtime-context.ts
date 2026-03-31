@@ -69,3 +69,14 @@ export function registerRuntimeContext(context: RuntimeContext): void {
 export function getRuntimeContext(): RuntimeContext {
   return currentContext;
 }
+
+/**
+ * Purges the metadata registry from the runtime context.
+ * Called after bootstrap to enforce INVARIANTS §4 (Metadata Volatility).
+ *
+ * @public
+ */
+export function clearMetadataRegistry(): void {
+  currentContext.metadataRegistry?.clear();
+  currentContext.metadataRegistry = undefined;
+}

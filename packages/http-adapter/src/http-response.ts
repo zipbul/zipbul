@@ -3,7 +3,7 @@ import { StatusCodes, getReasonPhrase } from 'http-status-codes';
 
 import type { HttpRequest } from './http-request';
 import type { HttpWorkerResponse } from './interfaces';
-import type { HeadersInit, ResponseBodyValue } from './types';
+import type { ResponseBodyValue } from './types';
 
 import { ContentType, HeaderField } from './enums';
 
@@ -15,6 +15,7 @@ export class HttpResponse {
   private _status: StatusCodes | 0 = 0;
   private _statusText: string | undefined;
   private _workerResponse: HttpWorkerResponse;
+  private _nativeResponse: Response | undefined;
 
   constructor(req: HttpRequest, res: Response | Headers) {
     this.req = req;
@@ -125,6 +126,13 @@ export class HttpResponse {
     return this;
   }
 
+  /**
+   * Finalizes the response and marks it as sent.
+   * Idempotent — if already sent, returns the cached response.
+   *
+   * @returns The built worker response.
+   * @public
+   */
   end(): HttpWorkerResponse {
     if (this.isSent()) {
       return this._workerResponse;
@@ -133,6 +141,76 @@ export class HttpResponse {
     this.build();
 
     return this._workerResponse;
+  }
+
+  /**
+   * Convenience method for middlewares to finalize the response.
+   * Delegates to `end()`. Idempotent.
+   *
+   * @public
+   */
+  send(): void {
+    this.end();
+  }
+
+  /**
+   * Resets all response headers and cookies.
+   * Used by `emergencyTeardown` to clear partially-set headers before writing a 500 response.
+   *
+   * @returns `this` for chaining.
+   * @public
+   */
+  clearHeaders(): this {
+    this._headers = new Headers();
+    this._cookies = new CookieMap({});
+    return this;
+  }
+
+  /**
+   * Sets a native `Response` for passthrough.
+   * Bypasses the normal `HttpResponse.build()` chain — used for streaming (SSE)
+   * and handler-created `Response` objects.
+   *
+   * Merging rules:
+   * 1. native Response headers are the base (handler's explicit choice)
+   * 2. `Set-Cookie` from `_cookies` is always appended (RFC 6265: multiple allowed)
+   * 3. `_headers` keys not already in native Response are added (middleware defaults)
+   *
+   * @param response - The native Response to passthrough.
+   * @public
+   */
+  setNativeResponse(response: Response): void {
+    const merged = new Headers(response.headers);
+
+    // Append Set-Cookie from middleware/handler cookies
+    if (this._cookies.size > 0) {
+      for (const header of this._cookies.toSetCookieHeaders()) {
+        merged.append(HeaderField.SetCookie, header);
+      }
+    }
+
+    // Add middleware-set headers that native Response doesn't already have
+    for (const [key, value] of this._headers.entries()) {
+      if (!merged.has(key)) {
+        merged.set(key, value);
+      }
+    }
+
+    this._nativeResponse = new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: merged,
+    });
+  }
+
+  /**
+   * Returns the native Response if set, or `undefined`.
+   *
+   * @returns The native Response for passthrough.
+   * @public
+   */
+  getNativeResponse(): Response | undefined {
+    return this._nativeResponse;
   }
 
   build(): this {
@@ -156,22 +234,11 @@ export class HttpResponse {
 
     const contentType = this.getContentType();
 
-    if (this.req.httpMethod === 'HEAD') {
-      if (!this._status) {
-        this.setStatus(StatusCodes.OK);
-      }
-
-      return this.setBody(undefined).buildWorkerResponse();
-    }
-
     if (this._status === StatusCodes.NO_CONTENT || this._status === StatusCodes.NOT_MODIFIED) {
       return this.setBody(undefined).buildWorkerResponse();
     }
 
-    if (!this._status && this._body === undefined) {
-      return this.setStatus(StatusCodes.NO_CONTENT).setBody(undefined).buildWorkerResponse();
-    }
-
+    // body 직렬화 — HEAD에서도 Content-Length 계산에 필요하므로 먼저 수행
     if (contentType?.startsWith(ContentType.Json) === true) {
       try {
         this.setBody(JSON.stringify(this._body));
@@ -180,15 +247,40 @@ export class HttpResponse {
       }
     }
 
+    // RFC 9110 §9.3.2: HEAD 응답은 GET과 동일한 헤더를 포함하되 body만 생략
+    if (this.req.method === 'HEAD') {
+      if (!this._status) {
+        this.setStatus(StatusCodes.OK);
+      }
+
+      if (typeof this._body === 'string') {
+        this.setHeader(HeaderField.ContentLength, new TextEncoder().encode(this._body).byteLength.toString());
+      } else if (this._body instanceof Uint8Array) {
+        this.setHeader(HeaderField.ContentLength, this._body.byteLength.toString());
+      } else if (this._body instanceof ArrayBuffer) {
+        this.setHeader(HeaderField.ContentLength, this._body.byteLength.toString());
+      }
+
+      return this.setBody(undefined).buildWorkerResponse();
+    }
+
+    if (!this._status && this._body === undefined) {
+      return this.setStatus(StatusCodes.NO_CONTENT).setBody(undefined).buildWorkerResponse();
+    }
+
     return this.buildWorkerResponse();
   }
 
   private buildWorkerResponse(): this {
+    const headers = new Headers(this._headers);
+
     if (this._cookies.size > 0) {
-      this.setHeader(HeaderField.SetCookie, this._cookies.toSetCookieHeaders().join(', '));
+      headers.delete(HeaderField.SetCookie);
+      for (const setCookieHeader of this._cookies.toSetCookieHeaders()) {
+        headers.append(HeaderField.SetCookie, setCookieHeader);
+      }
     }
 
-    const headers: Record<string, string> = this._headers.toJSON();
     const init: ResponseInit = this._status !== 0 ? this.buildStatusInit(headers) : { headers };
     const body: HttpWorkerResponse['body'] = this.normalizeWorkerBody(this._body);
 
@@ -238,7 +330,7 @@ export class HttpResponse {
     throw new Error('normalizeWorkerBody received an unserialized object — build() should have serialized it');
   }
 
-  private buildStatusInit(headers: HeadersInit): ResponseInit {
+  private buildStatusInit(headers: Headers): ResponseInit {
     if (this._statusText !== undefined) {
       return {
         headers,
