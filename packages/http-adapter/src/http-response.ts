@@ -364,6 +364,12 @@ export class HttpResponse {
     // 2. 204/304: body removed per RFC — checked before Content-Type inference
     if (this._status === StatusCodes.NO_CONTENT || this._status === StatusCodes.NOT_MODIFIED) {
       this._body = undefined;
+      // RFC 9110 §15.3.5: 204 MUST NOT contain content. Content-Type describes
+      // non-existent content and MUST be removed. 304 MAY carry Content-Type
+      // (RFC 9110 §15.4.5) so only strip for 204.
+      if (this._status === StatusCodes.NO_CONTENT) {
+        this._headers.delete(HeaderField.ContentType);
+      }
       return this.createResponse();
     }
 
