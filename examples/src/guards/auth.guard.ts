@@ -1,4 +1,5 @@
-import { defineGuard, err } from '@zipbul/common';
+import { defineGuard } from '@zipbul/common';
+import { err } from '@zipbul/result';
 import { HttpContext } from '@zipbul/http-adapter';
 
 export const authGuard = defineGuard(() => (ctx) => {

@@ -1,4 +1,5 @@
-import { inject, UseGuards } from '@zipbul/common';
+import { UseGuards } from '@zipbul/common';
+import { inject } from '@zipbul/core';
 import { RestController, Get, Post, Put, Delete, type HttpContext } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 

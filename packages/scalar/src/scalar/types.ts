@@ -1,4 +1,5 @@
-import type { AdapterCollection, AdapterGroup, Adapter, ZipbulRecord, Class } from '@zipbul/common';
+import type { AdapterCollection, AdapterGroup, ZipbulRecord, Class } from '@zipbul/common';
+import type { Adapter } from '@zipbul/core';
 
 export type DocumentTargets = 'all' | DocumentTarget[];
 

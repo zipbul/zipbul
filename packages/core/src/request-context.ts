@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import type { Context } from './interfaces';
+import type { Context } from '@zipbul/common';
 
 const requestContextStore = new AsyncLocalStorage<Context>();
 

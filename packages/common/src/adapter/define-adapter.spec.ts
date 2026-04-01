@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { defineAdapter } from './define-adapter';
 import type { AdapterEntryDecorators } from './types';
-import { Adapter } from './adapter';
+import { Adapter } from '@zipbul/core';
 import type { Context } from '../interfaces';
 
 // -- Test fixtures --

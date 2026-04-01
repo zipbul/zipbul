@@ -5,11 +5,9 @@ import type {
   ExceptionFilterDefinition,
   GuardDefinition,
   GuardHandlerFn,
-  ResolvedMiddleware,
-  ResolvedExceptionFilter,
-  ResolvedValidationEntry,
 } from '@zipbul/common';
-import { runInInjectionContext } from '@zipbul/common';
+import type { ResolvedMiddleware, ResolvedExceptionFilter, ResolvedValidationEntry } from '@zipbul/core';
+import { runInInjectionContext } from '@zipbul/core';
 
 import { Logger } from '@zipbul/logger';
 

@@ -1,4 +1,3 @@
-export { Adapter } from './adapter';
 export { defineAdapter } from './define-adapter';
 export type {
   AdapterDependsOn,

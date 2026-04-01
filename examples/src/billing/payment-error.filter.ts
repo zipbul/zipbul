@@ -1,4 +1,5 @@
-import { defineExceptionFilter, err } from '@zipbul/common';
+import { defineExceptionFilter } from '@zipbul/common';
+import { err } from '@zipbul/result';
 import { Logger } from '@zipbul/logger';
 
 import { PaymentFailedError } from './payment-failed.error';

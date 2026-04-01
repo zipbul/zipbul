@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import type { Context, ZipbulContainer } from '@zipbul/common';
-import { err, isErr, defineMiddleware, defineGuard, defineExceptionFilter } from '@zipbul/common';
+import { defineMiddleware, defineGuard, defineExceptionFilter } from '@zipbul/common';
+import { err, isErr } from '@zipbul/result';
 import type { HttpRequest } from './http-request';
 import { HttpPhase } from './enums';
 

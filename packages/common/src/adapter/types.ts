@@ -1,4 +1,4 @@
-import type { Adapter } from './adapter';
+import type { Adapter } from '@zipbul/core';
 
 /**
  * Adapter dependency declaration.

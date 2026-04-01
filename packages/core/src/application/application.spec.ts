@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach, type Mock } from 'bun:test';
-import type { Adapter, AdapterClass, Context, ZipbulContainer, ProviderToken, GuardDefinition } from '@zipbul/common';
+import type { AdapterClass, Context, ZipbulContainer, ProviderToken, GuardDefinition } from '@zipbul/common';
 import { defineMiddleware, defineGuard } from '@zipbul/common';
+import type { Adapter } from '../adapter/adapter';
 
 let mockAdapterConfig: Record<string, unknown> | undefined;
 

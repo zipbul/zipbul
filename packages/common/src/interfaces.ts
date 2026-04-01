@@ -5,7 +5,7 @@ import type { GuardDefinition } from './define-guard';
 import type { ExceptionFilterDefinition } from './define-exception-filter';
 import type { ContextKey } from './context-key';
 
-import type { Adapter } from './adapter/adapter';
+import type { Adapter } from '@zipbul/core';
 
 export interface Context {
   getType(): string;

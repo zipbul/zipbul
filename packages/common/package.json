@@ -23,11 +23,9 @@
     "url": "https://github.com/zipbul/zipbul",
     "directory": "packages/common"
   },
-  "dependencies": {
-    "@zipbul/baker": "^2.1.0",
-    "@zipbul/result": "^1.0.0"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "@zipbul/core": "workspace:*",
     "@types/bun": "^1.1.0",
     "typescript": "^5.0.0"
   }

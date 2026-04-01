@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 
 import type { ZipbulContainer } from '@zipbul/common';
-import { runInInjectionContext, inject } from '@zipbul/common';
+import { runInInjectionContext, inject } from '../src/injection-context';
 
 import { Container } from '../src/injector/container';
 import type { RequestScopeContainer } from '../src/injector/request-scope-container';

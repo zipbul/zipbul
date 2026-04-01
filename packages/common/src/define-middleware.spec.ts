@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import type { Context } from './interfaces';
 import type { AdapterClass } from './adapter/types';
 import type { MiddlewareHandlerFn } from './define-middleware';
-import { Adapter } from './adapter/adapter';
+import { Adapter } from '@zipbul/core';
 import { defineMiddleware } from './define-middleware';
 
 class FakeAdapterA extends Adapter {

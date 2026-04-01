@@ -1,4 +1,5 @@
-import { inject, Injectable } from '@zipbul/common';
+import { Injectable } from '@zipbul/common';
+import { inject } from '@zipbul/core';
 import { Logger, type LogMetadataValue } from '@zipbul/logger';
 
 import type { User } from './interfaces';

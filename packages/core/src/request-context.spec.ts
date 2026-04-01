@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { getContext, runInRequestContext } from './request-context';
-import type { Context } from './interfaces';
-import type { ContextKey } from './context-key';
+import type { Context } from '@zipbul/common';
+import type { ContextKey } from '@zipbul/common';
 
 /** Minimal stub that satisfies the Context interface for testing. */
 function createStubContext(label: string): Context {

@@ -9,3 +9,8 @@ export { WorkerState, ClusterStrategy } from './src/cluster/enums';
 export { wrapWorker } from './src/cluster/rpc-proxy';
 export { exposeWorker } from './src/cluster/rpc-expose';
 export type { ClusterWorkerSlot, ClusterWorkerStats, ClusterWorkerId, WorkerGroupConfig } from './src/cluster';
+
+export { Adapter } from './src/adapter/adapter';
+export type { ResolvedMiddleware, ResolvedGuard, ResolvedExceptionFilter, ResolvedValidationEntry } from './src/adapter/adapter';
+export { inject, lazy, runInInjectionContext } from './src/injection-context';
+export { getContext, runInRequestContext } from './src/request-context';

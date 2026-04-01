@@ -1,4 +1,4 @@
-import type { Adapter } from '@zipbul/common';
+import type { Adapter } from '@zipbul/core';
 
 export interface InternalRouteRequest {
   path?: string;

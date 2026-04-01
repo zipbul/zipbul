@@ -1,13 +1,6 @@
-export { err, isErr, safe } from '@zipbul/result';
-export type { Result, Err, ResultAsync } from '@zipbul/result';
-
 export { contextKey } from './context-key';
 export type { ContextKey } from './context-key';
 
-export { getContext, runInRequestContext } from './request-context';
-
-export { Adapter } from './adapter/adapter';
-export type { ResolvedMiddleware, ResolvedGuard, ResolvedExceptionFilter, ResolvedValidationEntry } from './adapter/adapter';
 export { defineAdapter } from './adapter/define-adapter';
 export { ClusterStrategy } from './adapter/types';
 export type {
@@ -105,7 +98,6 @@ export type { InjectableOptions } from './decorators/interfaces';
 export type { InjectableScope, InjectableVisibleTo } from './decorators/types';
 
 export { isClass, isUndefined, isNil, isEmpty, isSymbol, isString, isFunction } from './type-guards';
-export { inject, lazy, runInInjectionContext } from './injection-context';
 
 export {
   IS_DEVELOPMENT, IS_TEST, IS_PRODUCTION, CONFIG_SERVICE, ENV_SERVICE,

@@ -1,4 +1,6 @@
-import { inject, UseMiddlewares, UseExceptionFilters, err } from '@zipbul/common';
+import { UseMiddlewares, UseExceptionFilters } from '@zipbul/common';
+import { inject } from '@zipbul/core';
+import { err } from '@zipbul/result';
 import { RestController, Post, Get, type HttpContext } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 

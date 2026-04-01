@@ -1,11 +1,11 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result } from '@zipbul/result';
-import type { Context, ZipbulContainer } from '../interfaces';
-import type { MiddlewareDefinition, MiddlewareHandlerFn } from '../define-middleware';
-import { defineMiddleware } from '../define-middleware';
-import { defineGuard } from '../define-guard';
-import { defineExceptionFilter } from '../define-exception-filter';
+import type { Context, ZipbulContainer } from '@zipbul/common';
+import type { MiddlewareHandlerFn } from '@zipbul/common';
+import { defineMiddleware } from '@zipbul/common';
+import { defineGuard } from '@zipbul/common';
+import { defineExceptionFilter } from '@zipbul/common';
 import { Adapter, type ResolvedMiddleware, type ResolvedExceptionFilter } from './adapter';
 
 /** Minimal concrete adapter for testing Common base class behavior. */

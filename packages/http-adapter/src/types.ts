@@ -6,10 +6,8 @@ import type {
   PrimitiveArray,
   PrimitiveRecord,
   ProviderToken,
-  ResolvedExceptionFilter,
-  ResolvedMiddleware,
-  ResolvedValidationEntry,
 } from '@zipbul/common';
+import type { ResolvedExceptionFilter, ResolvedMiddleware, ResolvedValidationEntry } from '@zipbul/core';
 import { StatusCodes } from 'http-status-codes';
 
 import type { HttpContext } from './http-context';

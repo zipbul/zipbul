@@ -1,4 +1,5 @@
-import { ContextError, type ContextKey, type ClassToken, type ResolvedExceptionFilter, type Validated, type ZipbulContainer } from '@zipbul/common';
+import { ContextError, type ContextKey, type ClassToken, type Validated, type ZipbulContainer } from '@zipbul/common';
+import type { ResolvedExceptionFilter } from '@zipbul/core';
 import type { Logger } from '@zipbul/logger';
 
 import type { HttpRequest } from './http-request';

@@ -1,6 +1,8 @@
 import { describe, it, expect, mock, afterAll, beforeAll } from 'bun:test';
 import type { Context, ZipbulContainer, CompiledHandlerEntry } from '@zipbul/common';
-import { defineMiddleware, defineGuard, defineExceptionFilter, err, getContext, contextKey } from '@zipbul/common';
+import { defineMiddleware, defineGuard, defineExceptionFilter, contextKey } from '@zipbul/common';
+import { err } from '@zipbul/result';
+import { getContext } from '@zipbul/core';
 import { StatusCodes } from 'http-status-codes';
 
 
