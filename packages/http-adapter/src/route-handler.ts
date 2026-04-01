@@ -13,7 +13,6 @@ import { Logger } from '@zipbul/logger';
 
 import type { MatchedRouteMetadata, MatchRouteOutput } from './types';
 import type { RouterOptions } from '@zipbul/router';
-import { isHttpMethod } from './http-method';
 import type {
   ClassMetadata,
   ControllerInstance,
@@ -103,9 +102,14 @@ export class RouteHandler {
         continue;
       }
 
-      const httpMethod = entry.handlerDecorator.toUpperCase();
+      // @Method('PURGE', '/path') → method from args[0], path from args[1]
+      // @Get('/path')            → method from decorator name, path from args[0]
+      const isCustomMethod = entry.handlerDecorator === 'Method';
+      const httpMethod = isCustomMethod
+        ? (typeof entry.handlerDecoratorArgs[0] === 'string' ? entry.handlerDecoratorArgs[0].toUpperCase() : '')
+        : entry.handlerDecorator.toUpperCase();
 
-      if (!isHttpMethod(httpMethod)) {
+      if (httpMethod.length === 0) {
         continue;
       }
 
@@ -125,7 +129,8 @@ export class RouteHandler {
 
       const handler = this.resolveHandler(instance, entry.methodName);
 
-      const rawPath = typeof entry.handlerDecoratorArgs[0] === 'string' ? entry.handlerDecoratorArgs[0] : '';
+      const pathArgIndex = isCustomMethod ? 1 : 0;
+      const rawPath = typeof entry.handlerDecoratorArgs[pathArgIndex] === 'string' ? entry.handlerDecoratorArgs[pathArgIndex] as string : '';
       const controllerPrefix = this.getControllerPrefix(entry.controllerKey);
       const fullPath = '/' + [controllerPrefix, rawPath].filter(Boolean).join('/').replace(/\/+/g, '/');
 
@@ -192,10 +197,6 @@ export class RouteHandler {
   registerInternalRoutes(routes: ReadonlyArray<InternalRouteDefinition>): void {
     for (const route of routes) {
       const method = String(route.method || '').toUpperCase();
-
-      if (!isHttpMethod(method)) {
-        continue;
-      }
 
       if (method !== 'GET') {
         continue;

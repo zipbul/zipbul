@@ -281,7 +281,7 @@ describe('HttpAdapter E2E', () => {
   const cleanupMiddlewareCalls: string[] = [];
 
   beforeAll(async () => {
-    adapter = new HttpAdapter({ port: TEST_PORT, bodyLimit: 1024 });
+    adapter = new HttpAdapter({ port: TEST_PORT, bodyLimit: 1024, customMethods: ['PURGE'] });
 
     // OnRequest CORS middleware
     adapter.addMiddlewares(HttpPhase.OnRequest, [
@@ -1370,17 +1370,38 @@ describe('HttpAdapter E2E', () => {
           handler: () => ({ shouldNotSee: true }),
         },
       },
+      // ── Custom HTTP method via @Method decorator ──────────────
+      {
+        method: 'Method',
+        path: 'cache/:key',
+        controllerMethod: {
+          name: 'purgeCache',
+          handler: (ctx: InstanceType<typeof HttpContext>) => ({
+            purged: ctx.request.params['key'],
+          }),
+        },
+        // handlerDecoratorArgs override: Method('PURGE', 'cache/:key')
+      },
     ];
 
-    const { handlerIndex, controllerInstances, metadata } = buildHandlerIndex(routes);
+    // Patch the PURGE route: @Method('PURGE', 'cache/:key') produces
+    // handlerDecorator='Method', handlerDecoratorArgs=['PURGE', 'cache/:key']
+    const builtIndex = buildHandlerIndex(routes);
+    const patchedHandlerIndex = builtIndex.handlerIndex.map(entry => {
+      if (entry.methodName === 'purgeCache') {
+        return { ...entry, handlerDecorator: 'Method', handlerDecoratorArgs: ['PURGE', 'cache/:key'] };
+      }
+      return entry;
+    });
 
     server = new HttpServer();
     await server.boot(container, {
       port: TEST_PORT,
       bodyLimit: 1024,
-      metadata: metadata as never,
-      handlerIndex,
-      controllerInstances,
+      customMethods: ['PURGE'],
+      metadata: builtIndex.metadata as never,
+      handlerIndex: patchedHandlerIndex,
+      controllerInstances: builtIndex.controllerInstances,
     }, adapter as never);
   });
 
@@ -1638,7 +1659,7 @@ describe('HttpAdapter E2E', () => {
 
   it('should return 501 for unknown HTTP method', async () => {
     // Arrange & Act
-    const response = await fetch(`${BASE_URL}/json`, { method: 'PURGE' });
+    const response = await fetch(`${BASE_URL}/json`, { method: 'LINK' });
 
     // Assert
     expect(response.status).toBe(501);
@@ -2011,7 +2032,7 @@ describe('HttpAdapter E2E', () => {
 
   it('should include CORS headers on 501 for unknown method', async () => {
     // Arrange & Act
-    const response = await fetch(`${BASE_URL}/json`, { method: 'PURGE' });
+    const response = await fetch(`${BASE_URL}/json`, { method: 'LINK' });
 
     // Assert
     expect(response.status).toBe(501);
@@ -3238,9 +3259,9 @@ describe('HttpAdapter E2E', () => {
     expect(typeof body.message).toBe('string');
   });
 
-  it('should return 501 for unknown HTTP method (PURGE)', async () => {
+  it('should return 501 for unknown HTTP method (TRACE)', async () => {
     // Arrange & Act
-    const response = await fetch(`${BASE_URL}/json`, { method: 'PURGE' });
+    const response = await fetch(`${BASE_URL}/json`, { method: 'LINK' });
 
     // Assert
     expect(response.status).toBe(501);
@@ -4310,7 +4331,7 @@ describe('HttpAdapter E2E', () => {
 
   it('should return JSON body for 501 unknown method', async () => {
     // Arrange & Act
-    const response = await fetch(`${BASE_URL}/json`, { method: 'PURGE' });
+    const response = await fetch(`${BASE_URL}/json`, { method: 'LINK' });
     const body = await response.json();
 
     // Assert
@@ -4597,6 +4618,47 @@ describe('HttpAdapter E2E', () => {
     expect(response.status).toBe(500);
     const text = await response.text();
     expect(text).toBe('Internal Server Error');
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // ── @Method custom HTTP method ────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+
+  it('should route custom PURGE method via @Method decorator', async () => {
+    // Arrange & Act
+    const response = await fetch(`${BASE_URL}/cache/images`, { method: 'PURGE' });
+
+    // Assert
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({ purged: 'images' });
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
+  });
+
+  it('should return 501 for custom method not in customMethods', async () => {
+    // Arrange & Act — PROPFIND is not in customMethods
+    const response = await fetch(`${BASE_URL}/cache/images`, { method: 'PROPFIND' });
+
+    // Assert
+    expect(response.status).toBe(501);
+  });
+
+  it('should return 404 for custom method on non-matching path', async () => {
+    // Arrange & Act
+    const response = await fetch(`${BASE_URL}/nonexistent`, { method: 'PURGE' });
+
+    // Assert
+    expect(response.status).toBe(404);
+    expect(response.headers.get('access-control-allow-origin')).toBe('*');
+  });
+
+  it('should include CORS headers on custom method response', async () => {
+    // Arrange & Act
+    const response = await fetch(`${BASE_URL}/cache/test-key`, { method: 'PURGE' });
+
+    // Assert
+    expect(response.status).toBe(200);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
   });
 });

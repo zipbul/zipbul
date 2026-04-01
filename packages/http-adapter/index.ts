@@ -31,6 +31,6 @@ export { ServerSentEvent, isAsyncIterable, formatSSEChunk } from './src/server-s
 export type { ServerSentEventOptions } from './src/server-sent-event';
 
 export { RestController, Controller } from './src/decorators/class.decorator';
-export { Delete, Get, Head, Options, Patch, Post, Put } from './src/decorators/method.decorator';
+export { Delete, Get, Head, Method, Options, Patch, Post, Put } from './src/decorators/method.decorator';
 export { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './src/decorators/method-option.decorator';
 export type { ResponseFinalizerFn } from './src/http-context';

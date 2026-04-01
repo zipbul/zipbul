@@ -30,7 +30,7 @@ import { HttpError } from './errors/http-error';
 import { HttpResponse } from './http-response';
 import { isBakerError } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
-import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
+import { Get, Post, Put, Delete, Patch, Options, Head, Method } from './decorators/method.decorator';
 import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
 import type { RouteHandler } from './route-handler';
 import { HttpPhase, HeaderField } from './enums';
@@ -117,7 +117,7 @@ export class HttpAdapter extends Adapter {
 
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
-    handlers: [Get, Post, Put, Delete, Patch, Options, Head],
+    handlers: [Get, Post, Put, Delete, Patch, Options, Head, Method],
     options: [RawBody, Sse, BodyLimit, Status, Redirect, ContentTypeDecorator, Header],
   };
 
