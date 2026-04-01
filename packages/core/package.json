@@ -28,7 +28,6 @@
     "directory": "packages/core"
   },
   "dependencies": {
-    "@zipbul/baker": "^0.1.0",
     "@zipbul/common": "workspace:*",
     "@zipbul/logger": "workspace:*",
     "dotenv": "^16.4.5",

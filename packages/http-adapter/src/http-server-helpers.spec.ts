@@ -13,12 +13,8 @@ mock.module('@zipbul/logger', () => ({
 }));
 
 mock.module('@zipbul/baker', () => ({
-  seal: () => {},
   deserialize: async () => ({}),
-  BakerValidationError: class BakerValidationError extends Error {
-    errors = [];
-    constructor() { super('mock'); }
-  },
+  isBakerError: () => false,
 }));
 
 const { __internals } = await import('./http-server');

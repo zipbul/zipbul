@@ -10,7 +10,6 @@ import type {
 import { ClusterStrategy } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 
-import { seal } from '@zipbul/baker';
 
 import { ClusterManager } from '../cluster/cluster-manager';
 import type { ClusterBaseWorker } from '../cluster/cluster-base-worker';
@@ -202,7 +201,6 @@ export class Application {
       return;
     }
 
-    seal();
     await runInitHooks(this.container);
 
     const runtimeCtx = getRuntimeContext();

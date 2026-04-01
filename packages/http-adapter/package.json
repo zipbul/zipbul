@@ -34,7 +34,7 @@
     "typescript": "^5"
   },
   "peerDependencies": {
-    "@zipbul/baker": "^0.1.0",
+    "@zipbul/baker": "^2.1.0",
     "@zipbul/common": "workspace:*",
     "@zipbul/core": "workspace:*",
     "@zipbul/logger": "workspace:*"

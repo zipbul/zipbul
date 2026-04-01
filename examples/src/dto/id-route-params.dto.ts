@@ -1,6 +1,7 @@
-import { IsString } from '@zipbul/common';
+import { Field } from '@zipbul/baker';
+import { isString } from '@zipbul/baker/rules';
 
 export class IdRouteParams {
-  @IsString()
+  @Field(isString)
   id: string;
 }

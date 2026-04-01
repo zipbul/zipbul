@@ -1,12 +1,13 @@
-import { IsBoolean, IsNumber, IsString } from '@zipbul/common';
+import { Field } from '@zipbul/baker';
+import { isString, isNumber, isBoolean } from '@zipbul/baker/rules';
 
 export class AddressDto {
-  @IsString()
+  @Field(isString)
   street: string;
 
-  @IsNumber()
+  @Field(isNumber())
   zipCode: number;
 
-  @IsBoolean()
+  @Field(isBoolean)
   isBusiness: boolean;
 }

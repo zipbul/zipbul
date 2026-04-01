@@ -5,7 +5,8 @@ import { defineMiddleware, defineGuard } from '@zipbul/common';
 let mockAdapterConfig: Record<string, unknown> | undefined;
 
 mock.module('@zipbul/baker', () => ({
-  seal: () => {},
+  deserialize: async () => ({}),
+  isBakerError: () => false,
 }));
 
 mock.module('../runtime/runtime-context', () => ({

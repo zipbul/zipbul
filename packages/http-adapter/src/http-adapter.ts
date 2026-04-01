@@ -26,7 +26,7 @@ import { HttpServer } from './http-server';
 import { __internals as httpServerInternals } from './http-server';
 import { HttpError } from './errors/http-error';
 import { HttpResponse } from './http-response';
-import { BakerValidationError } from '@zipbul/baker';
+import { isBakerError } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
 import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
@@ -511,23 +511,23 @@ export class HttpAdapter extends Adapter {
    * Non-baker errors are re-thrown to enter the exception filter path.
    *
    * @param _kind - The validation kind that failed.
-   * @param thrown - The error thrown by baker `deserialize()`.
+   * @param errors - The `BakerErrors` returned by baker `deserialize()`.
    * @returns `Err` with structured 400 response for baker errors.
    * @public
    */
-  protected override wrapValidationError(_kind: string, thrown: unknown): Err<unknown> {
-    if (thrown instanceof BakerValidationError) {
+  protected override wrapValidationError(_kind: string, errors: unknown): Err<unknown> {
+    if (isBakerError(errors)) {
       return err({
         status: StatusCodes.BAD_REQUEST,
-        message: thrown.message,
-        errors: thrown.errors.map(fieldError => ({
+        message: 'Validation failed',
+        errors: errors.errors.map(fieldError => ({
           path: fieldError.path,
           code: fieldError.code,
           ...(fieldError.message !== undefined ? { message: fieldError.message } : {}),
         })),
       });
     }
-    throw thrown;
+    throw errors;
   }
 
   /**

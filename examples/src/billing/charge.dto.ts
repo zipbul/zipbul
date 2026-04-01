@@ -1,7 +1,7 @@
-import { IsNumber, Min } from '@zipbul/common';
+import { Field } from '@zipbul/baker';
+import { isNumber, min } from '@zipbul/baker/rules';
 
 export class ChargeDto {
-  @IsNumber()
-  @Min(1)
+  @Field(isNumber(), min(1))
   amount: number;
 }

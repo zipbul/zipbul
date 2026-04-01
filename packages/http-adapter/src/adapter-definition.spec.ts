@@ -7,12 +7,8 @@ mock.module('@zipbul/core', () => ({
 }));
 
 mock.module('@zipbul/baker', () => ({
-  seal: () => {},
   deserialize: async () => ({}),
-  BakerValidationError: class BakerValidationError extends Error {
-    errors = [];
-    constructor() { super('mock'); }
-  },
+  isBakerError: () => false,
 }));
 
 const { adapterDefinition } = await import('./adapter-definition');

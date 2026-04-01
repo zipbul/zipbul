@@ -1,6 +1,6 @@
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result, ResultAsync } from '@zipbul/result';
-import { deserialize } from '@zipbul/baker';
+import { deserialize, isBakerError } from '@zipbul/baker';
 import type { MiddlewareDefinition, MiddlewareHandlerFn } from '../define-middleware';
 import type { GuardDefinition, GuardHandlerFn } from '../define-guard';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '../define-exception-filter';
@@ -332,12 +332,13 @@ export abstract class Adapter {
     for (const validation of validations) {
       const input = this.resolveValidationInput(validation.kind, context);
 
-      try {
-        const validated = await deserialize(validation.metatype, input);
-        context.setValidated(validation.kind, validated);
-      } catch (thrown) {
-        return this.wrapValidationError(validation.kind, thrown);
+      const result = await deserialize(validation.metatype, input);
+
+      if (isBakerError(result)) {
+        return this.wrapValidationError(validation.kind, result);
       }
+
+      context.setValidated(validation.kind, result);
     }
     return undefined;
   }
@@ -363,10 +364,10 @@ export abstract class Adapter {
    *
    * Default: re-throws all errors (exception filter path).
    * Adapters with validation (HTTP, WS, Queue, gRPC) override to return `Err`
-   * for `BakerValidationError` and re-throw the rest.
+   * for `BakerErrors` and re-throw the rest.
    *
    * @param _kind - The validation kind that failed.
-   * @param thrown - The error thrown by baker `deserialize()`.
+   * @param errors - The `BakerErrors` returned by baker `deserialize()`.
    * @returns `Err<unknown>` for the pipeline.
    *
    * @public
