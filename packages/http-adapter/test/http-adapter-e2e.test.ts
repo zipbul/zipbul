@@ -22,7 +22,7 @@ import { StatusCodes } from 'http-status-codes';
  *     L256 route guards, L268 handler call
  *   HttpAdapter.handleResult():
  *     L557 isErr → writeErrorResponse, L560 writeSuccessResponse,
- *     L565 BeforeResponse MW, L578 runResponseFinalizers
+ *     L565 BeforeResponse MW
  *   HttpAdapter.writeSuccessResponse():
  *     L719 AsyncIterable → SSE or raw, L784 Response passthrough,
  *     L789 undefined/null, L798 body value, L806 bigint
@@ -54,7 +54,7 @@ import { StatusCodes } from 'http-status-codes';
  *   | ST  | N/A: E2E tests exercise stateless request-response cycles; lifecycle transitions tested in request-scope-http-lifecycle.test.ts |
  *   | CR  | 50    | 1. parallel requests unique IDs (HttpServer.fetch L671), 2. parallel SSE don't interfere (writeSuccessResponse L738 per-request stream), 3. parallel POST parse independently (parseBody per-context) |
  *   | ID  | 50    | 1. same GET twice → identical (deterministic handler), 2. same POST body twice → identical (parseBody + handler), 3. same invalid JSON twice → 400 (parseBody L466) |
- *   | OR  | 50    | 1. CORS headers on all responses (OnRequest MW executePipeline L191), 2. BeforeResponse MW modifies headers (handleResult L565), 3. Cleanup MW runs after response (handleResult L578), 4. response finalizer Set-Cookie (handleResult L578), 5. finalizer on error preserves headers, 6. finalizer throw isolation |
+ *   | OR  | 50    | 1. CORS headers on all responses (OnRequest MW executePipeline L191), 2. BeforeResponse MW modifies headers (handleResult L565), 3. Cleanup MW runs after response (handleResult L578), 4. handler direct Set-Cookie headers, 5. handler-set headers preserved on error |
  * - Total scenarios: 430
  */
 
@@ -101,8 +101,8 @@ import { StatusCodes } from 'http-status-codes';
  *   26. [CR] should assign unique request IDs to parallel requests
  *   27. [ID] should return identical response for repeated identical request
  *   28. [OR] should apply OnRequest middleware CORS headers to response
- *   29. [OR] should run response finalizer and add Set-Cookie to response
- *   30. [OR] should preserve finalizer headers on error response
+ *   29. [OR] should add Set-Cookie headers directly in handler
+ *   30. [OR] should preserve handler-set headers on error response
  *   31. [OR] should apply BeforeResponse middleware modifications
  *   32. [OR] should run Cleanup middleware after response
  *   33. [HP] should apply @Status decorator default status code
@@ -112,7 +112,6 @@ import { StatusCodes } from 'http-status-codes';
  *   37. [HP] should resolve current context via getContext() in deep call
  *   38. [HP] should share state between middleware and handler via ContextKey
  *   39. [NE] should preserve CORS headers when handler throws
- *   40. [OR] should isolate finalizer throw and run remaining finalizers
  *   41. [HP] should handle DELETE method with path params
  *   42. [HP] should handle PUT method with JSON body and path params
  *   43. [HP] should handle PATCH method with JSON body and path params
@@ -306,7 +305,7 @@ describe('HttpAdapter E2E', () => {
     ]);
 
     // Cleanup middleware
-    adapter.addMiddlewares(HttpPhase.Cleanup, [
+    adapter.addMiddlewares(HttpPhase.AfterResponse, [
       defineMiddleware(() => (_ctx: Context) => {
         cleanupMiddlewareCalls.push('cleanup-ran');
         return undefined;
@@ -314,7 +313,7 @@ describe('HttpAdapter E2E', () => {
     ]);
 
     // BeforeParsing middleware
-    adapter.addMiddlewares(HttpPhase.BeforeParsing, [
+    adapter.addMiddlewares(HttpPhase.BeforeParse, [
       defineMiddleware(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         http.response.setHeader('x-before-parsing', 'applied');
@@ -494,10 +493,8 @@ describe('HttpAdapter E2E', () => {
         controllerMethod: {
           name: 'getFinalizer',
           handler: (ctx: InstanceType<typeof HttpContext>) => {
-            ctx.addResponseFinalizer('set-cookie', () => {
-              ctx.response.appendHeader('set-cookie', 'session=abc123; Path=/');
-              ctx.response.appendHeader('set-cookie', 'theme=dark; Path=/');
-            });
+            ctx.response.appendHeader('set-cookie', 'session=abc123; Path=/');
+            ctx.response.appendHeader('set-cookie', 'theme=dark; Path=/');
             return { ok: true };
           },
         },
@@ -508,9 +505,7 @@ describe('HttpAdapter E2E', () => {
         controllerMethod: {
           name: 'getFinalizerError',
           handler: (ctx: InstanceType<typeof HttpContext>) => {
-            ctx.addResponseFinalizer('add-header', () => {
-              ctx.response.setHeader('x-finalizer', 'ran');
-            });
+            ctx.response.setHeader('x-finalizer', 'ran');
             return err({ status: 422, message: 'Validation failed' });
           },
         },
@@ -591,25 +586,6 @@ describe('HttpAdapter E2E', () => {
         controllerMethod: {
           name: 'getEmergency',
           handler: () => { throw new Error('boom'); },
-        },
-      },
-      {
-        method: 'Get',
-        path: 'finalizer-throw',
-        controllerMethod: {
-          name: 'getFinalizerThrow',
-          handler: (ctx: InstanceType<typeof HttpContext>) => {
-            ctx.addResponseFinalizer('f1', () => {
-              ctx.response.setHeader('x-f1', 'yes');
-            });
-            ctx.addResponseFinalizer('f2', () => {
-              throw new Error('finalizer crash');
-            });
-            ctx.addResponseFinalizer('f3', () => {
-              ctx.response.setHeader('x-f3', 'yes');
-            });
-            return { ok: true };
-          },
         },
       },
       {
@@ -1174,28 +1150,6 @@ describe('HttpAdapter E2E', () => {
           handler: (ctx: InstanceType<typeof HttpContext>) => {
             ctx.response.send();
             return undefined;
-          },
-        },
-      },
-      // ── BATCH extra: finalizer LIFO order ─────────────────────
-      {
-        method: 'Get',
-        path: 'finalizer-lifo',
-        controllerMethod: {
-          name: 'getFinalizerLifo',
-          handler: (ctx: InstanceType<typeof HttpContext>) => {
-            const order: string[] = [];
-            ctx.addResponseFinalizer('first', () => {
-              order.push('first');
-              ctx.response.setHeader('x-finalizer-order', order.join(','));
-            });
-            ctx.addResponseFinalizer('second', () => {
-              order.push('second');
-            });
-            ctx.addResponseFinalizer('third', () => {
-              order.push('third');
-            });
-            return { ok: true };
           },
         },
       },
@@ -1794,7 +1748,7 @@ describe('HttpAdapter E2E', () => {
     expect(body).toEqual({ message: 'hello', count: 42 });
   });
 
-  it('should run response finalizer and add Set-Cookie to response', async () => {
+  it('should add Set-Cookie headers directly in handler', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/finalizer`);
 
@@ -1806,7 +1760,7 @@ describe('HttpAdapter E2E', () => {
     expect(body).toEqual({ ok: true });
   });
 
-  it('should preserve finalizer headers on error response', async () => {
+  it('should preserve handler-set headers on error response', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/finalizer-error`);
 
@@ -1928,20 +1882,6 @@ describe('HttpAdapter E2E', () => {
     const body = await response.json();
     expect(body.statusCode).toBe(500);
     expect(body.message).toBe('Internal Server Error');
-  });
-
-  // ── OR: Finalizer throw isolation ──────────────────────────
-
-  it('should isolate finalizer throw and run remaining finalizers', async () => {
-    // Arrange & Act
-    const response = await fetch(`${BASE_URL}/finalizer-throw`);
-
-    // Assert — LIFO: F3 runs first, then F2 throws, then F1 runs
-    expect(response.status).toBe(200);
-    expect(response.headers.get('x-f1')).toBe('yes');
-    expect(response.headers.get('x-f3')).toBe('yes');
-    const body = await response.json();
-    expect(body).toEqual({ ok: true });
   });
 
   // ── HP: DELETE method ──────────────────────────────────────
@@ -3307,43 +3247,19 @@ describe('HttpAdapter E2E', () => {
     expect(body).toEqual({ message: 'hello', count: 42 });
   });
 
-  it('should run response finalizer in LIFO order', async () => {
-    // Arrange & Act
-    const response = await fetch(`${BASE_URL}/finalizer-lifo`);
-
-    // Assert — LIFO: third runs first, then second, then first
-    expect(response.status).toBe(200);
-    const order = response.headers.get('x-finalizer-order');
-    expect(order).toBe('third,second,first');
-    const body = await response.json();
-    expect(body).toEqual({ ok: true });
-  });
-
-  it('should isolate finalizer throw and continue remaining finalizers', async () => {
-    // Arrange & Act
-    const response = await fetch(`${BASE_URL}/finalizer-throw`);
-
-    // Assert — LIFO: f3 runs, f2 throws, f1 still runs
-    expect(response.status).toBe(200);
-    expect(response.headers.get('x-f1')).toBe('yes');
-    expect(response.headers.get('x-f3')).toBe('yes');
-    const body = await response.json();
-    expect(body).toEqual({ ok: true });
-  });
-
-  it('should skip BeforeResponse for native Response (SSE, handler Response)', async () => {
-    // Arrange & Act — SSE path sets native Response, should skip BeforeResponse
+  it('should run BeforeResponse for ALL responses including native Response (SSE, handler Response)', async () => {
+    // Arrange & Act — SSE path sets native Response. BeforeResponse now runs for all.
     const sseResponse = await fetch(`${BASE_URL}/sse-skip-before-response`);
     await sseResponse.text();
 
-    // Assert — SSE native Response should NOT have x-before-response
-    expect(sseResponse.headers.get('x-before-response')).toBeNull();
+    // Assert — SSE native Response SHOULD have x-before-response (merged via getNativeResponse)
+    expect(sseResponse.headers.get('x-before-response')).toBe('applied');
 
     // Also check handler Response
     const nativeResponse = await fetch(`${BASE_URL}/native-skip-before-response`);
     await nativeResponse.text();
 
-    expect(nativeResponse.headers.get('x-before-response')).toBeNull();
+    expect(nativeResponse.headers.get('x-before-response')).toBe('applied');
   });
 
   // ══════════════════════════════════════════════════════════════

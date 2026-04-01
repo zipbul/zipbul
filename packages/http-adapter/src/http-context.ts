@@ -1,6 +1,5 @@
 import { ContextError, type ContextKey, type ClassToken, type Validated, type ZipbulContainer } from '@zipbul/common';
 import type { ResolvedExceptionFilter } from '@zipbul/core';
-import type { Logger } from '@zipbul/logger';
 
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
@@ -8,26 +7,12 @@ import type { ErrorResponseData, MatchedRouteMetadata } from './types';
 
 import { HTTP_CONTEXT_TYPE } from './constants';
 
-/**
- * Function signature for a response finalizer.
- * Finalizers modify headers only — body modification is not allowed.
- *
- * @public
- */
-export type ResponseFinalizerFn = () => Promise<void> | void;
-
-interface NamedResponseFinalizer {
-  readonly name: string;
-  readonly fn: ResponseFinalizerFn;
-}
-
 export class HttpContext {
   private _rawRequest: Request | undefined;
   private _routeExceptionFilters: readonly ResolvedExceptionFilter[] | undefined;
   private _matchedRoute: MatchedRouteMetadata | undefined;
   private readonly validatedCache = new Map<string, unknown>();
   private readonly store = new Map<symbol, unknown>();
-  private readonly responseFinalizers: NamedResponseFinalizer[] = [];
 
   /**
    * Pre-pipeline error set by `fetch()` when `createHttpRequest` fails
@@ -79,41 +64,6 @@ export class HttpContext {
     }
 
     throw new ContextError(`Context cast failed: ${ctor.name || 'UnknownContext'}`);
-  }
-
-  // ── Response Finalizer ──────────────────────────────────────
-
-  /**
-   * Registers a response finalizer that runs after response writing,
-   * in LIFO order. Finalizers modify headers only — body changes are not allowed.
-   * Each finalizer is individually try-caught; failures are logged but do not
-   * prevent remaining finalizers from executing.
-   *
-   * @param name - Human-readable name for error logging.
-   * @param fn - The finalizer function.
-   * @public
-   */
-  addResponseFinalizer(name: string, fn: ResponseFinalizerFn): void {
-    this.responseFinalizers.push({ name, fn });
-  }
-
-  /**
-   * Executes all registered response finalizers in LIFO order.
-   * Each finalizer is individually try-caught — a failing finalizer
-   * does not prevent remaining finalizers from executing.
-   *
-   * @param logger - Logger instance for error reporting.
-   * @internal
-   */
-  async runResponseFinalizers(logger: Logger): Promise<void> {
-    for (let i = this.responseFinalizers.length - 1; i >= 0; i--) {
-      const finalizer = this.responseFinalizers[i]!;
-      try {
-        await finalizer.fn();
-      } catch (error) {
-        logger.error(`Response finalizer '${finalizer.name}' failed`, error instanceof Error ? error : undefined);
-      }
-    }
   }
 
   // ── Validated accessors ──────────────────────────────────────

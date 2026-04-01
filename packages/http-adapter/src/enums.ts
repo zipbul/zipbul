@@ -2,8 +2,17 @@
  * HTTP adapter pipeline phases.
  *
  * Each phase represents a middleware execution point in the HTTP request lifecycle.
- * The pipeline execution order is:
- * `OnRequest → [resolveRoute] → BeforeParsing → [readBody] → BeforeValidation → [runValidations] → BeforeHandler → [handler] → [handleResult] → BeforeResponse → Cleanup`
+ *
+ * Pipeline execution order:
+ * ```
+ * OnRequest → [resolveRoute] → BeforeParse → [parseBody] → BeforeValidate → [runValidations + guards]
+ *   → BeforeHandle → [handler] → AfterHandle → [serialize] → BeforeResponse → [build + send] → AfterResponse
+ * ```
+ *
+ * Naming convention:
+ * - `On*`: lifecycle event (request arrival, response completion)
+ * - `Before*`: pre-action hook (before parsing, validation, handler, send)
+ * - `After*`: post-action hook (after handler, after response)
  *
  * @public
  */
@@ -11,15 +20,17 @@ export enum HttpPhase {
   /** Runs immediately when a request is received, before routing or parsing. CORS, logging, method override, URL rewriting. */
   OnRequest = 'OnRequest',
   /** Runs after route match, before body parsing. Raw body interception, decryption. */
-  BeforeParsing = 'BeforeParsing',
+  BeforeParse = 'BeforeParse',
   /** Runs after body parsing. Query parsing, multipart parsing, body transformation — data preparation before validation. */
-  BeforeValidation = 'BeforeValidation',
+  BeforeValidate = 'BeforeValidate',
   /** Runs after validation, just before handler invocation. Global + handler-scoped MW. Final preparation. */
-  BeforeHandler = 'BeforeHandler',
-  /** Runs after response serialization, before transmission. Response compression, signing, security headers. */
+  BeforeHandle = 'BeforeHandle',
+  /** Runs after handler, before serialization. Result transformation, response envelope. Buffered responses only — native Response (SSE, streaming) has no JS object to transform. */
+  AfterHandle = 'AfterHandle',
+  /** Runs after serialization, before transmission. Response compression, ETag, signing, security headers. Runs for ALL response types including native Response. */
   BeforeResponse = 'BeforeResponse',
   /** Runs after response has been sent (Phase 3 finalize). Errors are swallowed. Logging, metrics, resource cleanup. */
-  Cleanup = 'Cleanup',
+  AfterResponse = 'AfterResponse',
 }
 
 /**

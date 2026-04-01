@@ -6,28 +6,28 @@ describe('isHttpPhase', () => {
     expect(isHttpPhase('OnRequest')).toBe(true);
   });
 
-  it('should return true for BeforeParsing', () => {
-    expect(isHttpPhase('BeforeParsing')).toBe(true);
+  it('should return true for BeforeParse', () => {
+    expect(isHttpPhase('BeforeParse')).toBe(true);
   });
 
-  it('should return true for BeforeValidation', () => {
-    expect(isHttpPhase('BeforeValidation')).toBe(true);
+  it('should return true for BeforeValidate', () => {
+    expect(isHttpPhase('BeforeValidate')).toBe(true);
   });
 
-  it('should return true for BeforeHandler', () => {
-    expect(isHttpPhase('BeforeHandler')).toBe(true);
+  it('should return true for BeforeHandle', () => {
+    expect(isHttpPhase('BeforeHandle')).toBe(true);
+  });
+
+  it('should return true for AfterHandle', () => {
+    expect(isHttpPhase('AfterHandle')).toBe(true);
   });
 
   it('should return true for BeforeResponse', () => {
     expect(isHttpPhase('BeforeResponse')).toBe(true);
   });
 
-  it('should return true for Cleanup', () => {
-    expect(isHttpPhase('Cleanup')).toBe(true);
-  });
-
-  it('should return false for AfterResponse', () => {
-    expect(isHttpPhase('AfterResponse')).toBe(false);
+  it('should return true for AfterResponse', () => {
+    expect(isHttpPhase('AfterResponse')).toBe(true);
   });
 
   it('should return false for InvalidPhase', () => {
@@ -37,23 +37,36 @@ describe('isHttpPhase', () => {
   it('should return false for empty string', () => {
     expect(isHttpPhase('')).toBe(false);
   });
+
+  it('should return false for removed phase names', () => {
+    expect(isHttpPhase('BeforeParsing')).toBe(false);
+    expect(isHttpPhase('BeforeValidation')).toBe(false);
+    expect(isHttpPhase('BeforeHandler')).toBe(false);
+    expect(isHttpPhase('Cleanup')).toBe(false);
+  });
 });
 
 describe('HttpPhase', () => {
-  it('should have exactly 6 values including Cleanup and not AfterResponse', () => {
+  it('should have exactly 7 values', () => {
     const values = Object.values(HttpPhase);
 
-    expect(values).toHaveLength(6);
-    expect(values).toContain('Cleanup');
-    expect(values).not.toContain('AfterResponse');
+    expect(values).toHaveLength(7);
+    expect(values).toContain('OnRequest');
+    expect(values).toContain('BeforeParse');
+    expect(values).toContain('BeforeValidate');
+    expect(values).toContain('BeforeHandle');
+    expect(values).toContain('AfterHandle');
+    expect(values).toContain('BeforeResponse');
+    expect(values).toContain('AfterResponse');
   });
 
   it('should contain all expected phase values', () => {
     expect(HttpPhase.OnRequest).toBe('OnRequest');
-    expect(HttpPhase.BeforeParsing).toBe('BeforeParsing');
-    expect(HttpPhase.BeforeValidation).toBe('BeforeValidation');
-    expect(HttpPhase.BeforeHandler).toBe('BeforeHandler');
+    expect(HttpPhase.BeforeParse).toBe('BeforeParse');
+    expect(HttpPhase.BeforeValidate).toBe('BeforeValidate');
+    expect(HttpPhase.BeforeHandle).toBe('BeforeHandle');
+    expect(HttpPhase.AfterHandle).toBe('AfterHandle');
     expect(HttpPhase.BeforeResponse).toBe('BeforeResponse');
-    expect(HttpPhase.Cleanup).toBe('Cleanup');
+    expect(HttpPhase.AfterResponse).toBe('AfterResponse');
   });
 });

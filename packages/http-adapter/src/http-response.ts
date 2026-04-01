@@ -20,6 +20,9 @@ export class HttpResponse {
   /** Middleware/handler committed flag — pipeline stops processing. */
   private _committed = false;
 
+  /** Tracks whether serialize() has been called to prevent double serialization. */
+  private _serialized = false;
+
   /** Raw native Response before header merge (SSE, streaming, handler Response). */
   private _rawNativeResponse: Response | undefined;
 
@@ -34,9 +37,8 @@ export class HttpResponse {
   // ── Pipeline control ────────────────────────────────────────
 
   /**
-   * Marks the response as committed. The pipeline stops processing
-   * remaining phases but does not build the Response yet.
-   * Response finalizers still run.
+   * Marks the response as committed. Skips writeResponse and AfterHandle phases.
+   * Serialization (serialize) and BeforeResponse still run.
    *
    * @public
    */
@@ -81,6 +83,7 @@ export class HttpResponse {
     this._status = 0;
     this._statusText = undefined;
     this._committed = false;
+    this._serialized = false;
     this._rawNativeResponse = undefined;
     this._mergedNativeResponse = undefined;
     this._response = undefined;
@@ -295,9 +298,58 @@ export class HttpResponse {
     this._rawNativeResponse?.body?.cancel();
   }
 
+  // ── Serialize (Content-Type inference + JSON.stringify) ──────
+
+  /**
+   * Performs Content-Type inference and JSON serialization on the buffered body.
+   * Converts JS objects/arrays/numbers/booleans to JSON strings.
+   *
+   * Called by `handleResult` between AfterHandle and BeforeResponse phases,
+   * so that BeforeResponse middleware receives serialized bytes (enabling compression, ETag, signing).
+   *
+   * No-op when the response has a native Response (SSE, streaming, Blob, handler Response)
+   * or when the body is already a string/binary type.
+   *
+   * @public
+   */
+  serialize(): void {
+    if (this._serialized) return;
+    this._serialized = true;
+
+    // Native Response — body is in the native Response, not in _body
+    if (this._rawNativeResponse !== undefined) return;
+
+    // No body — nothing to serialize
+    if (this._body === undefined) return;
+
+    // Content-Type inference from body type
+    if (this.getContentType() === null) {
+      this.setContentType(this.inferContentType());
+    }
+
+    // JSON serialization
+    const contentType = this.getContentType();
+    if (contentType?.startsWith(ContentType.Json) === true) {
+      try {
+        this._body = JSON.stringify(this._body);
+      } catch (error) {
+        this.setContentType(ContentType.Text);
+        this._body = '[unserializable body]';
+
+        if (typeof console !== 'undefined') {
+          console.error('JSON serialization failed in HttpResponse.serialize():', error);
+        }
+      }
+    }
+  }
+
   // ── Build (buffered body → Response) ────────────────────────
 
   private build(): Response {
+    // Safety net: ensure serialization ran even if called outside the pipeline (e.g. tests, edge cases).
+    // Idempotent — no-op if already called by handleResult.
+    this.serialize();
+
     const location = this.getHeader(HeaderField.Location);
 
     // 1. Redirect: Location header → default 302, body removed
@@ -321,27 +373,7 @@ export class HttpResponse {
       return this.createResponse();
     }
 
-    // 4. Content-Type inference from body type
-    if (this.getContentType() === null) {
-      this.setContentType(this.inferContentType());
-    }
-
-    // 5. JSON serialization
-    const contentType = this.getContentType();
-    if (contentType?.startsWith(ContentType.Json) === true) {
-      try {
-        this._body = JSON.stringify(this._body);
-      } catch (error) {
-        this.setContentType(ContentType.Text);
-        this._body = '[unserializable body]';
-
-        if (typeof console !== 'undefined') {
-          console.error('JSON serialization failed in HttpResponse.build():', error);
-        }
-      }
-    }
-
-    // 5. HEAD: Content-Length from serialized body, then body removed (RFC 9110 §9.3.2)
+    // 4. HEAD: Content-Length from serialized body, then body removed (RFC 9110 §9.3.2)
     if (this.req.method === 'HEAD') {
       if (!this._status) {
         this.setStatus(StatusCodes.OK);

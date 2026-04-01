@@ -175,20 +175,21 @@ export class HttpAdapter extends Adapter {
   // ── Finalize middlewares ─────────────────────────────────────
 
   /**
-   * Returns `Cleanup` phase middlewares for Phase 3 finalize.
+   * Returns `AfterResponse` phase middlewares for Phase 3 finalize.
    *
-   * @returns Resolved Cleanup middlewares.
+   * @returns Resolved AfterResponse middlewares.
    * @public
    */
   protected override getFinalizeMiddlewares(): readonly ResolvedMiddleware[] {
-    return this.getPhaseMiddlewares(HttpPhase.Cleanup);
+    return this.getPhaseMiddlewares(HttpPhase.AfterResponse);
   }
 
   // ── Pipeline assembly ───────────────────────────────────────
 
   /**
    * HTTP-specific pipeline:
-   * OnRequest → resolveRoute → BeforeParsing → readBody → BeforeValidation → runValidations → BeforeHandler → handler → [handleResult] → BeforeResponse → Cleanup
+   * OnRequest → [resolveRoute] → BeforeParse → [parseBody] → BeforeValidate → [runValidations + guards]
+   *   → BeforeHandle → [handler] → AfterHandle → [serialize] → BeforeResponse → [build + send] → AfterResponse
    *
    * @param context - The HTTP context.
    * @returns Pipeline result.
@@ -219,22 +220,22 @@ export class HttpAdapter extends Adapter {
       return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Route metadata not available' });
     }
 
-    // 3. BeforeParsing — raw body interception, decryption
-    const beforeParsing = await this.runHttpMiddlewares(
-      this.getPhaseMiddlewares(HttpPhase.BeforeParsing), http,
+    // 3. BeforeParse — raw body interception, decryption
+    const beforeParse = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.BeforeParse), http,
     );
-    if (isErr(beforeParsing)) return beforeParsing;
+    if (isErr(beforeParse)) return beforeParse;
     if (http.response.isSent()) return undefined;
 
-    // 4. readBody — Content-Type 기반 body 역직렬화
+    // 4. parseBody — Content-Type 기반 body 역직렬화
     const parseResult = await this.parseBody(http);
     if (isErr(parseResult)) return parseResult;
 
-    // 5. BeforeValidation — query parsing, multipart parsing, body transformation
-    const beforeValidation = await this.runHttpMiddlewares(
-      this.getPhaseMiddlewares(HttpPhase.BeforeValidation), http,
+    // 5. BeforeValidate — query parsing, multipart parsing, body transformation
+    const beforeValidate = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.BeforeValidate), http,
     );
-    if (isErr(beforeValidation)) return beforeValidation;
+    if (isErr(beforeValidate)) return beforeValidate;
     if (http.response.isSent()) return undefined;
 
     // 6. runValidations — baker DTO 검증
@@ -249,14 +250,14 @@ export class HttpAdapter extends Adapter {
     if (isErr(guards)) return guards;
     if (http.response.isSent()) return undefined;
 
-    // 8. BeforeHandler — global MW
-    const beforeHandler = await this.runHttpMiddlewares(
-      this.getPhaseMiddlewares(HttpPhase.BeforeHandler), http,
+    // 8. BeforeHandle — global MW
+    const beforeHandle = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.BeforeHandle), http,
     );
-    if (isErr(beforeHandler)) return beforeHandler;
+    if (isErr(beforeHandle)) return beforeHandle;
     if (http.response.isSent()) return undefined;
 
-    // 9. BeforeHandler — handler-scoped MW
+    // 9. BeforeHandle — handler-scoped MW
     if (route.middlewares.length > 0) {
       const scopedResult = await this.runHttpMiddlewares(route.middlewares, http);
       if (isErr(scopedResult)) return scopedResult;
@@ -556,8 +557,12 @@ export class HttpAdapter extends Adapter {
 
   /**
    * Converts a `Result` into an HTTP response.
-   * On success, writes the handler's return value as the response body.
-   * On error, writes an error response with appropriate status code.
+   *
+   * Pipeline: writeResponse → AfterHandle → serialize → BeforeResponse
+   *
+   * - AfterHandle: result transformation / envelope (buffered only).
+   * - serialize: JSON.stringify + Content-Type inference.
+   * - BeforeResponse: post-serialization (ALL responses). compression, ETag, signing.
    *
    * @param result - The pipeline result.
    * @param context - The HTTP context.
@@ -567,28 +572,31 @@ export class HttpAdapter extends Adapter {
     const http = context.to(HttpContext);
     const res = http.response;
 
-    try {
-      if (!res.isSent()) {
-        if (isErr(result)) {
-          this.writeErrorResponse(res, result.data);
-        } else {
-          await this.writeSuccessResponse(res, result, http);
-        }
-
-        // BeforeResponse — skipped for native Response paths (SSE, streaming, Blob, handler Response).
-        // hasNativeResponse() checks without triggering the lazy merge.
-        if (!res.hasNativeResponse()) {
-          const beforeResponse = this.getPhaseMiddlewares(HttpPhase.BeforeResponse);
-          if (beforeResponse.length > 0) {
-            await this.runHttpMiddlewares(beforeResponse, http);
-          }
-        }
+    // ── writeResponse ──
+    if (!res.isSent()) {
+      if (isErr(result)) {
+        this.writeErrorResponse(res, result.data);
+      } else {
+        await this.writeSuccessResponse(res, result, http);
       }
-    } finally {
-      // Structural guarantee — runs even if writeResponse/BeforeResponse throws.
-      // emergencyTeardown runs after this finally (Phase 2 catch), so
-      // finalizer → emergencyTeardown ordering is guaranteed.
-      await http.runResponseFinalizers(this.logger);
+    }
+
+    // ── AfterHandle — result transformation, envelope. Buffered only. ──
+    // Native Response (SSE, streaming, Blob, handler Response) has no JS object to transform.
+    if (!res.hasNativeResponse() && !res.isSent()) {
+      const afterHandle = this.getPhaseMiddlewares(HttpPhase.AfterHandle);
+      if (afterHandle.length > 0) {
+        await this.runHttpMiddlewares(afterHandle, http);
+      }
+    }
+
+    // ── serialize — JSON.stringify + Content-Type inference ──
+    res.serialize();
+
+    // ── BeforeResponse — post-serialization. ALL responses. compression, ETag, signing. ──
+    const beforeResponse = this.getPhaseMiddlewares(HttpPhase.BeforeResponse);
+    if (beforeResponse.length > 0) {
+      await this.runHttpMiddlewares(beforeResponse, http);
     }
   }
 
