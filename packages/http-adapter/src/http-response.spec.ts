@@ -1086,5 +1086,101 @@ describe('HttpResponse', () => {
       expect(response.status).toBe(308);
       expect(response.headers.get('location')).toBe('/permanent');
     });
+
+    it('should throw when redirect URL uses javascript: scheme', () => {
+      const res = createResponse();
+
+      expect(() => res.redirect('javascript:alert(1)')).toThrow(/dangerous scheme/i);
+    });
+
+    it('should throw when redirect URL uses data: scheme', () => {
+      const res = createResponse();
+
+      expect(() => res.redirect('data:text/html,<h1>evil</h1>')).toThrow(/dangerous scheme/i);
+    });
+
+    it('should throw when redirect URL uses vbscript: scheme', () => {
+      const res = createResponse();
+
+      expect(() => res.redirect('vbscript:MsgBox("hi")')).toThrow(/dangerous scheme/i);
+    });
+
+    it('should throw when redirect URL uses JAVASCRIPT: scheme (case-insensitive)', () => {
+      const res = createResponse();
+
+      expect(() => res.redirect('JAVASCRIPT:void(0)')).toThrow(/dangerous scheme/i);
+    });
+
+    it('should allow relative URL redirect', () => {
+      const res = createResponse();
+
+      res.redirect('/safe/path');
+
+      expect(res.getHeader('location')).toBe('/safe/path');
+    });
+
+    it('should allow https: scheme redirect', () => {
+      const res = createResponse();
+
+      res.redirect('https://example.com/callback');
+
+      expect(res.getHeader('location')).toBe('https://example.com/callback');
+    });
+  });
+
+  describe('setContentType — charset deduplication', () => {
+    it('should not double-append charset when value already contains charset=', () => {
+      const res = createResponse();
+
+      res.setContentType('text/html; charset=iso-8859-1');
+
+      expect(res.getContentType()).toBe('text/html; charset=iso-8859-1');
+    });
+
+    it('should not double-append charset for application/json with explicit charset', () => {
+      const res = createResponse();
+
+      res.setContentType('application/json; charset=utf-8');
+
+      expect(res.getContentType()).toBe('application/json; charset=utf-8');
+    });
+
+    it('should append charset=utf-8 when text type has no charset', () => {
+      const res = createResponse();
+
+      res.setContentType('text/plain');
+
+      expect(res.getContentType()).toBe('text/plain; charset=utf-8');
+    });
+
+    it('should not append charset for binary types', () => {
+      const res = createResponse();
+
+      res.setContentType('image/png');
+
+      expect(res.getContentType()).toBe('image/png');
+    });
+  });
+
+  describe('build — 204 should not set Content-Type', () => {
+    it('should not include Content-Type header on explicit 204 response', () => {
+      const res = createResponse();
+      res.setStatus(StatusCodes.NO_CONTENT);
+
+      const response = res.end();
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get('content-type')).toBeNull();
+    });
+
+    it('should not include Content-Type header on auto-204 response', () => {
+      const res = createResponse();
+      // No status, no body → auto 204
+
+      const response = res.end();
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get('content-type')).toBeNull();
+    });
   });
 });

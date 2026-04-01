@@ -34,6 +34,8 @@ import type { RouteHandler } from './route-handler';
 import { HttpPhase, HeaderField } from './enums';
 import { isAsyncIterable, formatSSEChunk, ServerSentEvent } from './server-sent-event';
 
+const TEXT_ENCODER = new TextEncoder();
+
 // ── readBodyWithLimit ─────────────────────────────────────────
 
 async function readBodyWithLimit(
@@ -59,6 +61,8 @@ async function readBodyWithLimit(
   const chunks: Uint8Array[] = [];
   let totalSize = 0;
 
+  let limitExceeded = false;
+
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -66,12 +70,16 @@ async function readBodyWithLimit(
 
       totalSize += value.byteLength;
       if (totalSize > bodyLimit) {
+        limitExceeded = true;
         return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
       }
 
       chunks.push(value);
     }
   } finally {
+    if (limitExceeded) {
+      await reader.cancel();
+    }
     reader.releaseLock();
   }
 
@@ -231,6 +239,7 @@ export class HttpAdapter extends Adapter {
     if (route.validations.length > 0) {
       const validationResult = await this.runValidations(route.validations, http);
       if (isErr(validationResult)) return validationResult;
+      if (http.response.isSent()) return undefined;
     }
 
     // 7. Guards — global access control
@@ -309,7 +318,7 @@ export class HttpAdapter extends Adapter {
     const matchResult = this.routeHandler.matchRoute(req.method, req.path);
 
     if (matchResult.kind === 'not-found') {
-      return err({ status: StatusCodes.NOT_FOUND, message: `Route not found: ${req.method} ${req.path}` });
+      return err({ status: StatusCodes.NOT_FOUND, message: 'Not Found' });
     }
 
     if (matchResult.kind === 'method-not-allowed') {
@@ -460,8 +469,12 @@ export class HttpAdapter extends Adapter {
           throw error;
         }
       } else {
-        // rawReq.text()는 non-fatal 디코딩을 사용하므로 인코딩 에러를 throw하지 않는다 (Bun 1.3.9 실측 확인).
-        req.body = await rawReq.text();
+        try {
+          const raw = new Uint8Array(await rawReq.arrayBuffer());
+          req.body = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(raw);
+        } catch {
+          return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
+        }
       }
       return undefined;
     }
@@ -645,7 +658,7 @@ export class HttpAdapter extends Adapter {
 
   async stop(): Promise<void> {
     if (this.httpServer !== undefined) {
-      this.httpServer.stop();
+      await this.httpServer.stop();
     }
   }
 
@@ -741,11 +754,11 @@ export class HttpAdapter extends Adapter {
             } else {
               // Raw streaming — encode string chunks, pass Uint8Array through
               if (typeof value === 'string') {
-                controller.enqueue(new TextEncoder().encode(value));
+                controller.enqueue(TEXT_ENCODER.encode(value));
               } else if (value instanceof Uint8Array) {
                 controller.enqueue(value);
               } else {
-                controller.enqueue(new TextEncoder().encode(String(value)));
+                controller.enqueue(TEXT_ENCODER.encode(String(value)));
               }
             }
           } catch (error) {
@@ -756,9 +769,9 @@ export class HttpAdapter extends Adapter {
             }
           }
         },
-        cancel() {
+        async cancel() {
           try {
-            iterator.return?.();
+            await iterator.return?.();
           } catch { /* swallow — cleanup best-effort */ }
         },
       });

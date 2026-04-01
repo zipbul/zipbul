@@ -4223,4 +4223,452 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect(result.data.status).toBe(413);
     });
   });
+
+  describe('resolveRoute — 404 message security', () => {
+    it('should return generic Not Found message without leaking path', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const mockRouteHandler = {
+        matchRoute: () => ({ kind: 'not-found' }),
+      };
+      (adapter as any).routeHandler = mockRouteHandler;
+      const context = createHttpContext('GET', '/secret-admin-panel');
+      const http = context.to(require('./http-context').HttpContext);
+
+      // Act
+      const result = (adapter as any).resolveRoute(http);
+
+      // Assert
+      expect(isErr(result)).toBe(true);
+      expect(result.data.status).toBe(404);
+      expect(result.data.message).toBe('Not Found');
+      expect(result.data.message).not.toContain('/secret-admin-panel');
+    });
+  });
+
+  describe('readBodyWithLimit — stream cancellation behavior', () => {
+    it('should return 413 when chunked body exceeds route-level bodyLimit', async () => {
+      // Arrange — text/plain + rawBody + no CL → chunked readBodyWithLimit path
+      const adapter = new HttpAdapter();
+      const largeBody = 'A'.repeat(200); // 200 bytes > 100 limit
+      const rawRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: largeBody,
+        headers: { 'content-type': 'text/plain' },
+      });
+
+      const { HttpResponse } = require('./http-response');
+      const { HttpContext } = require('./http-context');
+      const req = createStubHttpRequest({
+        method: 'POST',
+        originalMethod: 'POST',
+        headers: new Headers({ 'content-type': 'text/plain' }),
+        contentType: { mediaType: 'text/plain', charset: 'utf-8', boundary: null, params: new Map() },
+        contentLength: null, // forces chunked path
+      }) as InstanceType<typeof HttpRequest>;
+      const res = new HttpResponse(req, new Headers());
+      const http = new HttpContext(req, res, rawRequest);
+
+      http.matchedRoute = {
+        rawBody: true,
+        sse: false,
+        bodyLimit: 100,
+        status: undefined,
+        redirect: undefined,
+        contentType: undefined,
+        headers: [],
+        middlewares: [],
+        exceptionFilters: [],
+        guards: [],
+        handler: mock(() => ({})),
+        validations: [],
+      };
+
+      // Act
+      const result = await (adapter as any).parseBody(http);
+
+      // Assert
+      expect(isErr(result)).toBe(true);
+      expect(result.data.status).toBe(413);
+    });
+  });
+
+  describe('RFC 9110 error message compliance', () => {
+    it('should use Content Too Large as default message for 413', () => {
+      const { RequestTooLongError } = require('./errors/request-too-long.error');
+      const error = new RequestTooLongError();
+
+      expect(error.message).toBe('Content Too Large');
+    });
+
+    it('should use URI Too Long as default message for 414', () => {
+      const { RequestUriTooLongError } = require('./errors/request-uri-too-long.error');
+      const error = new RequestUriTooLongError();
+
+      expect(error.message).toBe('URI Too Long');
+    });
+
+    it('should use Unprocessable Content as default message for 422', () => {
+      const { UnprocessableEntityError } = require('./errors/unprocessable-entity.error');
+      const error = new UnprocessableEntityError();
+
+      expect(error.message).toBe('Unprocessable Content');
+    });
+  });
+
+  // ── registerInternalRoute ──────────────────────────────────
+
+  describe('registerInternalRoute', () => {
+    it('should push route entry to internalRoutes array', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const handler = mock(() => new Response('docs'));
+
+      // Act
+      adapter.registerInternalRoute('GET', '/docs', handler);
+
+      // Assert
+      const routes = (adapter as any).internalRoutes;
+      expect(routes).toHaveLength(1);
+      expect(routes[0].method).toBe('GET');
+      expect(routes[0].path).toBe('/docs');
+      expect(routes[0].handler).toBe(handler);
+    });
+
+    it('should accumulate multiple internal routes', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+
+      // Act
+      adapter.registerInternalRoute('GET', '/docs', mock(() => new Response('docs')));
+      adapter.registerInternalRoute('GET', '/health', mock(() => new Response('ok')));
+
+      // Assert
+      const routes = (adapter as any).internalRoutes;
+      expect(routes).toHaveLength(2);
+      expect(routes[0].path).toBe('/docs');
+      expect(routes[1].path).toBe('/health');
+    });
+  });
+
+  // ── Lifecycle: stop / drain ────────────────────────────────
+
+  describe('stop', () => {
+    it('should call httpServer.stop() when server exists', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const mockStop = mock(() => Promise.resolve());
+      (adapter as any).httpServer = { stop: mockStop };
+
+      // Act
+      await adapter.stop();
+
+      // Assert
+      expect(mockStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('should be no-op when httpServer is undefined', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      (adapter as any).httpServer = undefined;
+
+      // Act & Assert — should not throw
+      await adapter.stop();
+    });
+  });
+
+  describe('drain', () => {
+    it('should be no-op when httpServer is undefined', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      (adapter as any).httpServer = undefined;
+
+      // Act & Assert — should not throw
+      await adapter.drain(1000);
+    });
+
+    it('should be no-op when underlying server is null', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      (adapter as any).httpServer = { getServer: () => undefined };
+
+      // Act & Assert — should not throw
+      await adapter.drain(1000);
+    });
+
+    it('should call server.stop() for graceful drain', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const mockServerStop = mock(() => Promise.resolve());
+      const mockServer = {
+        stop: mockServerStop,
+        pendingRequests: 0,
+        pendingWebSockets: 0,
+      };
+      (adapter as any).httpServer = { getServer: () => mockServer };
+
+      // Act
+      await adapter.drain(1000);
+
+      // Assert
+      expect(mockServerStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('should force close when pending requests remain after timeout', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const stopCalls: (boolean | undefined)[] = [];
+      const mockServer = {
+        stop: mock((force?: boolean) => {
+          stopCalls.push(force);
+          // Simulate slow drain — never resolves
+          if (force === undefined) return new Promise(() => {});
+          return Promise.resolve();
+        }),
+        pendingRequests: 5,
+        pendingWebSockets: 0,
+      };
+      (adapter as any).httpServer = { getServer: () => mockServer };
+
+      // Act — timeout = 10ms
+      await adapter.drain(10);
+
+      // Assert — first call is graceful (no arg), second is force (true)
+      expect(stopCalls.length).toBeGreaterThanOrEqual(2);
+      expect(stopCalls[0]).toBeUndefined(); // graceful
+      expect(stopCalls[1]).toBe(true); // force
+    });
+
+    it('should force close when pending WebSockets remain after timeout', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const stopCalls: (boolean | undefined)[] = [];
+      const mockServer = {
+        stop: mock((force?: boolean) => {
+          stopCalls.push(force);
+          if (force === undefined) return new Promise(() => {});
+          return Promise.resolve();
+        }),
+        pendingRequests: 0,
+        pendingWebSockets: 3,
+      };
+      (adapter as any).httpServer = { getServer: () => mockServer };
+
+      // Act
+      await adapter.drain(10);
+
+      // Assert
+      expect(stopCalls.length).toBeGreaterThanOrEqual(2);
+      expect(stopCalls[1]).toBe(true);
+    });
+
+    it('should not force close when drain completes before timeout', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const stopCalls: (boolean | undefined)[] = [];
+      const mockServer = {
+        stop: mock((force?: boolean) => {
+          stopCalls.push(force);
+          return Promise.resolve(); // resolves immediately
+        }),
+        pendingRequests: 0,
+        pendingWebSockets: 0,
+      };
+      (adapter as any).httpServer = { getServer: () => mockServer };
+
+      // Act
+      await adapter.drain(5000);
+
+      // Assert — only graceful stop called
+      expect(stopCalls).toEqual([undefined]);
+    });
+  });
+
+  // ── Metadata normalization ─────────────────────────────────
+
+  describe('normalizeMetadataRegistry', () => {
+    it('should return undefined when registry is undefined', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+
+      // Act
+      const result = (adapter as any).normalizeMetadataRegistry(undefined);
+
+      // Assert
+      expect(result).toBeUndefined();
+    });
+
+    it('should normalize core class metadata to http class metadata', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      class TestClass {}
+      const registry = new Map();
+      registry.set(TestClass, {
+        decorators: [{ name: 'RestController' }],
+        constructorParams: [{ type: 'SomeService' }],
+      });
+
+      // Act
+      const result = (adapter as any).normalizeMetadataRegistry(registry);
+
+      // Assert
+      expect(result).toBeDefined();
+      expect(result.size).toBe(1);
+      const meta = result.get(TestClass);
+      expect(meta).toBeDefined();
+      expect(meta.decorators).toEqual([{ name: 'RestController' }]);
+      expect(meta.constructorParams).toEqual([{ type: 'SomeService' }]);
+    });
+
+    it('should pass through already-http metadata unchanged', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      class TestClass {}
+      const httpMeta = {
+        className: 'TestClass',
+        methods: {},
+        decorators: [{ name: 'RestController' }],
+      };
+      const registry = new Map();
+      registry.set(TestClass, httpMeta);
+
+      // Act
+      const result = (adapter as any).normalizeMetadataRegistry(registry);
+
+      // Assert
+      expect(result.get(TestClass)).toBe(httpMeta);
+    });
+
+    it('should skip non-class-token keys (strings, symbols)', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const registry = new Map();
+      registry.set('StringKey', { decorators: [] });
+      registry.set(Symbol('sym'), { decorators: [] });
+      class ValidClass {}
+      registry.set(ValidClass, { decorators: [{ name: 'Controller' }] });
+
+      // Act
+      const result = (adapter as any).normalizeMetadataRegistry(registry);
+
+      // Assert
+      expect(result.size).toBe(1);
+      expect(result.has(ValidClass)).toBe(true);
+    });
+
+    it('should handle metadata without decorators or constructorParams', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      class TestClass {}
+      const registry = new Map();
+      registry.set(TestClass, {});
+
+      // Act
+      const result = (adapter as any).normalizeMetadataRegistry(registry);
+
+      // Assert
+      const meta = result.get(TestClass);
+      expect(meta).toBeDefined();
+      expect(meta.decorators).toBeUndefined();
+      expect(meta.constructorParams).toBeUndefined();
+    });
+
+    it('should normalize constructorParams with decorator metadata', () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      class TestClass {}
+      const registry = new Map();
+      registry.set(TestClass, {
+        constructorParams: [
+          { type: 'ServiceA', decorators: [{ name: 'Inject' }] },
+          { type: Symbol.for('token') },
+          { type: 12345 },  // non-provider token (number)
+        ],
+      });
+
+      // Act
+      const result = (adapter as any).normalizeMetadataRegistry(registry);
+
+      // Assert
+      const meta = result.get(TestClass);
+      expect(meta.constructorParams).toHaveLength(3);
+      expect(meta.constructorParams[0].type).toBe('ServiceA');
+      expect(meta.constructorParams[0].decorators).toEqual([{ name: 'Inject' }]);
+      expect(meta.constructorParams[1].type).toBe(Symbol.for('token'));
+      expect(meta.constructorParams[2].type).toBeUndefined(); // number is not a provider token
+    });
+  });
+
+  // ── isProviderToken ────────────────────────────────────────
+
+  describe('isProviderToken', () => {
+    it('should return true for string token', () => {
+      const adapter = new HttpAdapter();
+      expect((adapter as any).isProviderToken('ServiceA')).toBe(true);
+    });
+
+    it('should return true for symbol token', () => {
+      const adapter = new HttpAdapter();
+      expect((adapter as any).isProviderToken(Symbol('test'))).toBe(true);
+    });
+
+    it('should return true for function/class token', () => {
+      const adapter = new HttpAdapter();
+      class MyService {}
+      expect((adapter as any).isProviderToken(MyService)).toBe(true);
+    });
+
+    it('should return false for number', () => {
+      const adapter = new HttpAdapter();
+      expect((adapter as any).isProviderToken(42)).toBe(false);
+    });
+
+    it('should return false for undefined', () => {
+      const adapter = new HttpAdapter();
+      expect((adapter as any).isProviderToken(undefined)).toBe(false);
+    });
+
+    it('should return false for null', () => {
+      const adapter = new HttpAdapter();
+      expect((adapter as any).isProviderToken(null)).toBe(false);
+    });
+  });
+
+  // ── isHttpClassMetadata ────────────────────────────────────
+
+  describe('isHttpClassMetadata', () => {
+    it('should return true when value has methods property', () => {
+      const adapter = new HttpAdapter();
+      expect((adapter as any).isHttpClassMetadata({ methods: {} })).toBe(true);
+    });
+
+    it('should return true when value has className property', () => {
+      const adapter = new HttpAdapter();
+      expect((adapter as any).isHttpClassMetadata({ className: 'Test' })).toBe(true);
+    });
+
+    it('should return false for core metadata without methods/className', () => {
+      const adapter = new HttpAdapter();
+      expect((adapter as any).isHttpClassMetadata({ decorators: [] })).toBe(false);
+    });
+  });
+
+  // ── isStartContext ─────────────────────────────────────────
+
+  describe('toStartContext', () => {
+    it('should throw when context has no container', () => {
+      const adapter = new HttpAdapter();
+
+      expect(() => (adapter as any).toStartContext({})).toThrow('Adapter context missing container');
+    });
+
+    it('should return context when it has container', () => {
+      const adapter = new HttpAdapter();
+      const ctx = { container: {} };
+
+      const result = (adapter as any).toStartContext(ctx);
+
+      expect(result).toBe(ctx);
+    });
+  });
 });

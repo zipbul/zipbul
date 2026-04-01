@@ -643,7 +643,7 @@ export class HttpServer {
 
     this.server = Bun.serve<unknown>(serveOptions);
 
-    this.logger.info(`Listening on :${this.options.port}`);
+    this.logger.info(`Listening on :${this.server.port}`);
   }
 
   /**
@@ -651,9 +651,9 @@ export class HttpServer {
    *
    * @public
    */
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.server) {
-      this.server.stop();
+      await this.server.stop();
       this.logger.info('Server stopped');
     }
   }

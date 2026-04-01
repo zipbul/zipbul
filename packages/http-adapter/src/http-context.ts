@@ -133,14 +133,6 @@ export class HttpContext {
    * Returns the validated value for the given kind.
    * Throws `ContextError` if the kind has not been validated.
    *
-   * @param kind - The validation kind.
-   * @returns The validated value.
-   * @public
-   */
-  /**
-   * Returns the validated value for the given kind.
-   * Throws `ContextError` if the kind has not been validated.
-   *
    * The generic cast is safe: baker `deserialize()` guarantees
    * the stored value conforms to `T` at runtime.
    *

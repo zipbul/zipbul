@@ -5,6 +5,8 @@ import type { ResponseBodyValue } from './types';
 
 import { ContentType, HeaderField } from './enums';
 
+const DANGEROUS_SCHEME_PATTERN = /^(?:javascript|data|vbscript):/i;
+
 export class HttpResponse {
   private readonly req: HttpRequest;
   private _body: ResponseBodyValue | undefined;
@@ -136,9 +138,10 @@ export class HttpResponse {
    * @public
    */
   setContentType(contentType: string): this {
-    const needsCharset = contentType.startsWith('text/')
-      || contentType === 'application/json'
-      || contentType.endsWith('+json');
+    const needsCharset = !contentType.includes('charset=')
+      && (contentType.startsWith('text/')
+        || contentType === 'application/json'
+        || contentType.endsWith('+json'));
     this.setHeader(
       HeaderField.ContentType,
       needsCharset ? `${contentType}; charset=utf-8` : contentType,
@@ -210,6 +213,9 @@ export class HttpResponse {
   // ── Convenience ─────────────────────────────────────────────
 
   redirect(url: string, status?: 301 | 302 | 303 | 307 | 308): this {
+    if (DANGEROUS_SCHEME_PATTERN.test(url)) {
+      throw new Error(`Redirect to dangerous scheme is not allowed: ${url.slice(0, url.indexOf(':') + 1)}`);
+    }
     if (status !== undefined) {
       this.setStatus(status);
     }
@@ -303,18 +309,24 @@ export class HttpResponse {
       return this.createResponse();
     }
 
-    // 2. Content-Type inference from body type
-    if (this.getContentType() === null) {
-      this.setContentType(this.inferContentType());
-    }
-
-    // 3. 204/304: body removed per RFC
+    // 2. 204/304: body removed per RFC — checked before Content-Type inference
     if (this._status === StatusCodes.NO_CONTENT || this._status === StatusCodes.NOT_MODIFIED) {
       this._body = undefined;
       return this.createResponse();
     }
 
-    // 4. JSON serialization
+    // 3. Auto 204: no status + no body — skip Content-Type
+    if (!this._status && this._body === undefined) {
+      this.setStatus(StatusCodes.NO_CONTENT);
+      return this.createResponse();
+    }
+
+    // 4. Content-Type inference from body type
+    if (this.getContentType() === null) {
+      this.setContentType(this.inferContentType());
+    }
+
+    // 5. JSON serialization
     const contentType = this.getContentType();
     if (contentType?.startsWith(ContentType.Json) === true) {
       try {
@@ -336,20 +348,13 @@ export class HttpResponse {
       }
 
       if (typeof this._body === 'string') {
-        this.setHeader(HeaderField.ContentLength, new TextEncoder().encode(this._body).byteLength.toString());
+        this.setHeader(HeaderField.ContentLength, Buffer.byteLength(this._body, 'utf-8').toString());
       } else if (this._body instanceof Uint8Array) {
         this.setHeader(HeaderField.ContentLength, this._body.byteLength.toString());
       } else if (this._body instanceof ArrayBuffer) {
         this.setHeader(HeaderField.ContentLength, this._body.byteLength.toString());
       }
 
-      this._body = undefined;
-      return this.createResponse();
-    }
-
-    // 6. Auto 204: no status + no body
-    if (!this._status && this._body === undefined) {
-      this.setStatus(StatusCodes.NO_CONTENT);
       this._body = undefined;
       return this.createResponse();
     }

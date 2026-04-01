@@ -48,7 +48,9 @@ export function formatSSEChunk(chunk: unknown): Uint8Array {
   if (chunk instanceof ServerSentEvent) {
     if (chunk.event !== undefined) frame += `event: ${stripLineBreaks(chunk.event)}\n`;
     if (chunk.id !== undefined) frame += `id: ${stripLineBreaks(chunk.id)}\n`;
-    if (chunk.retry !== undefined) frame += `retry: ${chunk.retry}\n`;
+    if (chunk.retry !== undefined && Number.isInteger(chunk.retry) && chunk.retry >= 0) {
+      frame += `retry: ${chunk.retry}\n`;
+    }
     frame += formatDataField(serializeData(chunk.data));
   } else if (typeof chunk === 'string') {
     frame = formatDataField(chunk);
@@ -74,9 +76,9 @@ function serializeData(data: unknown): string {
   return typeof data === 'string' ? data : JSON.stringify(data);
 }
 
-/** SSE event/id 필드는 단일 행 값이다. 개행 문자를 제거하여 프레임 인젝션을 방지한다. */
+/** SSE event/id 필드는 단일 행 값이다. 개행·NULL 문자를 제거하여 프레임 인젝션을 방지한다 (WHATWG SSE §9.2.6). */
 function stripLineBreaks(value: string): string {
-  return value.replace(/\r\n|\r|\n/g, '');
+  return value.replace(/\r\n|\r|\n|\0/g, '');
 }
 
 /**

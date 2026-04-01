@@ -216,3 +216,71 @@ describe('isAsyncIterable', () => {
     expect(isAsyncIterable(Promise.resolve(1))).toBe(false);
   });
 });
+
+describe('formatSSEChunk — id NULL character sanitization', () => {
+  it('should strip NULL characters from id field', () => {
+    const event = new ServerSentEvent('data', { id: 'test\0inject' });
+    const frame = decodeChunk(formatSSEChunk(event));
+
+    expect(frame).toContain('id: testinject');
+    expect(frame).not.toContain('\0');
+  });
+
+  it('should strip multiple NULL characters from id field', () => {
+    const event = new ServerSentEvent('data', { id: '\0a\0b\0' });
+    const frame = decodeChunk(formatSSEChunk(event));
+
+    expect(frame).toContain('id: ab');
+  });
+
+  it('should strip both newlines and NULL from id field', () => {
+    const event = new ServerSentEvent('data', { id: 'a\nb\0c\rd' });
+    const frame = decodeChunk(formatSSEChunk(event));
+
+    expect(frame).toContain('id: abcd');
+  });
+});
+
+describe('formatSSEChunk — retry validation', () => {
+  it('should include retry field for valid non-negative integer', () => {
+    const event = new ServerSentEvent('data', { retry: 3000 });
+    const frame = decodeChunk(formatSSEChunk(event));
+
+    expect(frame).toContain('retry: 3000');
+  });
+
+  it('should include retry field for zero', () => {
+    const event = new ServerSentEvent('data', { retry: 0 });
+    const frame = decodeChunk(formatSSEChunk(event));
+
+    expect(frame).toContain('retry: 0');
+  });
+
+  it('should omit retry field for negative value', () => {
+    const event = new ServerSentEvent('data', { retry: -1 });
+    const frame = decodeChunk(formatSSEChunk(event));
+
+    expect(frame).not.toContain('retry:');
+  });
+
+  it('should omit retry field for floating-point value', () => {
+    const event = new ServerSentEvent('data', { retry: 3.5 });
+    const frame = decodeChunk(formatSSEChunk(event));
+
+    expect(frame).not.toContain('retry:');
+  });
+
+  it('should omit retry field for NaN', () => {
+    const event = new ServerSentEvent('data', { retry: NaN });
+    const frame = decodeChunk(formatSSEChunk(event));
+
+    expect(frame).not.toContain('retry:');
+  });
+
+  it('should omit retry field for Infinity', () => {
+    const event = new ServerSentEvent('data', { retry: Infinity });
+    const frame = decodeChunk(formatSSEChunk(event));
+
+    expect(frame).not.toContain('retry:');
+  });
+});
