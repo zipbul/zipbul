@@ -1,4 +1,4 @@
-import { ContextError, type ContextKey, type ClassToken, type Validated, type ZipbulContainer } from '@zipbul/common';
+import { ContextError, type AdapterContext, type ContextKey, type ClassToken, type Validated, type ZipbulContainer } from '@zipbul/common';
 import type { ResolvedExceptionFilter } from '@zipbul/core';
 
 import type { HttpRequest } from './http-request';
@@ -7,7 +7,7 @@ import type { ErrorResponseData, MatchedRouteMetadata } from './types';
 
 import { HTTP_CONTEXT_TYPE } from './constants';
 
-export class HttpContext {
+export class HttpContext implements AdapterContext {
   private _rawRequest: Request | undefined;
   private _routeExceptionFilters: readonly ResolvedExceptionFilter[] | undefined;
   private _matchedRoute: MatchedRouteMetadata | undefined;

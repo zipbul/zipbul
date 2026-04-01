@@ -1,4 +1,4 @@
-import type { Context, AdapterEntryDecorators } from '@zipbul/common';
+import type { AdapterContext, ApplicationContext, AdapterEntryDecorators } from '@zipbul/common';
 import type { MiddlewareDefinition } from '@zipbul/common';
 import { err, isErr } from '@zipbul/result';
 import type { Result, Err } from '@zipbul/result';
@@ -8,7 +8,7 @@ import { StatusCodes } from 'http-status-codes';
 import { Logger } from '@zipbul/logger';
 
 import {
-  getRuntimeContext,
+  getBootstrapState,
   type ClassMetadata as CoreClassMetadata,
   type ConstructorParamMetadata as CoreConstructorParamMetadata,
   type DecoratorMetadata as CoreDecoratorMetadata,
@@ -16,7 +16,6 @@ import {
 import type {
   HttpServerBootOptions,
   HttpServerOptions,
-  HttpAdapterStartContext,
   InternalRouteHandler,
   InternalRouteEntry,
 } from './interfaces';
@@ -34,7 +33,7 @@ import { Get, Post, Put, Delete, Patch, Options, Head, Method } from './decorato
 import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
 import type { RouteHandler } from './route-handler';
 import { HttpPhase, HeaderField } from './enums';
-import { isAsyncIterable, formatSSEChunk, ServerSentEvent } from './server-sent-event';
+import { isAsyncIterable, formatSSEChunk } from './server-sent-event';
 
 const TEXT_ENCODER = new TextEncoder();
 
@@ -195,7 +194,7 @@ export class HttpAdapter extends Adapter {
    * @returns Pipeline result.
    * @public
    */
-  protected async executePipeline(context: Context): Promise<Result<unknown, unknown>> {
+  protected async executePipeline(context: AdapterContext): Promise<Result<unknown, unknown>> {
     const http = context.to(HttpContext);
 
     // 1. OnRequest — CORS, logging, method override, URL rewriting
@@ -499,7 +498,7 @@ export class HttpAdapter extends Adapter {
    * @returns The raw input value for baker to validate.
    * @public
    */
-  protected override resolveValidationInput(kind: string, context: Context): unknown {
+  protected override resolveValidationInput(kind: string, context: AdapterContext): unknown {
     const http = context.to(HttpContext);
     switch (kind) {
       case 'body': return http.request.body;
@@ -568,7 +567,7 @@ export class HttpAdapter extends Adapter {
    * @param context - The HTTP context.
    * @public
    */
-  protected override async handleResult(result: Result<unknown, unknown>, context: Context): Promise<void> {
+  protected override async handleResult(result: Result<unknown, unknown>, context: AdapterContext): Promise<void> {
     const http = context.to(HttpContext);
     const res = http.response;
 
@@ -607,7 +606,7 @@ export class HttpAdapter extends Adapter {
    * @param error - The error that triggered teardown.
    * @public
    */
-  protected emergencyTeardown(context: Context, error?: unknown): void {
+  protected emergencyTeardown(context: AdapterContext, error?: unknown): void {
     if (error instanceof Error) {
       this.logger.error(`emergencyTeardown: ${error.message}`, error);
     } else if (error !== undefined) {
@@ -625,7 +624,7 @@ export class HttpAdapter extends Adapter {
     }
   }
 
-  protected override getLocalExceptionFilters(context: Context): readonly ResolvedExceptionFilter[] | undefined {
+  protected override getLocalExceptionFilters(context: AdapterContext): readonly ResolvedExceptionFilter[] | undefined {
     return context.to(HttpContext).routeExceptionFilters;
   }
 
@@ -642,28 +641,27 @@ export class HttpAdapter extends Adapter {
 
   // ── Lifecycle ──────────────────────────────────────────────
 
-  async start(context: Context): Promise<void> {
+  async start(context: ApplicationContext): Promise<void> {
     await Logger.runScoped(this.logger, () => this.startInternal(context));
   }
 
-  private async startInternal(context: Context): Promise<void> {
-    const startContext = this.toStartContext(context);
-    const runtimeCtx = getRuntimeContext();
+  private async startInternal(context: ApplicationContext): Promise<void> {
+    const bootstrapState = getBootstrapState();
 
     this.httpServer = new HttpServer();
 
-    const metadata = this.normalizeMetadataRegistry(runtimeCtx.metadataRegistry);
-    const scopedKeys = runtimeCtx.scopedKeys;
+    const metadata = this.normalizeMetadataRegistry(bootstrapState.metadataRegistry);
+    const scopedKeys = bootstrapState.scopedKeys;
     const bootOptions: HttpServerBootOptions = {
       ...this.options,
       ...(metadata !== undefined ? { metadata } : {}),
       ...(scopedKeys !== undefined ? { scopedKeys } : {}),
       internalRoutes: this.internalRoutes,
-      ...(runtimeCtx.handlerIndex !== undefined ? { handlerIndex: runtimeCtx.handlerIndex } : {}),
-      ...(runtimeCtx.controllerInstances !== undefined ? { controllerInstances: runtimeCtx.controllerInstances } : {}),
+      ...(bootstrapState.handlerIndex !== undefined ? { handlerIndex: bootstrapState.handlerIndex } : {}),
+      ...(bootstrapState.controllerInstances !== undefined ? { controllerInstances: bootstrapState.controllerInstances } : {}),
     };
 
-    await this.httpServer.boot(startContext.container, bootOptions, this);
+    await this.httpServer.boot(context.container, bootOptions, this);
   }
 
   async stop(): Promise<void> {
@@ -856,17 +854,6 @@ export class HttpAdapter extends Adapter {
 
   // ── Internals ─────────────────────────────────────────────
 
-  private toStartContext(context: Context): HttpAdapterStartContext {
-    if (!this.isStartContext(context)) {
-      throw new Error('Adapter context missing container.');
-    }
-
-    return context;
-  }
-
-  private isStartContext(value: Context): value is HttpAdapterStartContext {
-    return typeof value === 'object' && value !== null && 'container' in value;
-  }
 
   private normalizeMetadataRegistry(
     registry:

@@ -1,7 +1,7 @@
 import type { ZipbulRecord, ZipbulValue } from '@zipbul/common';
 
 import { ClusterBaseWorker } from './cluster-base-worker';
-import { registerRuntimeContext } from '../runtime/runtime-context';
+import { registerBootstrapState } from '../runtime/bootstrap-state';
 import type { RpcArgs, RpcCallable } from './types';
 import { exposeWorker } from './rpc-expose';
 
@@ -12,12 +12,12 @@ const RPC_METHODS = ['init', 'bootstrap', 'destroy', 'getStats', 'getStatsAfterG
  * the full Application with only the adapters assigned to its group.
  *
  * The AOT runtime is loaded via `preload` option (set by ClusterManager),
- * which triggers `registerRuntimeContext()` before this script executes.
+ * which triggers `registerBootstrapState()` before this script executes.
  * The user's app module is then dynamically imported, calling
  * `createApplication()` → `attach()` → `start()` internally.
  *
- * `Application.start()` detects the worker context via `getRuntimeContext().workerId`
- * and filters adapters based on `getRuntimeContext().adapterFilter`.
+ * `Application.start()` detects the worker context via `getBootstrapState().workerId`
+ * and filters adapters based on `getBootstrapState().adapterFilter`.
  *
  * @public
  */
@@ -32,7 +32,7 @@ class ApplicationWorker extends ClusterBaseWorker {
       ? { workerId, adapterFilter: parsedFilter }
       : { workerId };
 
-    registerRuntimeContext(workerContext);
+    registerBootstrapState(workerContext);
 
     if (!isRecord(params)) {
       throw new Error('ApplicationWorker requires init params with appEntryPath');

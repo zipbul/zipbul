@@ -8,7 +8,7 @@ import type {
   OnShutdown,
   OnStart,
 } from './interfaces';
-import type { Adapter } from '@zipbul/core';
+import type { Adapter } from './adapter/types';
 
 export type ZipbulPrimitive = string | number | boolean | bigint | symbol | null | undefined;
 

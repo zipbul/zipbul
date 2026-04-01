@@ -160,7 +160,7 @@ export class RouteHandler {
         bodyLimit: typeof bodyLimitValue === 'number' ? bodyLimitValue : undefined,
         status: typeof statusValue === 'number' ? statusValue : undefined,
         redirect: redirectOption !== undefined && typeof redirectOption.arguments?.[0] === 'string'
-          ? { url: redirectOption.arguments[0] as string, status: redirectOption.arguments?.[1] as 301 | 302 | 303 | 307 | 308 | undefined }
+          ? { url: redirectOption.arguments[0] as string, ...(redirectOption.arguments?.[1] !== undefined ? { status: redirectOption.arguments[1] as 301 | 302 | 303 | 307 | 308 } : {}) }
           : undefined,
         contentType: typeof contentTypeValue === 'string' ? contentTypeValue : undefined,
         headers,
@@ -364,7 +364,7 @@ export class RouteHandler {
   }
 
   private getControllerPrefix(controllerKey: string): string {
-    const className = controllerKey.includes('::') ? controllerKey.split('::')[1] : controllerKey;
+    const className = controllerKey.includes('::') ? controllerKey.split('::')[1]! : controllerKey;
 
     const ctor = this.metatypeIndex.get(className);
     if (ctor === undefined) return '';

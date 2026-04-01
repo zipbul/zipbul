@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, type Mock } from 'bun:test';
-import type { AdapterClass, Context, ZipbulContainer, ProviderToken, GuardDefinition } from '@zipbul/common';
+import type { AdapterClass, ApplicationContext, ZipbulContainer, ProviderToken, GuardDefinition } from '@zipbul/common';
 import { defineMiddleware, defineGuard } from '@zipbul/common';
 import type { Adapter } from '../adapter/adapter';
 
@@ -10,8 +10,9 @@ mock.module('@zipbul/baker', () => ({
   isBakerError: () => false,
 }));
 
-mock.module('../runtime/runtime-context', () => ({
-  getRuntimeContext: () => ({ adapterConfig: mockAdapterConfig }),
+mock.module('../runtime/bootstrap-state', () => ({
+  getBootstrapState: () => ({ adapterConfig: mockAdapterConfig }),
+  clearMetadataRegistry: () => {},
 }));
 
 const { Application } = await import('./application');
@@ -175,13 +176,13 @@ describe('Application', () => {
       await expect(app.start()).resolves.toBeUndefined();
     });
 
-    it('should call adapter.start with context for single adapter', async () => {
+    it('should call adapter.start with ApplicationContext for single adapter', async () => {
       const adapter = createMockAdapterClass();
       app.attach(adapter.AdapterClass);
       await app.start();
       expect(adapter.startFn).toHaveBeenCalledTimes(1);
-      const ctx = adapter.startFn.mock.calls[0]![0] as Context;
-      expect(typeof ctx.getType).toBe('function');
+      const ctx = adapter.startFn.mock.calls[0]![0] as ApplicationContext;
+      expect(ctx.container).toBeDefined();
     });
 
     it('should call adapter.start in registration order for multiple adapters', async () => {

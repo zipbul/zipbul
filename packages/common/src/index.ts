@@ -4,6 +4,7 @@ export type { ContextKey } from './context-key';
 export { defineAdapter } from './adapter/define-adapter';
 export { ClusterStrategy } from './adapter/types';
 export type {
+  Adapter,
   AdapterDependsOn,
   DecoratorRef,
   AdapterEntryDecorators,
@@ -15,6 +16,8 @@ export { LogLevel, ZipbulSymbol } from './enums';
 
 export { Context } from './interfaces';
 export type {
+  ApplicationContext,
+  AdapterContext,
   ProviderToken,
   ProviderScope,
   ProviderBase,

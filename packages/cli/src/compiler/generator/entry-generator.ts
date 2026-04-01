@@ -50,7 +50,7 @@ async function bootstrap() {
    * sets up RPC handlers (init, bootstrap, destroy, getStats).
    *
    * The AOT runtime (runtime.js) is loaded via the Worker's `preload` option,
-   * so registerRuntimeContext() runs before this script executes.
+   * so registerBootstrapState() runs before this script executes.
    *
    * @returns Generated worker file content as a string.
    * @public
@@ -71,9 +71,9 @@ async function bootstrap() {
    * @public
    */
   generateRuntimeMaster(): string {
-    return `import { registerRuntimeContext } from '@zipbul/core';
+    return `import { registerBootstrapState } from '@zipbul/core';
 
-registerRuntimeContext({
+registerBootstrapState({
   isAotRuntime: true,
 });
 `;

@@ -1,15 +1,13 @@
 import type {
+  ApplicationContext,
   ProviderToken,
   AdapterClass,
-  Context,
   ZipbulContainer,
   ZipbulValue,
-  ClassToken,
   ModuleMarker,
 } from '@zipbul/common';
 import { ClusterStrategy } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
-
 
 import { ClusterManager } from '../cluster/cluster-manager';
 import type { ClusterBaseWorker } from '../cluster/cluster-base-worker';
@@ -17,28 +15,14 @@ import type { RpcCallable } from '../cluster/types';
 import { Container } from '../injector/container';
 import { runInitHooks, runDestroyHooks } from '../injector/lifecycle-runner';
 import { formatToken } from '../injector/token-resolver';
-import { getRuntimeContext, clearMetadataRegistry } from '../runtime/runtime-context';
+import { getBootstrapState, clearMetadataRegistry } from '../runtime/bootstrap-state';
 import type { AdapterEntry, AttachOptions, CreateApplicationOptions } from './interfaces';
 
-const APPLICATION_CONTEXT_TYPE = 'application';
-
-export class AppContext implements Context {
+export class AppContext implements ApplicationContext {
   readonly container: ZipbulContainer;
 
   constructor(container: ZipbulContainer) {
     this.container = container;
-  }
-
-  getType(): string {
-    return APPLICATION_CONTEXT_TYPE;
-  }
-
-  get(_key: string): ZipbulValue | undefined {
-    return undefined;
-  }
-
-  to<TContext extends ZipbulValue>(_ctor: ClassToken<TContext>): TContext {
-    throw new Error('Context.to() is not supported in application context');
   }
 }
 
@@ -191,7 +175,7 @@ export class Application {
     }
 
     // Cluster mode: master process spawns workers instead of starting adapters directly
-    const isWorker = getRuntimeContext().workerId !== undefined;
+    const isWorker = getBootstrapState().workerId !== undefined;
     const workers = this.options.workers;
     const isClusterMode = !isWorker && workers !== undefined && workers > 1;
 
@@ -203,11 +187,11 @@ export class Application {
 
     await runInitHooks(this.container);
 
-    const runtimeCtx = getRuntimeContext();
+    const bootstrapState = getBootstrapState();
 
     for (const entry of this.startOrder) {
       const configKey = this.resolveAdapterConfigKey(entry);
-      const config = runtimeCtx.adapterConfig?.[configKey];
+      const config = bootstrapState.adapterConfig?.[configKey];
 
       if (config?.middlewares !== undefined) {
         entry.adapter.applyMiddlewareConfig(config.middlewares);
@@ -268,8 +252,8 @@ export class Application {
 
     const groups = this.resolveWorkerGroups(workerCount);
     const workerScript = this.resolveWorkerScript();
-    const runtimeCtx = getRuntimeContext();
-    const manifestPath = runtimeCtx.isAotRuntime === true ? this.resolveManifestPath() : undefined;
+    const bootstrapState = getBootstrapState();
+    const manifestPath = bootstrapState.isAotRuntime === true ? this.resolveManifestPath() : undefined;
     const preload = manifestPath !== undefined ? [manifestPath] : [];
 
     for (const group of groups) {
@@ -328,9 +312,9 @@ export class Application {
   }
 
   private resolveWorkerScript(): URL {
-    const runtimeCtx = getRuntimeContext();
+    const bootstrapState = getBootstrapState();
 
-    if (runtimeCtx.isAotRuntime === true) {
+    if (bootstrapState.isAotRuntime === true) {
       const entryPath = Bun.argv[1] ?? '';
       const entryDir = entryPath.lastIndexOf('/') >= 0 ? entryPath.slice(0, entryPath.lastIndexOf('/')) : '.';
 
@@ -349,19 +333,19 @@ export class Application {
   }
 
   /**
-   * In worker mode, reads adapter filter from RuntimeContext
+   * In worker mode, reads adapter filter from BootstrapState
    * to determine which adapters this worker should start.
    *
    * @returns Set of adapter class names, or undefined if not in worker mode.
    */
   private resolveAdapterFilter(): Set<string> | undefined {
-    const runtimeCtx = getRuntimeContext();
+    const bootstrapState = getBootstrapState();
 
-    if (runtimeCtx.workerId === undefined) {
+    if (bootstrapState.workerId === undefined) {
       return undefined;
     }
 
-    const filter = runtimeCtx.adapterFilter;
+    const filter = bootstrapState.adapterFilter;
 
     if (filter === undefined || filter.length === 0) {
       return undefined; // No filter = start all adapters
@@ -504,7 +488,7 @@ function createApplication(
   _entryModuleMarker: ModuleMarker,
   options?: CreateApplicationOptions,
 ): Application {
-  const ctx = getRuntimeContext();
+  const ctx = getBootstrapState();
 
   return new Application(ctx.container, options);
 }

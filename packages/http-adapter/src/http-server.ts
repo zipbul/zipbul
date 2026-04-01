@@ -433,8 +433,9 @@ function ipv6ToBytes(ip: string): Uint8Array | null {
   const halves = ip.split('::');
   if (halves.length > 2) return null;
 
-  const left = halves[0].length > 0 ? halves[0].split(':') : [];
-  const right = halves.length === 2 && halves[1].length > 0 ? halves[1].split(':') : [];
+  const leftHalf = halves[0]!;
+  const left = leftHalf.length > 0 ? leftHalf.split(':') : [];
+  const right = halves.length === 2 && halves[1]!.length > 0 ? halves[1]!.split(':') : [];
 
   const totalGroups = left.length + right.length;
   if (halves.length === 1 && totalGroups !== 8) return null;
@@ -449,7 +450,7 @@ function ipv6ToBytes(ip: string): Uint8Array | null {
 
   const bytes = new Uint8Array(16);
   for (let i = 0; i < 8; i++) {
-    const val = parseInt(groups[i], 16);
+    const val = parseInt(groups[i]!, 16);
     if (Number.isNaN(val) || val < 0 || val > 0xffff) return null;
     bytes[i * 2] = (val >>> 8) & 0xff;
     bytes[i * 2 + 1] = val & 0xff;
@@ -471,7 +472,7 @@ function matchesPrefix(addr: Uint8Array, range: Uint8Array, prefix: number): boo
   const remainingBits = prefix & 7;
   if (remainingBits > 0) {
     const mask = (0xff << (8 - remainingBits)) & 0xff;
-    if ((addr[fullBytes] & mask) !== (range[fullBytes] & mask)) return false;
+    if ((addr[fullBytes]! & mask) !== (range[fullBytes]! & mask)) return false;
   }
 
   return true;
@@ -677,8 +678,11 @@ export class HttpServer {
       this.options.requestId,
     );
 
-    // URL 파싱 실패: HttpRequest 생성 불가 → 고정 응답 (컨텍스트 없음)
+    // URL 파싱 실패 또는 HttpRequest 생성 불가 → 고정 응답 (컨텍스트 없음)
     if (createResult.kind === 'bad-request' && createResult.reason === 'invalid-url') {
+      return new Response(null, { status: 400 });
+    }
+    if (createResult.request === undefined) {
       return new Response(null, { status: 400 });
     }
 

@@ -3,7 +3,7 @@ import { describe, it, expect, mock } from 'bun:test';
 const actualCore = await import('@zipbul/core');
 mock.module('@zipbul/core', () => ({
   ...actualCore,
-  getRuntimeContext: () => ({ isAotRuntime: false, metadataRegistry: new Map() }),
+  getBootstrapState: () => ({ isAotRuntime: false, metadataRegistry: new Map() }),
 }));
 
 mock.module('@zipbul/baker', () => ({

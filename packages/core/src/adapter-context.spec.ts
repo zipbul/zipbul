@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { getContext, runInRequestContext } from './request-context';
+import { getAdapterContext, runInAdapterContext } from './adapter-context';
 import type { Context } from '@zipbul/common';
 import type { ContextKey } from '@zipbul/common';
 
@@ -16,49 +16,49 @@ function createStubContext(label: string): Context {
   } as Context;
 }
 
-describe('getContext', () => {
+describe('getAdapterContext', () => {
   it('throws when called outside a request lifecycle', () => {
-    expect(() => getContext()).toThrow(
-      'getContext() must be called within a request.',
+    expect(() => getAdapterContext()).toThrow(
+      'getAdapterContext() must be called within a request.',
     );
   });
 });
 
-describe('runInRequestContext', () => {
-  it('makes the context available via getContext()', () => {
+describe('runInAdapterContext', () => {
+  it('makes the context available via getAdapterContext()', () => {
     const ctx = createStubContext('test');
-    runInRequestContext(ctx, () => {
-      expect(getContext()).toBe(ctx);
+    runInAdapterContext(ctx, () => {
+      expect(getAdapterContext()).toBe(ctx);
     });
   });
 
   it('returns the callback return value', () => {
     const ctx = createStubContext('test');
-    const result = runInRequestContext(ctx, () => 42);
+    const result = runInAdapterContext(ctx, () => 42);
     expect(result).toBe(42);
   });
 
-  it('restores the outer context after nested runInRequestContext', () => {
+  it('restores the outer context after nested runInAdapterContext', () => {
     const outer = createStubContext('outer');
     const inner = createStubContext('inner');
 
-    runInRequestContext(outer, () => {
-      expect(getContext()).toBe(outer);
+    runInAdapterContext(outer, () => {
+      expect(getAdapterContext()).toBe(outer);
 
-      runInRequestContext(inner, () => {
-        expect(getContext()).toBe(inner);
+      runInAdapterContext(inner, () => {
+        expect(getAdapterContext()).toBe(inner);
       });
 
-      expect(getContext()).toBe(outer);
+      expect(getAdapterContext()).toBe(outer);
     });
   });
 
   it('propagates context through async code', async () => {
     const ctx = createStubContext('async');
 
-    await runInRequestContext(ctx, async () => {
+    await runInAdapterContext(ctx, async () => {
       await Promise.resolve();
-      expect(getContext()).toBe(ctx);
+      expect(getAdapterContext()).toBe(ctx);
     });
   });
 
@@ -67,15 +67,15 @@ describe('runInRequestContext', () => {
     const ctxB = createStubContext('request-b');
 
     await Promise.all([
-      runInRequestContext(ctxA, async () => {
+      runInAdapterContext(ctxA, async () => {
         await Promise.resolve();
-        expect(getContext()).toBe(ctxA);
-        expect(getContext().getType()).toBe('request-a');
+        expect(getAdapterContext()).toBe(ctxA);
+        expect(getAdapterContext().getType()).toBe('request-a');
       }),
-      runInRequestContext(ctxB, async () => {
+      runInAdapterContext(ctxB, async () => {
         await Promise.resolve();
-        expect(getContext()).toBe(ctxB);
-        expect(getContext().getType()).toBe('request-b');
+        expect(getAdapterContext()).toBe(ctxB);
+        expect(getAdapterContext().getType()).toBe('request-b');
       }),
     ]);
   });
@@ -83,33 +83,33 @@ describe('runInRequestContext', () => {
   it('propagates context into setTimeout callbacks', async () => {
     const ctx = createStubContext('timer');
 
-    await runInRequestContext(ctx, () => {
+    await runInAdapterContext(ctx, () => {
       return new Promise<void>((resolve) => {
         setTimeout(() => {
-          expect(getContext()).toBe(ctx);
+          expect(getAdapterContext()).toBe(ctx);
           resolve();
         }, 0);
       });
     });
   });
 
-  it('context is unavailable after runInRequestContext exits', () => {
+  it('context is unavailable after runInAdapterContext exits', () => {
     const ctx = createStubContext('scoped');
-    runInRequestContext(ctx, () => {
+    runInAdapterContext(ctx, () => {
       // context available here
-      expect(getContext()).toBe(ctx);
+      expect(getAdapterContext()).toBe(ctx);
     });
 
     // outside — should throw
-    expect(() => getContext()).toThrow(
-      'getContext() must be called within a request.',
+    expect(() => getAdapterContext()).toThrow(
+      'getAdapterContext() must be called within a request.',
     );
   });
 
   it('should work with a synchronous function that returns a value', () => {
     const ctx = createStubContext('sync');
 
-    const result = runInRequestContext(ctx, () => {
+    const result = runInAdapterContext(ctx, () => {
       return 'sync-result';
     });
 
@@ -121,21 +121,21 @@ describe('runInRequestContext', () => {
     const thrownError = new Error('callback boom');
 
     expect(() =>
-      runInRequestContext(ctx, () => {
+      runInAdapterContext(ctx, () => {
         throw thrownError;
       }),
     ).toThrow(thrownError);
   });
 
-  it('should throw from getContext after synchronous runInRequestContext completes', () => {
+  it('should throw from getAdapterContext after synchronous runInAdapterContext completes', () => {
     const ctx = createStubContext('completed');
 
-    runInRequestContext(ctx, () => {
-      expect(getContext()).toBe(ctx);
+    runInAdapterContext(ctx, () => {
+      expect(getAdapterContext()).toBe(ctx);
     });
 
-    expect(() => getContext()).toThrow(
-      'getContext() must be called within a request.',
+    expect(() => getAdapterContext()).toThrow(
+      'getAdapterContext() must be called within a request.',
     );
   });
 
@@ -143,15 +143,15 @@ describe('runInRequestContext', () => {
     const ctx = createStubContext('throw-restore');
 
     try {
-      runInRequestContext(ctx, () => {
+      runInAdapterContext(ctx, () => {
         throw new Error('intentional');
       });
     } catch {
       // expected
     }
 
-    expect(() => getContext()).toThrow(
-      'getContext() must be called within a request.',
+    expect(() => getAdapterContext()).toThrow(
+      'getAdapterContext() must be called within a request.',
     );
   });
 });

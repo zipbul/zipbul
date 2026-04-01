@@ -419,10 +419,8 @@ export class HttpResponse {
     const init: ResponseInit = {
       status,
       headers: this._headers,
+      ...(this._statusText !== undefined ? { statusText: this._statusText } : {}),
     };
-    if (this._statusText !== undefined) {
-      init.statusText = this._statusText;
-    }
 
     return new Response(body, init);
   }
@@ -440,7 +438,7 @@ export class HttpResponse {
     return ContentType.Text;
   }
 
-  private normalizeBody(): BodyInit | null {
+  private normalizeBody(): string | Uint8Array | ArrayBuffer | null {
     if (this._body === undefined || this._body === null) {
       return null;
     }

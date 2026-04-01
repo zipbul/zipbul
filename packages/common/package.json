@@ -24,6 +24,9 @@
     "directory": "packages/common"
   },
   "dependencies": {},
+  "peerDependencies": {
+    "@zipbul/result": "^1.0.0"
+  },
   "devDependencies": {
     "@zipbul/core": "workspace:*",
     "@types/bun": "^1.1.0",

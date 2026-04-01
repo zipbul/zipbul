@@ -4,11 +4,11 @@ import { deserialize, isBakerError } from '@zipbul/baker';
 import type { MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
 import type { GuardDefinition, GuardHandlerFn } from '@zipbul/common';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '@zipbul/common';
-import type { AdapterClass, AdapterEntryDecorators } from '@zipbul/common';
+import type { Adapter as AdapterContract, AdapterClass, AdapterEntryDecorators, AdapterContext, ApplicationContext } from '@zipbul/common';
 import { ClusterStrategy } from '@zipbul/common';
-import type { Context, ZipbulContainer } from '@zipbul/common';
+import type { ZipbulContainer } from '@zipbul/common';
 import { runInInjectionContext } from '../injection-context';
-import { runInRequestContext } from '../request-context';
+import { runInAdapterContext } from '../adapter-context';
 
 /**
  * Resolved middleware: factory has been called, handler is ready.
@@ -60,7 +60,7 @@ export interface ResolvedValidationEntry {
  *
  * @public
  */
-export abstract class Adapter {
+export abstract class Adapter implements AdapterContract {
   abstract readonly decorators: AdapterEntryDecorators;
 
   /**
@@ -102,10 +102,10 @@ export abstract class Adapter {
    *
    * @public
    */
-  protected abstract executePipeline(context: Context): Promise<Result<unknown, unknown>>;
+  protected abstract executePipeline(context: AdapterContext): Promise<Result<unknown, unknown>>;
 
   /** Converts a `Result` into a protocol-specific response. */
-  protected abstract handleResult(result: Result<unknown, unknown>, context: Context): Promise<void> | void;
+  protected abstract handleResult(result: Result<unknown, unknown>, context: AdapterContext): Promise<void> | void;
 
   /**
    * Emergency teardown when `handleResult` itself throws.
@@ -117,7 +117,7 @@ export abstract class Adapter {
    *
    * @public
    */
-  protected abstract emergencyTeardown(context: Context, error?: unknown): Promise<void> | void;
+  protected abstract emergencyTeardown(context: AdapterContext, error?: unknown): Promise<void> | void;
 
   /**
    * Boots the adapter and begins accepting requests.
@@ -125,7 +125,7 @@ export abstract class Adapter {
    * @param context - The application startup context.
    * @public
    */
-  abstract start(context: Context): Promise<void>;
+  abstract start(context: ApplicationContext): Promise<void>;
 
   /**
    * Gracefully shuts down the adapter.
@@ -274,8 +274,8 @@ export abstract class Adapter {
    * @param context - The current execution context.
    * @public
    */
-  async dispatchRequest(context: Context): Promise<void> {
-    await runInRequestContext(context, async () => {
+  async dispatchRequest(context: AdapterContext): Promise<void> {
+    await runInAdapterContext(context, async () => {
       // ── Phase 1: Pipeline execution → Result ──
       let result: Result<unknown, unknown>;
 
@@ -327,7 +327,7 @@ export abstract class Adapter {
    */
   protected async runValidations(
     validations: readonly ResolvedValidationEntry[],
-    context: Context,
+    context: AdapterContext,
   ): ResultAsync<void, unknown> {
     for (const validation of validations) {
       const input = this.resolveValidationInput(validation.kind, context);
@@ -353,7 +353,7 @@ export abstract class Adapter {
    *
    * @public
    */
-  protected abstract resolveValidationInput(kind: string, context: Context): unknown;
+  protected abstract resolveValidationInput(kind: string, context: AdapterContext): unknown;
 
   /**
    * Converts a baker validation error into a protocol-specific `Err`.
@@ -389,7 +389,7 @@ export abstract class Adapter {
    */
   protected async runMiddlewares(
     list: readonly ResolvedMiddleware[],
-    context: Context,
+    context: AdapterContext,
   ): ResultAsync<void, unknown> {
     for (const mw of list) {
       const result = await mw.handler(context);
@@ -410,7 +410,7 @@ export abstract class Adapter {
    *
    * @public
    */
-  protected async runGuards(context: Context): ResultAsync<void, unknown> {
+  protected async runGuards(context: AdapterContext): ResultAsync<void, unknown> {
     for (const guard of this.resolvedGuards) {
       const result = await guard.handler(context);
 
@@ -434,7 +434,7 @@ export abstract class Adapter {
    *
    * @public
    */
-  protected getLocalExceptionFilters(_context: Context): readonly ResolvedExceptionFilter[] | undefined {
+  protected getLocalExceptionFilters(_context: AdapterContext): readonly ResolvedExceptionFilter[] | undefined {
     return undefined;
   }
 
@@ -454,7 +454,7 @@ export abstract class Adapter {
    *
    * @public
    */
-  async runExceptionFilters(error: unknown, context: Context): Promise<Err<unknown>> {
+  async runExceptionFilters(error: unknown, context: AdapterContext): Promise<Err<unknown>> {
     // Stage 1: handler-scoped (local) filters
     const localFilters = this.getLocalExceptionFilters(context);
 

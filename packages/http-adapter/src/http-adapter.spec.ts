@@ -5,14 +5,14 @@ import { err, isErr } from '@zipbul/result';
 import type { HttpRequest } from './http-request';
 import { HttpPhase } from './enums';
 
-const mockGetRuntimeContext = mock(() => ({
+const mockGetBootstrapState = mock(() => ({
   isAotRuntime: false,
   metadataRegistry: new Map(),
 }));
 
 mock.module('@zipbul/core', () => ({
   ClusterManager: class {},
-  getRuntimeContext: mockGetRuntimeContext,
+  getBootstrapState: mockGetBootstrapState,
 }));
 
 mock.module('@zipbul/logger', () => ({
@@ -4465,22 +4465,4 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     });
   });
 
-  // ── isStartContext ─────────────────────────────────────────
-
-  describe('toStartContext', () => {
-    it('should throw when context has no container', () => {
-      const adapter = new HttpAdapter();
-
-      expect(() => (adapter as any).toStartContext({})).toThrow('Adapter context missing container');
-    });
-
-    it('should return context when it has container', () => {
-      const adapter = new HttpAdapter();
-      const ctx = { container: {} };
-
-      const result = (adapter as any).toStartContext(ctx);
-
-      expect(result).toBe(ctx);
-    });
-  });
 });

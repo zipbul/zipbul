@@ -1,6 +1,6 @@
 import type { Err } from '@zipbul/result';
 import type { AdapterClass } from './adapter/types';
-import type { Context } from './interfaces';
+import type { AdapterContext } from './interfaces';
 
 /**
  * Constructor-like type that matches concrete and abstract error classes.
@@ -22,7 +22,7 @@ export type ExceptionConstructorLike = abstract new (...args: readonly unknown[]
  */
 export type ExceptionFilterHandlerFn<TException = unknown> = (
   exception: TException,
-  ctx: Context,
+  ctx: AdapterContext,
 ) => Err<unknown> | Promise<Err<unknown>>;
 
 /**

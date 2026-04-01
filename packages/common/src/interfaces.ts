@@ -5,9 +5,30 @@ import type { GuardDefinition } from './define-guard';
 import type { ExceptionFilterDefinition } from './define-exception-filter';
 import type { ContextKey } from './context-key';
 
-import type { Adapter } from '@zipbul/core';
+import type { Adapter } from './adapter/types';
 
-export interface Context {
+/**
+ * Application-level context for lifecycle management.
+ *
+ * Used during application bootstrap (Configurer, adapter.start).
+ * Does NOT support per-request features (get/set, validation).
+ *
+ * @public
+ */
+export interface ApplicationContext {
+  readonly container: ZipbulContainer;
+}
+
+/**
+ * Base context for all adapter request processing.
+ *
+ * Each protocol adapter implements this interface with protocol-specific
+ * extensions (e.g. HttpContext adds request/response).
+ * Used by middleware, guards, exception filters, and handlers.
+ *
+ * @public
+ */
+export interface AdapterContext {
   getType(): string;
 
   /**
@@ -119,7 +140,7 @@ export interface AdapterCollection {
 }
 
 export interface Configurer {
-  configure(app: Context, adapters: AdapterCollection): void;
+  configure(app: ApplicationContext, adapters: AdapterCollection): void;
 }
 
 export interface ApplicationOptions {

@@ -1,5 +1,4 @@
-import type { AdapterClass, AdapterDependsOn } from '@zipbul/common';
-import type { Adapter } from '../adapter/adapter';
+import type { Adapter, AdapterClass, AdapterDependsOn } from '@zipbul/common';
 
 import type { WorkerGroupConfig } from '../cluster/interfaces';
 

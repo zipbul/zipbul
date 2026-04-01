@@ -15,8 +15,8 @@ export interface AdapterMiddlewareConfig {
   guards?: readonly GuardDefinition[];
 }
 
-export interface RuntimeContext {
-  metadataRegistry?: Map<Class, ClassMetadata>;
+export interface BootstrapState {
+  metadataRegistry?: Map<Class, ClassMetadata> | undefined;
   scopedKeys?: Map<ProviderToken, string>;
   container?: Container;
   isAotRuntime?: boolean;

@@ -2,7 +2,7 @@ import { describe, it, expect, mock, afterAll, beforeAll } from 'bun:test';
 import type { Context, ZipbulContainer, CompiledHandlerEntry } from '@zipbul/common';
 import { defineMiddleware, defineGuard, defineExceptionFilter, contextKey } from '@zipbul/common';
 import { err } from '@zipbul/result';
-import { getContext } from '@zipbul/core';
+import { getAdapterContext } from '@zipbul/core';
 import { StatusCodes } from 'http-status-codes';
 
 
@@ -109,7 +109,7 @@ import { StatusCodes } from 'http-status-codes';
  *   34. [HP] should apply @Header decorator static headers
  *   35. [HP] should apply @ContentType decorator to response
  *   36. [HP] should short-circuit pipeline when handler calls send()
- *   37. [HP] should resolve current context via getContext() in deep call
+ *   37. [HP] should resolve current context via getAdapterContext() in deep call
  *   38. [HP] should share state between middleware and handler via ContextKey
  *   39. [NE] should preserve CORS headers when handler throws
  *   41. [HP] should handle DELETE method with path params
@@ -177,7 +177,7 @@ mock.module('@zipbul/logger', () => ({
 
 mock.module('@zipbul/core', () => ({
   ClusterManager: class {},
-  getRuntimeContext: () => ({
+  getBootstrapState: () => ({
     isAotRuntime: false,
     metadataRegistry: new Map(),
   }),
@@ -196,7 +196,7 @@ type HttpServerInstance = InstanceType<typeof HttpServer>;
 const RequestCount = contextKey<number>('request-count');
 
 function deepServiceCall(): string {
-  const ctx = getContext();
+  const ctx = getAdapterContext();
   const http = ctx.to(HttpContext);
   return http.request.path;
 }
@@ -1939,9 +1939,9 @@ describe('HttpAdapter E2E', () => {
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
   });
 
-  // ── HP: getContext() from service layer ─────────────────────
+  // ── HP: getAdapterContext() from service layer ─────────────────────
 
-  it('should resolve current context via getContext() in deep call', async () => {
+  it('should resolve current context via getAdapterContext() in deep call', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/context-access`);
 
@@ -3359,7 +3359,7 @@ describe('HttpAdapter E2E', () => {
   // ── BATCH 8: Context and concurrency (new tests) ──────────────
   // ══════════════════════════════════════════════════════════════
 
-  it('should resolve context via getContext() in deep call', async () => {
+  it('should resolve context via getAdapterContext() in deep call', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/context-access`);
 
@@ -4384,9 +4384,9 @@ describe('HttpAdapter E2E', () => {
     expect(body).toBe('native');
   });
 
-  // ── Additional coverage: getContext() ─────────────────────────
+  // ── Additional coverage: getAdapterContext() ─────────────────────────
 
-  it('should return correct path from getContext() for different routes', async () => {
+  it('should return correct path from getAdapterContext() for different routes', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/context-access`);
     const body = await response.json();

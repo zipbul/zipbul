@@ -23,7 +23,7 @@ import type {
   Token,
 } from './types';
 
-import { getRuntimeContext } from '../runtime/runtime-context';
+import { getBootstrapState } from '../runtime/bootstrap-state';
 import {
   normalizeToken,
   formatToken,
@@ -48,7 +48,7 @@ export class Container implements ZipbulContainer {
 
   /**
    * Sets the scoped keys map for resolving class/symbol tokens to scoped string keys.
-   * Called exclusively by {@link registerRuntimeContext} during AOT bootstrap.
+   * Called exclusively by {@link registerBootstrapState} during AOT bootstrap.
    *
    * @param keys - Map of ProviderToken to scoped key string
    * @internal
@@ -221,7 +221,7 @@ export class Container implements ZipbulContainer {
       return;
     }
 
-    const registry = getRuntimeContext().metadataRegistry;
+    const registry = getBootstrapState().metadataRegistry;
 
     if (!registry?.has(ctor)) {
       return;
