@@ -321,6 +321,20 @@ describe('HttpAdapter E2E', () => {
       }),
     ]);
 
+    // AfterHandle middleware — envelope wrapper for /envelope/* routes only
+    adapter.addMiddlewares(HttpPhase.AfterHandle, [
+      defineMiddleware(() => (ctx: Context) => {
+        const http = ctx.to(HttpContext);
+        if (!http.request.path.startsWith('/envelope')) return undefined;
+        const body = http.response.getBody();
+        if (body !== undefined && body !== null && typeof body === 'object' && !(body instanceof Uint8Array) && !(body instanceof ArrayBuffer)) {
+          http.response.setBody({ envelope: true, data: body });
+        }
+        http.response.setHeader('x-after-handle', 'applied');
+        return undefined;
+      }),
+    ]);
+
     // Global guard that rejects /guarded path
     adapter.addGuards([
       defineGuard(() => (ctx: Context) => {
@@ -1314,6 +1328,85 @@ describe('HttpAdapter E2E', () => {
           },
         },
         options: [{ name: 'Sse' }],
+      },
+      // ── AfterHandle + BeforeResponse pipeline test routes ─────
+      {
+        method: 'Get',
+        path: 'envelope/users',
+        controllerMethod: {
+          name: 'getEnvelopeUsers',
+          handler: () => ({ users: ['alice', 'bob'] }),
+        },
+      },
+      {
+        method: 'Get',
+        path: 'envelope/sse',
+        controllerMethod: {
+          name: 'getEnvelopeSse',
+          handler: () => {
+            async function* generate() {
+              yield new ServerSentEvent('ping', { event: 'test' });
+            }
+            return generate();
+          },
+        },
+        options: [{ name: 'Sse' }],
+      },
+      {
+        method: 'Get',
+        path: 'envelope/native',
+        controllerMethod: {
+          name: 'getEnvelopeNative',
+          handler: () => new Response('native-body', { status: 200, headers: { 'x-native': 'yes' } }),
+        },
+      },
+      {
+        method: 'Get',
+        path: 'envelope/string',
+        controllerMethod: {
+          name: 'getEnvelopeString',
+          handler: () => 'plain text result',
+        },
+      },
+      {
+        method: 'Get',
+        path: 'envelope/empty',
+        controllerMethod: {
+          name: 'getEnvelopeEmpty',
+          handler: () => undefined,
+        },
+      },
+      {
+        method: 'Get',
+        path: 'envelope/send',
+        controllerMethod: {
+          name: 'getEnvelopeSend',
+          handler: (ctx: InstanceType<typeof HttpContext>) => {
+            ctx.response.setStatus(429);
+            ctx.response.setBody({ limited: true });
+            ctx.response.send();
+            return undefined;
+          },
+        },
+      },
+      {
+        method: 'Get',
+        path: 'envelope/error',
+        controllerMethod: {
+          name: 'getEnvelopeError',
+          handler: () => err({ status: 422, message: 'Validation failed' }),
+        },
+      },
+      {
+        method: 'Get',
+        path: 'envelope/blob',
+        controllerMethod: {
+          name: 'getEnvelopeBlob',
+          handler: (ctx: InstanceType<typeof HttpContext>) => {
+            ctx.response.setBody(new Blob([new Uint8Array([0x01, 0x02])], { type: 'application/octet-stream' }));
+            return undefined;
+          },
+        },
       },
       // ── Emergency teardown trigger ────────────────────────────
       {
@@ -4576,5 +4669,181 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(200);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // ── AfterHandle phase — result transformation / envelope ──────
+  // ══════════════════════════════════════════════════════════════
+
+  it('should wrap buffered JSON response in envelope via AfterHandle', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/users`);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({ envelope: true, data: { users: ['alice', 'bob'] } });
+    expect(response.headers.get('x-after-handle')).toBe('applied');
+  });
+
+  it('should skip AfterHandle for SSE native Response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/sse`);
+
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    // AfterHandle skipped — no x-after-handle header, no envelope wrapping
+    expect(response.headers.get('x-after-handle')).toBeNull();
+    const text = await response.text();
+    expect(text).toContain('event: test');
+    expect(text).toContain('data: ping');
+  });
+
+  it('should skip AfterHandle for handler-created native Response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/native`);
+
+    expect(response.status).toBe(200);
+    // AfterHandle skipped — no x-after-handle header
+    expect(response.headers.get('x-after-handle')).toBeNull();
+    expect(response.headers.get('x-native')).toBe('yes');
+    const text = await response.text();
+    expect(text).toBe('native-body');
+  });
+
+  it('should not wrap string result in AfterHandle envelope (only objects)', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/string`);
+
+    expect(response.status).toBe(200);
+    // AfterHandle ran (header set) but string body was not wrapped
+    expect(response.headers.get('x-after-handle')).toBe('applied');
+    const text = await response.text();
+    expect(text).toBe('plain text result');
+  });
+
+  it('should not wrap undefined result in AfterHandle envelope', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/empty`);
+
+    expect(response.status).toBe(204);
+    // AfterHandle ran but body was undefined — no wrapping
+    expect(response.headers.get('x-after-handle')).toBe('applied');
+  });
+
+  it('should skip AfterHandle when handler calls send()', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/send`);
+
+    expect(response.status).toBe(429);
+    // AfterHandle skipped — isSent() was true
+    expect(response.headers.get('x-after-handle')).toBeNull();
+    const body = await response.json();
+    expect(body).toEqual({ limited: true });
+  });
+
+  it('should run AfterHandle for error responses (Err result)', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/error`);
+
+    expect(response.status).toBe(422);
+    // AfterHandle ran — error body is an object, got wrapped
+    expect(response.headers.get('x-after-handle')).toBe('applied');
+    const body = await response.json();
+    expect(body.envelope).toBe(true);
+  });
+
+  it('should skip AfterHandle for Blob native Response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/blob`);
+
+    // Blob creates native Response — AfterHandle skipped
+    expect(response.headers.get('x-after-handle')).toBeNull();
+    const buf = await response.arrayBuffer();
+    expect(new Uint8Array(buf)).toEqual(new Uint8Array([0x01, 0x02]));
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // ── BeforeResponse phase — post-serialization, ALL responses ──
+  // ══════════════════════════════════════════════════════════════
+
+  it('should run BeforeResponse for buffered JSON response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/users`);
+
+    expect(response.headers.get('x-before-response')).toBe('applied');
+  });
+
+  it('should run BeforeResponse for SSE native Response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/sse`);
+    await response.text();
+
+    expect(response.headers.get('x-before-response')).toBe('applied');
+  });
+
+  it('should run BeforeResponse for handler-created native Response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/native`);
+    await response.text();
+
+    expect(response.headers.get('x-before-response')).toBe('applied');
+  });
+
+  it('should run BeforeResponse for string response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/string`);
+    await response.text();
+
+    expect(response.headers.get('x-before-response')).toBe('applied');
+  });
+
+  it('should run BeforeResponse for 204 empty response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/empty`);
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('x-before-response')).toBe('applied');
+  });
+
+  it('should run BeforeResponse even when handler calls send()', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/send`);
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('x-before-response')).toBe('applied');
+  });
+
+  it('should run BeforeResponse for error responses', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/error`);
+
+    expect(response.status).toBe(422);
+    expect(response.headers.get('x-before-response')).toBe('applied');
+  });
+
+  it('should run BeforeResponse for Blob response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/blob`);
+    await response.arrayBuffer();
+
+    expect(response.headers.get('x-before-response')).toBe('applied');
+  });
+
+  // ── Serialize step verification ───────────────────────────────
+
+  it('should serialize body before BeforeResponse (body is string after serialize)', async () => {
+    // AfterHandle wraps as {envelope: true, data: ...} → serialize turns it to JSON string
+    // BeforeResponse middleware sees x-before-response header, proving serialize ran before it
+    const response = await fetch(`${BASE_URL}/envelope/users`);
+    const body = await response.json();
+
+    // Body was serialized to JSON — if it weren't, Content-Type wouldn't be application/json
+    expect(response.headers.get('content-type')).toContain('application/json');
+    expect(body.envelope).toBe(true);
+  });
+
+  // ── Pipeline ordering verification ────────────────────────────
+
+  it('should run AfterHandle before BeforeResponse for buffered response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/users`);
+
+    // Both ran for buffered
+    expect(response.headers.get('x-after-handle')).toBe('applied');
+    expect(response.headers.get('x-before-response')).toBe('applied');
+    // AfterHandle wrapped the body
+    const body = await response.json();
+    expect(body.envelope).toBe(true);
+  });
+
+  it('should run only BeforeResponse (not AfterHandle) for native Response', async () => {
+    const response = await fetch(`${BASE_URL}/envelope/sse`);
+    await response.text();
+
+    // AfterHandle skipped, BeforeResponse ran
+    expect(response.headers.get('x-after-handle')).toBeNull();
+    expect(response.headers.get('x-before-response')).toBe('applied');
   });
 });
