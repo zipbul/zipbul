@@ -1,65 +1,58 @@
-import { CookieMap } from 'bun';
-
-import type { HttpRequestInit, HttpMethod, RequestBodyValue, RequestParamMap, RequestQueryMap } from './types';
+import type { ContentTypeInfo, HttpMethod, HttpRequestData, RequestBodyValue, RequestParamMap } from './types';
 
 export class HttpRequest {
+  // ── readonly — 생성자에서 확정 ──
   public readonly requestId: string;
-  public readonly httpMethod: HttpMethod;
-  public readonly url: string;
-  public readonly path: string;
+  public readonly originalMethod: HttpMethod;
+  public readonly originalUrl: string;
   public readonly headers: Headers;
   public readonly protocol: string | null;
   public readonly host: string | null;
   public readonly hostname: string | null;
-  public readonly port: number | null;
+  public readonly port: number;
   public readonly queryString: string | null;
-  public readonly cookies: CookieMap;
-  public readonly contentType: string | null;
+  public readonly contentType: ContentTypeInfo | null;
   public readonly contentLength: number | null;
-  public readonly charset: string | null;
-  public params: RequestParamMap;
-  public body: RequestBodyValue;
   public readonly ip: string | null;
-  public readonly ips: string[];
+  public readonly ips: readonly string[];
   public readonly isTrustedProxy: boolean;
-  public readonly subdomains: string[];
-  public query: RequestQueryMap;
+  public readonly signal: AbortSignal;
 
-  constructor(req: HttpRequestInit) {
-    const urlObj = new URL(req.url);
+  // ── mutable — 파이프라인에서 재할당 ──
+  public method: HttpMethod;
+  public url: string;
+  public path: string;
+  public body: RequestBodyValue;
+  public params: RequestParamMap;
+  public rawBody: Uint8Array | null;
+  /** Parsed query parameters. Set by BeforeValidation middleware (e.g. parseQuery). */
+  public query: unknown;
 
-    this.requestId = req.requestId ?? crypto.randomUUID();
-    this.httpMethod = req.httpMethod;
-    this.url = req.url;
-    this.path = urlObj.pathname;
-    this.headers = new Headers(req.headers);
-    this.cookies = new CookieMap(this.headers.get('cookie') ?? '');
-    this.protocol = urlObj.protocol.replace(':', '') || null;
-    this.host = urlObj.host || null;
-    this.hostname = urlObj.hostname || null;
-    this.port = urlObj.port ? parseInt(urlObj.port) : null;
-    this.queryString = urlObj.search || null;
-    this.contentType = this.headers.get('content-type') ?? null;
+  constructor(data: HttpRequestData) {
+    // readonly
+    this.requestId = data.requestId;
+    this.originalMethod = data.originalMethod;
+    this.originalUrl = data.originalUrl;
+    this.headers = data.headers;
+    this.protocol = data.protocol;
+    this.host = data.host;
+    this.hostname = data.hostname;
+    this.port = data.port;
+    this.queryString = data.queryString;
+    this.contentType = data.contentType;
+    this.contentLength = data.contentLength;
+    this.ip = data.ip;
+    this.ips = data.ips;
+    this.isTrustedProxy = data.isTrustedProxy;
+    this.signal = data.signal;
 
-    const contentLengthValue = this.headers.get('content-length');
-
-    if (typeof contentLengthValue === 'string' && contentLengthValue.length > 0) {
-      this.contentLength = parseInt(contentLengthValue, 10);
-    } else {
-      this.contentLength = null;
-    }
-
-    this.charset = null;
-    this.params = req.params ?? {};
-    this.query = req.query ?? {};
-    this.body = req.body ?? null;
-    this.isTrustedProxy = req.isTrustedProxy ?? false;
-    this.subdomains = [];
-    this.ip = req.ip ?? null;
-    this.ips = req.ips ?? [];
-  }
-
-  get method(): string {
-    return this.httpMethod;
+    // mutable
+    this.method = data.method;
+    this.url = data.url;
+    this.path = data.path;
+    this.body = undefined;
+    this.params = {};
+    this.rawBody = null;
+    this.query = undefined;
   }
 }

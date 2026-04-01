@@ -6,20 +6,22 @@ import type { MiddlewareDefinition, MiddlewareHandlerFn } from '../define-middle
 import { defineMiddleware } from '../define-middleware';
 import { defineGuard } from '../define-guard';
 import { defineExceptionFilter } from '../define-exception-filter';
-import { Adapter, type ResolvedMiddleware } from './adapter';
+import { Adapter, type ResolvedMiddleware, type ResolvedExceptionFilter } from './adapter';
 
 /** Minimal concrete adapter for testing Common base class behavior. */
 class TestAdapter extends Adapter {
   static readonly validPhases: ReadonlySet<string> = new Set(['TestPhase']);
-  readonly decorators = { controller: () => {}, handler: [] };
+  readonly decorators = { controller: () => {}, handlers: [] };
 
-  private testMiddlewareRegistry = new Map<string, MiddlewareDefinition[]>();
-  private resolvedTestMiddlewares = new Map<string, ResolvedMiddleware[]>();
   private pipelineImpl: ((ctx: Context) => Promise<Result<unknown, unknown>> | Result<unknown, unknown>) | undefined;
 
   handleResult(_result: Result<unknown, unknown>, _context: Context) {}
 
   protected emergencyTeardown(_context: Context, _error?: unknown) {}
+
+  protected resolveValidationInput(_kind: string, _context: Context): unknown {
+    return undefined;
+  }
 
   protected async executePipeline(context: Context): Promise<Result<unknown, unknown>> {
     if (this.pipelineImpl !== undefined) {
@@ -28,7 +30,7 @@ class TestAdapter extends Adapter {
 
     // Default: run TestPhase middlewares → guards → return ok
     const mwResult = await this.runMiddlewares(
-      this.resolvedTestMiddlewares.get('TestPhase') ?? [], context,
+      this.getPhaseMiddlewares('TestPhase'), context,
     );
 
     if (isErr(mwResult)) {
@@ -44,27 +46,6 @@ class TestAdapter extends Adapter {
     return undefined as unknown as Result<unknown, unknown>;
   }
 
-  applyMiddlewareConfig(config: Readonly<Record<string, readonly MiddlewareDefinition[]>>): void {
-    for (const [key, definitions] of Object.entries(config)) {
-      const existing = this.testMiddlewareRegistry.get(key) ?? [];
-      this.testMiddlewareRegistry.set(key, [...existing, ...definitions]);
-    }
-  }
-
-  addTestMiddlewares(phase: string, middlewares: readonly MiddlewareDefinition[]): this {
-    const existing = this.testMiddlewareRegistry.get(phase) ?? [];
-    this.testMiddlewareRegistry.set(phase, [...existing, ...middlewares]);
-    return this;
-  }
-
-  override initializePipeline(container: ZipbulContainer): void {
-    super.initializePipeline(container);
-
-    for (const [phase, definitions] of this.testMiddlewareRegistry) {
-      this.resolvedTestMiddlewares.set(phase, this.resolveMiddlewareDefs(definitions, container));
-    }
-  }
-
   setPipelineImpl(impl: (ctx: Context) => Promise<Result<unknown, unknown>> | Result<unknown, unknown>): void {
     this.pipelineImpl = impl;
   }
@@ -75,13 +56,13 @@ class TestAdapter extends Adapter {
 
 class AnotherAdapter extends Adapter {
   static readonly validPhases: ReadonlySet<string> = new Set();
-  readonly decorators = { controller: () => {}, handler: [] };
+  readonly decorators = { controller: () => {}, handlers: [] };
   handleResult(_result: Result<unknown, unknown>, _context: Context) {}
   protected emergencyTeardown(_context: Context) {}
+  protected resolveValidationInput(_kind: string, _context: Context): unknown { return undefined; }
   protected async executePipeline(_context: Context): Promise<Result<unknown, unknown>> {
     return undefined as unknown as Result<unknown, unknown>;
   }
-  applyMiddlewareConfig() {}
   async start() {}
   async stop() {}
 }
@@ -108,6 +89,10 @@ function createContext(): Context {
     get: () => undefined,
     to() {
       throw new Error('unsupported');
+    },
+    setValidated() {},
+    getValidated() {
+      return undefined;
     },
   };
 }
@@ -136,11 +121,11 @@ describe('Adapter', () => {
   describe('runMiddlewares', () => {
     it('should return void when single middleware returns void', async () => {
       const handler = mock((_ctx: Context) => {});
-      adapter.addTestMiddlewares('TestPhase', [mw(handler)]);
+      adapter.applyMiddlewareConfig({ TestPhase: [mw(handler)] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter['runMiddlewares'](
-        adapter['resolvedTestMiddlewares'].get('TestPhase')!, createContext(),
+        adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
       );
 
       expect(isErr(result)).toBe(false);
@@ -153,11 +138,11 @@ describe('Adapter', () => {
       const h1 = mock((_ctx: Context) => { order.push('1'); });
       const h2 = mock((_ctx: Context) => { order.push('2'); });
       const h3 = mock((_ctx: Context) => { order.push('3'); });
-      adapter.addTestMiddlewares('TestPhase', [mw(h1), mw(h2), mw(h3)]);
+      adapter.applyMiddlewareConfig({ TestPhase: [mw(h1), mw(h2), mw(h3)] });
       adapter.initializePipeline(createMockContainer());
 
       await adapter['runMiddlewares'](
-        adapter['resolvedTestMiddlewares'].get('TestPhase')!, createContext(),
+        adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
       );
 
       expect(order).toEqual(['1', '2', '3']);
@@ -165,11 +150,11 @@ describe('Adapter', () => {
 
     it('should return Err when middleware returns err', async () => {
       const handler = mock((_ctx: Context) => err({ reason: 'test_halt' }));
-      adapter.addTestMiddlewares('TestPhase', [mw(handler)]);
+      adapter.applyMiddlewareConfig({ TestPhase: [mw(handler)] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter['runMiddlewares'](
-        adapter['resolvedTestMiddlewares'].get('TestPhase')!, createContext(),
+        adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
       );
 
       expect(isErr(result)).toBe(true);
@@ -178,11 +163,11 @@ describe('Adapter', () => {
     it('should skip second middleware when first returns err', async () => {
       const h1 = mock((_ctx: Context) => err({ reason: 'halt' }));
       const h2 = mock((_ctx: Context) => {});
-      adapter.addTestMiddlewares('TestPhase', [mw(h1), mw(h2)]);
+      adapter.applyMiddlewareConfig({ TestPhase: [mw(h1), mw(h2)] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter['runMiddlewares'](
-        adapter['resolvedTestMiddlewares'].get('TestPhase')!, createContext(),
+        adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
       );
 
       expect(isErr(result)).toBe(true);
@@ -194,12 +179,12 @@ describe('Adapter', () => {
       const handler = mock((_ctx: Context) => {
         throw new Error('middleware crash');
       });
-      adapter.addTestMiddlewares('TestPhase', [mw(handler)]);
+      adapter.applyMiddlewareConfig({ TestPhase: [mw(handler)] });
       adapter.initializePipeline(createMockContainer());
 
       await expect(
         adapter['runMiddlewares'](
-          adapter['resolvedTestMiddlewares'].get('TestPhase')!, createContext(),
+          adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
         ),
       ).rejects.toThrow('middleware crash');
     });
@@ -217,11 +202,11 @@ describe('Adapter', () => {
           ? mock((_ctx: Context) => err({ reason: `halt_at_${index}` }))
           : mock((_ctx: Context) => {}),
       );
-      adapter.addTestMiddlewares('TestPhase', handlers.map(handler => mw(handler)));
+      adapter.applyMiddlewareConfig({ TestPhase: handlers.map(handler => mw(handler)) });
       adapter.initializePipeline(createMockContainer());
 
       await adapter['runMiddlewares'](
-        adapter['resolvedTestMiddlewares'].get('TestPhase')!, createContext(),
+        adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
       );
 
       expect(handlers[0]).toHaveBeenCalledTimes(1);
@@ -231,17 +216,17 @@ describe('Adapter', () => {
       expect(handlers[4]).not.toHaveBeenCalled();
     });
 
-    it('should preserve combined order when addTestMiddlewares called twice', async () => {
+    it('should preserve combined order when applyMiddlewareConfig called twice', async () => {
       const order: string[] = [];
       const hA = mock((_ctx: Context) => { order.push('A'); });
       const hB = mock((_ctx: Context) => { order.push('B'); });
       const hC = mock((_ctx: Context) => { order.push('C'); });
-      adapter.addTestMiddlewares('TestPhase', [mw(hA), mw(hB)]);
-      adapter.addTestMiddlewares('TestPhase', [mw(hC)]);
+      adapter.applyMiddlewareConfig({ TestPhase: [mw(hA), mw(hB)] });
+      adapter.applyMiddlewareConfig({ TestPhase: [mw(hC)] });
       adapter.initializePipeline(createMockContainer());
 
       await adapter['runMiddlewares'](
-        adapter['resolvedTestMiddlewares'].get('TestPhase')!, createContext(),
+        adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
       );
 
       expect(order).toEqual(['A', 'B', 'C']);
@@ -250,12 +235,12 @@ describe('Adapter', () => {
     it('should pass same context object reference to every middleware', async () => {
       const h1 = mock((_ctx: Context) => {});
       const h2 = mock((_ctx: Context) => {});
-      adapter.addTestMiddlewares('TestPhase', [mw(h1), mw(h2)]);
+      adapter.applyMiddlewareConfig({ TestPhase: [mw(h1), mw(h2)] });
       adapter.initializePipeline(createMockContainer());
       const ctx = createContext();
 
       await adapter['runMiddlewares'](
-        adapter['resolvedTestMiddlewares'].get('TestPhase')!, ctx,
+        adapter['getPhaseMiddlewares']('TestPhase'), ctx,
       );
 
       expect(h1.mock.calls[0]![0]).toBe(ctx);
@@ -270,7 +255,58 @@ describe('Adapter', () => {
       adapter.applyMiddlewareConfig({ TestPhase: [def] });
       adapter.initializePipeline(createMockContainer());
 
-      expect(adapter['resolvedTestMiddlewares'].get('TestPhase')).toHaveLength(1);
+      expect(adapter['getPhaseMiddlewares']('TestPhase')).toHaveLength(1);
+    });
+
+    it('should throw on invalid phase key', () => {
+      const def = defineMiddleware(() => (_ctx: Context) => {});
+      expect(() => adapter.applyMiddlewareConfig({ InvalidPhase: [def] })).toThrow(/Invalid middleware phase 'InvalidPhase'/);
+    });
+
+    it('should accumulate across multiple calls', () => {
+      const def1 = defineMiddleware(() => (_ctx: Context) => {});
+      const def2 = defineMiddleware(() => (_ctx: Context) => {});
+
+      adapter.applyMiddlewareConfig({ TestPhase: [def1] });
+      adapter.applyMiddlewareConfig({ TestPhase: [def2] });
+      adapter.initializePipeline(createMockContainer());
+
+      expect(adapter['getPhaseMiddlewares']('TestPhase')).toHaveLength(2);
+    });
+
+    it('should throw when validPhases is not declared', () => {
+      class NoPhaseAdapter extends Adapter {
+        readonly decorators = { controller: () => {}, handlers: [] };
+        handleResult() {}
+        protected emergencyTeardown() {}
+        protected resolveValidationInput(): unknown { return undefined; }
+        protected async executePipeline(): Promise<Result<unknown, unknown>> {
+          return undefined as unknown as Result<unknown, unknown>;
+        }
+        async start() {}
+        async stop() {}
+      }
+      const noPhase = new NoPhaseAdapter();
+      expect(() => noPhase.applyMiddlewareConfig({ X: [] })).toThrow(/must declare static validPhases/);
+    });
+  });
+
+  describe('getPhaseMiddlewares', () => {
+    it('should return empty array for unregistered phase', () => {
+      adapter.initializePipeline(createMockContainer());
+      expect(adapter['getPhaseMiddlewares']('TestPhase')).toEqual([]);
+    });
+  });
+
+  describe('registerMiddleware', () => {
+    it('should validate adapter compatibility', () => {
+      const incompatibleMw = defineMiddleware([AnotherAdapter], () => (_ctx: Context) => {});
+      expect(() => adapter['registerMiddleware']('TestPhase', [incompatibleMw])).toThrow(/AnotherAdapter.*TestAdapter/);
+    });
+
+    it('should throw on invalid phase', () => {
+      const def = defineMiddleware(() => (_ctx: Context) => {});
+      expect(() => adapter['registerMiddleware']('BadPhase', [def])).toThrow(/Invalid middleware phase/);
     });
   });
 
@@ -585,6 +621,80 @@ describe('Adapter', () => {
     });
   });
 
+  // ── 2-stage exception filter dispatch ─────────────────────
+
+  describe('runExceptionFilters — local → global dispatch', () => {
+    class LocalError extends Error {}
+
+    /** Adapter that provides local exception filters via getLocalExceptionFilters. */
+    class AdapterWithLocalFilters extends TestAdapter {
+      private localFilters: ResolvedExceptionFilter[] | undefined;
+
+      setLocalFilters(filters: ResolvedExceptionFilter[]): void {
+        this.localFilters = filters;
+      }
+
+      protected override getLocalExceptionFilters(_context: Context): readonly ResolvedExceptionFilter[] | undefined {
+        return this.localFilters;
+      }
+    }
+
+    it('should check local filters first, then global', async () => {
+      const order: string[] = [];
+      const localHandler = mock((_error: unknown, _ctx: Context): Err<unknown> => {
+        order.push('local');
+        return err({ source: 'local' });
+      });
+      const globalHandler = mock((_error: unknown, _ctx: Context): Err<unknown> => {
+        order.push('global');
+        return err({ source: 'global' });
+      });
+
+      const localAdapter = new AdapterWithLocalFilters();
+      localAdapter.setLocalFilters([{ handler: localHandler, catchTypes: [] }]);
+      localAdapter.addExceptionFilters([defineExceptionFilter([], () => globalHandler)]);
+      localAdapter.initializePipeline(createMockContainer());
+
+      const result = await localAdapter.runExceptionFilters(new Error('test'), createContext());
+
+      expect(order).toEqual(['local']);
+      expect(result.data).toEqual({ source: 'local' });
+      expect(globalHandler).not.toHaveBeenCalled();
+    });
+
+    it('should fall through to global when local filter does not match', async () => {
+      const globalHandler = mock((_error: unknown, _ctx: Context): Err<unknown> => {
+        return err({ source: 'global' });
+      });
+      const localHandler = mock((_error: unknown, _ctx: Context): Err<unknown> => {
+        return err({ source: 'local' });
+      });
+
+      const localAdapter = new AdapterWithLocalFilters();
+      localAdapter.setLocalFilters([{ handler: localHandler, catchTypes: [LocalError] }]);
+      localAdapter.addExceptionFilters([defineExceptionFilter([], () => globalHandler)]);
+      localAdapter.initializePipeline(createMockContainer());
+
+      const result = await localAdapter.runExceptionFilters(new Error('generic'), createContext());
+
+      expect(result.data).toEqual({ source: 'global' });
+      expect(localHandler).not.toHaveBeenCalled();
+    });
+
+    it('should use global only when getLocalExceptionFilters returns undefined', async () => {
+      const globalHandler = mock((_error: unknown, _ctx: Context): Err<unknown> => {
+        return err({ source: 'global' });
+      });
+
+      adapter.addExceptionFilters([defineExceptionFilter([], () => globalHandler)]);
+      adapter.initializePipeline(createMockContainer());
+
+      const result = await adapter.runExceptionFilters(new Error('test'), createContext());
+
+      expect(result.data).toEqual({ source: 'global' });
+    });
+  });
+
   // ── addExceptionFilters ──────────────────────────────────
 
   describe('addExceptionFilters', () => {
@@ -630,11 +740,11 @@ describe('Adapter', () => {
         order.push('async-mw');
       });
 
-      adapter.addTestMiddlewares('TestPhase', [asyncMw]);
+      adapter.applyMiddlewareConfig({ TestPhase: [asyncMw] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter['runMiddlewares'](
-        adapter['resolvedTestMiddlewares'].get('TestPhase')!, createContext(),
+        adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
       );
 
       expect(isErr(result)).toBe(false);
@@ -647,11 +757,11 @@ describe('Adapter', () => {
         return err({ halted: true });
       });
 
-      adapter.addTestMiddlewares('TestPhase', [asyncMw]);
+      adapter.applyMiddlewareConfig({ TestPhase: [asyncMw] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter['runMiddlewares'](
-        adapter['resolvedTestMiddlewares'].get('TestPhase')!, createContext(),
+        adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
       );
 
       expect(isErr(result)).toBe(true);
