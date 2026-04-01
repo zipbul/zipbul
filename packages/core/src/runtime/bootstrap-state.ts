@@ -1,9 +1,9 @@
-import type { RuntimeContext } from './interfaces';
+import type { BootstrapState } from './interfaces';
 
-let currentContext: RuntimeContext = {};
+let currentContext: BootstrapState = {};
 
-export function registerRuntimeContext(context: RuntimeContext): void {
-  const nextContext: RuntimeContext = {};
+export function registerBootstrapState(context: BootstrapState): void {
+  const nextContext: BootstrapState = {};
 
   if (context.metadataRegistry !== undefined) {
     nextContext.metadataRegistry = context.metadataRegistry;
@@ -66,6 +66,17 @@ export function registerRuntimeContext(context: RuntimeContext): void {
   currentContext = nextContext;
 }
 
-export function getRuntimeContext(): RuntimeContext {
+export function getBootstrapState(): BootstrapState {
   return currentContext;
+}
+
+/**
+ * Purges the metadata registry from the runtime context.
+ * Called after bootstrap to enforce INVARIANTS §4 (Metadata Volatility).
+ *
+ * @public
+ */
+export function clearMetadataRegistry(): void {
+  currentContext.metadataRegistry?.clear();
+  currentContext.metadataRegistry = undefined;
 }

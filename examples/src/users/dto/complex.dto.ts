@@ -1,26 +1,25 @@
-import { IsArray, IsOptional, IsString, Max, Min, Nested } from '@zipbul/common';
+import { Field } from '@zipbul/baker';
+import { isString, isArray, min, max } from '@zipbul/baker/rules';
 
 import { AddressDto } from './address.dto';
 import { SocialDto } from './social.dto';
 
 export class CreateUserComplexDto {
-  @IsString()
+  @Field(isString)
   name: string;
 
-  @Min(18)
-  @Max(99)
+  @Field(min(18), max(99))
   age: number;
 
-  @Nested(() => AddressDto, { each: true })
+  @Field({ type: () => [AddressDto] })
   addresses: AddressDto[];
 
-  @Nested(() => SocialDto)
+  @Field({ type: () => SocialDto })
   social: SocialDto;
 
-  @IsArray()
+  @Field(isArray)
   tags: string[];
 
-  @IsOptional()
-  @IsString()
+  @Field(isString, { optional: true })
   bio?: string;
 }

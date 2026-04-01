@@ -2,27 +2,27 @@ import { describe, it, expect } from 'bun:test';
 import type { Context } from './interfaces';
 import type { AdapterClass } from './adapter/types';
 import type { MiddlewareHandlerFn } from './define-middleware';
-import { Adapter } from './adapter/adapter';
+import { Adapter } from '@zipbul/core';
 import { defineMiddleware } from './define-middleware';
 
 class FakeAdapterA extends Adapter {
+  static readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators = { controller: () => {}, handler: [] };
-  parseInput() {}
-  resolveHandler() { return undefined; }
   handleResult() {}
-  forceCloseConnection() {}
-
+  protected emergencyTeardown() {}
+  protected async executePipeline() { return undefined as never; }
+  applyMiddlewareConfig() {}
   async start() {}
   async stop() {}
 }
 
 class FakeAdapterB extends Adapter {
+  static readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators = { controller: () => {}, handler: [] };
-  parseInput() {}
-  resolveHandler() { return undefined; }
   handleResult() {}
-  forceCloseConnection() {}
-
+  protected emergencyTeardown() {}
+  protected async executePipeline() { return undefined as never; }
+  applyMiddlewareConfig() {}
   async start() {}
   async stop() {}
 }

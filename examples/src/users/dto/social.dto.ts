@@ -1,9 +1,10 @@
-import { IsIn, IsString } from '@zipbul/common';
+import { Field } from '@zipbul/baker';
+import { isString, isIn } from '@zipbul/baker/rules';
 
 export class SocialDto {
-  @IsIn(['twitter', 'github', 'linkedin'])
+  @Field(isIn(['twitter', 'github', 'linkedin']))
   platform: string;
 
-  @IsString()
+  @Field(isString)
   url: string;
 }

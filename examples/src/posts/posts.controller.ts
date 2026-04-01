@@ -1,9 +1,10 @@
 import { UseMiddlewares } from '@zipbul/common';
-import { RestController, Delete, Get, Param, Post, Put, Body } from '@zipbul/http-adapter';
+import { RestController, Delete, Get, Post, Put, type HttpContext } from '@zipbul/http-adapter';
 
 import type { PostCommentInput } from './comments/interfaces';
 import type { Post as PostEntity } from './interfaces';
 
+import { IdRouteParams } from '../dto/id-route-params.dto';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { loggerMiddleware } from '../middleware/logger.middleware';
@@ -19,28 +20,39 @@ export class PostsController {
   }
 
   @Get(':id')
-  getById(@Param('id') id: string): PostEntity | undefined {
-    return this.postsService.findOneById(Number(id));
+  getById(ctx: HttpContext): PostEntity | undefined {
+    const params = ctx.getParams<IdRouteParams>();
+
+    return this.postsService.findOneById(Number(params.id));
   }
 
   @Post()
   @UseMiddlewares(loggerMiddleware)
-  create(@Body() body: CreatePostDto): number {
+  create(ctx: HttpContext): number {
+    const body = ctx.getBody<CreatePostDto>();
+
     return this.postsService.create(body);
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: UpdatePostDto): PostEntity {
-    return this.postsService.update(Number(id), body);
+  update(ctx: HttpContext): PostEntity {
+    const params = ctx.getParams<IdRouteParams>();
+    const body = ctx.getBody<UpdatePostDto>();
+
+    return this.postsService.update(Number(params.id), body);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string): PostEntity[] {
-    return this.postsService.delete(Number(id));
+  delete(ctx: HttpContext): PostEntity[] {
+    const params = ctx.getParams<IdRouteParams>();
+
+    return this.postsService.delete(Number(params.id));
   }
 
   @Post(':id/comments')
-  createComment(@Param('id') id: string, @Body() body: PostCommentInput): void {
-    this.postsService.createComment(Number(id), body);
+  createComment(ctx: HttpContext): void {
+    const params = ctx.getParams<IdRouteParams>();
+
+    this.postsService.createComment(Number(params.id), ctx.request.body as PostCommentInput);
   }
 }

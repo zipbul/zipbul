@@ -4,27 +4,27 @@ import { err } from '@zipbul/result';
 import type { Context } from './interfaces';
 import type { AdapterClass } from './adapter/types';
 import type { ExceptionFilterHandlerFn } from './define-exception-filter';
-import { Adapter } from './adapter/adapter';
+import { Adapter } from '@zipbul/core';
 import { defineExceptionFilter } from './define-exception-filter';
 
 class FakeAdapterA extends Adapter {
+  static readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators = { controller: () => {}, handler: [] };
-  parseInput() {}
-  resolveHandler() { return undefined; }
   handleResult() {}
-  forceCloseConnection() {}
-
+  protected emergencyTeardown() {}
+  protected async executePipeline() { return undefined as never; }
+  applyMiddlewareConfig() {}
   async start() {}
   async stop() {}
 }
 
 class FakeAdapterB extends Adapter {
+  static readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators = { controller: () => {}, handler: [] };
-  parseInput() {}
-  resolveHandler() { return undefined; }
   handleResult() {}
-  forceCloseConnection() {}
-
+  protected emergencyTeardown() {}
+  protected async executePipeline() { return undefined as never; }
+  applyMiddlewareConfig() {}
   async start() {}
   async stop() {}
 }

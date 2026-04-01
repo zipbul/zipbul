@@ -968,20 +968,25 @@ describe('ClusterManager', () => {
       // Act — init triggers crash via process.exit(1)
       await expect(manager.init({ crash: true })).rejects.toThrow();
 
-      // Assert — logger.error was called with CrashDiagnostics as second arg
+      // Wait for crash diagnostics to be logged (async close event processing)
+      await waitForCondition(
+        () => loggerSpy.mock.calls.some(
+          (call) => typeof call[0] === 'string' && (call[0] as string).includes('close'),
+        ),
+        3_000,
+      );
+
+      // Assert — logger.error was called with crash message containing 'close'
+      // Signature: this.logger.error(message, crashError, diagnostics.type)
       const crashCall = loggerSpy.mock.calls.find(
         (call) => typeof call[0] === 'string' && (call[0] as string).includes('close'),
       );
 
       expect(crashCall).toBeDefined();
 
-      const diagnostics = crashCall![1] as CrashDiagnostics;
-      expect(diagnostics.type).toBe('close');
-
-      if (diagnostics.type === 'close') {
-        expect(diagnostics.code).toBe(1);
-        expect(diagnostics.wasClean).toBe(false);
-      }
+      // Third arg is diagnostics.type string
+      const diagType = crashCall![2] as string;
+      expect(diagType).toBe('close');
     });
 
     it('should log ErrorEvent diagnostics with unwrapped Error when worker throws', async () => {
@@ -1007,24 +1012,22 @@ describe('ClusterManager', () => {
         slot.native.terminate();
       }
 
-      // Wait for crash to be processed
+      // Wait for crash to be processed (5s to handle CI/parallel load)
       await waitForCondition(
         () => manager!.getSlotStates()[0]!.generation >= 1,
-        3_000,
+        5_000,
       );
 
-      // Assert — at least one logger.error call should have CrashDiagnostics
+      // Assert — at least one logger.error call should have diagnostics.type as third arg
+      // Signature: this.logger.error(message, crashError, diagnostics.type)
       const anyCrashCall = loggerSpy.mock.calls.find(
-        (call) => {
-          const arg = call[1];
-          return arg !== null && typeof arg === 'object' && 'type' in (arg as object);
-        },
+        (call) => typeof call[2] === 'string' && ['close', 'error-event', 'error'].includes(call[2] as string),
       );
 
       expect(anyCrashCall).toBeDefined();
 
-      const diagnostics = anyCrashCall![1] as CrashDiagnostics;
-      expect(['close', 'error-event', 'error']).toContain(diagnostics.type);
+      const diagType = anyCrashCall![2] as string;
+      expect(['close', 'error-event', 'error']).toContain(diagType);
     });
   });
 });

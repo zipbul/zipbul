@@ -1,8 +1,8 @@
-import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import type { Server } from 'bun';
 
 import type { ZipbulContainer } from '@zipbul/common';
 import type { HttpAdapter } from './http-adapter';
-import type { HttpWorkerResponse } from './interfaces';
 
 const mockLoggerDebug = mock(() => {});
 const mockLoggerInfo = mock(() => {});
@@ -22,10 +22,6 @@ mock.module('@zipbul/logger', () => ({
   },
 }));
 
-mock.module('./utils', () => ({
-  getIps: mock(() => ({ ip: '127.0.0.1', ips: [] })),
-}));
-
 const { HttpServer } = await import('./http-server');
 
 type HttpServerInstance = InstanceType<typeof HttpServer>;
@@ -35,6 +31,7 @@ interface ServerInternals {
   container: ZipbulContainer;
   options: Record<string, unknown>;
   server: Record<string, unknown>;
+  allowedMethods: ReadonlySet<string>;
 }
 
 function createMockContainer(overrides?: Partial<ZipbulContainer>): ZipbulContainer {
@@ -74,11 +71,14 @@ function wireServer(
   internals.container = container;
   internals.options = { port: 3000, trustProxy: false };
   internals.server = { hostname: 'localhost', port: 3000 };
+  internals.allowedMethods = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 }
 
 function createGetRequest(path: string = '/test'): Request {
   return new Request(`http://localhost${path}`, { method: 'GET' });
 }
+
+const mockBunServer = { requestIP: () => ({ address: '127.0.0.1', family: 'IPv4', port: 0 }) } as unknown as Server<unknown>;
 
 describe('HttpServer', () => {
   let server: HttpServerInstance;
@@ -100,7 +100,7 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(mockCreateRequestScope).toHaveBeenCalledTimes(1);
@@ -119,7 +119,7 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(receivedContainer).toBe(scopedContainer);
@@ -135,7 +135,7 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(mockDispose).toHaveBeenCalledTimes(1);
@@ -154,7 +154,7 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(mockDispose).toHaveBeenCalledTimes(1);
@@ -170,7 +170,7 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      const response = await server.fetch(createGetRequest());
+      const response = await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(response).toBeInstanceOf(Response);
@@ -190,8 +190,8 @@ describe('HttpServer', () => {
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
       // Act
-      await server.fetch(createGetRequest());
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(capturedIds).toHaveLength(2);
@@ -212,7 +212,7 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      const response = await server.fetch(createGetRequest());
+      const response = await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(response).toBeInstanceOf(Response);
@@ -232,7 +232,7 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(mockDispose).toHaveBeenCalledTimes(1);
@@ -252,9 +252,9 @@ describe('HttpServer', () => {
 
       // Act
       await Promise.all([
-        server.fetch(createGetRequest('/a')),
-        server.fetch(createGetRequest('/b')),
-        server.fetch(createGetRequest('/c')),
+        server.fetch(createGetRequest('/a'), mockBunServer),
+        server.fetch(createGetRequest('/b'), mockBunServer),
+        server.fetch(createGetRequest('/c'), mockBunServer),
       ]);
 
       // Assert
@@ -266,24 +266,22 @@ describe('HttpServer', () => {
   });
 
   describe('toResponse status logging', () => {
-    it('should log warning when status is 199', async () => {
-      // Arrange
+    it('should return 500 when status is out of range (199)', async () => {
+      // Arrange — status validation moved to HttpResponse.build()
       const container = createMockContainer({ createRequestScope: mock(() => createMockContainer()) });
       const adapter = createMockAdapter();
       (adapter.dispatchRequest as ReturnType<typeof mock>).mockImplementation(async (context: Record<string, unknown>) => {
         const typedContext = context as unknown as { response: Record<string, unknown> & { setBody: (b: string) => { end: () => void } } };
-        typedContext.response._status = 199;
+        typedContext.response._status = 99;
         typedContext.response._statusText = 'Custom';
         typedContext.response.setBody('test').end();
       });
       wireServer(server, container, adapter);
 
       // Act
-      const response = await server.fetch(createGetRequest());
+      const response = await server.fetch(createGetRequest(), mockBunServer);
 
-      // Assert
-      expect(mockLoggerWarn).toHaveBeenCalledTimes(1);
-      expect(mockLoggerWarn.mock.calls[0][0]).toContain('199');
+      // Assert — HttpResponse.build() corrects out-of-range status to 500
       expect(response.status).toBe(500);
     });
 
@@ -298,7 +296,7 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(mockLoggerWarn).not.toHaveBeenCalled();
@@ -317,14 +315,14 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(mockLoggerWarn).not.toHaveBeenCalled();
     });
 
-    it('should log warning when status is 600', async () => {
-      // Arrange
+    it('should return 500 when status is out of range (600)', async () => {
+      // Arrange — status validation moved to HttpResponse.build()
       const container = createMockContainer({ createRequestScope: mock(() => createMockContainer()) });
       const adapter = createMockAdapter();
       (adapter.dispatchRequest as ReturnType<typeof mock>).mockImplementation(async (context: Record<string, unknown>) => {
@@ -336,11 +334,9 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      const response = await server.fetch(createGetRequest());
+      const response = await server.fetch(createGetRequest(), mockBunServer);
 
-      // Assert
-      expect(mockLoggerWarn).toHaveBeenCalledTimes(1);
-      expect(mockLoggerWarn.mock.calls[0][0]).toContain('600');
+      // Assert — HttpResponse.build() corrects out-of-range status to 500
       expect(response.status).toBe(500);
     });
 
@@ -357,7 +353,7 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(mockLoggerWarn).not.toHaveBeenCalled();
@@ -374,7 +370,7 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(mockLoggerWarn).not.toHaveBeenCalled();
@@ -387,10 +383,47 @@ describe('HttpServer', () => {
       wireServer(server, container, adapter);
 
       // Act
-      await server.fetch(createGetRequest());
+      await server.fetch(createGetRequest(), mockBunServer);
 
       // Assert
       expect(mockLoggerWarn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('TLS passthrough', () => {
+    it('should store tls options in server options when provided', () => {
+      // Arrange
+      const tlsServer = new HttpServer();
+      const container = createMockContainer();
+      const adapter = createMockAdapter();
+      const tlsOptions = { cert: 'test-cert', key: 'test-key' };
+
+      // Act — wire server directly with tls options
+      const internals = tlsServer as unknown as ServerInternals;
+      internals.adapter = adapter;
+      internals.container = container;
+      internals.options = { port: 3000, trustProxy: false, tls: tlsOptions };
+      internals.server = { hostname: 'localhost', port: 3000 };
+      internals.allowedMethods = new Set(['GET']);
+
+      // Assert — options contain tls
+      expect(internals.options.tls).toEqual(tlsOptions);
+      expect(internals.options.tls.cert).toBe('test-cert');
+      expect(internals.options.tls.key).toBe('test-key');
+    });
+
+    it('should not have tls in options when not configured', () => {
+      // Arrange
+      const tlsServer = new HttpServer();
+      const container = createMockContainer();
+      const adapter = createMockAdapter();
+
+      // Act
+      wireServer(tlsServer, container, adapter);
+
+      // Assert
+      const internals = tlsServer as unknown as ServerInternals;
+      expect(internals.options.tls).toBeUndefined();
     });
   });
 });

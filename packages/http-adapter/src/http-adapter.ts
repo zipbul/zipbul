@@ -1,10 +1,14 @@
-import type { Class, Context, AdapterEntryDecorators, Result, Err } from '@zipbul/common';
-import { Adapter, isErr, err, safe } from '@zipbul/common';
+import type { AdapterContext, ApplicationContext, AdapterEntryDecorators } from '@zipbul/common';
+import type { MiddlewareDefinition } from '@zipbul/common';
+import { err, isErr } from '@zipbul/result';
+import type { Result, Err } from '@zipbul/result';
+import { Adapter } from '@zipbul/core';
+import type { ResolvedMiddleware, ResolvedExceptionFilter } from '@zipbul/core';
 import { StatusCodes } from 'http-status-codes';
 import { Logger } from '@zipbul/logger';
 
 import {
-  getRuntimeContext,
+  getBootstrapState,
   type ClassMetadata as CoreClassMetadata,
   type ConstructorParamMetadata as CoreConstructorParamMetadata,
   type DecoratorMetadata as CoreDecoratorMetadata,
@@ -12,36 +16,112 @@ import {
 import type {
   HttpServerBootOptions,
   HttpServerOptions,
-  HttpAdapterStartContext,
   InternalRouteHandler,
   InternalRouteEntry,
 } from './interfaces';
-import type { ClassMetadata, JsonValue, MetadataRegistryKey, ParamTypeReference, RequestBodyValue, ResponseBodyValue } from './types';
+import type { ClassMetadata, ErrorResponseData, MatchedRouteMetadata, MetadataRegistryKey, ParamTypeReference, ResponseBodyValue } from './types';
+import type { Class } from '@zipbul/common';
 
 import { HttpContext } from './http-context';
 import { HttpServer } from './http-server';
+import { __internals as httpServerInternals } from './http-server';
 import { HttpError } from './errors/http-error';
 import { HttpResponse } from './http-response';
-import { BadRequestError } from './errors/errors';
-import { BakerValidationError } from '@zipbul/baker';
+import { isBakerError } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
-import { Get, Post, Put, Delete, Patch, Options, Head } from './decorators/method.decorator';
+import { Get, Post, Put, Delete, Patch, Options, Head, Method } from './decorators/method.decorator';
+import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
 import type { RouteHandler } from './route-handler';
+import { HttpPhase, HeaderField } from './enums';
+import { isAsyncIterable, formatSSEChunk } from './server-sent-event';
 
+const TEXT_ENCODER = new TextEncoder();
 
-interface ErrorResponseData {
-  readonly status: number;
-  readonly message?: string;
-  readonly errors?: readonly JsonValue[];
+// ── readBodyWithLimit ─────────────────────────────────────────
+
+async function readBodyWithLimit(
+  rawReq: Request,
+  contentLength: number | null,
+  bodyLimit: number,
+): Promise<Result<Uint8Array, ErrorResponseData>> {
+  // CL 존재 — fast path. bodyLimit 초과 시 즉시 거부.
+  if (contentLength !== null) {
+    if (contentLength > bodyLimit) {
+      return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
+    }
+    return new Uint8Array(await rawReq.arrayBuffer());
+  }
+
+  // CL 없음 (chunked TE) — 점진적 size 체크
+  const body = rawReq.body;
+  if (body === null) {
+    return new Uint8Array(0);
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalSize = 0;
+
+  let limitExceeded = false;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      totalSize += value.byteLength;
+      if (totalSize > bodyLimit) {
+        limitExceeded = true;
+        return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
+      }
+
+      chunks.push(value);
+    }
+  } finally {
+    if (limitExceeded) {
+      await reader.cancel();
+    }
+    reader.releaseLock();
+  }
+
+  if (chunks.length === 1) {
+    return chunks[0]!;
+  }
+
+  const result = new Uint8Array(totalSize);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
 }
 
+// ── HttpAdapter ──────────────────────────────────────────────
+
 export class HttpAdapter extends Adapter {
+  static override readonly validPhases: ReadonlySet<string> = new Set(Object.values(HttpPhase));
+
+  /**
+   * AOT 컴파일러가 메서드명 → validation kind 매핑에 사용.
+   * `getBody` → `'body'`, `getQuery` → `'query'`, `getParams` → `'params'`.
+   *
+   * @public
+   */
+  static readonly validatedAccessors: Readonly<Record<string, string>> = {
+    getBody: 'body',
+    getQuery: 'query',
+    getParams: 'params',
+  };
+
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
-    handlers: [Get, Post, Put, Delete, Patch, Options, Head],
+    handlers: [Get, Post, Put, Delete, Patch, Options, Head, Method],
+    options: [RawBody, Sse, BodyLimit, Status, Redirect, ContentTypeDecorator, Header],
   };
 
   private readonly options: HttpServerOptions;
+  private readonly textMediaTypes: ReadonlySet<string>;
   private httpServer: HttpServer | undefined;
   private routeHandler: RouteHandler | undefined;
   private readonly logger = new Logger('HttpAdapter');
@@ -61,6 +141,7 @@ export class HttpAdapter extends Adapter {
     };
 
     this.options = normalizedOptions;
+    this.textMediaTypes = new Set(normalizedOptions.textMediaTypes ?? []);
   }
 
   /**
@@ -75,204 +156,480 @@ export class HttpAdapter extends Adapter {
     this.internalRoutes.push({ method, path, handler });
   }
 
-  // ── Abstract hook implementations ─────────────────────────────
+  // ── Middleware configuration ─────────────────────────────────
 
   /**
-   * Parses the HTTP request body from the raw Bun `Request`.
-   * Runs after `OnReceive` middlewares, before `PostParseData`.
+   * Typed programmatic middleware registration for HTTP phases.
    *
-   * @param context - The HTTP context.
+   * @param phase - The HTTP pipeline phase.
+   * @param middlewares - Middleware definitions to append.
+   * @returns `this` for chaining.
    * @public
    */
-  async parseInput(context: Context): Promise<void> {
+  addMiddlewares(phase: HttpPhase, middlewares: readonly MiddlewareDefinition[]): this {
+    this.registerMiddleware(phase, middlewares);
+    return this;
+  }
+
+  // ── Finalize middlewares ─────────────────────────────────────
+
+  /**
+   * Returns `AfterResponse` phase middlewares for Phase 3 finalize.
+   *
+   * @returns Resolved AfterResponse middlewares.
+   * @public
+   */
+  protected override getFinalizeMiddlewares(): readonly ResolvedMiddleware[] {
+    return this.getPhaseMiddlewares(HttpPhase.AfterResponse);
+  }
+
+  // ── Pipeline assembly ───────────────────────────────────────
+
+  /**
+   * HTTP-specific pipeline:
+   * OnRequest → [resolveRoute] → BeforeParse → [parseBody] → BeforeValidate → [runValidations + guards]
+   *   → BeforeHandle → [handler] → AfterHandle → [serialize] → BeforeResponse → [build + send] → AfterResponse
+   *
+   * @param context - The HTTP context.
+   * @returns Pipeline result.
+   * @public
+   */
+  protected async executePipeline(context: AdapterContext): Promise<Result<unknown, unknown>> {
     const http = context.to(HttpContext);
-    const req = http.request;
-    const rawReq = http.rawRequest;
 
-    if (!rawReq) {
-      return;
+    // 1. OnRequest — CORS, logging, method override, URL rewriting
+    const onRequest = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.OnRequest), http,
+    );
+    if (isErr(onRequest)) return onRequest;
+    if (http.response.isSent()) return undefined;
+
+    // 1.5. Pre-pipeline error (not-implemented, invalid CL) — after OnRequest so CORS headers apply
+    if (http.pipelineError !== undefined) {
+      return err(http.pipelineError);
     }
 
-    const httpMethod = req.httpMethod;
+    // 2. Route Match — match against final method/path. 404/405 early return
+    const routeResult = this.resolveRoute(http);
+    if (isErr(routeResult)) return routeResult;
+    if (http.response.isSent()) return undefined;
 
-    if (
-      httpMethod === 'GET' ||
-      httpMethod === 'DELETE' ||
-      httpMethod === 'HEAD' ||
-      httpMethod === 'OPTIONS'
-    ) {
-      return;
+    const route = http.matchedRoute;
+    if (route === undefined) {
+      return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Route metadata not available' });
     }
 
-    const contentType = req.contentType ?? '';
+    // 3. BeforeParse — raw body interception, decryption
+    const beforeParse = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.BeforeParse), http,
+    );
+    if (isErr(beforeParse)) return beforeParse;
+    if (http.response.isSent()) return undefined;
 
-    if (contentType.includes('application/json')) {
-      try {
-        const parsed = await rawReq.json();
+    // 4. parseBody — Content-Type 기반 body 역직렬화
+    const parseResult = await this.parseBody(http);
+    if (isErr(parseResult)) return parseResult;
 
-        req.body = parsed as RequestBodyValue;
-      } catch {
-        throw new BadRequestError('Invalid JSON in request body');
-      }
-    } else {
-      req.body = await rawReq.text();
+    // 5. BeforeValidate — query parsing, multipart parsing, body transformation
+    const beforeValidate = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.BeforeValidate), http,
+    );
+    if (isErr(beforeValidate)) return beforeValidate;
+    if (http.response.isSent()) return undefined;
+
+    // 6. runValidations — baker DTO 검증
+    if (route.validations.length > 0) {
+      const validationResult = await this.runValidations(route.validations, http);
+      if (isErr(validationResult)) return validationResult;
+      if (http.response.isSent()) return undefined;
+    }
+
+    // 7. Guards — global access control
+    const guards = await this.runGuards(context);
+    if (isErr(guards)) return guards;
+    if (http.response.isSent()) return undefined;
+
+    // 8. BeforeHandle — global MW
+    const beforeHandle = await this.runHttpMiddlewares(
+      this.getPhaseMiddlewares(HttpPhase.BeforeHandle), http,
+    );
+    if (isErr(beforeHandle)) return beforeHandle;
+    if (http.response.isSent()) return undefined;
+
+    // 9. BeforeHandle — handler-scoped MW
+    if (route.middlewares.length > 0) {
+      const scopedResult = await this.runHttpMiddlewares(route.middlewares, http);
+      if (isErr(scopedResult)) return scopedResult;
+      if (http.response.isSent()) return undefined;
+    }
+
+    // 10. Route-level guards
+    for (const guard of route.guards) {
+      const guardResult = await guard(context);
+      if (isErr(guardResult)) return guardResult;
+    }
+    if (http.response.isSent()) return undefined;
+
+    this.logger.debug(`Pipeline: mw=${route.middlewares.length} guards=${route.guards.length} filters=${route.exceptionFilters.length}`);
+
+    // 11. Apply decorator metadata — defaults before handler (handler can override)
+    this.applyDecoratorMetadata(route, http.response);
+
+    // 12. Handler
+    return route.handler(http);
+  }
+
+  // ── Pipeline steps ──────────────────────────────────────────
+
+  /**
+   * Applies decorator metadata as response defaults before handler invocation.
+   * Rule: decorator = default, imperative (handler `res.setX()`) = override.
+   *
+   * @param route - Matched route metadata containing decorator values.
+   * @param res - The HTTP response to apply defaults to.
+   */
+  private applyDecoratorMetadata(route: MatchedRouteMetadata, res: HttpResponse): void {
+    if (route.status !== undefined) {
+      res.setStatus(route.status as StatusCodes);
+    }
+    if (route.contentType !== undefined) {
+      res.setContentType(route.contentType);
+    }
+    for (const [name, value] of route.headers) {
+      res.setHeader(name, value);
+    }
+    if (route.redirect !== undefined) {
+      res.redirect(route.redirect.url, route.redirect.status);
     }
   }
 
   /**
-   * Matches the request to a route, runs scoped middlewares, and invokes the handler.
-   * Returns the handler's result as a `Result<unknown, unknown>`.
+   * Matches the request to a route and stores metadata on the context.
+   * Extracted from the former `resolveHandler` front-half.
    *
-   * @param context - The HTTP context.
-   * @returns The handler result (success value or `Err`).
-   * @public
+   * @param http - The HTTP context.
+   * @returns `Ok` on match, `Err` for 404/500.
    */
-  async resolveHandler(context: Context): Promise<Result<unknown, unknown>> {
-    const http = context.to(HttpContext);
+  private resolveRoute(http: HttpContext): Result<void, ErrorResponseData> {
     const req = http.request;
-    const res = http.response;
-    const method = req.httpMethod;
-    const path = req.path;
 
-    if (!this.routeHandler) {
+    if (this.routeHandler === undefined) {
       return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Router not initialized' });
     }
 
-    const matchResult = this.routeHandler.match(method, path);
+    const matchResult = this.routeHandler.matchRoute(req.method, req.path);
 
-    if (!matchResult) {
-      return err({ status: StatusCodes.NOT_FOUND, message: `Route not found: ${method} ${path}` });
+    if (matchResult.kind === 'not-found') {
+      return err({ status: StatusCodes.NOT_FOUND, message: 'Not Found' });
+    }
+
+    if (matchResult.kind === 'method-not-allowed') {
+      if (req.method === 'OPTIONS') {
+        http.response.setHeader(HeaderField.Allow, matchResult.allowedMethods.join(', '));
+        http.response.setStatus(StatusCodes.NO_CONTENT);
+        http.response.send();
+        return undefined;
+      }
+
+      // RFC 9110 §15.5.6: Allow 헤더 필수
+      http.response.setHeader(HeaderField.Allow, matchResult.allowedMethods.join(', '));
+      return err({ status: StatusCodes.METHOD_NOT_ALLOWED, message: 'Method Not Allowed' });
     }
 
     req.params = matchResult.params;
+    http.matchedRoute = matchResult.route;
 
-    if (matchResult.value.exceptionFilters.length > 0) {
-      http.setRouteExceptionFilters(matchResult.value.exceptionFilters);
+    if (matchResult.route.exceptionFilters.length > 0) {
+      http.setRouteExceptionFilters(matchResult.route.exceptionFilters);
     }
 
-    this.logger.debug(`Pipeline: mw=${matchResult.value.middlewares.length} guards=${matchResult.value.guards.length} filters=${matchResult.value.exceptionFilters.length}`);
-
-    const scopedResult = await this.runMiddlewares(matchResult.value.middlewares, context);
-
-    if (isErr(scopedResult)) {
-      return scopedResult;
-    }
-
-    // Route-level guards: after route middlewares, before param resolution
-    if (matchResult.value.guards.length > 0) {
-      for (const guard of matchResult.value.guards) {
-        const guardResult = await guard(context);
-
-        if (isErr(guardResult)) {
-          return guardResult;
-        }
-      }
-    }
-
-    this.logger.debug(`Matched Route: ${method}:${path}`);
-
-    const routeEntry = matchResult.value;
-    const handlerArgs = await safe(
-      routeEntry.paramFactory(req, res),
-      (thrown) => {
-        if (thrown instanceof BakerValidationError) {
-          return {
-            status: StatusCodes.BAD_REQUEST,
-            message: thrown.message,
-            errors: thrown.errors.map(fieldError => ({
-              path: fieldError.path,
-              code: fieldError.code,
-              ...(fieldError.message !== undefined ? { message: fieldError.message } : {}),
-            })),
-          };
-        }
-
-        throw thrown;
-      },
-    );
-
-    if (isErr(handlerArgs)) {
-      return handlerArgs;
-    }
-
-    const result = await routeEntry.handler(...handlerArgs);
-
-    return result;
+    return undefined;
   }
 
   /**
+   * Parses the HTTP request body from the raw Bun `Request`.
+   * Runs after `resolveRoute` so `@RawBody()` flag is accessible.
+   *
+   * @param http - The HTTP context.
+   * @returns `void` on success, `Err` with 400 status on invalid JSON.
+   */
+  private async parseBody(http: HttpContext): Promise<Result<void, ErrorResponseData>> {
+    const req = http.request;
+    const rawReq = http.consumeRawRequest();
+
+    if (rawReq === undefined) return undefined;
+    if (req.method === 'GET' || req.method === 'HEAD') return undefined;
+    if ((req.method === 'DELETE' || req.method === 'OPTIONS') && req.contentType === null) return undefined;
+
+    // Content-Length: 0 — body 없음. Content-Encoding보다 먼저 체크.
+    if (req.contentLength === 0) return undefined;
+
+    // Content-Encoding 감지
+    const contentEncoding = req.headers.get('content-encoding');
+    if (contentEncoding !== null && contentEncoding.toLowerCase() !== 'identity') {
+      // RFC 9110 §15.5.16
+      http.response.setHeader(HeaderField.AcceptEncoding, 'identity');
+      return err({
+        status: StatusCodes.UNSUPPORTED_MEDIA_TYPE,
+        message: `Content-Encoding '${contentEncoding}' is not supported. Send uncompressed request body.`,
+      });
+    }
+
+    const mediaType = req.contentType?.mediaType ?? '';
+    const isJson = mediaType === 'application/json' || mediaType.endsWith('+json');
+    const isTextLike = mediaType.startsWith('text/')
+      || mediaType === 'application/x-www-form-urlencoded'
+      || this.textMediaTypes.has(mediaType);
+    const shouldBuffer = isJson || isTextLike;
+    const rawBodyEnabled = httpServerInternals.resolveRawBody(http.matchedRoute);
+    const charset = req.contentType?.charset ?? 'utf-8';
+
+    // JSON charset 제한: RFC 8259 §8.1 — UTF-8만 허용
+    if (isJson) {
+      try {
+        if (new TextDecoder(charset as Bun.Encoding).encoding !== 'utf-8') {
+          return err({
+            status: StatusCodes.BAD_REQUEST,
+            message: `JSON requires UTF-8 encoding (RFC 8259 §8.1), received: ${charset}`,
+          });
+        }
+      } catch {
+        return err({
+          status: StatusCodes.BAD_REQUEST,
+          message: `JSON requires UTF-8 encoding (RFC 8259 §8.1), received: ${charset}`,
+        });
+      }
+    }
+
+    const effectiveBodyLimit = http.matchedRoute?.bodyLimit ?? this.options.bodyLimit!;
+
+    if (shouldBuffer && rawBodyEnabled) {
+      // ── 버퍼링 + rawBody (CL 유무 불문 readBodyWithLimit) ──
+      const bytesResult = await readBodyWithLimit(rawReq, req.contentLength, effectiveBodyLimit);
+      if (isErr(bytesResult)) return bytesResult;
+
+      req.rawBody = bytesResult;
+
+      let text: string;
+      try {
+        text = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(bytesResult);
+      } catch {
+        return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
+      }
+
+      if (isJson) {
+        try {
+          req.body = httpServerInternals.parseJsonBody(JSON.parse(text));
+        } catch {
+          return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
+        }
+      } else {
+        req.body = text;
+      }
+      return undefined;
+    }
+
+    if (shouldBuffer) {
+      // ── 버퍼링, rawBody 비활성 ──
+      if (req.contentLength === null) {
+        // CL 없음 (chunked TE) — readBodyWithLimit으로 점진적 size 체크
+        const bytesResult = await readBodyWithLimit(rawReq, null, effectiveBodyLimit);
+        if (isErr(bytesResult)) return bytesResult;
+
+        let text: string;
+        try {
+          text = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(bytesResult);
+        } catch {
+          return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
+        }
+
+        if (isJson) {
+          try {
+            req.body = httpServerInternals.parseJsonBody(JSON.parse(text));
+          } catch {
+            return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
+          }
+        } else {
+          req.body = text;
+        }
+        return undefined;
+      }
+
+      // CL 존재 — fast path. bodyLimit 초과 시 즉시 거부.
+      if (req.contentLength! > effectiveBodyLimit) {
+        return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
+      }
+      if (isJson) {
+        try {
+          req.body = httpServerInternals.parseJsonBody(await rawReq.json());
+        } catch (error) {
+          // SyntaxError = 클라이언트가 잘못된 JSON 전송 → err(400)
+          // TypeError/기타 = body 이중 소비, 네트워크 끊김 등 인프라 에러 → throw 전파
+          if (error instanceof SyntaxError) {
+            return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
+          }
+          throw error;
+        }
+      } else {
+        try {
+          const raw = new Uint8Array(await rawReq.arrayBuffer());
+          req.body = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(raw);
+        } catch {
+          return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
+        }
+      }
+      return undefined;
+    }
+
+    // ── 스트리밍 — 버퍼링 없음 ──
+    if (rawReq.body !== null) {
+      // Bun Request.body는 ReadableStream<Uint8Array>이지만 TS 타입이 ReadableStream<any>로 선언됨
+      req.body = rawReq.body as ReadableStream<Uint8Array>;
+    }
+    return undefined;
+  }
+
+
+  /**
+   * Maps a validation kind to the corresponding raw input from the HTTP request.
+   *
+   * @param kind - The validation kind ('body', 'query', 'params').
+   * @param context - The current execution context.
+   * @returns The raw input value for baker to validate.
+   * @public
+   */
+  protected override resolveValidationInput(kind: string, context: AdapterContext): unknown {
+    const http = context.to(HttpContext);
+    switch (kind) {
+      case 'body': return http.request.body;
+      case 'query': return http.request.query;
+      case 'params': return http.request.params;
+      default: throw new Error(`Unknown validation kind: ${kind}`);
+    }
+  }
+
+  /**
+   * Wraps baker validation errors as HTTP 400 with field-level details.
+   * Non-baker errors are re-thrown to enter the exception filter path.
+   *
+   * @param _kind - The validation kind that failed.
+   * @param errors - The `BakerErrors` returned by baker `deserialize()`.
+   * @returns `Err` with structured 400 response for baker errors.
+   * @public
+   */
+  protected override wrapValidationError(_kind: string, errors: unknown): Err<unknown> {
+    if (isBakerError(errors)) {
+      return err({
+        status: StatusCodes.BAD_REQUEST,
+        message: 'Validation failed',
+        errors: errors.errors.map(fieldError => ({
+          path: fieldError.path,
+          code: fieldError.code,
+          ...(fieldError.message !== undefined ? { message: fieldError.message } : {}),
+        })),
+      });
+    }
+    throw errors;
+  }
+
+  /**
+   * HTTP-specific middleware runner with `isSent()` check after each middleware.
+   * HttpContext는 Context 인터페이스를 구조적으로 만족한다.
+   *
+   * @param list - Resolved middlewares to execute.
+   * @param http - The HTTP context.
+   * @returns Middleware result.
+   */
+  private async runHttpMiddlewares(
+    list: readonly ResolvedMiddleware[],
+    http: HttpContext,
+  ): Promise<Result<void, unknown>> {
+    for (const mw of list) {
+      const result = await mw.handler(http);
+      if (isErr(result)) return result;
+      if (http.response.isSent()) return undefined;
+    }
+    return undefined;
+  }
+
+  // ── Result handling ─────────────────────────────────────────
+
+  /**
    * Converts a `Result` into an HTTP response.
-   * On success, writes the handler's return value as the response body.
-   * On error, writes an error response with appropriate status code.
+   *
+   * Pipeline: writeResponse → AfterHandle → serialize → BeforeResponse
+   *
+   * - AfterHandle: result transformation / envelope (buffered only).
+   * - serialize: JSON.stringify + Content-Type inference.
+   * - BeforeResponse: post-serialization (ALL responses). compression, ETag, signing.
    *
    * @param result - The pipeline result.
    * @param context - The HTTP context.
    * @public
    */
-  async handleResult(result: Result<unknown, unknown>, context: Context): Promise<void> {
+  protected override async handleResult(result: Result<unknown, unknown>, context: AdapterContext): Promise<void> {
     const http = context.to(HttpContext);
     const res = http.response;
 
-    if (res.isSent()) {
-      return;
+    // ── writeResponse ──
+    if (!res.isSent()) {
+      if (isErr(result)) {
+        this.writeErrorResponse(res, result.data);
+      } else {
+        await this.writeSuccessResponse(res, result, http);
+      }
     }
 
-    if (isErr(result)) {
-      this.writeErrorResponse(res, result.data);
-
-      return;
+    // ── AfterHandle — result transformation, envelope. Buffered only. ──
+    // Native Response (SSE, streaming, Blob, handler Response) has no JS object to transform.
+    if (!res.hasNativeResponse() && !res.isSent()) {
+      const afterHandle = this.getPhaseMiddlewares(HttpPhase.AfterHandle);
+      if (afterHandle.length > 0) {
+        await this.runHttpMiddlewares(afterHandle, http);
+      }
     }
 
-    await this.writeSuccessResponse(res, result);
+    // ── serialize — JSON.stringify + Content-Type inference ──
+    res.serialize();
+
+    // ── BeforeResponse — post-serialization. ALL responses. compression, ETag, signing. ──
+    const beforeResponse = this.getPhaseMiddlewares(HttpPhase.BeforeResponse);
+    if (beforeResponse.length > 0) {
+      await this.runHttpMiddlewares(beforeResponse, http);
+    }
   }
 
   /**
-   * Emergency connection teardown. Sets a 500 status on the response.
+   * Emergency teardown. Sets a 500 status on the response.
    *
    * @param context - The HTTP context.
+   * @param error - The error that triggered teardown.
    * @public
    */
-  forceCloseConnection(context: Context, error?: unknown): void {
+  protected emergencyTeardown(context: AdapterContext, error?: unknown): void {
     if (error instanceof Error) {
-      this.logger.error(`forceCloseConnection: ${error.message}`, error);
+      this.logger.error(`emergencyTeardown: ${error.message}`, error);
+    } else if (error !== undefined) {
+      this.logger.error(`emergencyTeardown: ${String(error)}`);
     }
 
     const http = context.to(HttpContext);
     const res = http.response;
 
     if (!res.isSent()) {
+      // Headers preserved — OnRequest에서 설정된 CORS/보안 헤더 유지.
+      // status + body만 덮어쓴다.
       res.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
       res.setBody('Internal Server Error');
     }
   }
 
-  /**
-   * Runs exception filters, checking route-level filters first, then global.
-   *
-   * @param error - The thrown error.
-   * @param context - The current execution context.
-   * @returns `Err<unknown>` to feed into `handleResult`.
-   * @public
-   */
-  override async runExceptionFilters(error: unknown, context: Context): Promise<Err<unknown>> {
-    const http = context.to(HttpContext);
-    const routeFilters = http.routeExceptionFilters;
-
-    if (routeFilters !== undefined) {
-      for (const entry of routeFilters) {
-        if (!this.matchesExceptionFilter(error, entry)) {
-          continue;
-        }
-
-        return await entry.handler(error, context);
-      }
-    }
-
-    return super.runExceptionFilters(error, context);
+  protected override getLocalExceptionFilters(context: AdapterContext): readonly ResolvedExceptionFilter[] | undefined {
+    return context.to(HttpContext).routeExceptionFilters;
   }
 
   /**
-   * Stores the RouteHandler reference for use by `resolveHandler`.
+   * Stores the RouteHandler reference for use by `resolveRoute`.
    * Called by HttpServer during boot.
    *
    * @param routeHandler - The route handler instance.
@@ -284,33 +641,32 @@ export class HttpAdapter extends Adapter {
 
   // ── Lifecycle ──────────────────────────────────────────────
 
-  async start(context: Context): Promise<void> {
+  async start(context: ApplicationContext): Promise<void> {
     await Logger.runScoped(this.logger, () => this.startInternal(context));
   }
 
-  private async startInternal(context: Context): Promise<void> {
-    const startContext = this.toStartContext(context);
-    const runtimeCtx = getRuntimeContext();
+  private async startInternal(context: ApplicationContext): Promise<void> {
+    const bootstrapState = getBootstrapState();
 
     this.httpServer = new HttpServer();
 
-    const metadata = this.normalizeMetadataRegistry(runtimeCtx.metadataRegistry);
-    const scopedKeys = runtimeCtx.scopedKeys;
+    const metadata = this.normalizeMetadataRegistry(bootstrapState.metadataRegistry);
+    const scopedKeys = bootstrapState.scopedKeys;
     const bootOptions: HttpServerBootOptions = {
       ...this.options,
       ...(metadata !== undefined ? { metadata } : {}),
       ...(scopedKeys !== undefined ? { scopedKeys } : {}),
       internalRoutes: this.internalRoutes,
-      ...(runtimeCtx.handlerIndex !== undefined ? { handlerIndex: runtimeCtx.handlerIndex } : {}),
-      ...(runtimeCtx.controllerInstances !== undefined ? { controllerInstances: runtimeCtx.controllerInstances } : {}),
+      ...(bootstrapState.handlerIndex !== undefined ? { handlerIndex: bootstrapState.handlerIndex } : {}),
+      ...(bootstrapState.controllerInstances !== undefined ? { controllerInstances: bootstrapState.controllerInstances } : {}),
     };
 
-    await this.httpServer.boot(startContext.container, bootOptions, this);
+    await this.httpServer.boot(context.container, bootOptions, this);
   }
 
   async stop(): Promise<void> {
     if (this.httpServer !== undefined) {
-      this.httpServer.stop();
+      await this.httpServer.stop();
     }
   }
 
@@ -355,7 +711,7 @@ export class HttpAdapter extends Adapter {
     if (this.isErrorResponseData(errorData)) {
       const body: ResponseBodyValue = {
         status: errorData.status,
-        message: String(errorData.message ?? 'Error'),
+        message: errorData.message,
         ...(errorData.errors !== undefined ? { errors: [...errorData.errors] } : {}),
       };
       res.setStatus(errorData.status);
@@ -372,33 +728,82 @@ export class HttpAdapter extends Adapter {
   /**
    * Converts a successful handler result into an HTTP response.
    *
-   * When the handler returns a raw `Response` object, this method extracts
-   * its status, headers, and body into the `HttpResponse` builder. This is
-   * an escape hatch that bypasses the normal `HttpResponse` build chain —
-   * use it when direct control over the raw response is required (e.g.
-   * streaming, SSE, or proxied responses).
+   * AsyncIterable routing:
+   * - `@Sse()` decorated → SSE format (text/event-stream + data: framing)
+   * - No `@Sse()` → raw streaming (chunks sent as-is, Content-Type from @ContentType or imperative)
    *
    * @param res - The HTTP response builder.
    * @param result - The handler's return value.
+   * @param http - The HTTP context (for route metadata and signal).
    */
-  private async writeSuccessResponse(res: HttpResponse, result: unknown): Promise<void> {
-    if (result instanceof Response) {
-      res.setStatus(result.status);
+  private async writeSuccessResponse(res: HttpResponse, result: unknown, http: HttpContext): Promise<void> {
+    const signal = http.request.signal;
 
-      for (const [key, value] of result.headers.entries()) {
-        res.setHeader(key, value);
+    // AsyncIterable → SSE or raw streaming based on @Sse flag
+    if (isAsyncIterable(result)) {
+      const isSse = http.matchedRoute?.sse === true;
+      const iterator = result[Symbol.asyncIterator]();
+      const stream = new ReadableStream({
+        async pull(controller) {
+          if (signal.aborted) {
+            controller.close();
+            return;
+          }
+
+          try {
+            const { done, value } = await iterator.next();
+            if (done || signal.aborted) {
+              controller.close();
+              return;
+            }
+
+            if (isSse) {
+              controller.enqueue(formatSSEChunk(value));
+            } else {
+              // Raw streaming — encode string chunks, pass Uint8Array through
+              if (typeof value === 'string') {
+                controller.enqueue(TEXT_ENCODER.encode(value));
+              } else if (value instanceof Uint8Array) {
+                controller.enqueue(value);
+              } else {
+                controller.enqueue(TEXT_ENCODER.encode(String(value)));
+              }
+            }
+          } catch (error) {
+            if (!signal.aborted) {
+              controller.error(error);
+            } else {
+              controller.close();
+            }
+          }
+        },
+        async cancel() {
+          try {
+            await iterator.return?.();
+          } catch { /* swallow — cleanup best-effort */ }
+        },
+      });
+
+      if (isSse) {
+        const sseResponse = new Response(stream, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          },
+        });
+        res.setNativeResponse(sseResponse);
+      } else {
+        // Raw streaming — Content-Type from @ContentType or imperative setContentType
+        res.setNativeResponse(new Response(stream));
       }
-
-      const arrayBuffer = await result.arrayBuffer();
-
-      if (arrayBuffer.byteLength > 0) {
-        res.setBody(new Uint8Array(arrayBuffer));
-      }
-
       return;
     }
 
-    if (result instanceof HttpResponse) {
+    // Native Response passthrough (handler-created Response)
+    if (result instanceof Response) {
+      res.setNativeResponse(result);
       return;
     }
 
@@ -408,7 +813,6 @@ export class HttpAdapter extends Adapter {
 
     if (typeof result === 'bigint') {
       res.setBody(result.toString());
-
       return;
     }
 
@@ -450,17 +854,6 @@ export class HttpAdapter extends Adapter {
 
   // ── Internals ─────────────────────────────────────────────
 
-  private toStartContext(context: Context): HttpAdapterStartContext {
-    if (!this.isStartContext(context)) {
-      throw new Error('Adapter context missing container.');
-    }
-
-    return context;
-  }
-
-  private isStartContext(value: Context): value is HttpAdapterStartContext {
-    return typeof value === 'object' && value !== null && 'container' in value;
-  }
 
   private normalizeMetadataRegistry(
     registry:

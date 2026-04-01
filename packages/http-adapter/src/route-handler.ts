@@ -5,32 +5,27 @@ import type {
   ExceptionFilterDefinition,
   GuardDefinition,
   GuardHandlerFn,
-  ResolvedMiddleware,
-  ResolvedExceptionFilter,
 } from '@zipbul/common';
-import { runInInjectionContext } from '@zipbul/common';
+import type { ResolvedMiddleware, ResolvedExceptionFilter, ResolvedValidationEntry } from '@zipbul/core';
+import { runInInjectionContext } from '@zipbul/core';
 
 import { Logger } from '@zipbul/logger';
 
-import type { HttpRequest } from './http-request';
-import type { HttpResponse } from './http-response';
-import type { RouteHandlerEntry } from './interfaces';
-import type { MatchOutput, RouterOptions } from '@zipbul/router';
-import { isHttpMethod } from './http-method';
+import type { MatchedRouteMetadata, MatchRouteOutput } from './types';
+import type { RouterOptions } from '@zipbul/router';
 import type {
   ClassMetadata,
   ControllerInstance,
-  DecoratorArgument,
   InternalRouteDefinition,
   MetadataRegistryKey,
-  RouteHandlerArgument,
   RouteHandlerFunction,
   RouteHandlerResult,
-  RouteParamValue,
 } from './types';
 
+import type { HttpContext } from './http-context';
 import { Router } from '@zipbul/router';
-import { ParamResolver } from './param-resolver';
+
+type HttpCompiledHandlerEntry = CompiledHandlerEntry;
 
 interface RouteHandlerDecoratorConfig {
   readonly adapterId: string;
@@ -40,11 +35,12 @@ interface RouteHandlerDecoratorConfig {
 
 export class RouteHandler {
   private readonly metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>;
+  private readonly metatypeIndex: Map<string, new (...args: readonly unknown[]) => unknown>;
   private readonly decoratorConfig: RouteHandlerDecoratorConfig;
   private readonly container: ZipbulContainer | undefined;
-  private readonly router: Router<RouteHandlerEntry>;
-  private readonly paramResolver: ParamResolver;
+  private readonly router: Router<MatchedRouteMetadata>;
   private readonly logger = Logger.inherit();
+  private readonly registeredMethods = new Set<string>();
 
   constructor(
     metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
@@ -53,24 +49,43 @@ export class RouteHandler {
     container?: ZipbulContainer,
   ) {
     this.metadataRegistry = metadataRegistry;
+    this.metatypeIndex = buildMetatypeIndex(metadataRegistry);
     this.decoratorConfig = decoratorConfig;
     this.container = container;
-    this.paramResolver = new ParamResolver(metadataRegistry);
-    this.router = new Router<RouteHandlerEntry>({
+    this.router = new Router<MatchedRouteMetadata>({
       ignoreTrailingSlash: true,
       enableCache: true,
       ...routerOptions,
     });
   }
 
-  match(method: string, path: string): MatchOutput<RouteHandlerEntry> | undefined {
-    const normalized = method.toUpperCase();
-
-    if (!isHttpMethod(normalized)) {
-      return undefined;
+  /**
+   * Matches the request method and path against registered routes.
+   * Returns a discriminated union distinguishing matched, not-found, and method-not-allowed.
+   *
+   * @param method - HTTP method string.
+   * @param path - Request path.
+   * @returns `MatchRouteOutput` discriminated union.
+   * @public
+   */
+  matchRoute(method: string, path: string): MatchRouteOutput {
+    const result = this.router.match(method, path);
+    // Router.match()는 MatchOutput<T> | null을 반환한다 (미매칭 시 null).
+    if (result !== null) {
+      return {
+        kind: 'matched',
+        route: result.value,
+        params: result.params,
+      };
     }
 
-    return this.router.match(normalized, path) ?? undefined;
+    // 동일 경로에 다른 메서드가 등록되어 있는지 확인
+    const allowedMethods = this.getAllowedMethods(path);
+    if (allowedMethods.length > 0) {
+      return { kind: 'method-not-allowed', allowedMethods };
+    }
+
+    return { kind: 'not-found' };
   }
 
   /**
@@ -79,7 +94,7 @@ export class RouteHandler {
    * @param entries - Compiled handler entries from AOT.
    * @public
    */
-  registerFromHandlerIndex(entries: readonly CompiledHandlerEntry[], controllerInstances?: Map<string, unknown>): void {
+  registerFromHandlerIndex(entries: readonly HttpCompiledHandlerEntry[], controllerInstances?: Map<string, unknown>): void {
     let routeCount = 0;
 
     for (const entry of entries) {
@@ -87,9 +102,14 @@ export class RouteHandler {
         continue;
       }
 
-      const httpMethod = entry.handlerDecorator.toUpperCase();
+      // @Method('PURGE', '/path') → method from args[0], path from args[1]
+      // @Get('/path')            → method from decorator name, path from args[0]
+      const isCustomMethod = entry.handlerDecorator === 'Method';
+      const httpMethod = isCustomMethod
+        ? (typeof entry.handlerDecoratorArgs[0] === 'string' ? entry.handlerDecoratorArgs[0].toUpperCase() : '')
+        : entry.handlerDecorator.toUpperCase();
 
-      if (!isHttpMethod(httpMethod)) {
+      if (httpMethod.length === 0) {
         continue;
       }
 
@@ -108,44 +128,57 @@ export class RouteHandler {
       }
 
       const handler = this.resolveHandler(instance, entry.methodName);
-      const paramFactory = this.paramResolver.buildParamFactory(
-        entry.params.map((param, index) => {
-          const decorators = param.decoratorName !== undefined
-            ? [{ name: param.decoratorName, arguments: [...(param.decoratorArgs ?? [])] as readonly DecoratorArgument[] }]
-            : [];
-          const meta: { index: number; name: string; type?: string; decorators: typeof decorators } = {
-            index,
-            name: param.name,
-            decorators,
-          };
 
-          if (param.metatypeKey !== undefined) {
-            meta.type = param.metatypeKey;
-          }
-
-          return meta;
-        }),
-      );
-
-      const rawPath = typeof entry.handlerDecoratorArgs[0] === 'string' ? entry.handlerDecoratorArgs[0] : '';
+      const pathArgIndex = isCustomMethod ? 1 : 0;
+      const rawPath = typeof entry.handlerDecoratorArgs[pathArgIndex] === 'string' ? entry.handlerDecoratorArgs[pathArgIndex] as string : '';
       const controllerPrefix = this.getControllerPrefix(entry.controllerKey);
       const fullPath = '/' + [controllerPrefix, rawPath].filter(Boolean).join('/').replace(/\/+/g, '/');
 
       const middlewares = this.resolveMiddlewareKeys(entry.middlewareKeys ?? []);
       const exceptionFilters = this.resolveExceptionFilterKeys(entry.exceptionFilterKeys ?? []);
       const guards = this.resolveGuardKeys(entry.guardKeys ?? []);
+      const validations = this.resolveValidations(entry);
 
-      const routeEntry: RouteHandlerEntry = {
+      const hasRawBody = entry.options?.some(option => option.name === 'RawBody') === true;
+      const hasSse = entry.options?.some(option => option.name === 'Sse') === true;
+      const bodyLimitOption = entry.options?.find(option => option.name === 'BodyLimit');
+      const bodyLimitValue = bodyLimitOption?.arguments?.[0];
+      const statusOption = entry.options?.find(option => option.name === 'Status');
+      const statusValue = statusOption?.arguments?.[0];
+      const redirectOption = entry.options?.find(option => option.name === 'Redirect');
+      const contentTypeOption = entry.options?.find(option => option.name === 'ContentType');
+      const contentTypeValue = contentTypeOption?.arguments?.[0];
+      const headerOptions = entry.options?.filter(option => option.name === 'Header') ?? [];
+      const headers: Array<readonly [string, string]> = headerOptions
+        .filter(option => typeof option.arguments?.[0] === 'string' && typeof option.arguments?.[1] === 'string')
+        .map(option => [option.arguments![0] as string, option.arguments![1] as string] as const);
+
+      const routeEntry: MatchedRouteMetadata = {
         handler,
-        methodName: entry.methodName,
+        rawBody: hasRawBody,
+        sse: hasSse,
+        bodyLimit: typeof bodyLimitValue === 'number' ? bodyLimitValue : undefined,
+        status: typeof statusValue === 'number' ? statusValue : undefined,
+        redirect: redirectOption !== undefined && typeof redirectOption.arguments?.[0] === 'string'
+          ? { url: redirectOption.arguments[0] as string, ...(redirectOption.arguments?.[1] !== undefined ? { status: redirectOption.arguments[1] as 301 | 302 | 303 | 307 | 308 } : {}) }
+          : undefined,
+        contentType: typeof contentTypeValue === 'string' ? contentTypeValue : undefined,
+        headers,
         middlewares,
         exceptionFilters,
         guards,
-        paramFactory,
+        validations,
       };
 
       this.router.add(httpMethod, fullPath, routeEntry);
+      this.registeredMethods.add(httpMethod);
       this.logger.debug(`${httpMethod} ${fullPath} → ${entry.controllerKey}.${entry.methodName} (AOT)`);
+
+      if (httpMethod === 'GET') {
+        this.router.add('HEAD', fullPath, routeEntry);
+        this.registeredMethods.add('HEAD');
+        this.logger.debug(`HEAD ${fullPath} → ${entry.controllerKey}.${entry.methodName} (auto from GET)`);
+      }
       routeCount++;
     }
 
@@ -165,35 +198,48 @@ export class RouteHandler {
     for (const route of routes) {
       const method = String(route.method || '').toUpperCase();
 
-      if (!isHttpMethod(method)) {
-        continue;
-      }
-
       if (method !== 'GET') {
         continue;
       }
 
       const fullPath = route.path.startsWith('/') ? route.path : `/${route.path}`;
-      const entry: RouteHandlerEntry = {
+      const entry: MatchedRouteMetadata = {
         handler: route.handler,
-        methodName: '__internal__',
+        rawBody: false,
+        sse: false,
+        bodyLimit: undefined,
+        status: undefined,
+        redirect: undefined,
+        contentType: undefined,
+        headers: [],
         middlewares: [],
         exceptionFilters: [],
         guards: [],
-        paramFactory: async (req: HttpRequest, res: HttpResponse) => {
-          const arity = typeof route.handler === 'function' ? route.handler.length : 0;
-          const args: readonly RouteParamValue[] = arity >= 2 ? [req, res] : [req];
-
-          return Promise.resolve([...args]);
-        },
+        validations: [],
       };
 
       this.router.add(method, fullPath, entry);
-
+      this.registeredMethods.add(method);
       this.logger.debug(`${method} ${fullPath} (internal)`);
+
+      if (method === 'GET') {
+        this.router.add('HEAD', fullPath, entry);
+        this.registeredMethods.add('HEAD');
+        this.logger.debug(`HEAD ${fullPath} (internal, auto from GET)`);
+      }
     }
 
     this.router.build();
+  }
+
+  private getAllowedMethods(path: string): string[] {
+    const methods: string[] = [];
+    for (const method of this.registeredMethods) {
+      if (this.router.match(method, path) !== null) {
+        methods.push(method);
+      }
+    }
+    return methods;
   }
 
   private resolveHandler(instance: ControllerInstance, methodName: string): RouteHandlerFunction {
@@ -205,8 +251,35 @@ export class RouteHandler {
 
     const handler = candidate;
 
-    return (...args: readonly RouteHandlerArgument[]): RouteHandlerResult | Promise<RouteHandlerResult> =>
-      handler.apply(instance, [...args]);
+    return (ctx: HttpContext): RouteHandlerResult | Promise<RouteHandlerResult> =>
+      handler.call(instance, ctx);
+  }
+
+  /**
+   * Resolves AOT-compiled validation entries into runtime entries with actual class constructors.
+   *
+   * @param entry - The compiled handler entry from AOT.
+   * @returns Resolved validation entries.
+   */
+  private resolveValidations(
+    entry: CompiledHandlerEntry,
+  ): readonly ResolvedValidationEntry[] {
+    const compiled = entry.validations;
+    if (compiled === undefined || compiled.length === 0) {
+      return [];
+    }
+
+    const resolved: ResolvedValidationEntry[] = [];
+
+    for (const validation of compiled) {
+      const metatype = this.metatypeIndex.get(validation.metatypeKey);
+      if (metatype === undefined) {
+        throw new Error(`[RouteHandler] Cannot resolve DTO class for metatypeKey '${validation.metatypeKey}'`);
+      }
+      resolved.push({ kind: validation.kind, metatype });
+    }
+
+    return resolved;
   }
 
   private resolveMiddlewareKeys(keys: readonly string[]): ResolvedMiddleware[] {
@@ -291,20 +364,18 @@ export class RouteHandler {
   }
 
   private getControllerPrefix(controllerKey: string): string {
-    const className = controllerKey.includes('::') ? controllerKey.split('::')[1] : controllerKey;
+    const className = controllerKey.includes('::') ? controllerKey.split('::')[1]! : controllerKey;
 
-    for (const meta of this.metadataRegistry.values()) {
-      if (meta.className !== className) {
-        continue;
-      }
+    const ctor = this.metatypeIndex.get(className);
+    if (ctor === undefined) return '';
 
-      const controllerDec = (meta.decorators ?? []).find(d => d.name === this.decoratorConfig.controllerDecoratorName);
-      const rawPrefix = controllerDec?.arguments?.[0];
+    const meta = this.metadataRegistry.get(ctor);
+    if (meta === undefined) return '';
 
-      return typeof rawPrefix === 'string' ? rawPrefix : '';
-    }
+    const controllerDec = (meta.decorators ?? []).find(d => d.name === this.decoratorConfig.controllerDecoratorName);
+    const rawPrefix = controllerDec?.arguments?.[0];
 
-    return '';
+    return typeof rawPrefix === 'string' ? rawPrefix : '';
   }
 
   /** @internal Exposed for unit testing only. */
@@ -320,4 +391,24 @@ export class RouteHandler {
     };
   }
 
+}
+
+/**
+ * Builds a reverse index from className → constructor for O(1) metatype resolution.
+ *
+ * @param registry - The metadata registry mapping constructors to class metadata.
+ * @returns A Map keyed by className string, valued by constructor reference.
+ */
+function buildMetatypeIndex(
+  registry: Map<MetadataRegistryKey, ClassMetadata>,
+): Map<string, new (...args: readonly unknown[]) => unknown> {
+  const index = new Map<string, new (...args: readonly unknown[]) => unknown>();
+
+  for (const [ctor, meta] of registry.entries()) {
+    if (meta.className !== undefined) {
+      index.set(meta.className, ctor as new (...args: readonly unknown[]) => unknown);
+    }
+  }
+
+  return index;
 }

@@ -1,8 +1,9 @@
-import { inject, UseGuards } from '@zipbul/common';
-import { RestController, Get, Post, Put, Delete, Body, Param } from '@zipbul/http-adapter';
+import { UseGuards } from '@zipbul/common';
+import { inject } from '@zipbul/core';
+import { RestController, Get, Post, Put, Delete, type HttpContext } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 
-import type { IdRouteParams } from '../interfaces';
+import { IdRouteParams } from '../dto/id-route-params.dto';
 import type { ComplexCreateResponse, User } from './interfaces';
 
 import { authGuard } from '../guards/auth.guard';
@@ -24,7 +25,9 @@ export class UsersController {
   }
 
   @Post('complex')
-  complexCreate(@Body() body: CreateUserComplexDto): ComplexCreateResponse<CreateUserComplexDto> {
+  complexCreate(ctx: HttpContext): ComplexCreateResponse<CreateUserComplexDto> {
+    const body = ctx.getBody<CreateUserComplexDto>();
+
     this.logger.info('Complex Data Received:', JSON.stringify(body));
 
     return {
@@ -38,28 +41,30 @@ export class UsersController {
   }
 
   @Get(':id')
-  getById(params: IdRouteParams): User | undefined {
-    const id = Number(params.id);
+  getById(ctx: HttpContext): User | undefined {
+    const params = ctx.getParams<IdRouteParams>();
 
-    return this.usersService.findOneById(id);
+    return this.usersService.findOneById(Number(params.id));
   }
 
   @Post()
-  create(body: User): void {
-    this.usersService.create(body);
+  create(ctx: HttpContext): void {
+    this.usersService.create(ctx.request.body as User);
   }
 
   @Put(':id')
-  update(params: IdRouteParams, body: User): void {
-    const id = Number(params.id);
+  update(ctx: HttpContext): void {
+    const params = ctx.getParams<IdRouteParams>();
 
-    this.usersService.update(id, body);
+    this.usersService.update(Number(params.id), ctx.request.body as User);
   }
 
   @Delete(':id')
   @UseGuards(authGuard)
-  delete(@Param('id') id: string): void {
-    this.auditService.logAction('delete', `userId=${id}`);
-    this.usersService.delete(Number(id));
+  delete(ctx: HttpContext): void {
+    const params = ctx.getParams<IdRouteParams>();
+
+    this.auditService.logAction('delete', `userId=${params.id}`);
+    this.usersService.delete(Number(params.id));
   }
 }

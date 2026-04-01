@@ -3,8 +3,8 @@ import { join } from 'path';
 
 import { isErr } from '@zipbul/result';
 import { ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
-import { Logger } from '@zipbul/logger';
 import type { FileAnalysis } from './graph/interfaces';
+
 import type { FileSetup } from '../../../test/shared/interfaces';
 import type { AstParseResult } from './test/types';
 import type { AnalyzerValue, AnalyzerValueRecord } from './types';
@@ -13,6 +13,7 @@ import type { ClassMetadata, PropertyMetadata } from './interfaces';
 import { createBunFileStub } from '../../../test/shared/stubs';
 import { PathResolver } from '../../common';
 import { AstParser } from './ast-parser';
+
 import { AdapterDefinitionResolver } from './adapter-definition-resolver';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,13 @@ const createAdapterProperties = (overrides?: Partial<Record<string, AnalyzerValu
       controller: { __zipbul_ref: 'Controller' },
       handlers: [{ __zipbul_ref: 'Get' }],
     },
+    validPhases: {
+      __zipbul_new: 'Set',
+      args: [{
+        __zipbul_call: 'Object.values',
+        args: [{ __zipbul_ref: 'TestPhase', __zipbul_import_source: '/project/adapters/test-adapter/enums.ts' }],
+      }],
+    },
     ...overrides,
   };
 
@@ -91,6 +99,28 @@ const wrapDefineAdapter = (...args: AnalyzerValue[]): AnalyzerValueRecord => ({
   __zipbul_call: 'defineAdapter',
   args,
 });
+
+/** Adds the TestPhase enum file to a fileMap so validPhases can be resolved. */
+const addTestPhaseEnum = (fileMap: Map<string, FileAnalysis>, enumDir: string = '/project/adapters/test-adapter'): void => {
+  const enumFile = join(enumDir, 'enums.ts');
+
+  if (fileMap.has(enumFile)) {
+    return;
+  }
+
+  fileMap.set(enumFile, {
+    filePath: enumFile,
+    classes: [],
+    reExports: [],
+    exports: ['TestPhase'],
+    enums: new Map([['TestPhase', new Map([
+      ['OnReceive', 'OnReceive'],
+      ['PostParse', 'PostParse'],
+      ['PreHandle', 'PreHandle'],
+      ['OnComplete', 'OnComplete'],
+    ])]]),
+  });
+};
 
 // ---------------------------------------------------------------------------
 // Test suite
@@ -168,6 +198,22 @@ describe('AdapterDefinitionResolver', () => {
 
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
+
+    // Enum file for validPhases resolution
+    const enumFile = join(adapterDir, 'enums.ts');
+    const enumAnalysis: FileAnalysis = {
+      filePath: enumFile,
+      classes: [],
+      reExports: [],
+      exports: ['TestPhase'],
+      enums: new Map([['TestPhase', new Map([
+        ['OnReceive', 'OnReceive'],
+        ['PostParse', 'PostParse'],
+        ['PreHandle', 'PreHandle'],
+        ['OnComplete', 'OnComplete'],
+      ])]]),
+    };
+    fileMap.set(enumFile, enumAnalysis);
 
     return fileMap;
   };
@@ -273,6 +319,8 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(entryAnalysisB, entryParseB);
     fileMap.set(entryB, entryAnalysisB);
 
+    addTestPhaseEnum(fileMap);
+
     const resolver = new AdapterDefinitionResolver();
 
     // Act
@@ -324,6 +372,8 @@ describe('AdapterDefinitionResolver', () => {
 
     fileMap.set(specFile, specAnalysis);
 
+    addTestPhaseEnum(fileMap);
+
     const resolver = new AdapterDefinitionResolver();
 
     // Act
@@ -371,6 +421,8 @@ describe('AdapterDefinitionResolver', () => {
     };
 
     fileMap.set(specFile, specAnalysis);
+
+    addTestPhaseEnum(fileMap);
 
     const resolver = new AdapterDefinitionResolver();
 
@@ -457,6 +509,8 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
+    addTestPhaseEnum(fileMap);
+
     const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert — should not throw (module middleware hook 'OnReceive' is valid)
@@ -509,6 +563,8 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
+    addTestPhaseEnum(fileMap);
+
     const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
@@ -560,6 +616,8 @@ describe('AdapterDefinitionResolver', () => {
 
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
+
+    addTestPhaseEnum(fileMap);
 
     const resolver = new AdapterDefinitionResolver();
 
@@ -979,6 +1037,8 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
+    addTestPhaseEnum(fileMap);
+
     const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
@@ -1022,6 +1082,8 @@ describe('AdapterDefinitionResolver', () => {
     };
 
     fileMap.set(entryFile, entryAnalysis);
+
+    addTestPhaseEnum(fileMap);
 
     const resolver = new AdapterDefinitionResolver();
 
@@ -1077,13 +1139,15 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
+    addTestPhaseEnum(fileMap);
+
     const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
     const result = await resolver.resolve({ fileMap, projectRoot });
     expect(isErr(result)).toBe(true);
     if (isErr(result)) {
-      expect(result.data.why).toMatch(/Unsupported middleware hook/);
+      expect(result.data.why).toMatch(/Unsupported middleware phase/);
     }
   });
 
@@ -1121,6 +1185,8 @@ describe('AdapterDefinitionResolver', () => {
 
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
+
+    addTestPhaseEnum(fileMap);
 
     const resolver = new AdapterDefinitionResolver();
 
@@ -1371,6 +1437,8 @@ describe('AdapterDefinitionResolver', () => {
       fileMap.set(ep as string, analysis);
     }
 
+    addTestPhaseEnum(fileMap);
+
     const resolver = new AdapterDefinitionResolver();
 
     // Act
@@ -1442,6 +1510,8 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
 
+    addTestPhaseEnum(fileMap);
+
     const resolver = new AdapterDefinitionResolver();
 
     // Act
@@ -1491,6 +1561,21 @@ describe('AdapterDefinitionResolver', () => {
 
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
+
+    const enumFile = join(adapterDir, 'enums.ts');
+    const enumAnalysis: FileAnalysis = {
+      filePath: enumFile,
+      classes: [],
+      reExports: [],
+      exports: ['TestPhase'],
+      enums: new Map([['TestPhase', new Map([
+        ['OnReceive', 'OnReceive'],
+        ['PostParse', 'PostParse'],
+        ['PreHandle', 'PreHandle'],
+        ['OnComplete', 'OnComplete'],
+      ])]]),
+    };
+    fileMap.set(enumFile, enumAnalysis);
 
     return fileMap;
   };
@@ -1554,6 +1639,8 @@ describe('AdapterDefinitionResolver', () => {
 
     applyParseToAnalysis(otherEntry, otherParse);
     fileMap.set(otherEntryFile, otherEntry);
+
+    addTestPhaseEnum(fileMap);
 
     const resolver = new AdapterDefinitionResolver();
 
@@ -1749,6 +1836,8 @@ describe('AdapterDefinitionResolver', () => {
 
     applyParseToAnalysis(entryAnalysis, entryParse);
     fileMap.set(entryFile, entryAnalysis);
+
+    addTestPhaseEnum(fileMap);
 
     const resolver = new AdapterDefinitionResolver();
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -2208,6 +2297,8 @@ describe('AdapterDefinitionResolver', () => {
 
       fileMap.set(entryFile, entryAnalysis);
 
+      addTestPhaseEnum(fileMap);
+
       const resolver = new AdapterDefinitionResolver();
 
       // Act & Assert
@@ -2271,6 +2362,8 @@ describe('AdapterDefinitionResolver', () => {
 
       applyParseToAnalysis(entryAnalysis, entryParse);
       fileMap.set(entryFile, entryAnalysis);
+
+      addTestPhaseEnum(fileMap);
 
       const resolver = new AdapterDefinitionResolver();
 
@@ -2357,6 +2450,8 @@ describe('AdapterDefinitionResolver', () => {
 
       fileMap.set(entryFile, entryAnalysis);
 
+      addTestPhaseEnum(fileMap);
+
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2369,318 +2464,681 @@ describe('AdapterDefinitionResolver', () => {
       }
     });
 
-    // E-2: @Body with primitive type → warning
-    it('should warn when @Body decorator is used with a primitive type annotation', async () => {
-      // Arrange — @Body() body: string
-      const warnSpy = spyOn(Logger.prototype, 'warn');
-      const fileMap = new Map<string, FileAnalysis>();
+  });
 
-      const controllerAnalysis: FileAnalysis = {
-        filePath: controllerFile,
-        classes: [
-          {
-            className: 'PrimitiveBodyController',
-            decorators: [{ name: 'Controller', arguments: [] }],
-            methods: [
-              {
-                name: 'create',
-                decorators: [{ name: 'Post', arguments: [] }],
-                parameters: [
-                  {
-                    name: 'body',
-                    type: 'string',
-                    decorators: [{ name: 'Body', arguments: [] }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-        reExports: [],
-        exports: [],
-        importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
-      };
+  // =======================================================================
+  // Options extraction (tested indirectly via buildHandlerIndex)
+  // =======================================================================
 
-      fileMap.set(controllerFile, controllerAnalysis);
+  describe('extractOptionDecorators', () => {
+    it('should include options when method has option decorator', async () => {
+      // Arrange — adapter declares RawBody as option decorator, method uses it
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function RawBody() { return () => {}; }',
+        '',
+        '@Controller()',
+        'class OptionController {',
+        '  @Get()',
+        '  @RawBody()',
+        '  handle() {}',
+        '}',
+      ].join('\n');
 
       const adapterClass = createTestAdapterClass('TestAdapter', {
         decorators: {
           controller: { __zipbul_ref: 'Controller' },
-          handlers: [{ __zipbul_ref: 'Post' }],
+          handlers: [{ __zipbul_ref: 'Get' }],
+          options: [{ __zipbul_ref: 'RawBody' }],
         },
       });
-      const entryAnalysis: FileAnalysis = {
-        filePath: entryFile,
-        classes: [adapterClass],
-        reExports: [],
-        exports: ['adapterDefinition'],
-        exportedValues: { adapterDefinition: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
-      };
-
-      fileMap.set(entryFile, entryAnalysis);
-
-      const resolver = new AdapterDefinitionResolver();
-
-      // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
-
-      // Assert — should succeed but emit a warning
-      expect(isErr(result)).toBe(false);
-
-      const warnCalls = warnSpy.mock.calls.map((call) => String(call[0]));
-      const bodyPrimitiveWarn = warnCalls.find((msg) => msg.includes('primitive') && msg.includes('Body'));
-      expect(bodyPrimitiveWarn).toBeDefined();
-
-      warnSpy.mockRestore();
-    });
-
-    // E-3: metatypeKey not in known classes → warning
-    it('should warn when metatypeKey references a class not found in any analyzed file', async () => {
-      // Arrange — @Body() body: NonExistentDto
-      const warnSpy = spyOn(Logger.prototype, 'warn');
-      const fileMap = new Map<string, FileAnalysis>();
-
-      const controllerAnalysis: FileAnalysis = {
-        filePath: controllerFile,
-        classes: [
-          {
-            className: 'UnknownDtoController',
-            decorators: [{ name: 'Controller', arguments: [] }],
-            methods: [
-              {
-                name: 'create',
-                decorators: [{ name: 'Post', arguments: [] }],
-                parameters: [
-                  {
-                    name: 'body',
-                    type: 'NonExistentDto',
-                    decorators: [{ name: 'Body', arguments: [] }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-        reExports: [],
-        exports: [],
-        importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
-      };
-
-      fileMap.set(controllerFile, controllerAnalysis);
-
-      const adapterClass = createTestAdapterClass('TestAdapter', {
-        decorators: {
-          controller: { __zipbul_ref: 'Controller' },
-          handlers: [{ __zipbul_ref: 'Post' }],
-        },
-      });
-      const entryAnalysis: FileAnalysis = {
-        filePath: entryFile,
-        classes: [adapterClass],
-        reExports: [],
-        exports: ['adapterDefinition'],
-        exportedValues: { adapterDefinition: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
-      };
-
-      fileMap.set(entryFile, entryAnalysis);
-
-      const resolver = new AdapterDefinitionResolver();
-
-      // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
-
-      // Assert — should succeed but emit warning about unknown class
-      expect(isErr(result)).toBe(false);
-
-      const warnCalls = warnSpy.mock.calls.map((call) => String(call[0]));
-      const unknownClassWarn = warnCalls.find((msg) => msg.includes('NonExistentDto') && msg.includes('not found'));
-      expect(unknownClassWarn).toBeDefined();
-
-      warnSpy.mockRestore();
-    });
-
-    // E-4: Parameter without decorator and non-matching name → warning
-    it('should warn when parameter has no decorator and name does not match any known param kind', async () => {
-      // Arrange — getUser(userId: number) — no decorator, "userId" not in normalizeParamKind
-      const warnSpy = spyOn(Logger.prototype, 'warn');
-      const fileMap = new Map<string, FileAnalysis>();
-
-      const controllerAnalysis: FileAnalysis = {
-        filePath: controllerFile,
-        classes: [
-          {
-            className: 'NoDecoratorController',
-            decorators: [{ name: 'Controller', arguments: [] }],
-            methods: [
-              {
-                name: 'getUser',
-                decorators: [{ name: 'Get', arguments: [] }],
-                parameters: [
-                  {
-                    name: 'userId',
-                    type: 'number',
-                    decorators: [],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-        reExports: [],
-        exports: [],
-        importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
-      };
-
-      fileMap.set(controllerFile, controllerAnalysis);
-
-      const adapterClass = createTestAdapterClass();
-      const entryAnalysis: FileAnalysis = {
-        filePath: entryFile,
-        classes: [adapterClass],
-        reExports: [],
-        exports: ['adapterDefinition'],
-        exportedValues: { adapterDefinition: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
-      };
-
-      fileMap.set(entryFile, entryAnalysis);
-
-      const resolver = new AdapterDefinitionResolver();
-
-      // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
-
-      // Assert — should succeed but emit warning about unresolvable parameter
-      expect(isErr(result)).toBe(false);
-
-      const warnCalls = warnSpy.mock.calls.map((call) => String(call[0]));
-      const noDecWarn = warnCalls.find((msg) => msg.includes('userId') && msg.includes('no decorator'));
-      expect(noDecWarn).toBeDefined();
-
-      warnSpy.mockRestore();
-    });
-
-    // E-4 negative: Parameter without decorator but name matches param kind → no warning
-    it('should NOT warn when parameter has no decorator but name matches a known param kind', async () => {
-      // Arrange — getUser(body: CreateUserDto) — no decorator, but "body" matches normalizeParamKind
-      const warnSpy = spyOn(Logger.prototype, 'warn');
-      const fileMap = new Map<string, FileAnalysis>();
-
-      const controllerAnalysis: FileAnalysis = {
-        filePath: controllerFile,
-        classes: [
-          {
-            className: 'NameMatchController',
-            decorators: [{ name: 'Controller', arguments: [] }],
-            methods: [
-              {
-                name: 'create',
-                decorators: [{ name: 'Post', arguments: [] }],
-                parameters: [
-                  {
-                    name: 'body',
-                    type: 'CreateUserDto',
-                    decorators: [],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-        reExports: [],
-        exports: [],
-        importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
-      };
-
-      fileMap.set(controllerFile, controllerAnalysis);
-
-      const adapterClass = createTestAdapterClass('TestAdapter', {
-        decorators: {
-          controller: { __zipbul_ref: 'Controller' },
-          handlers: [{ __zipbul_ref: 'Post' }],
-        },
-      });
-      const entryAnalysis: FileAnalysis = {
-        filePath: entryFile,
-        classes: [adapterClass],
-        reExports: [],
-        exports: ['adapterDefinition'],
-        exportedValues: { adapterDefinition: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
-      };
-
-      fileMap.set(entryFile, entryAnalysis);
-
-      const resolver = new AdapterDefinitionResolver();
-
-      // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
-
-      // Assert — should succeed without parameter warnings
-      expect(isErr(result)).toBe(false);
-
-      const warnCalls = warnSpy.mock.calls.map((call) => String(call[0]));
-      const paramWarn = warnCalls.find((msg) => msg.includes('no decorator'));
-      expect(paramWarn).toBeUndefined();
-
-      warnSpy.mockRestore();
-    });
-
-    // E-1: Multiple parameter decorators → error
-    it('should return diagnostic error when a parameter has multiple decorators', async () => {
-      // Arrange — parameter has both @Body and @Query
-      const fileMap = new Map<string, FileAnalysis>();
-
-      const controllerAnalysis: FileAnalysis = {
-        filePath: controllerFile,
-        classes: [
-          {
-            className: 'MultiParamDecController',
-            decorators: [{ name: 'Controller', arguments: [] }],
-            methods: [
-              {
-                name: 'handle',
-                decorators: [{ name: 'Get', arguments: [] }],
-                parameters: [
-                  {
-                    name: 'data',
-                    type: 'any',
-                    decorators: [
-                      { name: 'Body', arguments: [] },
-                      { name: 'Query', arguments: [] },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-        reExports: [],
-        exports: [],
-        importEntries: [{ source: '@test/adapter', resolvedSource: entryFile, isRelative: false }],
-      };
-
-      fileMap.set(controllerFile, controllerAnalysis);
-
-      const adapterClass = createTestAdapterClass();
-      const entryAnalysis: FileAnalysis = {
-        filePath: entryFile,
-        classes: [adapterClass],
-        reExports: [],
-        exports: ['adapterDefinition'],
-        exportedValues: { adapterDefinition: wrapDefineAdapter({ __zipbul_ref: 'TestAdapter' }) },
-      };
-
-      fileMap.set(entryFile, entryAnalysis);
-
+      const fileMap = buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
       const result = await resolver.resolve({ fileMap, projectRoot });
 
       // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data.why).toMatch(/multiple decorators/);
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.options).toEqual([{ name: 'RawBody', arguments: [] }]);
+    });
+
+    it('should have no options field when no option decorators present', async () => {
+      // Arrange — adapter declares options but handler does not use any
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function RawBody() { return () => {}; }',
+        '',
+        '@Controller()',
+        'class PlainController {',
+        '  @Get()',
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        decorators: {
+          controller: { __zipbul_ref: 'Controller' },
+          handlers: [{ __zipbul_ref: 'Get' }],
+          options: [{ __zipbul_ref: 'RawBody' }],
+        },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.options).toBeUndefined();
+    });
+
+    it('should apply class-level option decorator to all handler methods', async () => {
+      // Arrange — RawBody on the class applies to every handler
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function RawBody() { return () => {}; }',
+        '',
+        '@Controller()',
+        '@RawBody()',
+        'class ClassOptionController {',
+        "  @Get('/a')",
+        '  handleA() {}',
+        '',
+        "  @Get('/b')",
+        '  handleB() {}',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        decorators: {
+          controller: { __zipbul_ref: 'Controller' },
+          handlers: [{ __zipbul_ref: 'Get' }],
+          options: [{ __zipbul_ref: 'RawBody' }],
+        },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert — both handlers have the class-level option
+      expect(result.handlerIndex.length).toBe(2);
+
+      for (const entry of result.handlerIndex) {
+        expect(entry.options).toEqual([{ name: 'RawBody', arguments: [] }]);
       }
     });
+
+    it('should override class-level option with method-level option of same name', async () => {
+      // Arrange — class has @RawBody('gzip'), method overrides with @RawBody('deflate')
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function RawBody() { return () => {}; }',
+        '',
+        '@Controller()',
+        "@RawBody('gzip')",
+        'class OverrideController {',
+        '  @Get()',
+        "  @RawBody('deflate')",
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        decorators: {
+          controller: { __zipbul_ref: 'Controller' },
+          handlers: [{ __zipbul_ref: 'Get' }],
+          options: [{ __zipbul_ref: 'RawBody' }],
+        },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert — method-level overrides class-level
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.options).toEqual([{ name: 'RawBody', arguments: ['deflate'] }]);
+    });
+
+    it('should include decorator arguments in options', async () => {
+      // Arrange — option decorator with arguments
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'function RawBody() { return () => {}; }',
+        '',
+        '@Controller()',
+        'class ArgController {',
+        '  @Get()',
+        "  @RawBody('gzip', 1024)",
+        '  handle() {}',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        decorators: {
+          controller: { __zipbul_ref: 'Controller' },
+          handlers: [{ __zipbul_ref: 'Get' }],
+          options: [{ __zipbul_ref: 'RawBody' }],
+        },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.options).toEqual([{ name: 'RawBody', arguments: ['gzip', 1024] }]);
+    });
   });
+
+  // =======================================================================
+  // ValidatedAccessors (tested indirectly via buildHandlerIndex)
+  // =======================================================================
+
+  describe('validatedAccessors', () => {
+    it('should extract validatedAccessors from adapter static property', async () => {
+      // Arrange — adapter class has validatedAccessors property
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: {
+          getBody: 'body',
+          getQuery: 'query',
+        },
+      });
+      const fileMap = buildStandardFileMap(adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const schema = result.adapterStaticSchemas.TestAdapter;
+
+      expect(schema).toBeDefined();
+      expect(schema!.validatedAccessors).toEqual({ getBody: 'body', getQuery: 'query' });
+    });
+
+    it('should produce validation entry for ctx.getBody<UserDto>()', async () => {
+      // Arrange — handler calls ctx.getBody<UserDto>()
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'class UserDto {}',
+        '',
+        '@Controller()',
+        'class BodyController {',
+        '  @Get()',
+        '  handle(ctx: any) {',
+        '    const body = ctx.getBody<UserDto>();',
+        '  }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: {
+          getBody: 'body',
+          getQuery: 'query',
+        },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toEqual([{ kind: 'body', metatypeKey: 'UserDto' }]);
+    });
+
+    it('should produce validation entry for ctx.getQuery<SearchDto>()', async () => {
+      // Arrange — handler calls ctx.getQuery<SearchDto>()
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'class SearchDto {}',
+        '',
+        '@Controller()',
+        'class QueryController {',
+        '  @Get()',
+        '  handle(ctx: any) {',
+        '    const query = ctx.getQuery<SearchDto>();',
+        '  }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: {
+          getBody: 'body',
+          getQuery: 'query',
+        },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toEqual([{ kind: 'query', metatypeKey: 'SearchDto' }]);
+    });
+
+    it('should produce multiple validation entries for multiple accessor calls', async () => {
+      // Arrange — handler calls both getBody and getQuery with different types
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'class UserDto {}',
+        'class SearchDto {}',
+        '',
+        '@Controller()',
+        'class MultiController {',
+        '  @Get()',
+        '  handle(ctx: any) {',
+        '    const body = ctx.getBody<UserDto>();',
+        '    const query = ctx.getQuery<SearchDto>();',
+        '  }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: {
+          getBody: 'body',
+          getQuery: 'query',
+        },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toEqual([
+        { kind: 'body', metatypeKey: 'UserDto' },
+        { kind: 'query', metatypeKey: 'SearchDto' },
+      ]);
+    });
+
+    it('should deduplicate when same accessor is called twice', async () => {
+      // Arrange — handler calls getBody<UserDto>() twice
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        'class UserDto {}',
+        '',
+        '@Controller()',
+        'class DuplicateController {',
+        '  @Get()',
+        '  handle(ctx: any) {',
+        '    const bodyA = ctx.getBody<UserDto>();',
+        '    const bodyB = ctx.getBody<UserDto>();',
+        '  }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: {
+          getBody: 'body',
+          getQuery: 'query',
+        },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert — deduplicated to a single entry
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toEqual([{ kind: 'body', metatypeKey: 'UserDto' }]);
+    });
+
+    it('should filter out never type argument', async () => {
+      // Arrange — handler calls getBody<never>()
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        '',
+        '@Controller()',
+        'class NeverController {',
+        '  @Get()',
+        '  handle(ctx: any) {',
+        '    const body = ctx.getBody<never>();',
+        '  }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: {
+          getBody: 'body',
+        },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert — never is filtered out, no validations
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toBeUndefined();
+    });
+
+    it('should produce no validations when handler has no typed calls', async () => {
+      // Arrange — handler body has no typed accessor calls
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get() { return () => {}; }',
+        '',
+        '@Controller()',
+        'class NoTypedCallController {',
+        '  @Get()',
+        '  handle(ctx: any) {',
+        '    return "hello";',
+        '  }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: {
+          getBody: 'body',
+          getQuery: 'query',
+        },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toBeUndefined();
+    });
+
+    it('should produce no validations when call has no type argument', async () => {
+      // Arrange — handler calls getBody() without <T>
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get(path: string) { return () => {}; }',
+        '@Controller()',
+        'class SampleController {',
+        '  @Get("/test")',
+        '  handle(ctx: any) { ctx.getBody(); }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: { getBody: 'body' },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toBeUndefined();
+    });
+
+    it('should extract validation from typed call inside if block', async () => {
+      // Arrange — handler calls getBody<UserDto>() inside if block
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get(path: string) { return () => {}; }',
+        '@Controller()',
+        'class SampleController {',
+        '  @Get("/test")',
+        '  handle(ctx: any) { if (true) { ctx.getBody<UserDto>(); } }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: { getBody: 'body' },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toBeDefined();
+      expect(entry!.validations).toHaveLength(1);
+      expect(entry!.validations![0]!.kind).toBe('body');
+      expect(entry!.validations![0]!.metatypeKey).toBe('UserDto');
+    });
+
+    it('should produce no validations for unknown accessor not in validatedAccessors', async () => {
+      // Arrange — handler calls someMethod<UserDto>() which is not in validatedAccessors
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get(path: string) { return () => {}; }',
+        '@Controller()',
+        'class SampleController {',
+        '  @Get("/test")',
+        '  handle(ctx: any) { ctx.someMethod<UserDto>(); }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: { getBody: 'body' },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toBeUndefined();
+    });
+
+    it('should filter out any type argument', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get(path: string) { return () => {}; }',
+        '@Controller()',
+        'class SampleController {',
+        '  @Get("/test")',
+        '  handle(ctx: any) { ctx.getBody<any>(); }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: { getBody: 'body' },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toBeUndefined();
+    });
+
+    it('should filter out unknown type argument', async () => {
+      // Arrange
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get(path: string) { return () => {}; }',
+        '@Controller()',
+        'class SampleController {',
+        '  @Get("/test")',
+        '  handle(ctx: any) { ctx.getBody<unknown>(); }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: { getBody: 'body' },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toBeUndefined();
+    });
+
+    it('should produce no validations when adapter has no validatedAccessors', async () => {
+      // Arrange — adapter without validatedAccessors property
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get(path: string) { return () => {}; }',
+        '@Controller()',
+        'class SampleController {',
+        '  @Get("/test")',
+        '  handle(ctx: any) { ctx.getBody<UserDto>(); }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter');
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      // Assert
+      const entry = result.handlerIndex[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toBeUndefined();
+    });
+
+    it('should survive JSON serialization roundtrip (manifest simulation)', async () => {
+      // Arrange — handler with getBody<UserDto>() and getQuery<SearchDto>()
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get(path: string) { return () => {}; }',
+        '@Controller()',
+        'class SampleController {',
+        '  @Get("/search")',
+        '  handle(ctx: any) {',
+        '    const body = ctx.getBody<UserDto>();',
+        '    const query = ctx.getQuery<SearchDto>();',
+        '  }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        validatedAccessors: { getBody: 'body', getQuery: 'query', getParams: 'params' },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act — resolve, then simulate manifest serialization
+      const result = await resolver.resolve({ fileMap, projectRoot });
+      const serialized = JSON.stringify(result.handlerIndex);
+      const deserialized = JSON.parse(serialized) as typeof result.handlerIndex;
+
+      // Assert — validations survive roundtrip
+      const entry = deserialized[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.validations).toBeDefined();
+      expect(entry!.validations).toHaveLength(2);
+      expect(entry!.validations![0]!.kind).toBe('body');
+      expect(entry!.validations![0]!.metatypeKey).toBe('UserDto');
+      expect(entry!.validations![1]!.kind).toBe('query');
+      expect(entry!.validations![1]!.metatypeKey).toBe('SearchDto');
+    });
+
+    it('should survive JSON serialization roundtrip with options', async () => {
+      // Arrange — handler with @RawBody option
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Post(path: string) { return () => {}; }',
+        'function RawBody() { return () => {}; }',
+        '@Controller()',
+        'class SampleController {',
+        '  @Post("/webhook")',
+        '  @RawBody()',
+        '  handle(ctx: any) { ctx.getBody<WebhookPayload>(); }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        decorators: {
+          controller: { __zipbul_ref: 'Controller' },
+          handlers: [{ __zipbul_ref: 'Post' }],
+          options: [{ __zipbul_ref: 'RawBody' }],
+        },
+        validatedAccessors: { getBody: 'body' },
+      });
+      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      // Act
+      const result = await resolver.resolve({ fileMap, projectRoot });
+      const serialized = JSON.stringify(result.handlerIndex);
+      const deserialized = JSON.parse(serialized) as typeof result.handlerIndex;
+
+      // Assert — both options and validations survive
+      const entry = deserialized[0];
+
+      expect(entry).toBeDefined();
+      expect(entry!.options).toBeDefined();
+      expect(entry!.options).toHaveLength(1);
+      expect(entry!.options![0]!.name).toBe('RawBody');
+      expect(entry!.validations).toBeDefined();
+      expect(entry!.validations).toHaveLength(1);
+      expect(entry!.validations![0]!.kind).toBe('body');
+      expect(entry!.validations![0]!.metatypeKey).toBe('WebhookPayload');
+    });
+  });
+
 });

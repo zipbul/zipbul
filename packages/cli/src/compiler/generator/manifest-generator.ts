@@ -129,7 +129,7 @@ export class ManifestGenerator {
 
     return `
 ${imports}
-import { registerRuntimeContext } from "@zipbul/core";
+import { registerBootstrapState } from "@zipbul/core";
 
 const deepFreeze = (obj: unknown, visited = new WeakSet<object>()): unknown => {
   if (!obj || typeof obj !== 'object') {
@@ -225,7 +225,7 @@ function resolveControllerInstances() {
   return instances;
 }
 
-registerRuntimeContext({
+registerBootstrapState({
   container: __container__,
   metadataRegistry,
   scopedKeys: scopedKeysMap,
@@ -234,7 +234,7 @@ registerRuntimeContext({
   handlerIndex,
 });
 
-registerRuntimeContext({
+registerBootstrapState({
   controllerInstances: resolveControllerInstances(),
 });
 

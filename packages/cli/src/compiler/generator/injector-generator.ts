@@ -530,7 +530,7 @@ export class InjectorGenerator {
 
     return `
 import { Container } from "@zipbul/core";
-import { runInInjectionContext } from "@zipbul/common";
+import { runInInjectionContext } from "@zipbul/core";
 
 export function createContainer() {
   const container = new Container();

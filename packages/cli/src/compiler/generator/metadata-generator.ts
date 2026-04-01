@@ -108,10 +108,6 @@ export class MetadataGenerator {
             if (h.typeName === 'Partial') {
               baseProps.forEach(p => {
                 p.isOptional = true;
-
-                if (!p.decorators.some(d => d.name === 'IsOptional')) {
-                  p.decorators.push({ name: 'IsOptional', arguments: [] });
-                }
               });
 
               properties = [...baseProps, ...properties];

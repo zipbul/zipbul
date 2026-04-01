@@ -1,4 +1,4 @@
-import { getRuntimeContext } from '@zipbul/core';
+import { getBootstrapState } from '@zipbul/core';
 
 import type { Doc } from './interfaces';
 import type { ScalarMetadataRegistry, ScalarRecord, ScalarRegistryKey } from './types';
@@ -6,9 +6,9 @@ import type { ScalarMetadataRegistry, ScalarRecord, ScalarRegistryKey } from './
 import { isMap } from '../common';
 import { OpenApiFactory } from '../spec-factory';
 
-type RuntimeMetadataRegistry = ReturnType<typeof getRuntimeContext>['metadataRegistry'];
+type BootstrapMetadataRegistry = ReturnType<typeof getBootstrapState>['metadataRegistry'];
 
-type RuntimeRegistryValue = NonNullable<RuntimeMetadataRegistry> extends Map<infer _K, infer V> ? V : never;
+type RuntimeRegistryValue = NonNullable<BootstrapMetadataRegistry> extends Map<infer _K, infer V> ? V : never;
 
 function isScalarRecord(value: ScalarRecord | RuntimeRegistryValue): value is ScalarRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -19,7 +19,7 @@ function resolveRegistry(registry: ScalarMetadataRegistry | undefined): ScalarMe
     return registry;
   }
 
-  const runtimeRegistry: RuntimeMetadataRegistry | ScalarMetadataRegistry = getRuntimeContext().metadataRegistry;
+  const runtimeRegistry: BootstrapMetadataRegistry | ScalarMetadataRegistry = getBootstrapState().metadataRegistry;
 
   if (!runtimeRegistry) {
     return undefined;

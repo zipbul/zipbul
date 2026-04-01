@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 
 import { inject, lazy, runInInjectionContext } from './injection-context';
-import type { ClassToken, Class, ZipbulValue } from './types';
-import type { ZipbulContainer } from './interfaces';
+import type { ClassToken, Class, ZipbulValue } from '@zipbul/common';
+import type { ZipbulContainer } from '@zipbul/common';
 
 /*
  * [OVERFLOW Checkpoint]

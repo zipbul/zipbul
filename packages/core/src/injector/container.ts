@@ -23,7 +23,7 @@ import type {
   Token,
 } from './types';
 
-import { getRuntimeContext } from '../runtime/runtime-context';
+import { getBootstrapState } from '../runtime/bootstrap-state';
 import {
   normalizeToken,
   formatToken,
@@ -36,6 +36,7 @@ export class Container implements ZipbulContainer {
   private singletons = new Map<Token, ContainerValue>();
   private registrationOrder: Token[] = [];
   private scopedKeys?: Map<ProviderToken, string>;
+  private readonly constructorParamsCache = new Map<Class, readonly ConstructorParamMetadata[]>();
 
   constructor(initialFactories?: Map<Token, FactoryFn>) {
     if (initialFactories) {
@@ -47,7 +48,7 @@ export class Container implements ZipbulContainer {
 
   /**
    * Sets the scoped keys map for resolving class/symbol tokens to scoped string keys.
-   * Called exclusively by {@link registerRuntimeContext} during AOT bootstrap.
+   * Called exclusively by {@link registerBootstrapState} during AOT bootstrap.
    *
    * @param keys - Map of ProviderToken to scoped key string
    * @internal
@@ -165,6 +166,7 @@ export class Container implements ZipbulContainer {
       let factory: FactoryFn | undefined;
 
       if (this.isClassProvider(provider)) {
+        this.cacheConstructorParams(provider);
         token = provider;
         factory = _c => new provider(...this.resolveDepsFor(provider, scope));
       } else if (this.isProviderRecord(provider)) {
@@ -173,6 +175,7 @@ export class Container implements ZipbulContainer {
         if (this.isProviderUseValue(provider)) {
           factory = () => provider.useValue;
         } else if (this.isProviderUseClass(provider)) {
+          this.cacheConstructorParams(provider.useClass);
           factory = _c => new provider.useClass(...this.resolveDepsFor(provider.useClass, scope));
         } else if (this.isProviderUseExisting(provider)) {
           factory = c => {
@@ -213,24 +216,32 @@ export class Container implements ZipbulContainer {
     }
   }
 
-  private resolveDepsFor(ctor: Class, scope: string): ContainerValue[] {
-    const registry = getRuntimeContext().metadataRegistry;
+  private cacheConstructorParams(ctor: Class): void {
+    if (this.constructorParamsCache.has(ctor)) {
+      return;
+    }
 
-    if (!registry || !registry.has(ctor)) {
-      return [];
+    const registry = getBootstrapState().metadataRegistry;
+
+    if (!registry?.has(ctor)) {
+      return;
     }
 
     const meta = registry.get(ctor);
 
-    if (!meta) {
+    if (meta?.constructorParams) {
+      this.constructorParamsCache.set(ctor, meta.constructorParams);
+    }
+  }
+
+  private resolveDepsFor(ctor: Class, scope: string): ContainerValue[] {
+    const params = this.constructorParamsCache.get(ctor);
+
+    if (!params) {
       return [];
     }
 
-    if (!meta.constructorParams) {
-      return [];
-    }
-
-    return meta.constructorParams.map((param: ConstructorParamMetadata) => {
+    return params.map((param: ConstructorParamMetadata) => {
       let token = param.type;
 
       token = resolveTokenRecord(token);
@@ -243,13 +254,19 @@ export class Container implements ZipbulContainer {
       }
 
       if (tokenName === undefined) {
-        return undefined;
+        throw new Error(
+          `[Zipbul DI] Cannot resolve constructor parameter of '${ctor.name}': token could not be normalized. ` +
+          `Ensure the parameter type is a class, string, or symbol registered in the container.`,
+        );
       }
 
       try {
         return this.get(tokenName);
       } catch {
-        return undefined;
+        throw new Error(
+          `[Zipbul DI] Cannot resolve constructor parameter of '${ctor.name}': no provider for '${tokenName}'. ` +
+          `Register a provider for this token in the module or check the import path.`,
+        );
       }
     });
   }

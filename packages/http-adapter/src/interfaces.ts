@@ -1,39 +1,46 @@
 import type {
   ApplicationOptions,
   CompiledHandlerEntry,
-  ZipbulContainer,
-  ResolvedMiddleware,
-  ResolvedExceptionFilter,
-  Class,
-  Context,
   ProviderToken,
-  GuardHandlerFn,
 } from '@zipbul/common';
 
-import type { HttpRequest } from './http-request';
-import type { HttpResponse } from './http-response';
 import type {
   ClassMetadata,
-  RouteHandlerArgument,
   RouteHandlerResult,
-  HttpWorkerResponseBody,
   MetadataRegistryKey,
-  RouteHandlerFunction,
-  RouteParamValue,
+  TrustProxyConfig,
+  RequestIdOptions,
 } from './types';
+import type { HttpContext } from './http-context';
+
+/**
+ * TLS configuration for the HTTP server.
+ * Re-exports Bun's native `TLSOptions` to avoid type duplication.
+ *
+ * @public
+ */
+export type HttpTlsOptions = import('bun').TLSOptions;
 
 export interface HttpServerOptions extends ApplicationOptions {
   readonly port?: number;
+  readonly hostname?: string;
   readonly bodyLimit?: number;
-  readonly trustProxy?: boolean;
+  readonly trustProxy?: TrustProxyConfig;
   readonly reusePort?: boolean;
   readonly name?: string;
   readonly logLevel?: string;
+  readonly requestId?: RequestIdOptions;
+  readonly customMethods?: readonly string[];
+  readonly textMediaTypes?: readonly string[];
+  /** Idle connection timeout in seconds. Default: 30. */
+  readonly idleTimeout?: number;
+  /** TLS configuration. When provided, the server starts with HTTPS. */
+  readonly tls?: HttpTlsOptions;
 }
 
 export type InternalRouteMethod = 'GET';
 
-export type InternalRouteHandler = (...args: readonly RouteHandlerArgument[]) => RouteHandlerResult;
+export type InternalRouteHandler = (ctx: HttpContext) => RouteHandlerResult;
 
 export interface InternalRouteEntry {
   readonly method: InternalRouteMethod;
@@ -50,11 +57,6 @@ export interface HttpServerBootOptions extends HttpServerOptions {
   readonly controllerInstances?: Map<string, unknown>;
 }
 
-export interface HttpAdapterStartContext extends Context {
-  readonly container: ZipbulContainer;
-  readonly entryModule?: Class;
-}
-
 export interface HttpWorkerEntryModule {
   readonly className: string;
   readonly manifestPath?: string;
@@ -65,16 +67,3 @@ export interface HttpWorkerInitParams {
   readonly options: HttpServerOptions;
 }
 
-export interface HttpWorkerResponse {
-  readonly body: HttpWorkerResponseBody;
-  readonly init: ResponseInit;
-}
-
-export interface RouteHandlerEntry {
-  readonly handler: RouteHandlerFunction;
-  readonly methodName: string;
-  readonly middlewares: readonly ResolvedMiddleware[];
-  readonly exceptionFilters: readonly ResolvedExceptionFilter[];
-  readonly guards: readonly GuardHandlerFn[];
-  readonly paramFactory: (req: HttpRequest, res: HttpResponse) => Promise<readonly RouteParamValue[]>;
-}

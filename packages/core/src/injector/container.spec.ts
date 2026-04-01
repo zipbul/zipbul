@@ -2,8 +2,8 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
 import type { FactoryFn, Token } from './types';
 
-mock.module('../runtime/runtime-context', () => ({
-  getRuntimeContext: mock(() => ({
+mock.module('../runtime/bootstrap-state', () => ({
+  getBootstrapState: mock(() => ({
     metadataRegistry: new Map(),
   })),
 }));

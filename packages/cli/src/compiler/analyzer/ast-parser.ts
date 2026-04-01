@@ -87,6 +87,7 @@ export class AstParser {
     this.currentImports = {};
     this.currentImportSources = {};
     this.currentOriginalNames = {};
+    const enumDeclarations = new Map<string, Map<string, string>>();
 
     let moduleDefinition: ModuleDefinition | undefined;
     let parseError: ReturnType<typeof err<Diagnostic>> | null = null;
@@ -281,6 +282,19 @@ export class AstParser {
           return;
         }
 
+        if (declaration?.type === 'TSEnumDeclaration') {
+          const declId = this.asNode(declaration.id);
+          const name = declId ? this.getString(declId, 'name') : null;
+
+          if (isNonEmptyString(name)) {
+            localExports.push(name);
+          }
+
+          traverse(declaration);
+
+          return;
+        }
+
         if (declaration?.type === 'VariableDeclaration') {
           const declarationsValue = declaration.declarations;
           const declarations = asAnalyzerArray(declarationsValue);
@@ -463,6 +477,43 @@ export class AstParser {
         return;
       }
 
+      if (node.type === 'TSEnumDeclaration') {
+        const enumId = this.asNode(node.id);
+        const enumName = enumId ? this.getString(enumId, 'name') : null;
+
+        if (isNonEmptyString(enumName)) {
+          const bodyNode = this.asNode(node.body);
+          const membersValue = bodyNode !== null ? asAnalyzerArray(bodyNode.members) : null;
+
+          if (membersValue !== null) {
+            const members = new Map<string, string>();
+
+            for (const memberValue of membersValue) {
+              const member = this.asNode(memberValue);
+
+              if (!member) {
+                continue;
+              }
+
+              const memberId = this.asNode(member.id);
+              const memberName = memberId ? this.getString(memberId, 'name') : null;
+              const initializer = this.asNode(member.initializer);
+              const memberValue2 = initializer ? this.getString(initializer, 'value') : null;
+
+              if (isNonEmptyString(memberName) && isNonEmptyString(memberValue2)) {
+                members.set(memberName, memberValue2);
+              }
+            }
+
+            if (members.size > 0) {
+              enumDeclarations.set(enumName, members);
+            }
+          }
+        }
+
+        return;
+      }
+
       if (node.type === 'ClassDeclaration') {
         const classResult = this.extractClassMetadata(node);
 
@@ -542,6 +593,7 @@ export class AstParser {
       createApplicationCalls,
       defineModuleCalls,
       injectCalls: this.currentInjectCalls,
+      ...(enumDeclarations.size > 0 ? { enums: enumDeclarations } : {}),
     };
   }
 
@@ -980,10 +1032,13 @@ export class AstParser {
             }
 
             if (methodDecorators.length > 0 || methodParams.some(param => param.decorators.length > 0)) {
+              const typedCalls = value ? this.extractTypedCalls(value) : undefined;
+
               methods.push({
                 name: methodName,
                 decorators: methodDecorators,
                 parameters: methodParams,
+                ...(typedCalls !== undefined ? { typedCalls } : {}),
                 isStatic: isStatic || undefined,
                 isComputed: isComputed || undefined,
                 isPrivateName: isPrivateName || undefined,
@@ -1254,6 +1309,73 @@ export class AstParser {
     }
 
     return exceptionFilters;
+  }
+
+  /**
+   * Scans a method body for member-access call expressions with type arguments.
+   * Extracts calls like `ctx.getBody<UserDto>()` → `{ methodName: 'getBody', typeArgs: ['UserDto'] }`.
+   *
+   * @param funcNode - The method's function AST node.
+   * @returns Array of typed call metadata found in the body.
+   */
+  private extractTypedCalls(funcNode: NodeRecord): ClassMetadata['methods'][number]['typedCalls'] {
+    const calls: NonNullable<ClassMetadata['methods'][number]['typedCalls']> = [];
+    const typeResolver = new AstTypeResolver();
+
+    const visit = (n: AnalyzerValue): void => {
+      const node = this.asNode(n);
+
+      if (!node) {
+        return;
+      }
+
+      if (node.type === 'CallExpression') {
+        const callee = this.asNode(node.callee);
+
+        if (callee?.type === 'MemberExpression') {
+          const property = this.asNode(callee.property);
+          const methodName = property ? this.getString(property, 'name') : null;
+
+          if (isNonEmptyString(methodName)) {
+            // oxc-parser: type arguments on CallExpression are in `typeArguments`
+            const typeArgs = this.asNode(node.typeArguments);
+            const params = typeArgs ? (asAnalyzerArray(typeArgs.params) ?? []) : [];
+
+            if (params.length > 0) {
+              const typeArgs: string[] = [];
+
+              for (const param of params) {
+                const resolved = typeResolver.resolve(param);
+                typeArgs.push(resolved.typeName);
+              }
+
+              calls.push({ methodName, typeArgs });
+            }
+          }
+        }
+      }
+
+      Object.keys(node).forEach(key => {
+        if (['type', 'loc', 'start', 'end'].includes(key)) {
+          return;
+        }
+
+        const val = node[key];
+        const values = asAnalyzerArray(val);
+
+        if (values) {
+          values.forEach(visit);
+
+          return;
+        }
+
+        visit(val);
+      });
+    };
+
+    visit(funcNode.body);
+
+    return calls.length > 0 ? calls : undefined;
   }
 
   private extractMiddlewaresFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['middlewares'], Diagnostic> {

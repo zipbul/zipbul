@@ -104,9 +104,7 @@ mock.module('@zipbul/logger', () => ({
   },
 }));
 
-mock.module('../src/utils', () => ({
-  getIps: mock(() => ({ ip: '127.0.0.1', ips: [] })),
-}));
+// utils/ip.ts no longer used — IP resolution moved to http-server.ts internals
 
 const { HttpServer } = await import('../src/http-server');
 
@@ -124,6 +122,7 @@ interface ServerInternals {
   container: ZipbulContainer;
   options: Record<string, unknown>;
   server: Record<string, unknown>;
+  allowedMethods: ReadonlySet<string>;
 }
 
 // ── Fixtures ──────────────────────────────────────────────────
@@ -163,11 +162,14 @@ function wireServer(
   internals.container = container;
   internals.options = { port: 3000, trustProxy: false };
   internals.server = { hostname: 'localhost', port: 3000 };
+  internals.allowedMethods = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 }
 
 function createGetRequest(path: string = '/test'): Request {
   return new Request(`http://localhost${path}`, { method: 'GET' });
 }
+
+const mockBunServer = { requestIP: () => ({ address: '127.0.0.1', family: 'IPv4', port: 0 }) } as unknown as import('bun').Server<unknown>;
 
 // ── Tests ──────────────────────────────────────────────────────
 
@@ -195,7 +197,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest());
+    await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(receivedContainer).toBeDefined();
@@ -220,7 +222,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest());
+    await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(resolvedService).toBeDefined();
@@ -241,7 +243,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest());
+    await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(tracker.disposed).toEqual(['service']);
@@ -265,9 +267,9 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest('/a'));
-    await server.fetch(createGetRequest('/b'));
-    await server.fetch(createGetRequest('/c'));
+    await server.fetch(createGetRequest('/a'), mockBunServer);
+    await server.fetch(createGetRequest('/b'), mockBunServer);
+    await server.fetch(createGetRequest('/c'), mockBunServer);
 
     // Assert
     expect(resolved).toHaveLength(3);
@@ -290,8 +292,8 @@ describe('Request scope HTTP lifecycle', () => {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
     // Act
-    await server.fetch(createGetRequest('/a'));
-    await server.fetch(createGetRequest('/b'));
+    await server.fetch(createGetRequest('/a'), mockBunServer);
+    await server.fetch(createGetRequest('/b'), mockBunServer);
 
     // Assert
     expect(contextIds).toHaveLength(2);
@@ -317,7 +319,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest());
+    await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(tracker.disposed).toEqual(['service']);
@@ -340,7 +342,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    const response = await server.fetch(createGetRequest());
+    const response = await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(response).toBeInstanceOf(Response);
@@ -367,7 +369,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest());
+    await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(tracker.disposed).toContain('good1');
@@ -384,7 +386,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    const response = await server.fetch(createGetRequest());
+    const response = await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(response).toBeInstanceOf(Response);
@@ -403,7 +405,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, bareContainer, adapter);
 
     // Act
-    const response = await server.fetch(createGetRequest());
+    const response = await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(response).toBeInstanceOf(Response);
@@ -432,7 +434,7 @@ describe('Request scope HTTP lifecycle', () => {
 
     // Act
     await Promise.all(
-      Array.from({ length: 10 }, (_, index) => server.fetch(createGetRequest(`/${index}`))),
+      Array.from({ length: 10 }, (_, index) => server.fetch(createGetRequest(`/${index}`), mockBunServer)),
     );
 
     // Assert
@@ -458,9 +460,9 @@ describe('Request scope HTTP lifecycle', () => {
 
     // Act
     await Promise.all([
-      server.fetch(createGetRequest('/a')),
-      server.fetch(createGetRequest('/b')),
-      server.fetch(createGetRequest('/c')),
+      server.fetch(createGetRequest('/a'), mockBunServer),
+      server.fetch(createGetRequest('/b'), mockBunServer),
+      server.fetch(createGetRequest('/c'), mockBunServer),
     ]);
 
     // Assert
@@ -496,9 +498,9 @@ describe('Request scope HTTP lifecycle', () => {
 
     // Act
     await Promise.all([
-      server.fetch(createGetRequest('/a')),
-      server.fetch(createGetRequest('/b')),
-      server.fetch(createGetRequest('/c')),
+      server.fetch(createGetRequest('/a'), mockBunServer),
+      server.fetch(createGetRequest('/b'), mockBunServer),
+      server.fetch(createGetRequest('/c'), mockBunServer),
     ]);
 
     // Assert
@@ -539,8 +541,8 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest('/first'));
-    await server.fetch(createGetRequest('/second'));
+    await server.fetch(createGetRequest('/first'), mockBunServer);
+    await server.fetch(createGetRequest('/second'), mockBunServer);
 
     // Assert
     expect(createCount).toBe(2);
@@ -566,7 +568,7 @@ describe('Request scope HTTP lifecycle', () => {
 
     // Act — 5 sequential fetch-dispose cycles
     for (let cycle = 0; cycle < 5; cycle++) {
-      await server.fetch(createGetRequest(`/cycle-${cycle}`));
+      await server.fetch(createGetRequest(`/cycle-${cycle}`), mockBunServer);
     }
 
     // Assert
@@ -592,7 +594,7 @@ describe('Request scope HTTP lifecycle', () => {
 
     // Act
     await Promise.all(
-      Array.from({ length: 20 }, (_, index) => server.fetch(createGetRequest(`/${index}`))),
+      Array.from({ length: 20 }, (_, index) => server.fetch(createGetRequest(`/${index}`), mockBunServer)),
     );
 
     // Assert
@@ -623,7 +625,7 @@ describe('Request scope HTTP lifecycle', () => {
 
     // Act
     await Promise.all(
-      Array.from({ length: 15 }, (_, index) => server.fetch(createGetRequest(`/${index}`))),
+      Array.from({ length: 15 }, (_, index) => server.fetch(createGetRequest(`/${index}`), mockBunServer)),
     );
 
     // Assert
@@ -656,7 +658,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest());
+    await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(firstGet).toBe(secondGet);
@@ -683,7 +685,7 @@ describe('Request scope HTTP lifecycle', () => {
 
     // Act
     for (let fetchIndex = 0; fetchIndex < 10; fetchIndex++) {
-      await server.fetch(createGetRequest(`/fetch-${fetchIndex}`));
+      await server.fetch(createGetRequest(`/fetch-${fetchIndex}`), mockBunServer);
     }
 
     // Assert
@@ -714,7 +716,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest());
+    await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(events).toEqual(['dispatched', 'disposed']);
@@ -738,7 +740,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest());
+    await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     expect(tracker.disposed).toEqual(['third', 'second', 'first']);
@@ -767,7 +769,7 @@ describe('Request scope HTTP lifecycle', () => {
     wireServer(server, container, adapter);
 
     // Act
-    await server.fetch(createGetRequest());
+    await server.fetch(createGetRequest(), mockBunServer);
 
     // Assert
     const eventOrder = timeline.map(entry => entry.event);

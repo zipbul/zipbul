@@ -1,5 +1,7 @@
-import { inject, UseMiddlewares, UseExceptionFilters, err } from '@zipbul/common';
-import { RestController, Post, Get, Body } from '@zipbul/http-adapter';
+import { UseMiddlewares, UseExceptionFilters } from '@zipbul/common';
+import { inject } from '@zipbul/core';
+import { err } from '@zipbul/result';
+import { RestController, Post, Get, type HttpContext } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
 
 import { AuditService } from './audit.service';
@@ -16,7 +18,8 @@ export class BillingController {
 
   @Post('charge')
   @UseExceptionFilters(paymentExceptionFilter)
-  charge(@Body() body: ChargeDto) {
+  charge(ctx: HttpContext) {
+    const body = ctx.getBody<ChargeDto>();
     const amount = body.amount || 0;
 
     this.auditService.logAction('charge', `amount=${amount}`);

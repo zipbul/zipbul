@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import type { ProviderToken, ZipbulContainer } from './interfaces';
-import type { ClassToken, ZipbulValue } from './types';
-import type { LazyRefFactory } from './types';
+import type { ProviderToken, ZipbulContainer } from '@zipbul/common';
+import type { ClassToken, ZipbulValue } from '@zipbul/common';
+import type { LazyRefFactory } from '@zipbul/common';
 
 const injectionStore = new AsyncLocalStorage<ZipbulContainer>();
 

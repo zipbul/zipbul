@@ -1,6 +1,6 @@
 import type { Result, ResultAsync } from '@zipbul/result';
 import type { AdapterClass } from './adapter/types';
-import type { Context } from './interfaces';
+import type { AdapterContext } from './interfaces';
 
 /**
  * Handler function for a middleware definition.
@@ -13,7 +13,7 @@ import type { Context } from './interfaces';
  * @public
  */
 export type MiddlewareHandlerFn = (
-  ctx: Context,
+  ctx: AdapterContext,
 ) => Result<void, unknown> | ResultAsync<void, unknown>;
 
 /**

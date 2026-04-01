@@ -1,26 +1,61 @@
-import { ContextError, type ClassToken, type ResolvedExceptionFilter, type ZipbulContainer } from '@zipbul/common';
+import { ContextError, type AdapterContext, type ContextKey, type ClassToken, type Validated, type ZipbulContainer } from '@zipbul/common';
+import type { ResolvedExceptionFilter } from '@zipbul/core';
 
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
+import type { ErrorResponseData, MatchedRouteMetadata } from './types';
 
 import { HTTP_CONTEXT_TYPE } from './constants';
 
-export class HttpContext {
+export class HttpContext implements AdapterContext {
+  private _rawRequest: Request | undefined;
   private _routeExceptionFilters: readonly ResolvedExceptionFilter[] | undefined;
+  private _matchedRoute: MatchedRouteMetadata | undefined;
+  private readonly validatedCache = new Map<string, unknown>();
+  private readonly store = new Map<symbol, unknown>();
+
+  /**
+   * Pre-pipeline error set by `fetch()` when `createHttpRequest` fails
+   * with a recoverable error (not-implemented, invalid CL).
+   * Checked by `executePipeline` after OnRequest MWs so CORS headers are applied.
+   *
+   * @internal
+   */
+  pipelineError: ErrorResponseData | undefined;
 
   constructor(
     private readonly _request: HttpRequest,
     private readonly _response: HttpResponse,
-    private readonly _rawRequest?: Request,
+    rawRequest?: Request,
     private readonly _container?: ZipbulContainer,
-  ) {}
+  ) {
+    this._rawRequest = rawRequest;
+  }
 
   getType(): string {
     return HTTP_CONTEXT_TYPE;
   }
 
-  get(_key: string): undefined {
-    return undefined;
+  /**
+   * Returns a per-request value stored under the given typed key.
+   *
+   * @param key - A `ContextKey<T>` created via `contextKey()`.
+   * @returns The stored value, or `undefined` if not set.
+   * @public
+   */
+  get<T>(key: ContextKey<T>): T | undefined {
+    return this.store.get(key) as T | undefined;
+  }
+
+  /**
+   * Stores a per-request value under the given typed key.
+   *
+   * @param key - A `ContextKey<T>` created via `contextKey()`.
+   * @param value - The value to store.
+   * @public
+   */
+  set<T>(key: ContextKey<T>, value: T): void {
+    this.store.set(key, value);
   }
 
   to<TContext>(ctor: ClassToken<TContext>): TContext {
@@ -30,6 +65,73 @@ export class HttpContext {
 
     throw new ContextError(`Context cast failed: ${ctor.name || 'UnknownContext'}`);
   }
+
+  // ── Validated accessors ──────────────────────────────────────
+
+  /**
+   * Stores a validated value by kind.
+   * Called by the adapter after baker verification.
+   *
+   * @param kind - The validation kind (e.g. 'body', 'query', 'params').
+   * @param value - The validated value.
+   * @internal
+   */
+  setValidated(kind: string, value: unknown): void {
+    this.validatedCache.set(kind, value);
+  }
+
+  /**
+   * Returns the validated value for the given kind.
+   * Throws `ContextError` if the kind has not been validated.
+   *
+   * The generic cast is safe: baker `deserialize()` guarantees
+   * the stored value conforms to `T` at runtime.
+   *
+   * @param kind - The validation kind.
+   * @returns The validated value.
+   * @public
+   */
+  getValidated<T = unknown>(kind: string): T {
+    const cached = this.validatedCache.get(kind);
+    if (cached === undefined && !this.validatedCache.has(kind)) {
+      throw new ContextError(`Validated '${kind}' not available. Ensure runValidations executed before handler.`);
+    }
+    // Safety: baker deserialize() guarantees the value matches T at runtime.
+    // The Map stores unknown because different kinds hold different types.
+    return cached as T;
+  }
+
+  /**
+   * Returns the baker-validated request body.
+   *
+   * @returns The validated body as `T`.
+   * @public
+   */
+  getBody<T extends object = never>(): Validated<T> {
+    return this.getValidated<T>('body');
+  }
+
+  /**
+   * Returns the baker-validated query parameters.
+   *
+   * @returns The validated query as `T`.
+   * @public
+   */
+  getQuery<T extends object = never>(): Validated<T> {
+    return this.getValidated<T>('query');
+  }
+
+  /**
+   * Returns the baker-validated path parameters.
+   *
+   * @returns The validated params as `T`.
+   * @public
+   */
+  getParams<T extends object = never>(): Validated<T> {
+    return this.getValidated<T>('params');
+  }
+
+  // ── Request / Response ───────────────────────────────────────
 
   get request(): HttpRequest {
     return this._request;
@@ -43,6 +145,20 @@ export class HttpContext {
     return this._rawRequest;
   }
 
+  /**
+   * Returns the raw Request and releases the internal reference.
+   * After this call, `rawRequest` returns `undefined`.
+   * Used by `parseBody` to consume the body and hint GC.
+   *
+   * @returns The raw Request, or `undefined` if already consumed.
+   * @public
+   */
+  consumeRawRequest(): Request | undefined {
+    const raw = this._rawRequest;
+    this._rawRequest = undefined;
+    return raw;
+  }
+
   get container(): ZipbulContainer | undefined {
     return this._container;
   }
@@ -53,5 +169,13 @@ export class HttpContext {
 
   setRouteExceptionFilters(filters: readonly ResolvedExceptionFilter[]): void {
     this._routeExceptionFilters = filters;
+  }
+
+  get matchedRoute(): MatchedRouteMetadata | undefined {
+    return this._matchedRoute;
+  }
+
+  set matchedRoute(route: MatchedRouteMetadata | undefined) {
+    this._matchedRoute = route;
   }
 }

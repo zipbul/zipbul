@@ -1,5 +1,4 @@
 import type { Class, CompiledHandlerEntry, MiddlewareDefinition, ProviderToken, ExceptionFilterDefinition } from '@zipbul/common';
-import type { MiddlewareHook } from '@zipbul/common';
 import type { GuardDefinition } from '@zipbul/common';
 
 import type { Container } from '../injector/container';
@@ -11,13 +10,13 @@ import type { ClassMetadata } from '../injector/types';
  * @public
  */
 export interface AdapterMiddlewareConfig {
-  middlewares?: Partial<Record<MiddlewareHook, readonly MiddlewareDefinition[]>>;
+  middlewares?: Readonly<Record<string, readonly MiddlewareDefinition[]>>;
   exceptionFilters?: readonly ExceptionFilterDefinition[];
   guards?: readonly GuardDefinition[];
 }
 
-export interface RuntimeContext {
-  metadataRegistry?: Map<Class, ClassMetadata>;
+export interface BootstrapState {
+  metadataRegistry?: Map<Class, ClassMetadata> | undefined;
   scopedKeys?: Map<ProviderToken, string>;
   container?: Container;
   isAotRuntime?: boolean;
