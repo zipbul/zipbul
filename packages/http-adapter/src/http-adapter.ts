@@ -32,7 +32,8 @@ import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head, Method } from './decorators/method.decorator';
 import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
 import type { RouteHandler } from './route-handler';
-import { HttpPhase, HeaderField } from './enums';
+import { HttpPhase, HttpStep, HeaderField } from './enums';
+import { CoreStep } from '@zipbul/core';
 import { isAsyncIterable, formatSSEChunk } from './server-sent-event';
 
 const TEXT_ENCODER = new TextEncoder();
@@ -103,6 +104,40 @@ export class HttpAdapter extends Adapter {
   static override readonly validPhases: ReadonlySet<string> = new Set(Object.values(HttpPhase));
 
   /**
+   * Declarative pipeline definition.
+   *
+   * The AOT compiler reads this array to generate optimized per-handler pipelines
+   * by eliminating steps with no registered handlers. The array order is the execution order.
+   *
+   * - `HttpPhase.*`: middleware phase. Removed when no middlewares registered.
+   * - `CoreStep.*`: framework step. Removed per core's elimination rules.
+   * - `HttpStep.*`: protocol step. Always retained.
+   *
+   * `CoreStep.Handler` marks the error boundary: steps before it run under exception
+   * filter catch (Phase 1), steps after run under emergency teardown catch (Phase 2).
+   *
+   * @public
+   */
+  static readonly pipeline = [
+    HttpPhase.OnRequest,
+    HttpStep.ResolveRoute,
+    HttpPhase.BeforeParse,
+    HttpStep.ParseBody,
+    HttpPhase.BeforeValidate,
+    CoreStep.Validation,
+    CoreStep.Guard,
+    HttpPhase.BeforeHandle,
+    CoreStep.ScopedMiddleware,
+    CoreStep.ScopedGuard,
+    CoreStep.Handler,
+    HttpStep.WriteResponse,
+    HttpPhase.AfterHandle,
+    HttpStep.Serialize,
+    HttpPhase.BeforeResponse,
+    HttpPhase.AfterResponse,
+  ] as const;
+
+  /**
    * AOT 컴파일러가 메서드명 → validation kind 매핑에 사용.
    * `getBody` → `'body'`, `getQuery` → `'query'`, `getParams` → `'params'`.
    *
@@ -171,6 +206,7 @@ export class HttpAdapter extends Adapter {
     return this;
   }
 
+
   // ── Finalize middlewares ─────────────────────────────────────
 
   /**
@@ -196,88 +232,137 @@ export class HttpAdapter extends Adapter {
    */
   protected async executePipeline(context: AdapterContext): Promise<Result<unknown, unknown>> {
     const http = context.to(HttpContext);
+    let steps: readonly string[] = this.compiledPipeline;
 
-    // 1. OnRequest — CORS, logging, method override, URL rewriting
-    const onRequest = await this.runHttpMiddlewares(
-      this.getPhaseMiddlewares(HttpPhase.OnRequest), http,
-    );
-    if (isErr(onRequest)) return onRequest;
-    if (http.response.isSent()) return undefined;
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i]!;
+      const result = await this.executeStep(step, http, context);
 
-    // 1.5. Pre-pipeline error (not-implemented, invalid CL) — after OnRequest so CORS headers apply
-    if (http.pipelineError !== undefined) {
-      return err(http.pipelineError);
-    }
+      if (step === CoreStep.Handler) return result;
 
-    // 2. Route Match — match against final method/path. 404/405 early return
-    const routeResult = this.resolveRoute(http);
-    if (isErr(routeResult)) return routeResult;
-    if (http.response.isSent()) return undefined;
-
-    const route = http.matchedRoute;
-    if (route === undefined) {
-      return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Route metadata not available' });
-    }
-
-    // 3. BeforeParse — raw body interception, decryption
-    const beforeParse = await this.runHttpMiddlewares(
-      this.getPhaseMiddlewares(HttpPhase.BeforeParse), http,
-    );
-    if (isErr(beforeParse)) return beforeParse;
-    if (http.response.isSent()) return undefined;
-
-    // 4. parseBody — Content-Type 기반 body 역직렬화
-    const parseResult = await this.parseBody(http);
-    if (isErr(parseResult)) return parseResult;
-
-    // 5. BeforeValidate — query parsing, multipart parsing, body transformation
-    const beforeValidate = await this.runHttpMiddlewares(
-      this.getPhaseMiddlewares(HttpPhase.BeforeValidate), http,
-    );
-    if (isErr(beforeValidate)) return beforeValidate;
-    if (http.response.isSent()) return undefined;
-
-    // 6. runValidations — baker DTO 검증
-    if (route.validations.length > 0) {
-      const validationResult = await this.runValidations(route.validations, http);
-      if (isErr(validationResult)) return validationResult;
+      if (result !== undefined && isErr(result)) return result;
       if (http.response.isSent()) return undefined;
+
+      // 핸들러 결정 후, 핸들러별 파이프라인이 있으면 전환
+      if (step === HttpStep.ResolveRoute && http.matchedRoute !== undefined) {
+        const handlerPipeline = this.getHandlerPipeline(http.matchedRoute.handler);
+        if (handlerPipeline !== undefined) {
+          steps = handlerPipeline;
+          i = -1; // 새 배열의 처음부터 시작 (for문의 i++로 0이 됨)
+        }
+      }
     }
 
-    // 7. Guards — global access control
-    const guards = await this.runGuards(context);
-    if (isErr(guards)) return guards;
-    if (http.response.isSent()) return undefined;
-
-    // 8. BeforeHandle — global MW
-    const beforeHandle = await this.runHttpMiddlewares(
-      this.getPhaseMiddlewares(HttpPhase.BeforeHandle), http,
-    );
-    if (isErr(beforeHandle)) return beforeHandle;
-    if (http.response.isSent()) return undefined;
-
-    // 9. BeforeHandle — handler-scoped MW
-    if (route.middlewares.length > 0) {
-      const scopedResult = await this.runHttpMiddlewares(route.middlewares, http);
-      if (isErr(scopedResult)) return scopedResult;
-      if (http.response.isSent()) return undefined;
-    }
-
-    // 10. Route-level guards
-    for (const guard of route.guards) {
-      const guardResult = await guard(context);
-      if (isErr(guardResult)) return guardResult;
-    }
-    if (http.response.isSent()) return undefined;
-
-    this.logger.debug(`Pipeline: mw=${route.middlewares.length} guards=${route.guards.length} filters=${route.exceptionFilters.length}`);
-
-    // 11. Apply decorator metadata — defaults before handler (handler can override)
-    this.applyDecoratorMetadata(route, http.response);
-
-    // 12. Handler
-    return route.handler(http);
+    return undefined;
   }
+
+  /**
+   * Executes a single pipeline step by name.
+   * Step → method mapping for the HTTP adapter.
+   */
+  private async executeStep(
+    step: string,
+    http: HttpContext,
+    context: AdapterContext,
+  ): Promise<Result<unknown, unknown> | undefined> {
+    switch (step) {
+      // ── HttpPhase (middleware phases) ──
+      case HttpPhase.OnRequest:
+      case HttpPhase.BeforeParse:
+      case HttpPhase.BeforeValidate:
+      case HttpPhase.BeforeHandle:
+        return this.runHttpMiddlewares(this.getPhaseMiddlewares(step), http);
+
+      // ── HttpStep (protocol-specific) ──
+      case HttpStep.ResolveRoute: {
+        if (http.pipelineError !== undefined) {
+          return err(http.pipelineError);
+        }
+        const routeResult = this.resolveRoute(http);
+        if (isErr(routeResult)) return routeResult;
+        return undefined;
+      }
+
+      case HttpStep.ParseBody:
+        return this.parseBody(http);
+
+      case HttpStep.WriteResponse:
+        // handled in handleResult, not in executePipeline
+        return undefined;
+
+      case HttpStep.Serialize:
+        // handled in handleResult, not in executePipeline
+        return undefined;
+
+      // ── CoreStep ──
+      case CoreStep.Validation: {
+        const route = http.matchedRoute;
+        if (route !== undefined && route.validations.length > 0) {
+          return this.runValidations(route.validations, http);
+        }
+        return undefined;
+      }
+
+      case CoreStep.Guard:
+        return this.runGuards(context);
+
+      case CoreStep.ScopedMiddleware: {
+        const route = http.matchedRoute;
+        if (route !== undefined && route.middlewares.length > 0) {
+          return this.runHttpMiddlewares(route.middlewares, http);
+        }
+        return undefined;
+      }
+
+      case CoreStep.ScopedGuard: {
+        const route = http.matchedRoute;
+        if (route !== undefined) {
+          for (const guard of route.guards) {
+            const guardResult = await guard(context);
+            if (isErr(guardResult)) return guardResult;
+          }
+        }
+        return undefined;
+      }
+
+      case CoreStep.Handler: {
+        const route = http.matchedRoute;
+        if (route === undefined) {
+          return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Route metadata not available' });
+        }
+        this.applyDecoratorMetadata(route, http.response);
+        return route.handler(http);
+      }
+
+      // ── handleResult phases ──
+      case HttpPhase.AfterHandle: {
+        const res = http.response;
+        if (!res.hasNativeResponse() && !res.isSent()) {
+          const afterHandle = this.getPhaseMiddlewares(HttpPhase.AfterHandle);
+          if (afterHandle.length > 0) {
+            await this.runHttpMiddlewares(afterHandle, http);
+          }
+        }
+        return undefined;
+      }
+
+      case HttpPhase.BeforeResponse: {
+        const beforeResponse = this.getPhaseMiddlewares(HttpPhase.BeforeResponse);
+        if (beforeResponse.length > 0) {
+          await this.runHttpMiddlewares(beforeResponse, http);
+        }
+        return undefined;
+      }
+
+      case HttpPhase.AfterResponse:
+        // handled by getFinalizeMiddlewares / dispatchRequest Phase 3
+        return undefined;
+
+      default:
+        return undefined;
+    }
+  }
+
 
   // ── Pipeline steps ──────────────────────────────────────────
 

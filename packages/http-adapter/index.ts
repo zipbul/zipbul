@@ -6,7 +6,7 @@ export { HttpContext } from './src/http-context';
 export { HttpRequest } from './src/http-request';
 export { HttpResponse } from './src/http-response';
 
-export { HttpPhase, ContentType, HeaderField } from './src/enums';
+export { HttpPhase, HttpStep, ContentType, HeaderField } from './src/enums';
 export type { HttpMethod } from './src/enums';
 export {
   type HttpServerOptions,

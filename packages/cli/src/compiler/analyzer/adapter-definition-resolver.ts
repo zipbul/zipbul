@@ -423,12 +423,21 @@ export class AdapterDefinitionResolver {
       validatedAccessors = this.resolveValidatedAccessors(validatedAccessorsProperty.initializer);
     }
 
+    // Extract pipeline from static property
+    const pipelineProperty = classMetadata.properties.find(p => p.name === 'pipeline');
+    let pipeline: readonly string[] | undefined;
+
+    if (pipelineProperty !== undefined) {
+      pipeline = await this.resolvePipelineArray(pipelineProperty.initializer, fileMap);
+    }
+
     return {
       adapterId,
       staticSchema: {
         entryDecorators,
         ...(validPhases !== undefined ? { validPhases } : {}),
         ...(validatedAccessors !== undefined ? { validatedAccessors } : {}),
+        ...(pipeline !== undefined ? { pipeline } : {}),
       },
     };
   }
@@ -560,6 +569,165 @@ export class AdapterDefinitionResolver {
     }
 
     return hasEntries ? result : undefined;
+  }
+
+  /**
+   * Resolves `static readonly pipeline = [EnumA.X, EnumB.Y, ...]` from the adapter class.
+   * Each item is an enum reference like `{ __zipbul_ref: "HttpPhase.OnRequest" }`.
+   * Resolves each reference to its string value by looking up enum members.
+   */
+  private async resolvePipelineArray(value: AnalyzerValue | undefined, fileMap: Map<string, FileAnalysis>): Promise<readonly string[] | undefined> {
+    if (!isAnalyzerValueArray(value)) {
+      return undefined;
+    }
+
+    const steps: string[] = [];
+    const enumCache = new Map<string, Map<string, string>>();
+
+    for (const item of value) {
+      if (typeof item === 'string') {
+        steps.push(item);
+        continue;
+      }
+
+      const rec = this.asRecord(item);
+
+      if (rec === null || typeof rec[ZIPBUL_REF] !== 'string') {
+        continue;
+      }
+
+      const ref = rec[ZIPBUL_REF] as string;
+      const importSource = typeof rec[ZIPBUL_IMPORT_SOURCE] === 'string' ? rec[ZIPBUL_IMPORT_SOURCE] as string : null;
+
+      // ref = "HttpPhase.OnRequest" → enumName = "HttpPhase", memberName = "OnRequest"
+      const dotIndex = ref.indexOf('.');
+
+      if (dotIndex === -1) {
+        steps.push(ref);
+        continue;
+      }
+
+      const enumName = ref.slice(0, dotIndex);
+      const memberName = ref.slice(dotIndex + 1);
+
+      let members = enumCache.get(enumName);
+
+      if (members === undefined) {
+        const resolved = await this.resolveEnumValues(enumName, importSource, fileMap);
+
+        if (resolved !== undefined) {
+          // resolveEnumValues returns Set<string> (values). We need name→value mapping.
+          // Re-resolve to get the Map directly.
+          const memberMap = await this.resolveEnumMemberMap(enumName, importSource, fileMap);
+          members = memberMap ?? new Map();
+        } else {
+          members = new Map();
+        }
+
+        enumCache.set(enumName, members);
+      }
+
+      const memberValue = members.get(memberName);
+      steps.push(memberValue ?? memberName);
+    }
+
+    return steps.length > 0 ? steps : undefined;
+  }
+
+  /**
+   * Resolves an enum to a name→value Map.
+   */
+  private async resolveEnumMemberMap(enumName: string, importSource: string | null, fileMap: Map<string, FileAnalysis>): Promise<Map<string, string> | undefined> {
+    if (importSource !== null) {
+      const normalizedPath = importSource.endsWith('.ts') ? importSource : `${importSource}.ts`;
+      const analysis = await this.getFileAnalysis(normalizedPath, fileMap);
+      const enumMembers = analysis?.enums?.get(enumName);
+
+      if (enumMembers !== undefined) {
+        return enumMembers;
+      }
+
+      if (!importSource.endsWith('.ts')) {
+        const indexPath = `${importSource}/index.ts`;
+        const indexAnalysis = await this.getFileAnalysis(indexPath, fileMap);
+        const indexEnumMembers = indexAnalysis?.enums?.get(enumName);
+
+        if (indexEnumMembers !== undefined) {
+          return indexEnumMembers;
+        }
+      }
+    }
+
+    for (const analysis of fileMap.values()) {
+      const enumMembers = analysis.enums?.get(enumName);
+
+      if (enumMembers !== undefined) {
+        return enumMembers;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Compiles a per-handler pipeline by removing steps that have no registrations.
+   *
+   * CoreStep values are removed when the handler has no corresponding data:
+   * - `Validation` → removed when validations is empty
+   * - `ScopedMiddleware` → removed when middlewareKeys is empty
+   * - `ScopedGuard` → removed when guardKeys is empty
+   * - `Guard`, `Handler` → always retained (global guard presence unknown at build time)
+   *
+   * Phase values (in validPhases) and adapter-specific values are always retained
+   * because global middleware registration is not fully available at build time.
+   */
+  /**
+   * Compiles a per-handler pipeline by removing steps that have no registrations.
+   *
+   * Elimination rules:
+   * - Phase steps (in validPhases): removed when no global MW in adapterConfig AND no route-level MW
+   * - `Guard`: removed when no global guards in adapterConfig
+   * - `Validation`: removed when handler has no validations
+   * - `ScopedMiddleware`: removed when handler has no scoped middlewares
+   * - `ScopedGuard`: removed when handler has no scoped guards
+   * - `Handler` and adapter-specific steps: always retained
+   *
+   * Stops at `Handler` — post-handler steps are managed by handleResult.
+   */
+  private compilePipeline(
+    pipeline: readonly string[] | undefined,
+    validPhases: ReadonlySet<string> | undefined,
+    hasGlobalGuards: boolean,
+    globalPhaseMiddlewares: ReadonlySet<string>,
+    routePhaseMiddlewares: ReadonlySet<string>,
+    middlewareKeys: readonly string[],
+    guardKeys: readonly string[],
+    validations: readonly CompiledValidationEntry[],
+  ): readonly string[] | undefined {
+    if (pipeline === undefined) {
+      return undefined;
+    }
+
+    const compiled: string[] = [];
+
+    for (const step of pipeline) {
+      // Phase step: remove if no global MW AND no route-level MW for this phase
+      if (validPhases !== undefined && validPhases.has(step)) {
+        if (!globalPhaseMiddlewares.has(step) && !routePhaseMiddlewares.has(step)) continue;
+      }
+
+      // Core steps
+      if (step === 'Guard' && !hasGlobalGuards) continue;
+      if (step === 'Validation' && validations.length === 0) continue;
+      if (step === 'ScopedMiddleware' && middlewareKeys.length === 0) continue;
+      if (step === 'ScopedGuard' && guardKeys.length === 0) continue;
+
+      compiled.push(step);
+
+      if (step === 'Handler') break;
+    }
+
+    return compiled;
   }
 
   /**
@@ -868,6 +1036,26 @@ export class AdapterDefinitionResolver {
             const validatedAccessors = extraction.staticSchema.validatedAccessors;
             const validations = this.buildValidationEntries(method.typedCalls, validatedAccessors);
 
+            // Compile pipeline — eliminate steps with no registrations
+            // Currently adapterConfig is not analyzed, so global MW/guards are assumed absent.
+            // When adapterConfig analysis is implemented, pass actual global registration data.
+            const hasGlobalGuards = false;
+            const globalPhaseMiddlewares = new Set<string>();
+            const routePhaseMiddlewares = allMiddlewareKeys.length > 0
+              ? new Set(extraction.staticSchema.validPhases ?? [])
+              : new Set<string>();
+
+            const compiledPipeline = this.compilePipeline(
+              extraction.staticSchema.pipeline,
+              extraction.staticSchema.validPhases,
+              hasGlobalGuards,
+              globalPhaseMiddlewares,
+              routePhaseMiddlewares,
+              allMiddlewareKeys,
+              guardKeys,
+              validations,
+            );
+
             seen.add(id);
             entries.push({
               id,
@@ -881,6 +1069,7 @@ export class AdapterDefinitionResolver {
               ...(guardKeys.length > 0 ? { guardKeys } : {}),
               ...(handlerOptions.length > 0 ? { options: handlerOptions } : {}),
               ...(validations.length > 0 ? { validations } : {}),
+              ...(compiledPipeline !== undefined ? { compiledPipeline } : {}),
             });
           }
         }

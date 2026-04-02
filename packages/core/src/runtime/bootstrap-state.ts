@@ -77,6 +77,11 @@ export function getBootstrapState(): BootstrapState {
  * @public
  */
 export function clearMetadataRegistry(): void {
+  if (currentContext.isAotRuntime) {
+    currentContext.metadataRegistry = undefined;
+    return;
+  }
+
   currentContext.metadataRegistry?.clear();
   currentContext.metadataRegistry = undefined;
 }

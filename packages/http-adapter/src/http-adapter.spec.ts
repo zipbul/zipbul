@@ -111,6 +111,7 @@ describe('HttpAdapter', () => {
 
     beforeEach(() => {
       adapter = new HttpAdapter();
+      adapter.initializePipeline(createMockContainer());
     });
 
     it('should execute handler when route has no guards', async () => {

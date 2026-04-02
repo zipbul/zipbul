@@ -113,6 +113,8 @@ export interface AdapterStaticSchema {
   validPhases?: Set<string>;
   /** Maps context accessor method names to validation kinds (e.g. `getBody → 'body'`). */
   validatedAccessors?: Record<string, string>;
+  /** Declarative pipeline step sequence. AOT compiler uses this to generate optimized per-handler pipelines. */
+  pipeline?: readonly string[];
 }
 
 export interface AdapterExtraction {
@@ -146,6 +148,8 @@ export interface HandlerIndexEntry {
   options?: readonly CompiledOptionEntry[];
   /** Validated accessor calls extracted from the handler body. */
   validations?: readonly CompiledValidationEntry[];
+  /** AOT-compiled pipeline — only steps with registered handlers are included. */
+  compiledPipeline?: readonly string[];
 }
 
 export interface HandlerParamEntry {

@@ -41,6 +41,7 @@ export class RouteHandler {
   private readonly router: Router<MatchedRouteMetadata>;
   private readonly logger = Logger.inherit();
   private readonly registeredMethods = new Set<string>();
+  private readonly handlerPipelines: Array<{ handler: RouteHandlerFunction; pipeline: readonly string[] }> = [];
 
   constructor(
     metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
@@ -68,6 +69,10 @@ export class RouteHandler {
    * @returns `MatchRouteOutput` discriminated union.
    * @public
    */
+  getHandlerPipelines(): ReadonlyArray<{ handler: RouteHandlerFunction; pipeline: readonly string[] }> {
+    return this.handlerPipelines;
+  }
+
   matchRoute(method: string, path: string): MatchRouteOutput {
     const result = this.router.match(method, path);
     // Router.match()는 MatchOutput<T> | null을 반환한다 (미매칭 시 null).
@@ -128,6 +133,10 @@ export class RouteHandler {
       }
 
       const handler = this.resolveHandler(instance, entry.methodName);
+
+      if (entry.compiledPipeline !== undefined && entry.compiledPipeline.length > 0) {
+        this.handlerPipelines.push({ handler, pipeline: entry.compiledPipeline });
+      }
 
       const pathArgIndex = isCustomMethod ? 1 : 0;
       const rawPath = typeof entry.handlerDecoratorArgs[pathArgIndex] === 'string' ? entry.handlerDecoratorArgs[pathArgIndex] as string : '';

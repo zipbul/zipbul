@@ -9,6 +9,7 @@ import { ClusterStrategy } from '@zipbul/common';
 import type { ZipbulContainer } from '@zipbul/common';
 import { runInInjectionContext } from '../injection-context';
 import { runInAdapterContext } from '../adapter-context';
+import { CoreStep } from './enums';
 
 /**
  * Resolved middleware: factory has been called, handler is ready.
@@ -89,6 +90,12 @@ export abstract class Adapter implements AdapterContract {
 
   protected resolvedExceptionFilters: ResolvedExceptionFilter[] = [];
   protected resolvedGuards: ResolvedGuard[] = [];
+
+  /** Compiled pipeline — built from static `pipeline` declaration after initializePipeline(). */
+  protected compiledPipeline: readonly string[] = [];
+
+  /** Per-handler compiled pipelines. Key: handler function reference. */
+  private readonly handlerPipelineMap = new Map<Function, readonly string[]>();
 
   // ── Abstract hooks (subclass implements) ────────────────────
 
@@ -260,6 +267,74 @@ export abstract class Adapter implements AdapterContract {
         this.resolveMiddlewareDefs(definitions, container),
       );
     }
+
+    this.compiledPipeline = this.buildCompiledPipeline();
+  }
+
+  /**
+   * Registers a per-handler compiled pipeline.
+   * Called by subclasses during route registration (boot time).
+   *
+   * @param handler - The handler function reference (used as Map key).
+   * @param pipeline - The compiled pipeline steps for this handler.
+   * @public
+   */
+  registerHandlerPipeline(handler: Function, pipeline: readonly string[]): void {
+    this.handlerPipelineMap.set(handler, pipeline);
+  }
+
+  /**
+   * Returns the per-handler compiled pipeline, or the adapter-level compiled pipeline as fallback.
+   *
+   * @param handler - The handler function reference.
+   * @returns Compiled pipeline steps.
+   * @public
+   */
+  getHandlerPipeline(handler: Function): readonly string[] | undefined {
+    return this.handlerPipelineMap.get(handler);
+  }
+
+  /**
+   * Builds a compiled pipeline from the adapter's static `pipeline` declaration.
+   * Eliminates steps that have no registered handlers:
+   * - Phase steps (in `validPhases`): removed when no middlewares registered
+   * - `CoreStep.Guard`: removed when no global guards registered
+   * - All other steps: always retained
+   *
+   * Stops at `CoreStep.Handler` — post-handler steps are managed by `handleResult`.
+   */
+  private buildCompiledPipeline(): readonly string[] {
+    const ctor = this.constructor as typeof Adapter & { pipeline?: readonly string[] };
+    const pipeline = ctor.pipeline;
+
+    if (pipeline === undefined) {
+      return [];
+    }
+
+    const validPhases = (ctor as { validPhases?: ReadonlySet<string> }).validPhases;
+    const compiled: string[] = [];
+
+    for (const step of pipeline) {
+      if (validPhases !== undefined && validPhases.has(step)) {
+        if ((this.resolvedMiddlewareRegistry.get(step)?.length ?? 0) > 0) {
+          compiled.push(step);
+        }
+        continue;
+      }
+
+      if (step === CoreStep.Guard) {
+        if (this.resolvedGuards.length > 0) {
+          compiled.push(step);
+        }
+        continue;
+      }
+
+      compiled.push(step);
+
+      if (step === CoreStep.Handler) break;
+    }
+
+    return compiled;
   }
 
   // ── Pipeline orchestration: 3-Phase error boundary ─────────

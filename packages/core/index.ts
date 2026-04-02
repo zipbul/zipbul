@@ -12,5 +12,6 @@ export type { ClusterWorkerSlot, ClusterWorkerStats, ClusterWorkerId, WorkerGrou
 
 export { Adapter } from './src/adapter/adapter';
 export type { ResolvedMiddleware, ResolvedGuard, ResolvedExceptionFilter, ResolvedValidationEntry } from './src/adapter/adapter';
+export { CoreStep } from './src/adapter/enums';
 export { inject, lazy, runInInjectionContext } from './src/injection-context';
 export { getAdapterContext, runInAdapterContext } from './src/adapter-context';

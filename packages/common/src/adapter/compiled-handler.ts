@@ -56,4 +56,6 @@ export interface CompiledHandlerEntry {
   readonly validations?: readonly CompiledValidationEntry[];
   /** Option decorators from adapter-declared `decorators.options`. Adapter interprets meaning. */
   readonly options?: readonly CompiledOptionEntry[];
+  /** AOT-compiled pipeline — only steps with registered handlers are included. */
+  readonly compiledPipeline?: readonly string[];
 }

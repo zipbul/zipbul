@@ -615,6 +615,10 @@ export class HttpServer {
 
     this.adapter.setRouteHandler(routeHandler);
 
+    for (const { handler, pipeline } of routeHandler.getHandlerPipelines()) {
+      this.adapter.registerHandlerPipeline(handler, pipeline);
+    }
+
     const isProduction = process.env['NODE_ENV'] === 'production';
 
     const serveOptions: Parameters<typeof Bun.serve>[0] = {
