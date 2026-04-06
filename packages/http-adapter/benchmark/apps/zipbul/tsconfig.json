@@ -1,0 +1,13 @@
+{
+  "extends": "../../../../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@zipbul/http-adapter": [
+        "../../../../../packages/http-adapter/index.ts"
+      ]
+    },
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": false
+  }
+}

@@ -6,7 +6,8 @@ import type { GuardDefinition, GuardHandlerFn } from '@zipbul/common';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '@zipbul/common';
 import type { Adapter as AdapterContract, AdapterClass, AdapterEntryDecorators, AdapterContext, ApplicationContext } from '@zipbul/common';
 import { ClusterStrategy } from '@zipbul/common';
-import type { ZipbulContainer } from '@zipbul/common';
+import type { ZipbulContainer, ContextKey } from '@zipbul/common';
+import { contextKey } from '@zipbul/common';
 import { runInInjectionContext } from '../injection-context';
 import { runInAdapterContext } from '../adapter-context';
 import { CoreStep } from './enums';
@@ -45,19 +46,34 @@ export interface ResolvedExceptionFilter {
  * @public
  */
 export interface ResolvedValidationEntry {
-  /** Access kind. Adapter uses this to determine validation input (e.g. 'body', 'query', 'params'). */
-  readonly kind: string;
+  /** Context key identifying the raw validation input. Set by an adapter step or middleware via `ctx.set(key, rawValue)`. */
+  readonly key: ContextKey<unknown>;
   /** DTO class constructor. Passed to baker `deserialize()`. */
   readonly metatype: new (...args: readonly unknown[]) => unknown;
 }
 
 /**
+ * Context key for storing handler result after handler execution.
+ * Post-handler steps read the result from context via this key.
+ *
+ * @public
+ */
+export const handlerResultKey = contextKey<Result<unknown, unknown> | undefined>('zipbul.handlerResult');
+
+/**
+ * Step function signature for pipeline steps.
+ * Returns `Err` to short-circuit, `undefined`/`void` to continue.
+ *
+ * @public
+ */
+export type PipelineStepFn = (context: AdapterContext) => Promise<Result<unknown, unknown> | undefined | void> | Result<unknown, unknown> | undefined | void;
+
+/**
  * Base class for all Zipbul adapters.
  *
- * Provides framework-level pipeline orchestration (3-Phase error boundary),
- * middleware/guard/exception-filter execution primitives, and DI resolution.
- * Subclasses own their pipeline assembly via `executePipeline` and declare
- * protocol-specific phases via `static readonly validPhases`.
+ * Provides pipeline execution (`runPipeline`), middleware/guard/exception-filter
+ * primitives, and DI resolution. Subclasses declare protocol-specific phases
+ * via `static readonly validPhases` and provide step implementations.
  *
  * @public
  */
@@ -67,7 +83,6 @@ export abstract class Adapter implements AdapterContract {
   /**
    * Set of valid middleware phase identifiers for this adapter.
    * AOT compiler extracts this statically for build-time phase validation.
-   * Every adapter subclass must declare this as a static readonly property.
    *
    * @public
    */
@@ -75,8 +90,6 @@ export abstract class Adapter implements AdapterContract {
 
   /**
    * Clustering strategy for this adapter.
-   * Shared = N workers with reusePort. Exclusive = exactly 1 worker.
-   * Subclasses override to declare their strategy.
    *
    * @public
    */
@@ -90,38 +103,24 @@ export abstract class Adapter implements AdapterContract {
 
   protected resolvedExceptionFilters: ResolvedExceptionFilter[] = [];
   protected resolvedGuards: ResolvedGuard[] = [];
+  protected pipelineContainer?: ZipbulContainer;
 
-  /** Compiled pipeline — built from static `pipeline` declaration after initializePipeline(). */
-  protected compiledPipeline: readonly string[] = [];
-
-  /** Per-handler compiled pipelines. Key: handler function reference. */
-  private readonly handlerPipelineMap = new Map<Function, readonly string[]>();
-
-  // ── Abstract hooks (subclass implements) ────────────────────
+  // ── Abstract hooks ─────────────────────────────────────────
 
   /**
-   * Assembles and executes the adapter-specific pipeline.
-   * The adapter controls step ordering, phase hooks, and protocol-specific
-   * logic (parsing, routing, handler invocation).
+   * Adapter-specific pipeline assembly.
+   * Runs pre-route steps, matches route, calls `runPipeline`.
    *
    * @param context - The current execution context.
-   * @returns `Result<unknown, unknown>` — domain `Err` or handler success value.
-   *
    * @public
    */
-  protected abstract executePipeline(context: AdapterContext): Promise<Result<unknown, unknown>>;
-
-  /** Converts a `Result` into a protocol-specific response. */
-  protected abstract handleResult(result: Result<unknown, unknown>, context: AdapterContext): Promise<void> | void;
+  protected abstract executePipeline(context: AdapterContext): Promise<void>;
 
   /**
-   * Emergency teardown when `handleResult` itself throws.
-   * Replaces `forceCloseConnection` — async is allowed for protocols
-   * that need I/O (e.g. MQ nack).
+   * Emergency teardown when post-handler steps throw.
    *
    * @param context - The current execution context.
-   * @param error - The error thrown by `handleResult`.
-   *
+   * @param error - The error that triggered teardown.
    * @public
    */
   protected abstract emergencyTeardown(context: AdapterContext, error?: unknown): Promise<void> | void;
@@ -143,29 +142,21 @@ export abstract class Adapter implements AdapterContract {
 
   /**
    * Stops accepting new connections and waits for in-flight work to complete.
-   * Each adapter implements protocol-specific drain logic.
    *
    * @param timeoutMs - Maximum time to wait for drain completion.
-   *                     After timeout, force-close remaining connections.
    * @public
    */
   async drain(timeoutMs: number): Promise<void> {
-    // Default: delegate to stop(). Subclasses override with protocol-specific drain.
     void timeoutMs;
     await this.stop();
   }
 
-  // ── Middleware registry ──────────────────────────────────────
+  // ── Middleware registry ─────────────────────────────────────
 
   /**
    * Receives AOT-generated middleware configuration.
-   * Validates phase keys against `static validPhases` and accumulates definitions.
    *
-   * Scope: global pipeline middlewares only. Handler-scoped middlewares are stored
-   * in route metadata and managed by each adapter's `executePipeline`.
-   *
-   * @param config - Phase-keyed middleware definitions (string keys from AOT serialization).
-   *
+   * @param config - Phase-keyed middleware definitions.
    * @public
    */
   applyMiddlewareConfig(
@@ -179,13 +170,10 @@ export abstract class Adapter implements AdapterContract {
   }
 
   /**
-   * Stores middleware definitions for a given phase with adapter compatibility check.
-   * Adapters expose a typed public method (e.g. `addMiddlewares(phase: HttpPhase, ...)`)
-   * that delegates here.
+   * Stores middleware definitions for a given phase.
    *
-   * @param phase - Phase key (validated against `static validPhases`).
+   * @param phase - Phase key.
    * @param middlewares - Middleware definitions to append.
-   *
    * @public
    */
   protected registerMiddleware(phase: string, middlewares: readonly MiddlewareDefinition[]): void {
@@ -197,14 +185,9 @@ export abstract class Adapter implements AdapterContract {
 
   /**
    * Returns resolved middlewares for a given phase.
-   * Call from `executePipeline` to retrieve ready-to-call handlers for each phase.
-   *
-   * Returns an empty array for phases with no registered middlewares —
-   * phase validation happens at registration time, not at lookup time.
    *
    * @param phase - Phase key.
-   * @returns Resolved middlewares for the phase. Empty if none registered.
-   *
+   * @returns Resolved middlewares. Empty if none registered.
    * @public
    */
   protected getPhaseMiddlewares(phase: string): readonly ResolvedMiddleware[] {
@@ -215,8 +198,6 @@ export abstract class Adapter implements AdapterContract {
    * Registers exception filter definitions.
    *
    * @param definitions - Exception filter definitions to append.
-   * @returns `this` for chaining.
-   *
    * @public
    */
   addExceptionFilters(definitions: readonly ExceptionFilterDefinition[]): this {
@@ -228,8 +209,6 @@ export abstract class Adapter implements AdapterContract {
    * Registers guard definitions.
    *
    * @param guards - Guard definitions to append.
-   * @returns `this` for chaining.
-   *
    * @public
    */
   addGuards(guards: readonly GuardDefinition[]): this {
@@ -241,17 +220,13 @@ export abstract class Adapter implements AdapterContract {
   // ── Pipeline initialization ────────────────────────────────
 
   /**
-   * Resolves all definition factories (guards, exception filters, middlewares)
-   * within the given DI container, producing ready-to-call handler functions.
-   *
-   * All factories are resolved in a single synchronous pass.
-   * Factory functions must not depend on other resolved handlers.
+   * Resolves all definition factories within the given DI container.
    *
    * @param container - The application DI container.
-   *
    * @public
    */
   initializePipeline(container: ZipbulContainer): void {
+    this.pipelineContainer = container;
     this.resolvedGuards = this.guardDefs.map((def) => ({
       handler: runInInjectionContext(container, def.factory),
     }));
@@ -267,137 +242,103 @@ export abstract class Adapter implements AdapterContract {
         this.resolveMiddlewareDefs(definitions, container),
       );
     }
-
-    this.compiledPipeline = this.buildCompiledPipeline();
   }
 
-  /**
-   * Registers a per-handler compiled pipeline.
-   * Called by subclasses during route registration (boot time).
-   *
-   * @param handler - The handler function reference (used as Map key).
-   * @param pipeline - The compiled pipeline steps for this handler.
-   * @public
-   */
-  registerHandlerPipeline(handler: Function, pipeline: readonly string[]): void {
-    this.handlerPipelineMap.set(handler, pipeline);
-  }
+  // ── Pipeline execution ─────────────────────────────────────
 
   /**
-   * Returns the per-handler compiled pipeline, or the adapter-level compiled pipeline as fallback.
-   *
-   * @param handler - The handler function reference.
-   * @returns Compiled pipeline steps.
-   * @public
-   */
-  getHandlerPipeline(handler: Function): readonly string[] | undefined {
-    return this.handlerPipelineMap.get(handler);
-  }
-
-  /**
-   * Builds a compiled pipeline from the adapter's static `pipeline` declaration.
-   * Eliminates steps that have no registered handlers:
-   * - Phase steps (in `validPhases`): removed when no middlewares registered
-   * - `CoreStep.Guard`: removed when no global guards registered
-   * - All other steps: always retained
-   *
-   * Stops at `CoreStep.Handler` — post-handler steps are managed by `handleResult`.
-   */
-  private buildCompiledPipeline(): readonly string[] {
-    const ctor = this.constructor as typeof Adapter & { pipeline?: readonly string[] };
-    const pipeline = ctor.pipeline;
-
-    if (pipeline === undefined) {
-      return [];
-    }
-
-    const validPhases = (ctor as { validPhases?: ReadonlySet<string> }).validPhases;
-    const compiled: string[] = [];
-
-    for (const step of pipeline) {
-      if (validPhases !== undefined && validPhases.has(step)) {
-        if ((this.resolvedMiddlewareRegistry.get(step)?.length ?? 0) > 0) {
-          compiled.push(step);
-        }
-        continue;
-      }
-
-      if (step === CoreStep.Guard) {
-        if (this.resolvedGuards.length > 0) {
-          compiled.push(step);
-        }
-        continue;
-      }
-
-      compiled.push(step);
-
-      if (step === CoreStep.Handler) break;
-    }
-
-    return compiled;
-  }
-
-  // ── Pipeline orchestration: 3-Phase error boundary ─────────
-
-  /**
-   * Drives the full request pipeline with a 3-Phase error boundary.
-   *
-   * Phase 1: Execute pipeline → obtain `Result`. Panics go through exception filters.
-   * Phase 2: `handleResult` — exactly once. If it throws → `emergencyTeardown`.
-   * Phase 3: Finalize middlewares — always runs. Errors are swallowed.
+   * Dispatches a request: executePipeline + finalize guarantee.
    *
    * @param context - The current execution context.
    * @public
    */
   async dispatchRequest(context: AdapterContext): Promise<void> {
     await runInAdapterContext(context, async () => {
-      // ── Phase 1: Pipeline execution → Result ──
-      let result: Result<unknown, unknown>;
-
       try {
-        result = await this.executePipeline(context);
-      } catch (thrown) {
+        await this.executePipeline(context);
+      } catch (thrown: unknown) {
         try {
-          result = await this.runExceptionFilters(thrown, context);
-        } catch (filterError) {
-          result = err({ message: 'Unhandled error', cause: thrown, filterError });
-        }
-      }
-
-      // ── Phase 2: Result handling (exactly once) ──
-      try {
-        await this.handleResult(result, context);
-      } catch (handleThrown) {
+          await this.emergencyTeardown(context, thrown);
+        } catch { /* swallow */ }
+      } finally {
         try {
-          await this.emergencyTeardown(context, handleThrown);
-        } catch { /* swallow — last resort */ }
+          const finalizeList = this.getFinalizeMiddlewares(context);
+
+          if (finalizeList.length > 0) {
+            await this.runMiddlewares(finalizeList, context);
+          }
+        } catch { /* swallow */ }
       }
-
-      // ── Phase 3: Finalize (always runs) ──
-      try {
-        const finalizeList = this.getFinalizeMiddlewares();
-
-        if (finalizeList.length > 0) {
-          await this.runMiddlewares(finalizeList, context);
-        }
-      } catch { /* swallow — response already sent */ }
     });
   }
 
-  // ── Validation primitives ──────────────────────────────────
+  /**
+   * Executes pre steps -> handler -> post steps with exception filter boundary.
+   *
+   * @param context - Current execution context.
+   * @param pre - Pre-handler step functions.
+   * @param handler - Handler step function.
+   * @param post - Post-handler step functions.
+   * @param filters - Exception filter chain.
+   * @public
+   */
+  protected async runPipeline(
+    context: AdapterContext,
+    pre: readonly PipelineStepFn[],
+    handler: PipelineStepFn,
+    post: readonly PipelineStepFn[],
+    filters: readonly ResolvedExceptionFilter[],
+  ): Promise<void> {
+    let result: Result<unknown, unknown> | undefined;
+
+    try {
+      for (const step of pre) {
+        const stepResult = await step(context);
+
+        if (stepResult !== undefined && isErr(stepResult)) {
+          result = stepResult;
+          break;
+        }
+      }
+
+      if (result === undefined) {
+        result = await handler(context) ?? undefined;
+      }
+    } catch (thrown: unknown) {
+      result = await this.executeExceptionFilterChain(filters, thrown, context);
+    }
+
+    context.set(handlerResultKey, result);
+
+    try {
+      for (const step of post) {
+        await step(context);
+      }
+    } catch (postError: unknown) {
+      try {
+        await this.emergencyTeardown(context, postError);
+      } catch { /* swallow */ }
+    }
+  }
 
   /**
-   * Runs baker validation for each `Validated<T>` accessor declared in the handler.
-   * Results are cached in the context's validated store via `context.setValidated()`.
+   * Returns finalize middlewares. Override in adapters.
    *
-   * Protocol-agnostic: the loop is identical for all adapters.
-   * Adapters provide `resolveValidationInput()` to map kind → raw input,
-   * and optionally override `wrapValidationError()` for protocol-specific error format.
+   * @public
+   */
+  protected getFinalizeMiddlewares(_context?: AdapterContext): readonly ResolvedMiddleware[] {
+    return [];
+  }
+
+  // ── Building blocks ────────────────────────────────────────
+
+  /**
+   * Runs baker validation for each resolved validation entry.
+   * Reads the raw value from context via `ctx.get(entry.key)`, validates against the DTO,
+   * and stores the validated result via `ctx.setValidated(entry.key, result)`.
    *
-   * @param validations - Resolved validation entries from AOT manifest.
+   * @param validations - Resolved validation entries.
    * @param context - The current execution context.
-   * @returns `void` on success, `Err<unknown>` on validation failure.
-   *
    * @public
    */
   protected async runValidations(
@@ -405,61 +346,35 @@ export abstract class Adapter implements AdapterContract {
     context: AdapterContext,
   ): ResultAsync<void, unknown> {
     for (const validation of validations) {
-      const input = this.resolveValidationInput(validation.kind, context);
-
+      const input = context.get(validation.key);
       const result = await deserialize(validation.metatype, input);
 
       if (isBakerError(result)) {
-        return this.wrapValidationError(validation.kind, result);
+        return this.wrapValidationError(validation.key, result);
       }
 
-      context.setValidated(validation.kind, result);
+      context.setValidated(validation.key, result);
     }
     return undefined;
   }
 
   /**
-   * Maps a validation kind to the corresponding raw input from the context.
-   * Each adapter implements this to extract protocol-specific data.
-   *
-   * @param kind - The validation kind (e.g. 'body', 'query', 'params' for HTTP).
-   * @param context - The current execution context.
-   * @returns The raw input value for baker to validate.
-   *
-   * @public
-   */
-  protected abstract resolveValidationInput(kind: string, context: AdapterContext): unknown;
-
-  /**
    * Converts a baker validation error into a protocol-specific `Err`.
+   * Default: re-throws (exception filter path).
    *
-   * Two paths:
-   * - Return `Err` → pipeline short-circuits with domain error (handleResult receives Err)
-   * - Throw → error enters exception filter path (dispatchRequest Phase 1 catch)
-   *
-   * Default: re-throws all errors (exception filter path).
-   * Adapters with validation (HTTP, WS, Queue, gRPC) override to return `Err`
-   * for `BakerErrors` and re-throw the rest.
-   *
-   * @param _kind - The validation kind that failed.
-   * @param errors - The `BakerErrors` returned by baker `deserialize()`.
-   * @returns `Err<unknown>` for the pipeline.
-   *
+   * @param _key - The context key whose validation failed.
+   * @param thrown - The baker error.
    * @public
    */
-  protected wrapValidationError(_kind: string, thrown: unknown): Err<unknown> {
+  protected wrapValidationError(_key: ContextKey<unknown>, thrown: unknown): Err<unknown> {
     throw thrown;
   }
-
-  // ── Building blocks: adapters call these inside executePipeline ──
 
   /**
    * Executes an ordered list of resolved middlewares.
    *
-   * @param list - Resolved middlewares to execute in order.
+   * @param list - Resolved middlewares.
    * @param context - The current execution context.
-   * @returns `void` on success, `Err<unknown>` when a middleware halts the pipeline.
-   *
    * @public
    */
   protected async runMiddlewares(
@@ -478,15 +393,17 @@ export abstract class Adapter implements AdapterContract {
   }
 
   /**
-   * Executes all registered guards in order.
+   * Executes guards in order.
    *
+   * @param guards - Guard list to execute. Adapter passes merged guards (AOT) or global guards.
    * @param context - The current execution context.
-   * @returns `void` on success, `Err<unknown>` when a guard denies access.
-   *
    * @public
    */
-  protected async runGuards(context: AdapterContext): ResultAsync<void, unknown> {
-    for (const guard of this.resolvedGuards) {
+  protected async runGuards(
+    guards: readonly ResolvedGuard[],
+    context: AdapterContext,
+  ): ResultAsync<void, unknown> {
+    for (const guard of guards) {
       const result = await guard.handler(context);
 
       if (isErr(result)) {
@@ -497,60 +414,22 @@ export abstract class Adapter implements AdapterContract {
     return undefined;
   }
 
-  // ── Exception filter dispatch ───────────────────────────────
+  // ── Exception filter dispatch ──────────────────────────────
 
   /**
-   * Returns handler-scoped exception filters from the context.
-   * Default: `undefined` (no local filters). Adapters with handler-scoped
-   * exception filters override to extract them from the protocol-specific context.
+   * Iterates the exception filter chain, returns first matching filter result.
    *
-   * @param _context - The current execution context.
-   * @returns Local filters, or `undefined` if none.
-   *
-   * @public
-   */
-  protected getLocalExceptionFilters(_context: AdapterContext): readonly ResolvedExceptionFilter[] | undefined {
-    return undefined;
-  }
-
-  /**
-   * Two-stage exception filter dispatch: local (handler-scoped) → global.
-   *
-   * Stage 1: Iterates local filters from `getLocalExceptionFilters()`.
-   * Stage 2: Iterates globally registered filters.
-   * Falls back to a generic `Err` if no filter matches.
-   *
-   * Filter return values are validated: must be `Err`. If a filter returns
-   * a non-Err value, a synthetic `Err` wrapping the original error is returned.
-   *
+   * @param chain - Exception filter chain.
    * @param error - The thrown error.
    * @param context - The current execution context.
-   * @returns `Err<unknown>` to feed into `handleResult`.
-   *
    * @public
    */
-  async runExceptionFilters(error: unknown, context: AdapterContext): Promise<Err<unknown>> {
-    // Stage 1: handler-scoped (local) filters
-    const localFilters = this.getLocalExceptionFilters(context);
-
-    if (localFilters !== undefined) {
-      for (const entry of localFilters) {
-        if (!this.matchesExceptionFilter(error, entry)) {
-          continue;
-        }
-
-        const filterResult = await entry.handler(error, context);
-
-        if (!isErr(filterResult)) {
-          return err({ message: 'Exception filter must return Err', cause: error });
-        }
-
-        return filterResult;
-      }
-    }
-
-    // Stage 2: global filters
-    for (const entry of this.resolvedExceptionFilters) {
+  protected async executeExceptionFilterChain(
+    chain: readonly ResolvedExceptionFilter[],
+    error: unknown,
+    context: AdapterContext,
+  ): Promise<Err<unknown>> {
+    for (const entry of chain) {
       if (!this.matchesExceptionFilter(error, entry)) {
         continue;
       }
@@ -567,17 +446,145 @@ export abstract class Adapter implements AdapterContract {
     return err({ message: 'Unhandled error', cause: error });
   }
 
-  // ── Middleware definition resolution utility ─────────────────
+  // ── Pipeline step resolution ───────────────────────────────
 
   /**
-   * Resolves middleware definitions into ready-to-call handlers using
-   * the DI container. Adapters call this in their `initializePipeline`
-   * override for each phase in their registry.
+   * Converts a compiled step name array into ready-to-call `PipelineStepFn[]`.
    *
-   * @param definitions - Middleware definitions with factory functions.
-   * @param container - The DI container for injection context.
-   * @returns Array of resolved middlewares with callable handlers.
+   * CoreStep entries are mapped to core methods (`runGuards`, `runValidations`).
+   * All other entries are looked up from the adapter-provided step Map.
+   * Called at boot time to produce the final `pre`/`post` arrays stored in route metadata.
    *
+   * @param steps - Compiled step names (from `compiledPre`/`compiledPost`).
+   * @param adapterSteps - Adapter-specific step name → function Map.
+   * @param guards - Resolved guards for this handler.
+   * @param validations - Resolved validation entries for this handler.
+   * @returns Ready-to-call step function array.
+   * @public
+   */
+  protected resolveStepFns(
+    steps: readonly string[],
+    adapterSteps: ReadonlyMap<string, PipelineStepFn>,
+    guards: readonly ResolvedGuard[],
+    validations: readonly ResolvedValidationEntry[],
+  ): PipelineStepFn[] {
+    return steps.map(step => {
+      switch (step) {
+        case CoreStep.Validation:
+          return (ctx: AdapterContext) => this.runValidations(validations, ctx);
+        case CoreStep.Guard:
+          return (ctx: AdapterContext) => this.runGuards(guards, ctx);
+        case CoreStep.Handler:
+          throw new Error(`[Adapter] CoreStep.Handler must not appear in resolved step arrays. The AOT compiler splits the pipeline around Handler.`);
+        default: {
+          const fn = adapterSteps.get(step);
+          if (fn === undefined) {
+            throw new Error(`[Adapter] Unknown pipeline step '${step}'. Ensure the adapter registers this step.`);
+          }
+          return fn;
+        }
+      }
+    });
+  }
+
+  // ── Key resolution (AOT -> runtime) ────────────────────────
+
+  /**
+   * Resolves middleware definition keys into ready-to-call handlers.
+   *
+   * @param keys - Deterministic container keys.
+   * @param container - DI container.
+   * @public
+   */
+  protected resolveMiddlewareKeys(
+    keys: readonly string[],
+    container: ZipbulContainer = this.getPipelineContainer(),
+  ): ResolvedMiddleware[] {
+    if (keys.length === 0) {
+      return [];
+    }
+
+    const definitions = keys.map(key => container.get(key) as MiddlewareDefinition);
+
+    this.validateAdapterCompatibility(definitions, 'Middleware');
+
+    return this.resolveMiddlewareDefs(definitions, container);
+  }
+
+  /**
+   * Resolves phase-keyed middleware definition keys.
+   *
+   * @param phaseKeys - Phase-keyed container keys.
+   * @param container - DI container.
+   * @public
+   */
+  protected resolvePhaseMiddlewareKeys(
+    phaseKeys: Readonly<Record<string, readonly string[]>>,
+    container: ZipbulContainer = this.getPipelineContainer(),
+  ): Readonly<Record<string, readonly ResolvedMiddleware[]>> {
+    const resolved = Object.fromEntries(
+      Object.entries(phaseKeys).map(([phase, keys]) => [phase, this.resolveMiddlewareKeys(keys, container)]),
+    ) as Record<string, readonly ResolvedMiddleware[]>;
+
+    return Object.freeze(resolved);
+  }
+
+  /**
+   * Resolves guard definition keys into ready-to-call handlers.
+   *
+   * @param keys - Deterministic container keys.
+   * @param container - DI container.
+   * @public
+   */
+  protected resolveGuardKeys(
+    keys: readonly string[],
+    container: ZipbulContainer = this.getPipelineContainer(),
+  ): ResolvedGuard[] {
+    if (keys.length === 0) {
+      return [];
+    }
+
+    const definitions = keys.map(key => container.get(key) as GuardDefinition);
+
+    this.validateAdapterCompatibility(definitions, 'Guard');
+
+    return definitions.map((def) => ({
+      handler: runInInjectionContext(container, def.factory),
+    }));
+  }
+
+  /**
+   * Resolves exception filter definition keys into ready-to-call handlers.
+   *
+   * @param keys - Deterministic container keys.
+   * @param container - DI container.
+   * @public
+   */
+  protected resolveExceptionFilterKeys(
+    keys: readonly string[],
+    container: ZipbulContainer = this.getPipelineContainer(),
+  ): ResolvedExceptionFilter[] {
+    if (keys.length === 0) {
+      return [];
+    }
+
+    const definitions = keys.map(key => container.get(key) as ExceptionFilterDefinition);
+
+    this.validateAdapterCompatibility(definitions, 'Exception filter');
+
+    return definitions.map((def) => ({
+      handler: runInInjectionContext(container, def.factory),
+      catchTypes: def.catchTypes,
+    }));
+  }
+
+  // ── Internal ───────────────────────────────────────────────
+
+  /**
+   * Resolves middleware definitions into ready-to-call handlers.
+   *
+   * @param definitions - Middleware definitions.
+   * @param container - DI container.
    * @public
    */
   protected resolveMiddlewareDefs(
@@ -589,31 +596,11 @@ export abstract class Adapter implements AdapterContract {
     }));
   }
 
-  // ── Finalize middlewares ─────────────────────────────────────
-
-  /**
-   * Returns the finalize middleware list for Phase 3 of `dispatchRequest`.
-   * Override in adapters to provide protocol-specific finalize middlewares
-   * (e.g. `OnComplete` for HTTP).
-   *
-   * @returns Resolved middlewares to run after response. Default: empty.
-   *
-   * @public
-   */
-  protected getFinalizeMiddlewares(): readonly ResolvedMiddleware[] {
-    return [];
-  }
-
-  // ── Internal ────────────────────────────────────────────────
-
   /**
    * Checks whether an error matches a given exception filter entry.
-   * Empty `catchTypes` acts as a catch-all.
    *
    * @param error - The thrown error.
-   * @param entry - The exception filter entry to test against.
-   * @returns `true` if the filter should handle this error.
-   *
+   * @param entry - The exception filter entry.
    * @public
    */
   protected matchesExceptionFilter(error: unknown, entry: ResolvedExceptionFilter): boolean {
@@ -666,5 +653,13 @@ export abstract class Adapter implements AdapterContract {
         }
       }
     }
+  }
+
+  private getPipelineContainer(): ZipbulContainer {
+    if (this.pipelineContainer === undefined) {
+      throw new Error('Pipeline container is not initialized. Call initializePipeline() first.');
+    }
+
+    return this.pipelineContainer;
   }
 }

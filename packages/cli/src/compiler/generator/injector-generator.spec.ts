@@ -284,6 +284,101 @@ describe('InjectorGenerator', () => {
       expect(result).toContain("'exceptionFilters':");
       expect(result).toContain("'guards':");
     });
+
+    it('should merge adapter config across modules for the same adapter key', () => {
+      const appModulePath = '/app/src/app/__module__.ts';
+      const featureModulePath = '/app/src/feature/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(appModulePath, {
+        filePath: appModulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'appModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [],
+          imports: {},
+          adapters: [
+            {
+              adapter: { __zipbul_ref: 'HttpAdapter', __zipbul_import_source: '@zipbul/http-adapter' },
+              middlewares: {
+                OnRequest: [
+                  { __zipbul_ref: 'AppMiddleware', __zipbul_import_source: '/app/src/middlewares/app.ts' },
+                ],
+              },
+              guards: [
+                { __zipbul_ref: 'AppGuard', __zipbul_import_source: '/app/src/guards/app.ts' },
+              ],
+            },
+          ],
+        },
+      });
+
+      fileMap.set(featureModulePath, {
+        filePath: featureModulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          {
+            callee: 'defineModule',
+            importSource: '@zipbul/core',
+            args: [],
+            exportedName: 'featureModule',
+          },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'FeatureModule',
+          providers: [],
+          imports: {},
+          adapters: [
+            {
+              adapter: { __zipbul_ref: 'HttpAdapter', __zipbul_import_source: '@zipbul/http-adapter' },
+              middlewares: {
+                OnRequest: [
+                  { __zipbul_ref: 'FeatureMiddleware', __zipbul_import_source: '/app/src/middlewares/feature.ts' },
+                ],
+                BeforeHandle: [
+                  { __zipbul_ref: 'BeforeHandleMiddleware', __zipbul_import_source: '/app/src/middlewares/before-handle.ts' },
+                ],
+              },
+              exceptionFilters: [
+                { __zipbul_ref: 'FeatureFilter', __zipbul_import_source: '/app/src/filters/feature.ts' },
+              ],
+            },
+          ],
+        },
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+      const result = generator.generate(graph, registry);
+
+      if (isErr(result)) {
+        throw new Error('Expected successful generation');
+      }
+
+      expect(result.match(/'HttpAdapter': \{/g)?.length ?? 0).toBe(1);
+      expect(result).toContain("'OnRequest': [AppMiddleware, FeatureMiddleware]");
+      expect(result).toContain("'BeforeHandle': [BeforeHandleMiddleware]");
+      expect(result).toContain("'guards': [AppGuard]");
+      expect(result).toContain("'exceptionFilters': [FeatureFilter]");
+    });
   });
 
   describe('AOT validation', () => {

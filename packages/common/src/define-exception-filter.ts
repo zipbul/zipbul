@@ -12,7 +12,7 @@ export type ExceptionConstructorLike = abstract new (...args: readonly unknown[]
 /**
  * Handler function for an exception filter definition.
  * Receives the caught exception and the current execution context,
- * and returns an {@link Err} to flow into `[handleResult]`.
+ * and returns an {@link Err} for protocol-specific response rendering.
  *
  * @param exception - The caught exception instance.
  * @param ctx - The execution context for the current request.

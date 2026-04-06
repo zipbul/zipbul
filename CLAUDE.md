@@ -46,7 +46,6 @@ Bun workspaces. 6개 패키지 (`packages/`):
 | `@zipbul/logger` | 구조화된 로깅 |
 | `@zipbul/scalar` | OpenAPI 스펙 생성 + Scalar UI |
 
-패키지는 TypeScript 소스 그대로 배포 (패키지별 빌드 스텝 없음).
 
 ## Code Architecture & File Structure
 

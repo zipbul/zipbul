@@ -2,6 +2,7 @@ export { contextKey } from './context-key';
 export type { ContextKey } from './context-key';
 
 export { defineAdapter } from './adapter/define-adapter';
+export type { DefineAdapterConfig } from './adapter/define-adapter';
 export { ClusterStrategy } from './adapter/types';
 export type {
   Adapter,
@@ -10,7 +11,15 @@ export type {
   AdapterEntryDecorators,
   AdapterClass,
 } from './adapter/types';
-export type { CompiledHandlerEntry, CompiledOptionEntry, CompiledValidationEntry } from './adapter/compiled-handler';
+export type {
+  CompiledHandlerEntry,
+  CompiledMiddlewareBindingEntry,
+  CompiledOptionEntry,
+  CompiledPipelineBindingEntry,
+  CompiledPipelineScope,
+  CompiledValidationEntry,
+  CompiledPhaseMiddlewareKeys,
+} from './adapter/compiled-handler';
 
 export { LogLevel, ZipbulSymbol } from './enums';
 
@@ -88,7 +97,7 @@ export type {
   ExceptionConstructorLike,
 } from './define-exception-filter';
 export { defineMiddleware } from './define-middleware';
-export type { MiddlewareHandlerFn, MiddlewareFactory, MiddlewareDefinition } from './define-middleware';
+export type { MiddlewareHandlerFn, MiddlewareFactory, MiddlewareDefinition, DefineMiddlewareConfig } from './define-middleware';
 export { defineGuard } from './define-guard';
 export type { GuardHandlerFn, GuardFactory, GuardDefinition } from './define-guard';
 

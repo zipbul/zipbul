@@ -140,7 +140,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         throw new DiagnosticError(buildDiagnostic({ reason }));
       }
 
-      const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot });
+      const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot, graph });
 
       if (isErr(adapterResolution)) {
         throw new DiagnosticError(adapterResolution.data);

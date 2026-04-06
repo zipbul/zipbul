@@ -7,22 +7,18 @@ import { defineGuard } from './define-guard';
 
 class FakeAdapterA extends Adapter {
   static readonly validPhases: ReadonlySet<string> = new Set();
-  readonly decorators = { controller: () => {}, handler: [] };
-  handleResult() {}
+  readonly decorators = { controller: () => {}, handlers: [] };
   protected emergencyTeardown() {}
   protected async executePipeline() { return undefined as never; }
-  applyMiddlewareConfig() {}
   async start() {}
   async stop() {}
 }
 
 class FakeAdapterB extends Adapter {
   static readonly validPhases: ReadonlySet<string> = new Set();
-  readonly decorators = { controller: () => {}, handler: [] };
-  handleResult() {}
+  readonly decorators = { controller: () => {}, handlers: [] };
   protected emergencyTeardown() {}
   protected async executePipeline() { return undefined as never; }
-  applyMiddlewareConfig() {}
   async start() {}
   async stop() {}
 }

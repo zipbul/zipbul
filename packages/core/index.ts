@@ -11,7 +11,8 @@ export { exposeWorker } from './src/cluster/rpc-expose';
 export type { ClusterWorkerSlot, ClusterWorkerStats, ClusterWorkerId, WorkerGroupConfig } from './src/cluster';
 
 export { Adapter } from './src/adapter/adapter';
-export type { ResolvedMiddleware, ResolvedGuard, ResolvedExceptionFilter, ResolvedValidationEntry } from './src/adapter/adapter';
+export type { ResolvedMiddleware, ResolvedGuard, ResolvedExceptionFilter, ResolvedValidationEntry, PipelineStepFn } from './src/adapter/adapter';
+export { handlerResultKey } from './src/adapter/adapter';
 export { CoreStep } from './src/adapter/enums';
 export { inject, lazy, runInInjectionContext } from './src/injection-context';
 export { getAdapterContext, runInAdapterContext } from './src/adapter-context';

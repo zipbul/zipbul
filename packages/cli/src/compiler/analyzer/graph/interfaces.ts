@@ -1,6 +1,7 @@
 import type { ClassMetadata, ImportEntry } from '../interfaces';
 import type { CreateApplicationCall, DefineModuleCall, InjectCall, ModuleDefinition, ReExport } from '../parser-models';
 import type { AnalyzerValue, AnalyzerValueRecord } from '../types';
+import type { ModuleGraph } from './module-graph';
 
 export interface ProviderRef {
   token: string;
@@ -31,6 +32,7 @@ export interface FileAnalysis {
 export interface AdapterResolveParams {
   fileMap: Map<string, FileAnalysis>;
   projectRoot: string;
+  graph?: ModuleGraph;
 }
 
 export interface CyclePath {

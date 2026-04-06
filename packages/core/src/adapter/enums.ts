@@ -7,12 +7,8 @@
  * @public
  */
 export enum CoreStep {
-  /** Global guard execution. Removed when no guards are registered. */
+  /** Guard execution. Removed when no merged guards registered. */
   Guard = 'Guard',
-  /** Handler-scoped middleware execution. Removed when the handler has none. */
-  ScopedMiddleware = 'ScopedMiddleware',
-  /** Handler-scoped guard execution. Removed when the handler has none. */
-  ScopedGuard = 'ScopedGuard',
   /** Handler input validation (baker DTO). Removed when the handler has no validations. */
   Validation = 'Validation',
   /** Handler invocation. Always retained. */

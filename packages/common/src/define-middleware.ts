@@ -1,6 +1,7 @@
 import type { Result, ResultAsync } from '@zipbul/result';
 import type { AdapterClass } from './adapter/types';
 import type { AdapterContext } from './interfaces';
+import type { ContextKey } from './context-key';
 
 /**
  * Handler function for a middleware definition.
@@ -17,15 +18,6 @@ export type MiddlewareHandlerFn = (
 ) => Result<void, unknown> | ResultAsync<void, unknown>;
 
 /**
- * Immutable middleware definition produced by {@link defineMiddleware}.
- *
- * When `adapters` is provided, the middleware is only compatible with
- * the listed adapter classes. When omitted, the middleware is universal
- * (compatible with all adapters).
- *
- * @public
- */
-/**
  * Factory function that creates a middleware handler.
  * Called once during pipeline assembly to produce the handler instance.
  *
@@ -33,9 +25,35 @@ export type MiddlewareHandlerFn = (
  */
 export type MiddlewareFactory = () => MiddlewareHandlerFn;
 
+/**
+ * Immutable middleware definition produced by {@link defineMiddleware}.
+ *
+ * When `adapters` is provided, the middleware is only compatible with
+ * the listed adapter classes. When omitted, the middleware is universal
+ * (compatible with all adapters).
+ *
+ * When `provides` is specified, the middleware declares which context keys
+ * it sets during execution. The AOT compiler uses this to verify that
+ * handlers calling `ctx.use(key)` or `ctx.validated(key, Dto)` have the
+ * required provider registered in their pipeline.
+ *
+ * @public
+ */
 export interface MiddlewareDefinition {
   readonly factory: MiddlewareFactory;
   readonly adapters?: readonly AdapterClass[];
+  readonly provides?: readonly ContextKey<unknown>[];
+}
+
+/**
+ * Configuration object for {@link defineMiddleware} (config overload).
+ *
+ * @public
+ */
+export interface DefineMiddlewareConfig {
+  readonly factory: MiddlewareFactory;
+  readonly adapters?: readonly AdapterClass[];
+  readonly provides?: readonly ContextKey<unknown>[];
 }
 
 /**
@@ -43,9 +61,6 @@ export interface MiddlewareDefinition {
  * the definition into an immutable object. Its purpose is to serve
  * as a static marker for the AOT compiler and to provide a
  * type-safe, immutable middleware reference.
- *
- * @param factory - The middleware factory function (universal middleware).
- * @returns A frozen {@link MiddlewareDefinition}.
  *
  * @example
  * ```ts
@@ -60,30 +75,48 @@ export interface MiddlewareDefinition {
  *   handleCors(http);
  * });
  *
- * // Factory pattern with adapter constraint
- * export function rateLimitMiddleware(opts: RateLimitOptions): MiddlewareDefinition {
- *   return defineMiddleware([HttpAdapter], () => (ctx) => { ... });
- * }
+ * // Config object with provides
+ * export const queryParser = defineMiddleware({
+ *   provides: [queryInput],
+ *   adapters: [HttpAdapter],
+ *   factory: () => (ctx) => {
+ *     const http = ctx.to(HttpContext);
+ *     ctx.set(queryInput, parseQuery(http.request.queryString));
+ *   },
+ * });
  * ```
  *
  * @public
  */
+export function defineMiddleware(config: DefineMiddlewareConfig): MiddlewareDefinition;
 export function defineMiddleware(factory: MiddlewareFactory): MiddlewareDefinition;
 export function defineMiddleware(adapters: readonly AdapterClass[], factory: MiddlewareFactory): MiddlewareDefinition;
 export function defineMiddleware(
-  adaptersOrFactory: readonly AdapterClass[] | MiddlewareFactory,
+  configOrAdaptersOrFactory: DefineMiddlewareConfig | readonly AdapterClass[] | MiddlewareFactory,
   maybeFactory?: MiddlewareFactory,
 ): MiddlewareDefinition {
-  if (typeof adaptersOrFactory === 'function') {
-    return Object.freeze({ factory: adaptersOrFactory });
+  // Config object overload
+  if (typeof configOrAdaptersOrFactory === 'object' && !Array.isArray(configOrAdaptersOrFactory) && 'factory' in configOrAdaptersOrFactory) {
+    const config = configOrAdaptersOrFactory;
+    return Object.freeze({
+      factory: config.factory,
+      ...(config.adapters !== undefined ? { adapters: Object.freeze([...config.adapters]) } : {}),
+      ...(config.provides !== undefined ? { provides: Object.freeze([...config.provides]) } : {}),
+    });
   }
 
+  // Factory-only overload
+  if (typeof configOrAdaptersOrFactory === 'function') {
+    return Object.freeze({ factory: configOrAdaptersOrFactory });
+  }
+
+  // Adapters + factory overload
   if (maybeFactory === undefined) {
     throw new Error('Factory function is required when adapters are specified.');
   }
 
   return Object.freeze({
     factory: maybeFactory,
-    adapters: Object.freeze([...adaptersOrFactory]),
+    adapters: Object.freeze([...configOrAdaptersOrFactory]),
   });
 }

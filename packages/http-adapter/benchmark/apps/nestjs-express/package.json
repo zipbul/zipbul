@@ -1,0 +1,9 @@
+{
+  "name": "benchmark-nestjs-express",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "nest build --builder tsc",
+    "start": "node ./dist/main.js"
+  }
+}

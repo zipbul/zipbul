@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "5",
+  "config": {
+    "sourcePath": "zipbul.jsonc",
+    "sourceFormat": "jsonc",
+    "resolvedModuleConfig": {
+      "fileName": "module.ts"
+    }
+  },
+  "modules": [
+    {
+      "id": "src",
+      "name": "src",
+      "rootDir": "src",
+      "file": "src/module.ts"
+    }
+  ],
+  "adapterStaticSchemas": {
+    "HttpAdapter": {
+      "entryDecorators": {
+        "controller": "RestController",
+        "handlers": [
+          "Get",
+          "Post",
+          "Put",
+          "Delete",
+          "Patch",
+          "Options",
+          "Head",
+          "Method"
+        ],
+        "options": [
+          "RawBody",
+          "Sse",
+          "BodyLimit",
+          "Status",
+          "Redirect",
+          "ContentType",
+          "Header"
+        ]
+      },
+      "validPhases": {},
+      "validatedAccessors": {
+        "getBody": "body",
+        "getQuery": "query",
+        "getParams": "params"
+      },
+      "pipeline": [
+        "OnRequest",
+        "ResolveRoute",
+        "BeforeParse",
+        "ParseBody",
+        "BeforeValidate",
+        "Validation",
+        "Guard",
+        "BeforeHandle",
+        "ScopedMiddleware",
+        "ScopedGuard",
+        "Handler",
+        "WriteResponse",
+        "AfterHandle",
+        "Serialize",
+        "BeforeResponse",
+        "AfterResponse"
+      ]
+    }
+  },
+  "diGraph": {
+    "nodes": []
+  },
+  "handlerIndex": [
+    {
+      "id": "HttpAdapter:src/bench.controller.ts#BenchController.json",
+      "adapterId": "HttpAdapter",
+      "className": "BenchController",
+      "ownerModuleName": "src",
+      "methodName": "json",
+      "handlerDecorator": "Get",
+      "handlerDecoratorArgs": [
+        "/"
+      ],
+      "params": [],
+      "compiledPipeline": [
+        "ResolveRoute",
+        "ParseBody",
+        "Handler"
+      ]
+    }
+  ]
+}

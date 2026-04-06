@@ -1,0 +1,9 @@
+{
+  "name": "benchmark-elysia",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./src/main.js --target bun --packages external --outfile ./dist/main.js",
+    "start": "bun run ./dist/main.js"
+  }
+}

@@ -49,27 +49,52 @@ export interface AdapterContext {
    */
   set<T>(key: ContextKey<T>, value: T): void;
 
+  /**
+   * Returns a per-request value, throwing if not set.
+   * The AOT compiler verifies at build time that a provider (adapter step or middleware)
+   * exists for the given key. Use `get()` for optional access.
+   *
+   * @param key - A `ContextKey<T>` created via `contextKey()`.
+   * @returns The stored value.
+   * @throws `ContextError` if the key has not been set.
+   * @public
+   */
+  use<T>(key: ContextKey<T>): T;
+
+  /**
+   * Returns a pre-validated value for the given key.
+   * The Validation pipeline step validates raw input against the DTO before the handler runs.
+   * The `dto` parameter serves as a TypeScript type witness for return type inference.
+   *
+   * @param key - The context key whose raw value was validated.
+   * @param dto - DTO class constructor (type witness for `T` inference, not used at runtime).
+   * @returns The validated value, typed as `T`.
+   * @throws `ContextError` if validation has not been performed for this key.
+   * @public
+   */
+  validated<T>(key: ContextKey<unknown>, dto: new (...args: readonly unknown[]) => T): T;
+
   to<TContext extends ZipbulValue>(ctor: ClassToken<TContext>): TContext;
 
   /**
-   * Stores a validated value by kind.
+   * Stores a validated value by context key.
    * Called by `Adapter.runValidations` after baker verification.
    *
-   * @param kind - The validation kind (e.g. 'body', 'query', 'params').
+   * @param key - The context key identifying the validation input.
    * @param value - The validated value.
    * @internal
    */
-  setValidated(kind: string, value: unknown): void;
+  setValidated(key: ContextKey<unknown>, value: unknown): void;
 
   /**
-   * Returns the validated value for the given kind.
-   * Throws `ContextError` if the kind has not been validated.
+   * Returns the validated value for the given context key.
+   * Throws `ContextError` if the key has not been validated.
    *
-   * @param kind - The validation kind.
+   * @param key - The context key identifying the validation input.
    * @returns The validated value.
-   * @public
+   * @internal
    */
-  getValidated<T = unknown>(kind: string): T;
+  getValidated<T = unknown>(key: ContextKey<unknown>): T;
 }
 
 /**

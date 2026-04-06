@@ -10,7 +10,13 @@ import type {
   TypedCallMetadata,
   RouteRegistration,
 } from './interfaces';
-import type { CompiledOptionEntry, CompiledValidationEntry } from '@zipbul/common';
+import type {
+  CompiledMiddlewareBindingEntry,
+  CompiledOptionEntry,
+  CompiledPipelineBindingEntry,
+  CompiledPipelineScope,
+  CompiledValidationEntry,
+} from '@zipbul/common';
 import type { ClassMetadata } from './interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord, DecoratorArguments } from './types';
 import type { Result } from '@zipbul/result';
@@ -30,11 +36,46 @@ import { isRecordValue, isAnalyzerValueArray, isNonEmptyString, isUnresolvable }
 
 const logger = new Logger('AdapterDefinitionResolver');
 
+interface DecoratorKeyExtraction {
+  keys: string[];
+  bindings: CompiledPipelineBindingEntry[];
+}
+
+interface MiddlewareDecoratorKeyExtraction {
+  keys: string[];
+  bindings: CompiledMiddlewareBindingEntry[];
+}
+
+/**
+ * Interns immutable arrays/objects so that structurally identical values
+ * share a single reference across all compiled handler entries.
+ */
+class InternPool {
+  private readonly pool = new Map<string, unknown>();
+
+  /**
+   * Returns a cached reference if an identical value was already interned,
+   * otherwise stores and returns the given value.
+   */
+  intern<T>(value: T): T {
+    const key = JSON.stringify(value);
+    const existing = this.pool.get(key);
+
+    if (existing !== undefined) {
+      return existing as T;
+    }
+
+    this.pool.set(key, value);
+
+    return value;
+  }
+}
+
 export class AdapterDefinitionResolver {
   private parser = new AstParser();
 
   async resolve(params: AdapterResolveParams): Promise<Result<AdapterResolution, Diagnostic>> {
-    const { fileMap, projectRoot } = params;
+    const { fileMap, projectRoot, graph } = params;
     const entryFiles = this.collectPackageEntryFiles(fileMap);
     const adapterExtractions: AdapterExtraction[] = [];
 
@@ -65,29 +106,25 @@ export class AdapterDefinitionResolver {
 
       const arg = this.asRecord(args[0]);
 
-      if (arg === null || typeof arg[ZIPBUL_REF] !== 'string') {
+      if (arg === null) {
         return err(buildDiagnostic({
-          reason: `defineAdapter argument must be a class reference in ${resolvedExport.sourceFile}.`,
+          reason: `defineAdapter argument must be a config object in ${resolvedExport.sourceFile}.`,
           file: resolvedExport.sourceFile,
         }));
       }
 
-      const className = arg[ZIPBUL_REF];
-      const importSource = typeof arg[ZIPBUL_IMPORT_SOURCE] === 'string' ? arg[ZIPBUL_IMPORT_SOURCE] : null;
-
-      const classMetadata = await this.findClassMetadata(className, importSource, resolvedExport.sourceFile, fileMap);
-
-      if (classMetadata === null) {
+      const adapterField = this.asRecord(arg.adapter);
+      if (adapterField === null || typeof adapterField[ZIPBUL_REF] !== 'string') {
         return err(buildDiagnostic({
-          reason: `Could not find class '${className}' referenced by defineAdapter in ${resolvedExport.sourceFile}.`,
+          reason: `defineAdapter argument must be a config object with an 'adapter' class reference in ${resolvedExport.sourceFile}.`,
           file: resolvedExport.sourceFile,
         }));
       }
 
-      const extraction = await this.extractFromClassProperties(classMetadata, resolvedExport.sourceFile, fileMap);
-      if (isErr(extraction)) return extraction;
+      const configResult = await this.extractFromConfigObject(arg, resolvedExport.sourceFile, fileMap);
+      if (isErr(configResult)) return configResult;
 
-      adapterExtractions.push({ adapterId: extraction.adapterId, staticSchema: extraction.staticSchema });
+      adapterExtractions.push(configResult);
     }
 
     if (adapterExtractions.length === 0) {
@@ -102,10 +139,15 @@ export class AdapterDefinitionResolver {
     const controllerAdapterMap = this.buildControllerAdapterMap(adapterExtractions, fileMap);
     if (isErr(controllerAdapterMap)) return controllerAdapterMap;
 
+    if (graph !== undefined) {
+      const controllerDecoratorNames = adapterExtractions.map(extraction => extraction.staticSchema.entryDecorators.controller);
+      graph.registerControllers(controllerDecoratorNames);
+    }
+
     const middlewareValidation = this.validateMiddlewarePhaseInputs(adapterExtractions, fileMap, controllerAdapterMap);
     if (isErr(middlewareValidation)) return middlewareValidation;
 
-    const handlerIndexResult = this.buildHandlerIndex(adapterExtractions, fileMap, projectRoot, controllerAdapterMap);
+    const handlerIndexResult = this.buildHandlerIndex(adapterExtractions, fileMap, projectRoot, controllerAdapterMap, graph);
     if (isErr(handlerIndexResult)) return handlerIndexResult;
 
     return {
@@ -326,6 +368,85 @@ export class AdapterDefinitionResolver {
     return null;
   }
 
+  /**
+   * Extracts adapter static schema from a config object passed to `defineAdapter({...})`.
+   * Reads `adapter`, `step`, `phase`, `pipeline` directly from the config instead of
+   * parsing static class properties.
+   */
+  private async extractFromConfigObject(
+    config: AnalyzerValueRecord,
+    sourceFile: string,
+    fileMap: Map<string, FileAnalysis>,
+  ): Promise<Result<AdapterExtraction, Diagnostic>> {
+    // adapter field → class reference for decorator extraction
+    const adapterField = this.asRecord(config.adapter);
+    if (adapterField === null || typeof adapterField[ZIPBUL_REF] !== 'string') {
+      return err(buildDiagnostic({
+        reason: `defineAdapter config.adapter must be a class reference in ${sourceFile}.`,
+        file: sourceFile,
+      }));
+    }
+
+    const className = adapterField[ZIPBUL_REF] as string;
+    const importSource = typeof adapterField[ZIPBUL_IMPORT_SOURCE] === 'string' ? adapterField[ZIPBUL_IMPORT_SOURCE] as string : null;
+
+    const classMetadata = await this.findClassMetadata(className, importSource, sourceFile, fileMap);
+    if (classMetadata === null) {
+      return err(buildDiagnostic({
+        reason: `Could not find class '${className}' referenced by defineAdapter.adapter in ${sourceFile}.`,
+        file: sourceFile,
+      }));
+    }
+
+    // Extract decorators from the class (still needed for handler discovery)
+    const classExtraction = await this.extractFromClassProperties(classMetadata, sourceFile, fileMap);
+    if (isErr(classExtraction)) return classExtraction;
+
+    // Override pipeline and validPhases from config object
+    const schema = { ...classExtraction.staticSchema };
+
+    // step enum → not directly stored, used for pipeline validation
+    // phase enum → resolves to validPhases
+    const phaseField = this.asRecord(config.phase);
+    if (phaseField !== null && typeof phaseField[ZIPBUL_REF] === 'string') {
+      const phaseEnumName = phaseField[ZIPBUL_REF] as string;
+      const phaseImportSource = typeof phaseField[ZIPBUL_IMPORT_SOURCE] === 'string' ? phaseField[ZIPBUL_IMPORT_SOURCE] as string : null;
+      const phases = await this.resolveEnumValues(phaseEnumName, phaseImportSource, fileMap);
+      if (phases !== undefined) {
+        schema.validPhases = phases;
+      }
+    }
+
+    // pipeline → direct array
+    const pipelineProperty = config.pipeline;
+    if (pipelineProperty !== undefined) {
+      const pipeline = await this.resolvePipelineArray(pipelineProperty, fileMap);
+      if (pipeline !== undefined) {
+        schema.pipeline = pipeline;
+      }
+    }
+
+    // Validate CoreStep presence in pipeline
+    if (schema.pipeline !== undefined) {
+      const pipelineSteps = new Set(schema.pipeline);
+      const requiredCoreSteps = ['Handler', 'Guard', 'Validation'];
+
+      for (const required of requiredCoreSteps) {
+        if (!pipelineSteps.has(required)) {
+          return err(buildDiagnostic({
+            reason: `Adapter pipeline must contain CoreStep.${required}. Missing in ${className}.`,
+            file: sourceFile,
+          }));
+        }
+      }
+    }
+
+    return {
+      adapterId: classExtraction.adapterId,
+      staticSchema: schema,
+    };
+  }
+
   private async extractFromClassProperties(classMetadata: ClassMetadata, sourceFile: string, fileMap: Map<string, FileAnalysis>): Promise<Result<AdapterStaticSchemaResult, Diagnostic>> {
     const adapterId = classMetadata.className;
 
@@ -415,14 +536,6 @@ export class AdapterDefinitionResolver {
       validPhases = await this.resolveValidPhases(validPhasesProperty.initializer, fileMap);
     }
 
-    // Extract validatedAccessors from static property
-    const validatedAccessorsProperty = classMetadata.properties.find(p => p.name === 'validatedAccessors');
-    let validatedAccessors: Record<string, string> | undefined;
-
-    if (validatedAccessorsProperty !== undefined) {
-      validatedAccessors = this.resolveValidatedAccessors(validatedAccessorsProperty.initializer);
-    }
-
     // Extract pipeline from static property
     const pipelineProperty = classMetadata.properties.find(p => p.name === 'pipeline');
     let pipeline: readonly string[] | undefined;
@@ -436,7 +549,6 @@ export class AdapterDefinitionResolver {
       staticSchema: {
         entryDecorators,
         ...(validPhases !== undefined ? { validPhases } : {}),
-        ...(validatedAccessors !== undefined ? { validatedAccessors } : {}),
         ...(pipeline !== undefined ? { pipeline } : {}),
       },
     };
@@ -510,7 +622,7 @@ export class AdapterDefinitionResolver {
     if (importSource !== null) {
       const normalizedPath = importSource.endsWith('.ts') ? importSource : `${importSource}.ts`;
       const analysis = await this.getFileAnalysis(normalizedPath, fileMap);
-      const enumMembers = analysis?.enums?.get(enumName);
+      const enumMembers = this.getEnumMembers(analysis, enumName);
 
       if (enumMembers !== undefined) {
         return new Set(enumMembers.values());
@@ -520,7 +632,7 @@ export class AdapterDefinitionResolver {
       if (!importSource.endsWith('.ts')) {
         const indexPath = `${importSource}/index.ts`;
         const indexAnalysis = await this.getFileAnalysis(indexPath, fileMap);
-        const indexEnumMembers = indexAnalysis?.enums?.get(enumName);
+        const indexEnumMembers = this.getEnumMembers(indexAnalysis, enumName);
 
         if (indexEnumMembers !== undefined) {
           return new Set(indexEnumMembers.values());
@@ -530,7 +642,7 @@ export class AdapterDefinitionResolver {
 
     // Fallback: scan all files
     for (const analysis of fileMap.values()) {
-      const enumMembers = analysis.enums?.get(enumName);
+      const enumMembers = this.getEnumMembers(analysis, enumName);
 
       if (enumMembers !== undefined) {
         return new Set(enumMembers.values());
@@ -538,37 +650,6 @@ export class AdapterDefinitionResolver {
     }
 
     return undefined;
-  }
-
-  /**
-   * Resolves `static readonly validatedAccessors = { getBody: 'body', getQuery: 'query', ... }`.
-   * Reads a plain object literal with string values.
-   *
-   * @param value - The property initializer AST value.
-   * @returns Record mapping accessor method names to validation kinds.
-   */
-  private resolveValidatedAccessors(value: AnalyzerValue | undefined): Record<string, string> | undefined {
-    const rec = this.asRecord(value);
-
-    if (rec === null) {
-      return undefined;
-    }
-
-    const result: Record<string, string> = {};
-    let hasEntries = false;
-
-    for (const [key, val] of Object.entries(rec)) {
-      if (key.startsWith('__zipbul')) {
-        continue;
-      }
-
-      if (typeof val === 'string') {
-        result[key] = val;
-        hasEntries = true;
-      }
-    }
-
-    return hasEntries ? result : undefined;
   }
 
   /**
@@ -641,7 +722,7 @@ export class AdapterDefinitionResolver {
     if (importSource !== null) {
       const normalizedPath = importSource.endsWith('.ts') ? importSource : `${importSource}.ts`;
       const analysis = await this.getFileAnalysis(normalizedPath, fileMap);
-      const enumMembers = analysis?.enums?.get(enumName);
+      const enumMembers = this.getEnumMembers(analysis, enumName);
 
       if (enumMembers !== undefined) {
         return enumMembers;
@@ -650,7 +731,7 @@ export class AdapterDefinitionResolver {
       if (!importSource.endsWith('.ts')) {
         const indexPath = `${importSource}/index.ts`;
         const indexAnalysis = await this.getFileAnalysis(indexPath, fileMap);
-        const indexEnumMembers = indexAnalysis?.enums?.get(enumName);
+        const indexEnumMembers = this.getEnumMembers(indexAnalysis, enumName);
 
         if (indexEnumMembers !== undefined) {
           return indexEnumMembers;
@@ -659,7 +740,7 @@ export class AdapterDefinitionResolver {
     }
 
     for (const analysis of fileMap.values()) {
-      const enumMembers = analysis.enums?.get(enumName);
+      const enumMembers = this.getEnumMembers(analysis, enumName);
 
       if (enumMembers !== undefined) {
         return enumMembers;
@@ -669,80 +750,115 @@ export class AdapterDefinitionResolver {
     return undefined;
   }
 
+  private getEnumMembers(
+    analysis: FileAnalysis | undefined,
+    enumName: string,
+  ): Map<string, string> | undefined {
+    const enums = analysis?.enums;
+
+    if (enums === undefined) {
+      return undefined;
+    }
+
+    if (enums instanceof Map) {
+      return enums.get(enumName);
+    }
+
+    if (typeof enums === 'object' && enums !== null && enumName in enums) {
+      const serializedMembers = (enums as Record<string, unknown>)[enumName];
+
+      if (serializedMembers instanceof Map) {
+        return serializedMembers;
+      }
+
+      if (typeof serializedMembers === 'object' && serializedMembers !== null) {
+        return new Map(
+          Object.entries(serializedMembers).filter(
+            (entry): entry is [string, string] => typeof entry[1] === 'string',
+          ),
+        );
+      }
+    }
+
+    return undefined;
+  }
+
   /**
-   * Compiles a per-handler pipeline by removing steps that have no registrations.
+   * Compiles a per-handler pipeline by eliminating dead steps.
    *
-   * CoreStep values are removed when the handler has no corresponding data:
-   * - `Validation` → removed when validations is empty
-   * - `ScopedMiddleware` → removed when middlewareKeys is empty
-   * - `ScopedGuard` → removed when guardKeys is empty
-   * - `Guard`, `Handler` → always retained (global guard presence unknown at build time)
-   *
-   * Phase values (in validPhases) and adapter-specific values are always retained
-   * because global middleware registration is not fully available at build time.
-   */
-  /**
-   * Compiles a per-handler pipeline by removing steps that have no registrations.
+   * Splits the pipeline at `Handler` into `compiledPre` and `compiledPost`.
+   * Handler itself is in neither array — core calls it directly between them.
    *
    * Elimination rules:
-   * - Phase steps (in validPhases): removed when no global MW in adapterConfig AND no route-level MW
-   * - `Guard`: removed when no global guards in adapterConfig
+   * - Phase steps (in validPhases): removed when no middlewares from any scope
+   * - `Guard`: removed when no merged guards (all scopes)
    * - `Validation`: removed when handler has no validations
-   * - `ScopedMiddleware`: removed when handler has no scoped middlewares
-   * - `ScopedGuard`: removed when handler has no scoped guards
    * - `Handler` and adapter-specific steps: always retained
-   *
-   * Stops at `Handler` — post-handler steps are managed by handleResult.
    */
   private compilePipeline(
     pipeline: readonly string[] | undefined,
     validPhases: ReadonlySet<string> | undefined,
-    hasGlobalGuards: boolean,
+    hasMergedGuards: boolean,
     globalPhaseMiddlewares: ReadonlySet<string>,
     routePhaseMiddlewares: ReadonlySet<string>,
-    middlewareKeys: readonly string[],
-    guardKeys: readonly string[],
     validations: readonly CompiledValidationEntry[],
-  ): readonly string[] | undefined {
+  ): { compiledPre: readonly string[]; compiledPost: readonly string[] } | undefined {
     if (pipeline === undefined) {
       return undefined;
     }
 
-    const compiled: string[] = [];
-
-    for (const step of pipeline) {
-      // Phase step: remove if no global MW AND no route-level MW for this phase
+    const shouldRetain = (step: string): boolean => {
       if (validPhases !== undefined && validPhases.has(step)) {
-        if (!globalPhaseMiddlewares.has(step) && !routePhaseMiddlewares.has(step)) continue;
+        return globalPhaseMiddlewares.has(step) || routePhaseMiddlewares.has(step);
       }
 
-      // Core steps
-      if (step === 'Guard' && !hasGlobalGuards) continue;
-      if (step === 'Validation' && validations.length === 0) continue;
-      if (step === 'ScopedMiddleware' && middlewareKeys.length === 0) continue;
-      if (step === 'ScopedGuard' && guardKeys.length === 0) continue;
+      if (step === 'Guard') return hasMergedGuards;
+      if (step === 'Validation') return validations.length > 0;
 
-      compiled.push(step);
+      return true;
+    };
 
-      if (step === 'Handler') break;
+    const pre: string[] = [];
+    const post: string[] = [];
+    let reachedHandler = false;
+
+    for (const step of pipeline) {
+      if (step === 'Handler') {
+        reachedHandler = true;
+        continue;
+      }
+
+      if (!shouldRetain(step)) {
+        continue;
+      }
+
+      if (reachedHandler) {
+        post.push(step);
+      } else {
+        pre.push(step);
+      }
     }
 
-    return compiled;
+    return {
+      compiledPre: pre,
+      compiledPost: post,
+    };
   }
 
   /**
-   * Builds `CompiledValidationEntry[]` by matching typed calls against validatedAccessors.
+   * Builds `CompiledValidationEntry[]` from `ctx.validated(keyRef, DtoClass)` calls
+   * found in handler body. Both arguments are runtime identifiers captured by
+   * the AST parser as `callArgs`. Resolves import sources from the file's import entries.
    *
    * @param typedCalls - Typed member calls found in the handler body.
-   * @param accessors - Adapter's validatedAccessors mapping (e.g. `{ getBody: 'body' }`).
-   * @param knownClassNames - Set of all class names in the project for metatypeKey validation.
+   * @param importEntries - Import entries of the file containing the handler.
    * @returns Validation entries. Empty array when no matches.
    */
   private buildValidationEntries(
     typedCalls: readonly TypedCallMetadata[] | undefined,
-    accessors: Record<string, string> | undefined,
+    fileImports?: Record<string, string>,
   ): CompiledValidationEntry[] {
-    if (typedCalls === undefined || accessors === undefined) {
+    if (typedCalls === undefined) {
       return [];
     }
 
@@ -750,29 +866,39 @@ export class AdapterDefinitionResolver {
     const seen = new Set<string>();
 
     for (const call of typedCalls) {
-      const kind = accessors[call.methodName];
-
-      if (kind === undefined) {
+      if (call.methodName !== 'validated' || call.callArgs === undefined || call.callArgs.length < 2) {
         continue;
       }
 
-      const metatypeKey = call.typeArgs[0];
+      const keyArg = call.callArgs[0]!;
+      const dtoArg = call.callArgs[1]!;
 
-      if (metatypeKey === undefined || metatypeKey === 'never' || metatypeKey === 'any' || metatypeKey === 'unknown') {
+      const keyRef = keyArg.ref;
+      const metatypeKey = dtoArg.ref;
+
+      if (metatypeKey === 'never' || metatypeKey === 'any' || metatypeKey === 'unknown') {
         continue;
       }
 
-      // Deduplicate by kind — same kind validated once
-      if (seen.has(kind)) {
+      if (seen.has(keyRef)) {
         continue;
       }
 
-      seen.add(kind);
-      result.push({ kind, metatypeKey });
+      seen.add(keyRef);
+
+      // Resolve import source for the context key identifier
+      const keyImportSource = fileImports !== undefined ? fileImports[keyRef] : undefined;
+
+      result.push({
+        keyRef,
+        ...(keyImportSource !== undefined ? { keyImportSource } : {}),
+        metatypeKey,
+      });
     }
 
     return result;
   }
+
 
   private buildAdapterStaticSchemaSet(extractions: AdapterExtraction[]): Result<Record<string, AdapterStaticSchema>, Diagnostic> {
     const sorted = [...extractions].sort((a, b) => a.adapterId.localeCompare(b.adapterId));
@@ -933,10 +1059,12 @@ export class AdapterDefinitionResolver {
     fileMap: Map<string, FileAnalysis>,
     projectRoot: string,
     controllerAdapterMap: Map<string, string>,
+    graph?: AdapterResolveParams['graph'],
   ): Result<{ entries: HandlerIndexEntry[]; routeRegistrations: RouteRegistration[] }, Diagnostic> {
     const entries: HandlerIndexEntry[] = [];
     const routeRegistrations: RouteRegistration[] = [];
     const seen = new Set<string>();
+    const internPool = new InternPool();
 
     // E-3: Pre-build set of all known class names for metatypeKey validation
     const knownClassNames = new Set<string>();
@@ -1020,39 +1148,81 @@ export class AdapterDefinitionResolver {
             }
 
             const handlerDec = matchingDecorators[0];
+            const ownerModule = graph?.classMap.get(cls.className);
+            const ownerModuleName = ownerModule?.name;
 
             // Extract route-level pipeline decorator references
-            const middlewareKeys = this.extractDecoratorRefKeys(cls, method, 'UseMiddlewares', `__route_mw__:${cls.className}.${method.name}`, routeRegistrations);
-            const phaseMiddlewareKeys = this.extractMiddlewaresDecoratorRefKeys(cls, method, `__route_mw__:${cls.className}.${method.name}`, routeRegistrations, middlewareKeys.length);
-            const allMiddlewareKeys = [...middlewareKeys, ...phaseMiddlewareKeys];
-            const exceptionFilterKeys = this.extractDecoratorRefKeys(cls, method, 'UseExceptionFilters', `__route_ef__:${cls.className}.${method.name}`, routeRegistrations);
-            const guardKeys = this.extractDecoratorRefKeys(cls, method, 'UseGuards', `__route_gd__:${cls.className}.${method.name}`, routeRegistrations);
+            const middlewareKeyResult = this.extractMiddlewaresDecoratorRefKeys(
+              cls,
+              method,
+              `__route_mw__:${cls.className}.${method.name}`,
+              routeRegistrations,
+              0,
+            );
+            const allMiddlewareKeys = middlewareKeyResult.keys;
+            const exceptionFilterKeyResult = this.extractDecoratorRefKeys(
+              cls,
+              method,
+              'UseExceptionFilters',
+              `__route_ef__:${cls.className}.${method.name}`,
+              routeRegistrations,
+            );
+            const exceptionFilterKeys = exceptionFilterKeyResult.keys;
+            const guardKeyResult = this.extractDecoratorRefKeys(
+              cls,
+              method,
+              'UseGuards',
+              `__route_gd__:${cls.className}.${method.name}`,
+              routeRegistrations,
+            );
+            const guardKeys = guardKeyResult.keys;
+            const globalBindingResult = this.extractGlobalPipelineBindings(
+              fileMap,
+              extraction.adapterId,
+              routeRegistrations,
+            );
+            const middlewareBindings = this.combineMiddlewareBindings(
+              middlewareKeyResult.bindings,
+              globalBindingResult.middlewareBindings,
+            );
+            const guardBindings = this.combineGuardBindings(guardKeyResult.bindings, globalBindingResult.guardBindings);
+            const exceptionFilterBindings = this.combineExceptionFilterBindings(
+              exceptionFilterKeyResult.bindings,
+              globalBindingResult.exceptionFilterBindings,
+            );
+            const mergedPhaseMiddlewareKeys = this.buildMergedPhaseMiddlewareKeys(middlewareBindings);
+            const mergedGuardKeys = this.extractMergedBindingKeys(guardBindings);
+            const mergedExceptionFilterKeys = this.extractMergedBindingKeys(exceptionFilterBindings);
+            const globalPhaseMiddlewareIds = new Set(
+              globalBindingResult.middlewareBindings
+                .map(binding => binding.phase)
+                .filter((phase): phase is string => typeof phase === 'string' && phase.length > 0),
+            );
+            const routePhaseMiddlewareIds = new Set(
+              middlewareBindings
+                .filter(binding => binding.scope !== 'global')
+                .map(binding => binding.phase)
+                .filter((phase): phase is string => typeof phase === 'string' && phase.length > 0),
+            );
+            const hasMergedGuards = mergedGuardKeys.length > 0;
 
             // Extract option decorators (class-level + method-level)
             const optionDecorators = extraction.staticSchema.entryDecorators.options;
             const handlerOptions = this.extractOptionDecorators(cls, method, optionDecorators);
+            const params = this.extractHandlerParams(method);
 
-            // Build validations from typed calls + validatedAccessors
-            const validatedAccessors = extraction.staticSchema.validatedAccessors;
-            const validations = this.buildValidationEntries(method.typedCalls, validatedAccessors);
+            // Build validations from ctx.validated(key, Dto) calls
+            const validations = this.buildValidationEntries(method.typedCalls, analysis.imports);
 
             // Compile pipeline — eliminate steps with no registrations
             // Currently adapterConfig is not analyzed, so global MW/guards are assumed absent.
             // When adapterConfig analysis is implemented, pass actual global registration data.
-            const hasGlobalGuards = false;
-            const globalPhaseMiddlewares = new Set<string>();
-            const routePhaseMiddlewares = allMiddlewareKeys.length > 0
-              ? new Set(extraction.staticSchema.validPhases ?? [])
-              : new Set<string>();
-
-            const compiledPipeline = this.compilePipeline(
+            const pipelineResult = this.compilePipeline(
               extraction.staticSchema.pipeline,
               extraction.staticSchema.validPhases,
-              hasGlobalGuards,
-              globalPhaseMiddlewares,
-              routePhaseMiddlewares,
-              allMiddlewareKeys,
-              guardKeys,
+              hasMergedGuards,
+              globalPhaseMiddlewareIds,
+              routePhaseMiddlewareIds,
               validations,
             );
 
@@ -1061,15 +1231,26 @@ export class AdapterDefinitionResolver {
               id,
               adapterId: extraction.adapterId,
               className: cls.className,
+              ...(ownerModuleName !== undefined ? { ownerModuleName } : {}),
               methodName: method.name,
               handlerDecorator: handlerDec?.name ?? '',
               handlerDecoratorArgs: handlerDec?.arguments ?? [],
+              params,
               ...(allMiddlewareKeys.length > 0 ? { middlewareKeys: allMiddlewareKeys } : {}),
               ...(exceptionFilterKeys.length > 0 ? { exceptionFilterKeys } : {}),
               ...(guardKeys.length > 0 ? { guardKeys } : {}),
-              ...(handlerOptions.length > 0 ? { options: handlerOptions } : {}),
-              ...(validations.length > 0 ? { validations } : {}),
-              ...(compiledPipeline !== undefined ? { compiledPipeline } : {}),
+              ...(Object.keys(mergedPhaseMiddlewareKeys).length > 0 ? { mergedPhaseMiddlewareKeys: internPool.intern(mergedPhaseMiddlewareKeys) } : {}),
+              ...(mergedGuardKeys.length > 0 ? { mergedGuardKeys: internPool.intern(mergedGuardKeys) } : {}),
+              ...(mergedExceptionFilterKeys.length > 0 ? { mergedExceptionFilterKeys: internPool.intern(mergedExceptionFilterKeys) } : {}),
+              ...(middlewareBindings.length > 0 ? { middlewareBindings } : {}),
+              ...(guardBindings.length > 0 ? { guardBindings } : {}),
+              ...(exceptionFilterBindings.length > 0 ? { exceptionFilterBindings } : {}),
+              ...(handlerOptions.length > 0 ? { options: internPool.intern(handlerOptions) } : {}),
+              ...(validations.length > 0 ? { validations: internPool.intern(validations) } : {}),
+              ...(pipelineResult !== undefined ? {
+                compiledPre: internPool.intern(pipelineResult.compiledPre),
+                compiledPost: internPool.intern(pipelineResult.compiledPost),
+              } : {}),
             });
           }
         }
@@ -1223,6 +1404,24 @@ export class AdapterDefinitionResolver {
     return result;
   }
 
+  private extractHandlerParams(
+    method: ClassMetadata['methods'][number],
+  ): HandlerIndexEntry['params'] {
+    const parameters = method.parameters ?? [];
+
+    return parameters.map(param => {
+      const primaryDecorator = param.decorators[0];
+      const firstTypeArg = param.typeArgs?.[0];
+
+      return {
+        name: param.name,
+        ...(primaryDecorator !== undefined ? { decoratorName: primaryDecorator.name } : {}),
+        ...(primaryDecorator !== undefined ? { decoratorArgs: primaryDecorator.arguments } : {}),
+        ...(typeof firstTypeArg === 'string' && firstTypeArg.length > 0 ? { metatypeKey: firstTypeArg } : {}),
+      };
+    });
+  }
+
   /**
    * Extracts decorator argument references from class-level and method-level decorators,
    * generating deterministic container keys and route registrations for each reference.
@@ -1242,8 +1441,9 @@ export class AdapterDefinitionResolver {
     decoratorName: string,
     keyPrefix: string,
     registrations: RouteRegistration[],
-  ): string[] {
+  ): DecoratorKeyExtraction {
     const keys: string[] = [];
+    const bindings: CompiledPipelineBindingEntry[] = [];
     let index = 0;
 
     // Class-level first (applies to all handlers in this controller)
@@ -1265,6 +1465,7 @@ export class AdapterDefinitionResolver {
 
           keys.push(key);
           registrations.push({ key, value: arg, kind: 'ref' });
+          bindings.push({ key, scope: 'controller', order: index });
           index++;
         }
       }
@@ -1289,20 +1490,21 @@ export class AdapterDefinitionResolver {
 
           keys.push(key);
           registrations.push({ key, value: arg, kind: 'ref' });
+          bindings.push({ key, scope: 'handler', order: index });
           index++;
         }
       }
     }
 
-    return keys;
+    return { keys, bindings };
   }
 
   /**
-   * Extracts middleware refs from `@Middlewares` phase-aware decorator.
+   * Extracts middleware refs from `@UseMiddlewares` phase-aware decorator.
    *
    * Handles both forms:
-   * - `@Middlewares('OnReceive', [mw1, mw2])` — positional
-   * - `@Middlewares({ OnReceive: [mw1] })` — object map
+   * - `@UseMiddlewares('OnReceive', [mw1, mw2])` — positional
+   * - `@UseMiddlewares({ OnReceive: [mw1] })` — object map
    *
    * @param cls - The class metadata.
    * @param method - The method metadata.
@@ -1317,15 +1519,16 @@ export class AdapterDefinitionResolver {
     keyPrefix: string,
     registrations: RouteRegistration[],
     startIndex: number,
-  ): string[] {
+  ): MiddlewareDecoratorKeyExtraction {
     const keys: string[] = [];
+    const bindings: CompiledMiddlewareBindingEntry[] = [];
     let index = startIndex;
 
     const extractFromDecorator = (decorator: { arguments: readonly AnalyzerValue[] }, scope: 'cls' | 'mtd'): void => {
       const args = decorator.arguments;
 
       if (args.length === 2) {
-        // Positional: @Middlewares('OnReceive', [mw1, mw2])
+        // Positional: @UseMiddlewares('OnReceive', [mw1, mw2])
         const refsArray = isAnalyzerValueArray(args[1]) ? args[1] : null;
 
         if (refsArray === null) {
@@ -1338,9 +1541,13 @@ export class AdapterDefinitionResolver {
 
           if (typeof refName === 'string' && refName.length > 0) {
             const key = `${keyPrefix}:${scope}:${index}`;
+            const bindingScope: CompiledPipelineScope = scope === 'cls' ? 'controller' : 'handler';
+            const phaseArg = args[0];
+            const phase = typeof phaseArg === 'string' ? phaseArg : undefined;
 
             keys.push(key);
-            registrations.push({ key, value: ref });
+            registrations.push({ key, value: ref, kind: 'ref' });
+            bindings.push({ key, scope: bindingScope, order: index, ...(phase !== undefined ? { phase } : {}) });
             index++;
           }
         }
@@ -1349,7 +1556,7 @@ export class AdapterDefinitionResolver {
       }
 
       if (args.length === 1) {
-        // Object map: @Middlewares({ OnReceive: [mw1] })
+        // Object map: @UseMiddlewares({ OnReceive: [mw1] })
         const mapping = this.asRecord(args[0]);
 
         if (mapping === null) {
@@ -1373,9 +1580,11 @@ export class AdapterDefinitionResolver {
 
             if (typeof refName === 'string' && refName.length > 0) {
               const key = `${keyPrefix}:${scope}:${index}`;
+              const bindingScope: CompiledPipelineScope = scope === 'cls' ? 'controller' : 'handler';
 
               keys.push(key);
-              registrations.push({ key, value: ref });
+              registrations.push({ key, value: ref, kind: 'ref' });
+              bindings.push({ key, scope: bindingScope, order: index, phase: phaseKey });
               index++;
             }
           }
@@ -1385,7 +1594,7 @@ export class AdapterDefinitionResolver {
 
     // Class-level first
     for (const decorator of cls.decorators) {
-      if (decorator.name !== 'Middlewares') {
+      if (decorator.name !== 'UseMiddlewares') {
         continue;
       }
 
@@ -1394,14 +1603,218 @@ export class AdapterDefinitionResolver {
 
     // Method-level second
     for (const decorator of method.decorators) {
-      if (decorator.name !== 'Middlewares') {
+      if (decorator.name !== 'UseMiddlewares') {
         continue;
       }
 
       extractFromDecorator(decorator, 'mtd');
     }
 
-    return keys;
+    return { keys, bindings };
+  }
+
+  private extractGlobalPipelineBindings(
+    fileMap: Map<string, FileAnalysis>,
+    adapterId: string,
+    registrations: RouteRegistration[],
+  ): {
+    middlewareBindings: CompiledMiddlewareBindingEntry[];
+    guardBindings: CompiledPipelineBindingEntry[];
+    exceptionFilterBindings: CompiledPipelineBindingEntry[];
+  } {
+    const middlewareBindings: CompiledMiddlewareBindingEntry[] = [];
+    const guardBindings: CompiledPipelineBindingEntry[] = [];
+    const exceptionFilterBindings: CompiledPipelineBindingEntry[] = [];
+
+    const analyses = [...fileMap.values()].sort((left, right) => left.filePath.localeCompare(right.filePath));
+
+    for (const analysis of analyses) {
+      const moduleName = analysis.moduleDefinition?.name;
+      const adaptersValue = analysis.moduleDefinition?.adapters;
+      const adaptersArray = isAnalyzerValueArray(adaptersValue) ? adaptersValue : null;
+
+      if (moduleName === undefined || adaptersArray === null) {
+        continue;
+      }
+
+      for (const adapterNode of adaptersArray) {
+        const itemRecord = this.asRecord(adapterNode);
+
+        if (itemRecord === null) {
+          continue;
+        }
+
+        const adapterRef = this.asRecord(itemRecord.adapter);
+        const adapterClassName = typeof adapterRef?.[ZIPBUL_REF] === 'string' ? adapterRef[ZIPBUL_REF] : null;
+
+        if (adapterClassName !== adapterId) {
+          continue;
+        }
+
+        let middlewareIndex = middlewareBindings.length;
+        const middlewares = this.asRecord(itemRecord.middlewares);
+
+        if (middlewares !== null) {
+          for (const phase of Object.keys(middlewares)) {
+            if (phase.startsWith(ZIPBUL_COMPUTED_PREFIX) || phase.startsWith('__zipbul')) {
+              continue;
+            }
+
+            const refs = isAnalyzerValueArray(middlewares[phase]) ? middlewares[phase] : null;
+
+            if (refs === null) {
+              continue;
+            }
+
+            for (const ref of refs) {
+              const record = this.asRecord(ref);
+              const refName = record !== null ? record[ZIPBUL_REF] : undefined;
+
+              if (typeof refName !== 'string' || refName.length === 0) {
+                continue;
+              }
+
+              const key = `__global_mw__:${moduleName}:${adapterId}:${phase}:${middlewareIndex}`;
+
+              registrations.push({ key, value: ref, kind: 'ref' });
+              middlewareBindings.push({ key, scope: 'global', order: middlewareIndex, phase });
+              middlewareIndex++;
+            }
+          }
+        }
+
+        let guardIndex = guardBindings.length;
+        const guards = isAnalyzerValueArray(itemRecord.guards) ? itemRecord.guards : null;
+
+        if (guards !== null) {
+          for (const ref of guards) {
+            const record = this.asRecord(ref);
+            const refName = record !== null ? record[ZIPBUL_REF] : undefined;
+
+            if (typeof refName !== 'string' || refName.length === 0) {
+              continue;
+            }
+
+            const key = `__global_gd__:${moduleName}:${adapterId}:${guardIndex}`;
+
+            registrations.push({ key, value: ref, kind: 'ref' });
+            guardBindings.push({ key, scope: 'global', order: guardIndex });
+            guardIndex++;
+          }
+        }
+
+        let filterIndex = exceptionFilterBindings.length;
+        const exceptionFilters = isAnalyzerValueArray(itemRecord.exceptionFilters) ? itemRecord.exceptionFilters : null;
+
+        if (exceptionFilters !== null) {
+          for (const ref of exceptionFilters) {
+            const record = this.asRecord(ref);
+            const refName = record !== null ? record[ZIPBUL_REF] : undefined;
+
+            if (typeof refName !== 'string' || refName.length === 0) {
+              continue;
+            }
+
+            const key = `__global_ef__:${moduleName}:${adapterId}:${filterIndex}`;
+
+            registrations.push({ key, value: ref, kind: 'ref' });
+            exceptionFilterBindings.push({ key, scope: 'global', order: filterIndex });
+            filterIndex++;
+          }
+        }
+      }
+    }
+
+    return { middlewareBindings, guardBindings, exceptionFilterBindings };
+  }
+
+  private combineMiddlewareBindings(
+    ...parts: (readonly CompiledMiddlewareBindingEntry[] | undefined)[]
+  ): CompiledMiddlewareBindingEntry[] {
+    return this.reindexBindings(parts.flatMap(part => part ?? []), 'global-first');
+  }
+
+  private combineGuardBindings(
+    ...parts: (readonly CompiledPipelineBindingEntry[] | undefined)[]
+  ): CompiledPipelineBindingEntry[] {
+    return this.reindexBindings(parts.flatMap(part => part ?? []), 'global-first');
+  }
+
+  private combineExceptionFilterBindings(
+    ...parts: (readonly CompiledPipelineBindingEntry[] | undefined)[]
+  ): CompiledPipelineBindingEntry[] {
+    return this.reindexBindings(parts.flatMap(part => part ?? []), 'handler-first');
+  }
+
+  private reindexBindings<T extends { key: string; scope: CompiledPipelineScope; order: number }>(
+    bindings: readonly T[],
+    scopeDirection: 'global-first' | 'handler-first' = 'handler-first',
+  ): T[] {
+    return [...bindings]
+      .sort((left, right) => {
+        const leftRank = this.getScopeRank(left.scope);
+        const rightRank = this.getScopeRank(right.scope);
+        const scopeDiff = scopeDirection === 'global-first'
+          ? rightRank - leftRank
+          : leftRank - rightRank;
+
+        if (scopeDiff !== 0) {
+          return scopeDiff;
+        }
+
+        return left.order - right.order;
+      })
+      .map((binding, index) => ({ ...binding, order: index }));
+  }
+
+  private buildMergedPhaseMiddlewareKeys(
+    bindings: readonly CompiledMiddlewareBindingEntry[],
+  ): Record<string, readonly string[]> {
+    const grouped = new Map<string, string[]>();
+
+    for (const binding of bindings) {
+      if (binding.phase === undefined) {
+        continue;
+      }
+
+      const bucket = grouped.get(binding.phase);
+
+      if (bucket === undefined) {
+        grouped.set(binding.phase, [binding.key]);
+        continue;
+      }
+
+      bucket.push(binding.key);
+    }
+
+    return Object.freeze(
+      Object.fromEntries(
+        Array.from(grouped.entries())
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([phase, keys]) => [phase, Object.freeze([...keys])] as const),
+      ),
+    );
+  }
+
+  private extractMergedBindingKeys(
+    bindings: readonly CompiledPipelineBindingEntry[],
+  ): readonly string[] {
+    return Object.freeze(bindings.map(binding => binding.key));
+  }
+
+  private getScopeRank(scope: CompiledPipelineScope): number {
+    switch (scope) {
+      case 'handler':
+        return 0;
+      case 'controller':
+        return 1;
+      case 'module':
+        return 2;
+      case 'global':
+        return 3;
+      default:
+        return Number.MAX_SAFE_INTEGER;
+    }
   }
 
   private validateMiddlewarePhaseInputs(
@@ -1529,7 +1942,7 @@ export class AdapterDefinitionResolver {
 
         if (isAdapterController) {
           for (const decorator of cls.decorators) {
-            if (decorator.name !== 'Middlewares') {
+            if (decorator.name !== 'UseMiddlewares') {
               continue;
             }
 
@@ -1550,7 +1963,7 @@ export class AdapterDefinitionResolver {
           if (!isAdapterController) {
             if (!isNonEmptyString(controllerAdapterId)) {
               return err(buildDiagnostic({
-                reason: `@Middlewares handlers '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
+                reason: `@UseMiddlewares handlers '${cls.className}.${method.name}' must belong to adapter '${adapterId}'.`,
                 file: analysis.filePath,
                 symbol: `${cls.className}.${method.name}`,
               }));
@@ -1560,7 +1973,7 @@ export class AdapterDefinitionResolver {
           }
 
           for (const decorator of method.decorators) {
-            if (decorator.name !== 'Middlewares') {
+            if (decorator.name !== 'UseMiddlewares') {
               continue;
             }
 
@@ -1584,11 +1997,11 @@ export class AdapterDefinitionResolver {
 
       if (!isNonEmptyString(phaseId)) {
         return err(buildDiagnostic({
-          reason: `@Middlewares phaseId must be a string literal for '${adapterId}'.`,
+          reason: `@UseMiddlewares phaseId must be a string literal for '${adapterId}'.`,
         }));
       }
 
-      const phaseIdCheck = this.assertValidPhaseId(phaseId, adapterId, '@Middlewares');
+      const phaseIdCheck = this.assertValidPhaseId(phaseId, adapterId, '@UseMiddlewares');
       if (isErr(phaseIdCheck)) return phaseIdCheck;
 
       return [phaseId];
@@ -1599,7 +2012,7 @@ export class AdapterDefinitionResolver {
 
       if (mapping === null) {
         return err(buildDiagnostic({
-          reason: `@Middlewares map must be an object literal for '${adapterId}'.`,
+          reason: `@UseMiddlewares map must be an object literal for '${adapterId}'.`,
         }));
       }
 
@@ -1608,17 +2021,17 @@ export class AdapterDefinitionResolver {
       for (const key of Object.keys(mapping)) {
         if (key.startsWith(ZIPBUL_COMPUTED_PREFIX)) {
           return err(buildDiagnostic({
-            reason: `@Middlewares phaseId must be a string literal for '${adapterId}'.`,
+            reason: `@UseMiddlewares phaseId must be a string literal for '${adapterId}'.`,
           }));
         }
 
         if (key.length === 0) {
           return err(buildDiagnostic({
-            reason: `@Middlewares phaseId must be non-empty for '${adapterId}'.`,
+            reason: `@UseMiddlewares phaseId must be non-empty for '${adapterId}'.`,
           }));
         }
 
-        const phaseIdCheck = this.assertValidPhaseId(key, adapterId, '@Middlewares');
+        const phaseIdCheck = this.assertValidPhaseId(key, adapterId, '@UseMiddlewares');
         if (isErr(phaseIdCheck)) return phaseIdCheck;
 
         keys.push(key);
@@ -1628,7 +2041,7 @@ export class AdapterDefinitionResolver {
     }
 
     return err(buildDiagnostic({
-      reason: `@Middlewares expects (phaseId, refs) or ({ [phaseId]: refs }) for '${adapterId}'.`,
+      reason: `@UseMiddlewares expects (phaseId, refs) or ({ [phaseId]: refs }) for '${adapterId}'.`,
     }));
   }
 

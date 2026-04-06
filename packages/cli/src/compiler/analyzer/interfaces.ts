@@ -1,5 +1,14 @@
-import type { CompiledOptionEntry, CompiledValidationEntry } from '@zipbul/common';
+import type {
+  CompiledMiddlewareBindingEntry,
+  CompiledOptionEntry,
+  CompiledPipelineBindingEntry,
+  CompiledPipelineScope,
+  CompiledValidationEntry,
+} from '@zipbul/common';
 import type { AnalyzerValue } from './types';
+
+export type CompiledPhaseMiddlewareKeys = Readonly<Record<string, readonly string[]>>;
+export type { CompiledPipelineScope };
 
 /**
  * Serializable metadata about a type extracted by the CLI analyzer.
@@ -52,12 +61,22 @@ export interface MethodParameterMetadata {
   index: number;
 }
 
-/** A member-access call with type arguments found in a method body (e.g. `ctx.getBody<UserDto>()`). */
+/** A member-access call found in a method body (e.g. `ctx.getBody<UserDto>()` or `ctx.validated(bodyInput, UserDto)`). */
 export interface TypedCallMetadata {
-  /** Called method name (e.g. `'getBody'`). */
+  /** Called method name (e.g. `'getBody'`, `'validated'`). */
   readonly methodName: string;
-  /** Resolved type argument names (e.g. `['UserDto']`). */
+  /** Resolved type argument names (e.g. `['UserDto']`). Empty when call has no type arguments. */
   readonly typeArgs: readonly string[];
+  /** Resolved runtime call argument references (e.g. `['bodyInput', 'UserDto']`). Only captured for specific call patterns. */
+  readonly callArgs?: readonly CallArgRef[];
+}
+
+/** Resolved reference for a runtime call argument. */
+export interface CallArgRef {
+  /** Identifier or import reference name. */
+  readonly ref: string;
+  /** Import source path, if the argument is an imported identifier. */
+  readonly importSource?: string;
 }
 
 export interface MethodMetadata {
@@ -111,8 +130,6 @@ export interface AdapterEntryDecoratorsSchema {
 export interface AdapterStaticSchema {
   entryDecorators: AdapterEntryDecoratorsSchema;
   validPhases?: Set<string>;
-  /** Maps context accessor method names to validation kinds (e.g. `getBody → 'body'`). */
-  validatedAccessors?: Record<string, string>;
   /** Declarative pipeline step sequence. AOT compiler uses this to generate optimized per-handler pipelines. */
   pipeline?: readonly string[];
 }
@@ -136,6 +153,7 @@ export interface HandlerIndexEntry {
   id: string;
   adapterId: string;
   className: string;
+  ownerModuleName?: string;
   controllerKey?: string;
   methodName: string;
   handlerDecorator: string;
@@ -148,8 +166,18 @@ export interface HandlerIndexEntry {
   options?: readonly CompiledOptionEntry[];
   /** Validated accessor calls extracted from the handler body. */
   validations?: readonly CompiledValidationEntry[];
-  /** AOT-compiled pipeline — only steps with registered handlers are included. */
-  compiledPipeline?: readonly string[];
+  /** Build-time merged, phase-keyed middleware keys for the generic pipeline runtime. */
+  mergedPhaseMiddlewareKeys?: CompiledPhaseMiddlewareKeys;
+  /** Build-time merged guard keys for the generic pipeline runtime. */
+  mergedGuardKeys?: readonly string[];
+  /** Build-time merged exception filter keys for the generic pipeline runtime. */
+  mergedExceptionFilterKeys?: readonly string[];
+  /** Lossless middleware bindings collected during AOT. */
+  middlewareBindings?: readonly CompiledMiddlewareBindingEntry[];
+  /** Lossless guard bindings collected during AOT. */
+  guardBindings?: readonly CompiledPipelineBindingEntry[];
+  /** Lossless exception filter bindings collected during AOT. */
+  exceptionFilterBindings?: readonly CompiledPipelineBindingEntry[];
 }
 
 export interface HandlerParamEntry {

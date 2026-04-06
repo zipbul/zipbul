@@ -1,159 +1,219 @@
-# 사전 파이프라인 컴파일 설계
+# Pipeline Plan
 
-## 왜 하는가
+## Goal
 
-Zipbul의 정체성은 "모든 판단은 빌드 타임에 완료, 런타임은 결정된 경로를 따라가기만 한다."
+AOT 컴파일러가 핸들러별 최적화된 실행 계획을 생성한다. 런타임은 그 계획을 실행만 한다.
 
-현재 파이프라인은 이 원칙을 위반한다:
-- 매 요청마다 빈 phase의 미들웨어 배열을 조회하고 async 함수를 호출한다 (빈 배열이어도 await 비용 ~113ns × phase 수)
-- 글로벌 MW와 scoped MW가 분리되어 있어서 런타임에 따로 실행한다
-- 가드, 예외 필터도 글로벌/scoped가 분리되어 런타임에 두 번 순회한다
-- 핸들러에 등록된 게 없어도 ScopedMiddleware, ScopedGuard step을 매 요청 체크한다
+## Adapter Declaration
 
-프로파일링 결과:
-- executePipeline 내부에서 빈 phase await + 빈 guard await + 불필요한 step 체크 = ~0.85µs/req
-- 전체 파이프라인 ~1.7µs 중 50%가 "아무 일도 안 하면서 쓰는 비용"
+어댑터는 두 가지를 선언한다.
 
-## 현재 구조의 문제
+### 1. Pipeline
 
-```
-executePipeline (명령형, 매 요청 동일한 분기 반복):
-  OnRequest (글로벌 MW만)       ← 빈 phase도 await
-  ResolveRoute
-  BeforeParse (글로벌 MW만)     ← 빈 phase도 await
-  ParseBody
-  BeforeValidate (글로벌 MW만)  ← 빈 phase도 await
-  Validation                    ← 없으면 length 체크
-  Guard (글로벌만)              ← 빈 가드도 await
-  BeforeHandle (글로벌 MW만)    ← 빈 phase도 await
-  ScopedMiddleware              ← 글로벌과 별도 실행
-  ScopedGuard                   ← 글로벌과 별도 실행
-  Handler
+phase, core step, adapter step을 순서대로 나열한다.
 
-handleResult (별도 메서드, 하드코딩):
-  WriteResponse
-  AfterHandle (글로벌 MW만)     ← 빈 phase도 체크
-  Serialize
-  BeforeResponse (글로벌 MW만)  ← 빈 phase도 체크
-  AfterResponse                 ← finalize
-```
-
-문제점:
-1. MW가 글로벌/scoped로 분리 → 런타임에 따로 실행
-2. Guard가 글로벌/scoped로 분리 → 런타임에 따로 실행
-3. ExceptionFilter가 글로벌/scoped로 분리 → 런타임에 두 단계 순회
-4. 빈 phase도 매 요청 async 호출
-5. executePipeline과 handleResult로 파이프라인이 분리
-
-## 목표 구조
-
-### 파이프라인 선언
-
-어댑터는 미들웨어 phase만 선언한다. 고정 step은 어댑터 코드가 결정.
-
-```typescript
-// HttpAdapter
+```ts
 static readonly pipeline = [
-  HttpPhase.OnRequest,
-  HttpPhase.BeforeParse,
-  HttpPhase.BeforeValidate,
-  HttpPhase.BeforeHandle,
-  HttpPhase.AfterHandle,
-  HttpPhase.BeforeResponse,
-  HttpPhase.AfterResponse,
+  PhaseA,              // phase — 미들웨어 확장 지점
+  AdapterStep1,        // adapter step — 어댑터가 구현
+  PhaseB,              // phase
+  CoreStep.Validation, // core step — 코어가 실행
+  CoreStep.Guard,      // core step
+  PhaseC,              // phase
+  CoreStep.Handler,    // core step — 항상 유지, pre/post 분할 기준
+  PhaseD,              // phase
+  AdapterStep2,        // adapter step
+  PhaseE,              // phase
 ] as const;
 ```
 
-### AOT 빌드 타임 병합
+### 2. Step -> 실행 함수 매핑
 
-컴파일러가 각 핸들러마다, 모든 레벨의 등록을 병합한 최종 리스트를 생성:
+어댑터는 자신의 phase와 adapter step에 대해 실행 함수를 제공한다.
 
-**미들웨어 (phase별):**
+core step(Validation, Guard, Handler)은 코어가 이미 구현을 가지고 있으므로 어댑터가 매핑하지 않는다.
+
+## Compiler Algorithm
+
+### 1. 수집
+
+핸들러별로 모든 scope(handler, controller, module, global)에서 수집:
+
+- phase 미들웨어: 키 + scope + phase + order
+- 가드: 키 + scope + order
+- 예외필터: 키 + scope + order
+- 밸리데이션: kind + metatypeKey
+- 옵션: name + arguments
+- 파라미터: name + decorator + metatype
+
+### 2. 병합
+
+미들웨어/가드: global -> module -> controller -> handler
+예외필터: handler -> controller -> module -> global
+
+결과: phase별 미들웨어 키 배열, 가드 키 배열, 예외필터 키 배열. 전부 flat.
+
+### 3. Dead-Step Elimination
+
+어댑터 선언 pipeline에서:
+
+- phase: 해당 phase에 merged MW가 0이면 제거
+- Validation: validations가 0이면 제거
+- Guard: merged 가드가 0이면 제거
+- adapter step: 프로토콜 의미론에 따라 유지/제거
+- Handler: 항상 유지
+
+### 4. Pre/Post 분할
+
+Handler 기준으로 pipeline을 pre segment와 post segment로 나눈다. compiledPre와 compiledPost에는 phase, core step, adapter step이 전부 포함된다. dead-step elimination 이후 남은 항목만 들어간다.
+
+현재 컴파일러는 `compiledPipeline` 하나만 출력하고 Handler에서 멈춘다. **변경**: `compiledPipeline`을 `compiledPre`와 `compiledPost`로 분리하고, post-handler step도 포함한다.
+
+예시 (밸리데이션 있고 가드 없는 핸들러):
+
 ```
-OnRequest:       [핸들러 MW, 컨트롤러 MW, 모듈 MW, 글로벌 MW]
-BeforeParse:     [핸들러 MW, 컨트롤러 MW, 모듈 MW, 글로벌 MW]
-BeforeValidate:  [핸들러 MW, 컨트롤러 MW, 모듈 MW, 글로벌 MW]
-BeforeHandle:    [핸들러 MW, 컨트롤러 MW, 모듈 MW, 글로벌 MW]
-AfterHandle:     [핸들러 MW, 컨트롤러 MW, 모듈 MW, 글로벌 MW]
-BeforeResponse:  [핸들러 MW, 컨트롤러 MW, 모듈 MW, 글로벌 MW]
-AfterResponse:   [핸들러 MW, 컨트롤러 MW, 모듈 MW, 글로벌 MW]
-```
+dead-step elimination:
+  PhaseA(MW 있음)유지, AdapterStep1 유지, PhaseB(MW 없음)제거, Validation 유지,
+  Guard(가드 0개)제거, PhaseC(MW 있음)유지, Handler, PhaseD(MW 있음)유지,
+  AdapterStep2 유지, PhaseE(MW 없음)제거
 
-**가드:**
-```
-[핸들러 Guard, 컨트롤러 Guard, 모듈 Guard, 글로벌 Guard]
-```
-
-**예외 필터:**
-```
-[핸들러 Filter, 컨트롤러 Filter, 모듈 Filter, 글로벌 Filter]
-```
-
-**밸리데이션:**
-```
-핸들러별 Validated<T> 접근 목록 (현재와 동일)
-```
-
-빈 phase는 병합 결과가 빈 배열 → 런타임에서 await 없이 스킵.
-
-### 런타임 실행
-
-```typescript
-// HttpAdapter.executePipeline
-await this.runPhase(HttpPhase.OnRequest, http);     // 병합된 MW 리스트. 비어있으면 즉시 return
-this.resolveRoute(http);
-await this.runPhase(HttpPhase.BeforeParse, http);
-await this.parseBody(http);
-await this.runPhase(HttpPhase.BeforeValidate, http);
-await this.runValidations(http);                     // 핸들러별 validation
-await this.runGuards(http);                           // 병합된 Guard 리스트
-await this.runPhase(HttpPhase.BeforeHandle, http);
-const result = route.handler(http);
-
-// handleResult
-this.writeResponse(result, http);
-await this.runPhase(HttpPhase.AfterHandle, http);
-res.serialize();
-await this.runPhase(HttpPhase.BeforeResponse, http);
-
-// finalize
-await this.runPhase(HttpPhase.AfterResponse, http);
+compiledPre:  [PhaseA, AdapterStep1, Validation, PhaseC]
+compiledPost: [PhaseD, AdapterStep2]
 ```
 
-- `runPhase`는 해당 핸들러의 해당 phase 병합 리스트를 조회. 비어있으면 await 없이 즉시 return
-- 글로벌/scoped 구분 없음. 이미 병합되어 있음
-- ScopedMiddleware, ScopedGuard step 없음. phase와 guard에 통합
-- `runExceptionFilters`도 병합된 단일 리스트 순회. 2단계 dispatch 없음
+Handler는 pre/post 어디에도 포함되지 않는다. 코어가 pre 실행 후 handler를 직접 호출하고, handler 결과를 context에 저장한 뒤 post를 실행한다.
 
-### CoreStep / HttpStep enum
+### 5. Interning
 
-삭제. 고정 step은 어댑터 코드에서 직접 호출. phase만 선언형.
+같은 산출물을 가진 핸들러는 같은 참조를 공유한다.
 
-## 변경 범위
+| 대상 | 동일성 기준 |
+|------|-----------|
+| compiledPre | step 순서 동일 |
+| compiledPost | step 순서 동일 |
+| mergedPhaseMiddlewareKeys | phase별 키 배열 동일 |
+| mergedGuardKeys | 키 배열 동일 |
+| mergedExceptionFilterKeys | 키 배열 동일 |
+| validations | kind + metatypeKey 세트 동일 |
+| options | name + arguments 세트 동일 |
 
-### CLI (packages/cli)
-- `adapter-definition-resolver.ts`: 핸들러별 phase별 MW/Guard/ExceptionFilter를 핸들러→컨트롤러→모듈→글로벌 순서로 수집하여 병합
-- `manifest-generator.ts`: 병합 결과를 handlerIndex에 포함하여 runtime.ts에 출력
+컴파일러가 해싱으로 동일 산출물을 감지하고, 동일하면 같은 객체를 참조하도록 코드를 생성한다. 현재 컴파일러에는 interning 구현이 없다.
 
-### Common (packages/common)
-- `compiled-handler.ts`: 핸들러별 병합 데이터 구조 추가 (phase별 MW 키, 병합 Guard 키, 병합 ExceptionFilter 키)
-- `CoreStep` enum 관련 필드 제거
+### 6. 산출물 (핸들러별)
 
-### Core (packages/core)
-- `adapter.ts`: `buildCompiledPipeline` 삭제. `handlerPipelineMap` 삭제. `compiledPostRoutePipeline` 삭제. `getHandlerPipeline`/`registerHandlerPipeline` 삭제. `runExceptionFilters` 2단계 dispatch → 단일 리스트 순회로 변경
-- `enums.ts`: `CoreStep` enum 삭제
+```
+{
+  // 핸들러 식별
+  id
+  adapterId
+  controllerKey
+  methodName
+  ownerModuleName
 
-### HTTP Adapter (packages/http-adapter)
-- `enums.ts`: `HttpStep` enum 삭제
-- `http-adapter.ts`: `executePipeline` 단순화 — phase 실행 시 핸들러별 병합 리스트 사용. `executeStep` switch 삭제. `static pipeline`을 phase만으로 변경
-- `route-handler.ts`: 핸들러 등록 시 병합된 MW/Guard/ExceptionFilter를 MatchedRouteMetadata에 phase별로 저장
-- `types.ts`: MatchedRouteMetadata 구조 변경 — phase별 병합 MW 리스트, 병합 Guard 리스트, 병합 ExceptionFilter 리스트
+  // 사전 컴파일된 파이프라인
+  compiledPre                   // [step, ...] — interned
+  compiledPost                  // [step, ...] — interned
 
-## 검증
+  // 병합된 키
+  mergedPhaseMiddlewareKeys     // { phase: [key, ...] } — interned
+  mergedGuardKeys               // [key, ...] — interned
+  mergedExceptionFilterKeys     // [key, ...] — interned
 
-1. `bun test packages/core/ packages/http-adapter/ packages/cli/` — 전체 통과
-2. `cd benchmark && bunx zb build` — AOT 빌드 성공, 병합 데이터 포함 확인
-3. `cd examples && bunx zb build` — MW/Guard/Filter 있는 앱 빌드 성공
-4. 벤치마크 서버 정상 기동 + 응답 확인
-5. 계측 코드로 executePipeline 재측정
-6. bombardier 벤치마크 재측정
+  // route-level 키 (컨테이너 등록용)
+  middlewareKeys                // [key, ...]
+  guardKeys                     // [key, ...]
+  exceptionFilterKeys           // [key, ...]
+
+  // 핸들러 메타데이터
+  validations                   // [{ kind, metatypeKey }, ...] — interned
+  options                       // [{ name, arguments }, ...] — interned
+  params                        // 핸들러 고유
+  handlerDecorator              // 핸들러 고유
+  handlerDecoratorArgs          // 핸들러 고유
+}
+```
+
+lossless 바인딩(`middlewareBindings`, `guardBindings`, `exceptionFilterBindings`)은 빌드 타임에 병합이 완료되므로 런타임에 불필요하다. introspection/디버깅 용도로만 유지하고 런타임 실행에는 사용하지 않는다.
+
+## Core
+
+코어(`Adapter` 클래스)는 `runPipeline` 메서드를 제공한다. 순차 실행이다.
+
+```ts
+protected async runPipeline(
+  context: AdapterContext,
+  pre: readonly PipelineStepFn[],
+  handler: PipelineStepFn,
+  post: readonly PipelineStepFn[],
+  filters: readonly ResolvedExceptionFilter[],
+): Promise<void>
+```
+
+```
+try:
+  for fn of pre:
+    result = await fn(context)
+    if isErr(result): break
+  if not isErr(result):
+    result = await handler(context)
+catch:
+  result = await filterChain(filters, error, context)
+context.set(handlerResultKey, result)
+try:
+  for fn of post: await fn(context)
+catch:
+  await emergencyTeardown(context, error)
+```
+
+`dispatchRequest`는 `executePipeline` + finalize 보장만 한다.
+
+```
+dispatchRequest(context):
+  try:
+    await this.executePipeline(context)
+  catch:
+    await emergencyTeardown(context, error)
+  finally:
+    await finalize(context)
+```
+
+`handleResult`는 삭제.
+
+## Boot (어댑터)
+
+어댑터는 pipeline 순서를 선언하고 step -> 실행 함수 매핑을 제공한다.
+
+부트 시:
+1. 컴파일러 산출물의 compiledPre/compiledPost step 이름으로 매핑에서 함수를 꺼내 배열을 만든다
+2. merged 키를 resolve하여 미들웨어/가드/필터 함수 배열을 만든다
+3. route에 pre/handler/post/filters를 캐시한다
+
+## Runtime
+
+```
+route match -> this.runPipeline(context, pre, handler, post, filters) -> finalize
+```
+
+요청당 비용: route match + 함수 배열 순차 호출. resolution/분기 없음.
+
+## Merge Order Correction
+
+현재 컴파일러 `getScopeRank()`는 handler=0, global=3으로 전부 handler-first.
+
+수정: 미들웨어/가드는 global-first(global=0, handler=3), 예외필터는 handler-first(handler=0, global=3).
+
+## Changes Required
+
+### 컴파일러 변경
+
+1. `compiledPipeline` -> `compiledPre` + `compiledPost` 분리
+2. post-handler step도 dead-step elimination 적용
+3. `getScopeRank()` 분리: MW/가드는 global-first, 예외필터는 handler-first
+4. interning 구현 (해싱 + 동일 참조 공유)
+
+### 코어 변경
+
+1. `runPipeline()` 메서드 추가
+2. `dispatchRequest()` 단순화
+3. `handleResult()` abstract 메서드 삭제
+4. handler result 저장용 `contextKey` 추가

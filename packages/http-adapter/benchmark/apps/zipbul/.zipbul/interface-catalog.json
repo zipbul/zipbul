@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "3",
+  "entries": [
+    {
+      "module": "src",
+      "filePath": "src/module.ts",
+      "exports": [
+        {
+          "name": "appModule",
+          "kind": "const",
+          "resolvedType": {
+            "text": "symbol",
+            "flags": 4096,
+            "isUnion": false,
+            "isIntersection": false,
+            "isGeneric": false
+          }
+        }
+      ],
+      "semantic": true
+    }
+  ]
+}

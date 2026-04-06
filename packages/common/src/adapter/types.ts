@@ -1,4 +1,3 @@
-import type { Err } from '@zipbul/result';
 import type { MiddlewareDefinition } from '../define-middleware';
 import type { ExceptionFilterDefinition } from '../define-exception-filter';
 import type { GuardDefinition } from '../define-guard';
@@ -135,14 +134,6 @@ export interface Adapter {
    */
   initializePipeline(container: ZipbulContainer): void;
 
-  /**
-   * Two-stage exception filter dispatch: local → global.
-   *
-   * @param error - The thrown error.
-   * @param context - The current execution context.
-   * @public
-   */
-  runExceptionFilters(error: unknown, context: AdapterContext): Promise<Err<unknown>>;
 }
 
 /** Adapter class constructor type. Produces an instance satisfying the {@link Adapter} contract. */

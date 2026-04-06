@@ -311,7 +311,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         graph.build();
         await graph.validateInheritedScopes();
 
-        const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot });
+        const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot, graph });
 
         if (isErr(adapterResolution)) {
           throw new DiagnosticError(adapterResolution.data);

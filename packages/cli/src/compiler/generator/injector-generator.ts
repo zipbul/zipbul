@@ -165,7 +165,15 @@ const isClassMetadata = (value: AnalyzerValue | ClassMetadata): value is ClassMe
 export class InjectorGenerator {
   generate(graph: ModuleGraph, registry: ImportRegistry): Result<string, Diagnostic> {
     const factoryEntries: string[] = [];
-    const adapterConfigs: string[] = [];
+    const adapterConfigMap = new Map<
+      string,
+      {
+        middlewareList: string[];
+        middlewares: Map<string, string[]>;
+        exceptionFilters: string[];
+        guards: string[];
+      }
+    >();
     let generateError: Err<Diagnostic> | null = null;
 
     const getAlias = (name: string, path?: string): string => {
@@ -457,23 +465,57 @@ export class InjectorGenerator {
               continue;
             }
 
-            const configParts: string[] = [];
+            const adapterConfigEntry = adapterConfigMap.get(configKey) ?? {
+              middlewareList: [],
+              middlewares: new Map<string, string[]>(),
+              exceptionFilters: [],
+              guards: [],
+            };
 
             if (itemRecord.middlewares !== undefined) {
-              configParts.push(`'middlewares': ${this.serializeValue(itemRecord.middlewares, registry)}`);
+              const middlewares = asRecord(itemRecord.middlewares);
+
+              if (middlewares !== null) {
+                for (const phase of Object.keys(middlewares).sort(compareCodePoint)) {
+                  const values = Array.isArray(middlewares[phase]) ? middlewares[phase] : null;
+
+                  if (values === null) {
+                    continue;
+                  }
+
+                  const existing = adapterConfigEntry.middlewares.get(phase) ?? [];
+                  const serializedValues = values.map(value => this.serializeValue(value, registry));
+
+                  adapterConfigEntry.middlewares.set(phase, [...existing, ...serializedValues]);
+                }
+              } else if (Array.isArray(itemRecord.middlewares)) {
+                adapterConfigEntry.middlewareList.push(
+                  ...itemRecord.middlewares.map(value => this.serializeValue(value, registry)),
+                );
+              }
             }
 
             if (itemRecord.exceptionFilters !== undefined) {
-              configParts.push(`'exceptionFilters': ${this.serializeValue(itemRecord.exceptionFilters, registry)}`);
+              const exceptionFilters = Array.isArray(itemRecord.exceptionFilters) ? itemRecord.exceptionFilters : null;
+
+              if (exceptionFilters !== null) {
+                adapterConfigEntry.exceptionFilters.push(
+                  ...exceptionFilters.map(value => this.serializeValue(value, registry)),
+                );
+              }
             }
 
             if (itemRecord.guards !== undefined) {
-              configParts.push(`'guards': ${this.serializeValue(itemRecord.guards, registry)}`);
+              const guards = Array.isArray(itemRecord.guards) ? itemRecord.guards : null;
+
+              if (guards !== null) {
+                adapterConfigEntry.guards.push(
+                  ...guards.map(value => this.serializeValue(value, registry)),
+                );
+              }
             }
 
-            if (configParts.length > 0) {
-              adapterConfigs.push(`  '${configKey}': { ${configParts.join(', ')} },`);
-            }
+            adapterConfigMap.set(configKey, adapterConfigEntry);
           }
         }
       }
@@ -482,6 +524,36 @@ export class InjectorGenerator {
     if (generateError !== null) {
       return generateError;
     }
+
+    const adapterConfigs = [...adapterConfigMap.entries()]
+      .sort(([left], [right]) => compareCodePoint(left, right))
+      .flatMap(([configKey, config]) => {
+        const configParts: string[] = [];
+
+        if (config.middlewares.size > 0) {
+          const phaseEntries = [...config.middlewares.entries()]
+            .sort(([left], [right]) => compareCodePoint(left, right))
+            .map(([phase, values]) => `'${phase}': [${values.join(', ')}]`);
+
+          configParts.push(`'middlewares': { ${phaseEntries.join(', ')} }`);
+        } else if (config.middlewareList.length > 0) {
+          configParts.push(`'middlewares': [${config.middlewareList.join(', ')}]`);
+        }
+
+        if (config.exceptionFilters.length > 0) {
+          configParts.push(`'exceptionFilters': [${config.exceptionFilters.join(', ')}]`);
+        }
+
+        if (config.guards.length > 0) {
+          configParts.push(`'guards': [${config.guards.join(', ')}]`);
+        }
+
+        if (configParts.length === 0) {
+          return [];
+        }
+
+        return [`  '${configKey}': { ${configParts.join(', ')} },`];
+      });
 
     const dynamicEntries: string[] = [];
 

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { parseSync } from 'oxc-parser';
 import { dirname, join, resolve } from 'path';
 
-import type { ClassMetadata, DecoratorMetadata, ImportEntry } from './interfaces';
+import type { ClassMetadata, DecoratorMetadata, ImportEntry, CallArgRef } from './interfaces';
 import type { CreateApplicationCall, DefineModuleCall, InjectCall, ModuleDefinition, ParseResult, ReExport } from './parser-models';
 import type {
   AnalyzerValue,
@@ -1338,17 +1338,33 @@ export class AstParser {
 
           if (isNonEmptyString(methodName)) {
             // oxc-parser: type arguments on CallExpression are in `typeArguments`
-            const typeArgs = this.asNode(node.typeArguments);
-            const params = typeArgs ? (asAnalyzerArray(typeArgs.params) ?? []) : [];
+            const typeArgsNode = this.asNode(node.typeArguments);
+            const typeParams = typeArgsNode ? (asAnalyzerArray(typeArgsNode.params) ?? []) : [];
 
-            if (params.length > 0) {
-              const typeArgs: string[] = [];
+            const typeArgs: string[] = [];
 
-              for (const param of params) {
-                const resolved = typeResolver.resolve(param);
-                typeArgs.push(resolved.typeName);
+            for (const param of typeParams) {
+              const resolved = typeResolver.resolve(param);
+              typeArgs.push(resolved.typeName);
+            }
+
+            // Capture runtime arguments for ctx.validated(key, DtoClass) pattern
+            if (methodName === 'validated') {
+              const args = asAnalyzerArray(node.arguments) ?? [];
+              const callArgs: CallArgRef[] = [];
+
+              for (const arg of args) {
+                const argNode = this.asNode(arg);
+                if (argNode?.type === 'Identifier') {
+                  const ref = this.getString(argNode, 'name');
+                  if (isNonEmptyString(ref)) {
+                    callArgs.push({ ref });
+                  }
+                }
               }
 
+              calls.push({ methodName, typeArgs, ...(callArgs.length > 0 ? { callArgs } : {}) });
+            } else if (typeArgs.length > 0) {
               calls.push({ methodName, typeArgs });
             }
           }
