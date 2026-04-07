@@ -1,19 +1,15 @@
 import type { FileAnalysis } from './graph/interfaces';
-import type { AnalyzerValue, AnalyzerValueRecord } from './types';
 import type { Diagnostic } from '../../diagnostics';
 import type { Result } from '@zipbul/result';
 
 import { err } from '@zipbul/result';
 import { ZIPBUL_REF } from '@zipbul/common';
 import { buildDiagnostic } from '../../diagnostics';
+import { isRecordValue } from './type-guards';
 
 export interface ApplicationEntry {
   filePath: string;
   entryRef: string;
-}
-
-export function isAnalyzerRecord(value: AnalyzerValue): value is AnalyzerValueRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 // MUST: MUST-1
@@ -62,7 +58,7 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
 
   const entryArg = args[0];
 
-  if (!isAnalyzerRecord(entryArg)) {
+  if (!isRecordValue(entryArg)) {
     return err(
       buildDiagnostic({
         reason: 'createApplication entry module must be a statically resolvable identifier.',

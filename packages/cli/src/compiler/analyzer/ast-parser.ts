@@ -1,74 +1,124 @@
-import { existsSync } from 'node:fs';
-import { parseSync } from 'oxc-parser';
+import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'path';
+
+import { parseSource, extractSymbols, patternSearch, buildLineOffsets, visitorKeys } from '@zipbul/gildash';
+import type { ParsedFile, ExtractedSymbol, ExpressionObject, PatternMatch } from '@zipbul/gildash';
+import type {
+  StaticImport, StaticExport,
+  Node as AstNode, Directive, Statement, Expression,
+  Class, MethodDefinition, PropertyDefinition,
+  VariableDeclaration,
+  ExportNamedDeclaration, ExportDefaultDeclaration, ModuleExportName,
+  CallExpression, ArrayExpression,
+  Function as OxcFunction, TSTypeReference,
+} from 'oxc-parser';
 
 import type { ClassMetadata, DecoratorMetadata, ImportEntry, CallArgRef } from './interfaces';
 import type { CreateApplicationCall, DefineModuleCall, InjectCall, ModuleDefinition, ParseResult, ReExport } from './parser-models';
 import type {
   AnalyzerValue,
   AnalyzerValueRecord,
-  ExtractedParam,
   FactoryInjectCall,
   FactoryDependency,
-  NodeRecord,
   ReExportName,
-  TypeInfo,
 } from './types';
 
 import type { Result } from '@zipbul/result';
 import { err, isErr } from '@zipbul/result';
 import {
-  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
-  ZIPBUL_FACTORY_CODE, ZIPBUL_SPREAD, ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
-  ZIPBUL_UNRESOLVABLE,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE,
+  ZIPBUL_FACTORY_CODE,
   FRAMEWORK_CREATE_APPLICATION, FRAMEWORK_DEFINE_MODULE,
   TS_UTILITY_TYPES,
 } from '@zipbul/common';
 import type { Diagnostic } from '../../diagnostics';
 import { buildDiagnostic } from '../../diagnostics';
-import { AstTypeResolver } from './ast-type-resolver';
-import { isNonEmptyString } from './type-guards';
+import {
+  convertExpression, convertExpressionDeep, convertDecorator, resolveTypeString, buildImportMap,
+  parseTypeAnnotation,
+} from './expression-converter';
+import type { ImportMap, ConversionResult } from './expression-converter';
+import { isRecordValue, isNonEmptyString } from './type-guards';
 import { compareCodePoint } from '../../common';
 
 const UNKNOWN_TYPE_NAME = 'Unknown';
-const UNKNOWN_CALLEE_NAME = 'unknown';
 
-interface InjectTokenResolution {
-  tokenKind: 'token' | 'thunk';
-  token: AnalyzerValue;
+/**
+ * Extended PatternMatch with byte offset fields.
+ *
+ * The runtime API includes `startOffset`/`endOffset`/`startColumn`/`endColumn`
+ * but the published type declarations may omit them. This type ensures
+ * safe access.
+ */
+type PatternMatchWithOffsets = PatternMatch & {
+  readonly startOffset?: number;
+  readonly endOffset?: number;
+};
+
+function isAstNode(value: unknown): value is AstNode {
+  return typeof value === 'object' && value !== null && 'type' in value
+    && typeof (value as Record<string, unknown>).type === 'string';
 }
 
-function isNullish(value: AnalyzerValue): value is null | undefined {
-  return value === null || value === undefined;
+/**
+ * Walks child AST nodes of a parent node using oxc-parser's `visitorKeys`.
+ *
+ * Unlike manual `Object.keys()` enumeration, this only traverses keys that
+ * are known to contain AST children — avoiding structural fields like `type`,
+ * `start`, `end`, and `parent`.
+ */
+function walkChildren(node: AstNode, visitor: (child: AstNode) => void): void {
+  const keys = visitorKeys[node.type];
+
+  if (!keys) {
+    return;
+  }
+
+  for (const key of keys) {
+    const child = (node as Record<string, unknown>)[key];
+
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        if (isAstNode(item)) {
+          visitor(item);
+        }
+      }
+    } else if (isAstNode(child)) {
+      visitor(child);
+    }
+  }
 }
 
-function asAnalyzerArray(value: AnalyzerValue): AnalyzerValue[] | null {
-  return Array.isArray(value) ? value : null;
-}
-
-function isAnalyzerRecord(value: AnalyzerValue): value is AnalyzerValueRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNodeRecord(record: AnalyzerValueRecord): record is NodeRecord {
-  return typeof record.type === 'string';
+function getExportName(node: ModuleExportName): string {
+  return node.type === 'Literal' ? String(node.value) : node.name;
 }
 
 export class AstParser {
   private currentCode: string = '';
   private currentFilePath: string = '';
-  private typeResolver = new AstTypeResolver();
   private currentImports: Record<string, string> = {};
   private currentImportSources: Record<string, string> = {};
   private currentOriginalNames: Record<string, string> = {};
   private currentInjectCalls: InjectCall[] = [];
 
-  parse(filename: string, code: string): Result<ParseResult, Diagnostic> {
+  async parse(filename: string, code: string): Promise<Result<ParseResult, Diagnostic>> {
     this.currentFilePath = filename;
     this.currentCode = code;
     this.currentInjectCalls = [];
 
-    const result = parseSync(filename, code);
+    // 1. parseSource → ParsedFile (error → diagnostic)
+    const parseResult = parseSource(filename, code);
+
+    if (isErr(parseResult)) {
+      return err(buildDiagnostic({
+        reason: `Parse error in ${filename}: ${parseResult.reason}`,
+        file: filename,
+      }));
+    }
+
+    const parsed: ParsedFile = parseResult;
+
     const classes: ClassMetadata[] = [];
     const reExports: ReExport[] = [];
     const localExports: string[] = [];
@@ -92,464 +142,336 @@ export class AstParser {
     let moduleDefinition: ModuleDefinition | undefined;
     let parseError: ReturnType<typeof err<Diagnostic>> | null = null;
 
-    const traverse = (nodeValue: AnalyzerValue): void => {
+    // 2. buildImportState from staticImports
+    this.buildImportState(
+      parsed.module.staticImports,
+      filename,
+      imports,
+      importEntries,
+      createApplicationAliases,
+      createApplicationNamespaces,
+      defineModuleAliases,
+      defineModuleNamespaces,
+    );
+
+    // 3. buildExportState from staticExports
+    this.buildExportState(parsed.module.staticExports, filename, reExports);
+
+    // 4. extractSymbols
+    const symbols = extractSymbols(parsed);
+
+    // 5. buildImportMap for type resolution
+    const importMap = buildImportMap(parsed.module.staticImports);
+
+    // 5b. Run patternSearch for inject() detection
+    // Collect all inject aliases and namespace prefixes
+    const injectAliases = new Set<string>();
+    const injectNamespaces = new Set<string>();
+
+    for (const imp of parsed.module.staticImports) {
+      if (imp.moduleRequest.value !== '@zipbul/common') {
+        continue;
+      }
+
+      for (const entry of imp.entries) {
+        if (entry.isType) {
+          continue;
+        }
+
+        if (entry.importName.kind === 'Name' && entry.importName.name === 'inject') {
+          injectAliases.add(entry.localName.value);
+        }
+
+        if (entry.importName.kind === 'NamespaceObject') {
+          injectNamespaces.add(entry.localName.value);
+        }
+      }
+    }
+
+    const injectPatterns: string[] = [];
+
+    for (const alias of injectAliases) {
+      injectPatterns.push(`${alias}($$$ARGS)`);
+    }
+
+    for (const ns of injectNamespaces) {
+      injectPatterns.push(`${ns}.inject($$$ARGS)`);
+    }
+
+    const allInjectMatches: PatternMatch[] = [];
+
+    for (const pattern of injectPatterns) {
+      const matches = await this.runPatternSearch(filename, code, pattern);
+
+      allInjectMatches.push(...matches);
+    }
+
+    // Sort by source position to maintain document order
+    allInjectMatches.sort((a, b) => a.startLine - b.startLine);
+
+    const lineOffsets = buildLineOffsets(code);
+
+    for (const match of allInjectMatches) {
+      const calleeName = this.resolveInjectCallee(match.matchedText);
+      const resolvedCallee = this.resolveOriginalName(calleeName);
+      const importSource = this.findImportSourceForCallee(calleeName);
+
+      if (importSource !== '@zipbul/common') {
+        continue;
+      }
+
+      if (resolvedCallee !== 'inject' && !resolvedCallee.endsWith('.inject')) {
+        continue;
+      }
+
+      const argsCapture = match.captures?.['$$$ARGS'];
+      const injectCall = this.buildInjectCallFromCapture(argsCapture, resolvedCallee, importSource);
+
+      this.currentInjectCalls.push(injectCall);
+    }
+
+    // 5c. Run patternSearch for createApplication bare calls
+    const caPatterns: string[] = [];
+
+    for (const alias of createApplicationAliases) {
+      caPatterns.push(`${alias}($$$ARGS)`);
+    }
+
+    for (const ns of createApplicationNamespaces) {
+      caPatterns.push(`${ns}.${FRAMEWORK_CREATE_APPLICATION}($$$ARGS)`);
+    }
+
+    const allCaMatches: PatternMatch[] = [];
+
+    for (const pattern of caPatterns) {
+      const matches = await this.runPatternSearch(filename, code, pattern);
+
+      allCaMatches.push(...matches);
+    }
+
+    // 5d. Run patternSearch for defineModule bare calls
+    const dmPatterns: string[] = [];
+
+    for (const alias of defineModuleAliases) {
+      dmPatterns.push(`${alias}($$$ARGS)`);
+    }
+
+    for (const ns of defineModuleNamespaces) {
+      dmPatterns.push(`${ns}.${FRAMEWORK_DEFINE_MODULE}($$$ARGS)`);
+    }
+
+    const allDmMatches: PatternMatch[] = [];
+
+    for (const pattern of dmPatterns) {
+      const matches = await this.runPatternSearch(filename, code, pattern);
+
+      allDmMatches.push(...matches);
+    }
+
+    // 6. Traverse raw AST — export specifiers, export default only
+    for (const stmt of parsed.program.body) {
       if (parseError) {
-        return;
+        break;
       }
 
-      const node = this.asNode(nodeValue);
+      if (stmt.type === 'ExportNamedDeclaration') {
+        this.collectExportNames(stmt, localExports, exportMappings, defineModuleCalls);
 
-      if (!node) {
-        return;
+        continue;
       }
 
-      if (node.type === 'ImportDeclaration') {
-        const importKind = this.getString(node, 'importKind');
-
-        if (importKind === 'type') {
-          return;
-        }
-
-        const sourceValue = this.getNodeStringValue(node, 'source');
-
-        if (!isNonEmptyString(sourceValue)) {
-          return;
-        }
-
-        const resolvedSource = this.resolvePath(filename, sourceValue);
-        const isCoreImport = sourceValue === '@zipbul/core';
-
-        importEntries.push({ source: sourceValue, resolvedSource, isRelative: sourceValue.startsWith('.') });
-
-        const specifiersValue = node.specifiers;
-        const specifiers = asAnalyzerArray(specifiersValue);
-
-        if (!specifiers) {
-          return;
-        }
-
-        for (const specValue of specifiers) {
-          const spec = this.asNode(specValue);
-
-          if (!spec) {
-            continue;
-          }
-
-          const specImportKind = this.getString(spec, 'importKind');
-
-          if (specImportKind === 'type') {
-            continue;
-          }
-
-          const local = this.asNode(spec.local);
-          const localName = local ? this.getString(local, 'name') : null;
-
-          if (!isNonEmptyString(localName)) {
-            continue;
-          }
-
-          imports[localName] = resolvedSource;
-
-          this.currentImports[localName] = resolvedSource;
-          this.currentImportSources[localName] = sourceValue;
-
-          if (spec.type === 'ImportSpecifier') {
-            const importedNode = this.asNode((spec).imported);
-            const importedName = importedNode
-              ? this.getString(importedNode, 'name') ?? this.getString(importedNode, 'value')
-              : null;
-
-            if (isNonEmptyString(importedName) && importedName !== localName) {
-              this.currentOriginalNames[localName] = importedName;
-            }
-
-            if (isCoreImport) {
-              if (importedName === FRAMEWORK_CREATE_APPLICATION) {
-                createApplicationAliases.add(localName);
-              }
-
-              if (importedName === FRAMEWORK_DEFINE_MODULE) {
-                defineModuleAliases.add(localName);
-              }
-            }
-          }
-
-          if (isCoreImport && spec.type === 'ImportNamespaceSpecifier') {
-            createApplicationNamespaces.add(localName);
-            defineModuleNamespaces.add(localName);
-          }
-        }
-
-        return;
+      if (stmt.type === 'ExportDefaultDeclaration') {
+        this.resolveExportDefaultForDefineModuleInline(stmt, defineModuleCalls);
       }
-
-      if (node.type === 'CallExpression') {
-        const call = this.extractCreateApplicationCall(node, createApplicationAliases, createApplicationNamespaces);
-
-        if (call) {
-          createApplicationCalls.push(call);
-        }
-
-        const defineCall = this.extractDefineModuleCall(node, defineModuleAliases, defineModuleNamespaces);
-
-        if (defineCall) {
-          this.upsertDefineModuleCall(defineModuleCalls, defineCall);
-        }
-      }
-
-      if (node.type === 'ExpressionStatement') {
-        this.parseExpression(node.expression);
-        traverse(node.expression);
-
-        return;
-      }
-
-      if (node.type === 'ExportAllDeclaration') {
-        const sourceValue = this.getNodeStringValue(node, 'source');
-
-        if (!isNonEmptyString(sourceValue)) {
-          return;
-        }
-
-        const resolvedSource = this.resolvePath(filename, sourceValue);
-
-        reExports.push({
-          module: resolvedSource,
-          exportAll: true,
-        });
-
-        return;
-      }
-
-      if (node.type === 'ExportNamedDeclaration') {
-        if (node.source !== undefined && node.source !== null) {
-          const sourceValue = this.getNodeStringValue(node, 'source');
-
-          if (!isNonEmptyString(sourceValue)) {
-            return;
-          }
-
-          const resolvedSource = this.resolvePath(filename, sourceValue);
-          const specifiersValue = node.specifiers;
-          const specifiers = asAnalyzerArray(specifiersValue);
-
-          if (!specifiers) {
-            return;
-          }
-
-          const names = specifiers
-            .map(specValue => {
-              const spec = this.asNode(specValue);
-
-              if (!spec) {
-                return null;
-              }
-
-              const local = this.asNode(spec.local);
-              const exported = this.asNode(spec.exported);
-              const localName = local ? this.getString(local, 'name') : null;
-              const exportedName = exported ? this.getString(exported, 'name') : null;
-
-              if (!isNonEmptyString(localName) || !isNonEmptyString(exportedName)) {
-                return null;
-              }
-
-              return { local: localName, exported: exportedName };
-            })
-            .filter((value): value is ReExportName => value !== null);
-
-          reExports.push({
-            module: resolvedSource,
-            exportAll: false,
-            names,
-          });
-
-          return;
-        }
-
-        const declaration = this.asNode(node.declaration);
-
-        if (declaration?.type === 'ClassDeclaration') {
-          const declId = this.asNode(declaration.id);
-          const name = declId ? this.getString(declId, 'name') : null;
-
-          if (isNonEmptyString(name)) {
-            localExports.push(name);
-          }
-
-          traverse(declaration);
-
-          return;
-        }
-
-        if (declaration?.type === 'TSEnumDeclaration') {
-          const declId = this.asNode(declaration.id);
-          const name = declId ? this.getString(declId, 'name') : null;
-
-          if (isNonEmptyString(name)) {
-            localExports.push(name);
-          }
-
-          traverse(declaration);
-
-          return;
-        }
-
-        if (declaration?.type === 'VariableDeclaration') {
-          const declarationsValue = declaration.declarations;
-          const declarations = asAnalyzerArray(declarationsValue);
-
-          if (!declarations) {
-            return;
-          }
-
-          for (const declValue of declarations) {
-            const decl = this.asNode(declValue);
-            const declId = decl ? this.asNode(decl.id) : null;
-            const declName = declId ? this.getString(declId, 'name') : null;
-
-            if (!isNonEmptyString(declName)) {
-              continue;
-            }
-
-            if (decl?.init !== undefined) {
-              const initValue = this.parseExpression(decl.init);
-
-              localValues[declName] = initValue;
-              exportedValues[declName] = initValue;
-
-              const initNode = this.asNode(decl.init);
-
-              if (initNode?.type === 'CallExpression') {
-                const createCall = this.extractCreateApplicationCall(
-                  initNode,
-                  createApplicationAliases,
-                  createApplicationNamespaces,
-                );
-
-                if (createCall) {
-                  createApplicationCalls.push(createCall);
-                }
-
-                const defineCall = this.extractDefineModuleCall(
-                  initNode,
-                  defineModuleAliases,
-                  defineModuleNamespaces,
-                );
-
-                if (defineCall) {
-                  defineCall.localName = declName;
-                  defineCall.exportedName = declName;
-
-                  this.upsertDefineModuleCall(defineModuleCalls, defineCall);
-                }
-              }
-            }
-
-            if (declName === 'module') {
-              localExports.push('module');
-
-              const init = decl ? this.asNode(decl.init) : null;
-
-              if (init?.type === 'ObjectExpression') {
-                moduleDefinition = this.extractModuleDefinition(init);
-              }
-
-              continue;
-            }
-
-            localExports.push(declName);
-          }
-
-          return;
-        }
-
-        const specifiersValue = node.specifiers;
-        const specifiers = asAnalyzerArray(specifiersValue);
-
-        if (specifiers) {
-          for (const specValue of specifiers) {
-            const spec = this.asNode(specValue);
-
-            if (!spec) {
-              continue;
-            }
-
-            const local = this.asNode(spec.local);
-            const exported = this.asNode(spec.exported);
-            const localName = local ? this.getString(local, 'name') : null;
-            const exportedName = exported ? this.getString(exported, 'name') : null;
-
-            if (!isNonEmptyString(localName) || !isNonEmptyString(exportedName)) {
-              continue;
-            }
-
-            localExports.push(exportedName);
-            exportMappings.push({ local: localName, exported: exportedName });
-
-            if (Object.prototype.hasOwnProperty.call(localValues, localName)) {
-              exportedValues[exportedName] = localValues[localName];
-            }
-          }
-        }
-
-        return;
-      }
-
-      if (node.type === 'ExportDefaultDeclaration') {
-        const decl = this.asNode(node.declaration);
-
-        if (decl?.type === 'CallExpression') {
-          const defineCall = this.extractDefineModuleCall(decl, defineModuleAliases, defineModuleNamespaces);
-
-          if (defineCall) {
-            defineCall.exportedName = 'default';
-
-            this.upsertDefineModuleCall(defineModuleCalls, defineCall);
-          }
-
-          return;
-        }
-
-        if (decl?.type === 'Identifier') {
-          const name = this.getString(decl, 'name');
-
-          if (isNonEmptyString(name)) {
-            const existing = defineModuleCalls.find(call => call.localName === name);
-
-            if (existing) {
-              existing.exportedName = 'default';
-            }
-          }
-        }
-
-        return;
-      }
-
-      if (node.type === 'VariableDeclaration') {
-        const declarationsValue = node.declarations;
-        const declarations = asAnalyzerArray(declarationsValue);
-
-        if (!declarations) {
-          return;
-        }
-
-        for (const declValue of declarations) {
-          const decl = this.asNode(declValue);
-          const declId = decl ? this.asNode(decl.id) : null;
-          const declName = declId ? this.getString(declId, 'name') : null;
-
-          if (!isNonEmptyString(declName)) {
-            continue;
-          }
-
-          if (decl?.init !== undefined) {
-            localValues[declName] = this.parseExpression(decl.init);
-
-            const initNode = this.asNode(decl.init);
-
-            if (initNode?.type === 'CallExpression') {
-              const createCall = this.extractCreateApplicationCall(
-                initNode,
-                createApplicationAliases,
-                createApplicationNamespaces,
-              );
-
-              if (createCall) {
-                createApplicationCalls.push(createCall);
-              }
-
-              const defineCall = this.extractDefineModuleCall(
-                initNode,
-                defineModuleAliases,
-                defineModuleNamespaces,
-              );
-
-              if (defineCall) {
-                defineCall.localName = declName;
-
-                this.upsertDefineModuleCall(defineModuleCalls, defineCall);
-              }
-            }
-          }
-        }
-
-        return;
-      }
-
-      if (node.type === 'TSEnumDeclaration') {
-        const enumId = this.asNode(node.id);
-        const enumName = enumId ? this.getString(enumId, 'name') : null;
-
-        if (isNonEmptyString(enumName)) {
-          const bodyNode = this.asNode(node.body);
-          const membersValue = bodyNode !== null ? asAnalyzerArray(bodyNode.members) : null;
-
-          if (membersValue !== null) {
-            const members = new Map<string, string>();
-
-            for (const memberValue of membersValue) {
-              const member = this.asNode(memberValue);
-
-              if (!member) {
-                continue;
-              }
-
-              const memberId = this.asNode(member.id);
-              const memberName = memberId ? this.getString(memberId, 'name') : null;
-              const initializer = this.asNode(member.initializer);
-              const memberValue2 = initializer ? this.getString(initializer, 'value') : null;
-
-              if (isNonEmptyString(memberName) && isNonEmptyString(memberValue2)) {
-                members.set(memberName, memberValue2);
-              }
-            }
-
-            if (members.size > 0) {
-              enumDeclarations.set(enumName, members);
-            }
-          }
-        }
-
-        return;
-      }
-
-      if (node.type === 'ClassDeclaration') {
-        const classResult = this.extractClassMetadata(node);
-
-        if (isErr(classResult)) {
-          parseError = classResult;
-
-          return;
-        }
-
-        classResult.imports = { ...imports };
-
-        classes.push(classResult);
-
-        return;
-      }
-
-      if (node.type === 'Program') {
-        const bodyValue = node.body;
-        const body = asAnalyzerArray(bodyValue);
-
-        if (!body) {
-          return;
-        }
-
-        for (const child of body) {
-          traverse(child);
-        }
-      }
-    };
-
-    traverse(result.program);
+    }
 
     if (parseError) {
       return parseError;
     }
 
+    // 7. Process symbols: class, enum, variable, function
+    // Track line ranges of variable-assigned framework calls for deduplication with patternSearch
+    const symbolFrameworkCallRanges: Array<{ startLine: number; endLine: number }> = [];
+
+    const conversionOptions = {
+      importMap,
+      resolveImportSource: (raw: string) => this.resolvePath(filename, raw),
+    };
+
+    for (const symbol of symbols) {
+      if (symbol.kind === 'class') {
+        const classResult = this.convertClassSymbol(symbol, parsed, imports, importMap);
+
+        if (isErr(classResult)) {
+          return classResult;
+        }
+
+        classes.push(classResult);
+      }
+
+      if (symbol.kind === 'enum') {
+        const members = new Map<string, string>();
+
+        if (symbol.members) {
+          for (const member of symbol.members) {
+            if (member.initializer !== undefined) {
+              const initValue = member.initializer;
+
+              if (initValue.kind === 'string' || initValue.kind === 'number') {
+                members.set(member.name, String(initValue.value));
+              }
+            }
+          }
+        }
+
+        if (members.size > 0) {
+          enumDeclarations.set(symbol.name, members);
+        }
+      }
+
+      if (symbol.kind === 'variable' && symbol.initializer !== undefined) {
+        const conversionResult = convertExpressionDeep(
+          symbol.initializer,
+          filename,
+          conversionOptions,
+        );
+
+        const symbolValue = this.enrichFactoryValues(
+          conversionResult,
+          parsed,
+          symbol.name,
+          allInjectMatches,
+          lineOffsets,
+        );
+
+        localValues[symbol.name] = symbolValue;
+
+        if (symbol.isExported) {
+          exportedValues[symbol.name] = symbolValue;
+        }
+
+        for (const inject of conversionResult.injectCalls) {
+          this.currentInjectCalls.push(inject);
+        }
+
+        const caCountBefore = createApplicationCalls.length;
+        const dmCountBefore = defineModuleCalls.length;
+
+        this.detectFrameworkCallsFromInitializer(
+          symbol, conversionResult, createApplicationAliases, createApplicationNamespaces,
+          defineModuleAliases, defineModuleNamespaces, createApplicationCalls, defineModuleCalls,
+        );
+
+        // Track symbol line ranges of variable-assigned framework calls for deduplication
+        if (createApplicationCalls.length > caCountBefore || defineModuleCalls.length > dmCountBefore) {
+          symbolFrameworkCallRanges.push({
+            startLine: symbol.span.start.line,
+            endLine: symbol.span.end.line,
+          });
+        }
+
+        if (symbol.name === 'module' && symbol.initializer.kind === 'object') {
+          moduleDefinition = this.convertModuleDefinition(symbol.initializer, importMap);
+        }
+      }
+
+      if (symbol.kind === 'function') {
+        const funcExpr = symbol.initializer ?? {
+          kind: 'function' as const,
+          sourceText: this.extractFunctionSourceText(parsed, symbol.name),
+          parameters: symbol.parameters,
+        };
+        const conversionResult = convertExpressionDeep(funcExpr, filename, conversionOptions);
+
+        const symbolValue = this.enrichFactoryValues(
+          conversionResult,
+          parsed,
+          symbol.name,
+          allInjectMatches,
+          lineOffsets,
+        );
+
+        localValues[symbol.name] = symbolValue;
+
+        if (symbol.isExported) {
+          exportedValues[symbol.name] = symbolValue;
+        }
+
+        for (const inject of conversionResult.injectCalls) {
+          this.currentInjectCalls.push(inject);
+        }
+      }
+    }
+
+    // 7a. Process patternSearch matches for bare createApplication/defineModule calls
+    // Symbol processing (step 7) already populated calls from variable initializers.
+    // patternSearch finds ALL calls (including variable-assigned), so deduplicate by line.
+    const isWithinSymbolRange = (matchLine: number): boolean =>
+      symbolFrameworkCallRanges.some(range => matchLine >= range.startLine && matchLine <= range.endLine);
+
+    for (const match of allCaMatches) {
+      if (isWithinSymbolRange(match.startLine)) {
+        continue;
+      }
+
+      const extMatch = match as PatternMatchWithOffsets;
+      const callee = match.matchedText.slice(0, match.matchedText.indexOf('('));
+      const importSource = this.findImportSourceForCallee(callee);
+
+      if (importSource !== '@zipbul/core') {
+        continue;
+      }
+
+      const argsCapture = match.captures?.['$$$ARGS'];
+      const args = this.parsePatternCaptureArgs(argsCapture?.text ?? '', importMap);
+
+      createApplicationCalls.push({
+        callee,
+        importSource,
+        args,
+        start: extMatch.startOffset,
+        end: extMatch.endOffset,
+      });
+    }
+
+    for (const match of allDmMatches) {
+      if (isWithinSymbolRange(match.startLine)) {
+        continue;
+      }
+
+      const extMatch = match as PatternMatchWithOffsets;
+      const callee = match.matchedText.slice(0, match.matchedText.indexOf('('));
+      const importSource = this.findImportSourceForCallee(callee);
+
+      if (importSource !== '@zipbul/core') {
+        continue;
+      }
+
+      const argsCapture = match.captures?.['$$$ARGS'];
+      const args = this.parsePatternCaptureArgs(argsCapture?.text ?? '', importMap);
+
+      const defineCall: DefineModuleCall = {
+        callee,
+        importSource,
+        args,
+        start: extMatch.startOffset,
+        end: extMatch.endOffset,
+      };
+
+      this.upsertDefineModuleCall(defineModuleCalls, defineCall);
+    }
+
+    // Handle export default for defineModule calls detected via patternSearch
+    this.resolveExportDefaultDefineModule(parsed, defineModuleCalls);
+
+    // 7b. Resolve export specifier mappings (local → exported values)
+    for (const mapping of exportMappings) {
+      if (Object.prototype.hasOwnProperty.call(localValues, mapping.local)) {
+        exportedValues[mapping.exported] = localValues[mapping.local];
+      }
+    }
+
+    // 8. Resolve defineModule export names
     if (defineModuleCalls.length > 0 && exportMappings.length > 0) {
       const exportMap = new Map<string, string[]>();
 
@@ -581,6 +503,7 @@ export class AstParser {
       });
     }
 
+    // 9. Return ParseResult
     return {
       classes,
       reExports,
@@ -597,140 +520,996 @@ export class AstParser {
     };
   }
 
-  private extractCreateApplicationCall(
-    node: NodeRecord,
+  /**
+   * Populates import tracking state from oxc-parser `StaticImport` entries.
+   *
+   * Replaces the manual `ImportDeclaration` AST traversal from the original
+   * parser. Produces the same `imports`, `importEntries`, `currentImports`,
+   * `currentImportSources`, `currentOriginalNames`, and alias/namespace sets.
+   *
+   * @param staticImports - Import entries from `ParsedFile.module.staticImports`
+   * @param filename - Current file path for resolving relative imports
+   * @param imports - Output map of local name → resolved path
+   * @param importEntries - Output list of import entries
+   * @param createApplicationAliases - Aliases for `createApplication`
+   * @param createApplicationNamespaces - Namespace imports from `@zipbul/core`
+   * @param defineModuleAliases - Aliases for `defineModule`
+   * @param defineModuleNamespaces - Namespace imports from `@zipbul/core`
+   */
+  private buildImportState(
+    staticImports: readonly StaticImport[],
+    filename: string,
+    imports: Record<string, string>,
+    importEntries: ImportEntry[],
     createApplicationAliases: Set<string>,
     createApplicationNamespaces: Set<string>,
-  ): CreateApplicationCall | null {
-    // MUST: MUST-1
-    // MUST: MUST-2
-    const callee = this.asNode(node.callee);
-    const argsValue = asAnalyzerArray(node.arguments);
-    const args = (argsValue ?? []).map(arg => this.parseExpression(arg));
+    defineModuleAliases: Set<string>,
+    defineModuleNamespaces: Set<string>,
+  ): void {
+    for (const imp of staticImports) {
+      const sourceValue = imp.moduleRequest.value;
+      const resolvedSource = this.resolvePath(filename, sourceValue);
+      const isCoreImport = sourceValue === '@zipbul/core';
 
-    if (callee?.type === 'Identifier') {
-      const name = this.getString(callee, 'name');
+      importEntries.push({ source: sourceValue, resolvedSource, isRelative: sourceValue.startsWith('.') });
 
-      if (!isNonEmptyString(name)) {
-        return null;
+      for (const entry of imp.entries) {
+        if (entry.isType) {
+          continue;
+        }
+
+        const localName = entry.localName.value;
+
+        imports[localName] = resolvedSource;
+        this.currentImports[localName] = resolvedSource;
+        this.currentImportSources[localName] = sourceValue;
+
+        if (entry.importName.kind === 'Name') {
+          const importedName = entry.importName.name;
+
+          if (importedName !== null && importedName !== localName) {
+            this.currentOriginalNames[localName] = importedName;
+          }
+
+          if (isCoreImport) {
+            if (importedName === FRAMEWORK_CREATE_APPLICATION) {
+              createApplicationAliases.add(localName);
+            }
+
+            if (importedName === FRAMEWORK_DEFINE_MODULE) {
+              defineModuleAliases.add(localName);
+            }
+          }
+        }
+
+        if (entry.importName.kind === 'NamespaceObject' && isCoreImport) {
+          createApplicationNamespaces.add(localName);
+          defineModuleNamespaces.add(localName);
+        }
       }
+    }
+  }
 
-      if (name !== FRAMEWORK_CREATE_APPLICATION && !createApplicationAliases.has(name)) {
-        return null;
+  /**
+   * Populates re-export entries from oxc-parser `StaticExport` entries.
+   *
+   * Replaces the manual `ExportAllDeclaration` and `ExportNamedDeclaration`
+   * with source traversal.
+   *
+   * @param staticExports - Export entries from `ParsedFile.module.staticExports`
+   * @param filename - Current file path for resolving relative imports
+   * @param reExports - Output list of re-export entries
+   */
+  private buildExportState(
+    staticExports: readonly StaticExport[],
+    filename: string,
+    reExports: ReExport[],
+  ): void {
+    for (const exp of staticExports) {
+      for (const entry of exp.entries) {
+        if (entry.moduleRequest === null) {
+          continue;
+        }
+
+        const sourceValue = entry.moduleRequest.value;
+        const resolvedSource = this.resolvePath(filename, sourceValue);
+
+        if (entry.importName.kind === 'AllButDefault' || entry.importName.kind === 'All') {
+          reExports.push({
+            module: resolvedSource,
+            exportAll: true,
+          });
+
+          continue;
+        }
+
+        if (entry.importName.kind === 'Name' && entry.exportName.kind === 'Name') {
+          const localName = entry.importName.name ?? '';
+          const exportedName = entry.exportName.name ?? '';
+
+          if (localName.length > 0 && exportedName.length > 0) {
+            const existing = reExports.find(
+              re => re.module === resolvedSource && !re.exportAll,
+            );
+
+            if (existing) {
+              const names = existing.names ?? [];
+
+              names.push({ local: localName, exported: exportedName });
+              existing.names = names;
+            } else {
+              reExports.push({
+                module: resolvedSource,
+                exportAll: false,
+                names: [{ local: localName, exported: exportedName }],
+              });
+            }
+          }
+        }
       }
+    }
+  }
 
-      const importSource = this.currentImportSources[name];
+  /**
+   * Converts a gildash `ExtractedSymbol` of kind `'class'` into the compiler's
+   * `ClassMetadata` format.
+   *
+   * Uses gildash symbol data for decorators, constructor params, method
+   * decorators, property types, and heritage. Falls back to raw AST for:
+   * - configure() method body (middleware/exception filter extraction)
+   * - typed calls in handler methods
+   * - computed/private method detection
+   *
+   * @param symbol - Class symbol from `extractSymbols`
+   * @param parsed - Full parsed file for raw AST access
+   * @param currentImports - Import map snapshot at parse time
+   * @param importMap - Import map from `buildImportMap`
+   * @returns ClassMetadata or diagnostic error
+   */
+  private convertClassSymbol(
+    symbol: ExtractedSymbol,
+    parsed: ParsedFile,
+    currentImports: Record<string, string>,
+    importMap: ImportMap,
+  ): Result<ClassMetadata, Diagnostic> {
+    const className = symbol.name;
 
-      if (importSource !== '@zipbul/core') {
-        return null;
-      }
+    // gildash gives anonymous classes the name "default" — detect by checking
+    // if any raw class AST node at this symbol's span lacks an explicit id.
+    if (className.length === 0 || this.isAnonymousClassSymbol(parsed, symbol)) {
+      return err(buildDiagnostic({
+        reason: 'Anonymous classes cannot be used as providers. All classes must have explicit names.',
+        file: this.currentFilePath,
+      }));
+    }
+
+    // Decorators — resolve aliased names through currentOriginalNames
+    const decorators: DecoratorMetadata[] = (symbol.decorators ?? []).map(decorator => {
+      const converted = convertDecorator(decorator);
 
       return {
-        callee: name,
-        importSource,
-        args,
-        start: typeof node.start === 'number' ? node.start : undefined,
-        end: typeof node.end === 'number' ? node.end : undefined,
+        ...converted,
+        name: this.resolveOriginalName(converted.name),
+      };
+    });
+
+    // Constructor params
+    const constructorParams: ClassMetadata['constructorParams'] = [];
+    const methods: ClassMetadata['methods'] = [];
+    const properties: ClassMetadata['properties'] = [];
+    let middlewares: ClassMetadata['middlewares'] = [];
+    let exceptionFilters: ClassMetadata['exceptionFilters'] = [];
+
+    // Find the raw class AST node for body access
+    const rawClassNode = this.findClassAstNode(parsed, className);
+
+    if (symbol.members) {
+      for (const member of symbol.members) {
+        if (member.methodKind === 'constructor' && member.parameters) {
+          for (const param of member.parameters) {
+            const paramType = this.resolveParameterType(param.type, param.typeImportSource, importMap);
+            const paramDecorators = (param.decorators ?? []).map(decorator => {
+              const converted = convertDecorator(decorator);
+
+              return { ...converted, name: this.resolveOriginalName(converted.name) };
+            });
+
+            constructorParams.push({
+              name: param.name,
+              type: paramType,
+              typeArgs: this.extractTypeArgs(param.type),
+              decorators: paramDecorators,
+            });
+          }
+
+          continue;
+        }
+
+        if (member.kind === 'method' && member.methodKind === 'method') {
+          const isStatic = member.modifiers.includes('static');
+          const memberName = member.name;
+
+          // Check raw AST for computed/private
+          const astMeta = rawClassNode !== null
+            ? this.getMethodAstMeta(rawClassNode, memberName)
+            : null;
+          const isComputed = astMeta?.isComputed ?? false;
+          const isPrivateName = astMeta?.isPrivateName ?? false;
+
+          // gildash gives "unknown" for computed/private methods — treat as unnamed
+          const isUnresolvableName = memberName === 'unknown' && (isComputed || isPrivateName);
+          let methodName = isUnresolvableName ? '' : memberName;
+
+          const methodDecorators = (member.decorators ?? []).map(decorator => {
+            const converted = convertDecorator(decorator);
+
+            return { ...converted, name: this.resolveOriginalName(converted.name) };
+          });
+
+          if (!isNonEmptyString(methodName)) {
+            if (isComputed && methodDecorators.length > 0) {
+              methodName = `__computed_${astMeta?.start ?? 0}__`;
+            } else {
+              continue;
+            }
+          }
+
+          const methodParams: ClassMetadata['methods'][number]['parameters'] = [];
+
+          if (member.parameters) {
+            for (let index = 0; index < member.parameters.length; index += 1) {
+              const param = member.parameters[index];
+
+              if (param === undefined) {
+                continue;
+              }
+
+              const paramType = this.resolveParameterType(param.type, param.typeImportSource, importMap);
+              const paramDecorators = (param.decorators ?? []).map(decorator => {
+                const converted = convertDecorator(decorator);
+
+                return { ...converted, name: this.resolveOriginalName(converted.name) };
+              });
+
+              methodParams.push({
+                name: param.name,
+                type: paramType,
+                typeArgs: this.extractTypeArgs(param.type),
+                decorators: paramDecorators,
+                index,
+              });
+            }
+          }
+
+          methodParams.sort((a, b) => a.index - b.index);
+
+          if (methodName === 'configure' && rawClassNode !== null) {
+            const funcNode = this.findMethodBodyAstNode(rawClassNode, 'configure');
+
+            if (funcNode !== null) {
+              const mwResult = this.extractMiddlewaresFromConfigure(funcNode);
+
+              if (isErr(mwResult)) {
+                return mwResult;
+              }
+
+              middlewares = mwResult;
+
+              const efResult = this.extractExceptionFiltersFromConfigure(funcNode);
+
+              if (isErr(efResult)) {
+                return efResult;
+              }
+
+              exceptionFilters = efResult;
+            }
+          }
+
+          if (methodDecorators.length > 0 || methodParams.some(param => param.decorators.length > 0)) {
+            let typedCalls: ClassMetadata['methods'][number]['typedCalls'] | undefined;
+
+            if (rawClassNode !== null) {
+              const funcNode = this.findMethodBodyAstNode(rawClassNode, methodName);
+
+              if (funcNode !== null) {
+                typedCalls = this.extractTypedCalls(funcNode);
+              }
+            }
+
+            methods.push({
+              name: methodName,
+              decorators: methodDecorators,
+              parameters: methodParams,
+              ...(typedCalls !== undefined ? { typedCalls } : {}),
+              isStatic: isStatic || undefined,
+              isComputed: isComputed || undefined,
+              isPrivateName: isPrivateName || undefined,
+            });
+          }
+
+          continue;
+        }
+
+        if (member.kind === 'property') {
+          const propName = member.name;
+
+          if (!isNonEmptyString(propName)) {
+            continue;
+          }
+
+          const propDecorators = (member.decorators ?? []).map(decorator => {
+            const converted = convertDecorator(decorator);
+
+            return { ...converted, name: this.resolveOriginalName(converted.name) };
+          });
+
+          const initializer = member.initializer !== undefined
+            ? convertExpression(member.initializer)
+            : null;
+
+          const typeInfo = parseTypeAnnotation(member.returnType, importMap);
+
+          if (propDecorators.length > 0 || initializer !== null) {
+            const isProtected = member.modifiers.includes('protected');
+            const rawProperty = rawClassNode !== null
+              ? this.findPropertyAstNode(rawClassNode, propName)
+              : null;
+            const isOptionalRaw = rawProperty !== null ? Boolean(rawProperty.optional) : false;
+            const optional = isOptionalRaw || isProtected;
+
+            properties.push({
+              name: propName,
+              type: typeInfo.type,
+              typeArgs: typeInfo.typeArgs,
+              decorators: propDecorators,
+              initializer: initializer ?? undefined,
+              isOptional: optional,
+              isArray: typeInfo.isArray,
+              items: typeInfo.items,
+            });
+          }
+        }
+      }
+    }
+
+    // Heritage — use gildash heritage but augment with type args from raw AST for TS_UTILITY_TYPES
+    let heritage: ClassMetadata['heritage'] = undefined;
+
+    if (symbol.heritage && symbol.heritage.length > 0) {
+      for (const clause of symbol.heritage) {
+        if (heritage !== undefined) {
+          break;
+        }
+
+        if (TS_UTILITY_TYPES.includes(clause.name)) {
+          const typeArgs = clause.typeArguments ?? this.extractHeritageTypeArgs(rawClassNode, clause.kind, clause.name);
+
+          heritage = {
+            clause: clause.kind,
+            typeName: clause.name,
+            typeArgs: typeArgs.length > 0 ? typeArgs : undefined,
+          };
+        } else {
+          heritage = {
+            clause: clause.kind,
+            typeName: clause.name,
+          };
+        }
+      }
+    }
+
+    return {
+      className,
+      heritage,
+      decorators,
+      constructorParams,
+      methods,
+      properties,
+      imports: { ...currentImports },
+      middlewares,
+      exceptionFilters,
+    };
+  }
+
+  /**
+   * Resolves a parameter type string from gildash into an AnalyzerValue.
+   *
+   * When gildash provides a `typeImportSource`, uses that directly.
+   * Otherwise falls back to the import map resolution.
+   *
+   * @param typeText - Type annotation text from gildash
+   * @param typeImportSource - Import source from gildash parameter
+   * @param importMap - Import map for fallback resolution
+   * @returns AnalyzerValue for the parameter type
+   */
+  private resolveParameterType(
+    typeText: string | undefined,
+    typeImportSource: string | undefined,
+    importMap: ImportMap,
+  ): AnalyzerValue {
+    if (typeText === undefined || typeText.length === 0) {
+      return 'any';
+    }
+
+    if (typeImportSource !== undefined) {
+      const resolvedSource = this.resolvePath(this.currentFilePath, typeImportSource);
+      const originalName = this.resolveOriginalNameFromImportMap(typeText, importMap);
+
+      return {
+        [ZIPBUL_REF]: originalName,
+        [ZIPBUL_IMPORT_SOURCE]: resolvedSource,
       };
     }
 
-    if (callee?.type === 'MemberExpression') {
-      const objectNode = this.asNode(callee.object);
-      const propertyNode = this.asNode(callee.property);
-      const objectName = objectNode?.type === 'Identifier' ? this.getString(objectNode, 'name') : null;
-      const propertyName = propertyNode ? this.getString(propertyNode, 'name') : null;
+    return resolveTypeString(typeText, importMap);
+  }
 
-      if (!isNonEmptyString(objectName) || propertyName !== FRAMEWORK_CREATE_APPLICATION) {
-        return null;
+  /**
+   * Resolves the original exported name for a type through the import map.
+   *
+   * @param typeText - Local type name
+   * @param importMap - Import map
+   * @returns Original name if aliased, otherwise the typeText itself
+   */
+  private resolveOriginalNameFromImportMap(typeText: string, importMap: ImportMap): string {
+    const info = importMap.get(typeText);
+
+    if (info !== undefined && info.originalName !== null) {
+      return info.originalName;
+    }
+
+    return typeText;
+  }
+
+  /**
+   * Extracts type arguments from a type annotation string.
+   *
+   * @param typeText - Type annotation text (e.g. `"Map<string, User>"`)
+   * @returns Array of type argument strings, or undefined
+   */
+  private extractTypeArgs(typeText: string | undefined): string[] | undefined {
+    if (typeText === undefined) {
+      return undefined;
+    }
+
+    const genericMatch = typeText.match(/^(\w+)<(.+)>$/);
+
+    if (genericMatch !== null && genericMatch[2] !== undefined) {
+      return genericMatch[2].split(',').map(a => a.trim());
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Enriches factory function values in a ConversionResult with dependency
+   * and inject call analysis from the raw AST.
+   *
+   * When the converted value contains `ZIPBUL_FACTORY_CODE`, finds the
+   * corresponding raw AST function node and runs `extractDependencies`.
+   * Inject calls within the factory are collected from pre-computed
+   * patternSearch results filtered by the function's line range.
+   *
+   * @param conversionResult - Result from `convertExpressionDeep`
+   * @param parsed - Parsed file for raw AST access
+   * @param variableName - Name of the variable being processed
+   * @param injectMatches - Pre-computed inject pattern matches from patternSearch
+   * @param lineOffsets - Line offset table from `buildLineOffsets`
+   * @returns The enriched AnalyzerValue
+   */
+  private enrichFactoryValues(
+    conversionResult: ConversionResult,
+    parsed: ParsedFile,
+    variableName: string,
+    injectMatches: readonly PatternMatch[],
+    lineOffsets: readonly number[],
+  ): AnalyzerValue {
+    if (conversionResult.factoryRefs.length === 0) {
+      return conversionResult.value;
+    }
+
+    // For top-level factory (the value itself is a factory)
+    const record = isRecordValue(conversionResult.value) ? conversionResult.value : null;
+
+    if (record !== null && typeof record[ZIPBUL_FACTORY_CODE] === 'string') {
+      const funcNode = this.findVariableInitAstNode(parsed, variableName);
+
+      if (funcNode !== null) {
+        const funcStart = funcNode.start;
+        const funcEnd = funcNode.end;
+        const deps = this.extractDependencies(funcNode, funcStart);
+        const injectCalls = this.collectFactoryInjectCalls(
+          injectMatches, lineOffsets, funcStart, funcEnd,
+        );
+
+        return {
+          ...record,
+          __zipbul_factory_deps: deps,
+          __zipbul_factory_injects: injectCalls,
+        };
       }
+    }
 
-      if (!createApplicationNamespaces.has(objectName)) {
-        return null;
-      }
+    return conversionResult.value;
+  }
 
-      const importSource = this.currentImportSources[objectName];
+  /**
+   * Detects `createApplication` and `defineModule` calls from a variable's
+   * gildash ExpressionCall initializer.
+   *
+   * @param symbol - The variable symbol
+   * @param conversionResult - Result from `convertExpressionDeep`
+   * @param createApplicationAliases - Aliases for `createApplication`
+   * @param createApplicationNamespaces - Namespace imports from `@zipbul/core`
+   * @param defineModuleAliases - Aliases for `defineModule`
+   * @param defineModuleNamespaces - Namespace imports from `@zipbul/core`
+   * @param createApplicationCalls - Output array
+   * @param defineModuleCalls - Output array
+   */
+  private detectFrameworkCallsFromInitializer(
+    symbol: ExtractedSymbol,
+    conversionResult: ConversionResult,
+    createApplicationAliases: Set<string>,
+    createApplicationNamespaces: Set<string>,
+    defineModuleAliases: Set<string>,
+    defineModuleNamespaces: Set<string>,
+    createApplicationCalls: CreateApplicationCall[],
+    defineModuleCalls: DefineModuleCall[],
+  ): void {
+    const init = symbol.initializer;
 
-      if (importSource !== '@zipbul/core') {
-        return null;
-      }
+    if (init === undefined || init.kind !== 'call') {
+      return;
+    }
 
-      return {
-        callee: `${objectName}.${FRAMEWORK_CREATE_APPLICATION}`,
+    const callee = init.callee;
+    const importSource = init.importSource;
+
+    if (importSource !== '@zipbul/core') {
+      return;
+    }
+
+    const record = isRecordValue(conversionResult.value) ? conversionResult.value : null;
+    const args = record !== null && Array.isArray(record.args) ? record.args as AnalyzerValue[] : [];
+
+    if (this.isCreateApplicationCallee(callee, createApplicationAliases, createApplicationNamespaces)) {
+      createApplicationCalls.push({
+        callee,
         importSource,
         args,
-        start: typeof node.start === 'number' ? node.start : undefined,
-        end: typeof node.end === 'number' ? node.end : undefined,
+      });
+    }
+
+    if (this.isDefineModuleCallee(callee, defineModuleAliases, defineModuleNamespaces)) {
+      const defineCall: DefineModuleCall = {
+        callee,
+        importSource,
+        args,
+        localName: symbol.name,
+        exportedName: symbol.isExported ? symbol.name : undefined,
       };
+
+      this.upsertDefineModuleCall(defineModuleCalls, defineCall);
+    }
+  }
+
+  /**
+   * Checks whether a callee name matches `createApplication` or an alias/namespace.
+   *
+   * @param callee - Callee name from ExpressionCall
+   * @param aliases - Direct aliases for `createApplication`
+   * @param namespaces - Namespace imports from `@zipbul/core`
+   * @returns `true` if this is a createApplication call
+   */
+  private isCreateApplicationCallee(
+    callee: string,
+    aliases: Set<string>,
+    namespaces: Set<string>,
+  ): boolean {
+    if (callee === FRAMEWORK_CREATE_APPLICATION || aliases.has(callee)) {
+      return true;
+    }
+
+    const dotIndex = callee.indexOf('.');
+
+    if (dotIndex > 0) {
+      const ns = callee.slice(0, dotIndex);
+      const method = callee.slice(dotIndex + 1);
+
+      return namespaces.has(ns) && method === FRAMEWORK_CREATE_APPLICATION;
+    }
+
+    return false;
+  }
+
+  /**
+   * Checks whether a callee name matches `defineModule` or an alias/namespace.
+   *
+   * @param callee - Callee name from ExpressionCall
+   * @param aliases - Direct aliases for `defineModule`
+   * @param namespaces - Namespace imports from `@zipbul/core`
+   * @returns `true` if this is a defineModule call
+   */
+  private isDefineModuleCallee(
+    callee: string,
+    aliases: Set<string>,
+    namespaces: Set<string>,
+  ): boolean {
+    if (callee === FRAMEWORK_DEFINE_MODULE || aliases.has(callee)) {
+      return true;
+    }
+
+    const dotIndex = callee.indexOf('.');
+
+    if (dotIndex > 0) {
+      const ns = callee.slice(0, dotIndex);
+      const method = callee.slice(dotIndex + 1);
+
+      return namespaces.has(ns) && method === FRAMEWORK_DEFINE_MODULE;
+    }
+
+    return false;
+  }
+
+  /**
+   * Converts a gildash `ExpressionObject` into a `ModuleDefinition`.
+   *
+   * Used when a variable named `module` has an object literal initializer.
+   *
+   * @param expr - The object expression from gildash
+   * @param importMap - Import map for type resolution
+   * @returns ModuleDefinition with name, providers, adapters, and imports
+   */
+  private convertModuleDefinition(expr: ExpressionObject, importMap: ImportMap): ModuleDefinition {
+    let name: string | undefined;
+    let nameDeclared = false;
+    const providers: AnalyzerValue[] = [];
+    let adapters: AnalyzerValue | undefined = undefined;
+
+    for (const prop of expr.properties) {
+      if (prop.key === 'name') {
+        nameDeclared = true;
+
+        if (prop.value.kind === 'string' && typeof prop.value.value === 'string') {
+          name = prop.value.value;
+        }
+
+        continue;
+      }
+
+      if (prop.key === 'providers' && prop.value.kind === 'array') {
+        for (const element of prop.value.elements) {
+          providers.push(convertExpression(element));
+        }
+
+        continue;
+      }
+
+      if (prop.key === 'adapters') {
+        adapters = convertExpression(prop.value);
+      }
+    }
+
+    return {
+      name,
+      nameDeclared,
+      providers,
+      adapters,
+      imports: { ...this.currentImports },
+    };
+  }
+
+  /**
+   * Finds the initializer AST node for a variable declaration by name.
+   *
+   * Searches the program body for VariableDeclaration containing the
+   * named variable and returns its init node (the function expression).
+   *
+   * @param parsed - Parsed file
+   * @param variableName - Name of the variable
+   * @returns The init AST node or null
+   */
+  private findVariableInitAstNode(parsed: ParsedFile, variableName: string): Expression | null {
+    for (const stmt of parsed.program.body) {
+      const varDecl = this.extractVariableDeclaration(stmt);
+
+      if (varDecl === null) {
+        continue;
+      }
+
+      for (const decl of varDecl.declarations) {
+        const declName = decl.id.type === 'Identifier' ? decl.id.name : null;
+
+        if (declName === variableName && decl.init !== null) {
+          return decl.init;
+        }
+      }
     }
 
     return null;
   }
 
-  private extractDefineModuleCall(
-    node: NodeRecord,
-    defineModuleAliases: Set<string>,
-    defineModuleNamespaces: Set<string>,
-  ): DefineModuleCall | null {
-    const callee = this.asNode(node.callee);
-    const argsValue = asAnalyzerArray(node.arguments);
-    const args = (argsValue ?? []).map(arg => this.parseExpression(arg));
+  /**
+   * Extracts the source text of a function declaration by name from the raw AST.
+   *
+   * Used for gildash `kind: 'function'` symbols that don't have an initializer
+   * (standalone function declarations vs arrow function variables).
+   *
+   * @param parsed - Parsed file
+   * @param functionName - Name of the function
+   * @returns Source text of the function body, or empty string
+   */
+  private extractFunctionSourceText(parsed: ParsedFile, functionName: string): string {
+    for (const stmt of parsed.program.body) {
+      const funcDecl = this.extractFunctionDeclaration(stmt);
 
-    if (callee?.type === 'Identifier') {
-      const name = this.getString(callee, 'name');
+      if (funcDecl !== null) {
+        if (funcDecl.id?.name === functionName) {
+          return this.currentCode.slice(funcDecl.start, funcDecl.end);
+        }
 
-      if (!isNonEmptyString(name)) {
-        return null;
+        continue;
       }
 
-      if (name !== FRAMEWORK_DEFINE_MODULE && !defineModuleAliases.has(name)) {
-        return null;
+      // Arrow function assigned to variable: const name = () => ...
+      const varDecl = this.extractVariableDeclaration(stmt);
+
+      if (varDecl !== null) {
+        for (const decl of varDecl.declarations) {
+          const declName = decl.id.type === 'Identifier' ? decl.id.name : null;
+
+          if (declName === functionName && decl.init !== null) {
+            const initNode = decl.init;
+
+            if (initNode.type === 'ArrowFunctionExpression' || initNode.type === 'FunctionExpression') {
+              return this.currentCode.slice(initNode.start, initNode.end);
+            }
+          }
+        }
       }
-
-      const importSource = this.currentImportSources[name];
-
-      if (importSource !== '@zipbul/core') {
-        return null;
-      }
-
-      return {
-        callee: name,
-        importSource,
-        args,
-        start: typeof node.start === 'number' ? node.start : undefined,
-        end: typeof node.end === 'number' ? node.end : undefined,
-      };
     }
 
-    if (callee?.type === 'MemberExpression') {
-      const objectNode = this.asNode(callee.object);
-      const propertyNode = this.asNode(callee.property);
-      const objectName = objectNode?.type === 'Identifier' ? this.getString(objectNode, 'name') : null;
-      const propertyName = propertyNode ? this.getString(propertyNode, 'name') : null;
+    return '';
+  }
 
-      if (!isNonEmptyString(objectName) || propertyName !== FRAMEWORK_DEFINE_MODULE) {
-        return null;
+  /**
+   * Finds the raw `ClassDeclaration` AST node for a given class name.
+   *
+   * @param parsed - Parsed file
+   * @param className - Name of the class to find
+   * @returns Raw ClassDeclaration node or null
+   */
+  private isAnonymousClassSymbol(parsed: ParsedFile, _symbol: ExtractedSymbol): boolean {
+    for (const stmt of parsed.program.body) {
+      const classNode = this.extractClassFromStatement(stmt);
+
+      if (classNode === null) {
+        continue;
       }
 
-      if (!defineModuleNamespaces.has(objectName)) {
-        return null;
+      if (classNode.id === null) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private findClassAstNode(parsed: ParsedFile, className: string): Class | null {
+    for (const stmt of parsed.program.body) {
+      if (stmt.type === 'ClassDeclaration') {
+        if (stmt.id?.name === className) {
+          return stmt;
+        }
       }
 
-      const importSource = this.currentImportSources[objectName];
+      if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+        const declaration = stmt.declaration;
 
-      if (importSource !== '@zipbul/core') {
-        return null;
+        if (declaration?.type === 'ClassDeclaration' && declaration.id?.name === className) {
+          return declaration;
+        }
       }
-
-      return {
-        callee: `${objectName}.${FRAMEWORK_DEFINE_MODULE}`,
-        importSource,
-        args,
-        start: typeof node.start === 'number' ? node.start : undefined,
-        end: typeof node.end === 'number' ? node.end : undefined,
-      };
     }
 
     return null;
+  }
+
+  /**
+   * Finds the function body AST node for a named method in a class.
+   *
+   * @param classNode - Raw ClassDeclaration AST node
+   * @param methodName - Name of the method
+   * @returns The method's function value node (containing body), or null
+   */
+  private findMethodBodyAstNode(classNode: Class, methodName: string): OxcFunction | null {
+    for (const member of classNode.body.body) {
+      if (member.type !== 'MethodDefinition') {
+        continue;
+      }
+
+      if (member.kind !== 'method') {
+        continue;
+      }
+
+      const name = this.getPropertyKeyName(member.key);
+
+      if (name === methodName) {
+        return member.value;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Finds a PropertyDefinition AST node for a named property in a class.
+   *
+   * @param classNode - Raw ClassDeclaration AST node
+   * @param propName - Name of the property
+   * @returns The PropertyDefinition node, or null
+   */
+  private findPropertyAstNode(classNode: Class, propName: string): PropertyDefinition | null {
+    for (const member of classNode.body.body) {
+      if (member.type !== 'PropertyDefinition') {
+        continue;
+      }
+
+      const name = this.getPropertyKeyName(member.key);
+
+      if (name === propName) {
+        return member;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Gets computed/private/static metadata for a method from the raw AST.
+   *
+   * @param classNode - Raw ClassDeclaration AST node
+   * @param methodName - Method name to look up
+   * @returns Object with isComputed, isPrivateName, start, or null if not found
+   */
+  private getMethodAstMeta(
+    classNode: Class,
+    methodName: string,
+  ): { isComputed: boolean; isPrivateName: boolean; start: number } | null {
+    for (const member of classNode.body.body) {
+      if (member.type !== 'MethodDefinition') {
+        continue;
+      }
+
+      if (member.kind !== 'method') {
+        continue;
+      }
+
+      const isComputed = member.computed;
+      const isPrivateName = member.key.type === 'PrivateIdentifier';
+      const name = this.getPropertyKeyName(member.key);
+
+      if (name === methodName) {
+        return { isComputed, isPrivateName, start: member.start };
+      }
+
+      // gildash gives "unknown" for computed methods — match by checking
+      // if this is a computed/unresolvable method and the requested name
+      // is also "unknown"
+      if (methodName === 'unknown' && name === null && (isComputed || isPrivateName)) {
+        return { isComputed, isPrivateName, start: member.start };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extracts heritage type arguments from the raw AST for TS_UTILITY_TYPES.
+   *
+   * gildash does not include type arguments in heritage, so we fall back
+   * to the raw AST for classes that extend/implement utility types like
+   * `Partial`, `Pick`, `Omit`, `Required`.
+   *
+   * @param classNode - Raw ClassDeclaration AST node
+   * @param clauseKind - 'extends' or 'implements'
+   * @param typeName - The utility type name
+   * @returns Array of type argument name strings
+   */
+  private extractHeritageTypeArgs(
+    classNode: Class | null,
+    clauseKind: 'extends' | 'implements',
+    typeName: string,
+  ): string[] {
+    if (classNode === null) {
+      return [];
+    }
+
+    const typeArgs: string[] = [];
+
+    if (clauseKind === 'extends') {
+      const superClass = classNode.superClass;
+
+      if (superClass === null) {
+        return [];
+      }
+
+      let baseName: string | null = null;
+
+      if (superClass.type === 'Identifier') {
+        baseName = superClass.name;
+      }
+
+      if (superClass.type === 'TSInstantiationExpression') {
+        baseName = superClass.expression.type === 'Identifier'
+          ? superClass.expression.name
+          : null;
+
+        if (baseName === typeName) {
+          for (const param of superClass.typeArguments.params) {
+            typeArgs.push(this.resolveTypeArgName(param));
+          }
+
+          return typeArgs;
+        }
+      }
+
+      // Check superTypeArguments (oxc-parser puts them separately)
+      const superTypeArgs = classNode.superTypeArguments;
+
+      if (superTypeArgs !== null && superTypeArgs !== undefined && baseName === typeName) {
+        for (const param of superTypeArgs.params) {
+          typeArgs.push(this.resolveTypeArgName(param));
+        }
+      }
+
+      return typeArgs;
+    }
+
+    // implements
+    const implementsList = classNode.implements ?? [];
+
+    for (const impl of implementsList) {
+      const expression = impl.expression;
+      const expressionName = expression.type === 'Identifier' ? expression.name : null;
+
+      if (expressionName !== typeName) {
+        continue;
+      }
+
+      const typeParameters = impl.typeArguments;
+
+      if (typeParameters !== null) {
+        for (const param of typeParameters.params) {
+          typeArgs.push(this.resolveTypeArgName(param));
+        }
+      }
+
+      return typeArgs;
+    }
+
+    return typeArgs;
+  }
+
+  /**
+   * Extracts a type name from a type parameter AST node.
+   *
+   * Handles `TSTypeReference` with `Identifier` typeName, returning
+   * `'Unknown'` for unrecognized patterns.
+   *
+   * @param typeNode - AST node for a type parameter
+   * @returns The resolved type name string
+   */
+  private resolveTypeArgName(typeNode: AstNode): string {
+    if (typeNode.type === 'TSTypeReference') {
+      const typeName = typeNode.typeName;
+
+      if (typeName.type === 'Identifier') {
+        return typeName.name;
+      }
+    }
+
+    return UNKNOWN_TYPE_NAME;
   }
 
   private upsertDefineModuleCall(calls: DefineModuleCall[], call: DefineModuleCall): void {
@@ -760,79 +1539,117 @@ export class AstParser {
     }
   }
 
-  private extractModuleDefinition(node: NodeRecord): ModuleDefinition {
-    let name: string | undefined;
-    let nameDeclared = false;
-    const providers: AnalyzerValue[] = [];
-    let adapters: AnalyzerValue | undefined = undefined;
-    const propertiesValue = node.properties;
-    const properties = asAnalyzerArray(propertiesValue);
+  /**
+   * Parses captured argument text from patternSearch into AnalyzerValue[].
+   *
+   * For simple identifiers, resolves through the import map. For complex
+   * expressions (objects, arrays), wraps the text in a variable declaration,
+   * parses with gildash, and converts via `convertExpression`.
+   *
+   * @param argsText - Raw argument text captured by `$$$ARGS`
+   * @param importMap - Import map for identifier resolution
+   * @returns Parsed arguments as AnalyzerValue array
+   */
+  private parsePatternCaptureArgs(argsText: string, importMap: ImportMap): AnalyzerValue[] {
+    const trimmed = argsText.trim();
 
-    if (properties) {
-      for (const propValue of properties) {
-        const prop = this.asNode(propValue);
+    if (trimmed.length === 0) {
+      return [];
+    }
 
-        if (!prop) {
-          continue;
+    // Simple identifier: look up in import map
+    if (/^\w+$/.test(trimmed)) {
+      const info = importMap.get(trimmed);
+
+      if (info !== undefined) {
+        return [{
+          [ZIPBUL_REF]: info.originalName ?? trimmed,
+          [ZIPBUL_IMPORT_SOURCE]: info.importSource,
+        }];
+      }
+
+      return [{
+        [ZIPBUL_REF]: this.resolveOriginalName(trimmed),
+        [ZIPBUL_IMPORT_SOURCE]: this.currentImports[trimmed],
+      }];
+    }
+
+    // Member expression: ns.Something
+    const memberMatch = trimmed.match(/^(\w+)\.(\w+)$/);
+
+    if (memberMatch?.[1] !== undefined && memberMatch[2] !== undefined) {
+      const objName = memberMatch[1];
+      const propName = memberMatch[2];
+
+      return [{
+        [ZIPBUL_REF]: `${this.resolveOriginalName(objName)}.${propName}`,
+        [ZIPBUL_IMPORT_SOURCE]: this.currentImports[objName],
+      }];
+    }
+
+    // Complex args: parse via gildash
+    const wrappedCode = `const __args = [${argsText}];`;
+    const parsedArgs = parseSource('__args.ts', wrappedCode);
+
+    if (isErr(parsedArgs)) {
+      return [];
+    }
+
+    const argSymbols = extractSymbols(parsedArgs);
+    const argsSymbol = argSymbols.find(symbol => symbol.name === '__args');
+
+    if (argsSymbol?.initializer?.kind === 'array') {
+      return argsSymbol.initializer.elements.map(element => convertExpression(element));
+    }
+
+    return [];
+  }
+
+  /**
+   * Resolves `export default defineModule(...)` by walking the AST for
+   * ExportDefaultDeclaration nodes and setting `exportedName = 'default'`
+   * on matching defineModule calls by offset.
+   *
+   * @param parsed - Parsed file for AST access
+   * @param defineModuleCalls - defineModule calls to annotate
+   */
+  private resolveExportDefaultDefineModule(
+    parsed: ParsedFile,
+    defineModuleCalls: DefineModuleCall[],
+  ): void {
+    if (defineModuleCalls.length === 0) {
+      return;
+    }
+
+    for (const stmt of parsed.program.body) {
+      if (stmt.type !== 'ExportDefaultDeclaration') {
+        continue;
+      }
+
+      const decl = stmt.declaration;
+
+      if (decl.type === 'CallExpression') {
+        const existing = defineModuleCalls.find(
+          call => call.start === decl.start && call.end === decl.end,
+        );
+
+        if (existing) {
+          existing.exportedName = 'default';
         }
+      }
 
-        const key = this.asNode(prop.key);
-        const keyName = key ? this.getString(key, 'name') : null;
+      if (decl.type === 'Identifier') {
+        const name = decl.name;
 
-        if (!isNonEmptyString(keyName)) {
-          continue;
-        }
+        if (isNonEmptyString(name)) {
+          const existing = defineModuleCalls.find(call => call.localName === name);
 
-        if (keyName === 'name') {
-          nameDeclared = true;
-
-          const value = this.asNode(prop.value);
-
-          if (value) {
-            const literalValue = this.getString(value, 'value');
-
-            if (isNonEmptyString(literalValue)) {
-              name = literalValue;
-            }
+          if (existing) {
+            existing.exportedName = 'default';
           }
-
-          continue;
-        }
-
-        if (keyName === 'providers') {
-          const value = this.asNode(prop.value);
-
-          if (value?.type !== 'ArrayExpression') {
-            continue;
-          }
-
-          const elementsValue = value.elements;
-          const elements = asAnalyzerArray(elementsValue);
-
-          if (!elements) {
-            continue;
-          }
-
-          for (const elementValue of elements) {
-            providers.push(this.parseExpression(elementValue));
-          }
-
-          continue;
-        }
-
-        if (keyName === 'adapters') {
-          adapters = this.parseExpression(prop.value);
         }
       }
     }
-
-    return {
-      name,
-      nameDeclared,
-      providers,
-      adapters,
-      imports: { ...this.currentImports },
-    };
   }
 
   private resolveOriginalName(localName: string): string {
@@ -846,10 +1663,6 @@ export class AstParser {
       return absolute;
     }
 
-    // External package imports (e.g. @zipbul/common) may not be resolvable
-    // via Bun.resolveSync — returning the raw importPath is the correct
-    // fallback because the AOT compiler does not need to map external
-    // packages to local source files.
     try {
       const resolved = Bun.resolveSync(importPath, dirname(sourcePath));
 
@@ -899,355 +1712,308 @@ export class AstParser {
     return null;
   }
 
-  private resolveTypeValue(typeInfo: TypeInfo): AnalyzerValue {
-    if (typeof typeInfo.typeName === 'string') {
-      const importSource = this.currentImports[typeInfo.typeName];
+  /**
+   * Runs `patternSearch` for a given pattern against a source file.
+   *
+   * When the file does not exist on disk (e.g. in-memory test sources),
+   * writes a temporary file, runs the search, and cleans up.
+   *
+   * @param filename - Logical file path
+   * @param code - Source code content
+   * @param pattern - ast-grep pattern string
+   * @returns Array of pattern matches
+   */
+  private async runPatternSearch(filename: string, code: string, pattern: string): Promise<PatternMatch[]> {
+    let searchFilePath = filename;
+    let tempFileCreated = false;
 
-      if (isNonEmptyString(importSource)) {
-        return {
-          [ZIPBUL_REF]: this.resolveOriginalName(typeInfo.typeName),
-          [ZIPBUL_IMPORT_SOURCE]: importSource,
-        };
-      }
-
-      return typeInfo.typeName;
+    if (!existsSync(filename)) {
+      searchFilePath = join(tmpdir(), `__zipbul_parse_${Date.now()}_${Math.random().toString(36).slice(2)}.ts`);
+      writeFileSync(searchFilePath, code);
+      tempFileCreated = true;
     }
 
-    return typeInfo.typeName;
+    try {
+      return await patternSearch({ pattern, filePaths: [searchFilePath] });
+    } finally {
+      if (tempFileCreated) {
+        try { unlinkSync(searchFilePath); } catch { /* best effort */ }
+      }
+    }
   }
 
-  private extractClassMetadata(node: NodeRecord): Result<ClassMetadata, Diagnostic> {
-    const id = this.asNode(node.id);
-    const className = id ? (this.getString(id, 'name') ?? '') : '';
+  /**
+   * Extracts the callee name from a matched inject call text.
+   *
+   * For `inject(TokenA)` returns `'inject'`.
+   * For `zipbul.inject(TokenA)` returns `'zipbul.inject'`.
+   *
+   * @param matchedText - Full matched text from patternSearch
+   * @returns The callee portion before the opening parenthesis
+   */
+  private resolveInjectCallee(matchedText: string): string {
+    const parenIndex = matchedText.indexOf('(');
 
-    if (className.length === 0) {
-      return err(buildDiagnostic({
-        reason: 'Anonymous classes cannot be used as providers. All classes must have explicit names.',
-        file: this.currentFilePath,
-      }));
-    }
-    const decoratorsValue = node.decorators;
-    const decoratorValues = asAnalyzerArray(decoratorsValue);
-    const decorators = decoratorValues
-      ? decoratorValues
-          .map(value => this.extractDecorator(value))
-          .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
-      : [];
-    const constructorParams: ClassMetadata['constructorParams'] = [];
-    const methods: ClassMetadata['methods'] = [];
-    const properties: ClassMetadata['properties'] = [];
-    let middlewares: ClassMetadata['middlewares'] = [];
-    let exceptionFilters: ClassMetadata['exceptionFilters'] = [];
-    const body = this.asNode(node.body);
-    const bodyValue = body?.body;
-    const bodyItems = asAnalyzerArray(bodyValue);
-
-    if (bodyItems) {
-      for (const memberValue of bodyItems) {
-        const member = this.asNode(memberValue);
-
-        if (!member) {
-          continue;
-        }
-
-        if (member.type === 'MethodDefinition') {
-          const kind = this.getString(member, 'kind');
-          const value = this.asNode(member.value);
-          const valueParamsValue = value?.params;
-          const valueParams = asAnalyzerArray(valueParamsValue);
-          const memberDecoratorsValue = member.decorators;
-
-          if (kind === 'constructor') {
-            if (valueParams) {
-              for (const paramValue of valueParams) {
-                const paramData = this.extractParam(paramValue);
-
-                if (paramData) {
-                  constructorParams.push(paramData);
-                }
-              }
-            }
-
-            continue;
-          }
-
-          if (kind === 'method') {
-            const isStatic = member.static === true;
-            const isComputed = member.computed === true;
-            const key = this.asNode(member.key);
-            const isPrivateName = key?.type === 'PrivateIdentifier';
-            let methodName = key ? (this.getString(key, 'name') ?? this.getString(key, 'value')) : null;
-
-            const methodDecoratorValues = asAnalyzerArray(memberDecoratorsValue);
-            const methodDecorators = methodDecoratorValues
-              ? methodDecoratorValues
-                  .map(value => this.extractDecorator(value))
-                  .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
-              : [];
-
-            if (!isNonEmptyString(methodName)) {
-              if (isComputed && methodDecorators.length > 0) {
-                methodName = `__computed_${typeof member.start === 'number' ? member.start : 0}__`;
-              } else {
-                continue;
-              }
-            }
-
-            const methodParams: ClassMetadata['methods'][number]['parameters'] = [];
-
-            if (valueParams) {
-              for (let index = 0; index < valueParams.length; index += 1) {
-                const param = this.extractParam(valueParams[index]);
-
-                if (param) {
-                  methodParams.push({
-                    name: param.name,
-                    type: param.type,
-                    typeArgs: param.typeArgs,
-                    decorators: param.decorators,
-                    index,
-                  });
-                }
-              }
-            }
-
-            methodParams.sort((a, b) => a.index - b.index);
-
-            if (methodName === 'configure' && value) {
-              const mwResult = this.extractMiddlewaresFromConfigure(value);
-
-              if (isErr(mwResult)) {
-                return mwResult;
-              }
-
-              middlewares = mwResult;
-
-              const efResult = this.extractExceptionFiltersFromConfigure(value);
-
-              if (isErr(efResult)) {
-                return efResult;
-              }
-
-              exceptionFilters = efResult;
-            }
-
-            if (methodDecorators.length > 0 || methodParams.some(param => param.decorators.length > 0)) {
-              const typedCalls = value ? this.extractTypedCalls(value) : undefined;
-
-              methods.push({
-                name: methodName,
-                decorators: methodDecorators,
-                parameters: methodParams,
-                ...(typedCalls !== undefined ? { typedCalls } : {}),
-                isStatic: isStatic || undefined,
-                isComputed: isComputed || undefined,
-                isPrivateName: isPrivateName || undefined,
-              });
-            }
-
-            continue;
-          }
-
-          continue;
-        }
-
-        if (member.type === 'PropertyDefinition') {
-          const key = this.asNode(member.key);
-          const propName = key ? this.getString(key, 'name') : null;
-
-          if (!isNonEmptyString(propName)) {
-            continue;
-          }
-
-          const memberDecoratorsValue = member.decorators;
-          const decoratorValues = asAnalyzerArray(memberDecoratorsValue);
-          const propDecorators = decoratorValues
-            ? decoratorValues
-                .map(value => this.extractDecorator(value))
-                .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
-            : [];
-
-          const memberValue = this.asNode(member.value);
-          const initializer = memberValue !== null ? this.parseExpression(memberValue) : null;
-
-          let typeInfo: TypeInfo = { typeName: 'any' };
-          const typeAnnotation = this.asNode(member.typeAnnotation);
-          const nestedTypeAnnotation = typeAnnotation ? this.asNode(typeAnnotation.typeAnnotation) : null;
-
-          if (nestedTypeAnnotation) {
-            typeInfo = this.typeResolver.resolve(nestedTypeAnnotation);
-          }
-
-          if (propDecorators.length > 0 || initializer !== null) {
-            const optional = Boolean(member.optional) || this.getString(member, 'accessibility') === 'protected';
-
-            properties.push({
-              name: propName,
-              type: this.resolveTypeValue(typeInfo),
-              typeArgs: typeInfo.typeArgs,
-              decorators: propDecorators,
-              initializer: initializer ?? undefined,
-              isOptional: optional,
-              isArray: typeInfo.isArray,
-              isEnum: typeInfo.isEnum,
-              literals: typeInfo.literals,
-              items: typeInfo.items ? this.resolveTypeValue(typeInfo.items) : undefined,
-            });
-          }
-        }
-      }
+    if (parenIndex < 0) {
+      return matchedText;
     }
 
-    let heritage: ClassMetadata['heritage'] = undefined;
-    const superClass = this.asNode(node.superClass);
+    return matchedText.slice(0, parenIndex).trim();
+  }
 
-    if (superClass) {
-      if (superClass.type === 'Identifier') {
-        heritage = {
-          clause: 'extends',
-          typeName: this.getString(superClass, 'name') ?? UNKNOWN_TYPE_NAME,
-        };
-      }
+  /**
+   * Finds the import source for a callee name (direct or namespace.method).
+   *
+   * @param calleeName - Callee name (e.g. `'inject'` or `'zipbul.inject'`)
+   * @returns The raw import source string, or undefined
+   */
+  private findImportSourceForCallee(calleeName: string): string | undefined {
+    const directSource = this.currentImportSources[calleeName];
 
-      if (superClass.type === 'TSTypeInstantiationExpression') {
-        const expression = this.asNode(superClass.expression);
-        const baseName =
-          expression?.type === 'Identifier' ? (this.getString(expression, 'name') ?? UNKNOWN_TYPE_NAME) : UNKNOWN_TYPE_NAME;
-
-        if (isNonEmptyString(baseName) && TS_UTILITY_TYPES.includes(baseName)) {
-          const typeParameters = this.asNode(superClass.typeParameters);
-          const params = typeParameters?.params;
-          const typeArgs: string[] = [];
-          const paramValues = asAnalyzerArray(params);
-
-          if (paramValues) {
-            for (const pValue of paramValues) {
-              const p = this.asNode(pValue);
-
-              if (!p) {
-                typeArgs.push(UNKNOWN_TYPE_NAME);
-
-                continue;
-              }
-
-              if (p.type === 'TSTypeReference') {
-                const typeName = this.asNode(p.typeName);
-
-                if (typeName?.type === 'Identifier') {
-                  typeArgs.push(this.getString(typeName, 'name') ?? UNKNOWN_TYPE_NAME);
-
-                  continue;
-                }
-              }
-
-              typeArgs.push(UNKNOWN_TYPE_NAME);
-            }
-          }
-
-          heritage = {
-            clause: 'extends',
-            typeName: baseName,
-            typeArgs,
-          };
-        }
-      }
+    if (directSource !== undefined) {
+      return directSource;
     }
 
-    const implementsValue = node.implements;
-    const implementsList = asAnalyzerArray(implementsValue);
-    const implementItems = implementsList ?? [];
+    const dotIndex = calleeName.indexOf('.');
 
-    if (!heritage && implementItems.length > 0) {
-      const impl = this.asNode(implementItems[0]);
-      const expression = impl ? this.asNode(impl.expression) : null;
-      const expressionName = expression?.type === 'Identifier' ? this.getString(expression, 'name') : null;
+    if (dotIndex > 0) {
+      const ns = calleeName.slice(0, dotIndex);
 
-      if (isNonEmptyString(expressionName) && TS_UTILITY_TYPES.includes(expressionName)) {
-        const typeParameters = impl ? this.asNode(impl.typeParameters) : null;
-        const params = typeParameters?.params;
-        const typeArgs: string[] = [];
-        const paramValues = asAnalyzerArray(params);
+      return this.currentImportSources[ns];
+    }
 
-        if (paramValues) {
-          for (const pValue of paramValues) {
-            const p = this.asNode(pValue);
+    return undefined;
+  }
 
-            if (!p) {
-              typeArgs.push(UNKNOWN_TYPE_NAME);
+  /**
+   * Builds an `InjectCall` from a patternSearch capture.
+   *
+   * @param capture - The `$$ARGS` capture from patternSearch, or undefined
+   * @param callee - Resolved callee name
+   * @param importSource - Import source string
+   * @returns The constructed InjectCall
+   */
+  private buildInjectCallFromCapture(
+    capture: { text: string } | undefined,
+    callee: string,
+    importSource: string,
+  ): InjectCall {
+    if (capture === undefined) {
+      return {
+        tokenKind: 'invalid',
+        token: null,
+        callee,
+        importSource,
+        filePath: this.currentFilePath,
+      };
+    }
 
-              continue;
-            }
+    const argText = capture.text.trim();
 
-            if (p.type === 'TSTypeReference') {
-              const typeName = this.asNode(p.typeName);
+    // Multi-arg detection: if capture contains a comma at the top level, it's invalid
+    if (this.hasMultipleArgs(argText)) {
+      return {
+        tokenKind: 'invalid',
+        token: null,
+        callee,
+        importSource,
+        filePath: this.currentFilePath,
+      };
+    }
 
-              if (typeName?.type === 'Identifier') {
-                typeArgs.push(this.getString(typeName, 'name') ?? UNKNOWN_TYPE_NAME);
+    // Empty args
+    if (argText.length === 0) {
+      return {
+        tokenKind: 'invalid',
+        token: null,
+        callee,
+        importSource,
+        filePath: this.currentFilePath,
+      };
+    }
 
-                continue;
-              }
-            }
+    // Check for thunk patterns: () => X, function() { return X; }
+    const thunkMatch = argText.match(/^\(\s*\)\s*=>\s*(\w+)\s*$/)
+      ?? argText.match(/^function\s*\(\s*\)\s*\{\s*return\s+(\w+)\s*;?\s*\}$/);
 
-            typeArgs.push(UNKNOWN_TYPE_NAME);
-          }
-        }
+    if (thunkMatch?.[1] !== undefined) {
+      const refName = thunkMatch[1];
+      const resolvedName = this.resolveOriginalName(refName);
 
-        heritage = {
-          clause: 'implements',
-          typeName: expressionName,
-          typeArgs,
-        };
-      }
+      return {
+        tokenKind: 'thunk',
+        token: {
+          [ZIPBUL_REF]: resolvedName,
+          [ZIPBUL_IMPORT_SOURCE]: this.currentImports[refName],
+        },
+        callee,
+        importSource,
+        filePath: this.currentFilePath,
+      };
+    }
+
+    // Check for identifier token
+    if (/^\w+$/.test(argText)) {
+      const resolvedName = this.resolveOriginalName(argText);
+
+      return {
+        tokenKind: 'token',
+        token: {
+          [ZIPBUL_REF]: resolvedName,
+          [ZIPBUL_IMPORT_SOURCE]: this.currentImports[argText],
+        },
+        callee,
+        importSource,
+        filePath: this.currentFilePath,
+      };
+    }
+
+    // Check for member expression (e.g., ns.Token)
+    const memberMatch = argText.match(/^(\w+)\.(\w+)$/);
+
+    if (memberMatch?.[1] !== undefined && memberMatch[2] !== undefined) {
+      const objName = memberMatch[1];
+      const propName = memberMatch[2];
+
+      return {
+        tokenKind: 'token',
+        token: {
+          [ZIPBUL_REF]: `${this.resolveOriginalName(objName)}.${propName}`,
+          [ZIPBUL_IMPORT_SOURCE]: this.currentImports[objName],
+        },
+        callee,
+        importSource,
+        filePath: this.currentFilePath,
+      };
     }
 
     return {
-      className,
-      heritage,
-      decorators,
-      constructorParams,
-      methods,
-      properties,
-      imports: {},
-      middlewares,
-      exceptionFilters,
+      tokenKind: 'invalid',
+      token: null,
+      callee,
+      importSource,
+      filePath: this.currentFilePath,
     };
   }
 
-  private extractExceptionFiltersFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['exceptionFilters'], Diagnostic> {
+  /**
+   * Collects inject calls that fall within a factory function's byte range
+   * from pre-computed patternSearch results.
+   *
+   * Uses byte offsets from patternSearch matches to compute positions
+   * relative to the factory function start for code replacement by the
+   * injector generator.
+   *
+   * @param injectMatches - All inject pattern matches from patternSearch
+   * @param _lineOffsets - Line offset table (unused, kept for call-site consistency)
+   * @param funcStart - Factory function start byte offset
+   * @param funcEnd - Factory function end byte offset
+   * @returns Array of factory inject calls with relative byte offsets
+   */
+  private collectFactoryInjectCalls(
+    injectMatches: readonly PatternMatch[],
+    _lineOffsets: readonly number[],
+    funcStart: number,
+    funcEnd: number,
+  ): FactoryInjectCall[] {
+    const result: FactoryInjectCall[] = [];
+
+    for (const match of injectMatches) {
+      const extMatch = match as PatternMatchWithOffsets;
+      const matchByteStart = extMatch.startOffset;
+      const matchByteEnd = extMatch.endOffset;
+
+      if (matchByteStart === undefined || matchByteEnd === undefined) {
+        continue;
+      }
+
+      // Filter: must be within factory function range
+      if (matchByteStart < funcStart || matchByteEnd > funcEnd) {
+        continue;
+      }
+
+      const calleeName = this.resolveInjectCallee(match.matchedText);
+      const resolvedCallee = this.resolveOriginalName(calleeName);
+      const importSource = this.findImportSourceForCallee(calleeName);
+
+      if (importSource !== '@zipbul/common') {
+        continue;
+      }
+
+      if (resolvedCallee !== 'inject' && !resolvedCallee.endsWith('.inject')) {
+        continue;
+      }
+
+      const capture = match.captures?.['$$$ARGS'];
+      const injectCall = this.buildInjectCallFromCapture(capture, resolvedCallee, importSource);
+
+      this.currentInjectCalls.push(injectCall);
+
+      result.push({
+        start: matchByteStart - funcStart,
+        end: matchByteEnd - funcStart,
+        token: injectCall.token,
+        tokenKind: injectCall.tokenKind,
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Checks whether a capture text represents multiple arguments.
+   *
+   * Scans for commas at the top level (not inside parentheses, brackets,
+   * or braces) to determine if the captured text is multi-argument.
+   *
+   * @param text - Captured argument text from patternSearch
+   * @returns `true` if the text contains multiple top-level arguments
+   */
+  private hasMultipleArgs(text: string): boolean {
+    let depth = 0;
+
+    for (const char of text) {
+      if (char === '(' || char === '[' || char === '{') {
+        depth++;
+      } else if (char === ')' || char === ']' || char === '}') {
+        depth--;
+      } else if (char === ',' && depth === 0) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['exceptionFilters'], Diagnostic> {
     const exceptionFilters: ClassMetadata['exceptionFilters'] = [];
+
+    if (funcNode.body === null) {
+      return exceptionFilters;
+    }
 
     const error = (): never => {
       throw new Error('[Zipbul AOT] addErrorFilters only supports literal arrays and Identifiers.');
     };
 
-    const visit = (n: AnalyzerValue): void => {
-      const node = this.asNode(n);
-
-      if (!node) {
-        return;
-      }
-
+    const visit = (node: AstNode): void => {
       if (node.type === 'CallExpression') {
-        const callee = this.asNode(node.callee);
-        const property = callee?.type === 'MemberExpression' ? this.asNode(callee.property) : null;
-        const method = property ? this.getString(property, 'name') : null;
+        const methodName = this.getCalleeMethodName(node);
 
-        if (method === 'addErrorFilters') {
-          const args = asAnalyzerArray(node.arguments) ?? [];
-          const arrayArg = args.length > 0 ? this.asNode(args[0]) : null;
+        if (methodName === 'addErrorFilters') {
+          const args = node.arguments;
+          const arrayArg = args.length > 0 ? args[0] : null;
 
-          if (arrayArg?.type !== 'ArrayExpression') {
+          if (!arrayArg || arrayArg.type !== 'ArrayExpression') {
             error();
 
             return;
           }
 
-          const elements = asAnalyzerArray(arrayArg.elements) ?? [];
+          for (let index = 0; index < arrayArg.elements.length; index += 1) {
+            const el = arrayArg.elements[index];
 
-          for (let index = 0; index < elements.length; index += 1) {
-            const el = this.asNode(elements[index]);
-
-            if (!el) {
+            if (el === null) {
               error();
 
               return;
@@ -1260,7 +2026,7 @@ export class AstParser {
             }
 
             if (el.type === 'Identifier') {
-              const name = this.getString(el, 'name');
+              const name = el.name;
 
               if (!isNonEmptyString(name)) {
                 error();
@@ -1282,22 +2048,7 @@ export class AstParser {
         }
       }
 
-      Object.keys(node).forEach(key => {
-        if (['type', 'loc', 'start', 'end'].includes(key)) {
-          return;
-        }
-
-        const val = node[key];
-        const values = asAnalyzerArray(val);
-
-        if (values) {
-          values.forEach(visit);
-
-          return;
-        }
-
-        visit(val);
-      });
+      walkChildren(node, visit);
     };
 
     try {
@@ -1318,47 +2069,35 @@ export class AstParser {
    * @param funcNode - The method's function AST node.
    * @returns Array of typed call metadata found in the body.
    */
-  private extractTypedCalls(funcNode: NodeRecord): ClassMetadata['methods'][number]['typedCalls'] {
+  private extractTypedCalls(funcNode: OxcFunction): ClassMetadata['methods'][number]['typedCalls'] {
+    if (funcNode.body === null) {
+      return undefined;
+    }
+
     const calls: NonNullable<ClassMetadata['methods'][number]['typedCalls']> = [];
-    const typeResolver = new AstTypeResolver();
 
-    const visit = (n: AnalyzerValue): void => {
-      const node = this.asNode(n);
-
-      if (!node) {
-        return;
-      }
-
+    const visit = (node: AstNode): void => {
       if (node.type === 'CallExpression') {
-        const callee = this.asNode(node.callee);
+        const callee = node.callee;
 
-        if (callee?.type === 'MemberExpression') {
-          const property = this.asNode(callee.property);
-          const methodName = property ? this.getString(property, 'name') : null;
+        if (callee.type === 'MemberExpression' && !callee.computed) {
+          const methodName = callee.property.name;
 
           if (isNonEmptyString(methodName)) {
-            // oxc-parser: type arguments on CallExpression are in `typeArguments`
-            const typeArgsNode = this.asNode(node.typeArguments);
-            const typeParams = typeArgsNode ? (asAnalyzerArray(typeArgsNode.params) ?? []) : [];
-
+            const typeParams = node.typeArguments?.params ?? [];
             const typeArgs: string[] = [];
 
             for (const param of typeParams) {
-              const resolved = typeResolver.resolve(param);
-              typeArgs.push(resolved.typeName);
+              typeArgs.push(this.resolveTypeArgName(param));
             }
 
-            // Capture runtime arguments for ctx.validated(key, DtoClass) pattern
             if (methodName === 'validated') {
-              const args = asAnalyzerArray(node.arguments) ?? [];
               const callArgs: CallArgRef[] = [];
 
-              for (const arg of args) {
-                const argNode = this.asNode(arg);
-                if (argNode?.type === 'Identifier') {
-                  const ref = this.getString(argNode, 'name');
-                  if (isNonEmptyString(ref)) {
-                    callArgs.push({ ref });
+              for (const arg of node.arguments) {
+                if (arg.type === 'Identifier') {
+                  if (isNonEmptyString(arg.name)) {
+                    callArgs.push({ ref: arg.name });
                   }
                 }
               }
@@ -1371,22 +2110,7 @@ export class AstParser {
         }
       }
 
-      Object.keys(node).forEach(key => {
-        if (['type', 'loc', 'start', 'end'].includes(key)) {
-          return;
-        }
-
-        const val = node[key];
-        const values = asAnalyzerArray(val);
-
-        if (values) {
-          values.forEach(visit);
-
-          return;
-        }
-
-        visit(val);
-      });
+      walkChildren(node, visit);
     };
 
     visit(funcNode.body);
@@ -1394,45 +2118,37 @@ export class AstParser {
     return calls.length > 0 ? calls : undefined;
   }
 
-  private extractMiddlewaresFromConfigure(funcNode: NodeRecord): Result<ClassMetadata['middlewares'], Diagnostic> {
+  private extractMiddlewaresFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['middlewares'], Diagnostic> {
     const middlewares: ClassMetadata['middlewares'] = [];
+
+    if (funcNode.body === null) {
+      return middlewares;
+    }
 
     const error = (): never => {
       throw new Error('[Zipbul AOT] addMiddlewares only supports literal arrays and Identifier/withOptions.');
     };
 
-    const visit = (n: AnalyzerValue): void => {
-      const node = this.asNode(n);
-
-      if (!node) {
-        return;
-      }
-
+    const visit = (node: AstNode): void => {
       if (node.type === 'CallExpression') {
-        const callee = this.asNode(node.callee);
-        const property = callee?.type === 'MemberExpression' ? this.asNode(callee.property) : null;
-        const method = property ? this.getString(property, 'name') : null;
+        const methodName = this.getCalleeMethodName(node);
 
-        if (method === 'addMiddlewares') {
-          const argsValue = asAnalyzerArray(node.arguments);
-          const args = argsValue ?? [];
-          const lifecycleArg = args.length > 0 ? this.asNode(args[0]) : null;
-          const lifecycle = lifecycleArg?.type === 'Identifier' ? (this.getString(lifecycleArg, 'name') ?? undefined) : undefined;
-          const arrayArg = args.length > 1 ? this.asNode(args[1]) : null;
+        if (methodName === 'addMiddlewares') {
+          const args = node.arguments;
+          const lifecycleArg = args.length > 0 ? args[0] : null;
+          const lifecycle = lifecycleArg?.type === 'Identifier' ? lifecycleArg.name : undefined;
+          const arrayArg = args.length > 1 ? args[1] : null;
 
-          if (arrayArg?.type !== 'ArrayExpression') {
+          if (!arrayArg || arrayArg.type !== 'ArrayExpression') {
             error();
 
             return;
           }
 
-          const elementsValue = arrayArg.elements;
-          const elements = asAnalyzerArray(elementsValue) ?? [];
+          for (let index = 0; index < arrayArg.elements.length; index += 1) {
+            const el = arrayArg.elements[index];
 
-          for (let index = 0; index < elements.length; index += 1) {
-            const el = this.asNode(elements[index]);
-
-            if (!el) {
+            if (el === null) {
               error();
 
               return;
@@ -1445,7 +2161,7 @@ export class AstParser {
             }
 
             if (el.type === 'Identifier') {
-              const name = this.getString(el, 'name');
+              const name = el.name;
 
               if (!isNonEmptyString(name)) {
                 error();
@@ -1465,29 +2181,30 @@ export class AstParser {
             }
 
             if (el.type === 'CallExpression') {
-              const innerCallee = this.asNode(el.callee);
-              const innerObject = innerCallee?.type === 'MemberExpression' ? this.asNode(innerCallee.object) : null;
-              const innerProperty = innerCallee?.type === 'MemberExpression' ? this.asNode(innerCallee.property) : null;
-              const propName = innerProperty ? this.getString(innerProperty, 'name') : null;
+              const innerCallee = el.callee;
 
-              if (innerObject?.type === 'Identifier' && propName === 'withOptions') {
-                const name = this.getString(innerObject, 'name');
+              if (innerCallee.type === 'MemberExpression' && !innerCallee.computed) {
+                const propName = innerCallee.property.name;
 
-                if (!isNonEmptyString(name)) {
-                  error();
+                if (innerCallee.object.type === 'Identifier' && propName === 'withOptions') {
+                  const name = innerCallee.object.name;
 
-                  return;
-                }
+                  if (!isNonEmptyString(name)) {
+                    error();
 
-                if (isNonEmptyString(lifecycle)) {
-                  middlewares.push({ name, lifecycle, index });
+                    return;
+                  }
+
+                  if (isNonEmptyString(lifecycle)) {
+                    middlewares.push({ name, lifecycle, index });
+
+                    continue;
+                  }
+
+                  middlewares.push({ name, index });
 
                   continue;
                 }
-
-                middlewares.push({ name, index });
-
-                continue;
               }
             }
 
@@ -1500,22 +2217,7 @@ export class AstParser {
         }
       }
 
-      Object.keys(node).forEach(key => {
-        if (['type', 'loc', 'start', 'end'].includes(key)) {
-          return;
-        }
-
-        const val = node[key];
-        const values = asAnalyzerArray(val);
-
-        if (values) {
-          values.forEach(visit);
-
-          return;
-        }
-
-        visit(val);
-      });
+      walkChildren(node, visit);
     };
 
     try {
@@ -1529,722 +2231,225 @@ export class AstParser {
     return middlewares;
   }
 
-  private extractDecorator(decoratorNodeValue: AnalyzerValue): DecoratorMetadata | null {
-    let name = '';
-    let args: AnalyzerValue[] = [];
-    const decoratorNode = this.asNode(decoratorNodeValue);
-
-    if (!decoratorNode) {
-      return null;
-    }
-
-    const expression = this.asNode(decoratorNode.expression);
-
-    if (!expression) {
-      return null;
-    }
-
-    if (expression.type === 'CallExpression') {
-      const callee = this.asNode(expression.callee);
-      const calleeName = callee ? this.getString(callee, 'name') : null;
-
-      if (!isNonEmptyString(calleeName)) {
-        return null;
-      }
-
-      name = this.resolveOriginalName(calleeName);
-
-      const argsValue = asAnalyzerArray(expression.arguments);
-      const argsList = argsValue ?? [];
-
-      args = argsList.map(arg => this.parseExpression(arg));
-    } else if (expression.type === 'Identifier') {
-      const calleeName = this.getString(expression, 'name');
-
-      if (!isNonEmptyString(calleeName)) {
-        return null;
-      }
-
-      name = this.resolveOriginalName(calleeName);
-    }
-
-    return { name, arguments: args };
-  }
-
-  private parseExpression(exprValue: AnalyzerValue): AnalyzerValue {
-    if (isNullish(exprValue)) {
-      return null;
-    }
-
-    const raw = this.asNode(exprValue);
-
-    if (!raw) {
-      return null;
-    }
-
-    const expr = raw.type === 'ExpressionStatement' ? this.asNode(raw.expression) : raw;
-
-    if (!expr) {
-      return null;
-    }
-
-    switch (expr.type) {
-      case 'Literal':
-      case 'StringLiteral':
-      case 'NumericLiteral':
-      case 'BooleanLiteral':
-      case 'NullLiteral':
-        return this.getRecord(expr)?.value ?? null;
-
-      case 'ObjectExpression': {
-        const obj: AnalyzerValueRecord = {};
-        const propertiesValue = expr.properties;
-        const properties = asAnalyzerArray(propertiesValue) ?? [];
-
-        for (const propValue of properties) {
-          const prop = this.asNode(propValue);
-
-          if (!prop) {
-            continue;
-          }
-
-          if (prop.type !== 'Property' && prop.type !== 'ObjectProperty') {
-            continue;
-          }
-
-          if (prop.computed === true) {
-            const keyExpr = this.parseExpression(prop.key);
-            const valExpr = this.parseExpression(prop.value);
-            const start = typeof prop.start === 'number' ? prop.start : 0;
-
-            obj[`${ZIPBUL_COMPUTED_PREFIX}${start}`] = {
-              [ZIPBUL_COMPUTED_KEY]: keyExpr,
-              [ZIPBUL_COMPUTED_VALUE]: valExpr,
-            };
-
-            continue;
-          }
-
-          const keyNode = this.asNode(prop.key);
-          const keyName = keyNode ? this.getString(keyNode, 'name') : null;
-          const keyValue = keyNode ? this.getString(keyNode, 'value') : null;
-          const key = keyName ?? keyValue;
-
-          if (!isNonEmptyString(key)) {
-            continue;
-          }
-
-          obj[key] = this.parseExpression(prop.value);
-        }
-
-        return obj;
-      }
-
-      case 'ArrayExpression': {
-        const elementsValue = expr.elements;
-        const elements = asAnalyzerArray(elementsValue) ?? [];
-
-        return elements.map(elValue => {
-          const el = this.asNode(elValue);
-
-          if (el?.type === 'SpreadElement') {
-            return { [ZIPBUL_SPREAD]: this.parseExpression(el.argument) };
-          }
-
-          return this.parseExpression(elValue);
-        });
-      }
-
-      case 'Identifier': {
-        const name = this.getString(expr, 'name');
-
-        if (!isNonEmptyString(name)) {
-          return null;
-        }
-
-        const importSource = this.currentImports[name];
-
-        return {
-          [ZIPBUL_REF]: this.resolveOriginalName(name),
-          [ZIPBUL_IMPORT_SOURCE]: importSource,
-        };
-      }
-
-      case 'NewExpression': {
-        const callee = this.asNode(expr.callee);
-
-        if (!callee) {
-          return null;
-        }
-
-        const argsValue = asAnalyzerArray(expr.arguments);
-        const args = argsValue ?? [];
-        const newCalleeName = this.getString(callee, 'name') ?? UNKNOWN_TYPE_NAME;
-
-        return {
-          [ZIPBUL_NEW]: this.resolveOriginalName(newCalleeName),
-          args: args.map(arg => this.parseExpression(arg)),
-        };
-      }
-
-      case 'CallExpression': {
-        let calleeName = UNKNOWN_CALLEE_NAME;
-        let importSource: string | undefined;
-        const callee = this.asNode(expr.callee);
-
-        if (callee?.type === 'MemberExpression') {
-          const calleeObj = this.asNode(callee.object);
-          const calleeProp = this.asNode(callee.property);
-          const objectName = calleeObj?.type === 'Identifier' ? this.getString(calleeObj, 'name') : null;
-          const propName = calleeProp ? this.getString(calleeProp, 'name') : null;
-
-          if (isNonEmptyString(objectName) && isNonEmptyString(propName)) {
-            calleeName = `${this.resolveOriginalName(objectName)}.${propName}`;
-            importSource = this.currentImports[objectName];
-          }
-        } else if (callee?.type === 'Identifier') {
-          const name = this.getString(callee, 'name');
-
-          if (isNonEmptyString(name)) {
-            calleeName = this.resolveOriginalName(name);
-            importSource = this.currentImports[name];
-          }
-        }
-
-        const argsValue = asAnalyzerArray(expr.arguments);
-        const args = argsValue ?? [];
-        const injectCall = this.parseInjectCall(calleeName, importSource, args, expr);
-
-        if (injectCall) {
-          this.currentInjectCalls.push(injectCall);
-
-          return {
-            __zipbul_inject: true,
-            tokenKind: injectCall.tokenKind,
-            token: injectCall.token,
-          };
-        }
-
-        if (calleeName === 'lazy' && args.length > 0) {
-          const arg = this.asNode(args[0]);
-          const argBody = arg ? this.asNode(arg.body) : null;
-
-          if ((arg?.type === 'ArrowFunctionExpression' || arg?.type === 'FunctionExpression') && argBody?.type === 'Identifier') {
-            const refName = this.getString(argBody, 'name');
-
-            if (isNonEmptyString(refName)) {
-              return { [ZIPBUL_LAZY_REF]: this.resolveOriginalName(refName) };
-            }
-          }
-        }
-
-        return {
-          [ZIPBUL_CALL]: calleeName,
-          [ZIPBUL_IMPORT_SOURCE]: importSource,
-          args: args.map(arg => this.parseExpression(arg)),
-        };
-      }
-
-      case 'ArrowFunctionExpression':
-      case 'FunctionExpression': {
-        const start = typeof expr.start === 'number' ? expr.start : 0;
-        const end = typeof expr.end === 'number' ? expr.end : start;
-        const factoryCode = this.currentCode.slice(start, end);
-        const deps = this.extractDependencies(expr, start);
-        const injectCalls = this.extractFactoryInjectCalls(expr, start);
-        const paramTypes = this.extractFactoryParamTypes(expr);
-
-        return {
-          [ZIPBUL_FACTORY_CODE]: factoryCode,
-          __zipbul_factory_deps: deps,
-          __zipbul_factory_injects: injectCalls,
-          ...(paramTypes.length > 0 ? { __zipbul_factory_params: paramTypes } : {}),
-        };
-      }
-
-      case 'MemberExpression': {
-        const obj = this.asNode(expr.object);
-        const prop = this.asNode(expr.property);
-        const computed = expr.computed === true;
-
-        let propName: string | null = null;
-
-        if (computed && (prop?.type === 'StringLiteral' || prop?.type === 'Literal') && typeof prop.value === 'string') {
-          propName = prop.value;
-        } else if (!computed) {
-          propName = prop ? this.getString(prop, 'name') : null;
-        }
-
-        if (!isNonEmptyString(propName)) return null;
-
-        if (obj?.type === 'Identifier') {
-          const objName = this.getString(obj, 'name');
-
-          if (!isNonEmptyString(objName)) return null;
-
-          const importSource = this.currentImports[objName];
-
-          return {
-            [ZIPBUL_REF]: `${this.resolveOriginalName(objName)}.${propName}`,
-            [ZIPBUL_IMPORT_SOURCE]: importSource,
-          };
-        }
-
-        if (obj !== null && obj !== undefined) {
-          const inner = this.parseExpression(obj);
-          const innerRecord = isAnalyzerRecord(inner) ? inner : null;
-
-          if (innerRecord && typeof innerRecord[ZIPBUL_REF] === 'string') {
-            return {
-              [ZIPBUL_REF]: `${innerRecord[ZIPBUL_REF]}.${propName}`,
-              [ZIPBUL_IMPORT_SOURCE]: innerRecord[ZIPBUL_IMPORT_SOURCE],
-            };
-          }
-        }
-
-        return null;
-      }
-
-      case 'ChainExpression':
-        return this.parseExpression(expr.expression);
-
-      case 'TSAsExpression':
-        return this.parseExpression(expr.expression);
-
-      case 'SpreadElement':
-        return { [ZIPBUL_SPREAD]: this.parseExpression(expr.argument) };
-
-      default:
-        return {
-          [ZIPBUL_UNRESOLVABLE]: true,
-          nodeType: typeof expr.type === 'string' ? expr.type : 'unknown',
-          start: typeof expr.start === 'number' ? expr.start : undefined,
-          end: typeof expr.end === 'number' ? expr.end : undefined,
-        };
-    }
-  }
-
-  private extractDependencies(funcNode: NodeRecord, offset: number): FactoryDependency[] {
+  private extractDependencies(funcExpression: Expression, offset: number): FactoryDependency[] {
     const deps: FactoryDependency[] = [];
     const defined = new Set<string>();
 
-    const visit = (n: AnalyzerValue): void => {
-      const node = this.asNode(n);
-
-      if (!node) {
-        return;
-      }
-
+    const visit = (node: AstNode): void => {
       if (node.type === 'Identifier') {
-        const name = this.getString(node, 'name');
-        const start = typeof node.start === 'number' ? node.start : null;
-        const end = typeof node.end === 'number' ? node.end : null;
+        const name = node.name;
         const path = isNonEmptyString(name) ? this.currentImports[name] : undefined;
 
-        if (isNonEmptyString(name) && isNonEmptyString(path) && start !== null && end !== null && !defined.has(name)) {
+        if (isNonEmptyString(name) && isNonEmptyString(path) && !defined.has(name)) {
           deps.push({
             name: this.resolveOriginalName(name),
             path,
-            start: start - offset,
-            end: end - offset,
+            start: node.start - offset,
+            end: node.end - offset,
           });
         }
       }
 
       if (node.type === 'FunctionExpression') {
-        const params = asAnalyzerArray(node.params);
-
-        if (params) {
-          for (const pValue of params) {
-            const p = this.asNode(pValue);
-
-            if (p?.type === 'Identifier') {
-              const name = this.getString(p, 'name');
-
-              if (isNonEmptyString(name)) {
-                defined.add(name);
-              }
+        for (const param of node.params) {
+          if (param.type === 'Identifier') {
+            if (isNonEmptyString(param.name)) {
+              defined.add(param.name);
             }
           }
         }
 
-        visit(node.body);
+        if (node.body !== null) {
+          visit(node.body);
+        }
 
         return;
       }
 
-      Object.keys(node).forEach(key => {
-        if (key === 'type' || key === 'loc' || key === 'start' || key === 'end') {
-          return;
-        }
-
-        const val = node[key];
-
-        if (Array.isArray(val)) {
-          val.forEach(visit);
-        } else {
-          visit(val);
-        }
-      });
+      walkChildren(node, visit);
     };
 
-    visit(funcNode.body);
+    if (funcExpression.type === 'ArrowFunctionExpression' || funcExpression.type === 'FunctionExpression') {
+      visit(funcExpression.body);
+    } else {
+      visit(funcExpression);
+    }
 
     return deps;
   }
 
-  private extractFactoryParamTypes(funcNode: NodeRecord): AnalyzerValueRecord[] {
-    const params = asAnalyzerArray(funcNode.params);
-
-    if (!params) {
-      return [];
+  /**
+   * Extracts the name from a `PropertyKey` AST node.
+   *
+   * Handles `Identifier`, `PrivateIdentifier`, and string `Literal` keys.
+   * Returns `null` for computed or non-string keys.
+   */
+  private getPropertyKeyName(key: AstNode): string | null {
+    if (key.type === 'Identifier') {
+      return key.name;
     }
 
-    const result: AnalyzerValueRecord[] = [];
+    if (key.type === 'PrivateIdentifier') {
+      return key.name;
+    }
 
-    for (const paramValue of params) {
-      const param = this.asNode(paramValue);
+    if (key.type === 'Literal' && typeof key.value === 'string') {
+      return key.value;
+    }
 
-      if (!param) {
-        result.push({ name: 'unknown', typeName: null });
+    return null;
+  }
+
+  /**
+   * Extracts the method name from a `CallExpression` callee that is a
+   * static `MemberExpression` (e.g., `this.addMiddlewares(...)`).
+   *
+   * @returns The property name string, or `null` if not a static member call.
+   */
+  private getCalleeMethodName(node: CallExpression): string | null {
+    const callee = node.callee;
+
+    if (callee.type === 'MemberExpression' && !callee.computed) {
+      return callee.property.name;
+    }
+
+    return null;
+  }
+
+  /**
+   * Extracts a `VariableDeclaration` from a statement, unwrapping export wrappers.
+   */
+  private extractVariableDeclaration(stmt: Directive | Statement): VariableDeclaration | null {
+    if (stmt.type === 'VariableDeclaration') {
+      return stmt;
+    }
+
+    if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+      const decl = stmt.declaration;
+
+      if (decl?.type === 'VariableDeclaration') {
+        return decl;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extracts a `FunctionDeclaration` from a statement, unwrapping export wrappers.
+   */
+  private extractFunctionDeclaration(stmt: Directive | Statement): OxcFunction | null {
+    if (stmt.type === 'FunctionDeclaration') {
+      return stmt;
+    }
+
+    if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+      const decl = stmt.declaration;
+
+      if (decl?.type === 'FunctionDeclaration') {
+        return decl;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extracts a `Class` node from a statement, unwrapping export wrappers.
+   */
+  private extractClassFromStatement(stmt: Directive | Statement): Class | null {
+    if (stmt.type === 'ClassDeclaration') {
+      return stmt;
+    }
+
+    if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+      const decl = stmt.declaration;
+
+      if (decl?.type === 'ClassDeclaration') {
+        return decl;
+      }
+    }
+
+    return null;
+  }
+
+  private collectExportNames(
+    node: ExportNamedDeclaration,
+    localExports: string[],
+    exportMappings: ReExportName[],
+    defineModuleCalls: DefineModuleCall[],
+  ): void {
+    if (node.source !== null) {
+      return;
+    }
+
+    const declaration = node.declaration;
+
+    if (declaration?.type === 'ClassDeclaration') {
+      const name = declaration.id?.name;
+
+      if (isNonEmptyString(name)) {
+        localExports.push(name);
+      }
+
+      return;
+    }
+
+    if (declaration?.type === 'TSEnumDeclaration') {
+      const name = declaration.id.name;
+
+      if (isNonEmptyString(name)) {
+        localExports.push(name);
+      }
+
+      return;
+    }
+
+    if (declaration?.type === 'VariableDeclaration') {
+      for (const decl of declaration.declarations) {
+        const declName = decl.id.type === 'Identifier' ? decl.id.name : null;
+
+        if (isNonEmptyString(declName)) {
+          localExports.push(declName);
+        }
+      }
+
+      return;
+    }
+
+    for (const spec of node.specifiers) {
+      const localName = getExportName(spec.local);
+      const exportedName = getExportName(spec.exported);
+
+      if (!isNonEmptyString(localName) || !isNonEmptyString(exportedName)) {
         continue;
       }
 
-      const paramName = param.type === 'Identifier' ? this.getString(param, 'name') : 'unknown';
-      const typeAnnotation = this.asNode(param.typeAnnotation);
-      const innerType = typeAnnotation ? this.asNode(typeAnnotation.typeAnnotation) : null;
+      localExports.push(exportedName);
+      exportMappings.push({ local: localName, exported: exportedName });
+    }
+  }
 
-      let typeName: string | null = null;
-      let importSource: string | undefined;
+  /**
+   * Resolves `export default <identifier>` to a defineModule call.
+   */
+  private resolveExportDefaultForDefineModuleInline(
+    node: ExportDefaultDeclaration,
+    defineModuleCalls: DefineModuleCall[],
+  ): void {
+    const decl = node.declaration;
 
-      if (innerType?.type === 'TSTypeReference') {
-        const typeName_ = this.asNode(innerType.typeName);
+    if (decl.type === 'Identifier') {
+      const name = decl.name;
 
-        if (typeName_?.type === 'Identifier') {
-          const name = this.getString(typeName_, 'name');
+      if (isNonEmptyString(name)) {
+        const existing = defineModuleCalls.find(call => call.localName === name);
 
-          if (isNonEmptyString(name)) {
-            typeName = this.resolveOriginalName(name);
-            importSource = this.currentImports[name];
-          }
+        if (existing) {
+          existing.exportedName = 'default';
         }
       }
-
-      const entry: AnalyzerValueRecord = { name: paramName ?? 'unknown', typeName };
-
-      if (importSource !== undefined) {
-        entry.importSource = importSource;
-      }
-
-      result.push(entry);
     }
-
-    return result;
   }
 
-  private extractFactoryInjectCalls(funcNode: NodeRecord, offset: number): FactoryInjectCall[] {
-    const injectCalls: FactoryInjectCall[] = [];
-
-    const visit = (n: AnalyzerValue): void => {
-      const node = this.asNode(n);
-
-      if (!node) {
-        return;
-      }
-
-      if (node.type === 'CallExpression') {
-        const callee = this.asNode(node.callee);
-        const argsValue = asAnalyzerArray(node.arguments);
-        const args = argsValue ?? [];
-        let calleeName = '';
-        let importSource: string | undefined = undefined;
-
-        if (callee?.type === 'Identifier') {
-          const name = this.getString(callee, 'name');
-
-          if (isNonEmptyString(name)) {
-            calleeName = this.resolveOriginalName(name);
-            importSource = this.currentImports[name];
-          }
-        }
-
-        if (callee?.type === 'MemberExpression') {
-          const objectNode = this.asNode(callee.object);
-          const propertyNode = this.asNode(callee.property);
-          const objectName = objectNode?.type === 'Identifier' ? this.getString(objectNode, 'name') : null;
-          const propertyName = propertyNode ? this.getString(propertyNode, 'name') : null;
-
-          if (isNonEmptyString(objectName) && isNonEmptyString(propertyName)) {
-            calleeName = `${this.resolveOriginalName(objectName)}.${propertyName}`;
-            importSource = this.currentImports[objectName];
-          }
-        }
-
-        if (isNonEmptyString(calleeName)) {
-          const injectCall = this.parseInjectCall(calleeName, importSource, args, node);
-
-          if (injectCall) {
-            const start = typeof node.start === 'number' ? node.start - offset : null;
-            const end = typeof node.end === 'number' ? node.end - offset : null;
-
-            this.currentInjectCalls.push(injectCall);
-
-            if (start !== null && end !== null) {
-              injectCalls.push({
-                start,
-                end,
-                token: injectCall.token,
-                tokenKind: injectCall.tokenKind,
-              });
-            }
-          }
-        }
-      }
-
-      Object.keys(node).forEach(key => {
-        visit(node[key]);
-      });
-    };
-
-    visit(funcNode.body);
-
-    return injectCalls;
-  }
-
-  private parseInjectCall(
-    calleeName: string,
-    importSource: string | undefined,
-    args: AnalyzerValue[],
-    node: NodeRecord,
-  ): InjectCall | null {
-    if (importSource !== '@zipbul/common') {
-      return null;
-    }
-
-    if (calleeName !== 'inject' && !calleeName.endsWith('.inject')) {
-      return null;
-    }
-
-    if (args.length !== 1) {
-      return {
-        tokenKind: 'invalid',
-        token: null,
-        callee: calleeName,
-        importSource,
-        start: typeof node.start === 'number' ? node.start : undefined,
-        end: typeof node.end === 'number' ? node.end : undefined,
-        filePath: this.currentFilePath,
-      };
-    }
-
-    const tokenResult = this.parseInjectToken(args[0]);
-
-    if (!tokenResult) {
-      return {
-        tokenKind: 'invalid',
-        token: null,
-        callee: calleeName,
-        importSource,
-        start: typeof node.start === 'number' ? node.start : undefined,
-        end: typeof node.end === 'number' ? node.end : undefined,
-        filePath: this.currentFilePath,
-      };
-    }
-
-    return {
-      tokenKind: tokenResult.tokenKind,
-      token: tokenResult.token,
-      callee: calleeName,
-      importSource,
-      start: typeof node.start === 'number' ? node.start : undefined,
-      end: typeof node.end === 'number' ? node.end : undefined,
-      filePath: this.currentFilePath,
-    };
-  }
-
-  private parseInjectToken(value: AnalyzerValue): InjectTokenResolution | null {
-    const node = this.asNode(value);
-
-    if (!node) {
-      return null;
-    }
-
-    if (node.type === 'Identifier') {
-      return { tokenKind: 'token', token: this.parseExpression(value) };
-    }
-
-    if (node.type === 'ArrowFunctionExpression') {
-      const identifier = this.extractReturnedIdentifier(node.body);
-
-      if (identifier) {
-        return { tokenKind: 'thunk', token: this.parseExpression(identifier) };
-      }
-    }
-
-    if (node.type === 'FunctionExpression') {
-      const identifier = this.extractReturnedIdentifier(node.body);
-
-      if (identifier) {
-        return { tokenKind: 'thunk', token: this.parseExpression(identifier) };
-      }
-    }
-
-    return null;
-  }
-
-  private extractReturnedIdentifier(value: AnalyzerValue): AnalyzerValue | null {
-    const node = this.asNode(value);
-
-    if (!node) {
-      return null;
-    }
-
-    if (node.type === 'Identifier') {
-      return value;
-    }
-
-    if (node.type !== 'BlockStatement') {
-      return null;
-    }
-
-    const statements = asAnalyzerArray(node.body) ?? [];
-
-    for (const statementValue of statements) {
-      const statement = this.asNode(statementValue);
-
-      if (statement?.type !== 'ReturnStatement') {
-        continue;
-      }
-
-      const argument = statement.argument;
-      const argumentNode = this.asNode(argument);
-
-      if (argumentNode?.type === 'Identifier') {
-        return argument;
-      }
-    }
-
-    return null;
-  }
-
-  private extractParam(paramNodeValue: AnalyzerValue): ExtractedParam | null {
-    const paramNode = this.asNode(paramNodeValue);
-
-    if (!paramNode) {
-      return null;
-    }
-
-    if (paramNode.type === 'TSParameterProperty') {
-      const param = this.extractParam(paramNode.parameter);
-
-      if (!param) {
-        return null;
-      }
-
-      const decoratorsValue = paramNode.decorators;
-      const parentDecoratorValues = asAnalyzerArray(decoratorsValue);
-      const parentDecorators = parentDecoratorValues
-        ? parentDecoratorValues
-            .map(value => this.extractDecorator(value))
-            .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
-        : [];
-      const nextDecorators = [...parentDecorators, ...param.decorators];
-
-      return {
-        name: param.name,
-        type: param.type,
-        typeArgs: param.typeArgs,
-        decorators: nextDecorators,
-      };
-    }
-
-    if (paramNode.type === 'AssignmentPattern') {
-      const node = this.asNode(paramNode.left);
-
-      if (node?.type !== 'Identifier') {
-        return null;
-      }
-
-      return this.extractIdentifierParam(node, paramNode.decorators);
-    }
-
-    if (paramNode.type === 'Identifier') {
-      return this.extractIdentifierParam(paramNode, paramNode.decorators);
-    }
-
-    return null;
-  }
-
-  private extractIdentifierParam(identifierNode: NodeRecord, decoratorsValue: AnalyzerValue): ExtractedParam | null {
-    const name = this.getString(identifierNode, 'name');
-
-    if (!isNonEmptyString(name)) {
-      return null;
-    }
-
-    const decoratorValues = asAnalyzerArray(decoratorsValue);
-    const decorators = decoratorValues
-      ? decoratorValues
-          .map(value => this.extractDecorator(value))
-          .filter((decorator): decorator is DecoratorMetadata => decorator !== null)
-      : [];
-    let typeInfo: TypeInfo = { typeName: 'any' };
-    const typeAnnotation = this.asNode(identifierNode.typeAnnotation);
-    const nestedTypeAnnotation = typeAnnotation ? this.asNode(typeAnnotation.typeAnnotation) : null;
-
-    if (nestedTypeAnnotation) {
-      typeInfo = this.typeResolver.resolve(nestedTypeAnnotation);
-    }
-
-    const typeValue = this.resolveTypeValue(typeInfo);
-
-    return {
-      name,
-      type: typeValue,
-      typeArgs: typeInfo.typeArgs,
-      decorators,
-    };
-  }
-
-  private asNode(value: AnalyzerValue): NodeRecord | null {
-    const record = this.getRecord(value);
-
-    if (!record) {
-      return null;
-    }
-
-    if (!isNodeRecord(record)) {
-      return null;
-    }
-
-    return record;
-  }
-
-  private getRecord(value: AnalyzerValue): AnalyzerValueRecord | null {
-    if (!isAnalyzerRecord(value)) {
-      return null;
-    }
-
-    return value;
-  }
-
-  private getString(node: AnalyzerValueRecord, key: string): string | null {
-    const value = node[key];
-
-    if (typeof value !== 'string') {
-      return null;
-    }
-
-    return value;
-  }
-
-  private getNodeStringValue(node: AnalyzerValueRecord, key: string): string | null {
-    const child = this.asNode(node[key]);
-
-    if (!child) {
-      return null;
-    }
-
-    return this.getString(child, 'value');
-  }
 }

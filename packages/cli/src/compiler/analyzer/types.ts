@@ -1,5 +1,3 @@
-import type { Program } from 'oxc-parser';
-
 import type { DecoratorMetadata } from './interfaces';
 
 export type AnalyzerPrimitive = string | number | boolean | null | undefined;
@@ -10,15 +8,7 @@ export interface AnalyzerValueRecord {
 
 export type AnalyzerValueArray = ReadonlyArray<AnalyzerValue>;
 
-export type AnalyzerProgram = Program;
-
-export type AnalyzerValue = AnalyzerPrimitive | AnalyzerValueArray | AnalyzerValueRecord | AnalyzerProgram;
-
-export interface NodeRecord extends AnalyzerValueRecord {
-  readonly type: string;
-  readonly start?: number;
-  readonly end?: number;
-}
+export type AnalyzerValue = AnalyzerPrimitive | AnalyzerValueArray | AnalyzerValueRecord;
 
 export interface TypeInfo {
   typeName: string;
