@@ -39,3 +39,34 @@ export interface CyclePath {
   path: string[];
   suggestedFix?: string;
 }
+
+/**
+ * Parsed visibility setting from @Injectable decorator.
+ * @internal
+ */
+export interface VisibilityResolution {
+  kind: 'module' | 'all' | 'allowlist';
+  visibleTo?: string[];
+}
+
+/**
+ * Parsed @Injectable decorator options.
+ * @internal
+ */
+export interface InjectableOptions {
+  visibility: 'module' | 'all' | 'allowlist';
+  visibleTo?: string[];
+  scope: 'singleton' | 'request' | 'transient';
+}
+
+/**
+ * Class definition with its declaring file path.
+ * @internal
+ */
+export interface ClassDefinition {
+  metadata: ClassMetadata;
+  filePath: string;
+}
+
+/** Union of all values that can appear as a provider token. @internal */
+export type ProviderTokenValue = AnalyzerValue | ClassMetadata | CallableFunction | symbol;

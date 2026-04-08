@@ -1,0 +1,705 @@
+import { describe, expect, it } from 'bun:test';
+import { isErr } from '@zipbul/result';
+import { parseSource } from '@zipbul/gildash';
+import type { Function as OxcFunction, Expression, Class } from 'oxc-parser';
+
+import {
+  extractExceptionFiltersFromConfigure,
+  extractTypedCalls,
+  extractMiddlewaresFromConfigure,
+  extractDependencies,
+} from './method-metadata-extractor';
+
+/**
+ * Parses a class source string and returns the `OxcFunction` node
+ * for the first method definition in the class body.
+ */
+function parseMethodFunction(classSource: string): OxcFunction {
+  const parsed = parseSource('test.ts', classSource);
+
+  if (isErr(parsed)) {
+    throw new Error(`Parse failure: ${parsed.reason}`);
+  }
+
+  const classNode = parsed.program.body[0] as Class;
+  const method = classNode.body.body[0];
+
+  if (method.type !== 'MethodDefinition') {
+    throw new Error(`Expected MethodDefinition, got ${method.type}`);
+  }
+
+  return method.value;
+}
+
+/**
+ * Parses an expression source and returns the `Expression` AST node
+ * for the first variable declarator's initializer.
+ */
+function parseExpression(source: string): Expression {
+  const parsed = parseSource('test.ts', source);
+
+  if (isErr(parsed)) {
+    throw new Error(`Parse failure: ${parsed.reason}`);
+  }
+
+  const stmt = parsed.program.body[0];
+
+  if (stmt.type !== 'VariableDeclaration') {
+    throw new Error(`Expected VariableDeclaration, got ${stmt.type}`);
+  }
+
+  const init = stmt.declarations[0]?.init;
+
+  if (init === null || init === undefined) {
+    throw new Error('No initializer on variable declaration');
+  }
+
+  return init;
+}
+
+describe('extractExceptionFiltersFromConfigure', () => {
+  describe('happy path', () => {
+    it('should extract single exception filter from addErrorFilters call', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addErrorFilters([GlobalFilter]); } }',
+      );
+      const result = extractExceptionFiltersFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([{ name: 'GlobalFilter', index: 0 }]);
+    });
+
+    it('should extract multiple exception filters preserving order', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addErrorFilters([FilterA, FilterB, FilterC]); } }',
+      );
+      const result = extractExceptionFiltersFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([
+        { name: 'FilterA', index: 0 },
+        { name: 'FilterB', index: 1 },
+        { name: 'FilterC', index: 2 },
+      ]);
+    });
+
+    it('should return empty array when configure has no addErrorFilters call', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(lifecycle, [Mw]); } }',
+      );
+      const result = extractExceptionFiltersFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('null body', () => {
+    it('should return empty array when function body is null', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addErrorFilters([A]); } }',
+      );
+      const originalBody = funcNode.body;
+
+      funcNode.body = null;
+
+      const result = extractExceptionFiltersFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+
+      funcNode.body = originalBody;
+    });
+  });
+
+  describe('empty array', () => {
+    it('should return empty array when addErrorFilters receives an empty array', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addErrorFilters([]); } }',
+      );
+      const result = extractExceptionFiltersFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('error cases', () => {
+    it('should return diagnostic error when argument is not an array', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addErrorFilters(SomeFilter); } }',
+      );
+      const result = extractExceptionFiltersFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(true);
+
+      if (isErr(result)) {
+        expect(result.data.why).toMatch(/addErrorFilters/);
+      }
+    });
+
+    it('should return diagnostic error when array contains a spread element', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addErrorFilters([...filters]); } }',
+      );
+      const result = extractExceptionFiltersFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(true);
+
+      if (isErr(result)) {
+        expect(result.data.why).toMatch(/addErrorFilters/);
+      }
+    });
+
+    it('should return diagnostic error when array element is a non-identifier expression', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addErrorFilters([new Filter()]); } }',
+      );
+      const result = extractExceptionFiltersFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(true);
+
+      if (isErr(result)) {
+        expect(result.data.why).toMatch(/addErrorFilters/);
+      }
+    });
+
+    it('should return diagnostic error when addErrorFilters has no arguments', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addErrorFilters(); } }',
+      );
+      const result = extractExceptionFiltersFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(true);
+
+      if (isErr(result)) {
+        expect(result.data.why).toMatch(/addErrorFilters/);
+      }
+    });
+  });
+});
+
+describe('extractTypedCalls', () => {
+  describe('happy path', () => {
+    it('should extract a single typed member-access call', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { ctx.getBody<UserDto>(); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      expect(result![0]?.methodName).toBe('getBody');
+      expect(result![0]?.typeArgs).toEqual(['UserDto']);
+    });
+
+    it('should extract multiple typed calls from the same method', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { ctx.getBody<UserDto>(); ctx.getQuery<QueryDto>(); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(2);
+      expect(result![0]?.methodName).toBe('getBody');
+      expect(result![0]?.typeArgs).toEqual(['UserDto']);
+      expect(result![1]?.methodName).toBe('getQuery');
+      expect(result![1]?.typeArgs).toEqual(['QueryDto']);
+    });
+
+    it('should capture callArgs for validated() calls with identifier arguments', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { ctx.validated(bodyInput, UserDto); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      expect(result![0]?.methodName).toBe('validated');
+      expect(result![0]?.callArgs).toEqual([
+        { ref: 'bodyInput' },
+        { ref: 'UserDto' },
+      ]);
+    });
+
+    it('should include validated() call even without type arguments', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { ctx.validated(bodyInput); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      expect(result![0]?.methodName).toBe('validated');
+      expect(result![0]?.typeArgs).toEqual([]);
+      expect(result![0]?.callArgs).toEqual([{ ref: 'bodyInput' }]);
+    });
+
+    it('should not include callArgs key when validated() has no identifier arguments', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { ctx.validated(); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      expect(result![0]?.methodName).toBe('validated');
+      expect(result![0]?.callArgs).toBeUndefined();
+    });
+  });
+
+  describe('null body', () => {
+    it('should return undefined when function body is null', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { ctx.getBody<Dto>(); } }',
+      );
+
+      funcNode.body = null;
+
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('no typed calls', () => {
+    it('should return undefined when no member calls with type arguments exist', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { console.log("hello"); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should return undefined when calls exist but none have type arguments', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { ctx.getBody(); ctx.getQuery(); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should return undefined when call is a plain function call not a member expression', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { getBody<UserDto>(); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should ignore computed member access calls', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { ctx["getBody"]<UserDto>(); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should extract typed calls nested inside control flow', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { if (true) { ctx.getBody<UserDto>(); } } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      expect(result![0]?.methodName).toBe('getBody');
+    });
+
+    it('should resolve type argument with TSTypeReference Identifier', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { ctx.parse<SomeGeneric>(); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeDefined();
+      expect(result![0]?.typeArgs).toEqual(['SomeGeneric']);
+    });
+
+    it('should extract validated call with mixed argument types (only identifiers captured)', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { handle() { ctx.validated("literal", MyDto); } }',
+      );
+      const result = extractTypedCalls(funcNode);
+
+      expect(result).toBeDefined();
+      expect(result).toHaveLength(1);
+      expect(result![0]?.callArgs).toEqual([{ ref: 'MyDto' }]);
+    });
+  });
+});
+
+describe('extractMiddlewaresFromConfigure', () => {
+  describe('happy path', () => {
+    it('should extract single middleware with lifecycle', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [AuthMiddleware]); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([
+        { name: 'AuthMiddleware', lifecycle: 'beforeHandle', index: 0 },
+      ]);
+    });
+
+    it('should extract multiple middlewares preserving order and index', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [MwA, MwB, MwC]); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([
+        { name: 'MwA', lifecycle: 'beforeHandle', index: 0 },
+        { name: 'MwB', lifecycle: 'beforeHandle', index: 1 },
+        { name: 'MwC', lifecycle: 'beforeHandle', index: 2 },
+      ]);
+    });
+
+    it('should extract middleware with withOptions call pattern', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [LogMiddleware.withOptions({ level: "debug" })]); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([
+        { name: 'LogMiddleware', lifecycle: 'beforeHandle', index: 0 },
+      ]);
+    });
+
+    it('should extract mixed identifier and withOptions middlewares', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [AuthMw, LogMw.withOptions({})]); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([
+        { name: 'AuthMw', lifecycle: 'beforeHandle', index: 0 },
+        { name: 'LogMw', lifecycle: 'beforeHandle', index: 1 },
+      ]);
+    });
+
+    it('should return empty array when configure has no addMiddlewares call', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addErrorFilters([F]); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('lifecycle handling', () => {
+    it('should omit lifecycle when first argument is not an identifier', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares("beforeHandle", [AuthMw]); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+
+      if (!isErr(result)) {
+        expect(result).toHaveLength(1);
+        expect(result[0]?.name).toBe('AuthMw');
+        expect(result[0]?.lifecycle).toBeUndefined();
+      }
+    });
+
+    it('should omit lifecycle for withOptions pattern when first arg is not identifier', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares("phase", [LogMw.withOptions({})]); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+
+      if (!isErr(result)) {
+        expect(result).toHaveLength(1);
+        expect(result[0]?.name).toBe('LogMw');
+        expect(result[0]?.lifecycle).toBeUndefined();
+      }
+    });
+  });
+
+  describe('null body', () => {
+    it('should return empty array when function body is null', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(lc, [A]); } }',
+      );
+
+      funcNode.body = null;
+
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('empty array', () => {
+    it('should return empty array when addMiddlewares receives an empty array', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(beforeHandle, []); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('error cases', () => {
+    it('should return diagnostic error when second argument is not an array', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(beforeHandle, SomeMw); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(true);
+
+      if (isErr(result)) {
+        expect(result.data.why).toMatch(/addMiddlewares/);
+      }
+    });
+
+    it('should return diagnostic error when array contains a spread element', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [...mws]); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(true);
+
+      if (isErr(result)) {
+        expect(result.data.why).toMatch(/addMiddlewares/);
+      }
+    });
+
+    it('should return diagnostic error when array element is a non-identifier non-withOptions expression', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [new Mw()]); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(true);
+
+      if (isErr(result)) {
+        expect(result.data.why).toMatch(/addMiddlewares/);
+      }
+    });
+
+    it('should return diagnostic error when addMiddlewares has only one argument that is not an array', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(beforeHandle); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(true);
+
+      if (isErr(result)) {
+        expect(result.data.why).toMatch(/addMiddlewares/);
+      }
+    });
+
+    it('should return diagnostic error for call expression element that is not withOptions', () => {
+      const funcNode = parseMethodFunction(
+        'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [Mw.otherMethod()]); } }',
+      );
+      const result = extractMiddlewaresFromConfigure(funcNode);
+
+      expect(isErr(result)).toBe(true);
+
+      if (isErr(result)) {
+        expect(result.data.why).toMatch(/addMiddlewares/);
+      }
+    });
+  });
+});
+
+describe('extractDependencies', () => {
+  describe('happy path', () => {
+    it('should extract dependencies from arrow function body', () => {
+      const expression = parseExpression(
+        'const fn = (config) => new Foo(MyService);',
+      );
+      const imports: Record<string, string> = { MyService: './my-service' };
+      const originalNames: Record<string, string> = {};
+      const result = extractDependencies(expression, 0, imports, originalNames);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.name).toBe('MyService');
+      expect(result[0]?.path).toBe('./my-service');
+    });
+
+    it('should extract multiple dependencies', () => {
+      const expression = parseExpression(
+        'const fn = () => new Foo(ServiceA, ServiceB);',
+      );
+      const imports: Record<string, string> = {
+        ServiceA: './service-a',
+        ServiceB: './service-b',
+      };
+      const result = extractDependencies(expression, 0, imports, {});
+
+      expect(result).toHaveLength(2);
+      expect(result[0]?.name).toBe('ServiceA');
+      expect(result[0]?.path).toBe('./service-a');
+      expect(result[1]?.name).toBe('ServiceB');
+      expect(result[1]?.path).toBe('./service-b');
+    });
+
+    it('should resolve aliased names to original export names', () => {
+      const expression = parseExpression(
+        'const fn = () => new Foo(Svc);',
+      );
+      const imports: Record<string, string> = { Svc: './service' };
+      const originalNames: Record<string, string> = { Svc: 'MyService' };
+      const result = extractDependencies(expression, 0, imports, originalNames);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.name).toBe('MyService');
+      expect(result[0]?.path).toBe('./service');
+    });
+
+    it('should apply offset to start and end positions', () => {
+      const source = 'const fn = () => Dep;';
+      const expression = parseExpression(source);
+      const imports: Record<string, string> = { Dep: './dep' };
+      const offset = 10;
+      const result = extractDependencies(expression, offset, imports, {});
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.start).toBeLessThan(result[0]?.end ?? 0);
+    });
+  });
+
+  describe('parameter exclusion', () => {
+    it('should exclude nested function expression parameter names from dependencies', () => {
+      const source = [
+        'const fn = () => { return function(config) { return new Foo(config, External); }; };',
+      ].join('');
+      const expression = parseExpression(source);
+      const imports: Record<string, string> = {
+        config: './config-service',
+        External: './external',
+      };
+      const result = extractDependencies(expression, 0, imports, {});
+      const names = result.map(dep => dep.name);
+
+      expect(names).toContain('External');
+      expect(names).not.toContain('config');
+    });
+
+    it('should not exclude outer function expression parameters (only nested are tracked)', () => {
+      const source = [
+        'const fn = function(config) { return new Foo(config, External); };',
+      ].join('');
+      const expression = parseExpression(source);
+      const imports: Record<string, string> = {
+        config: './config-service',
+        External: './external',
+      };
+      const result = extractDependencies(expression, 0, imports, {});
+      const names = result.map(dep => dep.name);
+
+      expect(names).toContain('External');
+      expect(names).toContain('config');
+    });
+  });
+
+  describe('empty and edge cases', () => {
+    it('should return empty array when no identifiers match imports', () => {
+      const expression = parseExpression(
+        'const fn = () => new Foo(localVar);',
+      );
+      const result = extractDependencies(expression, 0, {}, {});
+
+      expect(result).toHaveLength(0);
+    });
+
+    it('should return empty array for arrow function with empty body expression', () => {
+      const expression = parseExpression(
+        'const fn = () => 42;',
+      );
+      const result = extractDependencies(expression, 0, {}, {});
+
+      expect(result).toHaveLength(0);
+    });
+
+    it('should handle non-function expression by visiting the node directly', () => {
+      const expression = parseExpression(
+        'const fn = MyService;',
+      );
+      const imports: Record<string, string> = { MyService: './my-service' };
+      const result = extractDependencies(expression, 0, imports, {});
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.name).toBe('MyService');
+    });
+
+    it('should use local name as original when no alias mapping exists', () => {
+      const expression = parseExpression(
+        'const fn = () => Svc;',
+      );
+      const imports: Record<string, string> = { Svc: './svc' };
+      const result = extractDependencies(expression, 0, imports, {});
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.name).toBe('Svc');
+    });
+  });
+
+  describe('function expression body', () => {
+    it('should extract dependencies from function expression body', () => {
+      const expression = parseExpression(
+        'const fn = function() { return new Foo(DepService); };',
+      );
+      const imports: Record<string, string> = { DepService: './dep-service' };
+      const result = extractDependencies(expression, 0, imports, {});
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.name).toBe('DepService');
+      expect(result[0]?.path).toBe('./dep-service');
+    });
+
+    it('should exclude nested function expression params while keeping outer params', () => {
+      const expression = parseExpression(
+        'const fn = function(outer) { return function(deep) { return new Foo(outer, deep, External); }; };',
+      );
+      const imports: Record<string, string> = {
+        outer: './outer',
+        deep: './deep',
+        External: './external',
+      };
+      const result = extractDependencies(expression, 0, imports, {});
+      const names = result.map(dep => dep.name);
+
+      expect(names).toContain('External');
+      expect(names).toContain('outer');
+      expect(names).not.toContain('deep');
+    });
+  });
+
+  describe('arrow function with block body', () => {
+    it('should extract dependencies from arrow function with block body', () => {
+      const expression = parseExpression(
+        'const fn = () => { const result = new Foo(DepA); return result; };',
+      );
+      const imports: Record<string, string> = { DepA: './dep-a' };
+      const result = extractDependencies(expression, 0, imports, {});
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.name).toBe('DepA');
+    });
+  });
+});

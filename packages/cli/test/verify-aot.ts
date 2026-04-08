@@ -5,7 +5,7 @@ import { isErr } from '@zipbul/result';
 
 import type { FileAnalysis } from '../src/compiler/analyzer/graph/interfaces';
 
-import { AstParser } from '../src/compiler/analyzer/ast-parser';
+import { AstParser } from '../src/compiler/analyzer/parser';
 import { ModuleGraph } from '../src/compiler/analyzer/graph/module-graph';
 import { ImportRegistry } from '../src/compiler/generator/import-registry';
 import { InjectorGenerator } from '../src/compiler/generator/injector-generator';

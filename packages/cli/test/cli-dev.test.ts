@@ -24,8 +24,8 @@ function makeIndexResult(overrides: Partial<IndexResult> & { changedFiles: strin
   };
 }
 
-import type { DevCommandDeps } from '../src/bin/dev.command';
-import { __testing__ } from '../src/bin/dev.command';
+import type { DevCommandDeps } from '../src/bin/dev';
+import { __testing__ } from '../src/bin/dev';
 import type { CliRendererLike } from '../src/bin/interfaces';
 import type { AstParser, AdapterDefinitionResolver } from '../src/compiler/analyzer';
 import type { ResolvedConfig } from '../src/config';

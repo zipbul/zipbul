@@ -1,3 +1,8 @@
-export * from './diagnostic-builder';
-export * from './diagnostic-error';
-export * from './types';
+export { buildDiagnostic } from './diagnostic-builder';
+export { DiagnosticError } from './diagnostic-error';
+export type {
+  SourceRange,
+  Location,
+  Diagnostic,
+  BuildDiagnosticParams,
+} from './types';

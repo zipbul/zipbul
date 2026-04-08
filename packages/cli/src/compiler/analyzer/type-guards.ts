@@ -1,5 +1,6 @@
 import { ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
 
+import type { ClassMetadata } from './interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord } from './types';
 
 /**
@@ -9,9 +10,10 @@ import type { AnalyzerValue, AnalyzerValueRecord } from './types';
  */
 export interface UnresolvableExpression extends AnalyzerValueRecord {
   readonly [key: typeof ZIPBUL_UNRESOLVABLE]: true;
-  readonly nodeType: string;
-  readonly start: number | undefined;
-  readonly end: number | undefined;
+  readonly nodeType?: string | undefined;
+  readonly sourceText?: string | undefined;
+  readonly start?: number | undefined;
+  readonly end?: number | undefined;
 }
 
 export function isRecordValue(value: unknown): value is AnalyzerValueRecord {
@@ -35,4 +37,44 @@ export function isNonEmptyString(value: string | null | undefined): value is str
  */
 export function isUnresolvable(value: unknown): value is UnresolvableExpression {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && ZIPBUL_UNRESOLVABLE in value;
+}
+
+/**
+ * Narrows an analyzer value to a record or returns `null`.
+ *
+ * @param value - The value to narrow.
+ * @returns The value as a record, or `null` if it is not an object.
+ * @public
+ */
+export function toRecord(value: unknown): AnalyzerValueRecord | null {
+  if (!isRecordValue(value)) {
+    return null;
+  }
+
+  return value;
+}
+
+/**
+ * Checks whether an analyzer value is a fully parsed class metadata object
+ * as produced by the AST parser.
+ *
+ * @param value - The value to check.
+ * @returns `true` when the value has the shape of {@link ClassMetadata}.
+ * @public
+ */
+export function isClassMetadata(value: unknown): value is ClassMetadata {
+  if (!isRecordValue(value)) {
+    return false;
+  }
+
+  const record = value;
+
+  return (
+    typeof record.className === 'string' &&
+    Array.isArray(record.decorators) &&
+    Array.isArray(record.constructorParams) &&
+    Array.isArray(record.methods) &&
+    Array.isArray(record.properties) &&
+    typeof record.imports === 'object'
+  );
 }

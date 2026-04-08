@@ -1,132 +1,29 @@
 import type { Result } from '@zipbul/result';
-import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
+import type { AnalyzerValue } from '../analyzer/types';
 import type { ImportRegistry } from './import-registry';
 import type { Diagnostic } from '../../diagnostics';
 
 import { err, type Err } from '@zipbul/result';
 import {
-  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL,
-  ZIPBUL_FACTORY_CODE, ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL,
+  ZIPBUL_FACTORY_CODE,
   SCOPED_KEY_SEPARATOR,
   SCOPE_SINGLETON, VISIBILITY_ALL, VISIBILITY_ALLOWLIST, VISIBILITY_MODULE,
 } from '@zipbul/common';
 import { type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint } from '../../common';
 import { buildDiagnostic } from '../../diagnostics';
-import { isRecordValue, isAnalyzerValueArray, isNonEmptyString, isUnresolvable } from '../analyzer/type-guards';
-import { Logger } from '@zipbul/logger';
-
-const logger = new Logger('InjectorGenerator');
-
-type RecordValue = AnalyzerValueRecord;
+import { isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
+import {
+  stableKey, asString, asRecord, getRefName,
+  serializeValue, resolveConstructorDeps,
+} from './value-serializer';
 
 interface Replacement {
   start: number;
   end: number;
   content: string;
 }
-
-type GeneratorValue = AnalyzerValue | symbol | ((...args: readonly AnalyzerValue[]) => AnalyzerValue);
-
-const stableKey = (value: GeneratorValue, visited = new WeakSet<AnalyzerValueRecord>()): string => {
-  if (value === null) {
-    return 'null';
-  }
-
-  if (value === undefined) {
-    return 'undefined';
-  }
-
-  if (typeof value === 'string') {
-    return `string:${value}`;
-  }
-
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return `${typeof value}:${String(value)}`;
-  }
-
-  if (typeof value === 'symbol') {
-    return `symbol:${value.description ?? value.toString()}`;
-  }
-
-  if (typeof value === 'function') {
-    return `function:${value.name}`;
-  }
-
-  if (isAnalyzerValueArray(value)) {
-    const parts = value.map(val => stableKey(val, visited));
-
-    return `[${parts.join(',')}]`;
-  }
-
-  if (typeof value !== 'object' || value === null) {
-    return 'unknown';
-  }
-
-  if (!isRecordValue(value)) {
-    return 'unknown';
-  }
-
-  if (visited.has(value)) {
-    return '[Circular]';
-  }
-
-  visited.add(value);
-
-  const record: AnalyzerValueRecord = value;
-  const entries = Object.entries(record).sort(([keyA], [keyB]) => compareCodePoint(keyA, keyB));
-  const parts = entries.map(([key, val]) => `${key}:${stableKey(val, visited)}`);
-
-  return `{${parts.join(',')}}`;
-};
-
-const asString = (value: AnalyzerValue): string | undefined => {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  return value;
-};
-
-const asRecord = (value: GeneratorValue | ClassMetadata): RecordValue | null => {
-  if (!isRecordValue(value)) {
-    return null;
-  }
-
-  return value;
-};
-
-const getRefName = (value: AnalyzerValue): string | null => {
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  const record = asRecord(value);
-
-  if (record === null) {
-    return null;
-  }
-
-  if (typeof record[ZIPBUL_REF] === 'string') {
-    return record[ZIPBUL_REF];
-  }
-
-  return null;
-};
-
-const getLazyRefName = (value: AnalyzerValue): string | null => {
-  const record = asRecord(value);
-
-  if (record === null) {
-    return null;
-  }
-
-  if (typeof record[ZIPBUL_LAZY_REF] === 'string') {
-    return record[ZIPBUL_LAZY_REF];
-  }
-
-  return null;
-};
 
 const isClassMetadata = (value: AnalyzerValue | ClassMetadata): value is ClassMetadata => {
   const record = asRecord(value);
@@ -164,16 +61,38 @@ const isClassMetadata = (value: AnalyzerValue | ClassMetadata): value is ClassMe
 
 export class InjectorGenerator {
   generate(graph: ModuleGraph, registry: ImportRegistry): Result<string, Diagnostic> {
+    const allKeys = graph.getAllRegisteredKeys();
+    const sortedNodes = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));
+
+    const providerResult = this.generateProviderFactories(sortedNodes, graph, registry, allKeys);
+
+    if (!providerResult.ok) {
+      return providerResult.error;
+    }
+
+    const adapterConfigs = this.generateAdapterConfigs(sortedNodes, registry);
+    const dynamicEntries = this.generateDynamicModules(sortedNodes, registry);
+
+    return this.buildContainerCode(providerResult.factoryEntries, adapterConfigs, dynamicEntries);
+  }
+
+  /**
+   * Iterates all modules and their providers to generate DI container factory registration code.
+   * Handles useValue, useClass, useExisting, useFactory provider types and plain class providers.
+   *
+   * @param sortedNodes - Module nodes sorted by file path for deterministic output.
+   * @param graph - The module dependency graph containing provider and class definitions.
+   * @param registry - The import registry for resolving and tracking import aliases.
+   * @param allKeys - Set of all registered scoped keys across all modules.
+   * @returns Factory entry code lines, or an error if a factory inject() call cannot be resolved.
+   */
+  private generateProviderFactories(
+    sortedNodes: readonly ModuleNode[],
+    graph: ModuleGraph,
+    registry: ImportRegistry,
+    allKeys: Set<string>,
+  ): { ok: true; factoryEntries: string[] } | { ok: false; error: Err<Diagnostic> } {
     const factoryEntries: string[] = [];
-    const adapterConfigMap = new Map<
-      string,
-      {
-        middlewareList: string[];
-        middlewares: Map<string, string[]>;
-        exceptionFilters: string[];
-        guards: string[];
-      }
-    >();
     let generateError: Err<Diagnostic> | null = null;
 
     const getAlias = (name: string, path?: string): string => {
@@ -192,10 +111,6 @@ export class InjectorGenerator {
       return `{ scope: '${scope}', visibleTo: ${visibleToStr} }`;
     };
 
-    const allKeys = graph.getAllRegisteredKeys();
-
-    const sortedNodes = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));
-
     sortedNodes.forEach((node: ModuleNode) => {
       const providerTokens = Array.from(node.providers.keys()).sort(compareCodePoint);
 
@@ -211,7 +126,7 @@ export class InjectorGenerator {
 
         if (providerRecord) {
           if (Object.prototype.hasOwnProperty.call(providerRecord, 'useValue')) {
-            const val = this.serializeValue(providerRecord.useValue, registry);
+            const val = serializeValue(providerRecord.useValue, registry);
 
             factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', () => ${val}, ${opts});`);
 
@@ -235,7 +150,7 @@ export class InjectorGenerator {
               }
 
               const alias = getAlias(clsDef.metadata.className, clsDef.filePath);
-              const deps = this.resolveConstructorDeps(clsDef.metadata, node, graph, allKeys);
+              const deps = resolveConstructorDeps(clsDef.metadata, node, graph, allKeys);
 
               return `new ${alias}(${deps.join(', ')})`;
             });
@@ -247,7 +162,7 @@ export class InjectorGenerator {
           }
 
           if (providerRecord.useExisting !== undefined) {
-            const existingToken = this.serializeValue(providerRecord.useExisting, registry);
+            const existingToken = serializeValue(providerRecord.useExisting, registry);
 
             // A-4: Validate useExisting target exists (class-based tokens only)
             const existingRefName = getRefName(providerRecord.useExisting);
@@ -439,93 +354,121 @@ export class InjectorGenerator {
         if (isClassMetadata(ref.metadata)) {
           const clsMeta = ref.metadata;
           const alias = getAlias(clsMeta.className, ref.filePath);
-          const deps = this.resolveConstructorDeps(clsMeta, node, graph, allKeys);
+          const deps = resolveConstructorDeps(clsMeta, node, graph, allKeys);
 
           factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => runInInjectionContext(c, () => new ${alias}(${deps.join(', ')})), ${opts});`);
         }
       });
-
-      if (node.moduleDefinition?.adapters !== undefined) {
-        const adaptersArray = Array.isArray(node.moduleDefinition.adapters) ? node.moduleDefinition.adapters : null;
-
-        if (adaptersArray !== null) {
-          for (const item of adaptersArray) {
-            const itemRecord = asRecord(item);
-
-            if (itemRecord === null) {
-              continue;
-            }
-
-            const adapterRef = asRecord(itemRecord.adapter);
-            const adapterClassName = typeof adapterRef?.[ZIPBUL_REF] === 'string' ? adapterRef[ZIPBUL_REF] : null;
-            const nameValue = typeof itemRecord.name === 'string' ? itemRecord.name : null;
-            const configKey = nameValue ?? adapterClassName;
-
-            if (configKey === null || configKey.length === 0) {
-              continue;
-            }
-
-            const adapterConfigEntry = adapterConfigMap.get(configKey) ?? {
-              middlewareList: [],
-              middlewares: new Map<string, string[]>(),
-              exceptionFilters: [],
-              guards: [],
-            };
-
-            if (itemRecord.middlewares !== undefined) {
-              const middlewares = asRecord(itemRecord.middlewares);
-
-              if (middlewares !== null) {
-                for (const phase of Object.keys(middlewares).sort(compareCodePoint)) {
-                  const values = Array.isArray(middlewares[phase]) ? middlewares[phase] : null;
-
-                  if (values === null) {
-                    continue;
-                  }
-
-                  const existing = adapterConfigEntry.middlewares.get(phase) ?? [];
-                  const serializedValues = values.map(value => this.serializeValue(value, registry));
-
-                  adapterConfigEntry.middlewares.set(phase, [...existing, ...serializedValues]);
-                }
-              } else if (Array.isArray(itemRecord.middlewares)) {
-                adapterConfigEntry.middlewareList.push(
-                  ...itemRecord.middlewares.map(value => this.serializeValue(value, registry)),
-                );
-              }
-            }
-
-            if (itemRecord.exceptionFilters !== undefined) {
-              const exceptionFilters = Array.isArray(itemRecord.exceptionFilters) ? itemRecord.exceptionFilters : null;
-
-              if (exceptionFilters !== null) {
-                adapterConfigEntry.exceptionFilters.push(
-                  ...exceptionFilters.map(value => this.serializeValue(value, registry)),
-                );
-              }
-            }
-
-            if (itemRecord.guards !== undefined) {
-              const guards = Array.isArray(itemRecord.guards) ? itemRecord.guards : null;
-
-              if (guards !== null) {
-                adapterConfigEntry.guards.push(
-                  ...guards.map(value => this.serializeValue(value, registry)),
-                );
-              }
-            }
-
-            adapterConfigMap.set(configKey, adapterConfigEntry);
-          }
-        }
-      }
     });
 
     if (generateError !== null) {
-      return generateError;
+      return { ok: false, error: generateError };
     }
 
-    const adapterConfigs = [...adapterConfigMap.entries()]
+    return { ok: true, factoryEntries };
+  }
+
+  /**
+   * Collects adapter configuration entries (middlewares, exception filters, guards) from all modules
+   * and serializes them into code lines for the generated adapter config object.
+   *
+   * @param sortedNodes - Module nodes sorted by file path for deterministic output.
+   * @param registry - The import registry for resolving and tracking import aliases.
+   * @returns Serialized adapter config code lines.
+   */
+  private generateAdapterConfigs(sortedNodes: readonly ModuleNode[], registry: ImportRegistry): string[] {
+    const adapterConfigMap = new Map<
+      string,
+      {
+        middlewareList: string[];
+        middlewares: Map<string, string[]>;
+        exceptionFilters: string[];
+        guards: string[];
+      }
+    >();
+
+    sortedNodes.forEach((node: ModuleNode) => {
+      if (node.moduleDefinition?.adapters === undefined) {
+        return;
+      }
+
+      const adaptersArray = Array.isArray(node.moduleDefinition.adapters) ? node.moduleDefinition.adapters : null;
+
+      if (adaptersArray === null) {
+        return;
+      }
+
+      for (const item of adaptersArray) {
+        const itemRecord = asRecord(item);
+
+        if (itemRecord === null) {
+          continue;
+        }
+
+        const adapterRef = asRecord(itemRecord.adapter);
+        const adapterClassName = typeof adapterRef?.[ZIPBUL_REF] === 'string' ? adapterRef[ZIPBUL_REF] : null;
+        const nameValue = typeof itemRecord.name === 'string' ? itemRecord.name : null;
+        const configKey = nameValue ?? adapterClassName;
+
+        if (configKey === null || configKey.length === 0) {
+          continue;
+        }
+
+        const adapterConfigEntry = adapterConfigMap.get(configKey) ?? {
+          middlewareList: [],
+          middlewares: new Map<string, string[]>(),
+          exceptionFilters: [],
+          guards: [],
+        };
+
+        if (itemRecord.middlewares !== undefined) {
+          const middlewares = asRecord(itemRecord.middlewares);
+
+          if (middlewares !== null) {
+            for (const phase of Object.keys(middlewares).sort(compareCodePoint)) {
+              const values = Array.isArray(middlewares[phase]) ? middlewares[phase] : null;
+
+              if (values === null) {
+                continue;
+              }
+
+              const existing = adapterConfigEntry.middlewares.get(phase) ?? [];
+              const serializedValues = values.map(value => serializeValue(value, registry));
+
+              adapterConfigEntry.middlewares.set(phase, [...existing, ...serializedValues]);
+            }
+          } else if (Array.isArray(itemRecord.middlewares)) {
+            adapterConfigEntry.middlewareList.push(
+              ...itemRecord.middlewares.map(value => serializeValue(value, registry)),
+            );
+          }
+        }
+
+        if (itemRecord.exceptionFilters !== undefined) {
+          const exceptionFilters = Array.isArray(itemRecord.exceptionFilters) ? itemRecord.exceptionFilters : null;
+
+          if (exceptionFilters !== null) {
+            adapterConfigEntry.exceptionFilters.push(
+              ...exceptionFilters.map(value => serializeValue(value, registry)),
+            );
+          }
+        }
+
+        if (itemRecord.guards !== undefined) {
+          const guards = Array.isArray(itemRecord.guards) ? itemRecord.guards : null;
+
+          if (guards !== null) {
+            adapterConfigEntry.guards.push(
+              ...guards.map(value => serializeValue(value, registry)),
+            );
+          }
+        }
+
+        adapterConfigMap.set(configKey, adapterConfigEntry);
+      }
+    });
+
+    return [...adapterConfigMap.entries()]
       .sort(([left], [right]) => compareCodePoint(left, right))
       .flatMap(([configKey, config]) => {
         const configParts: string[] = [];
@@ -554,7 +497,17 @@ export class InjectorGenerator {
 
         return [`  '${configKey}': { ${configParts.join(', ')} },`];
       });
+  }
 
+  /**
+   * Generates dynamic module registration code by iterating all modules and their dynamic imports.
+   * Each dynamic import produces an await call and a container.loadDynamicModule registration.
+   *
+   * @param sortedNodes - Module nodes sorted by file path for deterministic output.
+   * @param registry - The import registry for resolving and tracking import aliases.
+   * @returns Dynamic module registration code lines.
+   */
+  private generateDynamicModules(sortedNodes: readonly ModuleNode[], registry: ImportRegistry): string[] {
     const dynamicEntries: string[] = [];
 
     sortedNodes.forEach((node: ModuleNode) => {
@@ -593,13 +546,25 @@ export class InjectorGenerator {
         }
 
         const argList = isAnalyzerValueArray(impRecord.args) ? impRecord.args : [];
-        const args = argList.map(a => this.serializeValue(a, registry)).join(', ');
+        const args = argList.map(a => serializeValue(a, registry)).join(', ');
 
         dynamicEntries.push(`  const mod_${node.name}_${className} = await ${callExpression}(${args});`);
         dynamicEntries.push(`  await container.loadDynamicModule('${className}', mod_${node.name}_${className});`);
       });
     });
 
+    return dynamicEntries;
+  }
+
+  /**
+   * Assembles the final generated container code string from the pre-built sections.
+   *
+   * @param factoryEntries - Container provider factory registration lines.
+   * @param adapterConfigs - Adapter configuration object property lines.
+   * @param dynamicEntries - Dynamic module registration lines.
+   * @returns The complete generated injector source code.
+   */
+  private buildContainerCode(factoryEntries: string[], adapterConfigs: string[], dynamicEntries: string[]): Result<string, Diagnostic> {
     return `
 import { Container } from "@zipbul/core";
 import { runInInjectionContext } from "@zipbul/core";
@@ -629,134 +594,6 @@ ${dynamicEntries.join('\n')}
    * @returns Generated code string.
    */
   serializeValuePublic(value: AnalyzerValue, registry: ImportRegistry): string {
-    return this.serializeValue(value, registry);
-  }
-
-  private serializeValue(value: AnalyzerValue, registry: ImportRegistry): string {
-    if (value === undefined) {
-      return 'undefined';
-    }
-
-    if (value === null) {
-      return 'null';
-    }
-
-    if (typeof value === 'string') {
-      return JSON.stringify(value);
-    }
-
-    if (typeof value === 'number' || typeof value === 'boolean') {
-      return String(value);
-    }
-
-    if (isAnalyzerValueArray(value)) {
-      return `[${value.map(v => this.serializeValue(v, registry)).join(', ')}]`;
-    }
-
-    const record = asRecord(value);
-
-    if (record === null) {
-      return 'undefined';
-    }
-
-    if (typeof record[ZIPBUL_REF] === 'string' && typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
-      return registry.getAlias(record[ZIPBUL_REF], record[ZIPBUL_IMPORT_SOURCE]);
-    }
-
-    if (typeof record[ZIPBUL_CALL] === 'string') {
-      const parts = record[ZIPBUL_CALL].split('.');
-      const className = parts[0];
-      const methodName = parts[1];
-
-      if (className === undefined || className.length === 0) {
-        return 'undefined';
-      }
-
-      let callName = record[ZIPBUL_CALL];
-      const importSource = asString(record[ZIPBUL_IMPORT_SOURCE]);
-
-      if (importSource !== undefined) {
-        const alias = registry.getAlias(className, importSource);
-
-        if (isNonEmptyString(methodName)) {
-          callName = `${alias}.${methodName}`;
-        } else {
-          callName = alias;
-        }
-      }
-
-      const args = (isAnalyzerValueArray(record.args) ? record.args : []).map(a => this.serializeValue(a, registry)).join(', ');
-
-      return `${callName}(${args})`;
-    }
-
-    const entries = Object.entries(record).sort(([a], [b]) => compareCodePoint(a, b));
-    const props = entries.map(([key, entryValue]) => {
-      if (key.startsWith(ZIPBUL_COMPUTED_PREFIX)) {
-        const computed = asRecord(entryValue) ?? {};
-        const keyContent = this.serializeValue(computed[ZIPBUL_COMPUTED_KEY], registry);
-        const valContent = this.serializeValue(computed[ZIPBUL_COMPUTED_VALUE], registry);
-
-        return `[${keyContent}]: ${valContent}`;
-      }
-
-      return `'${key}': ${this.serializeValue(entryValue, registry)}`;
-    });
-
-    return `{ ${props.join(', ')} }`;
-  }
-
-  private resolveConstructorDeps(meta: ClassMetadata, node: ModuleNode, graph: ModuleGraph, allKeys: Set<string>): string[] {
-    return meta.constructorParams.map(param => {
-      let token: AnalyzerValue = param.type;
-
-      if (isUnresolvable(token)) {
-        throw new Error(`[Zipbul AOT] Constructor parameter '${param.name}' of '${meta.className}': dependency type must be a statically resolvable class reference. Found: ${token.nodeType} expression.`);
-      }
-
-      const refName = getRefName(token);
-      const lazyRefName = getLazyRefName(token);
-
-      if (isNonEmptyString(refName)) {
-        token = refName;
-      } else if (isNonEmptyString(lazyRefName)) {
-        token = lazyRefName;
-      }
-
-      if (typeof token !== 'string') {
-        throw new Error(`[Zipbul AOT] Constructor parameter '${param.name}' of '${meta.className}': dependency type cannot be statically determined. Ensure the parameter has an explicit class type annotation.`);
-      }
-
-      const resolvedToken = graph.resolveToken(node.name, token);
-
-      if (isNonEmptyString(resolvedToken)) {
-        // A-1/H-2: Validate constructor dep token exists (class-based tokens only)
-        if (graph.classDefinitions.has(token) && !allKeys.has(resolvedToken)) {
-          throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
-        }
-
-        return `c.get('${resolvedToken}')`;
-      }
-
-      const targetModule = graph.classMap.get(token);
-
-      if (targetModule) {
-        const scopedKey = `${targetModule.name}${SCOPED_KEY_SEPARATOR}${token}`;
-
-        // A-1/H-2: Validate constructor dep token exists (class-based tokens only)
-        if (graph.classDefinitions.has(token) && !allKeys.has(scopedKey)) {
-          throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
-        }
-
-        return `c.get('${scopedKey}')`;
-      }
-
-      // A-1/H-2: Validate bare token if it's a known class reference
-      if (graph.classDefinitions.has(token) && !allKeys.has(token)) {
-        throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
-      }
-
-      return `c.get('${token}')`;
-    });
+    return serializeValue(value, registry);
   }
 }

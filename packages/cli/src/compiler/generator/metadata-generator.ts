@@ -1,5 +1,5 @@
 import type { ConstructorParamMetadata, DecoratorMetadata } from '../analyzer/interfaces';
-import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
+import type { AnalyzerValue } from '../analyzer/types';
 import type { ImportRegistry } from './import-registry';
 import type { MetadataClassEntry } from './interfaces';
 

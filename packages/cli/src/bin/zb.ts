@@ -4,8 +4,8 @@ import { parseArgs } from 'util';
 import type { CommandOptions } from './interfaces';
 
 import { Logger } from '@zipbul/logger';
-import { dev } from './dev.command';
-import { build } from './build.command';
+import { dev } from './dev';
+import { build } from './build';
 import { DiagnosticError } from '../diagnostics';
 import { CliRenderer } from './cli-renderer';
 

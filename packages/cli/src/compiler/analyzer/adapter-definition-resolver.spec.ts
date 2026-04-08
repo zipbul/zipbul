@@ -12,16 +12,16 @@ import type { ClassMetadata, PropertyMetadata } from './interfaces';
 
 import { createBunFileStub } from '../../../test/shared/stubs';
 import { PathResolver } from '../../common';
-import { AstParser } from './ast-parser';
+import { AstParser } from './parser';
 
-import { AdapterDefinitionResolver } from './adapter-definition-resolver';
+import { AdapterDefinitionResolver } from './adapter';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function parseOrFail(parser: AstParser, filename: string, code: string): AstParseResult {
-  const result = parser.parse(filename, code);
+async function parseOrFail(parser: AstParser, filename: string, code: string): Promise<AstParseResult> {
+  const result = await parser.parse(filename, code);
 
   if (isErr(result)) {
     throw new Error(`Unexpected parse failure: ${result.data.why}`);
@@ -182,14 +182,14 @@ describe('AdapterDefinitionResolver', () => {
     '}',
   ].join('\n');
 
-  const buildStandardFileMap = (
+  const buildStandardFileMap = async (
     adapterClass: ClassMetadata = createTestAdapterClass(),
-  ): Map<string, FileAnalysis> => {
+  ): Promise<Map<string, FileAnalysis>> => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
     // Controller file
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -202,7 +202,7 @@ describe('AdapterDefinitionResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     // Entry file (adapter)
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+    const entryParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: [adapterClass],
@@ -226,7 +226,7 @@ describe('AdapterDefinitionResolver', () => {
 
   it('should resolve adapter with class reference containing all required property initializers', async () => {
     // Arrange
-    const fileMap = buildStandardFileMap();
+    const fileMap = await buildStandardFileMap();
     const resolver = new AdapterDefinitionResolver();
 
     // Act
@@ -248,7 +248,7 @@ describe('AdapterDefinitionResolver', () => {
     const entryB = join(projectRoot, 'adapters', 'b', 'index.ts');
 
     // Controller that imports both
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -274,7 +274,7 @@ describe('AdapterDefinitionResolver', () => {
       '  onChat() {}',
       '}',
     ].join('\n');
-    const controllerParseB = parseOrFail(parser, controllerFileB, controllerCodeB);
+    const controllerParseB = await parseOrFail(parser, controllerFileB, controllerCodeB);
     const controllerAnalysisB: FileAnalysis = {
       filePath: controllerFileB,
       classes: controllerParseB.classes,
@@ -290,7 +290,7 @@ describe('AdapterDefinitionResolver', () => {
 
     // Adapter A entry
     const adapterAClass = createTestAdapterClass('AdapterA');
-    const entryParseA = parseOrFail(parser, entryA, 'export const adapterDefinition = defineAdapter({ adapter: AdapterA });');
+    const entryParseA = await parseOrFail(parser, entryA, 'export const adapterDefinition = defineAdapter({ adapter: AdapterA });');
     const entryAnalysisA: FileAnalysis = {
       filePath: entryA,
       classes: [adapterAClass],
@@ -309,7 +309,7 @@ describe('AdapterDefinitionResolver', () => {
         handlers: [{ __zipbul_ref: 'OnMessage' }],
       },
     });
-    const entryParseB = parseOrFail(parser, entryB, 'export const adapterDefinition = defineAdapter({ adapter: AdapterB });');
+    const entryParseB = await parseOrFail(parser, entryB, 'export const adapterDefinition = defineAdapter({ adapter: AdapterB });');
     const entryAnalysisB: FileAnalysis = {
       filePath: entryB,
       classes: [adapterBClass],
@@ -340,7 +340,7 @@ describe('AdapterDefinitionResolver', () => {
     const specFile = join(adapterDir, 'spec.ts');
 
     // Controller imports barrel
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -392,7 +392,7 @@ describe('AdapterDefinitionResolver', () => {
     const barrelFile = join(adapterDir, 'index.ts');
     const specFile = join(adapterDir, 'spec.ts');
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -437,7 +437,7 @@ describe('AdapterDefinitionResolver', () => {
 
   it('should build handlerIndex with correct id format', async () => {
     // Arrange
-    const fileMap = buildStandardFileMap();
+    const fileMap = await buildStandardFileMap();
     const resolver = new AdapterDefinitionResolver();
 
     // Act
@@ -473,7 +473,7 @@ describe('AdapterDefinitionResolver', () => {
       '});',
     ].join('\n');
 
-    const moduleParse = parseOrFail(parser, moduleFile, moduleCode);
+    const moduleParse = await parseOrFail(parser, moduleFile, moduleCode);
     const moduleAnalysis: FileAnalysis = {
       filePath: moduleFile,
       classes: moduleParse.classes,
@@ -486,7 +486,7 @@ describe('AdapterDefinitionResolver', () => {
     fileMap.set(moduleFile, moduleAnalysis);
 
     // Controller
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -499,7 +499,7 @@ describe('AdapterDefinitionResolver', () => {
 
     // Entry file
     const adapterClass = createTestAdapterClass();
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+    const entryParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: [adapterClass],
@@ -540,7 +540,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const controllerParse = parseOrFail(parser, controllerFile, code);
+    const controllerParse = await parseOrFail(parser, controllerFile, code);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -553,7 +553,7 @@ describe('AdapterDefinitionResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     const adapterClass = createTestAdapterClass();
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+    const entryParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: [adapterClass],
@@ -594,7 +594,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const controllerParse = parseOrFail(parser, controllerFile, code);
+    const controllerParse = await parseOrFail(parser, controllerFile, code);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -607,7 +607,7 @@ describe('AdapterDefinitionResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     const adapterClass = createTestAdapterClass();
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+    const entryParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: [adapterClass],
@@ -638,7 +638,7 @@ describe('AdapterDefinitionResolver', () => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -675,7 +675,7 @@ describe('AdapterDefinitionResolver', () => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -712,7 +712,7 @@ describe('AdapterDefinitionResolver', () => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -749,7 +749,7 @@ describe('AdapterDefinitionResolver', () => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -783,7 +783,7 @@ describe('AdapterDefinitionResolver', () => {
 
   it('should use class name as adapterId (name property not required)', async () => {
     // Arrange — no name property, adapterId derives from className
-    const fileMap = buildStandardFileMap(createTestAdapterClass('MyCustomAdapter'));
+    const fileMap = await buildStandardFileMap(createTestAdapterClass('MyCustomAdapter'));
     const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -792,7 +792,7 @@ describe('AdapterDefinitionResolver', () => {
 
   it('should throw when decorators.controller is not an identifier', async () => {
     // Arrange
-    const fileMap = buildStandardFileMap(
+    const fileMap = await buildStandardFileMap(
       createTestAdapterClass('TestAdapter', {
         decorators: {
           controller: 'plain-string',
@@ -812,7 +812,7 @@ describe('AdapterDefinitionResolver', () => {
 
   it('should throw when decorators.handlers is empty or invalid', async () => {
     // Arrange — empty handler array
-    const fileMap1 = buildStandardFileMap(
+    const fileMap1 = await buildStandardFileMap(
       createTestAdapterClass('TestAdapter', {
         decorators: {
           controller: { __zipbul_ref: 'Controller' },
@@ -829,7 +829,7 @@ describe('AdapterDefinitionResolver', () => {
     }
 
     // Arrange — handler element not identifier
-    const fileMap2 = buildStandardFileMap(
+    const fileMap2 = await buildStandardFileMap(
       createTestAdapterClass('TestAdapter', {
         decorators: {
           controller: { __zipbul_ref: 'Controller' },
@@ -849,7 +849,7 @@ describe('AdapterDefinitionResolver', () => {
     // Arrange
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
-    const controllerParse = parseOrFail(parser, controllerFile, 'class Empty {}');
+    const controllerParse = await parseOrFail(parser, controllerFile, 'class Empty {}');
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -888,7 +888,7 @@ describe('AdapterDefinitionResolver', () => {
     const entryA = join(projectRoot, 'adapters', 'a', 'index.ts');
     const entryB = join(projectRoot, 'adapters', 'b', 'index.ts');
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -906,7 +906,7 @@ describe('AdapterDefinitionResolver', () => {
     // Both adapters use same className → same adapterId
     for (const ep of [entryA, entryB]) {
       const adapterClass = createTestAdapterClass(`Adapter_${ep.split('/').pop()}`);
-      const parse = parseOrFail(parser, ep, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+      const parse = await parseOrFail(parser, ep, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
       const analysis: FileAnalysis = {
         filePath: ep,
         classes: [adapterClass],
@@ -950,7 +950,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const controllerParse = parseOrFail(parser, controllerFile, code);
+    const controllerParse = await parseOrFail(parser, controllerFile, code);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -977,7 +977,7 @@ describe('AdapterDefinitionResolver', () => {
       [entryA, adapterAClass],
       [entryB, adapterBClass],
     ] as const) {
-      const parse = parseOrFail(parser, ep as string, 'export const adapterDefinition = defineAdapter({ adapter: Adapter });');
+      const parse = await parseOrFail(parser, ep as string, 'export const adapterDefinition = defineAdapter({ adapter: Adapter });');
       const analysis: FileAnalysis = {
         filePath: ep as string,
         classes: [cls],
@@ -1014,7 +1014,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const controllerParse = parseOrFail(parser, controllerFile, code);
+    const controllerParse = await parseOrFail(parser, controllerFile, code);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1027,7 +1027,7 @@ describe('AdapterDefinitionResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     const adapterClass = createTestAdapterClass();
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+    const entryParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: [adapterClass],
@@ -1116,7 +1116,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const controllerParse = parseOrFail(parser, controllerFile, code);
+    const controllerParse = await parseOrFail(parser, controllerFile, code);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1129,7 +1129,7 @@ describe('AdapterDefinitionResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     const adapterClass = createTestAdapterClass();
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+    const entryParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: [adapterClass],
@@ -1163,7 +1163,7 @@ describe('AdapterDefinitionResolver', () => {
     const fileMap = new Map<string, FileAnalysis>();
 
     const noClassCode = 'export const nothing = 1;';
-    const noClassParse = parseOrFail(parser, controllerFile, noClassCode);
+    const noClassParse = await parseOrFail(parser, controllerFile, noClassCode);
     const noClassAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: noClassParse.classes,
@@ -1176,7 +1176,7 @@ describe('AdapterDefinitionResolver', () => {
     fileMap.set(controllerFile, noClassAnalysis);
 
     const adapterClass = createTestAdapterClass();
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+    const entryParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: [adapterClass],
@@ -1207,7 +1207,7 @@ describe('AdapterDefinitionResolver', () => {
 
     const nonExistentEntry = join(projectRoot, 'nonexistent', 'index.ts');
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1236,7 +1236,7 @@ describe('AdapterDefinitionResolver', () => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1271,7 +1271,7 @@ describe('AdapterDefinitionResolver', () => {
     const fileA = join(adapterDir, 'a.ts');
     const fileB = join(adapterDir, 'b.ts');
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1318,7 +1318,7 @@ describe('AdapterDefinitionResolver', () => {
     const entryA = join(projectRoot, 'adapters', 'a', 'index.ts');
     const entryB = join(projectRoot, 'adapters', 'b', 'index.ts');
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1341,7 +1341,7 @@ describe('AdapterDefinitionResolver', () => {
       [entryA, adapterA],
       [entryB, adapterB],
     ] as const) {
-      const parse = parseOrFail(parser, ep as string, 'export const adapterDefinition = defineAdapter({ adapter: Adapter });');
+      const parse = await parseOrFail(parser, ep as string, 'export const adapterDefinition = defineAdapter({ adapter: Adapter });');
       const analysis: FileAnalysis = {
         filePath: ep as string,
         classes: [cls],
@@ -1376,7 +1376,7 @@ describe('AdapterDefinitionResolver', () => {
     const entryB = join(projectRoot, 'adapters', 'b', 'index.ts');
 
     // Controller for alpha
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1400,7 +1400,7 @@ describe('AdapterDefinitionResolver', () => {
       '  onMsg() {}',
       '}',
     ].join('\n');
-    const controllerParseB = parseOrFail(parser, controllerFileB, controllerCodeB);
+    const controllerParseB = await parseOrFail(parser, controllerFileB, controllerCodeB);
     const controllerAnalysisB: FileAnalysis = {
       filePath: controllerFileB,
       classes: controllerParseB.classes,
@@ -1426,7 +1426,7 @@ describe('AdapterDefinitionResolver', () => {
       [entryA, adapterAlpha],
       [entryB, adapterBravo],
     ] as const) {
-      const parse = parseOrFail(parser, ep as string, 'export const adapterDefinition = defineAdapter({ adapter: Adapter });');
+      const parse = await parseOrFail(parser, ep as string, 'export const adapterDefinition = defineAdapter({ adapter: Adapter });');
       const analysis: FileAnalysis = {
         filePath: ep as string,
         classes: [cls],
@@ -1486,7 +1486,7 @@ describe('AdapterDefinitionResolver', () => {
     ];
 
     for (const [file, source] of controllerSources) {
-      const controllerParse = parseOrFail(parser, file, source);
+      const controllerParse = await parseOrFail(parser, file, source);
       const controllerAnalysis: FileAnalysis = {
         filePath: file,
         classes: controllerParse.classes,
@@ -1500,7 +1500,7 @@ describe('AdapterDefinitionResolver', () => {
     }
 
     const adapterClass = createTestAdapterClass();
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+    const entryParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: [adapterClass],
@@ -1533,14 +1533,14 @@ describe('AdapterDefinitionResolver', () => {
 
   // --- P3 helper ---
 
-  const buildFileMapWithCode = (
+  const buildFileMapWithCode = async (
     controllerSource: string,
     adapterClass: ClassMetadata = createTestAdapterClass(),
-  ): Map<string, FileAnalysis> => {
+  ): Promise<Map<string, FileAnalysis>> => {
     const parser = new AstParser();
     const fileMap = new Map<string, FileAnalysis>();
 
-    const controllerParse = parseOrFail(parser, controllerFile, controllerSource);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerSource);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1552,7 +1552,7 @@ describe('AdapterDefinitionResolver', () => {
     applyParseToAnalysis(controllerAnalysis, controllerParse);
     fileMap.set(controllerFile, controllerAnalysis);
 
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+    const entryParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: [adapterClass],
@@ -1599,7 +1599,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const ctrlParse = parseOrFail(parser, controllerFile, code);
+    const ctrlParse = await parseOrFail(parser, controllerFile, code);
     const ctrlAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: ctrlParse.classes,
@@ -1616,7 +1616,7 @@ describe('AdapterDefinitionResolver', () => {
 
     // Adapter 'test'
     const testClass = createTestAdapterClass();
-    const testParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+    const testParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
     const testEntry: FileAnalysis = {
       filePath: entryFile,
       classes: [testClass],
@@ -1630,7 +1630,7 @@ describe('AdapterDefinitionResolver', () => {
 
     // Adapter 'other' (same controller decorator name 'Controller')
     const otherClass = createTestAdapterClass('OtherAdapter');
-    const otherParse = parseOrFail(parser, otherEntryFile, 'export const adapterDefinition = defineAdapter({ adapter: OtherAdapter });');
+    const otherParse = await parseOrFail(parser, otherEntryFile, 'export const adapterDefinition = defineAdapter({ adapter: OtherAdapter });');
     const otherEntry: FileAnalysis = {
       filePath: otherEntryFile,
       classes: [otherClass],
@@ -1666,7 +1666,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const fileMap = buildFileMapWithCode(code);
+    const fileMap = await buildFileMapWithCode(code);
     const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1688,7 +1688,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const fileMap = buildFileMapWithCode(code);
+    const fileMap = await buildFileMapWithCode(code);
     const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1710,7 +1710,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const fileMap = buildFileMapWithCode(code);
+    const fileMap = await buildFileMapWithCode(code);
     const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1732,7 +1732,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const fileMap = buildFileMapWithCode(code);
+    const fileMap = await buildFileMapWithCode(code);
     const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1754,7 +1754,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const fileMap = buildFileMapWithCode(code);
+    const fileMap = await buildFileMapWithCode(code);
     const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1776,7 +1776,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const fileMap = buildFileMapWithCode(code);
+    const fileMap = await buildFileMapWithCode(code);
     const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1798,7 +1798,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const fileMap = buildFileMapWithCode(code);
+    const fileMap = await buildFileMapWithCode(code);
     const resolver = new AdapterDefinitionResolver();
 
     const result = await resolver.resolve({ fileMap, projectRoot });
@@ -1814,7 +1814,7 @@ describe('AdapterDefinitionResolver', () => {
     const adapterClass = createTestAdapterClass();
 
     // Controller file
-    const controllerParse = parseOrFail(parser, controllerFile, controllerCode);
+    const controllerParse = await parseOrFail(parser, controllerFile, controllerCode);
     const controllerAnalysis: FileAnalysis = {
       filePath: controllerFile,
       classes: controllerParse.classes,
@@ -1827,7 +1827,7 @@ describe('AdapterDefinitionResolver', () => {
     fileMap.set(controllerFile, controllerAnalysis);
 
     // Entry file using legacy 'adapterSpec' export name
-    const entryParse = parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({ adapter: TestAdapter });');
+    const entryParse = await parseOrFail(parser, entryFile, 'export const adapterSpec = defineAdapter({ adapter: TestAdapter });');
     const entryAnalysis: FileAnalysis = {
       filePath: entryFile,
       classes: [adapterClass],
@@ -1865,7 +1865,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -1895,7 +1895,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -1926,7 +1926,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -1959,7 +1959,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -1992,7 +1992,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2024,7 +2024,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2052,7 +2052,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2084,7 +2084,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2115,7 +2115,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2149,7 +2149,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       fileMap.set('/project/app/__module__.ts', {
         filePath: '/project/app/__module__.ts',
         classes: [],
@@ -2220,7 +2220,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2251,7 +2251,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2283,7 +2283,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2309,7 +2309,7 @@ describe('AdapterDefinitionResolver', () => {
       '}',
     ].join('\n');
 
-    const fileMap = buildFileMapWithCode(code);
+    const fileMap = await buildFileMapWithCode(code);
     const resolver = new AdapterDefinitionResolver();
 
     // isStatic check should fire first, not isPrivateName
@@ -2412,7 +2412,7 @@ describe('AdapterDefinitionResolver', () => {
       ].join('\n');
 
       for (const [file, source] of [[controllerFileA, codeA], [controllerFileB, codeB]] as const) {
-        const controllerParse = parseOrFail(parser, file, source);
+        const controllerParse = await parseOrFail(parser, file, source);
         const controllerAnalysis: FileAnalysis = {
           filePath: file,
           classes: controllerParse.classes,
@@ -2426,7 +2426,7 @@ describe('AdapterDefinitionResolver', () => {
       }
 
       const adapterClass = createTestAdapterClass();
-      const entryParse = parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
+      const entryParse = await parseOrFail(parser, entryFile, 'export const adapterDefinition = defineAdapter({ adapter: TestAdapter });');
       const entryAnalysis: FileAnalysis = {
         filePath: entryFile,
         classes: [adapterClass],
@@ -2468,7 +2468,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2568,7 +2568,7 @@ describe('AdapterDefinitionResolver', () => {
           options: [{ __zipbul_ref: 'RawBody' }],
         },
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2602,7 +2602,7 @@ describe('AdapterDefinitionResolver', () => {
           options: [{ __zipbul_ref: 'RawBody' }],
         },
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2640,7 +2640,7 @@ describe('AdapterDefinitionResolver', () => {
           options: [{ __zipbul_ref: 'RawBody' }],
         },
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2677,7 +2677,7 @@ describe('AdapterDefinitionResolver', () => {
           options: [{ __zipbul_ref: 'RawBody' }],
         },
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2712,7 +2712,7 @@ describe('AdapterDefinitionResolver', () => {
           options: [{ __zipbul_ref: 'RawBody' }],
         },
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2748,7 +2748,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2778,7 +2778,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2811,7 +2811,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2845,7 +2845,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2876,7 +2876,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2907,7 +2907,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2938,7 +2938,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -2970,7 +2970,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -3002,7 +3002,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -3030,7 +3030,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -3056,7 +3056,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -3082,7 +3082,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -3111,7 +3111,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -3141,7 +3141,7 @@ describe('AdapterDefinitionResolver', () => {
         '}',
       ].join('\n');
 
-      const fileMap = buildFileMapWithCode(code);
+      const fileMap = await buildFileMapWithCode(code);
       const resolver = new AdapterDefinitionResolver();
 
       // Act — resolve, then simulate manifest serialization
@@ -3183,7 +3183,7 @@ describe('AdapterDefinitionResolver', () => {
           options: [{ __zipbul_ref: 'RawBody' }],
         },
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       // Act
@@ -3225,7 +3225,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'ResolveRoute', 'ParseBody', 'Guard', 'Validation', 'Handler', 'WriteResponse', 'Serialize',
       ]);
-      const fileMap = buildFileMapWithCode(controllerCode, adapterClass);
+      const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3239,7 +3239,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'ResolveRoute', 'Guard', 'Validation', 'Handler', 'WriteResponse',
       ]);
-      const fileMap = buildFileMapWithCode(controllerCode, adapterClass);
+      const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3253,7 +3253,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'OnReceive', 'PostParse', 'Guard', 'Validation', 'Handler', 'OnComplete',
       ]);
-      const fileMap = buildFileMapWithCode(controllerCode, adapterClass);
+      const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3280,7 +3280,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'OnReceive', 'Guard', 'Validation', 'Handler', 'OnComplete',
       ]);
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
 
       // Add module with global middleware for OnReceive phase
       fileMap.set('/project/app/__module__.ts', {
@@ -3331,7 +3331,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'OnReceive', 'Guard', 'Validation', 'Handler',
       ]);
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3344,7 +3344,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'OnReceive', 'Guard', 'Validation', 'Handler', 'OnComplete',
       ]);
-      const fileMap = buildFileMapWithCode(controllerCode, adapterClass);
+      const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3371,7 +3371,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'Guard', 'Validation', 'Handler',
       ]);
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3384,7 +3384,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'Guard', 'Validation', 'Handler',
       ]);
-      const fileMap = buildFileMapWithCode(controllerCode, adapterClass);
+      const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3409,7 +3409,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'Guard', 'Validation', 'Handler',
       ]);
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3422,7 +3422,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'OnReceive', 'ResolveRoute', 'ParseBody', 'Guard', 'Validation', 'Handler', 'WriteResponse', 'Serialize',
       ]);
-      const fileMap = buildFileMapWithCode(controllerCode, adapterClass);
+      const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3437,7 +3437,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createPipelineAdapterClass([
         'ResolveRoute', 'Guard', 'Validation', 'Handler', 'OnComplete', 'WriteResponse',
       ]);
-      const fileMap = buildFileMapWithCode(controllerCode, adapterClass);
+      const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3449,7 +3449,7 @@ describe('AdapterDefinitionResolver', () => {
     });
 
     it('should produce no compiledPre/compiledPost when adapter has no pipeline property', async () => {
-      const fileMap = buildStandardFileMap();
+      const fileMap = await buildStandardFileMap();
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3461,7 +3461,7 @@ describe('AdapterDefinitionResolver', () => {
 
     it('should return an error when pipeline is missing CoreStep.Handler', async () => {
       const adapterClass = createPipelineAdapterClass(['Guard', 'Validation']);
-      const fileMap = buildFileMapWithCode(controllerCode, adapterClass);
+      const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3471,7 +3471,7 @@ describe('AdapterDefinitionResolver', () => {
 
     it('should return an error when pipeline is missing CoreStep.Guard', async () => {
       const adapterClass = createPipelineAdapterClass(['Validation', 'Handler']);
-      const fileMap = buildFileMapWithCode(controllerCode, adapterClass);
+      const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3481,7 +3481,7 @@ describe('AdapterDefinitionResolver', () => {
 
     it('should return an error when pipeline is missing CoreStep.Validation', async () => {
       const adapterClass = createPipelineAdapterClass(['Guard', 'Handler']);
-      const fileMap = buildFileMapWithCode(controllerCode, adapterClass);
+      const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3512,7 +3512,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createTestAdapterClass('TestAdapter', {
         pipeline: ['ResolveRoute', 'ParseBody', 'Guard', 'Validation', 'Handler', 'WriteResponse'],
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3548,7 +3548,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createTestAdapterClass('TestAdapter', {
         pipeline: ['Guard', 'Validation', 'Handler'],
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
 
       // Global guard via module config
       fileMap.set('/project/app/__module__.ts', {
@@ -3605,7 +3605,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createTestAdapterClass('TestAdapter', {
         pipeline: ['Guard', 'Validation', 'Handler'],
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3634,7 +3634,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createTestAdapterClass('TestAdapter', {
         pipeline: ['Guard', 'Validation', 'Handler'],
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3668,7 +3668,7 @@ describe('AdapterDefinitionResolver', () => {
           options: [{ __zipbul_ref: 'RawBody' }],
         },
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
       const result = await resolver.resolve({ fileMap, projectRoot });
@@ -3695,7 +3695,7 @@ describe('AdapterDefinitionResolver', () => {
       const adapterClass = createTestAdapterClass('TestAdapter', {
         pipeline: ['OnReceive', 'Guard', 'Validation', 'Handler'],
       });
-      const fileMap = buildFileMapWithCode(code, adapterClass);
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
 
       fileMap.set('/project/app/__module__.ts', {
         filePath: '/project/app/__module__.ts',

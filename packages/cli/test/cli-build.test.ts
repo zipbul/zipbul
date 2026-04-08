@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { err } from '@zipbul/result';
 import { GildashError, type Gildash, type GildashOptions } from '@zipbul/gildash';
 
-import type { BuildCommandDeps } from '../src/bin/build.command';
-import { __testing__ } from '../src/bin/build.command';
+import type { BuildCommandDeps } from '../src/bin/build';
+import { __testing__ } from '../src/bin/build';
 import type { CliRendererLike } from '../src/bin/interfaces';
 import type { AstParser, AdapterDefinitionResolver } from '../src/compiler/analyzer';
 import type { ResolvedConfig } from '../src/config';
