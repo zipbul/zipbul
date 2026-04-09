@@ -150,11 +150,20 @@ export class MetadataGenerator {
         const record = value;
 
         if (typeof record[ZIPBUL_REF] === 'string') {
-          if (typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
-            registry.addImport(record[ZIPBUL_REF], record[ZIPBUL_IMPORT_SOURCE]);
+          const refName = record[ZIPBUL_REF];
+
+          // Only import as a runtime value if it's a known class.
+          // Interfaces and type aliases don't exist at runtime —
+          // emit them as string literals to avoid bundler resolution errors.
+          if (availableClasses.has(refName)) {
+            if (typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
+              registry.addImport(refName, record[ZIPBUL_IMPORT_SOURCE]);
+            }
+
+            return refName;
           }
 
-          return record[ZIPBUL_REF];
+          return JSON.stringify(refName);
         }
 
         if (typeof record[ZIPBUL_FACTORY_CODE] === 'string') {

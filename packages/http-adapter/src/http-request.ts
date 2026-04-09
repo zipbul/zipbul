@@ -32,9 +32,9 @@ export class HttpRequest {
   private readonly _requestIdHeaderName: string | undefined;
   private readonly _requestIdGenerator: (() => string) | undefined;
   private _protocol: string | null | undefined;
-  private _host: string | null | undefined;
-  private _hostname: string | null | undefined;
-  private _port: number | undefined;
+  private _host: string | null | undefined = undefined;
+  private _hostname: string | null | undefined = undefined;
+  private _port: number | undefined = undefined;
 
   constructor(data: HttpRequestData) {
     // readonly

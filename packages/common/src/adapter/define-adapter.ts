@@ -1,4 +1,5 @@
 import type { ContextKey } from '../context-key';
+import type { ClassToken } from '../types';
 import type { AdapterClass } from './types';
 
 /**
@@ -22,8 +23,8 @@ export interface DefineAdapterConfig<
 > {
   /** The adapter class. */
   readonly adapter: AdapterClass;
-  /** The adapter's context class. Used for type-level validation of context key accessors. */
-  readonly context: new (...args: readonly unknown[]) => TContext;
+  /** The adapter's context class. AOT uses this as a class reference — not instantiated directly. */
+  readonly context: ClassToken<TContext>;
   /** Adapter-specific step enum. Values appear in `pipeline`. */
   readonly step: TStep;
   /** Adapter-specific middleware phase enum. Values appear in `pipeline`. Optional for adapters without phases. */

@@ -51,7 +51,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const srcDir = resolve(projectRoot, config.sourceDir);
       const outDir = resolve(projectRoot, 'dist');
       const zipbulDir = outputDirPath(projectRoot);
-      const buildTempDir = tempDirPath(outDir);
+      const buildTempDir = tempDirPath(projectRoot);
 
       renderer.outputPaths('\u{1F4C2} Project', [
         { label: 'Root', value: projectRoot },
@@ -183,7 +183,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }));
 
         const runtimeFile = join(buildTempDir, 'runtime.ts');
-        const runtimeResult = manifestGen.generate(graph, allClasses, buildTempDir, resolvedHandlerIndex, adapterResolution.routeRegistrations);
+        const runtimeResult = manifestGen.generate(graph, allClasses, buildTempDir, resolvedHandlerIndex, adapterResolution.routeRegistrations, srcDir);
 
         if (isErr(runtimeResult)) {
           throw new DiagnosticError(runtimeResult.data);
@@ -274,10 +274,9 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         });
 
         if (!buildResult.success) {
-          const logMessages = buildResult.logs.map(log => log.message).join('\n');
-          const reason = logMessages.length > 0 ? `Build failed:\n${logMessages}` : 'Build failed.';
+          const logMessages = buildResult.logs.map(log => `[${log.level}] ${log.message}`).join('\n');
 
-          throw new Error(reason);
+          throw new Error(logMessages.length > 0 ? `Bundle failed:\n${logMessages}` : 'Bundle failed');
         }
 
         bundleSpinner.stop('[4/4] \u{1F4E6} Application bundled');
@@ -325,6 +324,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       if (error instanceof DiagnosticError) {
         throw error;
       }
+
       throw new DiagnosticError(
         buildDiagnostic({ reason: error instanceof Error ? error.message : 'Unknown build error.' }),
         { cause: error },

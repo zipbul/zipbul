@@ -31,8 +31,8 @@ export class ManifestGenerator {
 
   private metadataGen = new MetadataGenerator();
 
-  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string, handlerIndex: readonly HandlerIndexEntry[] = [], routeRegistrations: readonly RouteRegistration[] = []): Result<string, Diagnostic> {
-    const registry = new ImportRegistry(outputDir);
+  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string, handlerIndex: readonly HandlerIndexEntry[] = [], routeRegistrations: readonly RouteRegistration[] = [], projectSrcDir?: string): Result<string, Diagnostic> {
+    const registry = new ImportRegistry(outputDir, projectSrcDir);
     const sortedClasses = [...classes].sort((a, b) => {
       const nameDiff = compareCodePoint(a.metadata.className, b.metadata.className);
 

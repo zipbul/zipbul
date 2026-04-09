@@ -46,19 +46,26 @@ export interface ContentTypeInfo {
   readonly params: ReadonlyMap<string, string>;
 }
 
+export interface HttpRequestOrigin {
+  readonly urlProtocol: string | null;
+  readonly urlHost: string | null;
+  readonly proxyProtocol?: string | null | undefined;
+  readonly proxyHost?: string | null | undefined;
+  readonly proxyPort?: number | null | undefined;
+}
+
 export interface HttpRequestData {
-  readonly requestId: string;
+  readonly requestId?: string;
+  readonly requestIdHeaderName?: string;
+  readonly requestIdGenerator?: () => string;
   readonly originalMethod: HttpMethod;
   readonly originalUrl: string;
   readonly method: HttpMethod;
   readonly url: string;
   readonly path: string;
   readonly headers: Headers;
-  readonly protocol: string | null;
-  readonly host: string | null;
-  readonly hostname: string | null;
-  readonly port: number;
-  readonly queryString: string | null;
+  readonly origin: HttpRequestOrigin;
+  readonly queryString?: string | null;
   readonly contentType: ContentTypeInfo | null;
   readonly contentLength: number | null;
   readonly ip: string | null;

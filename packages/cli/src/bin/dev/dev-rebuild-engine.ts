@@ -208,7 +208,7 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
     controllerKey: controllerKeyMap.get(entry.className) ?? entry.className,
   }));
 
-  const runtimeResult = manifestGen.generate(graph, allClasses, outDir, resolvedHandlerIndex, adapterResolution.routeRegistrations);
+  const runtimeResult = manifestGen.generate(graph, allClasses, outDir, resolvedHandlerIndex, adapterResolution.routeRegistrations, srcDir);
 
   if (isErr(runtimeResult)) {
     throw new DiagnosticError(runtimeResult.data);

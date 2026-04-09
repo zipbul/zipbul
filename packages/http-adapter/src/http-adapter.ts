@@ -3,7 +3,7 @@ import type { MiddlewareDefinition } from '@zipbul/common';
 import { err, isErr } from '@zipbul/result';
 import type { Result, Err } from '@zipbul/result';
 import { Adapter, handlerResultKey } from '@zipbul/core';
-import type { ResolvedMiddleware, ResolvedExceptionFilter, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
+import type { ResolvedMiddleware, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
 import { StatusCodes } from 'http-status-codes';
 import { Logger } from '@zipbul/logger';
 
@@ -19,7 +19,7 @@ import type {
   InternalRouteHandler,
   InternalRouteEntry,
 } from './interfaces';
-import type { ClassMetadata, ErrorResponseData, MatchedRouteMetadata, MetadataRegistryKey, ParamTypeReference, ResponseBodyValue, RouteHandlerFunction } from './types';
+import type { ClassMetadata, ErrorResponseData, MetadataRegistryKey, ParamTypeReference, ResponseBodyValue, RouteHandlerFunction } from './types';
 import type { Class } from '@zipbul/common';
 
 import { HttpContext } from './http-context';
@@ -34,8 +34,6 @@ import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDe
 import type { RouteHandler } from './route-handler';
 import type { ResolvedRoutePipeline } from './route-handler';
 import { HttpPhase, HttpStep, HeaderField } from './enums';
-import { bodyInput, paramsInput, queryInput } from './context-keys';
-import { CoreStep } from '@zipbul/core';
 import { isAsyncIterable, formatSSEChunk } from './server-sent-event';
 
 const TEXT_ENCODER = new TextEncoder();
