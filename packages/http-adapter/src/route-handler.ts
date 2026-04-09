@@ -1,13 +1,8 @@
 import type {
   CompiledHandlerEntry,
-  ZipbulContainer,
-  MiddlewareDefinition,
-  ExceptionFilterDefinition,
-  GuardDefinition,
-  GuardHandlerFn,
+  ContextKey,
 } from '@zipbul/common';
-import type { ResolvedMiddleware, ResolvedExceptionFilter, ResolvedValidationEntry } from '@zipbul/core';
-import { runInInjectionContext } from '@zipbul/core';
+import type { ResolvedExceptionFilter, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
 
 import { Logger } from '@zipbul/logger';
 
@@ -23,6 +18,7 @@ import type {
 } from './types';
 
 import type { HttpContext } from './http-context';
+import type { HttpResponse } from './http-response';
 import { Router } from '@zipbul/router';
 
 type HttpCompiledHandlerEntry = CompiledHandlerEntry;
@@ -33,26 +29,52 @@ interface RouteHandlerDecoratorConfig {
   readonly handlerDecoratorNames: readonly string[];
 }
 
+/**
+ * Resolved pipeline for a single route.
+ *
+ * @public
+ */
+export interface ResolvedRoutePipeline {
+  readonly pre: readonly PipelineStepFn[];
+  readonly post: readonly PipelineStepFn[];
+  readonly filters: readonly ResolvedExceptionFilter[];
+}
+
+/**
+ * Callback provided by the adapter to resolve AOT compiled data into
+ * ready-to-call pipeline at boot time.
+ *
+ * @public
+ */
+export type PipelineBuildFn = (
+  entry: CompiledHandlerEntry,
+  validations: readonly ResolvedValidationEntry[],
+  handler: RouteHandlerFunction,
+  applyResponseDefaults?: (response: HttpResponse) => void,
+) => ResolvedRoutePipeline;
+
+const EMPTY_PIPELINE: ResolvedRoutePipeline = {
+  pre: [],
+  post: [],
+  filters: [],
+};
+
 export class RouteHandler {
   private readonly metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>;
   private readonly metatypeIndex: Map<string, new (...args: readonly unknown[]) => unknown>;
   private readonly decoratorConfig: RouteHandlerDecoratorConfig;
-  private readonly container: ZipbulContainer | undefined;
   private readonly router: Router<MatchedRouteMetadata>;
   private readonly logger = Logger.inherit();
   private readonly registeredMethods = new Set<string>();
-  private readonly handlerPipelines: Array<{ handler: RouteHandlerFunction; pipeline: readonly string[] }> = [];
 
   constructor(
     metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
     decoratorConfig: RouteHandlerDecoratorConfig,
     routerOptions?: RouterOptions,
-    container?: ZipbulContainer,
   ) {
     this.metadataRegistry = metadataRegistry;
     this.metatypeIndex = buildMetatypeIndex(metadataRegistry);
     this.decoratorConfig = decoratorConfig;
-    this.container = container;
     this.router = new Router<MatchedRouteMetadata>({
       ignoreTrailingSlash: true,
       enableCache: true,
@@ -62,20 +84,15 @@ export class RouteHandler {
 
   /**
    * Matches the request method and path against registered routes.
-   * Returns a discriminated union distinguishing matched, not-found, and method-not-allowed.
    *
    * @param method - HTTP method string.
    * @param path - Request path.
    * @returns `MatchRouteOutput` discriminated union.
    * @public
    */
-  getHandlerPipelines(): ReadonlyArray<{ handler: RouteHandlerFunction; pipeline: readonly string[] }> {
-    return this.handlerPipelines;
-  }
-
   matchRoute(method: string, path: string): MatchRouteOutput {
     const result = this.router.match(method, path);
-    // Router.match()는 MatchOutput<T> | null을 반환한다 (미매칭 시 null).
+
     if (result !== null) {
       return {
         kind: 'matched',
@@ -84,8 +101,8 @@ export class RouteHandler {
       };
     }
 
-    // 동일 경로에 다른 메서드가 등록되어 있는지 확인
     const allowedMethods = this.getAllowedMethods(path);
+
     if (allowedMethods.length > 0) {
       return { kind: 'method-not-allowed', allowedMethods };
     }
@@ -97,9 +114,17 @@ export class RouteHandler {
    * Registers routes from AOT-compiled handler index.
    *
    * @param entries - Compiled handler entries from AOT.
+   * @param controllerInstances - Map of controller keys to instantiated controllers.
+   * @param buildPipeline - Adapter-provided callback to resolve compiled pipeline data.
+   * @param contextKeyIndex - Boot-time resolved index mapping keyRef strings to ContextKey symbols.
    * @public
    */
-  registerFromHandlerIndex(entries: readonly HttpCompiledHandlerEntry[], controllerInstances?: Map<string, unknown>): void {
+  registerFromHandlerIndex(
+    entries: readonly HttpCompiledHandlerEntry[],
+    controllerInstances?: Map<string, unknown>,
+    buildPipeline?: PipelineBuildFn,
+    contextKeyIndex?: ReadonlyMap<string, ContextKey<unknown>>,
+  ): void {
     let routeCount = 0;
 
     for (const entry of entries) {
@@ -107,8 +132,6 @@ export class RouteHandler {
         continue;
       }
 
-      // @Method('PURGE', '/path') → method from args[0], path from args[1]
-      // @Get('/path')            → method from decorator name, path from args[0]
       const isCustomMethod = entry.handlerDecorator === 'Method';
       const httpMethod = isCustomMethod
         ? (typeof entry.handlerDecoratorArgs[0] === 'string' ? entry.handlerDecoratorArgs[0].toUpperCase() : '')
@@ -122,31 +145,21 @@ export class RouteHandler {
 
       if (instance === undefined || instance === null) {
         this.logger.warn(`Cannot resolve controller: ${entry.controllerKey}`);
-
         continue;
       }
 
       if (!this.isControllerInstance(instance)) {
         this.logger.warn(`Invalid controller instance: ${entry.controllerKey}`);
-
         continue;
       }
 
       const handler = this.resolveHandler(instance, entry.methodName);
-
-      if (entry.compiledPipeline !== undefined && entry.compiledPipeline.length > 0) {
-        this.handlerPipelines.push({ handler, pipeline: entry.compiledPipeline });
-      }
+      const validations = this.resolveValidations(entry, contextKeyIndex);
 
       const pathArgIndex = isCustomMethod ? 1 : 0;
       const rawPath = typeof entry.handlerDecoratorArgs[pathArgIndex] === 'string' ? entry.handlerDecoratorArgs[pathArgIndex] as string : '';
       const controllerPrefix = this.getControllerPrefix(entry.controllerKey);
       const fullPath = '/' + [controllerPrefix, rawPath].filter(Boolean).join('/').replace(/\/+/g, '/');
-
-      const middlewares = this.resolveMiddlewareKeys(entry.middlewareKeys ?? []);
-      const exceptionFilters = this.resolveExceptionFilterKeys(entry.exceptionFilterKeys ?? []);
-      const guards = this.resolveGuardKeys(entry.guardKeys ?? []);
-      const validations = this.resolveValidations(entry);
 
       const hasRawBody = entry.options?.some(option => option.name === 'RawBody') === true;
       const hasSse = entry.options?.some(option => option.name === 'Sse') === true;
@@ -162,6 +175,19 @@ export class RouteHandler {
         .filter(option => typeof option.arguments?.[0] === 'string' && typeof option.arguments?.[1] === 'string')
         .map(option => [option.arguments![0] as string, option.arguments![1] as string] as const);
 
+      const responseDefaultsApplier = buildResponseDefaultsApplier(
+        typeof statusValue === 'number' ? statusValue : undefined,
+        typeof contentTypeValue === 'string' ? contentTypeValue : undefined,
+        headers,
+        redirectOption !== undefined && typeof redirectOption.arguments?.[0] === 'string'
+          ? { url: redirectOption.arguments[0] as string, ...(redirectOption.arguments?.[1] !== undefined ? { status: redirectOption.arguments[1] as 301 | 302 | 303 | 307 | 308 } : {}) }
+          : undefined,
+      );
+
+      const pipeline = buildPipeline !== undefined
+        ? buildPipeline(entry, validations, handler, responseDefaultsApplier)
+        : EMPTY_PIPELINE;
+
       const routeEntry: MatchedRouteMetadata = {
         handler,
         rawBody: hasRawBody,
@@ -173,10 +199,11 @@ export class RouteHandler {
           : undefined,
         contentType: typeof contentTypeValue === 'string' ? contentTypeValue : undefined,
         headers,
-        middlewares,
-        exceptionFilters,
-        guards,
+        ...(responseDefaultsApplier !== undefined ? { applyResponseDefaults: responseDefaultsApplier } : {}),
         validations,
+        pre: pipeline.pre,
+        post: pipeline.post,
+        filters: pipeline.filters,
       };
 
       this.router.add(httpMethod, fullPath, routeEntry);
@@ -221,10 +248,10 @@ export class RouteHandler {
         redirect: undefined,
         contentType: undefined,
         headers: [],
-        middlewares: [],
-        exceptionFilters: [],
-        guards: [],
         validations: [],
+        pre: [],
+        post: [],
+        filters: [],
       };
 
       this.router.add(method, fullPath, entry);
@@ -243,11 +270,13 @@ export class RouteHandler {
 
   private getAllowedMethods(path: string): string[] {
     const methods: string[] = [];
+
     for (const method of this.registeredMethods) {
       if (this.router.match(method, path) !== null) {
         methods.push(method);
       }
     }
+
     return methods;
   }
 
@@ -268,12 +297,15 @@ export class RouteHandler {
    * Resolves AOT-compiled validation entries into runtime entries with actual class constructors.
    *
    * @param entry - The compiled handler entry from AOT.
+   * @param contextKeyIndex - Boot-time resolved index mapping keyRef strings to ContextKey symbols.
    * @returns Resolved validation entries.
    */
   private resolveValidations(
     entry: CompiledHandlerEntry,
+    contextKeyIndex?: ReadonlyMap<string, ContextKey<unknown>>,
   ): readonly ResolvedValidationEntry[] {
     const compiled = entry.validations;
+
     if (compiled === undefined || compiled.length === 0) {
       return [];
     }
@@ -282,90 +314,21 @@ export class RouteHandler {
 
     for (const validation of compiled) {
       const metatype = this.metatypeIndex.get(validation.metatypeKey);
+
       if (metatype === undefined) {
         throw new Error(`[RouteHandler] Cannot resolve DTO class for metatypeKey '${validation.metatypeKey}'`);
       }
-      resolved.push({ kind: validation.kind, metatype });
-    }
 
-    return resolved;
-  }
+      const key = contextKeyIndex?.get(validation.keyRef);
 
-  private resolveMiddlewareKeys(keys: readonly string[]): ResolvedMiddleware[] {
-    if (keys.length === 0 || this.container === undefined) {
-      return [];
-    }
-
-    const resolved: ResolvedMiddleware[] = [];
-
-    for (const key of keys) {
-      const value = this.container.get(key);
-
-      if (this.isMiddlewareDefinition(value)) {
-        resolved.push({
-          handler: runInInjectionContext(this.container, value.factory),
-        });
-      } else {
-        throw new Error(`[RouteHandler] Container key '${key}' did not resolve to a MiddlewareDefinition`);
+      if (key === undefined) {
+        throw new Error(`[RouteHandler] Cannot resolve ContextKey for keyRef '${validation.keyRef}'. Ensure the AOT-generated injector registers context keys.`);
       }
+
+      resolved.push({ key, metatype });
     }
 
     return resolved;
-  }
-
-  private resolveExceptionFilterKeys(keys: readonly string[]): ResolvedExceptionFilter[] {
-    if (keys.length === 0 || this.container === undefined) {
-      return [];
-    }
-
-    const resolved: ResolvedExceptionFilter[] = [];
-
-    for (const key of keys) {
-      const value = this.container.get(key);
-
-      if (this.isExceptionFilterDefinition(value)) {
-        resolved.push({
-          handler: runInInjectionContext(this.container, value.factory),
-          catchTypes: value.catchTypes,
-        });
-      } else {
-        throw new Error(`[RouteHandler] Container key '${key}' did not resolve to an ExceptionFilterDefinition`);
-      }
-    }
-
-    return resolved;
-  }
-
-  private resolveGuardKeys(keys: readonly string[]): GuardHandlerFn[] {
-    if (keys.length === 0 || this.container === undefined) {
-      return [];
-    }
-
-    const resolved: GuardHandlerFn[] = [];
-
-    for (const key of keys) {
-      const value = this.container.get(key);
-
-      if (this.isGuardDefinition(value)) {
-        resolved.push(runInInjectionContext(this.container, value.factory));
-      } else {
-        throw new Error(`[RouteHandler] Container key '${key}' did not resolve to a GuardDefinition`);
-      }
-    }
-
-    return resolved;
-  }
-
-  private isMiddlewareDefinition(value: unknown): value is MiddlewareDefinition {
-    return typeof value === 'object' && value !== null && 'factory' in value && typeof (value as Record<string, unknown>).factory === 'function';
-  }
-
-  private isExceptionFilterDefinition(value: unknown): value is ExceptionFilterDefinition {
-    return typeof value === 'object' && value !== null && 'factory' in value && 'catchTypes' in value;
-  }
-
-  private isGuardDefinition(value: unknown): value is GuardDefinition {
-    return typeof value === 'object' && value !== null && 'factory' in value && typeof (value as Record<string, unknown>).factory === 'function';
   }
 
   private isControllerInstance(value: unknown): value is ControllerInstance {
@@ -390,12 +353,6 @@ export class RouteHandler {
   /** @internal Exposed for unit testing only. */
   get __testing__() {
     return {
-      resolveMiddlewareKeys: this.resolveMiddlewareKeys.bind(this),
-      resolveExceptionFilterKeys: this.resolveExceptionFilterKeys.bind(this),
-      resolveGuardKeys: this.resolveGuardKeys.bind(this),
-      isMiddlewareDefinition: this.isMiddlewareDefinition.bind(this),
-      isExceptionFilterDefinition: this.isExceptionFilterDefinition.bind(this),
-      isGuardDefinition: this.isGuardDefinition.bind(this),
       isControllerInstance: this.isControllerInstance.bind(this),
     };
   }
@@ -404,9 +361,6 @@ export class RouteHandler {
 
 /**
  * Builds a reverse index from className → constructor for O(1) metatype resolution.
- *
- * @param registry - The metadata registry mapping constructors to class metadata.
- * @returns A Map keyed by className string, valued by constructor reference.
  */
 function buildMetatypeIndex(
   registry: Map<MetadataRegistryKey, ClassMetadata>,
@@ -420,4 +374,33 @@ function buildMetatypeIndex(
   }
 
   return index;
+}
+
+function buildResponseDefaultsApplier(
+  status: number | undefined,
+  contentType: string | undefined,
+  headers: readonly (readonly [string, string])[],
+  redirect: { readonly url: string; readonly status?: 301 | 302 | 303 | 307 | 308 } | undefined,
+): ((response: HttpResponse) => void) | undefined {
+  if (status === undefined && contentType === undefined && headers.length === 0 && redirect === undefined) {
+    return undefined;
+  }
+
+  return (response: HttpResponse): void => {
+    if (status !== undefined) {
+      response.setStatus(status);
+    }
+
+    if (contentType !== undefined) {
+      response.setContentType(contentType);
+    }
+
+    for (const [name, value] of headers) {
+      response.setHeader(name, value);
+    }
+
+    if (redirect !== undefined) {
+      response.redirect(redirect.url, redirect.status);
+    }
+  };
 }

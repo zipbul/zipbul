@@ -1,6 +1,4 @@
-import { ContextError, type AdapterContext, type ContextKey, type ClassToken, type Validated, type ZipbulContainer } from '@zipbul/common';
-import type { ResolvedExceptionFilter } from '@zipbul/core';
-
+import { ContextError, type AdapterContext, type ContextKey, type ClassToken, type ZipbulContainer } from '@zipbul/common';
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
 import type { ErrorResponseData, MatchedRouteMetadata } from './types';
@@ -9,9 +7,7 @@ import { HTTP_CONTEXT_TYPE } from './constants';
 
 export class HttpContext implements AdapterContext {
   private _rawRequest: Request | undefined;
-  private _routeExceptionFilters: readonly ResolvedExceptionFilter[] | undefined;
   private _matchedRoute: MatchedRouteMetadata | undefined;
-  private readonly validatedCache = new Map<string, unknown>();
   private readonly store = new Map<symbol, unknown>();
 
   /**
@@ -58,77 +54,28 @@ export class HttpContext implements AdapterContext {
     this.store.set(key, value);
   }
 
+  /**
+   * Returns a per-request value, throwing if not set.
+   *
+   * @param key - A `ContextKey<T>` created via `contextKey()`.
+   * @returns The stored value.
+   * @throws `ContextError` if the key has not been set.
+   * @public
+   */
+  use<T>(key: ContextKey<T>): T {
+    const value = this.store.get(key);
+    if (value === undefined && !this.store.has(key)) {
+      throw new ContextError(`Context key not set: ${String(key)}`);
+    }
+    return value as T;
+  }
+
   to<TContext>(ctor: ClassToken<TContext>): TContext {
     if (ctor === HttpContext) {
       return this as unknown as TContext;
     }
 
     throw new ContextError(`Context cast failed: ${ctor.name || 'UnknownContext'}`);
-  }
-
-  // ── Validated accessors ──────────────────────────────────────
-
-  /**
-   * Stores a validated value by kind.
-   * Called by the adapter after baker verification.
-   *
-   * @param kind - The validation kind (e.g. 'body', 'query', 'params').
-   * @param value - The validated value.
-   * @internal
-   */
-  setValidated(kind: string, value: unknown): void {
-    this.validatedCache.set(kind, value);
-  }
-
-  /**
-   * Returns the validated value for the given kind.
-   * Throws `ContextError` if the kind has not been validated.
-   *
-   * The generic cast is safe: baker `deserialize()` guarantees
-   * the stored value conforms to `T` at runtime.
-   *
-   * @param kind - The validation kind.
-   * @returns The validated value.
-   * @public
-   */
-  getValidated<T = unknown>(kind: string): T {
-    const cached = this.validatedCache.get(kind);
-    if (cached === undefined && !this.validatedCache.has(kind)) {
-      throw new ContextError(`Validated '${kind}' not available. Ensure runValidations executed before handler.`);
-    }
-    // Safety: baker deserialize() guarantees the value matches T at runtime.
-    // The Map stores unknown because different kinds hold different types.
-    return cached as T;
-  }
-
-  /**
-   * Returns the baker-validated request body.
-   *
-   * @returns The validated body as `T`.
-   * @public
-   */
-  getBody<T extends object = never>(): Validated<T> {
-    return this.getValidated<T>('body');
-  }
-
-  /**
-   * Returns the baker-validated query parameters.
-   *
-   * @returns The validated query as `T`.
-   * @public
-   */
-  getQuery<T extends object = never>(): Validated<T> {
-    return this.getValidated<T>('query');
-  }
-
-  /**
-   * Returns the baker-validated path parameters.
-   *
-   * @returns The validated params as `T`.
-   * @public
-   */
-  getParams<T extends object = never>(): Validated<T> {
-    return this.getValidated<T>('params');
   }
 
   // ── Request / Response ───────────────────────────────────────
@@ -161,14 +108,6 @@ export class HttpContext implements AdapterContext {
 
   get container(): ZipbulContainer | undefined {
     return this._container;
-  }
-
-  get routeExceptionFilters(): readonly ResolvedExceptionFilter[] | undefined {
-    return this._routeExceptionFilters;
-  }
-
-  setRouteExceptionFilters(filters: readonly ResolvedExceptionFilter[]): void {
-    this._routeExceptionFilters = filters;
   }
 
   get matchedRoute(): MatchedRouteMetadata | undefined {

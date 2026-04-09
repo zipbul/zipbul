@@ -23,6 +23,9 @@ const { positionals, values } = parseArgs({
       type: 'boolean',
       short: 'v',
     },
+    lib: {
+      type: 'boolean',
+    },
   },
 });
 const command = positionals[0];
@@ -49,6 +52,7 @@ const USAGE_TEXT = [
   '',
   'Options:',
   '  --profile <minimal|standard|full>',
+  '  --lib     Build as library (inject __augments metadata for npm packages)',
   '  --verbose, -v  Show detailed build information',
 ].join('\n');
 
@@ -72,6 +76,10 @@ const createCommandOptions = (): CommandOptions => {
 
   if (verbose) {
     options.verbose = true;
+  }
+
+  if (values.lib === true) {
+    options.lib = true;
   }
 
   return options;

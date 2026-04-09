@@ -218,20 +218,30 @@ describe('HttpContext', () => {
     });
   });
 
-  // ── getValidated edge cases ────────────────────────────────
+  // ── use() ─────────────────────────────────────────────────
 
-  describe('getValidated edge cases', () => {
-    it('should throw ContextError when validated kind has not been set', () => {
+  describe('use', () => {
+    it('should return value when key is set', () => {
       const ctx = new HttpContext(createStubRequest(), createStubResponse());
+      const key = contextKey<string>('present');
+      ctx.set(key, 'hello');
 
-      expect(() => ctx.getValidated('body')).toThrow("Validated 'body' not available");
+      expect(ctx.use(key)).toBe('hello');
     });
 
-    it('should return undefined when validated kind was explicitly set to undefined', () => {
+    it('should throw when key is not set', () => {
       const ctx = new HttpContext(createStubRequest(), createStubResponse());
-      ctx.setValidated('query', undefined);
+      const key = contextKey<string>('absent');
 
-      expect(ctx.getValidated('query')).toBeUndefined();
+      expect(() => ctx.use(key)).toThrow('Context key not set');
+    });
+
+    it('should return null when key is set to null', () => {
+      const ctx = new HttpContext(createStubRequest(), createStubResponse());
+      const key = contextKey<null>('nullable');
+      ctx.set(key, null);
+
+      expect(ctx.use(key)).toBeNull();
     });
   });
 
@@ -242,76 +252,6 @@ describe('HttpContext', () => {
       const ctx = new HttpContext(createStubRequest(), createStubResponse());
 
       expect(ctx.getType()).toBe('http');
-    });
-  });
-
-  // ── Validated accessors (getBody / getQuery / getParams) ───
-
-  describe('Validated accessors', () => {
-    it('getBody returns validated body after setValidated', () => {
-      const ctx = new HttpContext(createStubRequest(), createStubResponse());
-      const body = { name: 'test', age: 30 };
-
-      ctx.setValidated('body', body);
-
-      expect(ctx.getBody()).toBe(body);
-    });
-
-    it('getQuery returns validated query after setValidated', () => {
-      const ctx = new HttpContext(createStubRequest(), createStubResponse());
-      const query = { page: 1, limit: 10 };
-
-      ctx.setValidated('query', query);
-
-      expect(ctx.getQuery()).toBe(query);
-    });
-
-    it('getParams returns validated params after setValidated', () => {
-      const ctx = new HttpContext(createStubRequest(), createStubResponse());
-      const params = { id: '123', slug: 'hello' };
-
-      ctx.setValidated('params', params);
-
-      expect(ctx.getParams()).toBe(params);
-    });
-
-    it('getBody throws when body has not been validated', () => {
-      const ctx = new HttpContext(createStubRequest(), createStubResponse());
-
-      expect(() => ctx.getBody()).toThrow("Validated 'body' not available");
-    });
-
-    it('getQuery throws when query has not been validated', () => {
-      const ctx = new HttpContext(createStubRequest(), createStubResponse());
-
-      expect(() => ctx.getQuery()).toThrow("Validated 'query' not available");
-    });
-
-    it('getParams throws when params have not been validated', () => {
-      const ctx = new HttpContext(createStubRequest(), createStubResponse());
-
-      expect(() => ctx.getParams()).toThrow("Validated 'params' not available");
-    });
-  });
-
-  // ── routeExceptionFilters ──────────────────────────────────
-
-  describe('routeExceptionFilters', () => {
-    it('setRouteExceptionFilters stores and routeExceptionFilters retrieves', () => {
-      const ctx = new HttpContext(createStubRequest(), createStubResponse());
-      const filters = [
-        { token: class TestFilter {}, handle: mock(() => {}) },
-      ] as unknown as readonly import('@zipbul/common').ResolvedExceptionFilter[];
-
-      ctx.setRouteExceptionFilters(filters);
-
-      expect(ctx.routeExceptionFilters).toBe(filters);
-    });
-
-    it('routeExceptionFilters returns undefined when not set', () => {
-      const ctx = new HttpContext(createStubRequest(), createStubResponse());
-
-      expect(ctx.routeExceptionFilters).toBeUndefined();
     });
   });
 

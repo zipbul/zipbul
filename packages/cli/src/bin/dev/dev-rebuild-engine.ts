@@ -8,6 +8,8 @@ import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { writeIfChanged } from '../../common';
 import { buildFileAnalysis } from '../build/build-analysis';
 import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from '../build/build-artifact-writer';
+import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
+import { ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
 
 import type { CliRendererLike, CollectedClass } from '../interfaces';
 import type { RebuildContext, RebuildOptions, RebuildResult } from './interfaces';
@@ -213,6 +215,18 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
   }
 
   await writeIfChanged(join(outDir, 'runtime.ts'), runtimeResult);
+
+  // Generate context.d.ts — AOT declaration merging for middleware augments
+  const augmentCollector = new MiddlewareAugmentCollector();
+  const augmentResult = await augmentCollector.collect(fileMap, adapterResolution.adapterStaticSchemas);
+
+  if (augmentResult.augments.length > 0) {
+    const contextTypesGen = new ContextTypesGenerator();
+    const contextRegistry = new ImportRegistry(outDir);
+    const contextDts = contextTypesGen.generate(augmentResult.augments, contextRegistry, augmentResult.adapterMap);
+
+    await writeIfChanged(join(outDir, 'context.d.ts'), contextDts);
+  }
 
   // Generate entry.ts
   const userMain = resolve(projectRoot, config.entry);

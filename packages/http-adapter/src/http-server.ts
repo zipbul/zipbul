@@ -12,7 +12,6 @@ import type {
 } from './interfaces';
 import type {
   ClassMetadata,
-  ContentTypeInfo,
   JsonValue,
   MatchedRouteMetadata,
   MetadataRegistryKey,
@@ -22,11 +21,14 @@ import type {
 
 import type { HttpMethod } from '@zipbul/shared';
 import { HttpContext } from './http-context';
+import { parseContentTypeInfo, parseParameters } from './content-type';
 import { HttpRequest } from './http-request';
 import { HttpResponse } from './http-response';
 import { HTTP_STANDARD_METHODS } from './http-method';
 import { RouteHandler } from './route-handler';
 import type { HttpAdapter } from './http-adapter';
+import { resolveRequestId, validateRequestId } from './request-id';
+import { defaultPortByProtocol, extractHostname, extractPort, parseRequestTarget } from './url-parts';
 
 // ── Module-internal interfaces ────────────────────────────────
 
@@ -63,78 +65,6 @@ interface ForwardedDirectives {
 
 // ── Helper functions ──────────────────────────────────────────
 
-function parseContentTypeInfo(raw: string | null): ContentTypeInfo | null {
-  if (raw === null || raw.length === 0) return null;
-
-  const semicolonIndex = raw.indexOf(';');
-  const mediaType = (semicolonIndex === -1 ? raw.trim() : raw.slice(0, semicolonIndex).trim()).toLowerCase();
-
-  if (mediaType.length === 0) return null;
-
-  const params = new Map<string, string>();
-  if (semicolonIndex !== -1) {
-    const paramString = raw.slice(semicolonIndex + 1);
-    for (const pair of parseParameters(paramString)) {
-      const eqIndex = pair.indexOf('=');
-      if (eqIndex === -1) continue;
-
-      const key = pair.slice(0, eqIndex).trim().toLowerCase();
-      let value = pair.slice(eqIndex + 1).trim();
-
-      if (value.startsWith('"') && value.endsWith('"')) {
-        value = value.slice(1, -1).replace(/\\(.)/g, '$1');
-      }
-      params.set(key, value);
-    }
-  }
-
-  return {
-    mediaType,
-    charset: params.get('charset')?.toLowerCase() ?? null,
-    boundary: params.get('boundary') ?? null,
-    params,
-  };
-}
-
-/**
- * RFC 9110 §5.6.4/§5.6.6 준수. quoted-string 내부 세미콜론을 존중한다.
- */
-function parseParameters(input: string): string[] {
-  const pairs: string[] = [];
-  let current = '';
-  let inQuotes = false;
-  let escaped = false;
-
-  for (let i = 0; i < input.length; i++) {
-    const char = input[i]!;
-
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-    if (char === '\\' && inQuotes) {
-      current += char;
-      escaped = true;
-      continue;
-    }
-    if (char === '"') {
-      current += char;
-      inQuotes = !inQuotes;
-      continue;
-    }
-    if (char === ';' && !inQuotes) {
-      pairs.push(current);
-      current = '';
-      continue;
-    }
-    current += char;
-  }
-
-  if (current.length > 0) pairs.push(current);
-  return pairs;
-}
-
 function parseContentLength(headers: Headers): number | null | 'invalid' {
   const raw = headers.get('content-length');
   if (raw === null || raw.length === 0) return null;
@@ -150,54 +80,6 @@ function parseContentLength(headers: Headers): number | null | 'invalid' {
 
   const parsed = parseInt(raw, 10);
   return Number.isNaN(parsed) ? null : parsed;
-}
-
-function resolveRequestId(headers: Headers, options?: RequestIdOptions): string {
-  if (options?.header !== undefined) {
-    const headerValue = headers.get(options.header);
-    if (headerValue !== null && validateRequestId(headerValue)) {
-      return headerValue;
-    }
-  }
-  if (options?.generate !== undefined) {
-    return options.generate();
-  }
-  return crypto.randomUUID();
-}
-
-/**
- * log injection 방어: 인쇄 가능 ASCII(0x20-0x7E)만 허용.
- */
-function validateRequestId(value: string): boolean {
-  if (value.length === 0 || value.length > 256) return false;
-  for (let i = 0; i < value.length; i++) {
-    const code = value.charCodeAt(i);
-    if (code < 0x20 || code > 0x7e) return false;
-  }
-  return true;
-}
-
-function extractHostname(host: string): string {
-  if (host.startsWith('[')) {
-    const closeBracket = host.indexOf(']');
-    return closeBracket !== -1 ? host.slice(1, closeBracket) : host;
-  }
-  const colonIndex = host.indexOf(':');
-  return colonIndex !== -1 ? host.slice(0, colonIndex) : host;
-}
-
-function extractPort(host: string): string | null {
-  if (host.startsWith('[')) {
-    const portSeparator = host.indexOf(']:');
-    return portSeparator !== -1 ? host.slice(portSeparator + 2) : null;
-  }
-  const colonIndex = host.indexOf(':');
-  return colonIndex !== -1 ? host.slice(colonIndex + 1) : null;
-}
-
-function defaultPortByProtocol(protocol: string | null): number {
-  if (protocol === 'https') return 443;
-  return 80;
 }
 
 function validateHttpMethod(method: string, allowedMethods: ReadonlySet<string>): HttpMethod | null {
@@ -490,63 +372,40 @@ function createHttpRequest(
 ): CreateHttpRequestOutput {
   const validatedMethod = validateHttpMethod(raw.method, allowedMethods);
 
-  let urlObj: URL;
-  try {
-    urlObj = new URL(raw.url);
-  } catch {
+  const parsedTarget = parseRequestTarget(raw.url);
+  if (parsedTarget === null) {
     return { kind: 'bad-request', reason: 'invalid-url' };
   }
 
   const contentLength = parseContentLength(raw.headers);
-
-  const rawProtocol = urlObj.protocol.slice(0, -1);
-  const urlProtocol = rawProtocol.length > 0 ? rawProtocol : null;
-  const urlHost = urlObj.host.length > 0 ? urlObj.host : null;
-  const urlHostname = urlObj.hostname.length > 0 ? urlObj.hostname : null;
-  const urlPort = urlObj.port.length > 0 ? parseInt(urlObj.port, 10) : defaultPortByProtocol(rawProtocol);
-
-  let protocol: string | null;
-  let host: string | null;
-  let hostname: string | null;
-  let port: number;
-
-  if (proxyInfo !== null) {
-    protocol = (proxyInfo.proto === 'http' || proxyInfo.proto === 'https')
-      ? proxyInfo.proto
-      : urlProtocol;
-
-    host = proxyInfo.host ?? urlHost;
-    hostname = host !== null ? extractHostname(host) : urlHostname;
-
-    const forwardedPort = host !== null ? extractPort(host) : null;
-    const parsedForwardedPort = forwardedPort !== null ? parseInt(forwardedPort, 10) : NaN;
-    port = !Number.isNaN(parsedForwardedPort)
-      ? parsedForwardedPort
-      : (proxyInfo.port ?? defaultPortByProtocol(protocol ?? rawProtocol));
-  } else {
-    protocol = urlProtocol;
-    host = urlHost;
-    hostname = urlHostname;
-    port = urlPort;
-  }
+  const rawProtocol = parsedTarget.protocol;
+  const urlProtocol = rawProtocol !== null && rawProtocol.length > 0 ? rawProtocol : null;
+  const urlHost = parsedTarget.authority;
 
   // Method string for HttpRequest — use raw method even if not in allowedMethods
   const method = (validatedMethod ?? raw.method) as HttpMethod;
 
   const request = new HttpRequest({
-    requestId: resolveRequestId(raw.headers, requestIdOptions),
+    ...(requestIdOptions?.header !== undefined ? { requestIdHeaderName: requestIdOptions.header } : {}),
+    ...(requestIdOptions?.generate !== undefined ? { requestIdGenerator: requestIdOptions.generate } : {}),
     originalMethod: method,
     originalUrl: raw.url,
     method,
     url: raw.url,
-    path: urlObj.pathname,
+    path: parsedTarget.path,
     headers: raw.headers,
-    protocol,
-    host,
-    hostname,
-    port,
-    queryString: urlObj.search.length > 0 ? urlObj.search : null,
-    contentType: parseContentTypeInfo(raw.headers.get('content-type')),
+    origin: {
+      urlProtocol,
+      urlHost,
+      ...(proxyInfo !== null
+        ? {
+          proxyProtocol: proxyInfo.proto,
+          proxyHost: proxyInfo.host,
+          proxyPort: proxyInfo.port,
+        }
+        : {}),
+    },
+    ...(parsedTarget.queryString !== null ? { queryString: parsedTarget.queryString } : {}),
     contentLength: contentLength === 'invalid' ? null : contentLength,
     ip: normalizeIp(proxyInfo !== null ? (proxyInfo.clientIp ?? socketIp) : socketIp),
     ips: proxyInfo !== null ? proxyInfo.ipChain : [],
@@ -575,6 +434,7 @@ export class HttpServer {
   private options: HttpServerOptions;
   private server: Server<unknown>;
   private allowedMethods: ReadonlySet<string>;
+  private requestScopeEnabled: boolean | undefined;
 
   /**
    * Returns the underlying Bun Server instance for drain operations.
@@ -590,6 +450,7 @@ export class HttpServer {
     this.adapter = adapter;
     this.container = container;
     this.options = options;
+    this.requestScopeEnabled = undefined;
 
     this.allowedMethods = new Set([...HTTP_STANDARD_METHODS, ...(this.options.customMethods ?? [])]);
 
@@ -603,10 +464,15 @@ export class HttpServer {
       handlerDecoratorNames: this.adapter.decorators.handlers.map(h => h.name),
     };
 
-    const routeHandler = new RouteHandler(metadataRegistry, decoratorConfig, undefined, this.container);
+    const routeHandler = new RouteHandler(metadataRegistry, decoratorConfig);
 
     if (options.handlerIndex !== undefined && options.handlerIndex.length > 0) {
-      routeHandler.registerFromHandlerIndex(options.handlerIndex, options.controllerInstances);
+      routeHandler.registerFromHandlerIndex(
+        options.handlerIndex,
+        options.controllerInstances,
+        this.adapter.buildRoutePipeline.bind(this.adapter),
+        options.contextKeyIndex,
+      );
     }
 
     if (Array.isArray(options.internalRoutes) && options.internalRoutes.length > 0) {
@@ -614,10 +480,6 @@ export class HttpServer {
     }
 
     this.adapter.setRouteHandler(routeHandler);
-
-    for (const { handler, pipeline } of routeHandler.getHandlerPipelines()) {
-      this.adapter.registerHandlerPipeline(handler, pipeline);
-    }
 
     const isProduction = process.env['NODE_ENV'] === 'production';
 
@@ -691,9 +553,11 @@ export class HttpServer {
     }
 
     const zipbulReq = createResult.request;
-    const zipbulRes = new HttpResponse(zipbulReq, new Headers());
+    const zipbulRes = new HttpResponse(zipbulReq);
 
-    const requestContainer = this.container.createRequestScope?.(zipbulReq.requestId);
+    const requestContainer = this.shouldCreateRequestScope()
+      ? this.container.createRequestScope?.(zipbulReq.requestId)
+      : undefined;
     const context = new HttpContext(zipbulReq, zipbulRes, req, requestContainer);
 
     // not-implemented, 기타 bad-request: pipelineError로 설정.
@@ -719,6 +583,37 @@ export class HttpServer {
         this.logger.error('Request scope dispose failed', disposeError instanceof Error ? disposeError : undefined);
       }
     }
+  }
+
+  private shouldCreateRequestScope(): boolean {
+    if (this.requestScopeEnabled !== undefined) {
+      return this.requestScopeEnabled;
+    }
+
+    if (typeof this.container.createRequestScope !== 'function') {
+      this.requestScopeEnabled = false;
+      return false;
+    }
+
+    const introspectable = this.container as ZipbulContainer & {
+      getRegistration?: (token: unknown) => { scope?: string } | undefined;
+      keys?: () => IterableIterator<unknown>;
+    };
+
+    if (typeof introspectable.getRegistration !== 'function' || typeof introspectable.keys !== 'function') {
+      this.requestScopeEnabled = true;
+      return true;
+    }
+
+    for (const token of introspectable.keys()) {
+      if (introspectable.getRegistration(token)?.scope === 'request') {
+        this.requestScopeEnabled = true;
+        return true;
+      }
+    }
+
+    this.requestScopeEnabled = false;
+    return false;
   }
 }
 

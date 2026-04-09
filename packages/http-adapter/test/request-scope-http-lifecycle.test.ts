@@ -189,6 +189,7 @@ describe('Request scope HTTP lifecycle', () => {
   it('should create a request-scoped container and pass it through dispatchRequest', async () => {
     // Arrange
     const container = new Container();
+    container.set('__reqScopeTrigger', () => ({}), { scope: 'request' });
     const adapter = createMockAdapter();
     let receivedContainer: ZipbulContainer | undefined;
     adapter.dispatchRequest.mockImplementation(async (context: Context) => {
@@ -252,6 +253,7 @@ describe('Request scope HTTP lifecycle', () => {
   it('should share singleton instances across multiple fetch calls', async () => {
     // Arrange
     const container = new Container();
+    container.set('__reqScopeTrigger', () => ({}), { scope: 'request' });
     let singletonCount = 0;
     container.set('singleton', (_c: ZipbulContainer) => {
       singletonCount += 1;
@@ -281,6 +283,7 @@ describe('Request scope HTTP lifecycle', () => {
   it('should generate a unique UUID contextId per fetch call', async () => {
     // Arrange
     const container = new Container();
+    container.set('__reqScopeTrigger', () => ({}), { scope: 'request' });
     const adapter = createMockAdapter();
     const contextIds: string[] = [];
     adapter.dispatchRequest.mockImplementation(async (context: Context) => {
@@ -552,6 +555,7 @@ describe('Request scope HTTP lifecycle', () => {
   it('should preserve singleton identity across multiple fetch-dispose cycles', async () => {
     // Arrange
     const container = new Container();
+    container.set('__reqScopeTrigger', () => ({}), { scope: 'request' });
     let singletonCount = 0;
     container.set('singleton', (_c: ZipbulContainer) => {
       singletonCount += 1;
@@ -583,6 +587,7 @@ describe('Request scope HTTP lifecycle', () => {
   it('should assign unique contextIds to parallel fetch calls', async () => {
     // Arrange
     const container = new Container();
+    container.set('__reqScopeTrigger', () => ({}), { scope: 'request' });
     const adapter = createMockAdapter();
     const contextIds: string[] = [];
     adapter.dispatchRequest.mockImplementation(async (context: Context) => {
@@ -669,6 +674,7 @@ describe('Request scope HTTP lifecycle', () => {
   it('should return same singleton across all fetches', async () => {
     // Arrange
     const container = new Container();
+    container.set('__reqScopeTrigger', () => ({}), { scope: 'request' });
     let factoryCallCount = 0;
     container.set('singleton', (_c: ZipbulContainer) => {
       factoryCallCount += 1;

@@ -118,7 +118,6 @@ class TestAdapterWithFinalize extends TestAdapter {
 
 function createContext(): Context {
   const store = new Map<symbol, unknown>();
-  const validatedStore = new Map<symbol, unknown>();
 
   return {
     getType: () => 'test',
@@ -129,17 +128,8 @@ function createContext(): Context {
       if (value === undefined) throw new Error(`Context key not set: ${String(key)}`);
       return value;
     },
-    validated(key) {
-      const value = validatedStore.get(key as symbol);
-      if (value === undefined) throw new Error(`Validation not performed for key: ${String(key)}`);
-      return value;
-    },
     to() {
       throw new Error('unsupported');
-    },
-    setValidated(key, value) { validatedStore.set(key as symbol, value); },
-    getValidated(key) {
-      return validatedStore.get(key as symbol);
     },
   };
 }
@@ -1160,58 +1150,6 @@ describe('Adapter', () => {
       expect(() => ctx.use(key)).toThrow();
     });
 
-    it('validated() should return value from validated store', () => {
-      const ctx = createContext();
-      const key = contextKey<unknown>('test.body');
-      ctx.setValidated(key, { name: 'validated' });
-
-      expect(ctx.validated(key, Object)).toEqual({ name: 'validated' });
-    });
-
-    it('validated() should throw when key is not validated', () => {
-      const ctx = createContext();
-      const key = contextKey<unknown>('not.validated');
-
-      expect(() => ctx.validated(key, Object)).toThrow();
-    });
-
-    it('setValidated / getValidated should use ContextKey', () => {
-      const ctx = createContext();
-      const key = contextKey<unknown>('test');
-      ctx.setValidated(key, 42);
-
-      expect(ctx.getValidated(key)).toBe(42);
-    });
-
-    it('setValidated should overwrite existing value for same key', () => {
-      const ctx = createContext();
-      const key = contextKey<unknown>('test');
-      ctx.setValidated(key, 'first');
-      ctx.setValidated(key, 'second');
-
-      expect(ctx.getValidated(key)).toBe('second');
-    });
-
-    it('validated store and context store should be isolated', () => {
-      const ctx = createContext();
-      const key = contextKey<unknown>('shared');
-      ctx.set(key, 'context-value');
-      ctx.setValidated(key, 'validated-value');
-
-      expect(ctx.get(key)).toBe('context-value');
-      expect(ctx.getValidated(key)).toBe('validated-value');
-    });
-
-    it('different context keys should not collide in validated store', () => {
-      const ctx = createContext();
-      const keyA = contextKey<unknown>('body');
-      const keyB = contextKey<unknown>('query');
-      ctx.setValidated(keyA, { body: true });
-      ctx.setValidated(keyB, { query: true });
-
-      expect(ctx.getValidated(keyA)).toEqual({ body: true });
-      expect(ctx.getValidated(keyB)).toEqual({ query: true });
-    });
   });
 
   // ── wrapValidationError ──────────────────────────────────────

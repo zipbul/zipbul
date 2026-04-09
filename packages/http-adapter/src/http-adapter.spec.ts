@@ -10,7 +10,18 @@ const mockGetBootstrapState = mock(() => ({
   metadataRegistry: new Map(),
 }));
 
+const { Adapter, handlerResultKey } = await import('../../core/src/adapter/adapter');
+const { CoreStep } = await import('../../core/src/adapter/enums');
+const { runInInjectionContext } = await import('../../core/src/injection-context');
+const { getAdapterContext, runInAdapterContext } = await import('../../core/src/adapter-context');
+
 mock.module('@zipbul/core', () => ({
+  Adapter,
+  CoreStep,
+  handlerResultKey,
+  getAdapterContext,
+  runInAdapterContext,
+  runInInjectionContext,
   ClusterManager: class {},
   getBootstrapState: mockGetBootstrapState,
 }));
@@ -130,9 +141,9 @@ describe('HttpAdapter', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [],
+            pre: [],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -165,9 +176,9 @@ describe('HttpAdapter', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [guardHandler],
+            pre: [guardHandler],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -186,13 +197,6 @@ describe('HttpAdapter', () => {
 
     it('should skip handler when guard denies', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       const guardHandler = mock(() => err({ status: 403, message: 'Forbidden' }));
       const handlerFn = mock(() => ({ data: 'ok' }));
       const mockRouteHandler = {
@@ -208,9 +212,9 @@ describe('HttpAdapter', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [guardHandler],
+            pre: [guardHandler],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -222,7 +226,8 @@ describe('HttpAdapter', () => {
       // Act
       await adapter.dispatchRequest(context);
 
-      // Assert
+      // Assert — result stored on context via handlerResultKey
+      const receivedResult = context.get(handlerResultKey);
       expect(isErr(receivedResult)).toBe(true);
       expect(handlerFn).not.toHaveBeenCalled();
     });
@@ -246,9 +251,9 @@ describe('HttpAdapter', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [guard1, guard2],
+            pre: [guard1, guard2],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -282,9 +287,9 @@ describe('HttpAdapter', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [guard1, guard2],
+            pre: [guard1, guard2],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -319,9 +324,9 @@ describe('HttpAdapter', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [guardHandler],
+            pre: [guardHandler],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -355,9 +360,9 @@ describe('HttpAdapter', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [guardHandler],
+            pre: [guardHandler],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -475,9 +480,9 @@ function setSseRoute(context: Context): void {
     redirect: undefined,
     contentType: undefined,
     headers: [],
-    middlewares: [],
-    exceptionFilters: [],
-    guards: [],
+    pre: [],
+    post: [],
+    filters: [],
     handler: () => undefined,
     validations: [],
   };
@@ -493,10 +498,31 @@ function createMockContainer(): ZipbulContainer {
   } as unknown as ZipbulContainer;
 }
 
+/**
+ * Replaces the removed `handleResult` method.
+ * Sets the handler result on context via `handlerResultKey`, then invokes
+ * the private `writeErrorResponse` / `writeSuccessResponse` methods that
+ * the `WriteResponse` pipeline step delegates to.
+ */
+async function writeResult(adapter: InstanceType<typeof HttpAdapter>, result: unknown, context: Context): Promise<void> {
+  const { HttpContext } = require('./http-context');
+  const http = context.to(HttpContext);
+  context.set(handlerResultKey, result);
+
+  if (http.response.isSent() || result === undefined) return;
+
+  if (isErr(result)) {
+    adapter['writeErrorResponse'](http.response, (result as { data: unknown }).data);
+  } else {
+    await adapter['writeSuccessResponse'](http.response, result, http);
+  }
+
+  http.response.serialize();
+}
+
 function createMockRouteHandler(options: {
-  middlewares?: Array<(ctx: Context) => unknown>;
-  guards?: Array<(ctx: Context) => unknown>;
-  exceptionFilters?: Array<{ handler: (error: unknown, ctx: Context) => unknown; catchTypes: readonly (abstract new (...args: readonly unknown[]) => Error)[] }>;
+  pre?: Array<(ctx: Context) => unknown>;
+  filters?: Array<{ handler: (error: unknown, ctx: Context) => unknown; catchTypes: readonly (abstract new (...args: readonly unknown[]) => Error)[] }>;
   handler?: (...args: readonly unknown[]) => unknown;
 }) {
   return {
@@ -512,9 +538,9 @@ function createMockRouteHandler(options: {
         redirect: undefined,
         contentType: undefined,
         headers: [],
-        middlewares: (options.middlewares ?? []).map((handler) => ({ handler })),
-        exceptionFilters: options.exceptionFilters ?? [],
-        guards: options.guards ?? [],
+        pre: options.pre ?? [],
+        post: [],
+        filters: options.filters ?? [],
         validations: [],
       },
     })),
@@ -533,23 +559,23 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── Execution Order ──────────────────────────────────────────
 
   describe('execution order', () => {
-    it('should execute full pipeline: OnReceive → resolveRoute → parseBody → PostParse → GlobalGuards → PreHandle → RouteMW → RouteGuards → Handler → OnComplete', async () => {
+    it('should execute full pipeline: OnReceive → resolveRoute → pre (PostParse → GlobalGuard → PreHandle → RouteMW → RouteGuard) → Handler → OnComplete', async () => {
       // Arrange
       const order: string[] = [];
 
       adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
-      adapter.addMiddlewares(HttpPhase.BeforeValidate, [defineMiddleware(() => () => { order.push('global:PostParse'); })]);
-      adapter.addMiddlewares(HttpPhase.BeforeHandle, [defineMiddleware(() => () => { order.push('global:PreHandle'); })]);
       adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
-      adapter.addGuards([defineGuard(() => () => { order.push('global:guard'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [
+        pre: [
+          () => { order.push('global:PostParse'); },
+          () => { order.push('global:guard'); },
+          () => { order.push('global:PreHandle'); },
           () => { order.push('route:mw1'); },
           () => { order.push('route:mw2'); },
+          () => { order.push('route:guard'); },
         ],
-        guards: [() => { order.push('route:guard'); }],
         handler: () => { order.push('handler'); return { data: 'ok' }; },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -579,16 +605,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         defineMiddleware(() => () => { order.push('OnReceive:1'); }),
         defineMiddleware(() => () => { order.push('OnReceive:2'); }),
       ]);
-      adapter.addMiddlewares(HttpPhase.BeforeHandle, [
-        defineMiddleware(() => () => { order.push('PreHandle:1'); }),
-      ]);
-      adapter.addMiddlewares(HttpPhase.BeforeHandle, [
-        defineMiddleware(() => () => { order.push('PreHandle:2'); }),
-      ]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => { order.push('route:mw'); }],
+        pre: [
+          () => { order.push('PreHandle:1'); },
+          () => { order.push('PreHandle:2'); },
+          () => { order.push('route:mw'); },
+        ],
         handler: () => { order.push('handler'); return 'ok'; },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -611,12 +635,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpPhase.BeforeValidate, [defineMiddleware(() => () => { order.push('PostParse'); })]);
-      adapter.addMiddlewares(HttpPhase.BeforeHandle, [defineMiddleware(() => () => { order.push('PreHandle'); })]);
-      adapter.addGuards([defineGuard(() => () => { order.push('global:guard'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
+        pre: [
+          () => { order.push('PostParse'); },
+          () => { order.push('global:guard'); },
+          () => { order.push('PreHandle'); },
+        ],
         handler: () => { order.push('handler'); return 'ok'; },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -642,7 +668,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [routeMw],
+        pre: [routeMw],
         handler: handlerFn,
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -660,11 +686,15 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const order: string[] = [];
 
       adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
-      adapter.addMiddlewares(HttpPhase.BeforeValidate, [defineMiddleware(() => () => { order.push('PostParse:halt'); return err({ status: 400 }); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeMw = mock((_ctx: Context) => {});
-      const routeHandler = createMockRouteHandler({ middlewares: [routeMw] });
+      const routeHandler = createMockRouteHandler({
+        pre: [
+          () => { order.push('PostParse:halt'); return err({ status: 400 }); },
+          routeMw,
+        ],
+      });
       adapter.setRouteHandler(routeHandler as never);
 
       // Act
@@ -679,10 +709,11 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const routeMw = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpPhase.BeforeHandle, [defineMiddleware(() => () => err({ status: 503 }))]);
       adapter.initializePipeline(createMockContainer());
 
-      const routeHandler = createMockRouteHandler({ middlewares: [routeMw] });
+      const routeHandler = createMockRouteHandler({
+        pre: [() => err({ status: 503 }), routeMw],
+      });
       adapter.setRouteHandler(routeHandler as never);
 
       // Act
@@ -698,11 +729,15 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeMw = mock((_ctx: Context) => { order.push('route:mw'); });
       const preHandleMw = mock((_ctx: Context) => { order.push('PreHandle'); });
 
-      adapter.addMiddlewares(HttpPhase.BeforeHandle, [defineMiddleware(() => preHandleMw)]);
-      adapter.addGuards([defineGuard(() => () => { order.push('global:guard:deny'); return err({ status: 403 }); })]);
       adapter.initializePipeline(createMockContainer());
 
-      const routeHandler = createMockRouteHandler({ middlewares: [routeMw] });
+      const routeHandler = createMockRouteHandler({
+        pre: [
+          () => { order.push('global:guard:deny'); return err({ status: 403 }); },
+          preHandleMw,
+          routeMw,
+        ],
+      });
       adapter.setRouteHandler(routeHandler as never);
 
       // Act
@@ -722,11 +757,11 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [
+        pre: [
           () => err({ reason: 'first_halt' }),
           () => { throw new Error('should not run'); },
+          guardFn,
         ],
-        guards: [guardFn],
         handler: handlerFn,
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -747,12 +782,12 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [
+        pre: [
           () => { order.push('mw1'); },
           () => { order.push('mw2'); },
           () => { order.push('mw3:halt'); return err({ reason: 'last_halt' }); },
+          guardFn,
         ],
-        guards: [guardFn],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -775,12 +810,12 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [
+        pre: [
           () => { order.push('route:mw1'); },
           () => { order.push('route:mw2:halt'); return err({ status: 401 }); },
           () => { order.push('route:mw3'); },
+          guardFn,
         ],
-        guards: [guardFn],
         handler: handlerFn,
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -807,7 +842,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => err({ reason: 'halt' })],
+        pre: [() => err({ reason: 'halt' })],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -840,50 +875,42 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── Err Data Propagation ──────────────────────────────────
 
   describe('Err data propagation', () => {
-    it('should flow route-level middleware Err data through to handleResult', async () => {
+    it('should flow route-level middleware Err data through to WriteResponse', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => err({ status: 401, message: 'Unauthorized' })],
+        pre: [() => err({ status: 401, message: 'Unauthorized' })],
       });
       adapter.setRouteHandler(routeHandler as never);
 
-      // Act
-      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+      const context = createHttpContext('GET', '/test');
 
-      // Assert
+      // Act
+      await adapter.dispatchRequest(context);
+
+      // Assert — result stored on context via handlerResultKey
+      const receivedResult = context.get(handlerResultKey);
       expect(isErr(receivedResult)).toBe(true);
       expect((receivedResult as { data: unknown }).data).toEqual({ status: 401, message: 'Unauthorized' });
     });
 
-    it('should flow route-level guard Err data through to handleResult', async () => {
+    it('should flow route-level guard Err data through to WriteResponse', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        guards: [() => err({ status: 403, message: 'Forbidden' })],
+        pre: [() => err({ status: 403, message: 'Forbidden' })],
       });
       adapter.setRouteHandler(routeHandler as never);
 
-      // Act
-      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+      const context = createHttpContext('GET', '/test');
 
-      // Assert
+      // Act
+      await adapter.dispatchRequest(context);
+
+      // Assert — result stored on context via handlerResultKey
+      const receivedResult = context.get(handlerResultKey);
       expect(isErr(receivedResult)).toBe(true);
       expect((receivedResult as { data: unknown }).data).toEqual({ status: 403, message: 'Forbidden' });
     });
@@ -901,15 +928,15 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route-filter' }));
       const routeHandler = createMockRouteHandler({
-        guards: [() => err({ status: 403 })],
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+        pre: [() => err({ status: 403 })],
+        filters: [{ handler: routeFilterHandler, catchTypes: [] }],
       });
       adapter.setRouteHandler(routeHandler as never);
 
       // Act
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
 
-      // Assert — Err from guard goes directly to handleResult, NOT through exception filters
+      // Assert — Err from guard goes directly to WriteResponse, NOT through exception filters
       expect(globalFilter).not.toHaveBeenCalled();
       expect(routeFilterHandler).not.toHaveBeenCalled();
     });
@@ -922,7 +949,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => err({ status: 429 })],
+        pre: [() => err({ status: 429 })],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -950,7 +977,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [RouteError] }],
+        filters: [{ handler: routeFilterHandler, catchTypes: [RouteError] }],
         handler: () => { throw new RouteError(); },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -971,11 +998,13 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
       const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route' }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [SpecificError] }],
+        filters: [
+          { handler: routeFilterHandler, catchTypes: [SpecificError] },
+          { handler: globalFilterHandler, catchTypes: [] },
+        ],
         handler: () => { throw new DifferentError('different'); },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -999,8 +1028,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => { throw new MwError(); }],
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [MwError] }],
+        pre: [() => { throw new MwError(); }],
+        filters: [{ handler: routeFilterHandler, catchTypes: [MwError] }],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -1031,7 +1060,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [DetailedError] }],
+        filters: [{ handler: routeFilterHandler, catchTypes: [DetailedError] }],
         handler: () => { throw new DetailedError(); },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1058,7 +1087,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [
+        pre: [
           async () => { await Promise.resolve(); order.push('async:mw'); },
         ],
         handler: () => { order.push('handler'); return 'ok'; },
@@ -1079,7 +1108,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [
+        pre: [
           async () => { await Promise.resolve(); return err({ async: true }); },
         ],
         handler: handlerFn,
@@ -1100,7 +1129,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [
+        pre: [
           () => { order.push('sync:1'); },
           async () => { await Promise.resolve(); order.push('async:2'); },
           () => { order.push('sync:3'); },
@@ -1125,15 +1154,17 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const contexts: Context[] = [];
 
       adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
-      adapter.addMiddlewares(HttpPhase.BeforeValidate, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
-      adapter.addMiddlewares(HttpPhase.BeforeHandle, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
       adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
-      adapter.addGuards([defineGuard(() => (ctx) => { contexts.push(ctx); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [(ctx) => { contexts.push(ctx); }],
-        guards: [(ctx) => { contexts.push(ctx); }],
+        pre: [
+          (ctx) => { contexts.push(ctx); },
+          (ctx) => { contexts.push(ctx); },
+          (ctx) => { contexts.push(ctx); },
+          (ctx) => { contexts.push(ctx); },
+          (ctx) => { contexts.push(ctx); },
+        ],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -1142,7 +1173,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Act
       await adapter.dispatchRequest(context);
 
-      // Assert — 4 global hooks + 1 global guard + 1 route mw + 1 route guard = 7
+      // Assert — 1 OnRequest + 5 pre + 1 AfterResponse = 7
       expect(contexts).toHaveLength(7);
       for (const captured of contexts) {
         expect(captured).toBe(context);
@@ -1157,11 +1188,13 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addGuards([defineGuard(() => () => { order.push('global:guard'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        guards: [() => { order.push('route:guard'); }],
+        pre: [
+          () => { order.push('global:guard'); },
+          () => { order.push('route:guard'); },
+        ],
         handler: () => { order.push('handler'); return 'ok'; },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1178,11 +1211,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeGuard = mock((_ctx: Context) => {});
       const handlerFn = mock(() => 'ok');
 
-      adapter.addGuards([defineGuard(() => () => err({ status: 403 }))]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        guards: [routeGuard],
+        pre: [() => err({ status: 403 }), routeGuard],
         handler: handlerFn,
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1221,13 +1253,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should return 404 Err when no route matches', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       adapter.initializePipeline(createMockContainer());
 
       const noMatchRouteHandler = {
@@ -1235,12 +1260,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       };
       adapter.setRouteHandler(noMatchRouteHandler as never);
 
-      // Act
-      await adapter.dispatchRequest(createHttpContext('GET', '/nonexistent'));
+      const context = createHttpContext('GET', '/nonexistent');
 
-      // Assert
-      expect(isErr(receivedResult)).toBe(true);
-      expect((receivedResult as { data: { status: number } }).data.status).toBe(404);
+      // Act
+      await adapter.dispatchRequest(context);
+
+      // Assert — 404 written directly to response (pre-route error path)
+      const http = context.to(require('./http-context').HttpContext);
+      expect(http.response.getStatus()).toBe(404);
     });
   });
 
@@ -1255,7 +1282,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [],
+        pre: [],
         handler: () => { order.push('handler'); return 'ok'; },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1274,7 +1301,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => { order.push('route:mw'); }],
+        pre: [() => { order.push('route:mw'); }],
         handler: () => { order.push('handler'); return 'ok'; },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1290,11 +1317,11 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const globalFilter = mock((_error: unknown, _ctx: Context) => err({ caught: true }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilter)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => { throw new Error('middleware crash'); }],
+        pre: [() => { throw new Error('middleware crash'); }],
+        filters: [{ handler: globalFilter, catchTypes: [] as readonly (abstract new (...args: readonly unknown[]) => Error)[] }],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -1313,19 +1340,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
       // Do NOT call setRouteHandler
 
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
+      const context = createHttpContext('GET', '/test');
 
       // Act
-      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+      await adapter.dispatchRequest(context);
 
-      // Assert — should get 500 "Router not initialized"
-      expect(isErr(receivedResult)).toBe(true);
-      expect((receivedResult as { data: { status: number } }).data.status).toBe(500);
+      // Assert — should get 500 "Router not initialized" written directly to response
+      const http = context.to(require('./http-context').HttpContext);
+      expect(http.response.getStatus()).toBe(500);
     });
   });
 
@@ -1336,17 +1358,21 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
-      adapter.addMiddlewares(HttpPhase.BeforeValidate, [defineMiddleware(() => () => { order.push('PostParse'); })]);
-      adapter.addMiddlewares(HttpPhase.BeforeHandle, [defineMiddleware(() => () => { order.push('PreHandle'); })]);
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
-      adapter.addExceptionFilters([defineExceptionFilter([], () => (_error, _ctx) => {
+      const exceptionFilterHandler = (_error: unknown, _ctx: Context) => {
         order.push('exceptionFilter');
         return err({ caught: true });
-      })]);
+      };
+
+      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
+        pre: [
+          () => { order.push('PostParse'); },
+          () => { order.push('PreHandle'); },
+        ],
+        filters: [{ handler: exceptionFilterHandler, catchTypes: [] as readonly (abstract new (...args: readonly unknown[]) => Error)[] }],
         handler: () => { throw new Error('handler failed'); },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1362,12 +1388,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const filterHandler = mock((_error: unknown, _ctx: Context) => err({ caught: true }));
 
-      adapter.addGuards([defineGuard(() => () => { throw new Error('guard exploded'); })]);
-      adapter.addExceptionFilters([defineExceptionFilter([], () => filterHandler)]);
       adapter.initializePipeline(createMockContainer());
 
       const handlerFn = mock(() => 'ok');
-      const routeHandler = createMockRouteHandler({ handler: handlerFn });
+      const routeHandler = createMockRouteHandler({
+        pre: [() => { throw new Error('guard exploded'); }],
+        filters: [{ handler: filterHandler, catchTypes: [] as readonly (abstract new (...args: readonly unknown[]) => Error)[] }],
+        handler: handlerFn,
+      });
       adapter.setRouteHandler(routeHandler as never);
 
       // Act
@@ -1392,12 +1420,12 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [
+        pre: [
           () => { order.push('mw1'); },
           () => { order.push('mw2:throw'); throw new Error('mw2 crash'); },
           thirdMw,
         ],
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+        filters: [{ handler: routeFilterHandler, catchTypes: [] }],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -1415,7 +1443,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       (adapter as any).emergencyTeardown = mock(() => {});
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [{
+        filters: [{
           handler: () => { throw new Error('filter also crashed'); },
           catchTypes: [],
         }],
@@ -1426,28 +1454,17 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Act
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
 
-      // Assert — filter throw is caught by dispatchRequest, creates synthetic Err,
-      // handleResult receives it. If handleResult also fails → emergencyTeardown.
-      // But handleResult should succeed with the synthetic Err, so emergencyTeardown
-      // should NOT be called. Let's verify handleResult gets the synthetic error.
-      // Actually: dispatchRequest catches filter throw → filterResult = err({message, cause, filterError})
-      // → handleResult(filterResult) should work → no emergencyTeardown
-      expect((adapter as any).emergencyTeardown).not.toHaveBeenCalled();
+      // Assert — filter throw propagates out of runPipeline → dispatchRequest catches → emergencyTeardown
+      expect((adapter as any).emergencyTeardown).toHaveBeenCalledTimes(1);
     });
 
-    it('should produce synthetic Err with cause and filterError when route exception filter throws', async () => {
+    it('should trigger emergencyTeardown when route exception filter throws (filter error propagates)', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       adapter.initializePipeline(createMockContainer());
+      (adapter as any).emergencyTeardown = mock(() => {});
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [{
+        filters: [{
           handler: () => { throw new Error('filter crash'); },
           catchTypes: [],
         }],
@@ -1455,35 +1472,44 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       });
       adapter.setRouteHandler(routeHandler as never);
 
-      // Act
-      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+      const context = createHttpContext('GET', '/test');
 
-      // Assert
-      expect(isErr(receivedResult)).toBe(true);
-      const data = (receivedResult as { data: Record<string, unknown> }).data;
-      expect(data.message).toBe('Unhandled error');
-      expect(data.cause).toBeInstanceOf(Error);
-      expect((data.cause as Error).message).toBe('handler crash');
-      expect(data.filterError).toBeInstanceOf(Error);
-      expect((data.filterError as Error).message).toBe('filter crash');
+      // Act
+      await adapter.dispatchRequest(context);
+
+      // Assert — filter throw propagates out of runPipeline, dispatchRequest catches → emergencyTeardown
+      expect((adapter as any).emergencyTeardown).toHaveBeenCalledTimes(1);
+      const errorArg = (adapter as any).emergencyTeardown.mock.calls[0]![1];
+      expect(errorArg).toBeInstanceOf(Error);
+      expect((errorArg as Error).message).toBe('filter crash');
     });
 
-    it('should call emergencyTeardown when handleResult throws on error-path result', async () => {
+    it('should call emergencyTeardown when post step throws', async () => {
       // Arrange
       adapter.initializePipeline(createMockContainer());
       (adapter as any).emergencyTeardown = mock(() => {});
 
-      // Make handleResult throw only on error path
-      const callCount = { value: 0 };
-      adapter['handleResult'] = async () => {
-        callCount.value++;
-        throw new Error('handleResult broken');
+      const mockRouteHandler = {
+        matchRoute: mock(() => ({
+          kind: 'matched',
+          params: {},
+          route: {
+            handler: () => { throw new Error('handler crash'); },
+            rawBody: false,
+            sse: false,
+            bodyLimit: undefined,
+            status: undefined,
+            redirect: undefined,
+            contentType: undefined,
+            headers: [],
+            pre: [],
+            post: [() => { throw new Error('post step broken'); }],
+            filters: [],
+            validations: [],
+          },
+        })),
       };
-
-      const routeHandler = createMockRouteHandler({
-        handler: () => { throw new Error('handler crash'); },
-      });
-      adapter.setRouteHandler(routeHandler as never);
+      adapter.setRouteHandler(mockRouteHandler as never);
 
       // Act
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
@@ -1494,13 +1520,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should not affect request result when OnComplete middleware throws', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       adapter.addMiddlewares(HttpPhase.AfterResponse, [
         defineMiddleware(() => () => { throw new Error('OnComplete crash'); }),
       ]);
@@ -1511,22 +1530,18 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       });
       adapter.setRouteHandler(routeHandler as never);
 
-      // Act — should not throw despite OnComplete failure
-      await expect(adapter.dispatchRequest(createHttpContext('GET', '/test'))).resolves.toBeUndefined();
+      const context = createHttpContext('GET', '/test');
 
-      // Assert — handler result reached handleResult before OnComplete ran
+      // Act — should not throw despite OnComplete failure
+      await expect(adapter.dispatchRequest(context)).resolves.toBeUndefined();
+
+      // Assert — handler result stored on context before OnComplete ran
+      const receivedResult = context.get(handlerResultKey);
       expect(isErr(receivedResult)).toBe(false);
     });
 
     it('should not affect request result when OnComplete middleware returns Err', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       adapter.addMiddlewares(HttpPhase.AfterResponse, [
         defineMiddleware(() => () => err({ reason: 'OnComplete err' })),
       ]);
@@ -1537,10 +1552,13 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       });
       adapter.setRouteHandler(routeHandler as never);
 
-      // Act
-      await expect(adapter.dispatchRequest(createHttpContext('GET', '/test'))).resolves.toBeUndefined();
+      const context = createHttpContext('GET', '/test');
 
-      // Assert — handler result still reached handleResult normally
+      // Act
+      await expect(adapter.dispatchRequest(context)).resolves.toBeUndefined();
+
+      // Assert — handler result still stored on context normally
+      const receivedResult = context.get(handlerResultKey);
       expect(isErr(receivedResult)).toBe(false);
     });
   });
@@ -1561,7 +1579,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [{ handler: routeCatchAllHandler, catchTypes: [] }],
+        filters: [{ handler: routeCatchAllHandler, catchTypes: [] }],
         handler: () => { throw new SpecificError(); },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1587,7 +1605,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [
+        filters: [
           { handler: firstHandler, catchTypes: [AppError] },
           { handler: secondHandler, catchTypes: [] },
         ],
@@ -1618,7 +1636,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [
+        filters: [
           { handler: filterA, catchTypes: [ErrorA] },
           { handler: filterB, catchTypes: [ErrorB] },
         ],
@@ -1653,8 +1671,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       // Err path — should NOT trigger any exception filter
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => err({ status: 429 })],
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+        pre: [() => err({ status: 429 })],
+        filters: [{ handler: routeFilterHandler, catchTypes: [] }],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -1675,8 +1693,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => { throw new Error('MW throw'); }],
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+        pre: [() => { throw new Error('MW throw'); }],
+        filters: [{ handler: routeFilterHandler, catchTypes: [] }],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -1695,7 +1713,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+        filters: [{ handler: routeFilterHandler, catchTypes: [] }],
         handler: () => { throw new Error('handler throw'); },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1717,7 +1735,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+        filters: [{ handler: routeFilterHandler, catchTypes: [] }],
         handler: () => err({ status: 400, message: 'bad input' }),
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1740,8 +1758,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        guards: [() => { throw new Error('guard exploded'); }],
-        exceptionFilters: [{ handler: routeFilterHandler, catchTypes: [] }],
+        pre: [() => { throw new Error('guard exploded'); }],
+        filters: [{ handler: routeFilterHandler, catchTypes: [] }],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -1761,7 +1779,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [
+        pre: [
           () => { order.push('mw1'); return 'garbage string' as never; },
           () => { order.push('mw2'); return 42 as never; },
           () => { order.push('mw3'); return { random: 'object' } as never; },
@@ -1784,7 +1802,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => null as never],
+        pre: [() => null as never],
         handler: handlerFn,
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1827,7 +1845,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        middlewares: [() => err({ halt: true })],
+        pre: [() => err({ halt: true })],
       });
       adapter.setRouteHandler(routeHandler as never);
 
@@ -1864,14 +1882,29 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
-
-      adapter['handleResult'] = async () => { throw new Error('handleResult broken'); };
       (adapter as any).emergencyTeardown = mock(() => {});
 
-      const routeHandler = createMockRouteHandler({
-        handler: () => { throw new Error('handler crash'); },
-      });
-      adapter.setRouteHandler(routeHandler as never);
+      const mockRouteHandler = {
+        matchRoute: mock(() => ({
+          kind: 'matched',
+          params: {},
+          route: {
+            handler: () => ({ data: 'ok' }),
+            rawBody: false,
+            sse: false,
+            bodyLimit: undefined,
+            status: undefined,
+            redirect: undefined,
+            contentType: undefined,
+            headers: [],
+            pre: [],
+            post: [() => { throw new Error('post step broken'); }],
+            filters: [],
+            validations: [],
+          },
+        })),
+      };
+      adapter.setRouteHandler(mockRouteHandler as never);
 
       // Act
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
@@ -1885,16 +1918,15 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── No Route Exception Filter Fallback ────────────────────
 
   describe('no route exception filter fallback', () => {
-    it('should fall back to global filter when route has no exception filters and handler throws', async () => {
+    it('should use merged filter chain including global filter when route registers it', async () => {
       // Arrange
       const globalFilter = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilter)]);
       adapter.initializePipeline(createMockContainer());
 
-      // Route with NO exception filters
+      // In the new pipeline, global filters are merged into route.filters at boot time
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [],
+        filters: [{ handler: globalFilter, catchTypes: [] as readonly (abstract new (...args: readonly unknown[]) => Error)[] }],
         handler: () => { throw new Error('handler crash'); },
       });
       adapter.setRouteHandler(routeHandler as never);
@@ -1902,32 +1934,28 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Act
       await adapter.dispatchRequest(createHttpContext('GET', '/test'));
 
-      // Assert — no route filters registered → routeExceptionFilters on context remains undefined → global filter handles
+      // Assert — filter chain includes global filter
       expect(globalFilter).toHaveBeenCalledTimes(1);
       expect((globalFilter.mock.calls[0]![0] as Error).message).toBe('handler crash');
     });
 
     it('should produce default unhandled error when no filters registered at all and handler throws', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
-        exceptionFilters: [],
+        filters: [],
         handler: () => { throw new Error('totally unhandled'); },
       });
       adapter.setRouteHandler(routeHandler as never);
 
+      const context = createHttpContext('GET', '/test');
+
       // Act
-      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+      await adapter.dispatchRequest(context);
 
       // Assert — default fallback from base Adapter.runExceptionFilters
+      const receivedResult = context.get(handlerResultKey);
       expect(isErr(receivedResult)).toBe(true);
       const data = (receivedResult as { data: Record<string, unknown> }).data;
       expect(data.message).toBe('Unhandled error');
@@ -2383,9 +2411,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         redirect: undefined,
         contentType: undefined,
         headers: [],
-        middlewares: [],
-        guards: [],
-        exceptionFilters: [],
+        pre: [],
+        post: [],
+        filters: [],
         handler: mock(() => ({})),
         validations: [],
       };
@@ -2497,9 +2525,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     });
   });
 
-  // ── handleResult ──────────────────────────────────────────────
+  // ── WriteResponse (response writing) ──────────────────────────
 
-  describe('handleResult', () => {
+  describe('WriteResponse', () => {
     it('should skip response when already sent', async () => {
       // Arrange
       const adapter = new HttpAdapter();
@@ -2511,7 +2539,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       res.end();
 
       // Act — should not throw even with weird result
-      await adapter['handleResult']({ value: 'ignored' } as never, context);
+      await writeResult(adapter, { value: 'ignored' } as never, context);
 
       // Assert — response was already sent, status unchanged
       expect(res.isSent()).toBe(true);
@@ -2524,7 +2552,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](err({ status: 404, message: 'Not Found' }), context);
+      await writeResult(adapter, err({ status: 404, message: 'Not Found' }), context);
 
       // Assert
       const res = http.response;
@@ -2539,7 +2567,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](err(new HttpError(403, 'Forbidden')), context);
+      await writeResult(adapter, err(new HttpError(403, 'Forbidden')), context);
 
       // Assert
       expect(http.response.getStatus()).toBe(403);
@@ -2552,7 +2580,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](err('some string error'), context);
+      await writeResult(adapter, err('some string error'), context);
 
       // Assert
       expect(http.response.getStatus()).toBe(500);
@@ -2564,8 +2592,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const context = createHttpContext('GET', '/test');
       const http = context.to(require('./http-context').HttpContext);
 
-      // Act — handleResult now includes serialize step
-      await adapter['handleResult']({ data: 'success' } as never, context);
+      // Act — writeResult now includes serialize step
+      await writeResult(adapter, { data: 'success' } as never, context);
 
       // Assert — body is serialized to JSON string after serialize()
       const body = http.response.getBody();
@@ -2578,7 +2606,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const context = createHttpContext('GET', '/test');
 
       // Act & Assert — should not throw
-      await expect(adapter['handleResult'](null as never, context)).resolves.toBeUndefined();
+      await expect(writeResult(adapter, null as never, context)).resolves.toBeUndefined();
     });
 
     it('should handle undefined result without error', async () => {
@@ -2587,7 +2615,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const context = createHttpContext('GET', '/test');
 
       // Act & Assert
-      await expect(adapter['handleResult'](undefined as never, context)).resolves.toBeUndefined();
+      await expect(writeResult(adapter, undefined as never, context)).resolves.toBeUndefined();
     });
   });
 
@@ -2610,7 +2638,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](sseStream(), context);
+      await writeResult(adapter, sseStream(), context);
 
       // Assert — signal was already aborted, iterator should never yield
       expect(yieldFn).not.toHaveBeenCalled();
@@ -2645,7 +2673,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](sseStream(), context);
+      await writeResult(adapter, sseStream(), context);
 
       // Assert
       const nativeResponse = http.response.getNativeResponse();
@@ -2693,7 +2721,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](asyncIterable, context);
+      await writeResult(adapter, asyncIterable, context);
 
       const nativeResponse = http.response.getNativeResponse();
       expect(nativeResponse).toBeInstanceOf(Response);
@@ -2723,7 +2751,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](failingStream(), context);
+      await writeResult(adapter, failingStream(), context);
 
       // Assert — stream should error, not close gracefully
       const nativeResponse = http.response.getNativeResponse();
@@ -2755,7 +2783,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](failingAfterAbort(), context);
+      await writeResult(adapter, failingAfterAbort(), context);
 
       // Assert — stream should close gracefully (not error) since signal is aborted
       const nativeResponse = http.response.getNativeResponse();
@@ -2800,10 +2828,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](asyncIterable, context);
+      await writeResult(adapter, asyncIterable, context);
 
       // Assert — pull-based: the stream does not eagerly consume all items.
-      // After handleResult returns, the iterator should NOT have been fully drained.
+      // After writeResult returns, the iterator should NOT have been fully drained.
       const nativeResponse = http.response.getNativeResponse();
       expect(nativeResponse).toBeInstanceOf(Response);
 
@@ -2853,7 +2881,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](asyncIterable, context);
+      await writeResult(adapter, asyncIterable, context);
 
       // Assert
       const nativeResponse = http.response.getNativeResponse();
@@ -2996,13 +3024,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should return 404 for OPTIONS request to path with no registered methods', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       adapter.initializePipeline(createMockContainer());
 
       const noMatchRouteHandler = {
@@ -3015,9 +3036,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Act
       await adapter.dispatchRequest(context);
 
-      // Assert — should get 404, not 204
-      expect(isErr(receivedResult)).toBe(true);
-      expect((receivedResult as { data: { status: number } }).data.status).toBe(404);
+      // Assert — should get 404 written directly to response (pre-route error path)
+      const http = context.to(require('./http-context').HttpContext);
+      expect(http.response.getStatus()).toBe(404);
     });
 
     it('should list all registered methods in Allow header', async () => {
@@ -3095,9 +3116,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [],
+            pre: [],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -3163,7 +3184,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       }
 
       // Act
-      await adapter['handleResult'](emptyGenerator(), context);
+      await writeResult(adapter, emptyGenerator(), context);
 
       // Assert — native response should be SSE with no data chunks
       const nativeResponse = http.response.getNativeResponse();
@@ -3188,7 +3209,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       }
 
       // Act
-      await adapter['handleResult'](failingGenerator(), context);
+      await writeResult(adapter, failingGenerator(), context);
 
       // Assert — native response should be set (SSE path)
       const nativeResponse = http.response.getNativeResponse();
@@ -3238,7 +3259,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](asyncIterable, context);
+      await writeResult(adapter, asyncIterable, context);
 
       // Assert — native response should still be created
       const nativeResponse = http.response.getNativeResponse();
@@ -3281,7 +3302,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = context.to(require('./http-context').HttpContext);
 
       // Act
-      await adapter['handleResult'](asyncIterable, context);
+      await writeResult(adapter, asyncIterable, context);
 
       // Assert
       const nativeResponse = http.response.getNativeResponse();
@@ -3375,12 +3396,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should return error when pipelineError is set after OnRequest MW runs', async () => {
       // Arrange
       const order: string[] = [];
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
 
       adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
         order.push('OnRequest');
@@ -3393,12 +3408,15 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeHandler = createMockRouteHandler({ handler: handlerFn });
       adapter.setRouteHandler(routeHandler as never);
 
+      const context = createHttpContext('GET', '/test');
+
       // Act
-      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+      await adapter.dispatchRequest(context);
 
       // Assert
       expect(order).toEqual(['OnRequest']);
-      expect(isErr(receivedResult)).toBe(true);
+      const http = context.to(require('./http-context').HttpContext);
+      expect(http.response.getStatus()).toBe(501);
       expect(handlerFn).not.toHaveBeenCalled();
     });
 
@@ -3428,13 +3446,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should return 501 status for pipelineError with 501', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
         const { HttpContext } = require('./http-context');
         ctx.to(HttpContext).pipelineError = { status: 501, message: 'Not Implemented' };
@@ -3444,23 +3455,18 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeHandler = createMockRouteHandler({});
       adapter.setRouteHandler(routeHandler as never);
 
-      // Act
-      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+      const context = createHttpContext('GET', '/test');
 
-      // Assert
-      expect(isErr(receivedResult)).toBe(true);
-      expect((receivedResult as { data: { status: number } }).data.status).toBe(501);
+      // Act
+      await adapter.dispatchRequest(context);
+
+      // Assert — pipelineError writes directly to response (pre-route error path)
+      const http = context.to(require('./http-context').HttpContext);
+      expect(http.response.getStatus()).toBe(501);
     });
 
     it('should return 400 status for pipelineError with 400', async () => {
       // Arrange
-      let receivedResult: unknown;
-      const originalHandleResult = adapter['handleResult'].bind(adapter);
-      adapter['handleResult'] = async (result: unknown, ctx: Context) => {
-        receivedResult = result;
-        await originalHandleResult(result as never, ctx);
-      };
-
       adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
         const { HttpContext } = require('./http-context');
         ctx.to(HttpContext).pipelineError = { status: 400, message: 'Bad Request' };
@@ -3470,12 +3476,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeHandler = createMockRouteHandler({});
       adapter.setRouteHandler(routeHandler as never);
 
-      // Act
-      await adapter.dispatchRequest(createHttpContext('GET', '/test'));
+      const context = createHttpContext('GET', '/test');
 
-      // Assert
-      expect(isErr(receivedResult)).toBe(true);
-      expect((receivedResult as { data: { status: number } }).data.status).toBe(400);
+      // Act
+      await adapter.dispatchRequest(context);
+
+      // Assert — pipelineError writes directly to response (pre-route error path)
+      const http = context.to(require('./http-context').HttpContext);
+      expect(http.response.getStatus()).toBe(400);
     });
 
     it('should follow normal pipeline flow when no pipelineError is set', async () => {
@@ -3523,9 +3531,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [],
+            applyResponseDefaults: (res: { setStatus: (s: number) => void }) => { res.setStatus(201); },
+            pre: [],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -3562,9 +3571,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [],
+            pre: [],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -3596,9 +3605,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
             redirect: undefined,
             contentType: 'text/html',
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [],
+            applyResponseDefaults: (res: { setContentType: (ct: string) => void }) => { res.setContentType('text/html'); },
+            pre: [],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -3630,9 +3640,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [['x-custom', 'value']],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [],
+            applyResponseDefaults: (res: { setHeader: (n: string, v: string) => void }) => { res.setHeader('x-custom', 'value'); },
+            pre: [],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -3664,9 +3675,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
             redirect: { url: '/new-location', status: 302 },
             contentType: undefined,
             headers: [],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [],
+            applyResponseDefaults: (res: { redirect: (url: string, status?: number) => void }) => { res.redirect('/new-location', 302); },
+            pre: [],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -3699,9 +3711,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [['x-first', 'one'], ['x-second', 'two'], ['x-third', 'three']],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [],
+            applyResponseDefaults: (res: { setHeader: (n: string, v: string) => void }) => {
+              res.setHeader('x-first', 'one');
+              res.setHeader('x-second', 'two');
+              res.setHeader('x-third', 'three');
+            },
+            pre: [],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -3740,9 +3757,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
             redirect: undefined,
             contentType: undefined,
             headers: [['x-custom', 'decorator-value']],
-            middlewares: [],
-            exceptionFilters: [],
-            guards: [],
+            pre: [],
+            post: [],
+            filters: [],
             validations: [],
           },
         })),
@@ -3775,7 +3792,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       }
 
       // Act
-      await adapter['handleResult'](sseGenerator(), context);
+      await writeResult(adapter, sseGenerator(), context);
 
       // Assert
       const nativeResponse = http.response.getNativeResponse();
@@ -3806,9 +3823,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         redirect: undefined,
         contentType: undefined,
         headers: [],
-        middlewares: [],
-        exceptionFilters: [],
-        guards: [],
+        pre: [],
+        post: [],
+        filters: [],
         handler: () => undefined,
         validations: [],
       };
@@ -3831,7 +3848,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       };
 
       // Act
-      await adapter['handleResult'](asyncIterable, context);
+      await writeResult(adapter, asyncIterable, context);
 
       // Assert — no SSE headers
       const nativeResponse = http.response.getNativeResponse();
@@ -3860,9 +3877,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         redirect: undefined,
         contentType: undefined,
         headers: [],
-        middlewares: [],
-        exceptionFilters: [],
-        guards: [],
+        pre: [],
+        post: [],
+        filters: [],
         handler: () => undefined,
         validations: [],
       };
@@ -3873,7 +3890,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       }
 
       // Act
-      await adapter['handleResult'](stringGenerator(), context);
+      await writeResult(adapter, stringGenerator(), context);
 
       // Assert
       const nativeResponse = http.response.getNativeResponse();
@@ -3928,9 +3945,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         redirect: undefined,
         contentType: undefined,
         headers: [],
-        middlewares: [],
-        exceptionFilters: [],
-        guards: [],
+        pre: [],
+        post: [],
+        filters: [],
         handler: mock(() => ({})),
         validations: [],
       };
@@ -3974,9 +3991,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         redirect: undefined,
         contentType: undefined,
         headers: [],
-        middlewares: [],
-        exceptionFilters: [],
-        guards: [],
+        pre: [],
+        post: [],
+        filters: [],
         handler: mock(() => ({})),
         validations: [],
       };
@@ -4021,9 +4038,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         redirect: undefined,
         contentType: undefined,
         headers: [],
-        middlewares: [],
-        exceptionFilters: [],
-        guards: [],
+        pre: [],
+        post: [],
+        filters: [],
         handler: mock(() => ({})),
         validations: [],
       };
@@ -4090,9 +4107,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         redirect: undefined,
         contentType: undefined,
         headers: [],
-        middlewares: [],
-        exceptionFilters: [],
-        guards: [],
+        pre: [],
+        post: [],
+        filters: [],
         handler: mock(() => ({})),
         validations: [],
       };
@@ -4463,6 +4480,24 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should return false for core metadata without methods/className', () => {
       const adapter = new HttpAdapter();
       expect((adapter as any).isHttpClassMetadata({ decorators: [] })).toBe(false);
+    });
+  });
+
+  // ── wrapValidationError ───────────────────────────────────
+
+  describe('wrapValidationError', () => {
+    it('should rethrow non-baker errors', () => {
+      const adapter = new HttpAdapter();
+      const customError = new Error('not a baker error');
+
+      expect(() => (adapter as any).wrapValidationError(Symbol('key'), customError)).toThrow(customError);
+    });
+
+    it('should rethrow plain objects that are not baker errors', () => {
+      const adapter = new HttpAdapter();
+      const plainObj = { message: 'nope' };
+
+      expect(() => (adapter as any).wrapValidationError(Symbol('key'), plainObj)).toThrow();
     });
   });
 

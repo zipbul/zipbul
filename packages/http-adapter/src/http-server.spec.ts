@@ -106,6 +106,30 @@ describe('HttpServer', () => {
       expect(mockCreateRequestScope).toHaveBeenCalledTimes(1);
     });
 
+    it('should skip createRequestScope when container has no request-scoped providers', async () => {
+      const mockCreateRequestScope = mock(() => createMockContainer());
+      const container = createMockContainer({
+        createRequestScope: mockCreateRequestScope,
+        keys: mock(function* () {
+          yield 'singleton::A';
+          yield 'transient::B';
+        }),
+        getRegistration: mock((token: unknown) => {
+          if (token === 'singleton::A') return { scope: 'singleton' };
+          if (token === 'transient::B') return { scope: 'transient' };
+          return undefined;
+        }),
+      } as Partial<ZipbulContainer> & {
+        getRegistration(token: unknown): { scope?: string } | undefined;
+      });
+      const adapter = createMockAdapter();
+      wireServer(server, container, adapter);
+
+      await server.fetch(createGetRequest(), mockBunServer);
+
+      expect(mockCreateRequestScope).not.toHaveBeenCalled();
+    });
+
     it('should pass scoped container to HttpContext', async () => {
       // Arrange
       const scopedContainer = createMockContainer();

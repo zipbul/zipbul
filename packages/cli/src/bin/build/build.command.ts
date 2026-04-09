@@ -17,7 +17,9 @@ import {
 } from '../../common';
 import { ConfigLoader } from '../../config';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
-import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
+import { EntryGenerator, ManifestGenerator, ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
+import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
+import { buildLib } from './lib-build';
 import { CliRenderer } from '../cli-renderer';
 import { loadBuildCache, saveBuildCache, computeTsconfigHash } from './build-cache';
 import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from './build-artifact-writer';
@@ -29,10 +31,17 @@ export function createBuildCommand(deps: BuildCommandDeps) {
   const { renderer } = deps;
 
   return async function build(commandOptions?: CommandOptions): Promise<void> {
-    renderer.intro('build');
+    const isLibMode = commandOptions?.lib === true;
+
+    renderer.intro(isLibMode ? 'build --lib' : 'build');
     const buildStartedAt = performance.now();
 
     try {
+      if (isLibMode) {
+        await buildLib(deps, renderer, buildStartedAt);
+        return;
+      }
+
       const configResult = await deps.loadConfig();
       const config = configResult.config;
       const moduleFileName = config.module.fileName;
@@ -181,6 +190,18 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
 
         await writeIfChanged(runtimeFile, runtimeResult);
+
+        // Generate context.d.ts — AOT declaration merging for middleware augments
+        const augmentCollector = new MiddlewareAugmentCollector();
+        const augmentResult = await augmentCollector.collect(fileMap, adapterResolution.adapterStaticSchemas);
+
+        if (augmentResult.augments.length > 0) {
+          const contextTypesGen = new ContextTypesGenerator();
+          const contextRegistry = new ImportRegistry(zipbulDir);
+          const contextDts = contextTypesGen.generate(augmentResult.augments, contextRegistry, augmentResult.adapterMap);
+
+          await writeIfChanged(join(zipbulDir, 'context.d.ts'), contextDts);
+        }
 
         const entryPointFile = join(buildTempDir, 'entry.ts');
         const entryGen = deps.createEntryGenerator();

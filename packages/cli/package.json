@@ -12,7 +12,7 @@
   "dependencies": {
     "@clack/prompts": "^0.11.0",
     "picocolors": "^1.1.0",
-    "@zipbul/gildash": "0.24.1",
+    "@zipbul/gildash": "0.24.4",
     "@zipbul/logger": "workspace:*",
     "@zipbul/result": "^1.0.0",
     "oxc-parser": "0.121.0"

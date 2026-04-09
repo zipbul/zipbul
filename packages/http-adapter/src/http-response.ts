@@ -10,7 +10,9 @@ const DANGEROUS_SCHEME_PATTERN = /^(?:javascript|data|vbscript):/i;
 export class HttpResponse {
   private readonly req: HttpRequest;
   private _body: ResponseBodyValue | undefined;
-  private _headers: Headers;
+  private _headers: Headers | undefined;
+  private _contentType: string | undefined;
+  private _contentLength: string | undefined;
   private _status: StatusCodes | 0 = 0;
   private _statusText: string | undefined;
 
@@ -29,9 +31,9 @@ export class HttpResponse {
   /** Cached merged native Response (raw + _headers). Created lazily in getNativeResponse(). */
   private _mergedNativeResponse: Response | undefined;
 
-  constructor(req: HttpRequest, headers: Headers) {
+  constructor(req: HttpRequest, headers?: Headers) {
     this.req = req;
-    this._headers = new Headers(headers);
+    this._headers = headers !== undefined ? new Headers(headers) : undefined;
   }
 
   // ── Pipeline control ────────────────────────────────────────
@@ -78,7 +80,9 @@ export class HttpResponse {
    */
   reset(): void {
     this._rawNativeResponse?.body?.cancel();
-    this._headers = new Headers();
+    this._headers = undefined;
+    this._contentType = undefined;
+    this._contentLength = undefined;
     this._body = undefined;
     this._status = 0;
     this._statusText = undefined;
@@ -104,27 +108,59 @@ export class HttpResponse {
   // ── Headers ─────────────────────────────────────────────────
 
   get headers(): Headers {
-    return this._headers;
+    return this.ensureHeaders();
   }
 
   getHeader(name: string): string | null {
-    return this._headers.get(name);
+    const normalized = name.toLowerCase();
+
+    if (normalized === HeaderField.ContentType) {
+      return this._contentType ?? null;
+    }
+
+    if (normalized === HeaderField.ContentLength) {
+      return this._contentLength ?? null;
+    }
+
+    return this._headers?.get(name) ?? null;
   }
 
   setHeader(name: string, value: string): this {
-    this._headers.set(name, value);
+    const normalized = name.toLowerCase();
+
+    if (normalized === HeaderField.ContentType) {
+      this._contentType = value;
+      this._headers?.set(name, value);
+      return this;
+    }
+
+    if (normalized === HeaderField.ContentLength) {
+      this._contentLength = value;
+      this._headers?.set(name, value);
+      return this;
+    }
+
+    this.ensureHeaders().set(name, value);
     return this;
   }
 
   setHeaders(headers: Record<string, string>): this {
     for (const [name, value] of Object.entries(headers)) {
-      this._headers.set(name, value);
+      this.ensureHeaders().set(name, value);
     }
     return this;
   }
 
   removeHeader(name: string): this {
-    this._headers.delete(name);
+    const normalized = name.toLowerCase();
+
+    if (normalized === HeaderField.ContentType) {
+      this._contentType = undefined;
+    } else if (normalized === HeaderField.ContentLength) {
+      this._contentLength = undefined;
+    }
+
+    this._headers?.delete(name);
     return this;
   }
 
@@ -162,7 +198,7 @@ export class HttpResponse {
    * @public
    */
   appendHeader(name: string, value: string): this {
-    this._headers.append(name, value);
+    this.ensureHeaders().append(name, value);
     return this;
   }
 
@@ -244,7 +280,7 @@ export class HttpResponse {
 
   /**
    * Returns whether a native Response is set, without triggering the merge.
-   * Used by `handleResult` to decide whether to skip BeforeResponse phase.
+   * Used by WriteResponse step to decide whether to skip BeforeResponse phase.
    *
    * @public
    */
@@ -271,8 +307,14 @@ export class HttpResponse {
     if (this._rawNativeResponse === undefined) return undefined;
     if (this._mergedNativeResponse !== undefined) return this._mergedNativeResponse;
 
+    const headerOverrides = this.buildHeaders();
+
+    if (headerOverrides === undefined) {
+      return this._rawNativeResponse;
+    }
+
     const merged = new Headers(this._rawNativeResponse.headers);
-    for (const [key, value] of this._headers.entries()) {
+    for (const [key, value] of headerOverrides.entries()) {
       if (key === 'set-cookie') {
         merged.append(key, value);
       } else if (!merged.has(key)) {
@@ -304,7 +346,7 @@ export class HttpResponse {
    * Performs Content-Type inference and JSON serialization on the buffered body.
    * Converts JS objects/arrays/numbers/booleans to JSON strings.
    *
-   * Called by `handleResult` between AfterHandle and BeforeResponse phases,
+   * Called by Serialize step between AfterHandle and BeforeResponse phases,
    * so that BeforeResponse middleware receives serialized bytes (enabling compression, ETag, signing).
    *
    * No-op when the response has a native Response (SSE, streaming, Blob, handler Response)
@@ -347,7 +389,7 @@ export class HttpResponse {
 
   private build(): Response {
     // Safety net: ensure serialization ran even if called outside the pipeline (e.g. tests, edge cases).
-    // Idempotent — no-op if already called by handleResult.
+    // Idempotent — no-op if already called by Serialize step.
     this.serialize();
 
     const location = this.getHeader(HeaderField.Location);
@@ -368,7 +410,8 @@ export class HttpResponse {
       // non-existent content and MUST be removed. 304 MAY carry Content-Type
       // (RFC 9110 §15.4.5) so only strip for 204.
       if (this._status === StatusCodes.NO_CONTENT) {
-        this._headers.delete(HeaderField.ContentType);
+        this._contentType = undefined;
+        this._headers?.delete(HeaderField.ContentType);
       }
       return this.createResponse();
     }
@@ -407,18 +450,19 @@ export class HttpResponse {
   private createResponse(): Response {
     const body = this.normalizeBody();
     const status = this._status || StatusCodes.OK;
+    const headers = this.buildHeaders();
 
     // Status range validation (integrates former toResponse logic)
     if (status < 100 || status > 599) {
       return new Response('Internal Server Error', {
         status: StatusCodes.INTERNAL_SERVER_ERROR,
-        headers: this._headers,
+        ...(headers !== undefined ? { headers } : {}),
       });
     }
 
     const init: ResponseInit = {
       status,
-      headers: this._headers,
+      ...(headers !== undefined ? { headers } : {}),
       ...(this._statusText !== undefined ? { statusText: this._statusText } : {}),
     };
 
@@ -455,5 +499,43 @@ export class HttpResponse {
       return this._body.toString();
     }
     throw new Error('normalizeBody received an unserialized object — build() should have serialized it');
+  }
+
+  private ensureHeaders(): Headers {
+    if (this._headers === undefined) {
+      this._headers = new Headers();
+
+      if (this._contentType !== undefined) {
+        this._headers.set(HeaderField.ContentType, this._contentType);
+      }
+
+      if (this._contentLength !== undefined) {
+        this._headers.set(HeaderField.ContentLength, this._contentLength);
+      }
+    }
+
+    return this._headers;
+  }
+
+  private buildHeaders(): Headers | undefined {
+    if (this._headers === undefined) {
+      if (this._contentType === undefined && this._contentLength === undefined) {
+        return undefined;
+      }
+
+      const headers = new Headers();
+
+      if (this._contentType !== undefined) {
+        headers.set(HeaderField.ContentType, this._contentType);
+      }
+
+      if (this._contentLength !== undefined) {
+        headers.set(HeaderField.ContentLength, this._contentLength);
+      }
+
+      return headers;
+    }
+
+    return this._headers;
   }
 }

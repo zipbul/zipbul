@@ -5,7 +5,7 @@ import type {
 import type { Result } from '@zipbul/result';
 import { err } from '@zipbul/result';
 
-import type { ClassMetadata, CallArgRef } from '../interfaces';
+import type { ClassMetadata } from '../interfaces';
 import type { FactoryDependency } from '../types';
 import type { Diagnostic } from '../../../diagnostics';
 import { buildDiagnostic } from '../../../diagnostics';
@@ -88,8 +88,6 @@ export function extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Res
  * Scans a method body for member-access call expressions with type arguments.
  * Extracts calls like `ctx.getBody<UserDto>()` producing `{ methodName: 'getBody', typeArgs: ['UserDto'] }`.
  *
- * For `validated()` calls, also captures positional call arguments as `callArgs`.
- *
  * @param funcNode - The method's function AST node.
  * @returns Array of typed call metadata found in the body, or `undefined` if none.
  */
@@ -115,19 +113,7 @@ export function extractTypedCalls(funcNode: OxcFunction): ClassMetadata['methods
             typeArgs.push(resolveTypeArgName(param));
           }
 
-          if (methodName === 'validated') {
-            const callArgs: CallArgRef[] = [];
-
-            for (const arg of node.arguments) {
-              if (arg.type === 'Identifier') {
-                if (isNonEmptyString(arg.name)) {
-                  callArgs.push({ ref: arg.name });
-                }
-              }
-            }
-
-            calls.push({ methodName, typeArgs, ...(callArgs.length > 0 ? { callArgs } : {}) });
-          } else if (typeArgs.length > 0) {
+          if (typeArgs.length > 0) {
             calls.push({ methodName, typeArgs });
           }
         }

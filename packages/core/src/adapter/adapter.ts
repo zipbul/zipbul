@@ -353,7 +353,10 @@ export abstract class Adapter implements AdapterContract {
         return this.wrapValidationError(validation.key, result);
       }
 
-      context.setValidated(validation.key, result);
+      // TODO(adapter-rewrite): replace with HttpRequest internal slot writes
+      // once the new validation model lands. For now, write back to the same
+      // context store so handlers can read via existing accessors.
+      context.set(validation.key, result);
     }
     return undefined;
   }
@@ -663,3 +666,4 @@ export abstract class Adapter implements AdapterContract {
     return this.pipelineContainer;
   }
 }
+   

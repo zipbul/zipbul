@@ -10,9 +10,8 @@ function createStubContext(label: string): Context {
     getType: () => label,
     get: <T>(key: ContextKey<T>) => store.get(key) as T | undefined,
     set: <T>(key: ContextKey<T>, value: T) => { store.set(key, value); },
+    use: <T>(key: ContextKey<T>) => store.get(key) as T,
     to: () => { throw new Error('not implemented'); },
-    setValidated: () => { throw new Error('not implemented'); },
-    getValidated: () => { throw new Error('not implemented'); },
   } as Context;
 }
 

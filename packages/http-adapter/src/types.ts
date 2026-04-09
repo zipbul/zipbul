@@ -2,15 +2,15 @@ import type {
   MiddlewareDefinition,
   Class,
   ClassToken,
-  GuardHandlerFn,
   PrimitiveArray,
   PrimitiveRecord,
   ProviderToken,
 } from '@zipbul/common';
-import type { ResolvedExceptionFilter, ResolvedMiddleware, ResolvedValidationEntry } from '@zipbul/core';
+import type { ResolvedExceptionFilter, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
 import { StatusCodes } from 'http-status-codes';
 
 import type { HttpContext } from './http-context';
+import type { HttpResponse } from './http-response';
 
 import type { HttpMethod } from '@zipbul/shared';
 
@@ -87,30 +87,32 @@ export type RouteHandlerFunction = (ctx: HttpContext) => RouteHandlerResult | Pr
 export type { ResolvedValidationEntry };
 
 export interface MatchedRouteMetadata {
-  /** rawBody 캡처 활성화 여부 */
+  /** rawBody 캡처 활성화 여부. */
   readonly rawBody: boolean;
-  /** SSE 엔드포인트 여부 (@Sse 데코레이터) */
+  /** SSE 엔드포인트 여부 (@Sse 데코레이터). */
   readonly sse: boolean;
-  /** 라우트별 body 크기 제한 (bytes). undefined이면 전역 bodyLimit 적용 */
+  /** 라우트별 body 크기 제한 (bytes). undefined이면 전역 bodyLimit 적용. */
   readonly bodyLimit: number | undefined;
-  /** @Status 데코레이터 기본 상태 코드 */
+  /** @Status 데코레이터 기본 상태 코드. */
   readonly status: number | undefined;
-  /** @Redirect 데코레이터 정적 리다이렉트 */
+  /** @Redirect 데코레이터 정적 리다이렉트. */
   readonly redirect: { readonly url: string; readonly status?: 301 | 302 | 303 | 307 | 308 } | undefined;
-  /** @ContentType 데코레이터 기본 Content-Type */
+  /** @ContentType 데코레이터 기본 Content-Type. */
   readonly contentType: string | undefined;
-  /** @Header 데코레이터 정적 응답 헤더 */
+  /** @Header 데코레이터 정적 응답 헤더. */
   readonly headers: readonly (readonly [string, string])[];
-  /** 라우트에 등록된 미들웨어 */
-  readonly middlewares: readonly ResolvedMiddleware[];
-  /** 라우트에 등록된 가드 */
-  readonly guards: readonly GuardHandlerFn[];
-  /** 라우트에 등록된 예외 필터 */
-  readonly exceptionFilters: readonly ResolvedExceptionFilter[];
-  /** 핸들러 함수 — 항상 `(ctx: HttpContext)` 단일 시그니처 */
+  /** Boot-time response default applier. */
+  readonly applyResponseDefaults?: (response: HttpResponse) => void;
+  /** 핸들러 함수 — 항상 `(ctx: HttpContext)` 단일 시그니처. */
   readonly handler: RouteHandlerFunction;
-  /** AOT에서 추출된 Validated<T> 접근 목록. 빈 배열이면 검증 없음 */
+  /** AOT에서 추출된 Validated<T> 접근 목록. 빈 배열이면 검증 없음. */
   readonly validations: readonly ResolvedValidationEntry[];
+  /** Pre-handler step functions. Boot-time resolved from compiledPre. */
+  readonly pre: readonly PipelineStepFn[];
+  /** Post-handler step functions. Boot-time resolved from compiledPost. */
+  readonly post: readonly PipelineStepFn[];
+  /** Merged exception filters (handler → controller → module → global). */
+  readonly filters: readonly ResolvedExceptionFilter[];
 }
 
 export interface MatchRouteResult {

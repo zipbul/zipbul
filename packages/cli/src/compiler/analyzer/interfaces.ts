@@ -132,6 +132,30 @@ export interface AdapterStaticSchema {
   validPhases?: Set<string>;
   /** Declarative pipeline step sequence. AOT compiler uses this to generate optimized per-handler pipelines. */
   pipeline?: readonly string[];
+  /** Auto-derived from context class properties. Maps namespace getter name → interface type name. */
+  contextNamespaces?: ContextNamespaceMap;
+}
+
+/**
+ * Auto-derived mapping from context class property/getter names to their type information.
+ * Used by the AOT compiler to generate declaration merging for middleware augments.
+ *
+ * Example for HttpContext:
+ * ```
+ * {
+ *   contextType: 'HttpContext',
+ *   module: '@zipbul/http-adapter',
+ *   namespaces: { request: 'HttpRequest', response: 'HttpResponse' }
+ * }
+ * ```
+ */
+export interface ContextNamespaceMap {
+  /** Context class name (e.g. 'HttpContext'). */
+  readonly contextType: string;
+  /** Package module specifier (e.g. '@zipbul/http-adapter'). */
+  readonly module: string;
+  /** Getter/property name → return type name. */
+  readonly namespaces: Readonly<Record<string, string>>;
 }
 
 export interface AdapterExtraction {

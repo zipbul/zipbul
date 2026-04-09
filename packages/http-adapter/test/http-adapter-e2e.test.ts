@@ -258,6 +258,8 @@ function buildHandlerIndex(routes: readonly RouteDefinition[]): {
     handlerDecorator: route.method,
     handlerDecoratorArgs: [route.path],
     options: route.options as CompiledHandlerEntry['options'],
+    compiledPre: ['BeforeParse', 'ParseBody', 'BeforeValidate', 'Validation', 'Guard', 'BeforeHandle'],
+    compiledPost: ['WriteResponse', 'AfterHandle', 'Serialize', 'BeforeResponse'],
   }));
 
   const metadata = new Map<

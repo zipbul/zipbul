@@ -10,7 +10,9 @@ import type { AnalyzerValue, AnalyzerValueRecord } from '../types';
 import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../../../diagnostics';
 
+import { dirname, join } from 'path';
 import { err, isErr } from '@zipbul/result';
+import { parseSource, type ParsedFile } from '@zipbul/gildash';
 import {
   ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
 } from '@zipbul/common';
@@ -19,6 +21,9 @@ import { buildDiagnostic } from '../../../diagnostics';
 import { AstParser } from '../parser';
 import { toRecord, isAnalyzerValueArray } from '../type-guards';
 import { resolveEnumValues, resolvePipelineArray } from './enum-type-resolver';
+
+import type { ContextNamespaceMap } from '../interfaces';
+import type { Node as AstNode } from 'oxc-parser';
 
 const logger = new Logger('AdapterDefinitionResolver');
 
@@ -347,6 +352,26 @@ export async function extractFromConfigObject(
     }
   }
 
+  // context class → auto-derive namespace-to-interface mapping for declaration merging
+  const contextField = toRecord(config.context);
+  if (contextField !== null && typeof contextField[ZIPBUL_REF] === 'string') {
+    const contextClassName = contextField[ZIPBUL_REF] as string;
+    const contextImportSource = typeof contextField[ZIPBUL_IMPORT_SOURCE] === 'string'
+      ? contextField[ZIPBUL_IMPORT_SOURCE] as string
+      : null;
+
+    const contextNamespaces = await extractContextGetterTypes(
+      contextClassName,
+      contextImportSource,
+      sourceFile,
+      fileMap,
+    );
+
+    if (contextNamespaces !== null) {
+      schema.contextNamespaces = contextNamespaces;
+    }
+  }
+
   // Validate CoreStep presence in pipeline
   if (schema.pipeline !== undefined) {
     const pipelineSteps = new Set(schema.pipeline);
@@ -549,4 +574,167 @@ async function resolveValidPhases(
 
   // Look up enum members from file analysis
   return await resolveEnumValues(enumName, importSource, fileMap, parser);
+}
+
+/**
+ * Extracts getter return types from a context class using raw AST parsing.
+ *
+ * Only simple `TSTypeReference` getters are captured (e.g. `get request(): HttpRequest`).
+ * Union types, optional types, and primitives are skipped — they're not augmentation targets.
+ *
+ * @param contextClassName - The context class name (e.g. 'HttpContext').
+ * @param contextImportSource - The resolved import source of the context class.
+ * @param adapterSourceFile - The file containing the defineAdapter() call.
+ * @param fileMap - Map of file paths to their analysis results.
+ * @returns ContextNamespaceMap, or null if unresolvable.
+ */
+async function extractContextGetterTypes(
+  contextClassName: string,
+  contextImportSource: string | null,
+  adapterSourceFile: string,
+  fileMap: Map<string, FileAnalysis>,
+): Promise<ContextNamespaceMap | null> {
+  // Resolve the context class source file
+  const contextFilePath = resolveImportPath(contextImportSource, adapterSourceFile);
+
+  if (contextFilePath === null) return null;
+
+  const file = Bun.file(contextFilePath);
+
+  if (!(await file.exists())) return null;
+
+  const sourceText = await file.text();
+  const parseResult = parseSource(contextFilePath, sourceText);
+
+  if (isErr(parseResult)) return null;
+
+  const parsed: ParsedFile = parseResult;
+
+  // Find the class declaration
+  const namespaces: Record<string, string> = {};
+
+  for (const stmt of parsed.program.body) {
+    const classDecl = extractClassDeclaration(stmt, contextClassName);
+
+    if (classDecl === null) continue;
+
+    for (const member of classDecl.body.body) {
+      if (member.type !== 'MethodDefinition' || (member as AstNode & { kind: string }).kind !== 'get') continue;
+
+      const key = member.key;
+
+      if (key.type !== 'Identifier') continue;
+
+      const returnType = (member.value as AstNode & { returnType?: AstNode })?.returnType;
+      const typeAnnotation = (returnType as AstNode & { typeAnnotation?: AstNode })?.typeAnnotation;
+
+      if (typeAnnotation === undefined || typeAnnotation === null) continue;
+
+      // Only capture simple type references (not unions, not primitives)
+      if (typeAnnotation.type !== 'TSTypeReference') continue;
+
+      const typeName = (typeAnnotation as AstNode & { typeName?: AstNode }).typeName;
+
+      if (typeName === undefined || typeName.type !== 'Identifier') continue;
+
+      namespaces[(key as AstNode & { name: string }).name] = (typeName as AstNode & { name: string }).name;
+    }
+
+    break; // found the class, stop searching
+  }
+
+  if (Object.keys(namespaces).length === 0) return null;
+
+  // Resolve the package name for the module specifier
+  const moduleSpecifier = await resolvePackageName(dirname(contextFilePath));
+
+  if (moduleSpecifier === null) return null;
+
+  return {
+    contextType: contextClassName,
+    module: moduleSpecifier,
+    namespaces,
+  };
+}
+
+/**
+ * Extracts a class declaration from a statement, handling ExportNamedDeclaration wrapping.
+ */
+function extractClassDeclaration(
+  stmt: AstNode,
+  className: string,
+): (AstNode & { body: { body: AstNode[] } }) | null {
+  let decl: AstNode | null = null;
+
+  if (stmt.type === 'ClassDeclaration') {
+    decl = stmt;
+  } else if (stmt.type === 'ExportNamedDeclaration') {
+    const exportDecl = stmt as AstNode & { declaration?: AstNode };
+
+    if (exportDecl.declaration?.type === 'ClassDeclaration') {
+      decl = exportDecl.declaration;
+    }
+  }
+
+  if (decl === null) return null;
+
+  const classId = (decl as AstNode & { id?: AstNode }).id;
+
+  if (classId === undefined || classId.type !== 'Identifier') return null;
+
+  if ((classId as AstNode & { name: string }).name !== className) return null;
+
+  return decl as AstNode & { body: { body: AstNode[] } };
+}
+
+/**
+ * Resolves an import source to a file path.
+ * Handles both relative and already-resolved absolute paths.
+ */
+function resolveImportPath(importSource: string | null, sourceFile: string): string | null {
+  if (importSource === null) return null;
+
+  // Already an absolute path (resolved by the analyzer)
+  if (importSource.startsWith('/')) {
+    return importSource.endsWith('.ts') ? importSource : `${importSource}.ts`;
+  }
+
+  // Relative import
+  if (importSource.startsWith('.')) {
+    const dir = dirname(sourceFile);
+    const resolved = join(dir, importSource);
+
+    return resolved.endsWith('.ts') ? resolved : `${resolved}.ts`;
+  }
+
+  // Non-relative (package import) — not supported here
+  return null;
+}
+
+/**
+ * Walks up from a directory to find the nearest package.json and returns the package name.
+ */
+async function resolvePackageName(startDir: string): Promise<string | null> {
+  let currentDir = startDir;
+
+  for (let depth = 0; depth < 10; depth++) {
+    const packageJsonPath = join(currentDir, 'package.json');
+    const file = Bun.file(packageJsonPath);
+
+    if (await file.exists()) {
+      const content = await file.json();
+
+      if (typeof content.name === 'string') {
+        return content.name;
+      }
+    }
+
+    const parentDir = dirname(currentDir);
+
+    if (parentDir === currentDir) break;
+
+    currentDir = parentDir;
+  }
+
+  return null;
 }

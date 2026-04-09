@@ -1,5 +1,4 @@
 import { describe, it, expect, mock } from 'bun:test';
-import type { ZipbulContainer, MiddlewareDefinition, ExceptionFilterDefinition, GuardDefinition } from '@zipbul/common';
 import type { MatchRouteResult } from './types';
 
 mock.module('@zipbul/logger', () => ({
@@ -14,254 +13,15 @@ const { RouteHandler } = await import('./route-handler');
 
 type RouteHandlerInstance = InstanceType<typeof RouteHandler>;
 
-function createStubContainer(entries: Record<string, unknown> = {}): ZipbulContainer {
-  return {
-    get: mock((token: string) => {
-      if (token in entries) {
-        return entries[token];
-      }
-      throw new Error(`No provider for token: ${token}`);
-    }),
-    set: mock(),
-    has: mock(() => false),
-    getInstances: mock(function* () {}),
-    keys: mock(function* () {}),
-  } as unknown as ZipbulContainer;
-}
-
-function createRouteHandler(container?: ZipbulContainer): RouteHandlerInstance {
+function createRouteHandler(): RouteHandlerInstance {
   return new RouteHandler(
     new Map(),
     { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
-    undefined,
-    container,
   );
 }
 
-function createMiddlewareDef(): MiddlewareDefinition {
-  return Object.freeze({ factory: mock(() => mock(() => undefined)) });
-}
-
-function createFilterDef(): ExceptionFilterDefinition {
-  return Object.freeze({
-    factory: mock(() => mock((_error: unknown, _ctx: unknown) => ({ __err: true, data: 'filtered' }))),
-    catchTypes: [],
-  });
-}
-
-function createGuardDef(): GuardDefinition {
-  return Object.freeze({ factory: mock(() => mock(() => undefined)) });
-}
-
 describe('RouteHandler', () => {
-  // ── resolveMiddlewareKeys ──────────────────────────────
-
-  describe('resolveMiddlewareKeys', () => {
-    it('should return empty array when keys is empty', () => {
-      // Arrange
-      const handler = createRouteHandler(createStubContainer());
-
-      // Act
-      const result = handler.__testing__.resolveMiddlewareKeys([]);
-
-      // Assert
-      expect(result).toEqual([]);
-    });
-
-    it('should return empty array when container is undefined', () => {
-      // Arrange
-      const handler = createRouteHandler(undefined);
-
-      // Act
-      const result = handler.__testing__.resolveMiddlewareKeys(['key1']);
-
-      // Assert
-      expect(result).toEqual([]);
-    });
-
-    it('should resolve valid MiddlewareDefinition from container', () => {
-      // Arrange
-      const mw = createMiddlewareDef();
-      const container = createStubContainer({ '__route_mw__:Ctrl.method:cls:0': mw });
-      const handler = createRouteHandler(container);
-
-      // Act
-      const result = handler.__testing__.resolveMiddlewareKeys(['__route_mw__:Ctrl.method:cls:0']);
-
-      // Assert — resolved middleware has handler (factory was called)
-      expect(result).toHaveLength(1);
-      expect(typeof result[0]!.handler).toBe('function');
-    });
-
-    it('should throw when value is not a MiddlewareDefinition', () => {
-      // Arrange
-      const container = createStubContainer({ 'key1': { notHandler: true } });
-      const handler = createRouteHandler(container);
-
-      // Act & Assert
-      expect(() => handler.__testing__.resolveMiddlewareKeys(['key1'])).toThrow();
-    });
-
-    it('should throw when container.get throws', () => {
-      // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
-
-      // Act & Assert
-      expect(() => handler.__testing__.resolveMiddlewareKeys(['missing-key'])).toThrow();
-    });
-
-    it('should throw when container.get returns null', () => {
-      // Arrange
-      const container = createStubContainer({ 'key1': null });
-      const handler = createRouteHandler(container);
-
-      // Act & Assert
-      expect(() => handler.__testing__.resolveMiddlewareKeys(['key1'])).toThrow();
-    });
-  });
-
-  // ── resolveExceptionFilterKeys ─────────────────────────────
-
-  describe('resolveExceptionFilterKeys', () => {
-    it('should return empty array when keys is empty', () => {
-      // Arrange
-      const handler = createRouteHandler(createStubContainer());
-
-      // Act
-      const result = handler.__testing__.resolveExceptionFilterKeys([]);
-
-      // Assert
-      expect(result).toEqual([]);
-    });
-
-    it('should resolve valid ExceptionFilterDefinition from container', () => {
-      // Arrange
-      const entry = createFilterDef();
-      const container = createStubContainer({ 'ef-key': entry });
-      const handler = createRouteHandler(container);
-
-      // Act
-      const result = handler.__testing__.resolveExceptionFilterKeys(['ef-key']);
-
-      // Assert — resolved has handler and catchTypes
-      expect(result).toHaveLength(1);
-      expect(typeof result[0]!.handler).toBe('function');
-      expect(result[0]!.catchTypes).toEqual([]);
-    });
-
-    it('should throw when value is not an ExceptionFilterDefinition', () => {
-      // Arrange
-      const container = createStubContainer({ 'ef-key': { factory: () => {} } });
-      const handler = createRouteHandler(container);
-
-      // Act & Assert
-      expect(() => handler.__testing__.resolveExceptionFilterKeys(['ef-key'])).toThrow();
-    });
-  });
-
-  // ── resolveGuardKeys ───────────────────────────────────
-
-  describe('resolveGuardKeys', () => {
-    it('should return empty array when keys is empty', () => {
-      // Arrange
-      const handler = createRouteHandler(createStubContainer());
-
-      // Act
-      const result = handler.__testing__.resolveGuardKeys([]);
-
-      // Assert
-      expect(result).toEqual([]);
-    });
-
-    it('should resolve valid GuardDefinition from container', () => {
-      // Arrange
-      const guard = createGuardDef();
-      const container = createStubContainer({ 'gd-key': guard });
-      const handler = createRouteHandler(container);
-
-      // Act
-      const result = handler.__testing__.resolveGuardKeys(['gd-key']);
-
-      // Assert — guards resolve to GuardHandlerFn[] (plain functions)
-      expect(result).toHaveLength(1);
-      expect(typeof result[0]).toBe('function');
-    });
-
-    it('should throw when value is not a GuardDefinition', () => {
-      // Arrange
-      const container = createStubContainer({ 'gd-key': { notHandler: true } });
-      const handler = createRouteHandler(container);
-
-      // Act & Assert
-      expect(() => handler.__testing__.resolveGuardKeys(['gd-key'])).toThrow();
-    });
-  });
-
   // ── Type Guards ────────────────────────────────────────
-
-  describe('isMiddlewareDefinition', () => {
-    it('should return true for valid MiddlewareDefinition', () => {
-      const handler = createRouteHandler();
-      expect(handler.__testing__.isMiddlewareDefinition({ factory: () => {} })).toBe(true);
-    });
-
-    it('should return false when factory property is missing', () => {
-      const handler = createRouteHandler();
-      expect(handler.__testing__.isMiddlewareDefinition({ name: 'test' })).toBe(false);
-    });
-
-    it('should return false when factory is not a function', () => {
-      const handler = createRouteHandler();
-      expect(handler.__testing__.isMiddlewareDefinition({ factory: 'string' })).toBe(false);
-    });
-
-    it('should return false for null', () => {
-      const handler = createRouteHandler();
-      expect(handler.__testing__.isMiddlewareDefinition(null)).toBe(false);
-    });
-
-    it('should return true for GuardDefinition due to structural identity', () => {
-      // Documents: MiddlewareDefinition and GuardDefinition are structurally identical
-      const handler = createRouteHandler();
-      const guard = createGuardDef();
-      expect(handler.__testing__.isMiddlewareDefinition(guard)).toBe(true);
-    });
-  });
-
-  describe('isExceptionFilterDefinition', () => {
-    it('should return true for valid definition with factory and catchTypes', () => {
-      const handler = createRouteHandler();
-      expect(handler.__testing__.isExceptionFilterDefinition({ factory: () => {}, catchTypes: [] })).toBe(true);
-    });
-
-    it('should return false when catchTypes is missing', () => {
-      const handler = createRouteHandler();
-      expect(handler.__testing__.isExceptionFilterDefinition({ factory: () => {} })).toBe(false);
-    });
-
-    it('should return false for null', () => {
-      const handler = createRouteHandler();
-      expect(handler.__testing__.isExceptionFilterDefinition(null)).toBe(false);
-    });
-  });
-
-  describe('isGuardDefinition', () => {
-    it('should return true for valid GuardDefinition', () => {
-      const handler = createRouteHandler();
-      expect(handler.__testing__.isGuardDefinition({ factory: () => {} })).toBe(true);
-    });
-
-    it('should return false when factory property is missing', () => {
-      const handler = createRouteHandler();
-      expect(handler.__testing__.isGuardDefinition({ name: 'test' })).toBe(false);
-    });
-
-    it('should return false for null', () => {
-      const handler = createRouteHandler();
-      expect(handler.__testing__.isGuardDefinition(null)).toBe(false);
-    });
-  });
 
   describe('isControllerInstance', () => {
     it('should return true for a plain object', () => {
@@ -294,11 +54,9 @@ describe('RouteHandler', () => {
   // ── registerFromHandlerIndex pipeline integration ──────
 
   describe('registerFromHandlerIndex', () => {
-    it('should resolve middlewareKeys into route entry middlewares', () => {
+    it('should register route with empty pipeline when no buildPipeline provided', () => {
       // Arrange
-      const mw = createMiddlewareDef();
-      const container = createStubContainer({ '__route_mw__:TestCtrl.doSomething:cls:0': mw });
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
 
@@ -311,144 +69,29 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-        middlewareKeys: ['__route_mw__:TestCtrl.doSomething:cls:0'],
-        exceptionFilterKeys: [],
-        guardKeys: [],
-      }], controllerInstances);
-
-      // Assert — resolved middleware has handler (factory was called)
-      const match = handler.matchRoute('GET', '/test');
-      expect(match).toBeDefined();
-      expect((match as MatchRouteResult).route.middlewares).toHaveLength(1);
-      expect(typeof (match as MatchRouteResult).route.middlewares[0]!.handler).toBe('function');
-    });
-
-    it('should resolve exceptionFilterKeys into route entry exceptionFilters', () => {
-      // Arrange
-      const ef = createFilterDef();
-      const container = createStubContainer({ 'ef-key': ef });
-      const handler = createRouteHandler(container);
-      const instance = { doSomething: () => 'result' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
-
-      // Act
-      handler.registerFromHandlerIndex([{
-        id: 'TestAdapter:test#TestCtrl.doSomething',
-        adapterId: 'TestAdapter',
-        controllerKey: 'TestCtrl',
-        methodName: 'doSomething',
-        handlerDecorator: 'Get',
-        handlerDecoratorArgs: ['test'],
-        params: [],
-        middlewareKeys: [],
-        exceptionFilterKeys: ['ef-key'],
-        guardKeys: [],
-      }], controllerInstances);
-
-      // Assert — resolved exception filter has handler and catchTypes
-      const match = handler.matchRoute('GET', '/test');
-      expect(match).toBeDefined();
-      expect((match as MatchRouteResult).route.exceptionFilters).toHaveLength(1);
-      expect(typeof (match as MatchRouteResult).route.exceptionFilters[0]!.handler).toBe('function');
-      expect((match as MatchRouteResult).route.exceptionFilters[0]!.catchTypes).toEqual([]);
-    });
-
-    it('should resolve guardKeys into route entry guards', () => {
-      // Arrange
-      const guard = createGuardDef();
-      const container = createStubContainer({ 'gd-key': guard });
-      const handler = createRouteHandler(container);
-      const instance = { doSomething: () => 'result' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
-
-      // Act
-      handler.registerFromHandlerIndex([{
-        id: 'TestAdapter:test#TestCtrl.doSomething',
-        adapterId: 'TestAdapter',
-        controllerKey: 'TestCtrl',
-        methodName: 'doSomething',
-        handlerDecorator: 'Get',
-        handlerDecoratorArgs: ['test'],
-        params: [],
-        middlewareKeys: [],
-        exceptionFilterKeys: [],
-        guardKeys: ['gd-key'],
-      }], controllerInstances);
-
-      // Assert — guards are resolved to GuardHandlerFn[] (plain functions)
-      const match = handler.matchRoute('GET', '/test');
-      expect(match).toBeDefined();
-      expect((match as MatchRouteResult).route.guards).toHaveLength(1);
-      expect(typeof (match as MatchRouteResult).route.guards[0]).toBe('function');
-    });
-
-    it('should resolve all three key types simultaneously', () => {
-      // Arrange
-      const mw = createMiddlewareDef();
-      const ef = createFilterDef();
-      const guard = createGuardDef();
-      const container = createStubContainer({ 'mw-key': mw, 'ef-key': ef, 'gd-key': guard });
-      const handler = createRouteHandler(container);
-      const instance = { doSomething: () => 'result' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
-
-      // Act
-      handler.registerFromHandlerIndex([{
-        id: 'TestAdapter:test#TestCtrl.doSomething',
-        adapterId: 'TestAdapter',
-        controllerKey: 'TestCtrl',
-        methodName: 'doSomething',
-        handlerDecorator: 'Get',
-        handlerDecoratorArgs: ['test'],
-        params: [],
-        middlewareKeys: ['mw-key'],
-        exceptionFilterKeys: ['ef-key'],
-        guardKeys: ['gd-key'],
-      }], controllerInstances);
-
-      // Assert — all resolved from factories
-      const match = handler.matchRoute('GET', '/test');
-      expect(match).toBeDefined();
-      expect((match as MatchRouteResult).route.middlewares).toHaveLength(1);
-      expect((match as MatchRouteResult).route.exceptionFilters).toHaveLength(1);
-      expect((match as MatchRouteResult).route.guards).toHaveLength(1);
-    });
-
-    it('should produce empty arrays when container is undefined but keys are present', () => {
-      // Arrange
-      const handler = createRouteHandler(undefined);
-      const instance = { doSomething: () => 'result' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
-
-      // Act
-      handler.registerFromHandlerIndex([{
-        id: 'TestAdapter:test#TestCtrl.doSomething',
-        adapterId: 'TestAdapter',
-        controllerKey: 'TestCtrl',
-        methodName: 'doSomething',
-        handlerDecorator: 'Get',
-        handlerDecoratorArgs: ['test'],
-        params: [],
-        middlewareKeys: ['mw-key'],
-        exceptionFilterKeys: ['ef-key'],
-        guardKeys: ['gd-key'],
-      }], controllerInstances);
+      } as never], controllerInstances);
 
       // Assert
       const match = handler.matchRoute('GET', '/test');
       expect(match).toBeDefined();
-      expect((match as MatchRouteResult).route.middlewares).toEqual([]);
-      expect((match as MatchRouteResult).route.exceptionFilters).toEqual([]);
-      expect((match as MatchRouteResult).route.guards).toEqual([]);
+      expect((match as MatchRouteResult).route.pre).toEqual([]);
+      expect((match as MatchRouteResult).route.post).toEqual([]);
+      expect((match as MatchRouteResult).route.filters).toEqual([]);
     });
 
-    it('should resolve duplicate keys into duplicated entries', () => {
+    it('should populate pre/post/filters from buildPipeline callback', () => {
       // Arrange
-      const mw = createMiddlewareDef();
-      const container = createStubContainer({ 'mw-key': mw });
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
+      const stubPre = mock();
+      const stubPost = mock();
+      const stubFilter = { handler: mock(), catchTypes: [] };
+      const buildPipeline = mock(() => ({
+        pre: [stubPre],
+        post: [stubPost],
+        filters: [stubFilter],
+      }));
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -459,23 +102,19 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-        middlewareKeys: ['mw-key', 'mw-key'],
-        exceptionFilterKeys: [],
-        guardKeys: [],
-      }], controllerInstances);
+      } as never], controllerInstances, buildPipeline as never);
 
       // Assert
       const match = handler.matchRoute('GET', '/test');
       expect(match).toBeDefined();
-      expect((match as MatchRouteResult).route.middlewares).toHaveLength(2);
-      expect(typeof (match as MatchRouteResult).route.middlewares[0]!.handler).toBe('function');
-      expect(typeof (match as MatchRouteResult).route.middlewares[1]!.handler).toBe('function');
+      expect((match as MatchRouteResult).route.pre).toHaveLength(1);
+      expect((match as MatchRouteResult).route.post).toHaveLength(1);
+      expect((match as MatchRouteResult).route.filters).toHaveLength(1);
     });
 
     it('should auto-create HEAD route when GET is registered', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
 
@@ -488,10 +127,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-        middlewareKeys: [],
-        exceptionFilterKeys: [],
-        guardKeys: [],
-      }], controllerInstances);
+      } as never], controllerInstances);
 
       // Assert — HEAD route should match the same path as GET
       const headMatch = handler.matchRoute('HEAD', '/test');
@@ -501,8 +137,7 @@ describe('RouteHandler', () => {
 
     it('should use same handler for HEAD as GET', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
 
@@ -515,10 +150,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-        middlewareKeys: [],
-        exceptionFilterKeys: [],
-        guardKeys: [],
-      }], controllerInstances);
+      } as never], controllerInstances);
 
       // Assert — HEAD route entry should be the same object as GET route entry
       const getMatch = handler.matchRoute('GET', '/test');
@@ -530,8 +162,7 @@ describe('RouteHandler', () => {
 
     it('should NOT auto-create HEAD route for non-GET methods', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { doPost: () => 'created', doPut: () => 'updated', doDelete: () => 'deleted' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
 
@@ -545,9 +176,6 @@ describe('RouteHandler', () => {
           handlerDecorator: 'Post',
           handlerDecoratorArgs: ['items'],
           params: [],
-          middlewareKeys: [],
-          exceptionFilterKeys: [],
-          guardKeys: [],
         },
         {
           id: 'TestAdapter:items#TestCtrl.doPut',
@@ -557,9 +185,6 @@ describe('RouteHandler', () => {
           handlerDecorator: 'Put',
           handlerDecoratorArgs: ['items'],
           params: [],
-          middlewareKeys: [],
-          exceptionFilterKeys: [],
-          guardKeys: [],
         },
         {
           id: 'TestAdapter:items#TestCtrl.doDelete',
@@ -569,11 +194,8 @@ describe('RouteHandler', () => {
           handlerDecorator: 'Delete',
           handlerDecoratorArgs: ['items'],
           params: [],
-          middlewareKeys: [],
-          exceptionFilterKeys: [],
-          guardKeys: [],
         },
-      ], controllerInstances);
+      ] as never[], controllerInstances);
 
       // Assert — HEAD should not be in the matched routes (only POST, PUT, DELETE are registered)
       const headMatch = handler.matchRoute('HEAD', '/items');
@@ -587,8 +209,7 @@ describe('RouteHandler', () => {
 
     it('should add HEAD to registeredMethods when GET is registered', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
 
@@ -601,10 +222,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-        middlewareKeys: [],
-        exceptionFilterKeys: [],
-        guardKeys: [],
-      }], controllerInstances);
+      } as never], controllerInstances);
 
       // Assert — HEAD should appear in method-not-allowed allowedMethods for a different path
       // We verify HEAD is registered by checking that matchRoute recognizes HEAD on /test
@@ -622,8 +240,7 @@ describe('RouteHandler', () => {
 
     it('should auto-create HEAD for internal GET routes', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
 
       // Act — registerInternalRoutes with a GET route
       handler.registerInternalRoutes([{
@@ -640,8 +257,7 @@ describe('RouteHandler', () => {
 
     it('should set rawBody true when options include RawBody', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -665,8 +281,7 @@ describe('RouteHandler', () => {
 
     it('should set rawBody false when no options', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -689,8 +304,7 @@ describe('RouteHandler', () => {
 
     it('should set rawBody false when options has unrelated decorator', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -714,8 +328,7 @@ describe('RouteHandler', () => {
 
     it('should set rawBody true when RawBody is among multiple options', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -744,8 +357,7 @@ describe('RouteHandler', () => {
 
     it('should set sse true when options include Sse', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -769,8 +381,7 @@ describe('RouteHandler', () => {
 
     it('should set sse false when options do not include Sse', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -796,8 +407,7 @@ describe('RouteHandler', () => {
 
     it('should set bodyLimit when options include BodyLimit', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -821,8 +431,7 @@ describe('RouteHandler', () => {
 
     it('should set bodyLimit undefined when options do not include BodyLimit', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -847,8 +456,7 @@ describe('RouteHandler', () => {
 
     it('should set status when options include Status', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -872,8 +480,7 @@ describe('RouteHandler', () => {
 
     it('should set status undefined when options do not include Status', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -898,8 +505,7 @@ describe('RouteHandler', () => {
 
     it('should set redirect with url only when Redirect has single argument', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -923,8 +529,7 @@ describe('RouteHandler', () => {
 
     it('should set redirect with url and status when Redirect has two arguments', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -948,8 +553,7 @@ describe('RouteHandler', () => {
 
     it('should set redirect undefined when options do not include Redirect', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -974,8 +578,7 @@ describe('RouteHandler', () => {
 
     it('should set contentType when options include ContentType', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -999,8 +602,7 @@ describe('RouteHandler', () => {
 
     it('should set contentType undefined when options do not include ContentType', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -1025,8 +627,7 @@ describe('RouteHandler', () => {
 
     it('should set headers when options include Header', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -1050,8 +651,7 @@ describe('RouteHandler', () => {
 
     it('should collect multiple Header options into headers array', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -1081,8 +681,7 @@ describe('RouteHandler', () => {
 
     it('should set headers as empty array when options do not include Header', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -1107,8 +706,7 @@ describe('RouteHandler', () => {
 
     it('should populate all decorator fields when multiple options are combined', () => {
       // Arrange
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['Ctrl', instance]]);
 
@@ -1143,10 +741,9 @@ describe('RouteHandler', () => {
       ]);
     });
 
-    it('should not crash when entry has no middlewareKeys/exceptionFilterKeys/guardKeys fields', () => {
+    it('should register route with empty pipeline when entry has no pipeline fields', () => {
       // Arrange — simulates CompiledHandlerEntry from compiler that omits optional fields
-      const container = createStubContainer({});
-      const handler = createRouteHandler(container);
+      const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
 
@@ -1164,9 +761,164 @@ describe('RouteHandler', () => {
       // Assert — should register route with empty pipeline arrays, no crash
       const match = handler.matchRoute('GET', '/test');
       expect(match).toBeDefined();
-      expect((match as MatchRouteResult).route.middlewares).toEqual([]);
-      expect((match as MatchRouteResult).route.exceptionFilters).toEqual([]);
-      expect((match as MatchRouteResult).route.guards).toEqual([]);
+      expect((match as MatchRouteResult).route.pre).toEqual([]);
+      expect((match as MatchRouteResult).route.post).toEqual([]);
+      expect((match as MatchRouteResult).route.filters).toEqual([]);
+    });
+  });
+
+  // ── resolveValidations via registerFromHandlerIndex ─────
+
+  describe('validation resolution via contextKeyIndex', () => {
+    it('should resolve validations when contextKeyIndex provides matching key', () => {
+      // Arrange
+      const handler = createRouteHandler();
+      class UserDto {}
+      const metatypeRegistry = new Map<new (...args: readonly unknown[]) => unknown, { className: string }>([
+        [UserDto, { className: 'UserDto' }],
+      ]);
+      const handlerWithMeta = new RouteHandler(
+        metatypeRegistry as never,
+        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
+      );
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const bodyKey = Symbol('body') as never;
+      const contextKeyIndex = new Map([['bodyInput', bodyKey]]);
+
+      let capturedValidations: readonly unknown[] = [];
+      const buildPipeline = mock((_entry: unknown, validations: readonly unknown[]) => {
+        capturedValidations = validations;
+        return { pre: [], post: [], filters: [] };
+      });
+
+      // Act
+      handlerWithMeta.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#TestCtrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'TestCtrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['test'],
+        params: [],
+        validations: [{ keyRef: 'bodyInput', metatypeKey: 'UserDto' }],
+      } as never], controllerInstances, buildPipeline as never, contextKeyIndex as never);
+
+      // Assert
+      expect(capturedValidations).toHaveLength(1);
+      expect((capturedValidations[0] as { key: symbol }).key).toBe(bodyKey);
+      expect((capturedValidations[0] as { metatype: unknown }).metatype).toBe(UserDto);
+    });
+
+    it('should throw when contextKeyIndex is undefined and entry has validations', () => {
+      // Arrange
+      const handler = createRouteHandler();
+      class SomeDto {}
+      const metatypeRegistry = new Map<new (...args: readonly unknown[]) => unknown, { className: string }>([
+        [SomeDto, { className: 'SomeDto' }],
+      ]);
+      const handlerWithMeta = new RouteHandler(
+        metatypeRegistry as never,
+        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
+      );
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      // Act & Assert — no contextKeyIndex provided
+      expect(() => {
+        handlerWithMeta.registerFromHandlerIndex([{
+          id: 'TestAdapter:test#TestCtrl.handle',
+          adapterId: 'TestAdapter',
+          controllerKey: 'TestCtrl',
+          methodName: 'handle',
+          handlerDecorator: 'Get',
+          handlerDecoratorArgs: ['test'],
+          params: [],
+          validations: [{ keyRef: 'bodyInput', metatypeKey: 'SomeDto' }],
+        } as never], controllerInstances, undefined, undefined);
+      }).toThrow(/Cannot resolve ContextKey for keyRef 'bodyInput'/);
+    });
+
+    it('should throw when contextKeyIndex does not contain the keyRef', () => {
+      // Arrange
+      class SomeDto {}
+      const metatypeRegistry = new Map<new (...args: readonly unknown[]) => unknown, { className: string }>([
+        [SomeDto, { className: 'SomeDto' }],
+      ]);
+      const handlerWithMeta = new RouteHandler(
+        metatypeRegistry as never,
+        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
+      );
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const contextKeyIndex = new Map<string, never>(); // empty
+
+      // Act & Assert
+      expect(() => {
+        handlerWithMeta.registerFromHandlerIndex([{
+          id: 'TestAdapter:test#TestCtrl.handle',
+          adapterId: 'TestAdapter',
+          controllerKey: 'TestCtrl',
+          methodName: 'handle',
+          handlerDecorator: 'Get',
+          handlerDecoratorArgs: ['test'],
+          params: [],
+          validations: [{ keyRef: 'bodyInput', metatypeKey: 'SomeDto' }],
+        } as never], controllerInstances, undefined, contextKeyIndex as never);
+      }).toThrow(/Cannot resolve ContextKey for keyRef 'bodyInput'/);
+    });
+
+    it('should throw when metatypeKey cannot be resolved', () => {
+      // Arrange — empty metatype registry
+      const handlerWithMeta = new RouteHandler(
+        new Map() as never,
+        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
+      );
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const bodyKey = Symbol('body') as never;
+      const contextKeyIndex = new Map([['bodyInput', bodyKey]]);
+
+      // Act & Assert
+      expect(() => {
+        handlerWithMeta.registerFromHandlerIndex([{
+          id: 'TestAdapter:test#TestCtrl.handle',
+          adapterId: 'TestAdapter',
+          controllerKey: 'TestCtrl',
+          methodName: 'handle',
+          handlerDecorator: 'Get',
+          handlerDecoratorArgs: ['test'],
+          params: [],
+          validations: [{ keyRef: 'bodyInput', metatypeKey: 'UnknownDto' }],
+        } as never], controllerInstances, undefined, contextKeyIndex as never);
+      }).toThrow(/Cannot resolve DTO class for metatypeKey 'UnknownDto'/);
+    });
+
+    it('should return empty validations when entry has no validations field', () => {
+      // Arrange
+      const handler = createRouteHandler();
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      let capturedValidations: readonly unknown[] = [];
+      const buildPipeline = mock((_entry: unknown, validations: readonly unknown[]) => {
+        capturedValidations = validations;
+        return { pre: [], post: [], filters: [] };
+      });
+
+      // Act
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#TestCtrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'TestCtrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['test'],
+        params: [],
+      } as never], controllerInstances, buildPipeline as never);
+
+      // Assert
+      expect(capturedValidations).toEqual([]);
     });
   });
 });

@@ -1,4 +1,5 @@
 import { $ } from 'bun';
+import { join } from 'node:path';
 
 interface BombardierResult {
   readonly result: {
@@ -27,33 +28,39 @@ interface AggregatedResult {
   latencyP50Us: number;
   latencyP99Us: number;
   allRps: readonly number[];
+  successCount: number;
 }
 
 interface ServerDefinition {
   readonly name: string;
-  readonly file: string;
+  readonly appDir: string;
+  readonly buildScript: string;
+  readonly entryFile: string;
   readonly port: number;
 }
 
 const BASE_PORT = 4000;
+const EXPECTED_BODY = JSON.stringify({ message: 'Hello, World!' });
 
 const SERVERS: readonly ServerDefinition[] = [
-  { name: 'Bun.serve', file: 'servers/bun-serve.ts', port: BASE_PORT },
-  { name: 'Zipbul', file: '../../../benchmark/dist/entry.js', port: BASE_PORT + 1 },
-  { name: 'Elysia', file: 'servers/elysia.ts', port: BASE_PORT + 2 },
-  { name: 'Hono', file: 'servers/hono.ts', port: BASE_PORT + 3 },
-  { name: 'Fastify', file: 'servers/fastify.ts', port: BASE_PORT + 4 },
-  { name: 'Express', file: 'servers/express.ts', port: BASE_PORT + 5 },
-  { name: 'NestJS+Express', file: 'servers/nestjs-express.ts', port: BASE_PORT + 6 },
-  { name: 'NestJS+Fastify', file: 'servers/nestjs-fastify.ts', port: BASE_PORT + 7 },
+  { name: 'Bun.serve', appDir: 'apps/bun-serve', buildScript: 'build', entryFile: 'dist/main.js', port: BASE_PORT },
+  { name: 'Zipbul', appDir: 'apps/zipbul', buildScript: 'build', entryFile: 'dist/entry.js', port: BASE_PORT + 1 },
+  { name: 'Elysia', appDir: 'apps/elysia', buildScript: 'build', entryFile: 'dist/main.js', port: BASE_PORT + 2 },
+  { name: 'Hono', appDir: 'apps/hono', buildScript: 'build', entryFile: 'dist/main.js', port: BASE_PORT + 3 },
+  { name: 'Fastify', appDir: 'apps/fastify', buildScript: 'build', entryFile: 'dist/main.js', port: BASE_PORT + 4 },
+  { name: 'Express', appDir: 'apps/express', buildScript: 'build', entryFile: 'dist/main.js', port: BASE_PORT + 5 },
+  { name: 'NestJS+Express', appDir: 'apps/nestjs-express', buildScript: 'build', entryFile: 'dist/main.js', port: BASE_PORT + 6 },
+  { name: 'NestJS+Fastify', appDir: 'apps/nestjs-fastify', buildScript: 'build', entryFile: 'dist/main.js', port: BASE_PORT + 7 },
 ];
 
 const ROUNDS = 5;
 const BENCHMARK_DURATION = '10s';
 const BENCHMARK_CONNECTIONS = 64;
 const WARMUP_REQUESTS = 5000;
-const SERVER_STARTUP_WAIT_MS = 5000;
+const SERVER_STARTUP_WAIT_MS = 8000;
 const COOLDOWN_MS = 3000;
+const SERVER_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1000;
 
 function formatMicroseconds(us: number): string {
   if (us >= 1_000_000) {
@@ -93,11 +100,15 @@ async function waitForServer(url: string, timeoutMs: number): Promise<boolean> {
   while (Date.now() < deadline) {
     try {
       const response = await fetch(url);
-      await response.text();
-      return true;
+      const body = await response.text();
+
+      if (response.status === 200 && body === EXPECTED_BODY) {
+        return true;
+      }
     } catch {
-      await Bun.sleep(100);
     }
+
+    await Bun.sleep(100);
   }
 
   return false;
@@ -132,11 +143,31 @@ function parseBombardierJson(raw: string, name: string): RoundResult {
   };
 }
 
+async function prepareServerBuild(server: ServerDefinition): Promise<void> {
+  const appDir = join(import.meta.dir, server.appDir);
+
+  if (server.name === 'Zipbul') {
+    await $`rm -rf ${join(appDir, '.zipbul/cache')} ${join(appDir, '.zipbul/manifest.json')} ${join(appDir, '.zipbul/runtime-report.json')} ${join(appDir, 'dist')}`.quiet();
+  } else {
+    await $`rm -rf ${join(appDir, 'dist')}`.quiet();
+  }
+
+  await $`bun run ${server.buildScript}`.cwd(appDir).quiet();
+}
+
+async function prepareBenchmarks(): Promise<void> {
+  for (const server of SERVERS) {
+    console.log(`Preparing ${server.name} benchmark app...`);
+    await prepareServerBuild(server);
+  }
+}
+
 async function benchmarkServer(server: ServerDefinition): Promise<RoundResult | undefined> {
   const url = `http://localhost:${server.port}/`;
+  const appDir = join(import.meta.dir, server.appDir);
 
-  const serverProcess = Bun.spawn(['bun', 'run', server.file], {
-    cwd: import.meta.dir,
+  const serverProcess = Bun.spawn(['bun', 'run', server.entryFile], {
+    cwd: appDir,
     stdout: 'pipe',
     stderr: 'pipe',
     env: { ...process.env, NODE_ENV: 'production', BENCH_PORT: String(server.port) },
@@ -145,7 +176,15 @@ async function benchmarkServer(server: ServerDefinition): Promise<RoundResult | 
   try {
     const ready = await waitForServer(url, SERVER_STARTUP_WAIT_MS);
     if (!ready) {
+      const stdout = await new Response(serverProcess.stdout).text();
+      const stderr = await new Response(serverProcess.stderr).text();
       console.error(`    [SKIP] ${server.name} failed to start on :${server.port}`);
+      if (stdout.length > 0) {
+        console.error(`    stdout: ${stdout.trim().split('\n').slice(-5).join(' | ')}`);
+      }
+      if (stderr.length > 0) {
+        console.error(`    stderr: ${stderr.trim().split('\n').slice(-5).join(' | ')}`);
+      }
       return undefined;
     }
 
@@ -159,10 +198,31 @@ async function benchmarkServer(server: ServerDefinition): Promise<RoundResult | 
   }
 }
 
+async function benchmarkServerWithRetry(server: ServerDefinition): Promise<RoundResult | undefined> {
+  for (let attempt = 1; attempt <= SERVER_ATTEMPTS; attempt++) {
+    const result = await benchmarkServer(server);
+
+    if (result !== undefined) {
+      return result;
+    }
+
+    if (attempt < SERVER_ATTEMPTS) {
+      console.error(`    [RETRY] ${server.name} retrying (${attempt + 1}/${SERVER_ATTEMPTS})...`);
+      await Bun.sleep(RETRY_DELAY_MS);
+    }
+  }
+
+  return undefined;
+}
+
 function aggregate(allResults: ReadonlyMap<string, readonly RoundResult[]>): AggregatedResult[] {
   const aggregated: AggregatedResult[] = [];
 
   for (const [name, rounds] of allResults) {
+    if (rounds.length === 0) {
+      continue;
+    }
+
     const rpsValues = rounds.map(round => round.requestsPerSecond);
     const avgValues = rounds.map(round => round.latencyAvgUs);
     const p50Values = rounds.map(round => round.latencyP50Us);
@@ -175,6 +235,7 @@ function aggregate(allResults: ReadonlyMap<string, readonly RoundResult[]>): Agg
       latencyP50Us: median(p50Values),
       latencyP99Us: median(p99Values),
       allRps: rpsValues,
+      successCount: rounds.length,
     });
   }
 
@@ -195,6 +256,7 @@ function printResults(results: readonly AggregatedResult[]): void {
   const p50Width = 12;
   const p99Width = 12;
   const ratioWidth = 10;
+  const okWidth = 8;
   const roundsWidth = 32;
 
   console.log(
@@ -205,6 +267,7 @@ function printResults(results: readonly AggregatedResult[]): void {
     'p50'.padStart(p50Width) +
     'p99'.padStart(p99Width) +
     'ratio'.padStart(ratioWidth) +
+    'ok'.padStart(okWidth) +
     'rounds (req/s)'.padStart(roundsWidth),
   );
   console.log('-'.repeat(110));
@@ -222,12 +285,13 @@ function printResults(results: readonly AggregatedResult[]): void {
       formatMicroseconds(result.latencyP50Us).padStart(p50Width) +
       formatMicroseconds(result.latencyP99Us).padStart(p99Width) +
       ratioStr.padStart(ratioWidth) +
+      `${result.successCount}/${ROUNDS}`.padStart(okWidth) +
       roundsStr.padStart(roundsWidth),
     );
   }
 
   console.log('='.repeat(110));
-  console.log(`  ${ROUNDS} rounds (shuffled) | median | ${BENCHMARK_CONNECTIONS} conn | ${BENCHMARK_DURATION}/round | warmup ${WARMUP_REQUESTS} reqs | cooldown ${COOLDOWN_MS}ms`);
+  console.log(`  ${ROUNDS} rounds (shuffled) | median | ${BENCHMARK_CONNECTIONS} conn | ${BENCHMARK_DURATION}/round | warmup ${WARMUP_REQUESTS} reqs | cooldown ${COOLDOWN_MS}ms | attempts ${SERVER_ATTEMPTS}`);
   console.log('='.repeat(110) + '\n');
 }
 
@@ -240,6 +304,8 @@ async function main(): Promise<void> {
     console.error('bombardier not found. Install: https://github.com/codesenberg/bombardier');
     process.exit(1);
   }
+
+  await prepareBenchmarks();
 
   const allResults = new Map<string, RoundResult[]>();
 
@@ -254,11 +320,13 @@ async function main(): Promise<void> {
 
     for (const server of shuffled) {
       process.stdout.write(`  ${server.name} (:${server.port})... `);
-      const result = await benchmarkServer(server);
+      const result = await benchmarkServerWithRetry(server);
 
       if (result !== undefined) {
         allResults.get(server.name)!.push(result);
         console.log(`${Math.round(result.requestsPerSecond).toLocaleString()} req/s`);
+      } else {
+        console.log('failed');
       }
     }
   }

@@ -37,7 +37,7 @@ export interface DefineAdapterConfig<
    * filter catch (Phase 1), steps after run under emergency teardown catch (Phase 2).
    */
   readonly pipeline: readonly string[];
-  /** Context keys that adapter steps provide. The compiler uses this to verify `ctx.use()`/`ctx.validated()` calls. */
+  /** Context keys that adapter steps provide. The compiler uses this to verify `ctx.use()` calls. */
   readonly provides?: readonly ContextKey<unknown>[];
 }
 

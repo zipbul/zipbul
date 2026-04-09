@@ -40,11 +40,6 @@
         ]
       },
       "validPhases": {},
-      "validatedAccessors": {
-        "getBody": "body",
-        "getQuery": "query",
-        "getParams": "params"
-      },
       "pipeline": [
         "OnRequest",
         "ResolveRoute",
@@ -54,15 +49,21 @@
         "Validation",
         "Guard",
         "BeforeHandle",
-        "ScopedMiddleware",
-        "ScopedGuard",
         "Handler",
         "WriteResponse",
         "AfterHandle",
         "Serialize",
         "BeforeResponse",
         "AfterResponse"
-      ]
+      ],
+      "contextNamespaces": {
+        "contextType": "HttpContext",
+        "module": "@zipbul/http-adapter",
+        "namespaces": {
+          "request": "HttpRequest",
+          "response": "HttpResponse"
+        }
+      }
     }
   },
   "diGraph": {
@@ -73,15 +74,20 @@
       "id": "HttpAdapter:src/bench.controller.ts#BenchController.json",
       "adapterId": "HttpAdapter",
       "className": "BenchController",
+      "ownerModuleName": "src",
       "methodName": "json",
       "handlerDecorator": "Get",
       "handlerDecoratorArgs": [
         "/"
       ],
-      "compiledPipeline": [
+      "params": [],
+      "compiledPre": [
         "ResolveRoute",
-        "ParseBody",
-        "Handler"
+        "ParseBody"
+      ],
+      "compiledPost": [
+        "WriteResponse",
+        "Serialize"
       ]
     }
   ]
