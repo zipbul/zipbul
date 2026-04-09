@@ -19,3 +19,4 @@ coverage
 examples/.zipbul/
 .gildash
 .zipbul-temp/
+packages/common/src/**/*.d.ts
