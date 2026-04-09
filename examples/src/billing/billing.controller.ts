@@ -19,7 +19,7 @@ export class BillingController {
   @Post('charge')
   @UseExceptionFilters(paymentExceptionFilter)
   charge(ctx: HttpContext) {
-    const body = ctx.getBody<ChargeDto>();
+    const body = ctx.request.getBody(ChargeDto);
     const amount = body.amount || 0;
 
     this.auditService.logAction('charge', `amount=${amount}`);

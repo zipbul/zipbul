@@ -26,7 +26,7 @@ export class UsersController {
 
   @Post('complex')
   complexCreate(ctx: HttpContext): ComplexCreateResponse<CreateUserComplexDto> {
-    const body = ctx.getBody<CreateUserComplexDto>();
+    const body = ctx.request.getBody(CreateUserComplexDto);
 
     this.logger.info('Complex Data Received:', JSON.stringify(body));
 
@@ -42,7 +42,7 @@ export class UsersController {
 
   @Get(':id')
   getById(ctx: HttpContext): User | undefined {
-    const params = ctx.getParams<IdRouteParams>();
+    const params = ctx.request.getParams(IdRouteParams);
 
     return this.usersService.findOneById(Number(params.id));
   }
@@ -54,7 +54,7 @@ export class UsersController {
 
   @Put(':id')
   update(ctx: HttpContext): void {
-    const params = ctx.getParams<IdRouteParams>();
+    const params = ctx.request.getParams(IdRouteParams);
 
     this.usersService.update(Number(params.id), ctx.request.body as User);
   }
@@ -62,7 +62,7 @@ export class UsersController {
   @Delete(':id')
   @UseGuards(authGuard)
   delete(ctx: HttpContext): void {
-    const params = ctx.getParams<IdRouteParams>();
+    const params = ctx.request.getParams(IdRouteParams);
 
     this.auditService.logAction('delete', `userId=${params.id}`);
     this.usersService.delete(Number(params.id));

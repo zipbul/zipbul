@@ -21,7 +21,7 @@ export class PostsController {
 
   @Get(':id')
   getById(ctx: HttpContext): PostEntity | undefined {
-    const params = ctx.getParams<IdRouteParams>();
+    const params = ctx.request.getParams(IdRouteParams);
 
     return this.postsService.findOneById(Number(params.id));
   }
@@ -29,29 +29,29 @@ export class PostsController {
   @Post()
   @UseMiddlewares(loggerMiddleware)
   create(ctx: HttpContext): number {
-    const body = ctx.getBody<CreatePostDto>();
+    const body = ctx.request.getBody(CreatePostDto);
 
     return this.postsService.create(body);
   }
 
   @Put(':id')
   update(ctx: HttpContext): PostEntity {
-    const params = ctx.getParams<IdRouteParams>();
-    const body = ctx.getBody<UpdatePostDto>();
+    const params = ctx.request.getParams(IdRouteParams);
+    const body = ctx.request.getBody(UpdatePostDto);
 
     return this.postsService.update(Number(params.id), body);
   }
 
   @Delete(':id')
   delete(ctx: HttpContext): PostEntity[] {
-    const params = ctx.getParams<IdRouteParams>();
+    const params = ctx.request.getParams(IdRouteParams);
 
     return this.postsService.delete(Number(params.id));
   }
 
   @Post(':id/comments')
   createComment(ctx: HttpContext): void {
-    const params = ctx.getParams<IdRouteParams>();
+    const params = ctx.request.getParams(IdRouteParams);
 
     this.postsService.createComment(Number(params.id), ctx.request.body as PostCommentInput);
   }
