@@ -25,8 +25,8 @@ export class HttpRequest {
   /** Parsed query parameters. Set by BeforeValidation middleware (e.g. parseQuery). */
   public query: unknown;
 
-  private _queryString: string | null | undefined;
-  private _contentType: ContentTypeInfo | null | undefined;
+  private _queryString: string | null | undefined = undefined;
+  private _contentType: ContentTypeInfo | null | undefined = undefined;
   private readonly _origin: HttpRequestData['origin'];
   private _requestId: string | undefined;
   private readonly _requestIdHeaderName: string | undefined;
@@ -50,8 +50,6 @@ export class HttpRequest {
     this.isTrustedProxy = data.isTrustedProxy;
     this.signal = data.signal;
     this._origin = data.origin;
-    this._queryString = data.queryString;
-    this._contentType = data.contentType;
 
     // mutable
     this.method = data.method;

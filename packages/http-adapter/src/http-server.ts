@@ -405,8 +405,6 @@ function createHttpRequest(
         }
         : {}),
     },
-    ...(parsedTarget.queryString !== null ? { queryString: parsedTarget.queryString } : {}),
-    contentType: null,
     contentLength: contentLength === 'invalid' ? null : contentLength,
     ip: normalizeIp(proxyInfo !== null ? (proxyInfo.clientIp ?? socketIp) : socketIp),
     ips: proxyInfo !== null ? proxyInfo.ipChain : [],

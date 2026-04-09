@@ -46,31 +46,64 @@ export interface ContentTypeInfo {
   readonly params: ReadonlyMap<string, string>;
 }
 
+/**
+ * Proxy/origin resolution result from Forwarded / X-Forwarded-* headers.
+ *
+ * Populated by the HTTP server's proxy trust evaluation logic.
+ * All proxy fields are present only when a trusted proxy is detected.
+ */
 export interface HttpRequestOrigin {
+  /** Protocol from URL parsing (e.g. 'http', 'https'). null if absent. */
   readonly urlProtocol: string | null;
+  /** Host from URL parsing. null if absent. */
   readonly urlHost: string | null;
-  readonly proxyProtocol?: string | null | undefined;
-  readonly proxyHost?: string | null | undefined;
-  readonly proxyPort?: number | null | undefined;
+  /** Protocol from Forwarded/X-Forwarded-Proto. Present only behind trusted proxy. */
+  readonly proxyProtocol?: string | null;
+  /** Host from Forwarded/X-Forwarded-Host. Present only behind trusted proxy. */
+  readonly proxyHost?: string | null;
+  /** Port from Forwarded header. Present only behind trusted proxy. */
+  readonly proxyPort?: number | null;
 }
 
+/**
+ * Raw network-level data for constructing an HttpRequest.
+ *
+ * Contains only data that comes directly from the network or server configuration.
+ * Derived/parsed properties (contentType, protocol, host, port, queryString)
+ * are computed lazily by HttpRequest getters from these raw inputs.
+ *
+ * @public
+ */
 export interface HttpRequestData {
+  /** Pre-assigned request ID (e.g. from upstream header). Omit for lazy generation. */
   readonly requestId?: string;
+  /** Header name to read request ID from (e.g. 'X-Request-Id'). */
   readonly requestIdHeaderName?: string;
+  /** Custom request ID generator. Falls back to crypto.randomUUID(). */
   readonly requestIdGenerator?: () => string;
+  /** Original HTTP method as received. */
   readonly originalMethod: HttpMethod;
+  /** Original URL as received (before rewriting). */
   readonly originalUrl: string;
+  /** Validated HTTP method (may differ from originalMethod for HEAD→GET). */
   readonly method: HttpMethod;
+  /** Request URL (may be rewritten by middleware). */
   readonly url: string;
+  /** URL path component (without query string). */
   readonly path: string;
+  /** Raw request headers. */
   readonly headers: Headers;
+  /** Proxy/origin resolution result. */
   readonly origin: HttpRequestOrigin;
-  readonly queryString?: string | null;
-  readonly contentType: ContentTypeInfo | null;
+  /** Content-Length header value. null if absent or invalid. */
   readonly contentLength: number | null;
+  /** Client IP address (after proxy resolution). null if unresolvable. */
   readonly ip: string | null;
+  /** IP chain from X-Forwarded-For (empty if no trusted proxy). */
   readonly ips: readonly string[];
+  /** Whether the request came through a trusted proxy. */
   readonly isTrustedProxy: boolean;
+  /** Abort signal for the request lifecycle. */
   readonly signal: AbortSignal;
 }
 
