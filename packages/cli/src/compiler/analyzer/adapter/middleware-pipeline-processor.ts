@@ -11,9 +11,41 @@ import type {
 } from '@zipbul/common';
 
 import {
-  ZIPBUL_REF, ZIPBUL_COMPUTED_PREFIX,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_COMPUTED_PREFIX,
 } from '@zipbul/common';
+import type { AnalyzerValueRecord } from '../types';
 import { toRecord, isAnalyzerValueArray, isUnresolvable } from '../type-guards';
+
+/**
+ * Enriches a ZIPBUL_REF value with ZIPBUL_IMPORT_SOURCE from the class imports map.
+ *
+ * When gildash parses a decorator argument like `@UseExceptionFilters(paymentExceptionFilter)`,
+ * the identifier may not carry its import source if gildash resolves it as a local binding.
+ * This function looks up the identifier in the class's imports map and attaches the source.
+ */
+function enrichRefWithImportSource(
+  arg: AnalyzerValue,
+  classImports: Record<string, string>,
+): AnalyzerValue {
+  const record = toRecord(arg);
+
+  if (record === null) return arg;
+
+  const ref = record[ZIPBUL_REF];
+
+  if (typeof ref !== 'string') return arg;
+
+  // Already has an absolute import source
+  const existingSource = record[ZIPBUL_IMPORT_SOURCE];
+
+  if (typeof existingSource === 'string' && existingSource.startsWith('/')) return arg;
+
+  const importSource = classImports[ref];
+
+  if (importSource === undefined) return arg;
+
+  return { ...record, [ZIPBUL_IMPORT_SOURCE]: importSource } as AnalyzerValueRecord as AnalyzerValue;
+}
 
 interface DecoratorKeyExtraction {
   keys: string[];
@@ -63,7 +95,8 @@ export function extractMiddlewaresDecoratorRefKeys(
       }
 
       for (const ref of refsArray) {
-        const record = toRecord(ref);
+        const enriched = enrichRefWithImportSource(ref, cls.imports);
+        const record = toRecord(enriched);
         const refName = record !== null ? record[ZIPBUL_REF] : undefined;
 
         if (typeof refName === 'string' && refName.length > 0) {
@@ -73,7 +106,7 @@ export function extractMiddlewaresDecoratorRefKeys(
           const phase = typeof phaseArg === 'string' ? phaseArg : undefined;
 
           keys.push(key);
-          registrations.push({ key, value: ref, kind: 'ref' });
+          registrations.push({ key, value: enriched, kind: 'ref' });
           bindings.push({ key, scope: bindingScope, order: index, ...(phase !== undefined ? { phase } : {}) });
           index++;
         }
@@ -102,7 +135,8 @@ export function extractMiddlewaresDecoratorRefKeys(
         }
 
         for (const ref of phaseRefs) {
-          const record = toRecord(ref);
+          const enriched = enrichRefWithImportSource(ref, cls.imports);
+          const record = toRecord(enriched);
           const refName = record !== null ? record[ZIPBUL_REF] : undefined;
 
           if (typeof refName === 'string' && refName.length > 0) {
@@ -110,7 +144,7 @@ export function extractMiddlewaresDecoratorRefKeys(
             const bindingScope: CompiledPipelineScope = scope === 'cls' ? 'controller' : 'handler';
 
             keys.push(key);
-            registrations.push({ key, value: ref, kind: 'ref' });
+            registrations.push({ key, value: enriched, kind: 'ref' });
             bindings.push({ key, scope: bindingScope, order: index, phase: phaseKey });
             index++;
           }
@@ -203,8 +237,11 @@ export function extractGlobalPipelineBindings(
             continue;
           }
 
+          const moduleImports = analysis.moduleDefinition?.imports ?? {};
+
           for (const ref of refs) {
-            const record = toRecord(ref);
+            const enriched = enrichRefWithImportSource(ref, moduleImports);
+            const record = toRecord(enriched);
             const refName = record !== null ? record[ZIPBUL_REF] : undefined;
 
             if (typeof refName !== 'string' || refName.length === 0) {
@@ -213,7 +250,7 @@ export function extractGlobalPipelineBindings(
 
             const key = `__global_mw__:${moduleName}:${adapterId}:${phase}:${middlewareIndex}`;
 
-            registrations.push({ key, value: ref, kind: 'ref' });
+            registrations.push({ key, value: enriched, kind: 'ref' });
             middlewareBindings.push({ key, scope: 'global', order: middlewareIndex, phase });
             middlewareIndex++;
           }
@@ -224,8 +261,11 @@ export function extractGlobalPipelineBindings(
       const guards = isAnalyzerValueArray(itemRecord.guards) ? itemRecord.guards : null;
 
       if (guards !== null) {
+        const moduleImportsForGuards = analysis.moduleDefinition?.imports ?? {};
+
         for (const ref of guards) {
-          const record = toRecord(ref);
+          const enriched = enrichRefWithImportSource(ref, moduleImportsForGuards);
+          const record = toRecord(enriched);
           const refName = record !== null ? record[ZIPBUL_REF] : undefined;
 
           if (typeof refName !== 'string' || refName.length === 0) {
@@ -234,7 +274,7 @@ export function extractGlobalPipelineBindings(
 
           const key = `__global_gd__:${moduleName}:${adapterId}:${guardIndex}`;
 
-          registrations.push({ key, value: ref, kind: 'ref' });
+          registrations.push({ key, value: enriched, kind: 'ref' });
           guardBindings.push({ key, scope: 'global', order: guardIndex });
           guardIndex++;
         }
@@ -244,8 +284,11 @@ export function extractGlobalPipelineBindings(
       const exceptionFilters = isAnalyzerValueArray(itemRecord.exceptionFilters) ? itemRecord.exceptionFilters : null;
 
       if (exceptionFilters !== null) {
+        const moduleImportsForFilters = analysis.moduleDefinition?.imports ?? {};
+
         for (const ref of exceptionFilters) {
-          const record = toRecord(ref);
+          const enriched = enrichRefWithImportSource(ref, moduleImportsForFilters);
+          const record = toRecord(enriched);
           const refName = record !== null ? record[ZIPBUL_REF] : undefined;
 
           if (typeof refName !== 'string' || refName.length === 0) {
@@ -254,7 +297,7 @@ export function extractGlobalPipelineBindings(
 
           const key = `__global_ef__:${moduleName}:${adapterId}:${filterIndex}`;
 
-          registrations.push({ key, value: ref, kind: 'ref' });
+          registrations.push({ key, value: enriched, kind: 'ref' });
           exceptionFilterBindings.push({ key, scope: 'global', order: filterIndex });
           filterIndex++;
         }
@@ -441,14 +484,15 @@ export function extractDecoratorRefKeys(
         throw new Error(`[Zipbul AOT] @${decoratorName} on '${cls.className}': decorator argument must be a statically resolvable identifier. Found: ${arg.nodeType ?? arg.sourceText ?? 'unknown'} expression.`);
       }
 
-      const record = toRecord(arg);
+      const enriched = enrichRefWithImportSource(arg, cls.imports);
+      const record = toRecord(enriched);
       const ref = record !== null ? record[ZIPBUL_REF] : undefined;
 
       if (typeof ref === 'string' && ref.length > 0) {
         const key = `${keyPrefix}:cls:${index}`;
 
         keys.push(key);
-        registrations.push({ key, value: arg, kind: 'ref' });
+        registrations.push({ key, value: enriched, kind: 'ref' });
         bindings.push({ key, scope: 'controller', order: index });
         index++;
       }
@@ -466,14 +510,15 @@ export function extractDecoratorRefKeys(
         throw new Error(`[Zipbul AOT] @${decoratorName} on '${cls.className}': decorator argument must be a statically resolvable identifier. Found: ${arg.nodeType ?? arg.sourceText ?? 'unknown'} expression.`);
       }
 
-      const record = toRecord(arg);
+      const enriched = enrichRefWithImportSource(arg, cls.imports);
+      const record = toRecord(enriched);
       const ref = record !== null ? record[ZIPBUL_REF] : undefined;
 
       if (typeof ref === 'string' && ref.length > 0) {
         const key = `${keyPrefix}:mtd:${index}`;
 
         keys.push(key);
-        registrations.push({ key, value: arg, kind: 'ref' });
+        registrations.push({ key, value: enriched, kind: 'ref' });
         bindings.push({ key, scope: 'handler', order: index });
         index++;
       }

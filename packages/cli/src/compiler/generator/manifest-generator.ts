@@ -125,6 +125,11 @@ export class ManifestGenerator {
       });
     });
 
+    // Route registrations must be generated BEFORE import collection,
+    // because they add imports for decorator argument references
+    // (e.g. @UseExceptionFilters(paymentExceptionFilter)).
+    const routeRegistrationCode = this.generateRouteRegistrations(routeRegistrations, registry, graph);
+
     const imports = registry.getImportStatements().join('\n');
 
     return `
@@ -207,7 +212,7 @@ export const handlerIndex = ${JSON.stringify(handlerIndex)} as const;
 const __container__ = createContainer();
 
 // Route-level pipeline registrations (middleware/filter/guard container keys)
-${this.generateRouteRegistrations(routeRegistrations, registry, graph)}
+${routeRegistrationCode}
 
 function createControllerFactories() {
   const factories = new Map();
@@ -265,6 +270,7 @@ registerBootstrapState({
       }
 
       const serialized = this.injectorGen.serializeValuePublic(reg.value, registry);
+
       lines.push(`__container__.set('${reg.key}', () => ${serialized});`);
     }
 
