@@ -1,1 +1,0 @@
-import '@zipbul/core/worker';

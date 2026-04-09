@@ -18,3 +18,4 @@ bun.lock
 coverage
 examples/.zipbul/
 .gildash
+.zipbul-temp/
