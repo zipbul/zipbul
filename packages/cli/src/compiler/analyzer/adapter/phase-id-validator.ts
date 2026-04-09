@@ -9,6 +9,9 @@ import type { Diagnostic } from '../../../diagnostics';
 
 import { err, isErr } from '@zipbul/result';
 import { ZIPBUL_REF, ZIPBUL_COMPUTED_PREFIX } from '@zipbul/common';
+
+/** All IR sentinel keys start with this prefix. */
+const SENTINEL_PREFIX = '__zipbul_';
 import { buildDiagnostic } from '../../../diagnostics';
 import { PathResolver } from '../../../common';
 import { toRecord, isAnalyzerValueArray, isNonEmptyString } from '../type-guards';
@@ -120,6 +123,9 @@ function collectModuleMiddlewarePhaseIds(fileMap: Map<string, FileAnalysis>, ada
             symbol: adapterId,
           }));
         }
+
+        // Skip IR sentinel keys (__zipbul_ref, __zipbul_import_source, etc.)
+        if (key.startsWith(SENTINEL_PREFIX)) continue;
 
         if (key.length === 0) {
           return err(buildDiagnostic({
@@ -253,6 +259,9 @@ function extractPhaseIdsFromDecorator(decorator: DecoratorArguments, adapterId: 
           reason: `@UseMiddlewares phaseId must be a string literal for '${adapterId}'.`,
         }));
       }
+
+      // Skip IR sentinel keys (__zipbul_ref, __zipbul_import_source, etc.)
+      if (key.startsWith(SENTINEL_PREFIX)) continue;
 
       if (key.length === 0) {
         return err(buildDiagnostic({
