@@ -207,45 +207,7 @@ describe('extractTypedCalls', () => {
       expect(result![1]?.typeArgs).toEqual(['QueryDto']);
     });
 
-    it('should capture callArgs for validated() calls with identifier arguments', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { ctx.validated(bodyInput, UserDto); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeDefined();
-      expect(result).toHaveLength(1);
-      expect(result![0]?.methodName).toBe('validated');
-      expect(result![0]?.callArgs).toEqual([
-        { ref: 'bodyInput' },
-        { ref: 'UserDto' },
-      ]);
-    });
-
-    it('should include validated() call even without type arguments', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { ctx.validated(bodyInput); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeDefined();
-      expect(result).toHaveLength(1);
-      expect(result![0]?.methodName).toBe('validated');
-      expect(result![0]?.typeArgs).toEqual([]);
-      expect(result![0]?.callArgs).toEqual([{ ref: 'bodyInput' }]);
-    });
-
-    it('should not include callArgs key when validated() has no identifier arguments', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { ctx.validated(); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeDefined();
-      expect(result).toHaveLength(1);
-      expect(result![0]?.methodName).toBe('validated');
-      expect(result![0]?.callArgs).toBeUndefined();
-    });
+    // ctx.validated() tests removed — API deleted in HttpContext DX redesign.
   });
 
   describe('null body', () => {
@@ -322,16 +284,7 @@ describe('extractTypedCalls', () => {
       expect(result![0]?.typeArgs).toEqual(['SomeGeneric']);
     });
 
-    it('should extract validated call with mixed argument types (only identifiers captured)', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { ctx.validated("literal", MyDto); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeDefined();
-      expect(result).toHaveLength(1);
-      expect(result![0]?.callArgs).toEqual([{ ref: 'MyDto' }]);
-    });
+    // ctx.validated() edge case test removed — API deleted.
   });
 });
 

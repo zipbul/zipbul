@@ -2727,10 +2727,11 @@ describe('AdapterDefinitionResolver', () => {
   });
 
   // =======================================================================
-  // ValidatedAccessors (tested indirectly via buildHandlerIndex)
-  // =======================================================================
+  // ctx.validated extraction — REMOVED (API deleted in HttpContext DX redesign)
+  // ValidatedAccessors tests removed along with ctx.validated() API.
+  // New DX uses ctx.request.getBody(Dto), ctx.request.getParams(Dto).
 
-  describe('ctx.validated extraction', () => {
+  describe.skip('ctx.validated extraction [REMOVED]', () => {
     it('should produce validation entry for ctx.validated(bodyInput, UserDto)', async () => {
       // Arrange — handler calls ctx.validated(bodyInput, UserDto)
       const code = [
@@ -3393,30 +3394,8 @@ describe('AdapterDefinitionResolver', () => {
       expect(entry?.compiledPre).not.toContain('Validation');
     });
 
-    it('should retain Validation step when handler has validations', async () => {
-      const code = [
-        'function Controller() { return () => {}; }',
-        'function Get() { return () => {}; }',
-        'const bodyInput = Symbol();',
-        '',
-        '@Controller()',
-        'class SampleController {',
-        '  @Get()',
-        '  handle(ctx: any) { ctx.validated(bodyInput, UserDto); }',
-        '}',
-      ].join('\n');
-
-      const adapterClass = createPipelineAdapterClass([
-        'Guard', 'Validation', 'Handler',
-      ]);
-      const fileMap = await buildFileMapWithCode(code, adapterClass);
-      const resolver = new AdapterDefinitionResolver();
-
-      const result = await resolver.resolve({ fileMap, projectRoot });
-      const entry = result.handlerIndex[0];
-
-      expect(entry?.compiledPre).toContain('Validation');
-    });
+    // REMOVED: 'should retain Validation step when handler has validations'
+    // ctx.validated() API deleted. New DX: ctx.request.getBody(Dto).
 
     it('should always retain adapter-specific steps (not phase, not core)', async () => {
       const adapterClass = createPipelineAdapterClass([
