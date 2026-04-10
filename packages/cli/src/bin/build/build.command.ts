@@ -19,6 +19,7 @@ import { ConfigLoader } from '../../config';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { EntryGenerator, ManifestGenerator, ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
+import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
 import { buildLib } from './lib-build';
 import { CliRenderer } from '../cli-renderer';
 import { loadBuildCache, saveBuildCache, computeTsconfigHash } from './build-cache';
@@ -201,6 +202,19 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           const contextDts = contextTypesGen.generate(augmentResult.augments, contextRegistry, augmentResult.adapterMap);
 
           await writeIfChanged(join(zipbulDir, 'context.d.ts'), contextDts);
+
+          // Validate handler context usages against registered middleware augments
+          const usageWarnings = validateHandlerContextUsages(
+            adapterResolution.handlerIndex,
+            adapterResolution.handlerContextUsages,
+            augmentResult.augments,
+          );
+
+          for (const warning of usageWarnings) {
+            graph.warnings.push(
+              `[Zipbul AOT] Handler '${warning.handlerId}' accesses '${warning.usagePath.join('.')}' which is provided by middleware '${warning.providedByMiddleware}', but that middleware is not registered for this handler.`,
+            );
+          }
         }
 
         const entryPointFile = join(buildTempDir, 'entry.ts');
@@ -310,7 +324,13 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           renderer,
         );
 
-        const outroSuffix = warningCount > 0 ? ` with ${String(warningCount)} warnings` : '';
+        if (warningCount > 0) {
+          for (const warning of graph.warnings) {
+            renderer.warn(warning);
+          }
+        }
+
+        const outroSuffix = warningCount > 0 ? ` with ${String(warningCount)} warning${warningCount === 1 ? '' : 's'}` : '';
         renderer.outro(`Ready to deploy (profile: ${buildProfile})${outroSuffix}`);
       } finally {
         unsubscribeError();
