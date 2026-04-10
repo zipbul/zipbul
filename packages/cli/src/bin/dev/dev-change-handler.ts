@@ -201,7 +201,13 @@ export function createChangeHandler(context: ChangeHandlerContext): {
         toProjectRelativePath,
       });
 
-      await rebuild(rebuildContext, { skipCycleCheck: !importsChanged });
+      const rebuildResult = await rebuild(rebuildContext, { skipCycleCheck: !importsChanged });
+
+      if (rebuildResult.graph.warnings.length > 0) {
+        for (const warning of rebuildResult.graph.warnings) {
+          renderer.warn(warning);
+        }
+      }
 
       const rebuildDuration = ((performance.now() - rebuildStartedAt) / 1000).toFixed(1);
 

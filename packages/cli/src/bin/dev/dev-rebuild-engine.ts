@@ -9,6 +9,7 @@ import { writeIfChanged } from '../../common';
 import { buildFileAnalysis } from '../build/build-analysis';
 import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from '../build/build-artifact-writer';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
+import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
 import { ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
 
 import type { CliRendererLike, CollectedClass } from '../interfaces';
@@ -226,6 +227,19 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
     const contextDts = contextTypesGen.generate(augmentResult.augments, contextRegistry, augmentResult.adapterMap);
 
     await writeIfChanged(join(outDir, 'context.d.ts'), contextDts);
+
+    // Validate handler context usages against registered middleware augments
+    const usageWarnings = validateHandlerContextUsages(
+      adapterResolution.handlerIndex,
+      adapterResolution.handlerContextUsages,
+      augmentResult.augments,
+    );
+
+    for (const warning of usageWarnings) {
+      graph.warnings.push(
+        `[Zipbul AOT] Handler '${warning.handlerId}' accesses '${warning.usagePath.join('.')}' which is provided by middleware '${warning.providedByMiddleware}', but that middleware is not registered for this handler.`,
+      );
+    }
   }
 
   // Generate entry.ts
