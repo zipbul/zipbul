@@ -6,7 +6,7 @@ import type { CommandOptions } from '../interfaces';
 import { AdapterDefinitionResolver, AstParser, type FileAnalysis } from '../../compiler/analyzer';
 import { validateCreateApplication } from '../../compiler/analyzer/validation';
 import { ConfigLoader } from '../../config';
-import { outputDirPath, scanGlobSorted } from '../../common';
+import { outputDirPath, scanGlobSorted, ensureTsconfigIncludesZipbul } from '../../common';
 import { isErr } from '@zipbul/result';
 import { DiagnosticError } from '../../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
@@ -165,6 +165,17 @@ export function createDevCommand(deps: DevCommandDeps) {
     }
 
     buildSpinner.stop(`\u{1f9e9} AOT artifacts generated in ${bootDuration}s (${fmt(graph.modules.size)} modules, ${fmt(providerCount)} providers)`);
+
+    // Ensure tsconfig.json includes .zipbul/**/*.d.ts for IDE support
+    if (await ensureTsconfigIncludesZipbul(projectRoot)) {
+      renderer.info('Patched tsconfig.json — added .zipbul/**/*.d.ts to include');
+    }
+
+    if (graph.warnings.length > 0) {
+      for (const warning of graph.warnings) {
+        renderer.warn(warning);
+      }
+    }
 
     // -- Application tree --
     const moduleTreeResult = buildModuleTree({ modules: graph.modules, handlerIndex });
