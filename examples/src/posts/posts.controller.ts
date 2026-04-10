@@ -1,7 +1,7 @@
 import { UseMiddlewares } from '@zipbul/common';
 import { RestController, Delete, Get, Post, Put, type HttpContext } from '@zipbul/http-adapter';
 
-import type { PostCommentInput } from './comments/interfaces';
+import { PostCommentInput } from './comments/interfaces';
 import type { Post as PostEntity } from './interfaces';
 
 import { IdRouteParams } from '../dto/id-route-params.dto';
@@ -53,6 +53,6 @@ export class PostsController {
   createComment(ctx: HttpContext): void {
     const params = ctx.request.getParams(IdRouteParams);
 
-    this.postsService.createComment(Number(params.id), ctx.request.body as PostCommentInput);
+    this.postsService.createComment(Number(params.id), ctx.request.getBody(PostCommentInput));
   }
 }
