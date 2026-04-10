@@ -5,7 +5,6 @@ import type { Function as OxcFunction, Expression, Class } from 'oxc-parser';
 
 import {
   extractExceptionFiltersFromConfigure,
-  extractTypedCalls,
   extractMiddlewaresFromConfigure,
   extractDependencies,
 } from './method-metadata-extractor';
@@ -176,115 +175,6 @@ describe('extractExceptionFiltersFromConfigure', () => {
         expect(result.data.why).toMatch(/addErrorFilters/);
       }
     });
-  });
-});
-
-describe('extractTypedCalls', () => {
-  describe('happy path', () => {
-    it('should extract a single typed member-access call', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { ctx.getBody<UserDto>(); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeDefined();
-      expect(result).toHaveLength(1);
-      expect(result![0]?.methodName).toBe('getBody');
-      expect(result![0]?.typeArgs).toEqual(['UserDto']);
-    });
-
-    it('should extract multiple typed calls from the same method', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { ctx.getBody<UserDto>(); ctx.getQuery<QueryDto>(); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeDefined();
-      expect(result).toHaveLength(2);
-      expect(result![0]?.methodName).toBe('getBody');
-      expect(result![0]?.typeArgs).toEqual(['UserDto']);
-      expect(result![1]?.methodName).toBe('getQuery');
-      expect(result![1]?.typeArgs).toEqual(['QueryDto']);
-    });
-
-    // ctx.validated() tests removed — API deleted in HttpContext DX redesign.
-  });
-
-  describe('null body', () => {
-    it('should return undefined when function body is null', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { ctx.getBody<Dto>(); } }',
-      );
-
-      funcNode.body = null;
-
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeUndefined();
-    });
-  });
-
-  describe('no typed calls', () => {
-    it('should return undefined when no member calls with type arguments exist', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { console.log("hello"); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeUndefined();
-    });
-
-    it('should return undefined when calls exist but none have type arguments', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { ctx.getBody(); ctx.getQuery(); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeUndefined();
-    });
-
-    it('should return undefined when call is a plain function call not a member expression', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { getBody<UserDto>(); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeUndefined();
-    });
-  });
-
-  describe('edge cases', () => {
-    it('should ignore computed member access calls', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { ctx["getBody"]<UserDto>(); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeUndefined();
-    });
-
-    it('should extract typed calls nested inside control flow', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { if (true) { ctx.getBody<UserDto>(); } } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeDefined();
-      expect(result).toHaveLength(1);
-      expect(result![0]?.methodName).toBe('getBody');
-    });
-
-    it('should resolve type argument with TSTypeReference Identifier', () => {
-      const funcNode = parseMethodFunction(
-        'class Ctrl { handle() { ctx.parse<SomeGeneric>(); } }',
-      );
-      const result = extractTypedCalls(funcNode);
-
-      expect(result).toBeDefined();
-      expect(result![0]?.typeArgs).toEqual(['SomeGeneric']);
-    });
-
-    // ctx.validated() edge case test removed — API deleted.
   });
 });
 

@@ -9,8 +9,6 @@ export type {
   HeritageMetadata,
   ConstructorParamMetadata,
   MethodParameterMetadata,
-  TypedCallMetadata,
-  CallArgRef,
   MethodMetadata,
   PropertyMetadata,
   ClassMetadata,

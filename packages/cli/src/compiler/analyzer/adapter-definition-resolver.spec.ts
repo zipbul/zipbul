@@ -3117,14 +3117,14 @@ describe('AdapterDefinitionResolver', () => {
       const code = [
         'function Controller() { return () => {}; }',
         'function Get(path: string) { return () => {}; }',
-        'const bodyInput = Symbol();',
+        'class UserDto {}',
         '',
         '@Controller()',
         'class SampleController {',
         '  @Get("/a")',
-        '  handleA(ctx: any) { ctx.validated(bodyInput, UserDto); }',
+        '  handleA(ctx: any) { ctx.request.getBody(UserDto); }',
         '  @Get("/b")',
-        '  handleB(ctx: any) { ctx.validated(bodyInput, UserDto); }',
+        '  handleB(ctx: any) { ctx.request.getBody(UserDto); }',
         '}',
       ].join('\n');
 
@@ -3138,6 +3138,62 @@ describe('AdapterDefinitionResolver', () => {
 
       expect(result.handlerIndex.length).toBe(2);
       expect(result.handlerIndex[0]!.validations).toBe(result.handlerIndex[1]!.validations);
+    });
+
+    it('should emit accessor-based validation entries for getBody and getParams calls', async () => {
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get(path: string) { return () => {}; }',
+        'class CreateDto {}',
+        'class IdParams {}',
+        '',
+        '@Controller()',
+        'class SampleController {',
+        '  @Get("/a")',
+        '  handle(ctx: any) { ctx.request.getBody(CreateDto); ctx.request.getParams(IdParams); }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        pipeline: ['Guard', 'Validation', 'Handler'],
+      });
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      expect(result.handlerIndex.length).toBe(1);
+
+      const validations = result.handlerIndex[0]!.validations;
+
+      expect(validations).toBeDefined();
+      expect(validations).toHaveLength(2);
+      expect(validations![0]).toEqual({ accessor: ['request', 'getBody'], metatypeKey: 'CreateDto' });
+      expect(validations![1]).toEqual({ accessor: ['request', 'getParams'], metatypeKey: 'IdParams' });
+    });
+
+    it('should not emit validation entries for non-DTO accessor calls', async () => {
+      const code = [
+        'function Controller() { return () => {}; }',
+        'function Get(path: string) { return () => {}; }',
+        '',
+        '@Controller()',
+        'class SampleController {',
+        '  @Get("/a")',
+        '  handle(ctx: any) { ctx.request.cookie.get("session"); }',
+        '}',
+      ].join('\n');
+
+      const adapterClass = createTestAdapterClass('TestAdapter', {
+        pipeline: ['Guard', 'Validation', 'Handler'],
+      });
+      const fileMap = await buildFileMapWithCode(code, adapterClass);
+      const resolver = new AdapterDefinitionResolver();
+
+      const result = await resolver.resolve({ fileMap, projectRoot });
+
+      expect(result.handlerIndex.length).toBe(1);
+      expect(result.handlerIndex[0]!.validations).toBeUndefined();
     });
 
     it('should share the same options reference for handlers with identical options', async () => {

@@ -1,7 +1,6 @@
 import type {
   ApplicationOptions,
   CompiledHandlerEntry,
-  ContextKey,
   ProviderToken,
 } from '@zipbul/common';
 
@@ -56,7 +55,6 @@ export interface HttpServerBootOptions extends HttpServerOptions {
   readonly logger?: unknown;
   readonly handlerIndex?: readonly CompiledHandlerEntry[];
   readonly controllerInstances?: Map<string, unknown>;
-  readonly contextKeyIndex?: ReadonlyMap<string, ContextKey<unknown>>;
 }
 
 export interface HttpWorkerEntryModule {

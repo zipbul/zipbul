@@ -1,4 +1,4 @@
-import type { AdapterContext, ApplicationContext, AdapterEntryDecorators, CompiledHandlerEntry, ContextKey } from '@zipbul/common';
+import type { AdapterContext, ApplicationContext, AdapterEntryDecorators, CompiledHandlerEntry } from '@zipbul/common';
 import type { MiddlewareDefinition } from '@zipbul/common';
 import { err, isErr } from '@zipbul/result';
 import type { Result, Err } from '@zipbul/result';
@@ -529,12 +529,12 @@ export class HttpAdapter extends Adapter {
    * Wraps baker validation errors as HTTP 400 with field-level details.
    * Non-baker errors are re-thrown to enter the exception filter path.
    *
-   * @param _key - The context key whose validation failed.
+   * @param _entry - The validation entry that failed.
    * @param errors - The `BakerErrors` returned by baker `deserialize()`.
    * @returns `Err` with structured 400 response for baker errors.
    * @public
    */
-  protected override wrapValidationError(_key: ContextKey<unknown>, errors: unknown): Err<unknown> {
+  protected override wrapValidationError(_entry: ResolvedValidationEntry, errors: unknown): Err<unknown> {
     if (isBakerError(errors)) {
       return err({
         status: StatusCodes.BAD_REQUEST,

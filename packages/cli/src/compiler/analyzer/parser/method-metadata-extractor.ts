@@ -11,7 +11,7 @@ import type { Diagnostic } from '../../../diagnostics';
 import { buildDiagnostic } from '../../../diagnostics';
 import { isNonEmptyString } from '../type-guards';
 import { walkChildren, getCalleeMethodName } from './ast-node-locator';
-import { resolveTypeArgName } from './class-metadata-extractor';
+
 
 /**
  * Parses a `configure()` method body for `addErrorFilters([...])` calls and
@@ -82,50 +82,6 @@ export function extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Res
   }
 
   return exceptionFilters;
-}
-
-/**
- * Scans a method body for member-access call expressions with type arguments.
- * Extracts calls like `ctx.getBody<UserDto>()` producing `{ methodName: 'getBody', typeArgs: ['UserDto'] }`.
- *
- * @param funcNode - The method's function AST node.
- * @returns Array of typed call metadata found in the body, or `undefined` if none.
- */
-export function extractTypedCalls(funcNode: OxcFunction): ClassMetadata['methods'][number]['typedCalls'] {
-  if (funcNode.body === null) {
-    return undefined;
-  }
-
-  const calls: NonNullable<ClassMetadata['methods'][number]['typedCalls']> = [];
-
-  const visit = (node: AstNode): void => {
-    if (node.type === 'CallExpression') {
-      const callee = node.callee;
-
-      if (callee.type === 'MemberExpression' && !callee.computed) {
-        const methodName = callee.property.name;
-
-        if (isNonEmptyString(methodName)) {
-          const typeParams = node.typeArguments?.params ?? [];
-          const typeArgs: string[] = [];
-
-          for (const param of typeParams) {
-            typeArgs.push(resolveTypeArgName(param));
-          }
-
-          if (typeArgs.length > 0) {
-            calls.push({ methodName, typeArgs });
-          }
-        }
-      }
-    }
-
-    walkChildren(node, visit);
-  };
-
-  visit(funcNode.body);
-
-  return calls.length > 0 ? calls : undefined;
 }
 
 /**

@@ -36,6 +36,10 @@ export class HttpRequest {
   private _hostname: string | null | undefined = undefined;
   private _port: number | undefined = undefined;
 
+  // ── validated internal slots — set by the validation pipeline step ──
+  private _validatedBody: unknown;
+  private _validatedParams: unknown;
+
   constructor(data: HttpRequestData) {
     // readonly
     this._requestId = data.requestId;
@@ -170,7 +174,7 @@ export class HttpRequest {
    * @public
    */
   getBody<T>(_dto: Class<T>): T {
-    return this.body as unknown as T;
+    return this._validatedBody as T;
   }
 
   /**
@@ -182,6 +186,28 @@ export class HttpRequest {
    * @public
    */
   getParams<T>(_dto: Class<T>): T {
-    return this.params as unknown as T;
+    return this._validatedParams as T;
+  }
+
+  /**
+   * Stores a validated body DTO instance in the internal slot.
+   * Called by the validation pipeline step after successful deserialization.
+   *
+   * @param value - The validated DTO instance.
+   * @internal
+   */
+  setValidatedBody(value: unknown): void {
+    this._validatedBody = value;
+  }
+
+  /**
+   * Stores validated route params in the internal slot.
+   * Called by the validation pipeline step after successful deserialization.
+   *
+   * @param value - The validated params DTO instance.
+   * @internal
+   */
+  setValidatedParams(value: unknown): void {
+    this._validatedParams = value;
   }
 }

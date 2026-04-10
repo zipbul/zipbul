@@ -113,12 +113,3 @@ export type ModuleMarker = symbol;
 
 export type ModuleMarkers = ModuleMarker[];
 
-/**
- * AOT 컴파일러가 인식하는 유일한 타입 마커.
- * 런타임에는 `T` 그대로 — 오버헤드 없음.
- * 반환 타입이 `Validated<T>`인 제네릭 메서드 호출을 AOT가 발견하면
- * `T`와 접근 종류를 메타데이터로 추출한다.
- *
- * @public
- */
-export type Validated<T> = T;

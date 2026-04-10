@@ -130,6 +130,7 @@ export class AdapterDefinitionResolver {
       adapterStaticSchemas,
       handlerIndex: handlerIndexResult.entries,
       routeRegistrations: handlerIndexResult.routeRegistrations,
+      handlerContextUsages: handlerIndexResult.handlerContextUsages,
     };
   }
 }

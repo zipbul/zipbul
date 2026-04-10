@@ -72,7 +72,7 @@ function createNoopMethodCallbacks(): MethodMetadataCallbacks {
   return {
     extractMiddlewaresFromConfigure: mock(() => []),
     extractExceptionFiltersFromConfigure: mock(() => []),
-    extractTypedCalls: mock(() => []),
+    extractHandlerContextUsages: mock(() => undefined),
   };
 }
 
@@ -312,7 +312,7 @@ describe('convertClassSymbol', () => {
     expect(metadata.methods[0]?.isStatic).toBe(true);
   });
 
-  it('should extract typedCalls from decorated method body', () => {
+  it('should extract contextUsages from decorated method body', () => {
     const code = [
       "import { Get } from '@zipbul/http-adapter';",
       '',
@@ -324,9 +324,9 @@ describe('convertClassSymbol', () => {
     const { parsed, symbols, importMap } = parseFixture(code);
     const symbol = findClassSymbol(symbols, 'MyController');
     const methodCallbacks = createNoopMethodCallbacks();
-    const typedCallResult = [{ methodName: 'getBody', typeArgs: ['UserDto'], callArgs: [] }];
+    const contextUsagesResult = [{ path: ['request', 'getBody'], isCall: true, dtoIdentifier: 'UserDto' }];
 
-    (methodCallbacks.extractTypedCalls as ReturnType<typeof mock>).mockReturnValue(typedCallResult);
+    (methodCallbacks.extractHandlerContextUsages as ReturnType<typeof mock>).mockReturnValue(contextUsagesResult);
 
     const result = convertClassSymbol(
       symbol, parsed, {}, importMap,
@@ -338,7 +338,7 @@ describe('convertClassSymbol', () => {
 
     const metadata = result as ClassMetadata;
 
-    expect(metadata.methods[0]?.typedCalls).toEqual(typedCallResult);
+    expect(metadata.methods[0]?.contextUsages).toEqual(contextUsagesResult);
   });
 
   it('should populate properties when class has decorated property', () => {

@@ -51,8 +51,8 @@ export interface MethodMetadataCallbacks {
   extractMiddlewaresFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['middlewares'], Diagnostic>;
   /** Extracts exception filter usages from a `configure` method body. */
   extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['exceptionFilters'], Diagnostic>;
-  /** Extracts typed member-access calls from a method body. */
-  extractTypedCalls(funcNode: OxcFunction): ClassMetadata['methods'][number]['typedCalls'];
+  /** Extracts context member-access chains from a handler method body. */
+  extractHandlerContextUsages(funcNode: OxcFunction): ClassMetadata['methods'][number]['contextUsages'];
 }
 
 /**
@@ -247,13 +247,13 @@ export function convertClassSymbol(
         }
 
         if (methodDecorators.length > 0 || methodParams.some(param => param.decorators.length > 0)) {
-          let typedCalls: ClassMetadata['methods'][number]['typedCalls'] | undefined;
+          let contextUsages: ClassMetadata['methods'][number]['contextUsages'] | undefined;
 
           if (rawClassNode !== null) {
             const funcNode = astLocators.findMethodBodyAstNode(rawClassNode, methodName);
 
             if (funcNode !== null) {
-              typedCalls = methodCallbacks.extractTypedCalls(funcNode);
+              contextUsages = methodCallbacks.extractHandlerContextUsages(funcNode);
             }
           }
 
@@ -261,7 +261,7 @@ export function convertClassSymbol(
             name: methodName,
             decorators: methodDecorators,
             parameters: methodParams,
-            ...(typedCalls !== undefined ? { typedCalls } : {}),
+            ...(contextUsages !== undefined && contextUsages.length > 0 ? { contextUsages } : {}),
             isStatic: isStatic || undefined,
             isComputed: isComputed || undefined,
             isPrivateName: isPrivateName || undefined,

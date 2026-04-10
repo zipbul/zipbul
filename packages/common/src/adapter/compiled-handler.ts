@@ -13,16 +13,14 @@ export interface CompiledOptionEntry {
 
 /**
  * AOT-compiled validation entry.
- * Extracted from `ctx.validated(key, DtoClass)` calls in handler body.
+ * Extracted from accessor calls like `ctx.request.getBody(Dto)` in handler body.
  *
  * @public
  */
 export interface CompiledValidationEntry {
-  /** Context key identifier name (e.g. `'bodyInput'`). Resolved to actual ContextKey at boot time. */
-  readonly keyRef: string;
-  /** Import source of the context key (e.g. `'@zipbul/http-adapter'`). */
-  readonly keyImportSource?: string;
-  /** Type name of the DTO class. Container key or import-path-qualified class name. */
+  /** Access path on the handler context (e.g. `['request', 'getBody']`). Protocol-neutral — each adapter interprets the path. */
+  readonly accessor: readonly string[];
+  /** DTO class name. Resolved to actual class constructor at boot time via metatypeIndex. */
   readonly metatypeKey: string;
 }
 
@@ -120,7 +118,7 @@ export interface CompiledHandlerEntry {
   readonly guardBindings?: readonly CompiledPipelineBindingEntry[];
   /** Lossless exception filter bindings collected during AOT. */
   readonly exceptionFilterBindings?: readonly CompiledPipelineBindingEntry[];
-  /** Validated<T> accessor list extracted from handler body. Empty when no validations. */
+  /** Validation entries extracted from handler accessor calls (e.g. `getBody`, `getParams`). */
   readonly validations?: readonly CompiledValidationEntry[];
   /** Option decorators from adapter-declared `decorators.options`. Adapter interprets meaning. */
   readonly options?: readonly CompiledOptionEntry[];

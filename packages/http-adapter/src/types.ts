@@ -145,7 +145,7 @@ export interface MatchedRouteMetadata {
   readonly applyResponseDefaults?: (response: HttpResponse) => void;
   /** 핸들러 함수 — 항상 `(ctx: HttpContext)` 단일 시그니처. */
   readonly handler: RouteHandlerFunction;
-  /** AOT에서 추출된 Validated<T> 접근 목록. 빈 배열이면 검증 없음. */
+  /** AOT에서 추출된 validation 엔트리 목록. 빈 배열이면 검증 없음. */
   readonly validations: readonly ResolvedValidationEntry[];
   /** Pre-handler step functions. Boot-time resolved from compiledPre. */
   readonly pre: readonly PipelineStepFn[];

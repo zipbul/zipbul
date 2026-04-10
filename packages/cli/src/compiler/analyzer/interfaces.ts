@@ -6,6 +6,7 @@ import type {
   CompiledValidationEntry,
 } from '@zipbul/common';
 import type { AnalyzerValue } from './types';
+import type { ContextUsage } from './parser/handler-context-usage-extractor';
 
 export type CompiledPhaseMiddlewareKeys = Readonly<Record<string, readonly string[]>>;
 export type { CompiledPipelineScope };
@@ -61,30 +62,13 @@ export interface MethodParameterMetadata {
   index: number;
 }
 
-/** A member-access call found in a method body (e.g. `ctx.getBody<UserDto>()` or `ctx.validated(bodyInput, UserDto)`). */
-export interface TypedCallMetadata {
-  /** Called method name (e.g. `'getBody'`, `'validated'`). */
-  readonly methodName: string;
-  /** Resolved type argument names (e.g. `['UserDto']`). Empty when call has no type arguments. */
-  readonly typeArgs: readonly string[];
-  /** Resolved runtime call argument references (e.g. `['bodyInput', 'UserDto']`). Only captured for specific call patterns. */
-  readonly callArgs?: readonly CallArgRef[];
-}
-
-/** Resolved reference for a runtime call argument. */
-export interface CallArgRef {
-  /** Identifier or import reference name. */
-  readonly ref: string;
-  /** Import source path, if the argument is an imported identifier. */
-  readonly importSource?: string;
-}
 
 export interface MethodMetadata {
   name: string;
   decorators: DecoratorMetadata[];
   parameters: MethodParameterMetadata[];
-  /** Typed member-access calls found in the method body. */
-  typedCalls?: readonly TypedCallMetadata[];
+  /** Context member-access chains extracted from the handler body (e.g. `ctx.request.getBody(Dto)`). */
+  contextUsages?: readonly ContextUsage[];
   isStatic?: boolean | undefined;
   isComputed?: boolean | undefined;
   isPrivateName?: boolean | undefined;
@@ -188,7 +172,7 @@ export interface HandlerIndexEntry {
   guardKeys?: readonly string[];
   /** Option decorators found on the class and/or method. */
   options?: readonly CompiledOptionEntry[];
-  /** Validated accessor calls extracted from the handler body. */
+  /** Validation entries extracted from handler accessor calls (e.g. `getBody`, `getParams`). */
   validations?: readonly CompiledValidationEntry[];
   /** Build-time merged, phase-keyed middleware keys for the generic pipeline runtime. */
   mergedPhaseMiddlewareKeys?: CompiledPhaseMiddlewareKeys;
@@ -228,4 +212,6 @@ export interface AdapterResolution {
   adapterStaticSchemas: Record<string, AdapterStaticSchema>;
   handlerIndex: HandlerIndexEntry[];
   routeRegistrations: RouteRegistration[];
+  /** Per-handler context usages for build-time augment validation. Keyed by handler ID. */
+  handlerContextUsages: Map<string, readonly ContextUsage[]>;
 }

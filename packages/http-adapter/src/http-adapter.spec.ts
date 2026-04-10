@@ -4486,18 +4486,20 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── wrapValidationError ───────────────────────────────────
 
   describe('wrapValidationError', () => {
+    const fakeEntry = { accessor: ['request', 'getBody'], metatype: class Dto {}, readInput: () => undefined, writeOutput: () => {} };
+
     it('should rethrow non-baker errors', () => {
       const adapter = new HttpAdapter();
       const customError = new Error('not a baker error');
 
-      expect(() => (adapter as any).wrapValidationError(Symbol('key'), customError)).toThrow(customError);
+      expect(() => (adapter as any).wrapValidationError(fakeEntry, customError)).toThrow(customError);
     });
 
     it('should rethrow plain objects that are not baker errors', () => {
       const adapter = new HttpAdapter();
       const plainObj = { message: 'nope' };
 
-      expect(() => (adapter as any).wrapValidationError(Symbol('key'), plainObj)).toThrow();
+      expect(() => (adapter as any).wrapValidationError(fakeEntry, plainObj)).toThrow();
     });
   });
 

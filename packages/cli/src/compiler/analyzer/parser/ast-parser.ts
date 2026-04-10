@@ -33,7 +33,8 @@ import { convertClassSymbol } from './class-metadata-extractor';
 import type { AstNodeLocatorCallbacks, MethodMetadataCallbacks, AnonymousClassCallback, ClassMetadataContext } from './class-metadata-extractor';
 import { enrichFactoryValues, detectFrameworkCallsFromInitializer, convertModuleDefinition, upsertDefineModuleCall, parsePatternCaptureArgs, resolveExportDefaultDefineModule } from './framework-call-detector';
 import { resolveInjectCallee, findImportSourceForCallee, buildInjectCallFromCapture } from './inject-call-analyzer';
-import { extractExceptionFiltersFromConfigure, extractTypedCalls, extractMiddlewaresFromConfigure } from './method-metadata-extractor';
+import { extractExceptionFiltersFromConfigure, extractMiddlewaresFromConfigure } from './method-metadata-extractor';
+import { extractHandlerContextUsages } from './handler-context-usage-extractor';
 import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, getMethodAstMeta, isAnonymousClassSymbol, extractFunctionSourceText } from './ast-node-locator';
 
 
@@ -284,7 +285,7 @@ export class AstParser {
     const methodCallbacks: MethodMetadataCallbacks = {
       extractMiddlewaresFromConfigure,
       extractExceptionFiltersFromConfigure,
-      extractTypedCalls,
+      extractHandlerContextUsages: (funcNode) => extractHandlerContextUsages(funcNode)?.usages,
     };
 
     const anonymousCheck: AnonymousClassCallback = {

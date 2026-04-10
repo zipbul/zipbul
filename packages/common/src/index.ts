@@ -83,7 +83,6 @@ export type {
   DecoratorTarget,
   ModuleMarker,
   ModuleMarkers,
-  Validated,
 } from './types';
 
 export { ZipbulError } from './errors/errors';

@@ -470,7 +470,6 @@ export class HttpServer {
         options.handlerIndex,
         options.controllerInstances,
         this.adapter.buildRoutePipeline.bind(this.adapter),
-        options.contextKeyIndex,
       );
     }
 

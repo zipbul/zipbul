@@ -769,10 +769,8 @@ describe('RouteHandler', () => {
 
   // ── resolveValidations via registerFromHandlerIndex ─────
 
-  describe('validation resolution via contextKeyIndex', () => {
-    it('should resolve validations when contextKeyIndex provides matching key', () => {
-      // Arrange
-      const handler = createRouteHandler();
+  describe('validation resolution via accessor path', () => {
+    it('should resolve getBody validation with readInput/writeOutput closures', () => {
       class UserDto {}
       const metatypeRegistry = new Map<new (...args: readonly unknown[]) => unknown, { className: string }>([
         [UserDto, { className: 'UserDto' }],
@@ -783,8 +781,6 @@ describe('RouteHandler', () => {
       );
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
-      const bodyKey = Symbol('body') as never;
-      const contextKeyIndex = new Map([['bodyInput', bodyKey]]);
 
       let capturedValidations: readonly unknown[] = [];
       const buildPipeline = mock((_entry: unknown, validations: readonly unknown[]) => {
@@ -792,7 +788,6 @@ describe('RouteHandler', () => {
         return { pre: [], post: [], filters: [] };
       });
 
-      // Act
       handlerWithMeta.registerFromHandlerIndex([{
         id: 'TestAdapter:test#TestCtrl.handle',
         adapterId: 'TestAdapter',
@@ -801,18 +796,57 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-        validations: [{ keyRef: 'bodyInput', metatypeKey: 'UserDto' }],
-      } as never], controllerInstances, buildPipeline as never, contextKeyIndex as never);
+        validations: [{ accessor: ['request', 'getBody'], metatypeKey: 'UserDto' }],
+      } as never], controllerInstances, buildPipeline as never);
 
-      // Assert
       expect(capturedValidations).toHaveLength(1);
-      expect((capturedValidations[0] as { key: symbol }).key).toBe(bodyKey);
-      expect((capturedValidations[0] as { metatype: unknown }).metatype).toBe(UserDto);
+
+      const entry = capturedValidations[0] as { accessor: readonly string[]; metatype: unknown; readInput: Function; writeOutput: Function };
+
+      expect(entry.accessor).toEqual(['request', 'getBody']);
+      expect(entry.metatype).toBe(UserDto);
+      expect(typeof entry.readInput).toBe('function');
+      expect(typeof entry.writeOutput).toBe('function');
     });
 
-    it('should throw when contextKeyIndex is undefined and entry has validations', () => {
-      // Arrange
-      const handler = createRouteHandler();
+    it('should resolve getParams validation with readInput/writeOutput closures', () => {
+      class ParamsDto {}
+      const metatypeRegistry = new Map<new (...args: readonly unknown[]) => unknown, { className: string }>([
+        [ParamsDto, { className: 'ParamsDto' }],
+      ]);
+      const handlerWithMeta = new RouteHandler(
+        metatypeRegistry as never,
+        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
+      );
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      let capturedValidations: readonly unknown[] = [];
+      const buildPipeline = mock((_entry: unknown, validations: readonly unknown[]) => {
+        capturedValidations = validations;
+        return { pre: [], post: [], filters: [] };
+      });
+
+      handlerWithMeta.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#TestCtrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'TestCtrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['test'],
+        params: [],
+        validations: [{ accessor: ['request', 'getParams'], metatypeKey: 'ParamsDto' }],
+      } as never], controllerInstances, buildPipeline as never);
+
+      expect(capturedValidations).toHaveLength(1);
+
+      const entry = capturedValidations[0] as { accessor: readonly string[]; metatype: unknown };
+
+      expect(entry.accessor).toEqual(['request', 'getParams']);
+      expect(entry.metatype).toBe(ParamsDto);
+    });
+
+    it('should skip unknown accessor paths silently', () => {
       class SomeDto {}
       const metatypeRegistry = new Map<new (...args: readonly unknown[]) => unknown, { className: string }>([
         [SomeDto, { className: 'SomeDto' }],
@@ -824,62 +858,34 @@ describe('RouteHandler', () => {
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
 
-      // Act & Assert — no contextKeyIndex provided
-      expect(() => {
-        handlerWithMeta.registerFromHandlerIndex([{
-          id: 'TestAdapter:test#TestCtrl.handle',
-          adapterId: 'TestAdapter',
-          controllerKey: 'TestCtrl',
-          methodName: 'handle',
-          handlerDecorator: 'Get',
-          handlerDecoratorArgs: ['test'],
-          params: [],
-          validations: [{ keyRef: 'bodyInput', metatypeKey: 'SomeDto' }],
-        } as never], controllerInstances, undefined, undefined);
-      }).toThrow(/Cannot resolve ContextKey for keyRef 'bodyInput'/);
-    });
+      let capturedValidations: readonly unknown[] = [];
+      const buildPipeline = mock((_entry: unknown, validations: readonly unknown[]) => {
+        capturedValidations = validations;
+        return { pre: [], post: [], filters: [] };
+      });
 
-    it('should throw when contextKeyIndex does not contain the keyRef', () => {
-      // Arrange
-      class SomeDto {}
-      const metatypeRegistry = new Map<new (...args: readonly unknown[]) => unknown, { className: string }>([
-        [SomeDto, { className: 'SomeDto' }],
-      ]);
-      const handlerWithMeta = new RouteHandler(
-        metatypeRegistry as never,
-        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
-      );
-      const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
-      const contextKeyIndex = new Map<string, never>(); // empty
+      handlerWithMeta.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#TestCtrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'TestCtrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['test'],
+        params: [],
+        validations: [{ accessor: ['request', 'unknownAccessor'], metatypeKey: 'SomeDto' }],
+      } as never], controllerInstances, buildPipeline as never);
 
-      // Act & Assert
-      expect(() => {
-        handlerWithMeta.registerFromHandlerIndex([{
-          id: 'TestAdapter:test#TestCtrl.handle',
-          adapterId: 'TestAdapter',
-          controllerKey: 'TestCtrl',
-          methodName: 'handle',
-          handlerDecorator: 'Get',
-          handlerDecoratorArgs: ['test'],
-          params: [],
-          validations: [{ keyRef: 'bodyInput', metatypeKey: 'SomeDto' }],
-        } as never], controllerInstances, undefined, contextKeyIndex as never);
-      }).toThrow(/Cannot resolve ContextKey for keyRef 'bodyInput'/);
+      expect(capturedValidations).toEqual([]);
     });
 
     it('should throw when metatypeKey cannot be resolved', () => {
-      // Arrange — empty metatype registry
       const handlerWithMeta = new RouteHandler(
         new Map() as never,
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
       );
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
-      const bodyKey = Symbol('body') as never;
-      const contextKeyIndex = new Map([['bodyInput', bodyKey]]);
 
-      // Act & Assert
       expect(() => {
         handlerWithMeta.registerFromHandlerIndex([{
           id: 'TestAdapter:test#TestCtrl.handle',
@@ -889,13 +895,12 @@ describe('RouteHandler', () => {
           handlerDecorator: 'Get',
           handlerDecoratorArgs: ['test'],
           params: [],
-          validations: [{ keyRef: 'bodyInput', metatypeKey: 'UnknownDto' }],
-        } as never], controllerInstances, undefined, contextKeyIndex as never);
+          validations: [{ accessor: ['request', 'getBody'], metatypeKey: 'UnknownDto' }],
+        } as never], controllerInstances);
       }).toThrow(/Cannot resolve DTO class for metatypeKey 'UnknownDto'/);
     });
 
     it('should return empty validations when entry has no validations field', () => {
-      // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
@@ -906,7 +911,6 @@ describe('RouteHandler', () => {
         return { pre: [], post: [], filters: [] };
       });
 
-      // Act
       handler.registerFromHandlerIndex([{
         id: 'TestAdapter:test#TestCtrl.handle',
         adapterId: 'TestAdapter',
@@ -917,7 +921,6 @@ describe('RouteHandler', () => {
         params: [],
       } as never], controllerInstances, buildPipeline as never);
 
-      // Assert
       expect(capturedValidations).toEqual([]);
     });
   });

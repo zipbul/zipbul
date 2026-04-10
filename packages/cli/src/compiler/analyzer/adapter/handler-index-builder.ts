@@ -3,9 +3,9 @@ import type {
   AdapterExtraction,
   AdapterStaticSchema,
   HandlerIndexEntry,
-  TypedCallMetadata,
   RouteRegistration,
 } from '../interfaces';
+import type { ContextUsage } from '../parser/handler-context-usage-extractor';
 import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../../../diagnostics';
 import type { CompiledValidationEntry } from '@zipbul/common';
@@ -77,9 +77,10 @@ export function buildHandlerIndex(
   projectRoot: string,
   controllerAdapterMap: Map<string, string>,
   graph?: AdapterResolveParams['graph'],
-): Result<{ entries: HandlerIndexEntry[]; routeRegistrations: RouteRegistration[] }, Diagnostic> {
+): Result<{ entries: HandlerIndexEntry[]; routeRegistrations: RouteRegistration[]; handlerContextUsages: Map<string, readonly ContextUsage[]> }, Diagnostic> {
   const entries: HandlerIndexEntry[] = [];
   const routeRegistrations: RouteRegistration[] = [];
+  const handlerContextUsages = new Map<string, readonly ContextUsage[]>();
   const seen = new Set<string>();
   const internPool = new InternPool();
 
@@ -228,8 +229,8 @@ export function buildHandlerIndex(
           const handlerOptions = extractOptionDecorators(cls, method, optionDecorators);
           const params = extractHandlerParams(method);
 
-          // Build validations from ctx.validated(key, Dto) calls
-          const validations = buildValidationEntries(method.typedCalls, analysis.imports);
+          // Build validations from ctx.request.getBody(Dto) / getParams(Dto) calls
+          const validations = buildValidationEntries(method.contextUsages);
 
           // Compile pipeline -- eliminate steps with no registrations
           const pipelineResult = compilePipeline(
@@ -242,6 +243,11 @@ export function buildHandlerIndex(
           );
 
           seen.add(id);
+
+          if (method.contextUsages !== undefined && method.contextUsages.length > 0) {
+            handlerContextUsages.set(id, method.contextUsages);
+          }
+
           entries.push({
             id,
             adapterId: extraction.adapterId,
@@ -289,7 +295,7 @@ export function buildHandlerIndex(
 
   const sorted = entries.sort((a, b) => a.id.localeCompare(b.id));
 
-  return { entries: sorted, routeRegistrations };
+  return { entries: sorted, routeRegistrations, handlerContextUsages };
 }
 
 /**
@@ -370,54 +376,57 @@ function joinRoutePaths(prefix: string, handlerPath: string): string {
   return `${normalizedPrefix}${normalizedHandler}`;
 }
 
+/** Accessor method names that trigger AOT validation wiring. */
+const VALIDATION_ACCESSORS = new Set(['getBody', 'getParams']);
+
 /**
- * Builds `CompiledValidationEntry[]` from `ctx.validated(keyRef, DtoClass)` calls
- * found in handler body. Both arguments are runtime identifiers captured by
- * the AST parser as `callArgs`. Resolves import sources from the file's import entries.
+ * Builds `CompiledValidationEntry[]` from context accessor calls found in
+ * handler body (e.g. `ctx.request.getBody(CreateUserDto)`).
  *
- * @param typedCalls - Typed member calls found in the handler body.
- * @param fileImports - Import entries of the file containing the handler.
+ * Each matching usage produces an entry with the full accessor path and the
+ * DTO class name. The adapter interprets the accessor path at boot time.
+ *
+ * @param contextUsages - Context member-access chains extracted from the handler body.
  * @returns Validation entries. Empty array when no matches.
  * @public
  */
 export function buildValidationEntries(
-  typedCalls: readonly TypedCallMetadata[] | undefined,
-  fileImports?: Record<string, string>,
+  contextUsages: readonly ContextUsage[] | undefined,
 ): CompiledValidationEntry[] {
-  if (typedCalls === undefined) {
+  if (contextUsages === undefined) {
     return [];
   }
 
   const result: CompiledValidationEntry[] = [];
   const seen = new Set<string>();
 
-  for (const call of typedCalls) {
-    if (call.methodName !== 'validated' || call.callArgs === undefined || call.callArgs.length < 2) {
+  for (const usage of contextUsages) {
+    if (!usage.isCall || usage.dtoIdentifier === null) {
       continue;
     }
 
-    const keyArg = call.callArgs[0]!;
-    const dtoArg = call.callArgs[1]!;
+    const lastSegment = usage.path[usage.path.length - 1];
 
-    const keyRef = keyArg.ref;
-    const metatypeKey = dtoArg.ref;
+    if (lastSegment === undefined || !VALIDATION_ACCESSORS.has(lastSegment)) {
+      continue;
+    }
+
+    const metatypeKey = usage.dtoIdentifier;
 
     if (metatypeKey === 'never' || metatypeKey === 'any' || metatypeKey === 'unknown') {
       continue;
     }
 
-    if (seen.has(keyRef)) {
+    const dedupeKey = `${usage.path.join('.')}:${metatypeKey}`;
+
+    if (seen.has(dedupeKey)) {
       continue;
     }
 
-    seen.add(keyRef);
-
-    // Resolve import source for the context key identifier
-    const keyImportSource = fileImports !== undefined ? fileImports[keyRef] : undefined;
+    seen.add(dedupeKey);
 
     result.push({
-      keyRef,
-      ...(keyImportSource !== undefined ? { keyImportSource } : {}),
+      accessor: usage.path,
       metatypeKey,
     });
   }

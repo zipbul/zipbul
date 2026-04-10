@@ -1,6 +1,6 @@
 import type {
   CompiledHandlerEntry,
-  ContextKey,
+  AdapterContext,
 } from '@zipbul/common';
 import type { ResolvedExceptionFilter, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
 
@@ -17,7 +17,7 @@ import type {
   RouteHandlerResult,
 } from './types';
 
-import type { HttpContext } from './http-context';
+import { HttpContext } from './http-context';
 import type { HttpResponse } from './http-response';
 import { Router } from '@zipbul/router';
 
@@ -116,14 +116,12 @@ export class RouteHandler {
    * @param entries - Compiled handler entries from AOT.
    * @param controllerInstances - Map of controller keys to instantiated controllers.
    * @param buildPipeline - Adapter-provided callback to resolve compiled pipeline data.
-   * @param contextKeyIndex - Boot-time resolved index mapping keyRef strings to ContextKey symbols.
    * @public
    */
   registerFromHandlerIndex(
     entries: readonly HttpCompiledHandlerEntry[],
     controllerInstances?: Map<string, unknown>,
     buildPipeline?: PipelineBuildFn,
-    contextKeyIndex?: ReadonlyMap<string, ContextKey<unknown>>,
   ): void {
     let routeCount = 0;
 
@@ -154,7 +152,7 @@ export class RouteHandler {
       }
 
       const handler = this.resolveHandler(instance, entry.methodName);
-      const validations = this.resolveValidations(entry, contextKeyIndex);
+      const validations = this.resolveValidations(entry);
 
       const pathArgIndex = isCustomMethod ? 1 : 0;
       const rawPath = typeof entry.handlerDecoratorArgs[pathArgIndex] === 'string' ? entry.handlerDecoratorArgs[pathArgIndex] as string : '';
@@ -294,15 +292,17 @@ export class RouteHandler {
   }
 
   /**
-   * Resolves AOT-compiled validation entries into runtime entries with actual class constructors.
+   * Resolves AOT-compiled validation entries into runtime entries with read/write closures.
+   *
+   * Maps each compiled accessor path to adapter-specific read/write operations
+   * on the HttpRequest internal slots. Unknown accessors are silently skipped
+   * (the adapter only handles accessor paths it recognizes).
    *
    * @param entry - The compiled handler entry from AOT.
-   * @param contextKeyIndex - Boot-time resolved index mapping keyRef strings to ContextKey symbols.
    * @returns Resolved validation entries.
    */
   private resolveValidations(
     entry: CompiledHandlerEntry,
-    contextKeyIndex?: ReadonlyMap<string, ContextKey<unknown>>,
   ): readonly ResolvedValidationEntry[] {
     const compiled = entry.validations;
 
@@ -319,13 +319,19 @@ export class RouteHandler {
         throw new Error(`[RouteHandler] Cannot resolve DTO class for metatypeKey '${validation.metatypeKey}'`);
       }
 
-      const key = contextKeyIndex?.get(validation.keyRef);
+      const lastSegment = validation.accessor[validation.accessor.length - 1];
+      const io = resolveAccessorIO(lastSegment);
 
-      if (key === undefined) {
-        throw new Error(`[RouteHandler] Cannot resolve ContextKey for keyRef '${validation.keyRef}'. Ensure the AOT-generated injector registers context keys.`);
+      if (io === undefined) {
+        continue;
       }
 
-      resolved.push({ key, metatype });
+      resolved.push({
+        accessor: validation.accessor,
+        metatype,
+        readInput: io.readInput,
+        writeOutput: io.writeOutput,
+      });
     }
 
     return resolved;
@@ -374,6 +380,32 @@ function buildMetatypeIndex(
   }
 
   return index;
+}
+
+interface AccessorIO {
+  readonly readInput: (context: AdapterContext) => unknown;
+  readonly writeOutput: (context: AdapterContext, value: unknown) => void;
+}
+
+/**
+ * Maps an accessor method name to read/write closures operating on HttpRequest slots.
+ * Returns `undefined` for unrecognized accessors.
+ */
+function resolveAccessorIO(accessor: string | undefined): AccessorIO | undefined {
+  switch (accessor) {
+    case 'getBody':
+      return {
+        readInput: (ctx) => ctx.to(HttpContext).request.body,
+        writeOutput: (ctx, value) => { ctx.to(HttpContext).request.setValidatedBody(value); },
+      };
+    case 'getParams':
+      return {
+        readInput: (ctx) => ctx.to(HttpContext).request.params,
+        writeOutput: (ctx, value) => { ctx.to(HttpContext).request.setValidatedParams(value); },
+      };
+    default:
+      return undefined;
+  }
 }
 
 function buildResponseDefaultsApplier(

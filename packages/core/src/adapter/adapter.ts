@@ -6,7 +6,7 @@ import type { GuardDefinition, GuardHandlerFn } from '@zipbul/common';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '@zipbul/common';
 import type { Adapter as AdapterContract, AdapterClass, AdapterEntryDecorators, AdapterContext, ApplicationContext } from '@zipbul/common';
 import { ClusterStrategy } from '@zipbul/common';
-import type { ZipbulContainer, ContextKey } from '@zipbul/common';
+import type { ZipbulContainer } from '@zipbul/common';
 import { contextKey } from '@zipbul/common';
 import { runInInjectionContext } from '../injection-context';
 import { runInAdapterContext } from '../adapter-context';
@@ -41,15 +41,23 @@ export interface ResolvedExceptionFilter {
 }
 
 /**
- * Resolved validation entry: AOT metatypeKey resolved to actual class constructor.
+ * Resolved validation entry: AOT accessor path resolved to read/write closures.
+ *
+ * Protocol-agnostic: the core orchestrates `readInput` → `deserialize` → `writeOutput`.
+ * Each adapter provides closures that know how to read raw input and store validated
+ * results in adapter-specific locations (e.g. HttpRequest internal slots).
  *
  * @public
  */
 export interface ResolvedValidationEntry {
-  /** Context key identifying the raw validation input. Set by an adapter step or middleware via `ctx.set(key, rawValue)`. */
-  readonly key: ContextKey<unknown>;
+  /** Access path from compiled metadata (e.g. `['request', 'getBody']`). For error reporting. */
+  readonly accessor: readonly string[];
   /** DTO class constructor. Passed to baker `deserialize()`. */
   readonly metatype: new (...args: readonly unknown[]) => unknown;
+  /** Reads raw input from the adapter-specific context. */
+  readonly readInput: (context: AdapterContext) => unknown;
+  /** Writes validated result back to the adapter-specific context. */
+  readonly writeOutput: (context: AdapterContext, value: unknown) => void;
 }
 
 /**
@@ -334,8 +342,8 @@ export abstract class Adapter implements AdapterContract {
 
   /**
    * Runs baker validation for each resolved validation entry.
-   * Reads the raw value from context via `ctx.get(entry.key)`, validates against the DTO,
-   * and stores the validated result via `ctx.setValidated(entry.key, result)`.
+   * Reads the raw value via `entry.readInput(context)`, validates against the DTO,
+   * and stores the validated result via `entry.writeOutput(context, result)`.
    *
    * @param validations - Resolved validation entries.
    * @param context - The current execution context.
@@ -346,17 +354,14 @@ export abstract class Adapter implements AdapterContract {
     context: AdapterContext,
   ): ResultAsync<void, unknown> {
     for (const validation of validations) {
-      const input = context.get(validation.key);
+      const input = validation.readInput(context);
       const result = await deserialize(validation.metatype, input);
 
       if (isBakerError(result)) {
-        return this.wrapValidationError(validation.key, result);
+        return this.wrapValidationError(validation, result);
       }
 
-      // TODO(adapter-rewrite): replace with HttpRequest internal slot writes
-      // once the new validation model lands. For now, write back to the same
-      // context store so handlers can read via existing accessors.
-      context.set(validation.key, result);
+      validation.writeOutput(context, result);
     }
     return undefined;
   }
@@ -365,11 +370,11 @@ export abstract class Adapter implements AdapterContract {
    * Converts a baker validation error into a protocol-specific `Err`.
    * Default: re-throws (exception filter path).
    *
-   * @param _key - The context key whose validation failed.
+   * @param _entry - The validation entry that failed.
    * @param thrown - The baker error.
    * @public
    */
-  protected wrapValidationError(_key: ContextKey<unknown>, thrown: unknown): Err<unknown> {
+  protected wrapValidationError(_entry: ResolvedValidationEntry, thrown: unknown): Err<unknown> {
     throw thrown;
   }
 
