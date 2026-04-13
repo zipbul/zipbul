@@ -98,6 +98,17 @@ async function readBodyWithLimit(
   return result;
 }
 
+function formatUnknownError(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
 // ── HttpAdapter ──────────────────────────────────────────────
 
 export class HttpAdapter extends Adapter {
@@ -580,7 +591,7 @@ export class HttpAdapter extends Adapter {
     if (error instanceof Error) {
       this.logger.error(`emergencyTeardown: ${error.message}`, error);
     } else if (error !== undefined) {
-      this.logger.error(`emergencyTeardown: ${String(error)}`);
+      this.logger.error(`emergencyTeardown: ${formatUnknownError(error)}`);
     }
 
     const http = context.to(HttpContext);
@@ -660,7 +671,7 @@ export class HttpAdapter extends Adapter {
 
     // If requests remain after timeout, force close
     if (server.pendingRequests > 0 || server.pendingWebSockets > 0) {
-      server.stop(true);
+      await server.stop(true);
     }
   }
 

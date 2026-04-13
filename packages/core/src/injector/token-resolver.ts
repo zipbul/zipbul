@@ -109,7 +109,7 @@ export function coerceToken(value: DecoratorArgument | undefined): Token | Token
  * @returns True if the value is a ProviderToken
  * @public
  */
-export function isProviderToken(value: DecoratorArgument | Token | TokenRecord | ProviderToken | undefined): value is Token {
+export function isProviderToken(value: DecoratorArgument | TokenRecord | ProviderToken | undefined): value is Token {
   return typeof value === 'string' || typeof value === 'symbol' || typeof value === 'function';
 }
 
@@ -120,7 +120,7 @@ export function isProviderToken(value: DecoratorArgument | Token | TokenRecord |
  * @returns True if the value is a TokenRecord
  * @public
  */
-export function isTokenRecord(value: DecoratorArgument | Token | TokenRecord | ProviderToken | undefined): value is TokenRecord {
+export function isTokenRecord(value: DecoratorArgument | TokenRecord | ProviderToken | undefined): value is TokenRecord {
   if (typeof value !== 'object' || value === null) {
     return false;
   }

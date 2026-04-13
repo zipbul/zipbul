@@ -79,7 +79,7 @@ export class HttpResponse {
    * @public
    */
   reset(): void {
-    this._rawNativeResponse?.body?.cancel();
+    void this._rawNativeResponse?.body?.cancel();
     this._headers = undefined;
     this._contentType = undefined;
     this._contentLength = undefined;
@@ -222,7 +222,7 @@ export class HttpResponse {
    */
   setBody(data: ResponseBodyValue | undefined): this {
     if (data instanceof ReadableStream) {
-      this._rawNativeResponse?.body?.cancel();
+      void this._rawNativeResponse?.body?.cancel();
       this._body = undefined;
       this._rawNativeResponse = new Response(data);
       this._mergedNativeResponse = undefined;
@@ -230,7 +230,7 @@ export class HttpResponse {
     }
 
     if (data instanceof Blob) {
-      this._rawNativeResponse?.body?.cancel();
+      void this._rawNativeResponse?.body?.cancel();
       this._body = undefined;
       if (this.getContentType() === null && data.type) {
         this.setContentType(data.type);
@@ -242,7 +242,7 @@ export class HttpResponse {
     }
 
     // Buffered body — clear native path
-    this._rawNativeResponse?.body?.cancel();
+    void this._rawNativeResponse?.body?.cancel();
     this._body = data;
     this._rawNativeResponse = undefined;
     this._mergedNativeResponse = undefined;
@@ -272,7 +272,7 @@ export class HttpResponse {
    * @public
    */
   setNativeResponse(response: Response): void {
-    this._rawNativeResponse?.body?.cancel();
+    void this._rawNativeResponse?.body?.cancel();
     this._rawNativeResponse = response;
     this._mergedNativeResponse = undefined;
     this._body = undefined;
@@ -337,7 +337,7 @@ export class HttpResponse {
    * @public
    */
   cancelNativeStream(): void {
-    this._rawNativeResponse?.body?.cancel();
+    void this._rawNativeResponse?.body?.cancel();
   }
 
   // ── Serialize (Content-Type inference + JSON.stringify) ──────

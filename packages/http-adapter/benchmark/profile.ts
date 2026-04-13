@@ -108,5 +108,5 @@ group('async overhead', () => {
 
 await run({ avg: true, min_max: true, percentiles: true });
 
-baselineServer.stop();
+void baselineServer.stop();
 process.exit(0);

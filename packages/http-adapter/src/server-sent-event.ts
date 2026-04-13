@@ -78,7 +78,17 @@ function serializeData(data: unknown): string {
 
 /** SSE event/id 필드는 단일 행 값이다. 개행·NULL 문자를 제거하여 프레임 인젝션을 방지한다 (WHATWG SSE §9.2.6). */
 function stripLineBreaks(value: string): string {
-  return value.replace(/\r\n|\r|\n|\0/g, '');
+  let out = '';
+
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+
+    if (code === 0x0d || code === 0x0a || code === 0x00) continue;
+
+    out += value[i];
+  }
+
+  return out;
 }
 
 /**

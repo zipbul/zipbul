@@ -110,7 +110,7 @@ export function extractMiddlewareAugments(factory: OxcFunction | ArrowFunctionEx
  * The factory passed to `defineMiddleware` is `() => (ctx) => { ... }`.
  * The outer function returns the handler. Find that returned function.
  */
-function findHandlerFunction(factory: OxcFunction | ArrowFunctionExpression): OxcFunction | ArrowFunctionExpression | FunctionExpression | null {
+function findHandlerFunction(factory: OxcFunction | ArrowFunctionExpression): OxcFunction | ArrowFunctionExpression | null {
   const body = factory.body;
 
   if (!body) {
@@ -136,7 +136,7 @@ function isFunctionLike(node: AstNode): node is ArrowFunctionExpression | Functi
   return node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression';
 }
 
-function getFirstParamName(fn: ArrowFunctionExpression | FunctionExpression | OxcFunction): string | null {
+function getFirstParamName(fn: ArrowFunctionExpression | OxcFunction): string | null {
   const params = fn.params;
 
   if (!params || params.length === 0) {

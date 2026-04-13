@@ -592,7 +592,7 @@ async function extractContextGetterTypes(
   contextClassName: string,
   contextImportSource: string | null,
   adapterSourceFile: string,
-  fileMap: Map<string, FileAnalysis>,
+  _fileMap: Map<string, FileAnalysis>,
 ): Promise<ContextNamespaceMap | null> {
   // Resolve the context class source file
   const contextFilePath = resolveImportPath(contextImportSource, adapterSourceFile);

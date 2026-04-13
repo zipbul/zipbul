@@ -42,7 +42,7 @@ const init: RpcCallable = async (...args: RpcArgs) => {
 const bootstrap: RpcCallable = () => null;
 
 const destroy: RpcCallable = () => {
-  server?.stop(true);
+  void server?.stop(true);
   server = undefined;
 
   return null;
