@@ -110,17 +110,7 @@ describe('HttpServer', () => {
       const mockCreateRequestScope = mock(() => createMockContainer());
       const container = createMockContainer({
         createRequestScope: mockCreateRequestScope,
-        keys: mock(function* () {
-          yield 'singleton::A';
-          yield 'transient::B';
-        }),
-        getRegistration: mock((token: unknown) => {
-          if (token === 'singleton::A') return { scope: 'singleton' };
-          if (token === 'transient::B') return { scope: 'transient' };
-          return undefined;
-        }),
-      } as Partial<ZipbulContainer> & {
-        getRegistration(token: unknown): { scope?: string } | undefined;
+        hasRequestScope: () => false,
       });
       const adapter = createMockAdapter();
       wireServer(server, container, adapter);

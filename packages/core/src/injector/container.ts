@@ -37,6 +37,7 @@ export class Container implements ZipbulContainer {
   private registrationOrder: Token[] = [];
   private scopedKeys?: Map<ProviderToken, string>;
   private readonly constructorParamsCache = new Map<Class, readonly ConstructorParamMetadata[]>();
+  private _hasRequestScope = false;
 
   constructor(initialFactories?: Map<Token, FactoryFn>) {
     if (initialFactories) {
@@ -67,6 +68,7 @@ export class Container implements ZipbulContainer {
 
     this.registrations.set(token, { factory: factory as FactoryFn, scope, visibleTo });
     this.registrationOrder.push(token);
+    if (scope === 'request') this._hasRequestScope = true;
   }
 
   get(token: Token): ContainerValue {
@@ -135,6 +137,10 @@ export class Container implements ZipbulContainer {
    */
   getRegistrationOrder(): readonly Token[] {
     return this.registrationOrder;
+  }
+
+  hasRequestScope(): boolean {
+    return this._hasRequestScope;
   }
 
   /**

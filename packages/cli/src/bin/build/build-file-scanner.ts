@@ -8,7 +8,6 @@ import type { AstParser, FileAnalysis } from '../../compiler/analyzer';
 import { compareCodePoint } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { buildFileAnalysis } from './build-analysis';
-import type { BuildCache } from './build-cache';
 
 // ---------------------------------------------------------------------------
 // dist -> source resolution
@@ -53,9 +52,7 @@ async function resolveDistToSource(resolvedPath: string): Promise<string | null>
 
 export interface ScanResult {
   fileMap: Map<string, FileAnalysis>;
-  contentHashes: Map<string, string>;
   allClasses: CollectedClass[];
-  cacheHits: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +64,6 @@ export interface ScanParams {
   srcDir: string;
   entry: string;
   parser: AstParser;
-  buildCache: BuildCache;
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
   resolveImport: (specifier: string, fromDir: string) => string;
   renderer: CliRendererLike;
@@ -92,16 +88,13 @@ export async function scanAndParseFiles(params: ScanParams): Promise<ScanResult>
     srcDir,
     entry,
     parser,
-    buildCache,
     scanFiles,
     resolveImport,
     renderer,
   } = params;
 
   const fileMap = new Map<string, FileAnalysis>();
-  const contentHashes = new Map<string, string>();
   const allClasses: CollectedClass[] = [];
-  let cacheHits = 0;
 
   const userMain = resolve(projectRoot, entry);
   const visited = new Set<string>();
@@ -195,23 +188,6 @@ export async function scanAndParseFiles(params: ScanParams): Promise<ScanResult>
 
     try {
       const fileContent = await Bun.file(filePath).text();
-      const fileHash = Bun.hash(fileContent).toString(36);
-
-      contentHashes.set(filePath, fileHash);
-
-      const cached = buildCache.get(filePath, fileHash);
-
-      if (cached !== undefined) {
-        const classInfos = cached.classes.map(meta => ({ metadata: meta, filePath }));
-
-        allClasses.push(...classInfos);
-        fileMap.set(filePath, cached);
-        cacheHits++;
-
-        await enqueueImports(cached.imports, cached.reExports, filePath);
-
-        continue;
-      }
 
       const parseResult = await parser.parse(filePath, fileContent);
 
@@ -242,5 +218,5 @@ export async function scanAndParseFiles(params: ScanParams): Promise<ScanResult>
     }
   }
 
-  return { fileMap, contentHashes, allClasses, cacheHits };
+  return { fileMap, allClasses };
 }

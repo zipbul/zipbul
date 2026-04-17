@@ -311,25 +311,8 @@ export class HttpServer {
       return false;
     }
 
-    const introspectable = this.container as ZipbulContainer & {
-      getRegistration?: (token: unknown) => { scope?: string } | undefined;
-      keys?: () => IterableIterator<unknown>;
-    };
-
-    if (typeof introspectable.getRegistration !== 'function' || typeof introspectable.keys !== 'function') {
-      this.requestScopeEnabled = true;
-      return true;
-    }
-
-    for (const token of introspectable.keys()) {
-      if (introspectable.getRegistration(token)?.scope === 'request') {
-        this.requestScopeEnabled = true;
-        return true;
-      }
-    }
-
-    this.requestScopeEnabled = false;
-    return false;
+    this.requestScopeEnabled = this.container.hasRequestScope?.() ?? true;
+    return this.requestScopeEnabled;
   }
 }
 

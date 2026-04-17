@@ -11,7 +11,6 @@ import { validateCreateApplication } from '../../compiler/analyzer/validation';
 import {
   outputDirPath,
   tempDirPath,
-  cacheFilePath,
   scanGlobSorted,
   writeIfChanged,
 } from '../../common';
@@ -22,7 +21,6 @@ import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/midd
 import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
 import { buildLib } from './lib-build';
 import { CliRenderer } from '../cli-renderer';
-import { loadBuildCache, saveBuildCache, computeTsconfigHash } from './build-cache';
 import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from './build-artifact-writer';
 import { formatCount, buildModuleTree } from '../module-tree-renderer';
 import { scanAndParseFiles } from './build-file-scanner';
@@ -63,11 +61,6 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const parser = deps.createParser();
       const userMain = resolve(projectRoot, config.entry);
 
-      // Load build cache
-      const buildCachePath = cacheFilePath(projectRoot, 'file-analysis-cache.json');
-      const tsconfigHash = await computeTsconfigHash(projectRoot);
-      const buildCache = await loadBuildCache(buildCachePath, tsconfigHash);
-
       const scanSpinner = renderer.startSpinner('[1/4] \u{1F50D} Scanning source files');
 
       const scanResult = await scanAndParseFiles({
@@ -75,16 +68,14 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         srcDir,
         entry: config.entry,
         parser,
-        buildCache,
         scanFiles: deps.scanFiles,
         resolveImport: deps.resolveImport,
         renderer,
       });
 
-      const { fileMap, contentHashes, allClasses, cacheHits } = scanResult;
-      const cacheSuffix = cacheHits > 0 ? `, ${formatCount(cacheHits)} cached` : '';
+      const { fileMap, allClasses } = scanResult;
 
-      scanSpinner.stop(`[1/4] \u{1F50D} Scanned ${formatCount(fileMap.size)} files (${formatCount(allClasses.length)} classes${cacheSuffix})`);
+      scanSpinner.stop(`[1/4] \u{1F50D} Scanned ${formatCount(fileMap.size)} files (${formatCount(allClasses.length)} classes)`);
 
       const appEntry = validateCreateApplication(fileMap);
 
@@ -294,9 +285,6 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
 
         bundleSpinner.stop('[4/4] \u{1F4E6} Application bundled');
-
-        // Persist build cache for next run
-        await saveBuildCache(buildCachePath, tsconfigHash, fileMap, contentHashes);
 
         const moduleTreeResult = buildModuleTree(
           { modules: graph.modules, handlerIndex: adapterResolution.handlerIndex },
