@@ -293,4 +293,62 @@ describe('HttpContext', () => {
       expect(ctx.matchedRoute).toBeUndefined();
     });
   });
+
+  // ── setTimeout (Bun per-request idle timeout override) ─────
+
+  describe('setTimeout', () => {
+    it('should call server.timeout with the raw request and seconds', () => {
+      const rawRequest = new Request('http://localhost/test');
+      const timeoutSpy = mock((_req: Request, _seconds: number) => undefined);
+      const server = { timeout: timeoutSpy } as unknown as import('bun').Server;
+
+      const ctx = new HttpContext(createStubRequest(), createStubResponse(), rawRequest, undefined, server);
+      ctx.setTimeout(60);
+
+      expect(timeoutSpy).toHaveBeenCalledTimes(1);
+      expect(timeoutSpy.mock.calls[0]![0]).toBe(rawRequest);
+      expect(timeoutSpy.mock.calls[0]![1]).toBe(60);
+    });
+
+    it('should pass 0 through for infinite timeout (SSE pattern)', () => {
+      const rawRequest = new Request('http://localhost/events');
+      const timeoutSpy = mock((_req: Request, _seconds: number) => undefined);
+      const server = { timeout: timeoutSpy } as unknown as import('bun').Server;
+
+      const ctx = new HttpContext(createStubRequest(), createStubResponse(), rawRequest, undefined, server);
+      ctx.setTimeout(0);
+
+      expect(timeoutSpy.mock.calls[0]![1]).toBe(0);
+    });
+
+    it('should be no-op when server is undefined', () => {
+      const rawRequest = new Request('http://localhost/test');
+      const ctx = new HttpContext(createStubRequest(), createStubResponse(), rawRequest);
+
+      expect(() => ctx.setTimeout(30)).not.toThrow();
+    });
+
+    it('should be no-op when rawRequest is undefined', () => {
+      const timeoutSpy = mock((_req: Request, _seconds: number) => undefined);
+      const server = { timeout: timeoutSpy } as unknown as import('bun').Server;
+
+      const ctx = new HttpContext(createStubRequest(), createStubResponse(), undefined, undefined, server);
+      ctx.setTimeout(30);
+
+      expect(timeoutSpy).not.toHaveBeenCalled();
+    });
+
+    it('should still work after consumeRawRequest clears the main reference', () => {
+      const rawRequest = new Request('http://localhost/test');
+      const timeoutSpy = mock((_req: Request, _seconds: number) => undefined);
+      const server = { timeout: timeoutSpy } as unknown as import('bun').Server;
+
+      const ctx = new HttpContext(createStubRequest(), createStubResponse(), rawRequest, undefined, server);
+      ctx.consumeRawRequest();
+      ctx.setTimeout(0);
+
+      expect(timeoutSpy).toHaveBeenCalledTimes(1);
+      expect(timeoutSpy.mock.calls[0]![0]).toBe(rawRequest);
+    });
+  });
 });

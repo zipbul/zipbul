@@ -13,6 +13,8 @@ export {
   type HttpTlsOptions,
 } from './src/interfaces';
 
+export type { HttpServerMetrics } from './src/http-server';
+
 export type {
   ContentTypeInfo,
   ErrorResponseData,

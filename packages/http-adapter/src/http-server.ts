@@ -47,7 +47,17 @@ interface CreateHttpRequestBadRequest {
   readonly request?: HttpRequest;
 }
 
-type CreateHttpRequestOutput = CreateHttpRequestResult | CreateHttpRequestNotImplemented | CreateHttpRequestBadRequest;
+interface CreateHttpRequestUriTooLong {
+  readonly kind: 'uri-too-long';
+}
+
+type CreateHttpRequestOutput =
+  | CreateHttpRequestResult
+  | CreateHttpRequestNotImplemented
+  | CreateHttpRequestBadRequest
+  | CreateHttpRequestUriTooLong;
+
+const DEFAULT_MAX_URI_LENGTH = 8192;
 
 // ── Helper functions ──────────────────────────────────────────
 
@@ -61,11 +71,13 @@ function parseContentLength(headers: Headers): number | null | 'invalid' {
     const unique = new Set(values);
     if (unique.size !== 1) return 'invalid';
     const parsed = parseInt(values[0]!, 10);
-    return Number.isNaN(parsed) ? null : parsed;
+    if (Number.isNaN(parsed)) return null;
+    return parsed < 0 ? 'invalid' : parsed;
   }
 
   const parsed = parseInt(raw, 10);
-  return Number.isNaN(parsed) ? null : parsed;
+  if (Number.isNaN(parsed)) return null;
+  return parsed < 0 ? 'invalid' : parsed;
 }
 
 function validateHttpMethod(method: string, allowedMethods: ReadonlySet<string>): HttpMethod | null {
@@ -87,7 +99,12 @@ function createHttpRequest(
   proxyInfo: ResolvedProxyInfo | null,
   allowedMethods: ReadonlySet<string>,
   requestIdOptions?: RequestIdOptions,
+  maxUriLength: number = DEFAULT_MAX_URI_LENGTH,
 ): CreateHttpRequestOutput {
+  if (raw.url.length > maxUriLength) {
+    return { kind: 'uri-too-long' };
+  }
+
   const validatedMethod = validateHttpMethod(raw.method, allowedMethods);
 
   const parsedTarget = parseRequestTarget(raw.url);
@@ -143,6 +160,17 @@ function createHttpRequest(
 
 // ── HttpServer ────────────────────────────────────────────────
 
+/**
+ * Runtime metrics for HTTP server observability.
+ * Read directly from Bun's `Server.pendingRequests` / `pendingWebSockets`.
+ *
+ * @public
+ */
+export interface HttpServerMetrics {
+  readonly pendingRequests: number;
+  readonly pendingWebSockets: number;
+}
+
 export class HttpServer {
   private adapter: HttpAdapter;
   private container: ZipbulContainer;
@@ -161,6 +189,20 @@ export class HttpServer {
    */
   getServer(): Server<unknown> | undefined {
     return this.server;
+  }
+
+  /**
+   * Returns current server metrics for health checks and autoscaling.
+   *
+   * @returns Metrics snapshot, or `undefined` if the server is not booted.
+   * @public
+   */
+  getMetrics(): HttpServerMetrics | undefined {
+    if (this.server === undefined) return undefined;
+    return {
+      pendingRequests: this.server.pendingRequests,
+      pendingWebSockets: this.server.pendingWebSockets,
+    };
   }
 
   async boot(container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
@@ -258,7 +300,13 @@ export class HttpServer {
       proxyInfo,
       this.allowedMethods,
       this.options.requestId,
+      this.options.maxUriLength,
     );
+
+    // URI 길이 초과 — RFC 9110 §15.5.15
+    if (createResult.kind === 'uri-too-long') {
+      return new Response(null, { status: StatusCodes.REQUEST_URI_TOO_LONG });
+    }
 
     // URL 파싱 실패 또는 HttpRequest 생성 불가 → 고정 응답 (컨텍스트 없음)
     if (createResult.kind === 'bad-request' && createResult.reason === 'invalid-url') {
@@ -274,7 +322,7 @@ export class HttpServer {
     const requestContainer = this.shouldCreateRequestScope()
       ? this.container.createRequestScope?.(zipbulReq.requestId)
       : undefined;
-    const context = new HttpContext(zipbulReq, zipbulRes, req, requestContainer);
+    const context = new HttpContext(zipbulReq, zipbulRes, req, requestContainer, server);
 
     // not-implemented, 기타 bad-request: pipelineError로 설정.
     // executePipeline이 OnRequest MW 실행 후 이 에러를 반환하여

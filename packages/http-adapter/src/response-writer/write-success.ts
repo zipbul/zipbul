@@ -54,6 +54,9 @@ export async function writeSuccessResponse(res: HttpResponse, result: unknown, h
     });
 
     if (isSse) {
+      // Bun 공식 권장: SSE 는 idle timeout 을 비활성화한다.
+      // 이벤트 간 간격이 idleTimeout 을 넘겨 연결이 끊기는 것을 방지.
+      http.setTimeout(0);
       const sseResponse = new Response(stream, {
         headers: {
           'Content-Type': 'text/event-stream',

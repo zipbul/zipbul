@@ -1,12 +1,3 @@
-export interface ParsedRequestUrl {
-  readonly protocol: string | null;
-  readonly host: string | null;
-  readonly hostname: string | null;
-  readonly port: number;
-  readonly path: string;
-  readonly queryString: string | null;
-}
-
 export interface ParsedRequestTarget {
   readonly protocol: string | null;
   readonly authority: string | null;
@@ -80,27 +71,5 @@ export function parseRequestTarget(raw: string): ParsedRequestTarget | null {
     authority,
     path: path.length > 0 ? path : '/',
     queryString,
-  };
-}
-
-export function parseRequestUrl(raw: string): ParsedRequestUrl | null {
-  const target = parseRequestTarget(raw);
-
-  if (target === null || target.authority === null) {
-    return null;
-  }
-
-  const host = target.authority.toLowerCase();
-  const hostname = extractHostname(host).toLowerCase();
-  const rawPort = extractPort(host);
-  const parsedPort = rawPort !== null ? parseInt(rawPort, 10) : NaN;
-
-  return {
-    protocol: target.protocol,
-    host,
-    hostname,
-    port: !Number.isNaN(parsedPort) ? parsedPort : defaultPortByProtocol(target.protocol),
-    path: target.path,
-    queryString: target.queryString,
   };
 }

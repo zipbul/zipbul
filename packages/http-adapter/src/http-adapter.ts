@@ -18,6 +18,7 @@ import type { ErrorResponseData, RouteHandlerFunction } from './types';
 
 import { HttpContext } from './http-context';
 import { HttpServer } from './http-server';
+import type { HttpServerMetrics } from './http-server';
 import { HttpResponse } from './http-response';
 import { isBakerError } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
@@ -302,6 +303,9 @@ export class HttpAdapter extends Adapter {
     const matchResult = this.routeHandler.matchRoute(req.method, req.path);
 
     if (matchResult.kind === 'not-found') {
+      if (req.method === 'TRACE' || req.method === 'CONNECT') {
+        return err({ status: StatusCodes.NOT_IMPLEMENTED, message: `${req.method} is not supported` });
+      }
       return err({ status: StatusCodes.NOT_FOUND, message: 'Not Found' });
     }
 
@@ -464,6 +468,16 @@ export class HttpAdapter extends Adapter {
     if (server.pendingRequests > 0 || server.pendingWebSockets > 0) {
       await server.stop(true);
     }
+  }
+
+  /**
+   * Returns current HTTP server metrics for observability.
+   *
+   * @returns Metrics snapshot, or `undefined` if the server is not running.
+   * @public
+   */
+  getMetrics(): HttpServerMetrics | undefined {
+    return this.httpServer?.getMetrics();
   }
 
 }

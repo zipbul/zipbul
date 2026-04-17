@@ -386,6 +386,23 @@ describe('parseContentLength', () => {
 
     expect(result).toBe('invalid');
   });
+
+  it('should return invalid when content-length is negative (RFC 9110 §8.6)', () => {
+    const headers = new Headers({ 'content-length': '-1' });
+
+    const result = parseContentLength(headers);
+
+    expect(result).toBe('invalid');
+  });
+
+  it('should return invalid when duplicate consistent negative "-5, -5"', () => {
+    const headers = new Headers();
+    headers.append('content-length', '-5, -5');
+
+    const result = parseContentLength(headers);
+
+    expect(result).toBe('invalid');
+  });
 });
 
 describe('validateRequestId', () => {
@@ -1121,5 +1138,22 @@ describe('createHttpRequest', () => {
       expect(typeof result.request.requestId).toBe('string');
       expect(result.request.requestId.length).toBeGreaterThan(0);
     }
+  });
+
+  it('should return uri-too-long when URL exceeds maxUriLength', () => {
+    const longPath = '/' + 'a'.repeat(10_000);
+    const raw = new Request(`http://example.com${longPath}`, { method: 'GET' });
+
+    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS, undefined, 8192);
+
+    expect(result.kind).toBe('uri-too-long');
+  });
+
+  it('should accept URL at maxUriLength boundary', () => {
+    const raw = new Request('http://example.com/ok', { method: 'GET' });
+
+    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS, undefined, raw.url.length);
+
+    expect(result.kind).toBe('ok');
   });
 });

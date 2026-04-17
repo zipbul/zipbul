@@ -93,7 +93,14 @@ export class RouteHandler {
    * @public
    */
   matchRoute(method: string, path: string): MatchRouteOutput {
-    const result = this.router.match(method, path);
+    // @zipbul/router 는 미등록 메서드에 대해 RouterError('method-not-found') 를 throw 한다.
+    // 프레임워크는 이를 404/501 결정 로직으로 흘려보내야 하므로 여기서 not-found 로 정규화한다.
+    let result: ReturnType<typeof this.router.match>;
+    try {
+      result = this.router.match(method as Parameters<typeof this.router.match>[0], path);
+    } catch {
+      result = null;
+    }
 
     if (result !== null) {
       return {

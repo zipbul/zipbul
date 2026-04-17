@@ -440,4 +440,48 @@ describe('HttpServer', () => {
       expect(internals.options.tls).toBeUndefined();
     });
   });
+
+  describe('getMetrics', () => {
+    it('should return undefined when server is not booted', () => {
+      const fresh = new HttpServer();
+
+      expect(fresh.getMetrics()).toBeUndefined();
+    });
+
+    it('should return snapshot of pendingRequests and pendingWebSockets', () => {
+      const metricsServer = new HttpServer();
+      const internals = metricsServer as unknown as ServerInternals;
+      internals.server = { pendingRequests: 7, pendingWebSockets: 2 };
+
+      expect(metricsServer.getMetrics()).toEqual({ pendingRequests: 7, pendingWebSockets: 2 });
+    });
+  });
+
+  describe('fetch URI length defense', () => {
+    it('should respond 414 when request URL exceeds maxUriLength', async () => {
+      const container = createMockContainer();
+      const adapter = createMockAdapter();
+      wireServer(server, container, adapter);
+      const internals = server as unknown as ServerInternals;
+      internals.options = { ...internals.options, maxUriLength: 64 };
+
+      const longRequest = new Request(`http://localhost/${'a'.repeat(200)}`, { method: 'GET' });
+
+      const response = await server.fetch(longRequest, mockBunServer);
+
+      expect(response.status).toBe(414);
+    });
+
+    it('should use default 8192 limit when maxUriLength option is not provided', async () => {
+      const container = createMockContainer();
+      const adapter = createMockAdapter();
+      wireServer(server, container, adapter);
+
+      const longRequest = new Request(`http://localhost/${'a'.repeat(9000)}`, { method: 'GET' });
+
+      const response = await server.fetch(longRequest, mockBunServer);
+
+      expect(response.status).toBe(414);
+    });
+  });
 });

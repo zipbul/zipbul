@@ -1,3 +1,5 @@
+import type { Server } from 'bun';
+
 import { ContextError, type AdapterContext, type ContextKey, type ClassToken, type ZipbulContainer } from '@zipbul/common';
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
@@ -7,6 +9,9 @@ import { HTTP_CONTEXT_TYPE } from './constants';
 
 export class HttpContext implements AdapterContext {
   private _rawRequest: Request | undefined;
+  /** Retained reference for `server.timeout()` — not cleared by `consumeRawRequest()`. */
+  private readonly _timeoutRequest: Request | undefined;
+  private readonly _server: Server<unknown> | undefined;
   private _matchedRoute: MatchedRouteMetadata | undefined;
   private readonly store = new Map<symbol, unknown>();
 
@@ -24,8 +29,26 @@ export class HttpContext implements AdapterContext {
     private readonly _response: HttpResponse,
     rawRequest?: Request,
     private readonly _container?: ZipbulContainer,
+    server?: Server<unknown>,
   ) {
     this._rawRequest = rawRequest;
+    this._timeoutRequest = rawRequest;
+    this._server = server;
+  }
+
+  /**
+   * Overrides the idle timeout for this request.
+   * Pass `0` to disable the timeout entirely (e.g. long-lived SSE streams).
+   *
+   * No-op if the context was created without a Bun server reference.
+   *
+   * @param seconds - Timeout in seconds (`0` = infinite).
+   * @public
+   */
+  setTimeout(seconds: number): void {
+    if (this._timeoutRequest !== undefined && this._server !== undefined) {
+      this._server.timeout(this._timeoutRequest, seconds);
+    }
   }
 
   getType(): string {

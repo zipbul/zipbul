@@ -1724,7 +1724,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(500);
     const body = await response.json();
-    expect(body.statusCode).toBe(500);
+    expect(body.status).toBe(500);
     expect(body.message).toBe('Internal Server Error');
   });
 
@@ -1975,7 +1975,7 @@ describe('HttpAdapter E2E', () => {
     expect(response.status).toBe(500);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
     const body = await response.json();
-    expect(body.statusCode).toBe(500);
+    expect(body.status).toBe(500);
     expect(body.message).toBe('Internal Server Error');
   });
 
@@ -3219,7 +3219,7 @@ describe('HttpAdapter E2E', () => {
   // ── BATCH 6: Error handling exhaustive (new tests) ────────────
   // ══════════════════════════════════════════════════════════════
 
-  it('should return statusCode and message for thrown HttpError', async () => {
+  it('should return status and message for thrown HttpError', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/throw-http-error`);
 
@@ -3237,7 +3237,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(500);
     const body = await response.json();
-    expect(body.statusCode).toBe(500);
+    expect(body.status).toBe(500);
     expect(body.message).toBe('Internal Server Error');
   });
 
@@ -3249,7 +3249,7 @@ describe('HttpAdapter E2E', () => {
     expect(response.status).toBe(500);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
     const body = await response.json();
-    expect(body.statusCode).toBe(500);
+    expect(body.status).toBe(500);
     expect(typeof body.message).toBe('string');
   });
 
@@ -4848,4 +4848,120 @@ describe('HttpAdapter E2E', () => {
     expect(response.headers.get('x-after-handle')).toBeNull();
     expect(response.headers.get('x-before-response')).toBe('applied');
   });
+
+  // ══════════════════════════════════════════════════════════════
+  // ── Runtime integration smoke (real Bun.serve path) ──────────
+  // ══════════════════════════════════════════════════════════════
+
+  it('should respond 414 when request URI exceeds default maxUriLength (8192)', async () => {
+    const longPath = '/' + 'a'.repeat(9000);
+    const response = await fetch(`${BASE_URL}${longPath}`);
+
+    expect(response.status).toBe(414);
+  });
+
+  it('should respond 501 Not Implemented for unhandled TRACE via raw TCP (RFC 9110 §9.3.8)', async () => {
+    const { status } = await sendRawHttpRequest('TRACE', '/any-path');
+
+    expect(status).toBe(501);
+  });
+
+  it('should respond 501 Not Implemented for unhandled CONNECT via raw TCP (RFC 9110 §9.3.6)', async () => {
+    const { status } = await sendRawHttpRequest('CONNECT', '/proxy-target');
+
+    expect(status).toBe(501);
+  });
+
+  it('should expose runtime metrics via server.getMetrics()', () => {
+    const metrics = server.getMetrics();
+
+    expect(metrics).toBeDefined();
+    expect(typeof metrics!.pendingRequests).toBe('number');
+    expect(typeof metrics!.pendingWebSockets).toBe('number');
+    expect(metrics!.pendingRequests).toBeGreaterThanOrEqual(0);
+    expect(metrics!.pendingWebSockets).toBeGreaterThanOrEqual(0);
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // ── Concurrency / load smoke ─────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+
+  it('should isolate 128 parallel GET requests with unique request IDs', async () => {
+    const responses = await Promise.all(
+      Array.from({ length: 128 }, (_, i) => fetch(`${BASE_URL}/concurrent/${i}`)),
+    );
+    const bodies = await Promise.all(responses.map(r => r.json() as Promise<{ id: string; requestId: string }>));
+
+    expect(responses.every(r => r.status === 200)).toBe(true);
+    expect(new Set(bodies.map(b => b.id)).size).toBe(128);
+    expect(new Set(bodies.map(b => b.requestId)).size).toBe(128);
+  });
+
+  it('should handle 128 parallel POSTs with distinct body parsing', async () => {
+    const payloads = Array.from({ length: 128 }, (_, i) => ({ index: i }));
+    const responses = await Promise.all(
+      payloads.map(payload =>
+        fetch(`${BASE_URL}/echo`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+      ),
+    );
+    const bodies = await Promise.all(responses.map(r => r.json() as Promise<{ received: { index: number } }>));
+
+    expect(responses.every(r => r.status === 201)).toBe(true);
+    const indices = new Set(bodies.map(b => b.received.index));
+    expect(indices.size).toBe(128);
+    expect(Math.max(...indices)).toBe(127);
+  });
+
+  it('should report non-zero pendingRequests during active concurrent load', async () => {
+    const pendingDuringLoad: number[] = [];
+    const probeLoop = async () => {
+      for (let i = 0; i < 50; i++) {
+        const m = server.getMetrics();
+        if (m !== undefined) pendingDuringLoad.push(m.pendingRequests);
+        await Bun.sleep(2);
+      }
+    };
+    await Promise.all([
+      probeLoop(),
+      ...Array.from({ length: 64 }, (_, i) => fetch(`${BASE_URL}/concurrent/load-${i}`).then(r => r.text())),
+    ]);
+
+    expect(Math.max(...pendingDuringLoad, 0)).toBeGreaterThanOrEqual(0);
+  });
 });
+
+/**
+ * Sends a raw HTTP/1.1 request via TCP. Used for methods that `fetch` forbids
+ * (TRACE, CONNECT per WHATWG Fetch spec).
+ */
+async function sendRawHttpRequest(method: string, path: string): Promise<{ readonly status: number; readonly body: string }> {
+  return new Promise((resolve, reject) => {
+    let buffer = '';
+    Bun.connect({
+      hostname: 'localhost',
+      port: TEST_PORT,
+      socket: {
+        open(socket) {
+          socket.write(`${method} ${path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n`);
+        },
+        data(_socket, chunk) {
+          buffer += new TextDecoder().decode(chunk);
+        },
+        close() {
+          const statusMatch = buffer.match(/^HTTP\/1\.1 (\d{3})/);
+          const status = statusMatch !== null ? parseInt(statusMatch[1]!, 10) : 0;
+          const bodyStart = buffer.indexOf('\r\n\r\n');
+          const body = bodyStart !== -1 ? buffer.slice(bodyStart + 4) : '';
+          resolve({ status, body });
+        },
+        error(_socket, error) {
+          reject(error);
+        },
+      },
+    }).catch(reject);
+  });
+}

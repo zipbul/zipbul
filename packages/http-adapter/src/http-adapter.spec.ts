@@ -2801,6 +2801,48 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const secondRead = await reader.read();
       expect(secondRead.done).toBe(true);
     });
+
+    it('should call ctx.setTimeout(0) on entering SSE branch (Bun-recommended pattern)', async () => {
+      // Arrange
+      const adapter = new HttpAdapter();
+      const rawRequest = new Request('http://localhost/sse');
+      const timeoutSpy = mock((_req: Request, _seconds: number) => undefined);
+      const server = { timeout: timeoutSpy } as unknown as import('bun').Server;
+
+      const { HttpContext } = require('./http-context');
+      const { HttpRequest } = require('./http-request');
+      const { HttpResponse } = require('./http-response');
+      const httpReq = new HttpRequest({
+        requestId: 'sse-id',
+        originalMethod: 'GET',
+        originalUrl: 'http://localhost/sse',
+        method: 'GET',
+        url: 'http://localhost/sse',
+        path: '/sse',
+        headers: new Headers(),
+        origin: { urlProtocol: 'http', urlHost: 'localhost' },
+        contentLength: null,
+        ip: null,
+        ips: [],
+        isTrustedProxy: false,
+        signal: new AbortController().signal,
+      });
+      const httpRes = new HttpResponse(httpReq);
+      const context: Context = new HttpContext(httpReq, httpRes, rawRequest, undefined, server);
+      setSseRoute(context);
+
+      async function* sseStream() {
+        yield { event: 'ready' };
+      }
+
+      // Act
+      await writeResult(adapter, sseStream(), context);
+
+      // Assert
+      expect(timeoutSpy).toHaveBeenCalledTimes(1);
+      expect(timeoutSpy.mock.calls[0]![0]).toBe(rawRequest);
+      expect(timeoutSpy.mock.calls[0]![1]).toBe(0);
+    });
   });
 
   // ── SSE backpressure ──────────────────────────────────────────
@@ -3042,6 +3084,44 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Assert — should get 404 written directly to response (pre-route error path)
       const http = context.to(require('./http-context').HttpContext);
       expect(http.response.getStatus()).toBe(404);
+    });
+
+    it('should return 501 Not Implemented for unhandled TRACE (RFC 9110 §9.3.8)', async () => {
+      // Arrange
+      adapter.initializePipeline(createMockContainer());
+
+      const noMatchRouteHandler = {
+        matchRoute: mock(() => ({ kind: 'not-found' })),
+      };
+      adapter.setRouteHandler(noMatchRouteHandler as never);
+
+      const context = createHttpContext('TRACE', '/anywhere');
+
+      // Act
+      await adapter.dispatchRequest(context);
+
+      // Assert
+      const http = context.to(require('./http-context').HttpContext);
+      expect(http.response.getStatus()).toBe(501);
+    });
+
+    it('should return 501 Not Implemented for unhandled CONNECT (RFC 9110 §9.3.6)', async () => {
+      // Arrange
+      adapter.initializePipeline(createMockContainer());
+
+      const noMatchRouteHandler = {
+        matchRoute: mock(() => ({ kind: 'not-found' })),
+      };
+      adapter.setRouteHandler(noMatchRouteHandler as never);
+
+      const context = createHttpContext('CONNECT', '/proxy');
+
+      // Act
+      await adapter.dispatchRequest(context);
+
+      // Assert
+      const http = context.to(require('./http-context').HttpContext);
+      expect(http.response.getStatus()).toBe(501);
     });
 
     it('should list all registered methods in Allow header', async () => {
@@ -4314,6 +4394,31 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       // Assert — only graceful stop called
       expect(stopCalls).toEqual([undefined]);
+    });
+  });
+
+  // ── getMetrics (operational observability) ────────────────
+
+  describe('getMetrics', () => {
+    it('should return undefined when httpServer is not started', () => {
+      const adapter = new HttpAdapter();
+
+      expect(adapter.getMetrics()).toBeUndefined();
+    });
+
+    it('should delegate to httpServer.getMetrics and return the snapshot', () => {
+      const adapter = new HttpAdapter();
+      const snapshot = { pendingRequests: 3, pendingWebSockets: 1 };
+      (adapter as any).httpServer = { getMetrics: () => snapshot };
+
+      expect(adapter.getMetrics()).toEqual(snapshot);
+    });
+
+    it('should return undefined when httpServer.getMetrics returns undefined', () => {
+      const adapter = new HttpAdapter();
+      (adapter as any).httpServer = { getMetrics: () => undefined };
+
+      expect(adapter.getMetrics()).toBeUndefined();
     });
   });
 
