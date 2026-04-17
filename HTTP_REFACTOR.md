@@ -116,7 +116,7 @@ AOT 컴파일러는 string 배열로 매칭 `[verified: packages/cli/src/compile
 `reset()`은 `_serialized=false` 리셋하지만 `setBody`는 안 함 `[verified: http-response.ts:81-94 vs 223-250]`.
 
 ### F13. 잠재 위험: `_rawNativeResponse.body.cancel()`의 fire-and-forget
-`[verified: http-response.ts:82, 225, 233, 245, 340]` — `void this._rawNativeResponse?.body?.cancel();` 5개 지점. `cancel()`이 `Promise<void>` 반환하지만 await 없음. unhandled promise rejection 가능성 + 새 응답 생성과 이전 스트림 정리의 race.
+`[verified: http-response.ts:82, 225, 233, 245, 275, 340]` — `void this._rawNativeResponse?.body?.cancel();` 6개 지점. `cancel()`이 `Promise<void>` 반환하지만 await 없음. unhandled promise rejection 가능성 + 새 응답 생성과 이전 스트림 정리의 race.
 `[reason: 의도적 fire-and-forget인지 누락인지 주석 없음. 동작상 치명적이진 않으나 개선 여지]`.
 
 ### F14. `HttpResponse._status: StatusCodes | 0` 센티넬
@@ -157,11 +157,11 @@ AOT 컴파일러는 string 배열로 매칭 `[verified: packages/cli/src/compile
 `[verified: packages/common/src/interfaces.ts:64]` — `to<TContext extends ZipbulValue>(ctor: ClassToken<TContext>): TContext`가 인터페이스 필수 메서드.
 자기 자신만 허용하는 현 구현 `[verified: http-context.ts:73-79]`은 계약 준수 최소 구현. **제거 불가**.
 
-### F20. `decorators/method-option.decorator.ts` 154 LOC에 7개 no-op
+### F20. `decorators/method-option.decorator.ts` 153 LOC에 7개 no-op
 `[verified]` — AOT 컴파일러는 decorator name만 인식 `[agent-verified: cli/src/compiler/analyzer/adapter/decorator-extractor.ts:89-126]`. 파일 분리는 기능상 무관 — 순수 코드 조직 정책 결정.
 
-### F21. `server-sent-event.ts` (107 LOC)는 응집력 적절
-`[verified: server-sent-event.ts:1-107]` — `ServerSentEvent` 클래스 + `formatSSEChunk` + `isAsyncIterable` + 3개 private helper. 단일 SSE 규격 도메인. **분리 미권고**.
+### F21. `server-sent-event.ts` (106 LOC)는 응집력 적절
+`[verified: server-sent-event.ts:1-106]` — `ServerSentEvent` 클래스 + `formatSSEChunk` + `isAsyncIterable` + 3개 private helper. 단일 SSE 규격 도메인. **분리 미권고**.
 
 ### F22. LOC 현황 (정정됨, `wc -l` 실측)
 - `http-adapter.ts`: 898
@@ -169,8 +169,8 @@ AOT 컴파일러는 string 배열로 매칭 `[verified: packages/cli/src/compile
 - `http-response.ts`: 541
 - `route-handler.ts`: 438 (v2의 439 오기)
 - `http-request.ts`: 213
-- `http-context.ts`: 121
-- `server-sent-event.ts`: 107
+- `http-context.ts`: 120
+- `server-sent-event.ts`: 106
 
 ---
 
@@ -287,7 +287,7 @@ A (기능 중심) vs B (phase 중심) vs C (클래스 분해) — `[agent-verifi
 - Phase 0-2의 회귀 테스트 fail → pass 확인.
 
 #### 1-5. **F13 fire-and-forget 명시화**
-- `void ... .cancel()` 5개 지점에 의도 주석 추가 또는 헬퍼 `cancelNativeStreamQuietly()` 신설:
+- `void ... .cancel()` 6개 지점에 의도 주석 추가 또는 헬퍼 `cancelNativeStreamQuietly()` 신설:
   ```ts
   private cancelNativeStreamQuietly(): void {
     const body = this._rawNativeResponse?.body;

@@ -4597,7 +4597,7 @@ describe('HttpAdapter E2E', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.readBack).toEqual({ initial: true });
-    expect(body.status).toBe(0);
+    expect(body.status).toBeUndefined();
   });
 
   it('should have rawRequest available before body parse', async () => {

@@ -1,4 +1,5 @@
 import { defineAdapter } from '@zipbul/common';
+import { CoreStep } from '@zipbul/core';
 import { HttpAdapter } from './http-adapter';
 import { HttpContext } from './http-context';
 import { HttpStep, HttpPhase } from './enums';
@@ -22,10 +23,10 @@ export const adapterDefinition = defineAdapter({
     HttpPhase.BeforeParse,
     HttpStep.ParseBody,
     HttpPhase.BeforeValidate,
-    'Validation',
-    'Guard',
+    CoreStep.Validation,
+    CoreStep.Guard,
     HttpPhase.BeforeHandle,
-    'Handler',
+    CoreStep.Handler,
     HttpStep.WriteResponse,
     HttpPhase.AfterHandle,
     HttpStep.Serialize,

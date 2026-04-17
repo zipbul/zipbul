@@ -20,6 +20,8 @@ import type {
 import { HttpContext } from './http-context';
 import type { HttpResponse } from './http-response';
 import { Router } from '@zipbul/router';
+import { parseDecoratorOptions, buildResponseDefaultsApplier } from './route-options';
+import { addWithHeadAlias } from './pipeline/router-register';
 
 type HttpCompiledHandlerEntry = CompiledHandlerEntry;
 
@@ -159,27 +161,13 @@ export class RouteHandler {
       const controllerPrefix = this.getControllerPrefix(entry.controllerKey);
       const fullPath = '/' + [controllerPrefix, rawPath].filter(Boolean).join('/').replace(/\/+/g, '/');
 
-      const hasRawBody = entry.options?.some(option => option.name === 'RawBody') === true;
-      const hasSse = entry.options?.some(option => option.name === 'Sse') === true;
-      const bodyLimitOption = entry.options?.find(option => option.name === 'BodyLimit');
-      const bodyLimitValue = bodyLimitOption?.arguments?.[0];
-      const statusOption = entry.options?.find(option => option.name === 'Status');
-      const statusValue = statusOption?.arguments?.[0];
-      const redirectOption = entry.options?.find(option => option.name === 'Redirect');
-      const contentTypeOption = entry.options?.find(option => option.name === 'ContentType');
-      const contentTypeValue = contentTypeOption?.arguments?.[0];
-      const headerOptions = entry.options?.filter(option => option.name === 'Header') ?? [];
-      const headers: Array<readonly [string, string]> = headerOptions
-        .filter(option => typeof option.arguments?.[0] === 'string' && typeof option.arguments?.[1] === 'string')
-        .map(option => [option.arguments![0] as string, option.arguments![1] as string] as const);
+      const parsed = parseDecoratorOptions(entry.options);
 
       const responseDefaultsApplier = buildResponseDefaultsApplier(
-        typeof statusValue === 'number' ? statusValue : undefined,
-        typeof contentTypeValue === 'string' ? contentTypeValue : undefined,
-        headers,
-        redirectOption !== undefined && typeof redirectOption.arguments?.[0] === 'string'
-          ? { url: redirectOption.arguments[0] as string, ...(redirectOption.arguments?.[1] !== undefined ? { status: redirectOption.arguments[1] as 301 | 302 | 303 | 307 | 308 } : {}) }
-          : undefined,
+        parsed.status,
+        parsed.contentType,
+        parsed.headers,
+        parsed.redirect,
       );
 
       const pipeline = buildPipeline !== undefined
@@ -188,15 +176,13 @@ export class RouteHandler {
 
       const routeEntry: MatchedRouteMetadata = {
         handler,
-        rawBody: hasRawBody,
-        sse: hasSse,
-        bodyLimit: typeof bodyLimitValue === 'number' ? bodyLimitValue : undefined,
-        status: typeof statusValue === 'number' ? statusValue : undefined,
-        redirect: redirectOption !== undefined && typeof redirectOption.arguments?.[0] === 'string'
-          ? { url: redirectOption.arguments[0] as string, ...(redirectOption.arguments?.[1] !== undefined ? { status: redirectOption.arguments[1] as 301 | 302 | 303 | 307 | 308 } : {}) }
-          : undefined,
-        contentType: typeof contentTypeValue === 'string' ? contentTypeValue : undefined,
-        headers,
+        rawBody: parsed.rawBody,
+        sse: parsed.sse,
+        bodyLimit: parsed.bodyLimit,
+        status: parsed.status,
+        redirect: parsed.redirect,
+        contentType: parsed.contentType,
+        headers: parsed.headers,
         ...(responseDefaultsApplier !== undefined ? { applyResponseDefaults: responseDefaultsApplier } : {}),
         validations,
         pre: pipeline.pre,
@@ -204,15 +190,15 @@ export class RouteHandler {
         filters: pipeline.filters,
       };
 
-      this.router.add(httpMethod, fullPath, routeEntry);
-      this.registeredMethods.add(httpMethod);
-      this.logger.debug(`${httpMethod} ${fullPath} → ${entry.controllerKey}.${entry.methodName} (AOT)`);
-
-      if (httpMethod === 'GET') {
-        this.router.add('HEAD', fullPath, routeEntry);
-        this.registeredMethods.add('HEAD');
-        this.logger.debug(`HEAD ${fullPath} → ${entry.controllerKey}.${entry.methodName} (auto from GET)`);
-      }
+      addWithHeadAlias({
+        router: this.router,
+        method: httpMethod,
+        path: fullPath,
+        entry: routeEntry,
+        registeredMethods: this.registeredMethods,
+        logger: this.logger,
+        sourceLabel: ` → ${entry.controllerKey}.${entry.methodName} (AOT)`,
+      });
       routeCount++;
     }
 
@@ -252,15 +238,15 @@ export class RouteHandler {
         filters: [],
       };
 
-      this.router.add(method, fullPath, entry);
-      this.registeredMethods.add(method);
-      this.logger.debug(`${method} ${fullPath} (internal)`);
-
-      if (method === 'GET') {
-        this.router.add('HEAD', fullPath, entry);
-        this.registeredMethods.add('HEAD');
-        this.logger.debug(`HEAD ${fullPath} (internal, auto from GET)`);
-      }
+      addWithHeadAlias({
+        router: this.router,
+        method,
+        path: fullPath,
+        entry,
+        registeredMethods: this.registeredMethods,
+        logger: this.logger,
+        sourceLabel: ' (internal)',
+      });
     }
 
     this.router.build();
@@ -408,31 +394,3 @@ function resolveAccessorIO(accessor: string | undefined): AccessorIO | undefined
   }
 }
 
-function buildResponseDefaultsApplier(
-  status: number | undefined,
-  contentType: string | undefined,
-  headers: readonly (readonly [string, string])[],
-  redirect: { readonly url: string; readonly status?: 301 | 302 | 303 | 307 | 308 } | undefined,
-): ((response: HttpResponse) => void) | undefined {
-  if (status === undefined && contentType === undefined && headers.length === 0 && redirect === undefined) {
-    return undefined;
-  }
-
-  return (response: HttpResponse): void => {
-    if (status !== undefined) {
-      response.setStatus(status);
-    }
-
-    if (contentType !== undefined) {
-      response.setContentType(contentType);
-    }
-
-    for (const [name, value] of headers) {
-      response.setHeader(name, value);
-    }
-
-    if (redirect !== undefined) {
-      response.redirect(redirect.url, redirect.status);
-    }
-  };
-}

@@ -17,30 +17,20 @@ mock.module('@zipbul/baker', () => ({
   isBakerError: () => false,
 }));
 
+// Direct imports from source modules
+import { parseContentTypeInfo, parseParameters } from './content-type';
+import { resolveRequestId, validateRequestId } from './request-id';
+import { extractHostname, extractPort, defaultPortByProtocol } from './url-parts';
+import { normalizeIp, validateForwardedHost, parseForwardedLast, evaluateTrustProxy, resolveProxyInfo, resolveClientIp, isTrustedIp, isInCidrRange, matchesCidr, ipv4ToNumber } from './proxy';
+import { parseJsonBody } from './body';
+
+// Runtime-only internals still accessed via __internals
 const { __internals } = await import('./http-server');
 
 const {
-  parseContentTypeInfo,
-  parseParameters,
   parseContentLength,
-  resolveRequestId,
-  validateRequestId,
-  extractHostname,
-  extractPort,
-  defaultPortByProtocol,
   validateHttpMethod,
-  normalizeIp,
-  parseJsonBody,
   resolveRawBody,
-  validateForwardedHost,
-  parseForwardedLast,
-  evaluateTrustProxy,
-  resolveProxyInfo,
-  resolveClientIp,
-  isTrustedIp,
-  isInCidrRange,
-  matchesCidr,
-  ipv4ToNumber,
   createHttpRequest,
 } = __internals;
 

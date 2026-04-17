@@ -99,7 +99,7 @@ describe('HttpResponse', () => {
       res.reset();
 
       expect(res.isSent()).toBe(false);
-      expect(res.getStatus()).toBe(0);
+      expect(res.getStatus()).toBeUndefined();
       expect(res.getHeader('x-custom')).toBeNull();
       expect(res.getBody()).toBeUndefined();
       expect(res.hasNativeResponse()).toBe(false);
@@ -1181,6 +1181,69 @@ describe('HttpResponse', () => {
 
       expect(response.status).toBe(204);
       expect(response.headers.get('content-type')).toBeNull();
+    });
+  });
+
+  // ── F12 regression: setBody after serialize ──────────────────
+
+  describe('F12: setBody after serialize should re-serialize', () => {
+    it('should serialize new object body after serialize() was already called', async () => {
+      const res = createResponse();
+      res.setBody({ first: true });
+
+      // Simulate pipeline: serialize step runs
+      res.serialize();
+
+      // BeforeResponse middleware replaces body with new object
+      res.setBody({ replaced: true });
+
+      // end() calls build() which calls serialize() again — should NOT skip
+      const response = res.end();
+
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).toBe(JSON.stringify({ replaced: true }));
+    });
+  });
+
+  // ── F13 regression: setBody stream cancel ────────────────────
+
+  describe('F13: setBody stream cancel should not cause unhandled rejection', () => {
+    it('should cancel previous stream when setBody is called with a new stream', () => {
+      const res = createResponse();
+      let stream1Cancelled = false;
+
+      const stream1 = new ReadableStream({
+        cancel() {
+          stream1Cancelled = true;
+        },
+      });
+
+      const stream2 = new ReadableStream();
+
+      res.setBody(stream1);
+      res.setBody(stream2);
+
+      expect(stream1Cancelled).toBe(true);
+    });
+
+    it('should not cause unhandled rejection when cancel() rejects', async () => {
+      const res = createResponse();
+
+      const stream1 = new ReadableStream({
+        cancel() {
+          throw new Error('cancel failed');
+        },
+      });
+
+      const stream2 = new ReadableStream();
+
+      // Should not throw — fire-and-forget cancel
+      res.setBody(stream1);
+      res.setBody(stream2);
+
+      // Give microtask queue time to process the rejected cancel promise
+      await new Promise((resolve) => setTimeout(resolve, 10));
     });
   });
 });

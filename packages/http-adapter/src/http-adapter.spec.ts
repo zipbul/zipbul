@@ -501,20 +501,20 @@ function createMockContainer(): ZipbulContainer {
 /**
  * Replaces the removed `handleResult` method.
  * Sets the handler result on context via `handlerResultKey`, then invokes
- * the private `writeErrorResponse` / `writeSuccessResponse` methods that
- * the `WriteResponse` pipeline step delegates to.
+ * writeErrorResponse / writeSuccessResponse module functions.
  */
-async function writeResult(adapter: InstanceType<typeof HttpAdapter>, result: unknown, context: Context): Promise<void> {
+async function writeResult(_adapter: InstanceType<typeof HttpAdapter>, result: unknown, context: Context): Promise<void> {
   const { HttpContext } = require('./http-context');
+  const { writeErrorResponse, writeSuccessResponse } = require('./response-writer');
   const http = context.to(HttpContext);
   context.set(handlerResultKey, result);
 
   if (http.response.isSent() || result === undefined) return;
 
   if (isErr(result)) {
-    adapter['writeErrorResponse'](http.response, (result as { data: unknown }).data);
+    writeErrorResponse(http.response, (result as { data: unknown }).data);
   } else {
-    await adapter['writeSuccessResponse'](http.response, result, http);
+    await writeSuccessResponse(http.response, result, http);
   }
 
   http.response.serialize();
@@ -2013,6 +2013,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── parseBody ──────────────────────────────────────────────────
 
   describe('parseBody', () => {
+    const { parseBody } = require('./body');
+    const DEFAULT_BODY_LIMIT = 10 * 1024 * 1024;
+    const EMPTY_TEXT_MEDIA_TYPES = new Set<string>();
     it('should parse JSON body for POST request with application/json content-type', async () => {
       // Arrange
       const adapter = new HttpAdapter();
@@ -2039,7 +2042,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.body).toEqual({ name: 'test' });
@@ -2068,7 +2071,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.body).toBe('hello world');
@@ -2097,7 +2100,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      const result = await (adapter as any).parseBody(http);
+      const result = await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(isErr(result)).toBe(true);
@@ -2121,7 +2124,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert — body should remain at its initial value (undefined)
       expect(req.body).toBeUndefined();
@@ -2143,7 +2146,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'HEAD' }));
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.body).toBeUndefined();
@@ -2165,7 +2168,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'DELETE' }));
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.body).toBeUndefined();
@@ -2187,7 +2190,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'OPTIONS' }));
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.body).toBeUndefined();
@@ -2211,7 +2214,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res); // no rawRequest
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.body).toBeUndefined();
@@ -2243,7 +2246,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      const result = await (adapter as any).parseBody(http);
+      const result = await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(isErr(result)).toBe(true);
@@ -2277,7 +2280,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      const result = await (adapter as any).parseBody(http);
+      const result = await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(isErr(result)).toBe(true);
@@ -2308,7 +2311,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.body).toEqual({ accepted: true });
@@ -2340,7 +2343,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.body).toEqual({ id: 42 });
@@ -2371,7 +2374,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      const result = await (adapter as any).parseBody(http);
+      const result = await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(result).toBeUndefined();
@@ -2419,7 +2422,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       };
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.rawBody).toBeInstanceOf(Uint8Array);
@@ -2453,7 +2456,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.body).toBeInstanceOf(ReadableStream);
@@ -2485,7 +2488,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, rawRequest);
 
       // Act
-      await (adapter as any).parseBody(http);
+      await parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(req.body).toEqual({ type: 'articles', id: '1' });
@@ -2521,7 +2524,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const http = new HttpContext(req, res, consumedRequest);
 
       // Act & Assert
-      await expect((adapter as any).parseBody(http)).rejects.toBeInstanceOf(TypeError);
+      await expect(parseBody(http, DEFAULT_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES)).rejects.toBeInstanceOf(TypeError);
     });
   });
 
@@ -3906,12 +3909,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── Route-Level bodyLimit ─────────────────────────────────────
 
   describe('route-level bodyLimit', () => {
-    let adapter: InstanceType<typeof HttpAdapter>;
-
-    beforeEach(() => {
-      adapter = new HttpAdapter({ bodyLimit: 1024 });
-      adapter.initializePipeline(createMockContainer());
-    });
+    const { parseBody } = require('./body');
+    const EMPTY_TEXT_MEDIA_TYPES = new Set<string>();
+    const GLOBAL_BODY_LIMIT = 1024;
 
     it('should use route bodyLimit when it overrides global bodyLimit', async () => {
       // Arrange
@@ -3953,7 +3953,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       };
 
       // Act
-      const result = await (adapter as any).parseBody(http);
+      const result = await parseBody(http, GLOBAL_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert — should reject because route bodyLimit (50) < body size
       expect(isErr(result)).toBe(true);
@@ -3999,7 +3999,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       };
 
       // Act
-      const result = await (adapter as any).parseBody(http);
+      const result = await parseBody(http, GLOBAL_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert — body within global limit, should parse successfully
       expect(isErr(result)).not.toBe(true);
@@ -4046,7 +4046,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       };
 
       // Act
-      const result = await (adapter as any).parseBody(http);
+      const result = await parseBody(http, GLOBAL_BODY_LIMIT, EMPTY_TEXT_MEDIA_TYPES);
 
       // Assert
       expect(isErr(result)).toBe(true);
@@ -4077,6 +4077,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   });
 
   describe('readBodyWithLimit — stream cancellation behavior', () => {
+    const { parseBody: parseBodyFn } = require('./body');
+    const EMPTY_TEXT_MEDIA_TYPES_2 = new Set<string>();
+
     it('should return 413 when chunked body exceeds route-level bodyLimit', async () => {
       // Arrange — text/plain + rawBody + no CL → chunked readBodyWithLimit path
       const adapter = new HttpAdapter();
@@ -4115,7 +4118,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       };
 
       // Act
-      const result = await (adapter as any).parseBody(http);
+      const result = await parseBodyFn(http, 10 * 1024 * 1024, EMPTY_TEXT_MEDIA_TYPES_2);
 
       // Assert
       expect(isErr(result)).toBe(true);
@@ -4317,20 +4320,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── Metadata normalization ─────────────────────────────────
 
   describe('normalizeMetadataRegistry', () => {
+    const { normalizeMetadataRegistry } = require('./metadata');
+
     it('should return undefined when registry is undefined', () => {
-      // Arrange
-      const adapter = new HttpAdapter();
-
-      // Act
-      const result = (adapter as any).normalizeMetadataRegistry(undefined);
-
-      // Assert
+      const result = normalizeMetadataRegistry(undefined);
       expect(result).toBeUndefined();
     });
 
     it('should normalize core class metadata to http class metadata', () => {
-      // Arrange
-      const adapter = new HttpAdapter();
       class TestClass {}
       const registry = new Map();
       registry.set(TestClass, {
@@ -4338,10 +4335,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         constructorParams: [{ type: 'SomeService' }],
       });
 
-      // Act
-      const result = (adapter as any).normalizeMetadataRegistry(registry);
+      const result = normalizeMetadataRegistry(registry);
 
-      // Assert
       expect(result).toBeDefined();
       expect(result.size).toBe(1);
       const meta = result.get(TestClass);
@@ -4351,8 +4346,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     });
 
     it('should pass through already-http metadata unchanged', () => {
-      // Arrange
-      const adapter = new HttpAdapter();
       class TestClass {}
       const httpMeta = {
         className: 'TestClass',
@@ -4362,41 +4355,31 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const registry = new Map();
       registry.set(TestClass, httpMeta);
 
-      // Act
-      const result = (adapter as any).normalizeMetadataRegistry(registry);
+      const result = normalizeMetadataRegistry(registry);
 
-      // Assert
       expect(result.get(TestClass)).toBe(httpMeta);
     });
 
     it('should skip non-class-token keys (strings, symbols)', () => {
-      // Arrange
-      const adapter = new HttpAdapter();
       const registry = new Map();
       registry.set('StringKey', { decorators: [] });
       registry.set(Symbol('sym'), { decorators: [] });
       class ValidClass {}
       registry.set(ValidClass, { decorators: [{ name: 'Controller' }] });
 
-      // Act
-      const result = (adapter as any).normalizeMetadataRegistry(registry);
+      const result = normalizeMetadataRegistry(registry);
 
-      // Assert
       expect(result.size).toBe(1);
       expect(result.has(ValidClass)).toBe(true);
     });
 
     it('should handle metadata without decorators or constructorParams', () => {
-      // Arrange
-      const adapter = new HttpAdapter();
       class TestClass {}
       const registry = new Map();
       registry.set(TestClass, {});
 
-      // Act
-      const result = (adapter as any).normalizeMetadataRegistry(registry);
+      const result = normalizeMetadataRegistry(registry);
 
-      // Assert
       const meta = result.get(TestClass);
       expect(meta).toBeDefined();
       expect(meta.decorators).toBeUndefined();
@@ -4404,8 +4387,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     });
 
     it('should normalize constructorParams with decorator metadata', () => {
-      // Arrange
-      const adapter = new HttpAdapter();
       class TestClass {}
       const registry = new Map();
       registry.set(TestClass, {
@@ -4416,10 +4397,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         ],
       });
 
-      // Act
-      const result = (adapter as any).normalizeMetadataRegistry(registry);
+      const result = normalizeMetadataRegistry(registry);
 
-      // Assert
       const meta = result.get(TestClass);
       expect(meta.constructorParams).toHaveLength(3);
       expect(meta.constructorParams[0].type).toBe('ServiceA');
@@ -4432,54 +4411,49 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── isProviderToken ────────────────────────────────────────
 
   describe('isProviderToken', () => {
+    const { isProviderToken } = require('./metadata');
+
     it('should return true for string token', () => {
-      const adapter = new HttpAdapter();
-      expect((adapter as any).isProviderToken('ServiceA')).toBe(true);
+      expect(isProviderToken('ServiceA')).toBe(true);
     });
 
     it('should return true for symbol token', () => {
-      const adapter = new HttpAdapter();
-      expect((adapter as any).isProviderToken(Symbol('test'))).toBe(true);
+      expect(isProviderToken(Symbol('test'))).toBe(true);
     });
 
     it('should return true for function/class token', () => {
-      const adapter = new HttpAdapter();
       class MyService {}
-      expect((adapter as any).isProviderToken(MyService)).toBe(true);
+      expect(isProviderToken(MyService)).toBe(true);
     });
 
     it('should return false for number', () => {
-      const adapter = new HttpAdapter();
-      expect((adapter as any).isProviderToken(42)).toBe(false);
+      expect(isProviderToken(42)).toBe(false);
     });
 
     it('should return false for undefined', () => {
-      const adapter = new HttpAdapter();
-      expect((adapter as any).isProviderToken(undefined)).toBe(false);
+      expect(isProviderToken(undefined)).toBe(false);
     });
 
     it('should return false for null', () => {
-      const adapter = new HttpAdapter();
-      expect((adapter as any).isProviderToken(null)).toBe(false);
+      expect(isProviderToken(null)).toBe(false);
     });
   });
 
   // ── isHttpClassMetadata ────────────────────────────────────
 
   describe('isHttpClassMetadata', () => {
+    const { isHttpClassMetadata } = require('./metadata');
+
     it('should return true when value has methods property', () => {
-      const adapter = new HttpAdapter();
-      expect((adapter as any).isHttpClassMetadata({ methods: {} })).toBe(true);
+      expect(isHttpClassMetadata({ methods: {} })).toBe(true);
     });
 
     it('should return true when value has className property', () => {
-      const adapter = new HttpAdapter();
-      expect((adapter as any).isHttpClassMetadata({ className: 'Test' })).toBe(true);
+      expect(isHttpClassMetadata({ className: 'Test' })).toBe(true);
     });
 
     it('should return false for core metadata without methods/className', () => {
-      const adapter = new HttpAdapter();
-      expect((adapter as any).isHttpClassMetadata({ decorators: [] })).toBe(false);
+      expect(isHttpClassMetadata({ decorators: [] })).toBe(false);
     });
   });
 

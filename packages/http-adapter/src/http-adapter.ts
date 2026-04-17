@@ -7,25 +7,17 @@ import type { ResolvedMiddleware, ResolvedValidationEntry, PipelineStepFn } from
 import { StatusCodes } from 'http-status-codes';
 import { Logger } from '@zipbul/logger';
 
-import {
-  getBootstrapState,
-  type ClassMetadata as CoreClassMetadata,
-  type ConstructorParamMetadata as CoreConstructorParamMetadata,
-  type DecoratorMetadata as CoreDecoratorMetadata,
-} from '@zipbul/core';
+import { getBootstrapState } from '@zipbul/core';
 import type {
   HttpServerBootOptions,
   HttpServerOptions,
   InternalRouteHandler,
   InternalRouteEntry,
 } from './interfaces';
-import type { ClassMetadata, ErrorResponseData, MetadataRegistryKey, ParamTypeReference, ResponseBodyValue, RouteHandlerFunction } from './types';
-import type { Class } from '@zipbul/common';
+import type { ErrorResponseData, RouteHandlerFunction } from './types';
 
 import { HttpContext } from './http-context';
 import { HttpServer } from './http-server';
-import { __internals as httpServerInternals } from './http-server';
-import { HttpError } from './errors/http-error';
 import { HttpResponse } from './http-response';
 import { isBakerError } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
@@ -34,69 +26,9 @@ import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDe
 import type { RouteHandler } from './route-handler';
 import type { ResolvedRoutePipeline } from './route-handler';
 import { HttpPhase, HttpStep, HeaderField } from './enums';
-import { isAsyncIterable, formatSSEChunk } from './server-sent-event';
-
-const TEXT_ENCODER = new TextEncoder();
-
-// ── readBodyWithLimit ─────────────────────────────────────────
-
-async function readBodyWithLimit(
-  rawReq: Request,
-  contentLength: number | null,
-  bodyLimit: number,
-): Promise<Result<Uint8Array, ErrorResponseData>> {
-  // CL 존재 — fast path. bodyLimit 초과 시 즉시 거부.
-  if (contentLength !== null) {
-    if (contentLength > bodyLimit) {
-      return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
-    }
-    return new Uint8Array(await rawReq.arrayBuffer());
-  }
-
-  // CL 없음 (chunked TE) — 점진적 size 체크
-  const body = rawReq.body;
-  if (body === null) {
-    return new Uint8Array(0);
-  }
-
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalSize = 0;
-
-  let limitExceeded = false;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      totalSize += value.byteLength;
-      if (totalSize > bodyLimit) {
-        limitExceeded = true;
-        return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
-      }
-
-      chunks.push(value);
-    }
-  } finally {
-    if (limitExceeded) {
-      await reader.cancel();
-    }
-    reader.releaseLock();
-  }
-
-  if (chunks.length === 1) {
-    return chunks[0]!;
-  }
-
-  const result = new Uint8Array(totalSize);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return result;
-}
+import { parseBody } from './body';
+import { writeErrorResponse, writeSuccessResponse } from './response-writer';
+import { normalizeMetadataRegistry } from './metadata';
 
 function formatUnknownError(value: unknown): string {
   if (typeof value === 'string') return value;
@@ -205,7 +137,7 @@ export class HttpAdapter extends Adapter {
       const result = await this.runHttpMiddlewares(onRequestMws, http);
 
       if (result !== undefined && isErr(result)) {
-        this.writeErrorResponse(http.response, result.data);
+        writeErrorResponse(http.response, result.data);
         return;
       }
 
@@ -214,7 +146,7 @@ export class HttpAdapter extends Adapter {
 
     // ── Pipeline error (malformed request from HttpServer) ──
     if (http.pipelineError !== undefined) {
-      this.writeErrorResponse(http.response, http.pipelineError);
+      writeErrorResponse(http.response, http.pipelineError);
       return;
     }
 
@@ -222,7 +154,7 @@ export class HttpAdapter extends Adapter {
     const routeResult = this.resolveRoute(http);
 
     if (isErr(routeResult)) {
-      this.writeErrorResponse(http.response, routeResult.data);
+      writeErrorResponse(http.response, routeResult.data);
       return;
     }
 
@@ -332,7 +264,7 @@ export class HttpAdapter extends Adapter {
 
       // ── Adapter steps ──
       [HttpStep.ParseBody, (context: AdapterContext) =>
-        this.parseBody(context.to(HttpContext)),
+        parseBody(context.to(HttpContext), this.options.bodyLimit!, this.textMediaTypes),
       ],
       [HttpStep.WriteResponse, async (context: AdapterContext) => {
         const http = context.to(HttpContext);
@@ -341,9 +273,9 @@ export class HttpAdapter extends Adapter {
         if (http.response.isSent() || result === undefined) return;
 
         if (isErr(result)) {
-          this.writeErrorResponse(http.response, result.data);
+          writeErrorResponse(http.response, result.data);
         } else {
-          await this.writeSuccessResponse(http.response, result, http);
+          await writeSuccessResponse(http.response, result, http);
         }
       }],
       [HttpStep.Serialize, (context: AdapterContext) => {
@@ -392,148 +324,6 @@ export class HttpAdapter extends Adapter {
     return undefined;
   }
 
-  /**
-   * Parses the HTTP request body from the raw Bun `Request`.
-   * Runs after `resolveRoute` so `@RawBody()` flag is accessible.
-   *
-   * @param http - The HTTP context.
-   * @returns `void` on success, `Err` with 400 status on invalid JSON.
-   */
-  private async parseBody(http: HttpContext): Promise<Result<void, ErrorResponseData>> {
-    const req = http.request;
-    const rawReq = http.consumeRawRequest();
-
-    if (rawReq === undefined) return undefined;
-    if (req.method === 'GET' || req.method === 'HEAD') return undefined;
-    if ((req.method === 'DELETE' || req.method === 'OPTIONS') && req.contentType === null) return undefined;
-
-    // Content-Length: 0 — body 없음. Content-Encoding보다 먼저 체크.
-    if (req.contentLength === 0) return undefined;
-
-    // Content-Encoding 감지
-    const contentEncoding = req.headers.get('content-encoding');
-    if (contentEncoding !== null && contentEncoding.toLowerCase() !== 'identity') {
-      // RFC 9110 §15.5.16
-      http.response.setHeader(HeaderField.AcceptEncoding, 'identity');
-      return err({
-        status: StatusCodes.UNSUPPORTED_MEDIA_TYPE,
-        message: `Content-Encoding '${contentEncoding}' is not supported. Send uncompressed request body.`,
-      });
-    }
-
-    const mediaType = req.contentType?.mediaType ?? '';
-    const isJson = mediaType === 'application/json' || mediaType.endsWith('+json');
-    const isTextLike = mediaType.startsWith('text/')
-      || mediaType === 'application/x-www-form-urlencoded'
-      || this.textMediaTypes.has(mediaType);
-    const shouldBuffer = isJson || isTextLike;
-    const rawBodyEnabled = httpServerInternals.resolveRawBody(http.matchedRoute);
-    const charset = req.contentType?.charset ?? 'utf-8';
-
-    // JSON charset 제한: RFC 8259 §8.1 — UTF-8만 허용
-    if (isJson) {
-      try {
-        if (new TextDecoder(charset as Bun.Encoding).encoding !== 'utf-8') {
-          return err({
-            status: StatusCodes.BAD_REQUEST,
-            message: `JSON requires UTF-8 encoding (RFC 8259 §8.1), received: ${charset}`,
-          });
-        }
-      } catch {
-        return err({
-          status: StatusCodes.BAD_REQUEST,
-          message: `JSON requires UTF-8 encoding (RFC 8259 §8.1), received: ${charset}`,
-        });
-      }
-    }
-
-    const effectiveBodyLimit = http.matchedRoute?.bodyLimit ?? this.options.bodyLimit!;
-
-    if (shouldBuffer && rawBodyEnabled) {
-      // ── 버퍼링 + rawBody (CL 유무 불문 readBodyWithLimit) ──
-      const bytesResult = await readBodyWithLimit(rawReq, req.contentLength, effectiveBodyLimit);
-      if (isErr(bytesResult)) return bytesResult;
-
-      req.rawBody = bytesResult;
-
-      let text: string;
-      try {
-        text = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(bytesResult);
-      } catch {
-        return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
-      }
-
-      if (isJson) {
-        try {
-          req.body = httpServerInternals.parseJsonBody(JSON.parse(text));
-        } catch {
-          return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
-        }
-      } else {
-        req.body = text;
-      }
-      return undefined;
-    }
-
-    if (shouldBuffer) {
-      // ── 버퍼링, rawBody 비활성 ──
-      if (req.contentLength === null) {
-        // CL 없음 (chunked TE) — readBodyWithLimit으로 점진적 size 체크
-        const bytesResult = await readBodyWithLimit(rawReq, null, effectiveBodyLimit);
-        if (isErr(bytesResult)) return bytesResult;
-
-        let text: string;
-        try {
-          text = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(bytesResult);
-        } catch {
-          return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
-        }
-
-        if (isJson) {
-          try {
-            req.body = httpServerInternals.parseJsonBody(JSON.parse(text));
-          } catch {
-            return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
-          }
-        } else {
-          req.body = text;
-        }
-        return undefined;
-      }
-
-      // CL 존재 — fast path. bodyLimit 초과 시 즉시 거부.
-      if (req.contentLength! > effectiveBodyLimit) {
-        return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
-      }
-      if (isJson) {
-        try {
-          req.body = httpServerInternals.parseJsonBody(await rawReq.json());
-        } catch (error) {
-          // SyntaxError = 클라이언트가 잘못된 JSON 전송 → err(400)
-          // TypeError/기타 = body 이중 소비, 네트워크 끊김 등 인프라 에러 → throw 전파
-          if (error instanceof SyntaxError) {
-            return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
-          }
-          throw error;
-        }
-      } else {
-        try {
-          const raw = new Uint8Array(await rawReq.arrayBuffer());
-          req.body = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(raw);
-        } catch {
-          return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
-        }
-      }
-      return undefined;
-    }
-
-    // ── 스트리밍 — 버퍼링 없음 ──
-    if (rawReq.body !== null) {
-      // Bun Request.body는 ReadableStream<Uint8Array>이지만 TS 타입이 ReadableStream<any>로 선언됨
-      req.body = rawReq.body as ReadableStream<Uint8Array>;
-    }
-    return undefined;
-  }
 
 
   /**
@@ -599,8 +389,9 @@ export class HttpAdapter extends Adapter {
 
     if (!res.isSent()) {
       // Headers preserved — OnRequest에서 설정된 CORS/보안 헤더 유지.
-      // status + body만 덮어쓴다.
+      // status + body + content-type만 덮어쓴다.
       res.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
+      res.setContentType('text/plain');
       res.setBody('Internal Server Error');
     }
   }
@@ -628,7 +419,7 @@ export class HttpAdapter extends Adapter {
 
     this.httpServer = new HttpServer();
 
-    const metadata = this.normalizeMetadataRegistry(bootstrapState.metadataRegistry);
+    const metadata = normalizeMetadataRegistry(bootstrapState.metadataRegistry);
     const scopedKeys = bootstrapState.scopedKeys;
     const bootOptions: HttpServerBootOptions = {
       ...this.options,
@@ -675,224 +466,4 @@ export class HttpAdapter extends Adapter {
     }
   }
 
-  // ── Response writing ──────────────────────────────────────
-
-  private writeErrorResponse(res: HttpResponse, errorData: unknown): void {
-    if (errorData instanceof HttpError) {
-      const body: ResponseBodyValue = { statusCode: errorData.statusCode, message: errorData.message };
-      res.setStatus(errorData.statusCode);
-      res.setBody(body);
-
-      return;
-    }
-
-    if (this.isErrorResponseData(errorData)) {
-      const body: ResponseBodyValue = {
-        status: errorData.status,
-        message: errorData.message,
-        ...(errorData.errors !== undefined ? { errors: [...errorData.errors] } : {}),
-      };
-      res.setStatus(errorData.status);
-      res.setBody(body);
-
-      return;
-    }
-
-    const body: ResponseBodyValue = { statusCode: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Internal Server Error' };
-    res.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
-    res.setBody(body);
-  }
-
-  /**
-   * Converts a successful handler result into an HTTP response.
-   *
-   * AsyncIterable routing:
-   * - `@Sse()` decorated → SSE format (text/event-stream + data: framing)
-   * - No `@Sse()` → raw streaming (chunks sent as-is, Content-Type from @ContentType or imperative)
-   *
-   * @param res - The HTTP response builder.
-   * @param result - The handler's return value.
-   * @param http - The HTTP context (for route metadata and signal).
-   */
-  private async writeSuccessResponse(res: HttpResponse, result: unknown, http: HttpContext): Promise<void> {
-    const signal = http.request.signal;
-
-    // AsyncIterable → SSE or raw streaming based on @Sse flag
-    if (isAsyncIterable(result)) {
-      const isSse = http.matchedRoute?.sse === true;
-      const iterator = result[Symbol.asyncIterator]();
-      const stream = new ReadableStream({
-        async pull(controller) {
-          if (signal.aborted) {
-            controller.close();
-            return;
-          }
-
-          try {
-            const { done, value } = await iterator.next();
-            if (done || signal.aborted) {
-              controller.close();
-              return;
-            }
-
-            if (isSse) {
-              controller.enqueue(formatSSEChunk(value));
-            } else {
-              // Raw streaming — encode string chunks, pass Uint8Array through
-              if (typeof value === 'string') {
-                controller.enqueue(TEXT_ENCODER.encode(value));
-              } else if (value instanceof Uint8Array) {
-                controller.enqueue(value);
-              } else {
-                controller.enqueue(TEXT_ENCODER.encode(String(value)));
-              }
-            }
-          } catch (error) {
-            if (!signal.aborted) {
-              controller.error(error);
-            } else {
-              controller.close();
-            }
-          }
-        },
-        async cancel() {
-          try {
-            await iterator.return?.();
-          } catch { /* swallow — cleanup best-effort */ }
-        },
-      });
-
-      if (isSse) {
-        const sseResponse = new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no',
-          },
-        });
-        res.setNativeResponse(sseResponse);
-      } else {
-        // Raw streaming — Content-Type from @ContentType or imperative setContentType
-        res.setNativeResponse(new Response(stream));
-      }
-      return;
-    }
-
-    // Native Response passthrough (handler-created Response)
-    if (result instanceof Response) {
-      res.setNativeResponse(result);
-      return;
-    }
-
-    if (result === undefined || result === null) {
-      return;
-    }
-
-    if (typeof result === 'bigint') {
-      res.setBody(result.toString());
-      return;
-    }
-
-    if (this.isResponseBodyValue(result)) {
-      res.setBody(result);
-    }
-  }
-
-  private isResponseBodyValue(value: unknown): value is ResponseBodyValue {
-    if (value === null) {
-      return true;
-    }
-
-    const valueType = typeof value;
-
-    if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
-      return true;
-    }
-
-    if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
-      return true;
-    }
-
-    if (valueType === 'object') {
-      return true;
-    }
-
-    return false;
-  }
-
-  private isErrorResponseData(value: unknown): value is ErrorResponseData {
-    return (
-      typeof value === 'object' &&
-      value !== null &&
-      'status' in value &&
-      typeof value.status === 'number'
-    );
-  }
-
-  // ── Internals ─────────────────────────────────────────────
-
-
-  private normalizeMetadataRegistry(
-    registry:
-      | Map<MetadataRegistryKey, ClassMetadata | CoreClassMetadata>
-      | Map<Class, ClassMetadata | CoreClassMetadata>
-      | undefined,
-  ): Map<MetadataRegistryKey, ClassMetadata> | undefined {
-    if (!registry) {
-      return undefined;
-    }
-
-    const normalized = new Map<MetadataRegistryKey, ClassMetadata>();
-
-    for (const [key, value] of registry.entries()) {
-      if (this.isClassToken(key)) {
-        normalized.set(key, this.toHttpClassMetadata(value));
-      }
-    }
-
-    return normalized;
-  }
-
-  private toHttpClassMetadata(value: ClassMetadata | CoreClassMetadata): ClassMetadata {
-    if (this.isHttpClassMetadata(value)) {
-      return value;
-    }
-
-    const decorators = value.decorators ? this.normalizeCoreDecorators(value.decorators) : undefined;
-    const constructorParams = value.constructorParams ? this.normalizeCoreConstructorParams(value.constructorParams) : undefined;
-
-    return {
-      ...(decorators !== undefined ? { decorators } : {}),
-      ...(constructorParams !== undefined ? { constructorParams } : {}),
-    };
-  }
-
-  private isHttpClassMetadata(value: ClassMetadata | CoreClassMetadata): value is ClassMetadata {
-    return 'methods' in value || 'className' in value;
-  }
-
-  private normalizeCoreDecorators(decorators: readonly CoreDecoratorMetadata[]): ClassMetadata['decorators'] {
-    return decorators.map(decorator => ({ name: decorator.name }));
-  }
-
-  private normalizeCoreConstructorParams(params: readonly CoreConstructorParamMetadata[]): ClassMetadata['constructorParams'] {
-    return params.map(param => {
-      const type = this.isProviderToken(param.type) ? param.type : undefined;
-      const decorators = param.decorators ? this.normalizeCoreDecorators(param.decorators) : undefined;
-
-      return {
-        ...(type !== undefined ? { type } : {}),
-        ...(decorators !== undefined ? { decorators } : {}),
-      };
-    });
-  }
-
-  private isProviderToken(value: CoreConstructorParamMetadata['type']): value is ParamTypeReference {
-    return typeof value === 'string' || typeof value === 'symbol' || typeof value === 'function';
-  }
-
-  private isClassToken(value: MetadataRegistryKey | Class): value is MetadataRegistryKey {
-    return typeof value === 'function';
-  }
 }

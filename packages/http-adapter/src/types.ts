@@ -6,7 +6,13 @@ import type {
   PrimitiveRecord,
   ProviderToken,
 } from '@zipbul/common';
-import type { ResolvedExceptionFilter, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
+import type {
+  ResolvedExceptionFilter,
+  ResolvedValidationEntry,
+  PipelineStepFn,
+  TokenRecord,
+  ConstructorParamMetadata as CoreConstructorParamMetadata,
+} from '@zipbul/core';
 import { StatusCodes } from 'http-status-codes';
 
 import type { HttpContext } from './http-context';
@@ -184,16 +190,15 @@ export type ControllerConstructor = Class<ControllerInstance>;
 
 export type MetadataRegistryKey = ClassToken;
 
-export interface TokenRecord {
-  readonly __zipbul_ref?: string;
-  readonly __zipbul_lazy_ref?: string;
-  readonly name?: string;
-}
+export type { TokenRecord };
 
 export interface TokenCarrier {
   readonly token: ProviderToken;
 }
 
+// http-adapter extends core's DecoratorArgument with protocol-specific types.
+// core DecoratorArgument := ProviderToken | TokenRecord | ModuleMetadata | primitive | null | undefined
+// http-adapter adds: MiddlewareDefinition, ErrorConstructor, PrimitiveArray, PrimitiveRecord, TokenCarrier
 export type DecoratorArgument =
   | ProviderToken
   | TokenRecord
@@ -212,26 +217,36 @@ export type DecoratorArgument =
 
 export type ParamTypeReference = ProviderToken;
 
+/**
+ * Same structure as core's DecoratorMetadata but uses http-adapter's
+ * wider DecoratorArgument union (includes MiddlewareDefinition, ErrorConstructor, etc.).
+ */
 export interface DecoratorMetadata {
   readonly name: string;
   readonly arguments?: readonly DecoratorArgument[];
 }
 
-export interface ConstructorParamMetadata {
-  readonly type?: ParamTypeReference;
-  readonly decorators?: readonly DecoratorMetadata[];
-}
+export type { CoreConstructorParamMetadata as ConstructorParamMetadata };
 
 export interface MethodMetadata {
   readonly name: string;
   readonly decorators?: readonly DecoratorMetadata[];
 }
 
+/**
+ * http-adapter's ClassMetadata mirrors CoreClassMetadata structure but uses
+ * the wider DecoratorMetadata/DecoratorArgument types.
+ * Cannot use `extends CoreClassMetadata` because DecoratorArgument is a superset
+ * of core's DecoratorArgument, violating covariance on the `decorators` field.
+ *
+ * CoreClassMetadata provides: decorators, constructorParams.
+ * http-adapter adds: className (used by CLI compiler), methods (used by CLI compiler).
+ */
 export interface ClassMetadata {
   readonly className?: string;
   readonly decorators?: readonly DecoratorMetadata[];
   readonly methods?: readonly MethodMetadata[];
-  readonly constructorParams?: readonly ConstructorParamMetadata[];
+  readonly constructorParams?: readonly CoreConstructorParamMetadata[];
 }
 
 export interface InternalRouteDefinition {

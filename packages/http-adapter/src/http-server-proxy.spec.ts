@@ -17,18 +17,20 @@ mock.module('@zipbul/baker', () => ({
   isBakerError: () => false,
 }));
 
-const { __internals } = await import('./http-server');
-
-const {
+import {
   evaluateTrustProxy,
   resolveClientIp,
   isTrustedIp,
   isInCidrRange,
   matchesCidr,
   ipv4ToNumber,
+  ipv6ToBytes,
+  matchesPrefix,
   resolveProxyInfo,
-  createHttpRequest,
-} = __internals;
+} from './proxy';
+
+const { __internals } = await import('./http-server');
+const { createHttpRequest } = __internals;
 
 /**
  * [OVERFLOW Checkpoint]
@@ -796,5 +798,199 @@ describe('ordering', () => {
     expect(calls[0]).toBe('10.0.0.1');
     expect(calls[1]).toBe('10.0.0.6');
     expect(calls[2]).toBe('10.0.0.5');
+  });
+});
+
+// ── ipv6ToBytes ──────────────────────────────────────────────
+
+describe('ipv6ToBytes', () => {
+  it('should parse :: (all zeros)', () => {
+    const result = ipv6ToBytes('::');
+
+    expect(result).not.toBeNull();
+    expect(result!.length).toBe(16);
+    expect(Array.from(result!).every((b) => b === 0)).toBe(true);
+  });
+
+  it('should parse ::1 (loopback)', () => {
+    const result = ipv6ToBytes('::1');
+
+    expect(result).not.toBeNull();
+    expect(result![14]).toBe(0);
+    expect(result![15]).toBe(1);
+    // All other bytes should be 0
+    for (let i = 0; i < 14; i++) {
+      expect(result![i]).toBe(0);
+    }
+  });
+
+  it('should parse 1:: (leading group only)', () => {
+    const result = ipv6ToBytes('1::');
+
+    expect(result).not.toBeNull();
+    expect(result![0]).toBe(0);
+    expect(result![1]).toBe(1);
+    for (let i = 2; i < 16; i++) {
+      expect(result![i]).toBe(0);
+    }
+  });
+
+  it('should parse 1::2 (groups on both sides of ::)', () => {
+    const result = ipv6ToBytes('1::2');
+
+    expect(result).not.toBeNull();
+    expect(result![0]).toBe(0);
+    expect(result![1]).toBe(1);
+    for (let i = 2; i < 14; i++) {
+      expect(result![i]).toBe(0);
+    }
+    expect(result![14]).toBe(0);
+    expect(result![15]).toBe(2);
+  });
+
+  it('should parse ::ffff:10.0.0.1 (embedded IPv4)', () => {
+    const result = ipv6ToBytes('::ffff:10.0.0.1');
+
+    expect(result).not.toBeNull();
+    // ::ffff: prefix
+    expect(result![10]).toBe(0xff);
+    expect(result![11]).toBe(0xff);
+    // 10.0.0.1
+    expect(result![12]).toBe(10);
+    expect(result![13]).toBe(0);
+    expect(result![14]).toBe(0);
+    expect(result![15]).toBe(1);
+  });
+
+  it('should parse ::ffff:255.255.255.255 (embedded IPv4 max)', () => {
+    const result = ipv6ToBytes('::ffff:255.255.255.255');
+
+    expect(result).not.toBeNull();
+    expect(result![10]).toBe(0xff);
+    expect(result![11]).toBe(0xff);
+    expect(result![12]).toBe(255);
+    expect(result![13]).toBe(255);
+    expect(result![14]).toBe(255);
+    expect(result![15]).toBe(255);
+  });
+
+  it('should parse fe80:: (link-local prefix)', () => {
+    const result = ipv6ToBytes('fe80::');
+
+    expect(result).not.toBeNull();
+    expect(result![0]).toBe(0xfe);
+    expect(result![1]).toBe(0x80);
+    for (let i = 2; i < 16; i++) {
+      expect(result![i]).toBe(0);
+    }
+  });
+
+  it('should parse full form 0:0:0:0:0:0:0:1', () => {
+    const result = ipv6ToBytes('0:0:0:0:0:0:0:1');
+
+    expect(result).not.toBeNull();
+    // Should be identical to ::1
+    const loopback = ipv6ToBytes('::1');
+    expect(Array.from(result!)).toEqual(Array.from(loopback!));
+  });
+
+  it('should return null for invalid input with triple colon', () => {
+    const result = ipv6ToBytes(':::1');
+
+    expect(result).toBeNull();
+  });
+
+  it('should return null for too many groups', () => {
+    const result = ipv6ToBytes('1:2:3:4:5:6:7:8:9');
+
+    expect(result).toBeNull();
+  });
+
+  it('should return null for invalid hex group', () => {
+    const result = ipv6ToBytes('1:2:3:4:5:6:7:zzzz');
+
+    expect(result).toBeNull();
+  });
+
+  it('should return null for group value exceeding 0xffff', () => {
+    const result = ipv6ToBytes('1:2:3:4:5:6:7:10000');
+
+    expect(result).toBeNull();
+  });
+
+  it('should return null for invalid embedded IPv4', () => {
+    const result = ipv6ToBytes('::ffff:999.0.0.1');
+
+    expect(result).toBeNull();
+  });
+});
+
+// ── matchesPrefix ────────────────────────────────────────────
+
+describe('matchesPrefix', () => {
+  const addr = ipv6ToBytes('::1')!;
+  const allZeros = ipv6ToBytes('::')!;
+  const allOnes = new Uint8Array(16).fill(0xff);
+
+  it('should match everything with prefix 0', () => {
+    expect(matchesPrefix(addr, allOnes, 0)).toBe(true);
+    expect(matchesPrefix(allZeros, allOnes, 0)).toBe(true);
+  });
+
+  it('should match full byte boundary with prefix 8', () => {
+    const a = ipv6ToBytes('ff00::')!;
+    const b = ipv6ToBytes('ff01::')!;
+
+    expect(matchesPrefix(a, b, 8)).toBe(true);
+  });
+
+  it('should distinguish at prefix 9 (partial byte)', () => {
+    // ff00 = 1111_1111 0000_0000
+    // ff80 = 1111_1111 1000_0000
+    // At prefix 9, the 9th bit matters: ff00 has 0, ff80 has 1
+    const a = ipv6ToBytes('ff00::')!;
+    const b = ipv6ToBytes('ff80::')!;
+
+    expect(matchesPrefix(a, b, 9)).toBe(false);
+
+    // Same prefix should match
+    expect(matchesPrefix(a, a, 9)).toBe(true);
+  });
+
+  it('should match with prefix 64 (half address)', () => {
+    const a = ipv6ToBytes('2001:db8:85a3::1')!;
+    const b = ipv6ToBytes('2001:db8:85a3::9999')!;
+
+    expect(matchesPrefix(a, b, 64)).toBe(true);
+  });
+
+  it('should not match different /64 prefixes', () => {
+    const a = ipv6ToBytes('2001:db8:85a3::1')!;
+    const b = ipv6ToBytes('2001:db8:85a4::1')!;
+
+    expect(matchesPrefix(a, b, 64)).toBe(false);
+  });
+
+  it('should match with prefix 127 (differs only in last bit)', () => {
+    const a = ipv6ToBytes('::1')!;
+    const b = ipv6ToBytes('::')!;
+
+    // ::1 = ...0000_0001, :: = ...0000_0000
+    // prefix 127 checks first 127 bits — both are all zeros except last bit
+    expect(matchesPrefix(a, b, 127)).toBe(true);
+  });
+
+  it('should not match with prefix 128 when last bit differs', () => {
+    const a = ipv6ToBytes('::1')!;
+    const b = ipv6ToBytes('::')!;
+
+    expect(matchesPrefix(a, b, 128)).toBe(false);
+  });
+
+  it('should match identical addresses with prefix 128', () => {
+    const a = ipv6ToBytes('fe80::1')!;
+    const b = ipv6ToBytes('fe80::1')!;
+
+    expect(matchesPrefix(a, b, 128)).toBe(true);
   });
 });
