@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 
 import { WorkerState } from './enums';
 import { InvalidStateTransitionError } from './errors';
@@ -14,7 +14,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Spawning, WorkerState.Ready);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Ready);
+    expect(slot.state as WorkerState).toBe(WorkerState.Ready);
   });
 
   it('should transition Ready → Initializing', () => {
@@ -24,7 +24,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Ready, WorkerState.Initializing);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Initializing);
+    expect(slot.state as WorkerState).toBe(WorkerState.Initializing);
   });
 
   it('should transition Initializing → Running', () => {
@@ -35,7 +35,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Initializing, WorkerState.Running);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Running);
+    expect(slot.state as WorkerState).toBe(WorkerState.Running);
   });
 
   it('should transition Running → Draining', () => {
@@ -47,7 +47,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Running, WorkerState.Draining);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Draining);
+    expect(slot.state as WorkerState).toBe(WorkerState.Draining);
   });
 
   it('should transition Draining → Destroying', () => {
@@ -57,7 +57,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Draining, WorkerState.Destroying);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Destroying);
+    expect(slot.state as WorkerState).toBe(WorkerState.Destroying);
   });
 
   it('should transition Destroying → Terminated', () => {
@@ -67,7 +67,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Destroying, WorkerState.Terminated);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Terminated);
+    expect(slot.state as WorkerState).toBe(WorkerState.Terminated);
   });
 
   it('should transition Spawning → Crashed', () => {
@@ -76,7 +76,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Spawning, WorkerState.Crashed);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Crashed);
+    expect(slot.state as WorkerState).toBe(WorkerState.Crashed);
   });
 
   it('should transition Running → Crashed', () => {
@@ -86,7 +86,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Running, WorkerState.Crashed);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Crashed);
+    expect(slot.state as WorkerState).toBe(WorkerState.Crashed);
   });
 
   it('should transition Crashed → Reviving', () => {
@@ -96,7 +96,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Crashed, WorkerState.Reviving);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Reviving);
+    expect(slot.state as WorkerState).toBe(WorkerState.Reviving);
   });
 
   it('should transition Reviving → Spawning', () => {
@@ -106,7 +106,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Reviving, WorkerState.Spawning);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Spawning);
+    expect(slot.state as WorkerState).toBe(WorkerState.Spawning);
   });
 
   it('should transition Spawning → Terminated when shutdown', () => {
@@ -115,7 +115,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Spawning, WorkerState.Terminated);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Terminated);
+    expect(slot.state as WorkerState).toBe(WorkerState.Terminated);
   });
 
   it('should transition Destroying → Crashed when terminateInitiated is false', () => {
@@ -125,7 +125,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Destroying, WorkerState.Crashed);
 
     expect(result).toBe(true);
-    expect(slot.state).toBe(WorkerState.Crashed);
+    expect(slot.state as WorkerState).toBe(WorkerState.Crashed);
   });
 
   it('should reject transition when from state does not match current', () => {
@@ -134,7 +134,7 @@ describe('transition', () => {
     const result = transition(slot, WorkerState.Ready, WorkerState.Initializing);
 
     expect(result).toBe(false);
-    expect(slot.state).toBe(WorkerState.Spawning);
+    expect(slot.state as WorkerState).toBe(WorkerState.Spawning);
   });
 
   it('should throw on invalid transition', () => {
@@ -167,7 +167,7 @@ describe('createSlot', () => {
     const slot = createSlot<TestRpc>(5);
 
     expect(slot.id).toBe(5);
-    expect(slot.state).toBe(WorkerState.Spawning);
+    expect(slot.state as WorkerState).toBe(WorkerState.Spawning);
     expect(slot.generation).toBe(0);
     expect(slot.terminateInitiated).toBe(false);
     expect(slot.readyReceived).toBe(false);

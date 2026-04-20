@@ -6,6 +6,7 @@ import { describe, expect, it } from 'bun:test';
 import type { FileAnalysis } from '../analyzer/graph/interfaces';
 
 import { isErr } from '@zipbul/result';
+import { unwrapOk } from '../../../test/shared/assertions';
 import { ModuleGraph } from '../analyzer/graph/module-graph';
 import { ImportRegistry } from './import-registry';
 import { InjectorGenerator } from './injector-generator';
@@ -83,7 +84,7 @@ describe('InjectorGenerator', () => {
       const registry = new ImportRegistry('/app/src');
       const generator = new InjectorGenerator();
       // Act
-      const result = generator.generate(graph, registry);
+      const result = unwrapOk(generator.generate(graph, registry));
       const importLines = result
         .split('\n')
         .map(line => line.trim())

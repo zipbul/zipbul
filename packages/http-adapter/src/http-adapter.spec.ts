@@ -2,8 +2,17 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import type { Context, ZipbulContainer } from '@zipbul/common';
 import { defineMiddleware, defineGuard, defineExceptionFilter } from '@zipbul/common';
 import { err, isErr } from '@zipbul/result';
-import type { HttpRequest } from './http-request';
+import type { Result } from '@zipbul/result';
+import { HttpRequest } from './http-request';
+import { HttpContext } from './http-context';
+import { HttpResponse } from './http-response';
+import { parseBody } from './body';
+import type { ErrorResponseData, HttpRequestData, RouteHandlerResult } from './types';
+import { writeErrorResponse, writeSuccessResponse } from './response-writer';
 import { HttpPhase } from './enums';
+import { createTestHttpRequest } from './test-fixtures/http-request-fixture';
+import { assertDefined } from './test-fixtures/assertions';
+
 
 const mockGetBootstrapState = mock(() => ({
   isAotRuntime: false,
@@ -50,7 +59,7 @@ describe('HttpAdapter', () => {
       const adapter = new HttpAdapter();
 
       // Assert — access via private field through any
-      const opts = (adapter as unknown as Record<string, Record<string, unknown>>).options;
+      const opts = (adapter as unknown as { options: Record<string, unknown> }).options;
       expect(opts.port).toBe(5000);
       expect(opts.bodyLimit).toBe(10 * 1024 * 1024);
       expect(opts.trustProxy).toBe(false);
@@ -63,7 +72,7 @@ describe('HttpAdapter', () => {
       const adapter = new HttpAdapter({ name: 'my-app' });
 
       // Assert
-      const opts = (adapter as unknown as Record<string, Record<string, unknown>>).options;
+      const opts = (adapter as unknown as { options: Record<string, unknown> }).options;
       expect(opts.name).toBe('my-app');
     });
 
@@ -72,7 +81,7 @@ describe('HttpAdapter', () => {
       const adapter = new HttpAdapter({ logLevel: 'info' });
 
       // Assert
-      const opts = (adapter as unknown as Record<string, Record<string, unknown>>).options;
+      const opts = (adapter as unknown as { options: Record<string, unknown> }).options;
       expect(opts.logLevel).toBe('info');
     });
 
@@ -81,7 +90,7 @@ describe('HttpAdapter', () => {
       const adapter = new HttpAdapter({ port: 3000 });
 
       // Assert
-      const opts = (adapter as unknown as Record<string, Record<string, unknown>>).options;
+      const opts = (adapter as unknown as { options: Record<string, unknown> }).options;
       expect(opts.port).toBe(3000);
     });
 
@@ -90,7 +99,7 @@ describe('HttpAdapter', () => {
       const adapter = new HttpAdapter({ bodyLimit: 1024 });
 
       // Assert
-      const opts = (adapter as unknown as Record<string, Record<string, unknown>>).options;
+      const opts = (adapter as unknown as { options: Record<string, unknown> }).options;
       expect(opts.bodyLimit).toBe(1024);
     });
 
@@ -99,7 +108,7 @@ describe('HttpAdapter', () => {
       const adapter = new HttpAdapter({ trustProxy: true });
 
       // Assert
-      const opts = (adapter as unknown as Record<string, Record<string, unknown>>).options;
+      const opts = (adapter as unknown as { options: Record<string, unknown> }).options;
       expect(opts.trustProxy).toBe(true);
     });
 
@@ -108,7 +117,7 @@ describe('HttpAdapter', () => {
       const adapter = new HttpAdapter({ port: 8080 });
 
       // Assert
-      const opts = (adapter as unknown as Record<string, Record<string, unknown>>).options;
+      const opts = (adapter as unknown as { options: Record<string, unknown> }).options;
       expect(opts.port).toBe(8080);
       expect(opts.name).toBe('zipbul-http');
       expect(opts.logLevel).toBe('debug');
@@ -380,97 +389,41 @@ describe('HttpAdapter', () => {
   });
 });
 
-function createStubHttpRequest(overrides?: Partial<HttpRequest>): HttpRequest {
-  return {
-    requestId: 'test-id',
-    originalMethod: 'GET',
+/**
+ * Typed factory. Returns a real {@link HttpRequest} — no `as unknown as`
+ * casts. Tests that previously injected computed getter fields (`protocol`,
+ * `host`, etc.) should seed the raw inputs instead; the getters resolve
+ * naturally from them.
+ */
+function createStubHttpRequest(overrides: Partial<HttpRequestData> = {}): HttpRequest {
+  return createTestHttpRequest({
     originalUrl: 'http://localhost/test',
-    method: 'GET',
     url: 'http://localhost/test',
     path: '/test',
-    headers: new Headers(),
-    protocol: 'http',
-    host: 'localhost',
-    hostname: 'localhost',
-    port: 80,
-    queryString: null,
-    contentType: null,
-    contentLength: null,
-    ip: null,
-    ips: [],
-    isTrustedProxy: false,
-    signal: AbortSignal.timeout(5000),
-    body: undefined,
-    params: {},
-    rawBody: null,
     ...overrides,
-  } as unknown as HttpRequest;
+  });
 }
 
-function createHttpContext(method: string, path: string): Context {
-  const { HttpContext } = require('./http-context');
-  const { HttpRequest } = require('./http-request');
-  const { HttpResponse } = require('./http-response');
-
+function createHttpContext(method: string, path: string, signal?: AbortSignal): HttpContext {
   const url = new URL(`http://localhost${path}`);
-  const req = new HttpRequest({
-    requestId: 'test-id',
+  const req = createTestHttpRequest({
     originalMethod: method,
     originalUrl: `http://localhost${path}`,
     method,
     url: `http://localhost${path}`,
     path,
-    headers: new Headers(),
-    protocol: 'http',
-    host: 'localhost',
-    hostname: 'localhost',
-    port: 80,
-    queryString: url.search || null,
-    contentType: null,
-    contentLength: null,
-    ip: null,
-    ips: [],
-    isTrustedProxy: false,
-    signal: AbortSignal.timeout(5000),
-  });
+    ...(url.search ? { queryString: url.search } : {}),
+    ...(signal !== undefined ? { signal } : {}),
+  } as Partial<HttpRequestData>);
   const res = new HttpResponse(req, new Headers());
-
   return new HttpContext(req, res);
 }
 
-function createHttpContextWithSignal(method: string, path: string, signal: AbortSignal): Context {
-  const { HttpContext } = require('./http-context');
-  const { HttpRequest } = require('./http-request');
-  const { HttpResponse } = require('./http-response');
-
-  const url = new URL(`http://localhost${path}`);
-  const req = new HttpRequest({
-    requestId: 'test-id',
-    originalMethod: method,
-    originalUrl: `http://localhost${path}`,
-    method,
-    url: `http://localhost${path}`,
-    path,
-    headers: new Headers(),
-    protocol: 'http',
-    host: 'localhost',
-    hostname: 'localhost',
-    port: 80,
-    queryString: url.search || null,
-    contentType: null,
-    contentLength: null,
-    ip: null,
-    ips: [],
-    isTrustedProxy: false,
-    signal,
-  });
-  const res = new HttpResponse(req, new Headers());
-
-  return new HttpContext(req, res);
+function createHttpContextWithSignal(method: string, path: string, signal: AbortSignal): HttpContext {
+  return createHttpContext(method, path, signal);
 }
 
-function setSseRoute(context: Context): void {
-  const { HttpContext } = require('./http-context');
+function setSseRoute(context: HttpContext): void {
   const http = context.to(HttpContext);
   http.matchedRoute = {
     rawBody: false,
@@ -503,16 +456,18 @@ function createMockContainer(): ZipbulContainer {
  * Sets the handler result on context via `handlerResultKey`, then invokes
  * writeErrorResponse / writeSuccessResponse module functions.
  */
-async function writeResult(_adapter: InstanceType<typeof HttpAdapter>, result: unknown, context: Context): Promise<void> {
-  const { HttpContext } = require('./http-context');
-  const { writeErrorResponse, writeSuccessResponse } = require('./response-writer');
+async function writeResult(
+  _adapter: InstanceType<typeof HttpAdapter>,
+  result: Result<RouteHandlerResult, ErrorResponseData> | undefined,
+  context: Context,
+): Promise<void> {
   const http = context.to(HttpContext);
   context.set(handlerResultKey, result);
 
   if (http.response.isSent() || result === undefined) return;
 
   if (isErr(result)) {
-    writeErrorResponse(http.response, (result as { data: unknown }).data);
+    writeErrorResponse(http.response, result.data);
   } else {
     await writeSuccessResponse(http.response, result, http);
   }
@@ -522,7 +477,7 @@ async function writeResult(_adapter: InstanceType<typeof HttpAdapter>, result: u
 
 function createMockRouteHandler(options: {
   pre?: Array<(ctx: Context) => unknown>;
-  filters?: Array<{ handler: (error: unknown, ctx: Context) => unknown; catchTypes: readonly (abstract new (...args: readonly unknown[]) => Error)[] }>;
+  filters?: Array<{ handler: (error: unknown, ctx: Context) => unknown; catchTypes: readonly (abstract new (...args: never[]) => Error)[] }>;
   handler?: (...args: readonly unknown[]) => unknown;
 }) {
   return {
@@ -1266,7 +1221,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert — 404 written directly to response (pre-route error path)
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(404);
     });
   });
@@ -1346,7 +1301,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert — should get 500 "Router not initialized" written directly to response
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(500);
     });
   });
@@ -1939,8 +1894,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect((globalFilter.mock.calls[0]![0] as Error).message).toBe('handler crash');
     });
 
-    it('should produce default unhandled error when no filters registered at all and handler throws', async () => {
-      // Arrange
+    it('should produce typed ErrorResponseData 500 when no filter matches an unhandled throw', async () => {
+      // HttpAdapter overrides executeExceptionFilterChain so that unhandled
+      // throws surface as `ErrorResponseData` (generic 500) — core's generic
+      // `{message:'Unhandled error', cause}` shape is not HTTP-renderable.
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1951,16 +1908,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const context = createHttpContext('GET', '/test');
 
-      // Act
       await adapter.dispatchRequest(context);
 
-      // Assert — default fallback from base Adapter.runExceptionFilters
       const receivedResult = context.get(handlerResultKey);
       expect(isErr(receivedResult)).toBe(true);
       const data = (receivedResult as { data: Record<string, unknown> }).data;
-      expect(data.message).toBe('Unhandled error');
-      expect(data.cause).toBeInstanceOf(Error);
-      expect((data.cause as Error).message).toBe('totally unhandled');
+      expect(data.status).toBe(500);
+      expect(data.message).toBe('Internal Server Error');
+      expect('cause' in data).toBe(false);
     });
   });
 
@@ -2028,15 +1983,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         body: jsonBody,
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json' }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2050,22 +2000,16 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should parse text body for POST request without JSON content-type', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const rawRequest = new Request('http://localhost/test', {
         method: 'POST',
         headers: { 'content-type': 'text/plain' },
         body: 'hello world',
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'text/plain' }),
-        contentType: { mediaType: 'text/plain', charset: null, boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2079,22 +2023,16 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should return Err with 400 status for invalid JSON', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const rawRequest = new Request('http://localhost/test', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{invalid json',
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json' }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2109,12 +2047,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should skip body parsing for GET requests', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const rawRequest = new Request('http://localhost/test');
-
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
 
       const req = createStubHttpRequest({
         method: 'GET',
@@ -2132,11 +2065,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should skip body parsing for HEAD requests', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
-
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
 
       const req = createStubHttpRequest({
         method: 'HEAD',
@@ -2154,11 +2082,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should skip body parsing for DELETE requests', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
-
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
 
       const req = createStubHttpRequest({
         method: 'DELETE',
@@ -2176,11 +2099,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should skip body parsing for OPTIONS requests', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
-
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
 
       const req = createStubHttpRequest({
         method: 'OPTIONS',
@@ -2198,17 +2116,11 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should skip body parsing when rawRequest is undefined', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
-
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
 
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json' }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res); // no rawRequest
@@ -2224,22 +2136,16 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should return 415 error when Content-Encoding is not identity', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const rawRequest = new Request('http://localhost/test', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
         body: JSON.stringify({ data: 'compressed' }),
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json', 'content-encoding': 'gzip' }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
         contentLength: 30,
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2259,22 +2165,16 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should return 400 error when JSON body has non-UTF-8 charset', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const rawRequest = new Request('http://localhost/test', {
         method: 'POST',
         headers: { 'content-type': 'application/json; charset=iso-8859-1' },
         body: JSON.stringify({ name: 'test' }),
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json; charset=iso-8859-1' }),
-        contentType: { mediaType: 'application/json', charset: 'iso-8859-1', boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2290,22 +2190,16 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should accept JSON body with UTF-8 charset', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const rawRequest = new Request('http://localhost/test', {
         method: 'POST',
         headers: { 'content-type': 'application/json; charset=utf-8' },
         body: JSON.stringify({ accepted: true }),
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
-        contentType: { mediaType: 'application/json', charset: 'utf-8', boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2321,7 +2215,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should parse body when DELETE request has content-type', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const jsonBody = JSON.stringify({ id: 42 });
       const rawRequest = new Request('http://localhost/test', {
         method: 'DELETE',
@@ -2329,15 +2222,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         body: jsonBody,
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'DELETE',
         originalMethod: 'DELETE',
         headers: new Headers({ 'content-type': 'application/json' }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2353,21 +2241,15 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should skip body parsing when Content-Length is 0', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const rawRequest = new Request('http://localhost/test', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'content-length': '0' },
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json', 'content-length': '0' }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
         contentLength: 0,
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2385,7 +2267,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should set rawBody when rawBody is enabled on matched route', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const jsonPayload = JSON.stringify({ webhook: 'data' });
       const rawRequest = new Request('http://localhost/test', {
         method: 'POST',
@@ -2393,15 +2274,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         body: jsonPayload,
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json' }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2434,7 +2310,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should assign ReadableStream to body for non-bufferable content types', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const binaryData = new Uint8Array([0x00, 0x01, 0x02, 0x03]);
       const rawRequest = new Request('http://localhost/test', {
         method: 'POST',
@@ -2442,15 +2317,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         body: binaryData,
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/octet-stream' }),
-        contentType: { mediaType: 'application/octet-stream', charset: null, boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2466,7 +2336,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should parse body as JSON for +json content types', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
       const jsonPayload = JSON.stringify({ type: 'articles', id: '1' });
       const rawRequest = new Request('http://localhost/test', {
         method: 'POST',
@@ -2474,15 +2343,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         body: jsonPayload,
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/vnd.api+json' }),
-        contentType: { mediaType: 'application/vnd.api+json', charset: null, boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2498,17 +2362,11 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should rethrow non-SyntaxError from json parsing', async () => {
       // Arrange
-      const adapter = new HttpAdapter();
-
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
 
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json' }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
 
@@ -2535,7 +2393,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       const res = http.response;
       res.setStatus(200);
       res.setBody('already done');
@@ -2552,7 +2410,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       await writeResult(adapter, err({ status: 404, message: 'Not Found' }), context);
@@ -2562,38 +2420,31 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect(res.getStatus()).toBe(404);
     });
 
-    it('should write error response for HttpError', async () => {
+    it('should write error response for httpError() factory value', async () => {
       // Arrange
-      const { HttpError } = require('./errors/http-error');
+      const { httpError } = require('./http-error');
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
-      await writeResult(adapter, err(new HttpError(403, 'Forbidden')), context);
+      await writeResult(adapter, httpError(403, 'Forbidden'), context);
 
       // Assert
       expect(http.response.getStatus()).toBe(403);
     });
 
-    it('should write 500 for unknown error data shape', async () => {
-      // Arrange
-      const adapter = new HttpAdapter();
-      const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
-
-      // Act
-      await writeResult(adapter, err('some string error'), context);
-
-      // Assert
-      expect(http.response.getStatus()).toBe(500);
-    });
+    // Removed: previously asserted defensive fall-through when middleware returned
+    // err('some string error'). That defensive coercion was deleted intentionally —
+    // middleware authors are now responsible for returning ErrorResponseData via
+    // the httpError() factory. The prior behavior was a runtime validator the
+    // project does not want.
 
     it('should write success response for non-Err result', async () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act — writeResult now includes serialize step
       await writeResult(adapter, { data: 'success' } as never, context);
@@ -2638,7 +2489,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const context = createHttpContextWithSignal('GET', '/sse', controller.signal);
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       await writeResult(adapter, sseStream(), context);
@@ -2673,7 +2524,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const context = createHttpContextWithSignal('GET', '/sse', controller.signal);
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       await writeResult(adapter, sseStream(), context);
@@ -2721,7 +2572,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const context = createHttpContextWithSignal('GET', '/sse', controller.signal);
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       await writeResult(adapter, asyncIterable, context);
@@ -2751,7 +2602,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const context = createHttpContextWithSignal('GET', '/sse', controller.signal);
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       await writeResult(adapter, failingStream(), context);
@@ -2783,7 +2634,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const context = createHttpContextWithSignal('GET', '/sse', controller.signal);
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       await writeResult(adapter, failingAfterAbort(), context);
@@ -2807,11 +2658,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const adapter = new HttpAdapter();
       const rawRequest = new Request('http://localhost/sse');
       const timeoutSpy = mock((_req: Request, _seconds: number) => undefined);
-      const server = { timeout: timeoutSpy } as unknown as import('bun').Server;
-
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
+      const server = { timeout: timeoutSpy } as unknown as import('bun').Server<unknown>;
       const httpReq = new HttpRequest({
         requestId: 'sse-id',
         originalMethod: 'GET',
@@ -2828,7 +2675,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         signal: new AbortController().signal,
       });
       const httpRes = new HttpResponse(httpReq);
-      const context: Context = new HttpContext(httpReq, httpRes, rawRequest, undefined, server);
+      const context = new HttpContext(httpReq, httpRes, rawRequest, undefined, server);
       setSseRoute(context);
 
       async function* sseStream() {
@@ -2870,7 +2717,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const context = createHttpContextWithSignal('GET', '/sse', controller.signal);
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       await writeResult(adapter, asyncIterable, context);
@@ -2923,7 +2770,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const context = createHttpContextWithSignal('GET', '/sse', controller.signal);
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       await writeResult(adapter, asyncIterable, context);
@@ -2963,7 +2810,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       (adapter as any).emergencyTeardown(context, new Error('crash'));
@@ -2977,7 +2824,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       const res = http.response;
       res.setStatus(200);
       res.setBody('already sent');
@@ -3062,7 +2909,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(204);
       expect(http.response.getHeader('allow')).toBe('GET, HEAD, POST');
     });
@@ -3082,7 +2929,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert — should get 404 written directly to response (pre-route error path)
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(404);
     });
 
@@ -3101,7 +2948,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(501);
     });
 
@@ -3120,7 +2967,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(501);
     });
 
@@ -3144,7 +2991,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getHeader('allow')).toBe('GET, HEAD, POST, PUT, DELETE');
     });
 
@@ -3215,7 +3062,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       // Assert — explicit handler should be called, not auto 204
       expect(handlerFn).toHaveBeenCalled();
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).not.toBe(204);
     });
   });
@@ -3260,7 +3107,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/sse');
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       async function* emptyGenerator() {
         // yields nothing
@@ -3285,14 +3132,16 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/sse');
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
-      async function* failingGenerator() {
-        throw new Error('iterator failed');
-      }
+      const failingIterable: AsyncIterable<unknown> = {
+        [Symbol.asyncIterator]() {
+          return { next: () => Promise.reject(new Error('iterator failed')) };
+        },
+      };
 
       // Act
-      await writeResult(adapter, failingGenerator(), context);
+      await writeResult(adapter, failingIterable, context);
 
       // Assert — native response should be set (SSE path)
       const nativeResponse = http.response.getNativeResponse();
@@ -3339,7 +3188,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const context = createHttpContextWithSignal('GET', '/sse', controller.signal);
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       await writeResult(adapter, asyncIterable, context);
@@ -3382,7 +3231,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const context = createHttpContextWithSignal('GET', '/sse', controller.signal);
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       await writeResult(adapter, asyncIterable, context);
@@ -3412,7 +3261,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       http.response.setHeader('access-control-allow-origin', '*');
       http.response.setHeader('access-control-allow-methods', 'GET, POST');
 
@@ -3428,7 +3277,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       (adapter as any).emergencyTeardown(context, new Error('crash'));
@@ -3441,7 +3290,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
       (adapter as any).emergencyTeardown(context, new Error('crash'));
@@ -3454,7 +3303,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/test');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       http.response.setHeader('x-request-id', 'abc-123');
       http.response.setHeader('x-custom', 'preserved');
 
@@ -3482,7 +3331,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
         order.push('OnRequest');
-        const { HttpContext } = require('./http-context');
         ctx.to(HttpContext).pipelineError = { status: 501, message: 'Not Implemented' };
       })]);
       adapter.initializePipeline(createMockContainer());
@@ -3498,7 +3346,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       // Assert
       expect(order).toEqual(['OnRequest']);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(501);
       expect(handlerFn).not.toHaveBeenCalled();
     });
@@ -3506,7 +3354,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should include OnRequest MW headers in pipelineError response', async () => {
       // Arrange
       adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
-        const { HttpContext } = require('./http-context');
         const http = ctx.to(HttpContext);
         http.response.setHeader('access-control-allow-origin', '*');
         http.pipelineError = { status: 400, message: 'Bad Request' };
@@ -3522,7 +3369,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getHeader('access-control-allow-origin')).toBe('*');
       expect(http.response.getStatus()).toBe(400);
     });
@@ -3530,7 +3377,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should return 501 status for pipelineError with 501', async () => {
       // Arrange
       adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
-        const { HttpContext } = require('./http-context');
         ctx.to(HttpContext).pipelineError = { status: 501, message: 'Not Implemented' };
       })]);
       adapter.initializePipeline(createMockContainer());
@@ -3544,14 +3390,13 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert — pipelineError writes directly to response (pre-route error path)
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(501);
     });
 
     it('should return 400 status for pipelineError with 400', async () => {
       // Arrange
       adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
-        const { HttpContext } = require('./http-context');
         ctx.to(HttpContext).pipelineError = { status: 400, message: 'Bad Request' };
       })]);
       adapter.initializePipeline(createMockContainer());
@@ -3565,7 +3410,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert — pipelineError writes directly to response (pre-route error path)
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(400);
     });
 
@@ -3630,7 +3475,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(201);
     });
 
@@ -3642,7 +3487,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
           params: {},
           route: {
             handler: mock((ctx: unknown) => {
-              const { HttpContext } = require('./http-context');
               const http = (ctx as Context).to(HttpContext);
               http.response.setStatus(202);
               return { accepted: true };
@@ -3669,7 +3513,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getStatus()).toBe(202);
     });
 
@@ -3704,7 +3548,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getContentType()).toContain('text/html');
     });
 
@@ -3739,7 +3583,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getHeader('x-custom')).toBe('value');
     });
 
@@ -3774,7 +3618,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getHeader('location')).toBe('/new-location');
       expect(http.response.getStatus()).toBe(302);
     });
@@ -3814,7 +3658,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getHeader('x-first')).toBe('one');
       expect(http.response.getHeader('x-second')).toBe('two');
       expect(http.response.getHeader('x-third')).toBe('three');
@@ -3828,7 +3672,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
           params: {},
           route: {
             handler: mock((ctx: unknown) => {
-              const { HttpContext } = require('./http-context');
               const http = (ctx as Context).to(HttpContext);
               http.response.setHeader('x-custom', 'overridden');
               return { data: 'ok' };
@@ -3855,7 +3698,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await adapter.dispatchRequest(context);
 
       // Assert
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
       expect(http.response.getHeader('x-custom')).toBe('overridden');
     });
   });
@@ -3868,7 +3711,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/sse');
       setSseRoute(context);
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       async function* sseGenerator() {
         yield { event: 'tick' };
@@ -3896,7 +3739,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/stream');
-      const { HttpContext } = require('./http-context');
       const http = context.to(HttpContext);
       http.matchedRoute = {
         rawBody: false,
@@ -3950,7 +3792,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/stream');
-      const { HttpContext } = require('./http-context');
       const http = context.to(HttpContext);
       http.matchedRoute = {
         rawBody: false,
@@ -4002,15 +3843,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         body: smallBody,
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json', 'content-length': smallBody.length.toString() }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
         contentLength: smallBody.length,
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -4049,15 +3885,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         body: bodyContent,
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json', 'content-length': bodyContent.length.toString() }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
         contentLength: bodyContent.length,
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -4095,15 +3926,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         body: largeBody,
       });
 
-      const { HttpContext } = require('./http-context');
-      const { HttpRequest } = require('./http-request');
-      const { HttpResponse } = require('./http-response');
-
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json', 'content-length': largeBody.length.toString() }),
-        contentType: { mediaType: 'application/json', charset: null, boundary: null, params: new Map() },
         contentLength: largeBody.length,
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -4143,13 +3969,13 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       };
       (adapter as any).routeHandler = mockRouteHandler;
       const context = createHttpContext('GET', '/secret-admin-panel');
-      const http = context.to(require('./http-context').HttpContext);
+      const http = context.to(HttpContext);
 
       // Act
-      const result = (adapter as any).resolveRoute(http);
+      const result = (adapter as unknown as { resolveRoute: (h: HttpContext) => Result<void, ErrorResponseData> }).resolveRoute(http);
 
       // Assert
-      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) throw new Error("expected Err");
       expect(result.data.status).toBe(404);
       expect(result.data.message).toBe('Not Found');
       expect(result.data.message).not.toContain('/secret-admin-panel');
@@ -4157,26 +3983,21 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   });
 
   describe('readBodyWithLimit — stream cancellation behavior', () => {
-    const { parseBody: parseBodyFn } = require('./body');
+    const parseBodyFn = parseBody;
     const EMPTY_TEXT_MEDIA_TYPES_2 = new Set<string>();
 
     it('should return 413 when chunked body exceeds route-level bodyLimit', async () => {
       // Arrange — text/plain + rawBody + no CL → chunked readBodyWithLimit path
-      const adapter = new HttpAdapter();
       const largeBody = 'A'.repeat(200); // 200 bytes > 100 limit
       const rawRequest = new Request('http://localhost/test', {
         method: 'POST',
         body: largeBody,
         headers: { 'content-type': 'text/plain' },
       });
-
-      const { HttpResponse } = require('./http-response');
-      const { HttpContext } = require('./http-context');
       const req = createStubHttpRequest({
         method: 'POST',
         originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'text/plain' }),
-        contentType: { mediaType: 'text/plain', charset: 'utf-8', boundary: null, params: new Map() },
         contentLength: null, // forces chunked path
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -4202,30 +4023,32 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       // Assert
       expect(isErr(result)).toBe(true);
-      expect(result.data.status).toBe(413);
+      if (isErr(result)) {
+        expect(result.data.status).toBe(413);
+      }
     });
   });
 
-  describe('RFC 9110 error message compliance', () => {
+  describe('RFC 9110 error message compliance (httpError factory)', () => {
     it('should use Content Too Large as default message for 413', () => {
-      const { RequestTooLongError } = require('./errors/request-too-long.error');
-      const error = new RequestTooLongError();
-
-      expect(error.message).toBe('Content Too Large');
+      const { httpError } = require('./http-error');
+      const e = httpError(413);
+      expect(e.data.message).toBe('Content Too Large');
+      expect(e.data.status).toBe(413);
     });
 
     it('should use URI Too Long as default message for 414', () => {
-      const { RequestUriTooLongError } = require('./errors/request-uri-too-long.error');
-      const error = new RequestUriTooLongError();
-
-      expect(error.message).toBe('URI Too Long');
+      const { httpError } = require('./http-error');
+      const e = httpError(414);
+      expect(e.data.message).toBe('URI Too Long');
+      expect(e.data.status).toBe(414);
     });
 
     it('should use Unprocessable Content as default message for 422', () => {
-      const { UnprocessableEntityError } = require('./errors/unprocessable-entity.error');
-      const error = new UnprocessableEntityError();
-
-      expect(error.message).toBe('Unprocessable Content');
+      const { httpError } = require('./http-error');
+      const e = httpError(422);
+      expect(e.data.message).toBe('Unprocessable Content');
+      expect(e.data.status).toBe(422);
     });
   });
 
@@ -4440,12 +4263,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         constructorParams: [{ type: 'SomeService' }],
       });
 
-      const result = normalizeMetadataRegistry(registry);
-
-      expect(result).toBeDefined();
+      const result = assertDefined(normalizeMetadataRegistry(registry), 'normalized registry');
       expect(result.size).toBe(1);
-      const meta = result.get(TestClass);
-      expect(meta).toBeDefined();
+      const meta = assertDefined(result.get(TestClass), 'TestClass metadata');
       expect(meta.decorators).toEqual([{ name: 'RestController' }]);
       expect(meta.constructorParams).toEqual([{ type: 'SomeService' }]);
     });
@@ -4460,9 +4280,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const registry = new Map();
       registry.set(TestClass, httpMeta);
 
-      const result = normalizeMetadataRegistry(registry);
-
-      expect(result.get(TestClass)).toBe(httpMeta);
+      const result = assertDefined(normalizeMetadataRegistry(registry), 'normalized registry');
+      expect(result.get(TestClass) as unknown).toBe(httpMeta);
     });
 
     it('should skip non-class-token keys (strings, symbols)', () => {
@@ -4502,14 +4321,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         ],
       });
 
-      const result = normalizeMetadataRegistry(registry);
-
-      const meta = result.get(TestClass);
-      expect(meta.constructorParams).toHaveLength(3);
-      expect(meta.constructorParams[0].type).toBe('ServiceA');
-      expect(meta.constructorParams[0].decorators).toEqual([{ name: 'Inject' }]);
-      expect(meta.constructorParams[1].type).toBe(Symbol.for('token'));
-      expect(meta.constructorParams[2].type).toBeUndefined(); // number is not a provider token
+      const result = assertDefined(normalizeMetadataRegistry(registry), 'normalized registry');
+      const meta = assertDefined(result.get(TestClass), "TestClass metadata");
+      const params = assertDefined(meta.constructorParams, "constructorParams");
+      expect(params).toHaveLength(3);
+      expect(assertDefined(params[0], 'param[0]').type).toBe('ServiceA');
+      expect(assertDefined(params[0], 'param[0]').decorators).toEqual([{ name: 'Inject' }]);
+      expect(assertDefined(params[1], 'param[1]').type).toBe(Symbol.for('token'));
+      expect(assertDefined(params[2], 'param[2]').type).toBeUndefined(); // number is not a provider token
     });
   });
 
@@ -4532,7 +4351,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     });
 
     it('should return false for number', () => {
-      expect(isProviderToken(42)).toBe(false);
+      expect(isProviderToken(42 as unknown as never)).toBe(false);
     });
 
     it('should return false for undefined', () => {
@@ -4540,7 +4359,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     });
 
     it('should return false for null', () => {
-      expect(isProviderToken(null)).toBe(false);
+      expect(isProviderToken(null as unknown as never)).toBe(false);
     });
   });
 
@@ -4550,7 +4369,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     const { isHttpClassMetadata } = require('./metadata');
 
     it('should return true when value has methods property', () => {
-      expect(isHttpClassMetadata({ methods: {} })).toBe(true);
+      expect(isHttpClassMetadata({ methods: [] } as never)).toBe(true);
     });
 
     it('should return true when value has className property', () => {

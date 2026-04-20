@@ -19,6 +19,7 @@ export type {
   ContentTypeInfo,
   ErrorResponseData,
   HttpRequestData,
+  HttpStatus,
   MatchedRouteMetadata,
   MatchRouteOutput,
   RequestBodyValue,
@@ -27,7 +28,7 @@ export type {
   TrustProxyConfig,
 } from './src/types';
 
-export { HttpError } from './src/errors/http-error';
+export { httpError } from './src/http-error';
 
 export { ServerSentEvent, isAsyncIterable, formatSSEChunk } from './src/server-sent-event';
 export type { ServerSentEventOptions } from './src/server-sent-event';

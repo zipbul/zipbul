@@ -524,7 +524,7 @@ describe('RouteHandler', () => {
       // Assert
       const match = handler.matchRoute('GET', '/redirect-test');
       expect(match.kind).toBe('matched');
-      expect((match as MatchRouteResult).route.redirect).toEqual({ url: '/target', status: undefined });
+      expect((match as MatchRouteResult).route.redirect).toEqual({ url: '/target' });
     });
 
     it('should set redirect with url and status when Redirect has two arguments', () => {

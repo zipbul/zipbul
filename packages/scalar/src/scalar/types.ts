@@ -1,5 +1,4 @@
-import type { AdapterCollection, AdapterGroup, ZipbulRecord, Class } from '@zipbul/common';
-import type { Adapter } from '@zipbul/core';
+import type { AdapterCollection, AdapterGroup, ZipbulRecord, Class, Adapter } from '@zipbul/common';
 
 export type DocumentTargets = 'all' | DocumentTarget[];
 
@@ -26,6 +25,7 @@ export interface AdapterGroupWithGet {
 
 export type AdapterGroupLike =
   | AdapterGroup<Adapter>
+  | AdapterGroup<unknown>
   | Map<string, ScalarInput>
   | AdapterGroupWithGet
   | AdapterGroupWithName;

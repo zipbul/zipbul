@@ -17,8 +17,10 @@ mock.module('@zipbul/logger', () => ({
   },
 }));
 
-const { HttpAdapter } = await import('../src/http-adapter');
-const { HttpServer } = await import('../src/http-server');
+const { HttpAdapter } = await import('../../src/http-adapter');
+type HttpAdapter = InstanceType<typeof HttpAdapter>;
+const { HttpServer } = await import('../../src/http-server');
+type HttpServer = InstanceType<typeof HttpServer>;
 
 const TEST_PORT = 50000 + Math.floor(Math.random() * 10000);
 

@@ -60,7 +60,6 @@ export enum HeaderField {
   XForwardedHost = 'x-forwarded-host',
   XForwardedPort = 'x-forwarded-port',
   XForwardedProto = 'x-forwarded-proto',
-  XRealIp = 'x-real-ip',
 }
 
 export enum ContentType {

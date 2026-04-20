@@ -9,9 +9,12 @@ mock.module('@zipbul/logger', () => ({
   },
 }));
 
-const { HttpAdapter } = await import('../src/http-adapter');
-const { HttpServer } = await import('../src/http-server');
-const { HttpContext } = await import('../src/http-context');
+const { HttpAdapter } = await import('../../src/http-adapter');
+type HttpAdapter = InstanceType<typeof HttpAdapter>;
+const { HttpServer } = await import('../../src/http-server');
+type HttpServer = InstanceType<typeof HttpServer>;
+const { HttpContext } = await import('../../src/http-context');
+type HttpContext = InstanceType<typeof HttpContext>;
 
 type Adapter = InstanceType<typeof HttpAdapter>;
 type Server = InstanceType<typeof HttpServer>;
@@ -43,17 +46,22 @@ function buildIndex(routes: readonly RouteSpec[]): {
   const controllerInstance: Record<string, unknown> = {};
   for (const r of routes) controllerInstance[r.handlerName] = r.handler;
   const controllerInstances = new Map<string, unknown>([['TestController', controllerInstance]]);
-  const handlerIndex: CompiledHandlerEntry[] = routes.map(r => ({
-    id: `HttpAdapter:TestController.${r.handlerName}`,
-    adapterId: 'HttpAdapter',
-    controllerKey: 'TestController',
-    methodName: r.handlerName,
-    handlerDecorator: r.method,
-    handlerDecoratorArgs: [r.path],
-    options: r.options as CompiledHandlerEntry['options'],
-    compiledPre: ['BeforeParse', 'ParseBody', 'BeforeValidate', 'Validation', 'Guard', 'BeforeHandle'],
-    compiledPost: ['WriteResponse', 'AfterHandle', 'Serialize', 'BeforeResponse'],
-  }));
+  const handlerIndex: CompiledHandlerEntry[] = routes.map(r => {
+    const base = {
+      id: `HttpAdapter:TestController.${r.handlerName}`,
+      adapterId: 'HttpAdapter',
+      controllerKey: 'TestController',
+      methodName: r.handlerName,
+      handlerDecorator: r.method,
+      handlerDecoratorArgs: [r.path] as readonly unknown[],
+      compiledPre: ['BeforeParse', 'ParseBody', 'BeforeValidate', 'Validation', 'Guard', 'BeforeHandle'] as readonly string[],
+      compiledPost: ['WriteResponse', 'AfterHandle', 'Serialize', 'BeforeResponse'] as readonly string[],
+    };
+    if (r.options !== undefined) {
+      return { ...base, options: r.options as NonNullable<CompiledHandlerEntry['options']> };
+    }
+    return base;
+  });
   const metadata = new Map<new (...args: readonly unknown[]) => unknown, { readonly className: string; readonly decorators: readonly { readonly name: string; readonly arguments?: readonly unknown[] }[] }>();
   metadata.set(TestController, { className: 'TestController', decorators: [{ name: 'RestController', arguments: [] }] });
   return { handlerIndex, controllerInstances, metadata };

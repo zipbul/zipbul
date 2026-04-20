@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, spyOn, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, spyOn } from 'bun:test';
 
 mock.module('@zipbul/logger', () => ({
   Logger: class {
@@ -1074,7 +1074,6 @@ describe('createHttpRequest', () => {
   });
 
   it('should return bad-request with invalid-url reason and no request field for invalid URL', () => {
-    const raw = new Request('http://example.com/');
     // Create a Request-like object with an invalid URL to trigger the URL parse failure
     const invalidRaw = {
       url: ':::invalid',

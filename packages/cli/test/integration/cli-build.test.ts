@@ -6,12 +6,12 @@ import { tmpdir } from 'node:os';
 import { err } from '@zipbul/result';
 import { GildashError, type Gildash, type GildashOptions } from '@zipbul/gildash';
 
-import type { BuildCommandDeps } from '../src/bin/build';
-import { __testing__ } from '../src/bin/build';
-import type { CliRendererLike } from '../src/bin/interfaces';
-import type { AstParser, AdapterDefinitionResolver } from '../src/compiler/analyzer';
-import type { ResolvedConfig } from '../src/config';
-import { ConfigLoadError } from '../src/config';
+import type { BuildCommandDeps } from '../../src/bin/build';
+import { __testing__ } from '../../src/bin/build';
+import type { CliRendererLike } from '../../src/bin/interfaces';
+import type { AstParser, AdapterDefinitionResolver } from '../../src/compiler/analyzer';
+import type { ResolvedConfig } from '../../src/config';
+import { ConfigLoadError } from '../../src/config';
 
 const { createBuildCommand } = __testing__;
 
@@ -126,7 +126,7 @@ const makeDeps = (overrides?: Partial<BuildCommandDeps>): BuildCommandDeps => ({
   loadConfig: mock(async () => ({ config: testConfig, source: makeSource() })),
   createParser: mock(() => makeParserMock()),
   createManifestGenerator: mock(() => makeManifestGenMock()) as unknown as BuildCommandDeps['createManifestGenerator'],
-  createEntryGenerator: mock(() => makeEntryGenMock()),
+  createEntryGenerator: mock(() => makeEntryGenMock()) as unknown as BuildCommandDeps['createEntryGenerator'],
   createAdapterDefinitionResolver: mock(() => makeAdapterResolverMock()),
   scanFiles: mock(async () => ['module.ts']),
   resolveImport: mock((_spec: string, _from: string) => { throw new Error('resolve'); }),
@@ -460,7 +460,7 @@ describe('createBuildCommand', () => {
     // second call (without semantic) would succeed — the error must NOT be swallowed
     let callCount = 0;
     const deps = makeDeps({
-      createGildash: mock(async (opts: GildashOptions) => {
+      createGildash: mock(async (_opts: GildashOptions) => {
         callCount++;
         if (callCount === 1) {
           throw new GildashError('store', 'database corruption detected');

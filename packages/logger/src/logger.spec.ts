@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
-import type { LogMessage, Loggable, LogMetadataRecord, Transport } from './interfaces';
+import type { Loggable } from './interfaces';
 
 import { Logger } from './logger';
 import { RequestContext } from './async-storage';

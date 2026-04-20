@@ -15,7 +15,7 @@ httpAdapter.addMiddlewares(HttpPhase.OnRequest, [requestTimingMiddleware()]);
 
 await app.start();
 
-const usersService = app.get(UsersService);
+const usersService = app.get(UsersService) as UsersService;
 
 logger.info(`UsersService loaded: ${usersService.findAll().length} users`);
 

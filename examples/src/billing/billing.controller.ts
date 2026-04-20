@@ -2,8 +2,6 @@ import { UseMiddlewares, UseExceptionFilters } from '@zipbul/common';
 import { inject } from '@zipbul/core';
 import { err } from '@zipbul/result';
 import { RestController, Post, Get, type HttpContext } from '@zipbul/http-adapter';
-import { Logger } from '@zipbul/logger';
-
 import { AuditService } from './audit.service';
 import { auditMiddleware } from './audit.middleware';
 import { ChargeDto } from './charge.dto';
@@ -11,9 +9,8 @@ import { paymentExceptionFilter } from './payment-error.filter';
 import { PaymentFailedError } from './payment-failed.error';
 
 @RestController('billing')
-@UseMiddlewares(auditMiddleware)
+@UseMiddlewares('BeforeHandle', [auditMiddleware])
 export class BillingController {
-  private readonly logger = new Logger('BillingController');
   private readonly auditService = inject(AuditService);
 
   @Post('charge')

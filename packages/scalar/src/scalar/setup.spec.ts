@@ -1,4 +1,4 @@
-import type { AdapterCollection } from '@zipbul/common';
+import type { AdapterCollectionLike } from './types';
 
 import { describe, expect, it } from 'bun:test';
 
@@ -37,7 +37,7 @@ function getInternalRouteHandler(params: InternalRouteHandlerParams): InternalRo
   return match.handler;
 }
 
-function createHttpAdapters(entries: Array<[string, HttpAdapter]>): AdapterCollection {
+function createHttpAdapters(entries: Array<[string, HttpAdapter]>): AdapterCollectionLike {
   const map = new Map(entries);
   const http = {
     get: (name: string): HttpAdapter | undefined => map.get(name),
@@ -147,11 +147,11 @@ describe('setup', () => {
 
   it('should throw when the http adapter group does not support lookup', () => {
     // Arrange
-    const adapters: AdapterCollection = {
+    const adapters: AdapterCollectionLike = {
       http: {
         get: () => undefined,
         all: () => [],
-        forEach: callback => {
+        forEach: (callback: (adapter: HttpAdapter) => void) => {
           const adapter: HttpAdapter = {
             start: async () => {},
             stop: async () => {},

@@ -23,8 +23,8 @@ export type {
 
 export { LogLevel, ZipbulSymbol } from './enums';
 
-export { Context } from './interfaces';
 export type {
+  Context,
   ApplicationContext,
   AdapterContext,
   ProviderToken,
@@ -101,7 +101,6 @@ export { defineGuard } from './define-guard';
 export type { GuardHandlerFn, GuardFactory, GuardDefinition } from './define-guard';
 
 export { Injectable } from './decorators/class.decorator';
-export { Context as ContextDecorator } from './decorators/parameter.decorator';
 export { UseMiddlewares } from './decorators/middleware.decorator';
 export { UseExceptionFilters } from './decorators/exception.decorator';
 export { UseGuards } from './decorators/guard.decorator';

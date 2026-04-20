@@ -3,6 +3,7 @@ import type { ZipbulValue } from '@zipbul/common';
 
 import { wrapWorker } from './rpc-proxy';
 import { RpcTimeoutError, RpcAbortedError } from './errors';
+import type { RpcCallable } from './types';
 
 interface MockWorker {
   postMessage: ReturnType<typeof mock>;
@@ -42,7 +43,10 @@ function simulateResponse(worker: MockWorker, id: string, result?: ZipbulValue, 
   worker.messageHandler?.({ data: response } as MessageEvent<ZipbulValue>);
 }
 
-type WorkerApi = Record<string, (...args: readonly ZipbulValue[]) => ZipbulValue>;
+interface WorkerApi extends Record<string, RpcCallable> {
+  init: RpcCallable;
+  getStats: RpcCallable;
+}
 
 describe('wrapWorker', () => {
   let worker: MockWorker;

@@ -1,5 +1,3 @@
-import type { Adapter } from '@zipbul/core';
-
 export interface InternalRouteRequest {
   path?: string;
 }
@@ -12,8 +10,10 @@ export interface InternalRouteCall {
   handler: InternalRouteHandler;
 }
 
-export interface HttpAdapter extends Adapter {
-  registerInternalRoute(method: string, path: string, handler: InternalRouteHandler): void;
+export interface HttpAdapter {
+  registerInternalRoute?(method: string, path: string, handler: InternalRouteHandler): void;
+  start(): Promise<void>;
+  stop(): Promise<void>;
 }
 
 export interface HttpAdapterSpy {

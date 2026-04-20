@@ -65,14 +65,15 @@ export interface AdapterContext {
 }
 
 /**
- * Parameter decorator marking a constructor parameter for context injection.
- * This is a no-op at runtime — actual resolution happens at AOT build time.
+ * Alias for {@link AdapterContext}.
+ *
+ * Handlers conventionally annotate their context parameter as `ctx: Context`.
+ * The alias keeps that idiom readable while the underlying interface remains
+ * `AdapterContext`.
  *
  * @public
  */
-export function Context(): ParameterDecorator {
-  return () => {};
-}
+export type Context = AdapterContext;
 
 // DI Interfaces
 export type ProviderToken = string | symbol | ClassToken | Class;

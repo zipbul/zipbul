@@ -37,7 +37,7 @@ export function walkChildren(node: AstNode, visitor: (child: AstNode) => void): 
   }
 
   for (const key of keys) {
-    const child = (node as Record<string, unknown>)[key];
+    const child = (node as unknown as Record<string, unknown>)[key];
 
     if (Array.isArray(child)) {
       for (const item of child) {

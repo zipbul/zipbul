@@ -18,7 +18,7 @@ type ContainerInstance = InstanceType<typeof Container>;
  * @param value - The value the factory should return
  * @returns A factory function suitable for Container.set()
  */
-function createValueFactory<T>(value: T): FactoryFn {
+function createValueFactory<T extends import('@zipbul/common').ZipbulValue>(value: T): FactoryFn {
   return () => value;
 }
 
@@ -143,15 +143,15 @@ describe('Container', () => {
     it('should pass container reference to factory when resolving provider', () => {
       // Arrange
       const token: Token = 'ContainerAware';
-      const factoryFn = mock((_c: ContainerInstance) => ({ resolved: true }));
-      container.set(token, factoryFn);
+      const factoryMock = mock((_c: ContainerInstance) => ({ resolved: true }));
+      container.set(token, factoryMock as unknown as FactoryFn);
 
       // Act
       container.get(token);
 
       // Assert
-      expect(factoryFn).toHaveBeenCalledTimes(1);
-      const receivedArg = factoryFn.mock.calls[0]![0];
+      expect(factoryMock).toHaveBeenCalledTimes(1);
+      const receivedArg = factoryMock.mock.calls[0]![0];
       expect(receivedArg).toBe(container);
     });
 
@@ -680,11 +680,11 @@ describe('Container', () => {
       const scope = container.createRequestScope('req-15');
 
       // Act
-      const consumer = scope.get(consumerToken);
+      const consumer = scope.get(consumerToken) as { dependency: unknown; consumer: boolean } | undefined;
       const dep = scope.get(depToken);
 
       // Assert — consumer's dependency should be the same cached instance
-      expect(consumer.dependency).toBe(dep);
+      expect(consumer?.dependency).toBe(dep);
       expect(scope.get(consumerToken)).toBe(consumer);
     });
   });

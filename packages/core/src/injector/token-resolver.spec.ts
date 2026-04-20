@@ -682,7 +682,7 @@ describe('isTokenRecord', () => {
     const value = { __zipbul_ref: 42 };
 
     // Act
-    const result = isTokenRecord(value);
+    const result = isTokenRecord(value as unknown as Parameters<typeof isTokenRecord>[0]);
 
     // Assert
     expect(result).toBe(false);
@@ -693,7 +693,7 @@ describe('isTokenRecord', () => {
     const value = { __zipbul_lazy_ref: true };
 
     // Act
-    const result = isTokenRecord(value);
+    const result = isTokenRecord(value as unknown as Parameters<typeof isTokenRecord>[0]);
 
     // Assert
     expect(result).toBe(false);

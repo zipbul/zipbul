@@ -6,7 +6,7 @@ import type { PostCommentInput } from './interfaces';
 import { CommentRepository } from './comments.repository';
 
 @Injectable({
-  visibility: 'exported',
+  visibleTo: 'all',
 })
 export class CommentsService {
   private readonly commentsRepo = inject(CommentRepository);

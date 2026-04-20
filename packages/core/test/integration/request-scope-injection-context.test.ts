@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 
 import type { ZipbulContainer } from '@zipbul/common';
-import { runInInjectionContext, inject } from '../src/injection-context';
+import { runInInjectionContext, inject } from '../../src/injection-context';
 
-import { Container } from '../src/injector/container';
-import type { RequestScopeContainer } from '../src/injector/request-scope-container';
+import { Container } from '../../src/injector/container';
+import type { RequestScopeContainer } from '../../src/injector/request-scope-container';
 
 /**
  * [OVERFLOW Checkpoint]
@@ -140,7 +140,7 @@ describe('Request scope injection context', () => {
 
     // Act
     const service = runInInjectionContext(rsc, () => inject('service')) as { serviceRepo: { repoId: number } };
-    const directRepo = runInInjectionContext(rsc, () => inject('repo'));
+    const directRepo = runInInjectionContext(rsc, () => inject('repo')) as { repoId: number };
 
     // Assert — service's repo should be the same cached instance as direct repo
     expect(service.serviceRepo).toBe(directRepo);
@@ -171,7 +171,7 @@ describe('Request scope injection context', () => {
 
     // Assert
     expect(service.process()).toBe('processed');
-    const directLogger = runInInjectionContext(rsc, () => inject('reqLogger'));
+    const directLogger = runInInjectionContext(rsc, () => inject('reqLogger')) as { log: (msg: string) => string };
     expect(service.logger).toBe(directLogger);
   });
 
@@ -316,7 +316,7 @@ describe('Request scope injection context', () => {
     }, { scope: 'request' });
 
     // Act
-    const [resultA, resultB] = await Promise.all(
+    const results = await Promise.all(
       ['ctx-a', 'ctx-b'].map(async (contextId) => {
         const rsc = container.createRequestScope(contextId);
         const service = runInInjectionContext(rsc, () => inject('service')) as { repo: { repoId: number } };
@@ -324,6 +324,8 @@ describe('Request scope injection context', () => {
         return { service, directRepo };
       }),
     );
+    const [resultA, resultB] = results;
+    if (resultA === undefined || resultB === undefined) throw new Error('expected two results');
 
     // Assert — each context has its own chain
     expect(resultA.service.repo).toBe(resultA.directRepo);

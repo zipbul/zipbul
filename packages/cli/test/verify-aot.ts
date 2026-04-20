@@ -3,6 +3,7 @@ import { resolve, join } from 'path';
 
 import { isErr } from '@zipbul/result';
 
+import { unwrapOk } from './shared/assertions';
 import type { FileAnalysis } from '../src/compiler/analyzer/graph/interfaces';
 
 import { AstParser } from '../src/compiler/analyzer/parser';
@@ -31,10 +32,10 @@ async function run() {
 
   for (const file of files) {
     const code = await Bun.file(file).text();
-    const parseResult = parser.parse(file, code);
+    const parseResult = await parser.parse(file, code);
 
     if (isErr(parseResult)) {
-      console.error(`Parse failed for ${file}: ${parseResult.data.why}`);
+      console.error(`Parse failed for ${file}: ${(parseResult.data as { why?: string }).why}`);
       continue;
     }
 
@@ -92,7 +93,7 @@ async function run() {
 
     console.log('Generating Code...');
 
-    const code = generator.generate(graph, registry);
+    const code = unwrapOk(generator.generate(graph, registry));
 
     console.log('Generated Code Length:', code.length);
     console.log('--- GENERATED CODE START ---');

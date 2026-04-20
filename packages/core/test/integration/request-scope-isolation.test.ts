@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 
 import type { ZipbulContainer } from '@zipbul/common';
 
-import { Container } from '../src/injector/container';
-import { RequestScopeContainer } from '../src/injector/request-scope-container';
+import { Container } from '../../src/injector/container';
+import { RequestScopeContainer } from '../../src/injector/request-scope-container';
 
 /**
  * [OVERFLOW Checkpoint]
@@ -416,15 +416,17 @@ describe('Request scope isolation', () => {
     }, { scope: 'request' });
 
     // Act — two concurrent request scopes
-    const [resultA, resultB] = await Promise.all(
+    const results = await Promise.all(
       ['ctx-a', 'ctx-b'].map(async (contextId) => {
         const scope = container.createRequestScope(contextId);
         const service = scope.get('reqService') as { serviceId: number; repo: { repoId: number } };
         const directRepo = scope.get('reqRepo') as { repoId: number };
-        await scope.dispose!();
+        await scope.dispose();
         return { service, directRepo };
       }),
     );
+    const [resultA, resultB] = results;
+    if (resultA === undefined || resultB === undefined) throw new Error('expected two results');
 
     // Assert — each scope got its own repo, and the service's repo is the same as the direct repo within scope
     expect(resultA.service.repo).toBe(resultA.directRepo);
@@ -542,12 +544,15 @@ describe('Request scope isolation', () => {
   it('should safely dispose multiple request scopes concurrently', async () => {
     // Arrange
     const tracker: DisposalTracker = { disposed: [] };
-    container.set('reqProvider', (c: ZipbulContainer) => ({
-      label: (c as RequestScopeContainer).getContextId(),
-      onDestroy() {
-        tracker.disposed.push(this.label);
-      },
-    }), { scope: 'request' });
+    container.set('reqProvider', (c: ZipbulContainer) => {
+      const label = (c as RequestScopeContainer).getContextId();
+      return {
+        label,
+        onDestroy() {
+          tracker.disposed.push(label);
+        },
+      };
+    }, { scope: 'request' });
 
     const scopes = Array.from({ length: 20 }, (_, index) => {
       const scope = container.createRequestScope(`ctx-${index}`);

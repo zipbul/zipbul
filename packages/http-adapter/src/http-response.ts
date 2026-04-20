@@ -1,4 +1,5 @@
 import { StatusCodes, getReasonPhrase } from 'http-status-codes';
+import type { HttpStatus } from './types';
 
 import type { HttpRequest } from './http-request';
 import type { ResponseBodyValue } from './types';
@@ -20,7 +21,7 @@ export class HttpResponse {
   private _headers: Headers | undefined;
   private _contentType: string | undefined;
   private _contentLength: string | undefined;
-  private _status: StatusCodes | undefined;
+  private _status: HttpStatus | undefined;
   private _statusText: string | undefined;
 
   /** Cached final Response — once built via end(), never rebuilt. */
@@ -102,11 +103,11 @@ export class HttpResponse {
 
   // ── Status ──────────────────────────────────────────────────
 
-  getStatus(): StatusCodes | undefined {
+  getStatus(): HttpStatus | undefined {
     return this._status;
   }
 
-  setStatus(status: StatusCodes, statusText?: string): this {
+  setStatus(status: HttpStatus, statusText?: string): this {
     this._status = status;
     this._statusText = statusText ?? getReasonPhrase(status);
     return this;

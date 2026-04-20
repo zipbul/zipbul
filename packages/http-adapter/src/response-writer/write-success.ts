@@ -1,11 +1,11 @@
 import type { HttpResponse } from '../http-response';
 import type { HttpContext } from '../http-context';
+import type { RouteHandlerResult, ResponseBodyValue } from '../types';
 import { isAsyncIterable, formatSSEChunk } from '../server-sent-event';
-import { isResponseBodyValue } from './type-guards';
 
 const TEXT_ENCODER = new TextEncoder();
 
-export async function writeSuccessResponse(res: HttpResponse, result: unknown, http: HttpContext): Promise<void> {
+export async function writeSuccessResponse(res: HttpResponse, result: RouteHandlerResult, http: HttpContext): Promise<void> {
   const signal = http.request.signal;
 
   // AsyncIterable → SSE or raw streaming based on @Sse flag
@@ -88,7 +88,5 @@ export async function writeSuccessResponse(res: HttpResponse, result: unknown, h
     return;
   }
 
-  if (isResponseBodyValue(result)) {
-    res.setBody(result);
-  }
+  res.setBody(result as ResponseBodyValue);
 }

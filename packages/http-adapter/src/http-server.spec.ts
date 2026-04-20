@@ -34,7 +34,7 @@ interface ServerInternals {
   allowedMethods: ReadonlySet<string>;
 }
 
-function createMockContainer(overrides?: Partial<ZipbulContainer>): ZipbulContainer {
+function createMockContainer(overrides?: Partial<Record<keyof ZipbulContainer, unknown>>): ZipbulContainer {
   return {
     get: mock(() => undefined),
     set: mock(() => {}),
@@ -422,8 +422,9 @@ describe('HttpServer', () => {
 
       // Assert — options contain tls
       expect(internals.options.tls).toEqual(tlsOptions);
-      expect(internals.options.tls.cert).toBe('test-cert');
-      expect(internals.options.tls.key).toBe('test-key');
+      const tls = internals.options.tls as { cert: string; key: string };
+      expect(tls.cert).toBe('test-cert');
+      expect(tls.key).toBe('test-key');
     });
 
     it('should not have tls in options when not configured', () => {

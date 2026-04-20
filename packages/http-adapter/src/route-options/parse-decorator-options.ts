@@ -1,3 +1,5 @@
+import type { HttpStatus } from '../types';
+
 interface OptionEntry {
   readonly name: string;
   readonly arguments?: readonly unknown[];
@@ -12,7 +14,7 @@ export interface ParsedDecoratorOptions {
   readonly rawBody: boolean;
   readonly sse: boolean;
   readonly bodyLimit: number | undefined;
-  readonly status: number | undefined;
+  readonly status: HttpStatus | undefined;
   readonly redirect: RedirectSpec | undefined;
   readonly contentType: string | undefined;
   readonly headers: readonly (readonly [string, string])[];
@@ -22,7 +24,7 @@ export function parseDecoratorOptions(options: readonly OptionEntry[] | undefine
   let rawBody = false;
   let sse = false;
   let bodyLimit: number | undefined;
-  let status: number | undefined;
+  let status: HttpStatus | undefined;
   let redirect: RedirectSpec | undefined;
   let contentType: string | undefined;
   const headers: Array<readonly [string, string]> = [];
@@ -46,7 +48,11 @@ export function parseDecoratorOptions(options: readonly OptionEntry[] | undefine
         break;
       case 'Status':
         if (typeof option.arguments?.[0] === 'number') {
-          status = option.arguments[0];
+          // Runtime boundary: metadata arrives as unknown at AOT-parse time.
+          // The Status decorator's compile-time HttpStatus signature guarantees
+          // only enum values reach here, so the cast is load-bearing only for
+          // the `unknown` → `HttpStatus` boundary narrowing.
+          status = option.arguments[0] as HttpStatus;
         }
         break;
       case 'Redirect':

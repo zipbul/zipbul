@@ -30,8 +30,11 @@ interface CreateApplicationOptions {
 /**
  * Extracts the constructor options type from an adapter class.
  *
- * Resolves to the first constructor parameter type if it exists,
- * otherwise `Record<string, never>` (empty object).
+ * Resolves to the first constructor parameter type when the adapter declares
+ * concrete options. When the generic parameter is the abstract `AdapterClass`
+ * base (tests, internal generic contexts) the first ctor param is `unknown`
+ * — fall through to an open record so callers can still pass adapter-specific
+ * fields. `AttachOptions` adds `name`/`dependsOn` on top.
  *
  * @public
  */
@@ -39,8 +42,8 @@ export type AdapterOptions<TAdapter extends AdapterClass> =
   ConstructorParameters<TAdapter> extends [infer TOptions, ...unknown[]]
     ? TOptions extends Record<string, unknown>
       ? TOptions
-      : Record<string, never>
-    : Record<string, never>;
+      : Record<string, unknown>
+    : Record<string, unknown>;
 
 /**
  * Options for {@link Application.attach}.

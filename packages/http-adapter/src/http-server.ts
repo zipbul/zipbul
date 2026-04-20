@@ -263,7 +263,13 @@ export class HttpServer {
     }
 
     if (this.options.tls !== undefined) {
-      serveOptions.tls = this.options.tls;
+      // `HttpTlsOptions` exposes a `readonly TLSOptions[]` variant to callers
+      // (SNI setups) for immutability; `Bun.serve` requires a mutable array.
+      // Clone at the boundary — single ownership transfer, no aliasing.
+      const tls = this.options.tls;
+      serveOptions.tls = Array.isArray(tls)
+        ? ([...tls] as import('bun').TLSOptions[])
+        : (tls as import('bun').TLSOptions);
     }
 
     this.server = Bun.serve<unknown>(serveOptions);

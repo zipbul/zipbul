@@ -9,8 +9,8 @@
  *   - (default)             → normal init/bootstrap/destroy
  */
 import { edenGC, fullGC } from 'bun:jsc';
-import { exposeWorker } from '../../../src/cluster/rpc-expose';
-import type { RpcCallable, RpcArgs } from '../../../src/cluster/types';
+import { exposeWorker } from '../../src/cluster/rpc-expose';
+import type { RpcCallable, RpcArgs } from '../../src/cluster/types';
 import type { ZipbulValue } from '@zipbul/common';
 
 interface WorkerState {

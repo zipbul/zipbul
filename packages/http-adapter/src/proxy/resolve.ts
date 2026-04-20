@@ -1,3 +1,4 @@
+import { HeaderField } from '../enums';
 import type { TrustProxyConfig } from '../types';
 
 import { validateForwardedHost, parseForwardedLast } from './forwarded-parser';
@@ -16,7 +17,7 @@ export function resolveProxyInfo(
   trustProxy: TrustProxyConfig,
   socketIp: string | null,
 ): ResolvedProxyInfo {
-  const xffRaw = headers.get('x-forwarded-for');
+  const xffRaw = headers.get(HeaderField.XForwardedFor);
   const ipChain = xffRaw !== null
     ? xffRaw.split(',').map(ip => ip.trim()).filter(ip => ip.length > 0)
     : [];
@@ -24,7 +25,7 @@ export function resolveProxyInfo(
   const clientIp = resolveClientIp(ipChain, trustProxy, socketIp);
 
   // Forwarded (RFC 7239) 우선 — 마지막 element에서 proto/host만 읽는다.
-  const forwarded = headers.get('forwarded');
+  const forwarded = headers.get(HeaderField.Forwarded);
   if (forwarded !== null) {
     const info = parseForwardedLast(forwarded);
     if (info.proto !== null || info.host !== null) {
@@ -40,10 +41,10 @@ export function resolveProxyInfo(
   }
 
   // X-Forwarded-* fallback
-  const proto = headers.get('x-forwarded-proto')?.split(',')[0]?.trim()?.toLowerCase() ?? null;
-  const rawHost = headers.get('x-forwarded-host')?.split(',')[0]?.trim() ?? null;
+  const proto = headers.get(HeaderField.XForwardedProto)?.split(',')[0]?.trim()?.toLowerCase() ?? null;
+  const rawHost = headers.get(HeaderField.XForwardedHost)?.split(',')[0]?.trim() ?? null;
   const host = rawHost !== null && validateForwardedHost(rawHost) ? rawHost : null;
-  const rawPort = headers.get('x-forwarded-port')?.split(',')[0]?.trim() ?? null;
+  const rawPort = headers.get(HeaderField.XForwardedPort)?.split(',')[0]?.trim() ?? null;
   const port = rawPort !== null ? parseInt(rawPort, 10) : null;
 
   return {

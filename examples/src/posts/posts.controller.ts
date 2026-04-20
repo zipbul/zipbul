@@ -27,7 +27,7 @@ export class PostsController {
   }
 
   @Post()
-  @UseMiddlewares(loggerMiddleware)
+  @UseMiddlewares('BeforeHandle', [loggerMiddleware])
   create(ctx: HttpContext): number {
     const body = ctx.request.getBody(CreatePostDto);
 

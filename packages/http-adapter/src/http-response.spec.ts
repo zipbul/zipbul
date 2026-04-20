@@ -1,33 +1,16 @@
-import { describe, it, expect, mock, spyOn } from 'bun:test';
+import { describe, it, expect, spyOn } from 'bun:test';
 import { StatusCodes, getReasonPhrase } from 'http-status-codes';
 
 import { HttpResponse } from './http-response';
-import { HttpRequest } from './http-request';
+import type { HttpRequest } from './http-request';
+import { createTestHttpRequest } from './test-fixtures/http-request-fixture';
+import type { HttpMethod } from './types';
 
-function createRequest(method = 'GET'): HttpRequest {
-  return new HttpRequest({
-    requestId: 'test-id',
-    originalMethod: method,
-    originalUrl: 'http://localhost/',
-    method,
-    url: 'http://localhost/',
-    path: '/',
-    headers: new Headers(),
-    protocol: 'http',
-    host: 'localhost',
-    hostname: 'localhost',
-    port: 80,
-    queryString: null,
-    contentType: null,
-    contentLength: null,
-    ip: null,
-    ips: [],
-    isTrustedProxy: false,
-    signal: AbortSignal.timeout(5000),
-  });
+function createRequest(method: HttpMethod = 'GET'): HttpRequest {
+  return createTestHttpRequest({ method, originalMethod: method });
 }
 
-function createResponse(method = 'GET'): HttpResponse {
+function createResponse(method: HttpMethod = 'GET'): HttpResponse {
   return new HttpResponse(createRequest(method), new Headers());
 }
 
@@ -605,7 +588,7 @@ describe('HttpResponse', () => {
       // Create a circular reference object
       const circular: Record<string, unknown> = {};
       circular['self'] = circular;
-      res.setBody(circular);
+      res.setBody(circular as never);
 
       const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 

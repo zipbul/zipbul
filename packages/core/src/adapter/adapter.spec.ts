@@ -12,12 +12,12 @@ type Context = AdapterContext;
 
 /** Minimal concrete adapter for testing Common base class behavior. */
 class TestAdapter extends Adapter {
-  static readonly validPhases: ReadonlySet<string> = new Set(['TestPhase']);
+  static override readonly validPhases: ReadonlySet<string> = new Set(['TestPhase']);
   readonly decorators = { controller: () => {}, handlers: [] };
 
   private pipelineImpl: ((ctx: Context) => Promise<void> | void) | undefined;
 
-  protected emergencyTeardown(_context: Context, _error?: unknown) {}
+  public override emergencyTeardown(_context: Context, _error?: unknown) {}
 
   protected async executePipeline(context: Context): Promise<void> {
     if (this.pipelineImpl !== undefined) {
@@ -40,8 +40,13 @@ class TestAdapter extends Adapter {
     }
   }
 
-  setPipelineImpl(impl: (ctx: Context) => Promise<void> | void): void {
-    this.pipelineImpl = impl;
+  setPipelineImpl(impl: (ctx: Context) => Promise<unknown> | unknown): void {
+    this.pipelineImpl = impl as (ctx: Context) => Promise<void> | void;
+  }
+
+  // Expose the protected emergencyTeardown for injection-style test overrides.
+  setEmergencyTeardown(fn: (ctx: AdapterContext, error?: unknown) => Promise<void> | void): void {
+    this.emergencyTeardown = fn;
   }
 
   exposeResolveMiddlewareKeys(keys: readonly string[]): ResolvedMiddleware[] {
@@ -83,8 +88,8 @@ class TestAdapter extends Adapter {
     return this.runValidations(validations, context);
   }
 
-  exposeWrapValidationError(key: ContextKey<unknown>, thrown: unknown) {
-    return this.wrapValidationError(key, thrown);
+  exposeWrapValidationError(entry: ResolvedValidationEntry, thrown: unknown) {
+    return this.wrapValidationError(entry, thrown);
   }
 
   async start() {}
@@ -92,7 +97,7 @@ class TestAdapter extends Adapter {
 }
 
 class AnotherAdapter extends Adapter {
-  static readonly validPhases: ReadonlySet<string> = new Set();
+  static override readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators = { controller: () => {}, handlers: [] };
   protected emergencyTeardown(_context: Context) {}
   protected async executePipeline(_context: Context): Promise<void> {}
@@ -121,14 +126,16 @@ function createContext(): Context {
 
   return {
     getType: () => 'test',
-    get: key => store.get(key as symbol),
-    set: (key, value) => { store.set(key as symbol, value); },
-    use(key) {
+    get<T>(key: ContextKey<T>): T | undefined {
+      return store.get(key as symbol) as T | undefined;
+    },
+    set<T>(key: ContextKey<T>, value: T): void { store.set(key as symbol, value); },
+    use<T>(key: ContextKey<T>): T {
       const value = store.get(key as symbol);
       if (value === undefined) throw new Error(`Context key not set: ${String(key)}`);
-      return value;
+      return value as T;
     },
-    to() {
+    to<TContext>(): TContext {
       throw new Error('unsupported');
     },
   };
@@ -325,8 +332,8 @@ describe('Adapter', () => {
       class NoPhaseAdapter extends Adapter {
         readonly decorators = { controller: () => {}, handlers: [] };
         protected emergencyTeardown() {}
-        protected async executePipeline(): Promise<Result<unknown, unknown>> {
-          return undefined as unknown as Result<unknown, unknown>;
+        protected async executePipeline(): Promise<void> {
+          // no-op
         }
         async start() {}
         async stop() {}
@@ -736,7 +743,7 @@ describe('Adapter', () => {
       adapter.addGuards([asyncGuard]);
       adapter.initializePipeline(createMockContainer());
       adapter.setPipelineImpl(async (ctx) => {
-        const guardResult = await adapter['runGuards'](ctx);
+        const guardResult = await adapter['runGuards'](adapter['resolvedGuards'], ctx);
 
         if (isErr(guardResult)) {
           return guardResult;
@@ -1158,10 +1165,15 @@ describe('Adapter', () => {
     it('should re-throw the error by default', () => {
       const adapter = new TestAdapter();
       adapter.initializePipeline(createMockContainer());
-      const key = contextKey<unknown>('test.body');
+      const entry: ResolvedValidationEntry = {
+        accessor: ['test', 'body'],
+        metatype: class {} as unknown as new (...args: readonly unknown[]) => unknown,
+        readInput: () => undefined,
+        writeOutput: () => {},
+      };
       const bakerError = new Error('validation failed');
 
-      expect(() => adapter.exposeWrapValidationError(key, bakerError)).toThrow(bakerError);
+      expect(() => adapter.exposeWrapValidationError(entry, bakerError)).toThrow(bakerError);
     });
   });
 

@@ -444,8 +444,10 @@ export function convertExpressionDeep(expr: ExpressionValue, filePath: string, m
   const injectCalls: InjectCall[] = [];
   const factoryRefs: FactoryFunctionRef[] = [];
 
-  const importMap = mapOrOptions instanceof Map ? mapOrOptions : mapOrOptions?.importMap;
-  const resolveImportSource = mapOrOptions instanceof Map ? undefined : mapOrOptions?.resolveImportSource;
+  const isOptions = (value: ImportMap | ConversionOptions | undefined): value is ConversionOptions =>
+    value !== undefined && !(value instanceof Map);
+  const importMap = isOptions(mapOrOptions) ? mapOrOptions.importMap : mapOrOptions;
+  const resolveImportSource = isOptions(mapOrOptions) ? mapOrOptions.resolveImportSource : undefined;
 
   const resolveSource = (raw: string | undefined): string | undefined => {
     if (raw === undefined) {

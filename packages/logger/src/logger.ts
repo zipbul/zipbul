@@ -43,7 +43,7 @@ export class Logger {
 
   private readonly metadata: LogMetadataRecord;
 
-  constructor(context?: string | LogContextTarget, metadata?: LogMetadataRecord) {
+  constructor(context?: string | LogContextTarget | object, metadata?: LogMetadataRecord) {
     this.metadata = metadata ?? {};
 
     if (typeof context === 'function') {

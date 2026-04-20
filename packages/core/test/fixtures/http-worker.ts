@@ -4,8 +4,8 @@
  * Starts Bun.serve with reusePort on the port specified via init params.
  * Returns the worker ID in the response body for load distribution verification.
  */
-import { exposeWorker } from '../../../src/cluster/rpc-expose';
-import type { RpcCallable, RpcArgs } from '../../../src/cluster/types';
+import { exposeWorker } from '../../src/cluster/rpc-expose';
+import type { RpcCallable, RpcArgs } from '../../src/cluster/types';
 import type { ZipbulValue } from '@zipbul/common';
 
 let workerId = -1;

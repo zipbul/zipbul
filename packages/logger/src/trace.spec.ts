@@ -19,7 +19,7 @@ describe('Trace', () => {
     const transport = setup();
 
     class MyService {
-      private logger = new Logger(this);
+      private logger: Logger = new Logger(this);
 
       @Trace()
       doWork() {
@@ -104,7 +104,7 @@ describe('Trace', () => {
     const transport = setup();
 
     class Svc {
-      private logger = new Logger(this);
+      private logger: Logger = new Logger(this);
 
       @Trace()
       async process() {
@@ -153,7 +153,7 @@ describe('Trace', () => {
     const transport = setup();
 
     class Outer {
-      private logger = new Logger(this);
+      private logger: Logger = new Logger(this);
 
       @Trace()
       run(inner: Inner) {
@@ -164,7 +164,7 @@ describe('Trace', () => {
     }
 
     class Inner {
-      private logger = new Logger(this);
+      private logger: Logger = new Logger(this);
 
       @Trace()
       work() {
@@ -189,7 +189,7 @@ describe('Trace', () => {
     const transport = setup();
 
     class Svc {
-      private logger = new Logger(this);
+      private logger: Logger = new Logger(this);
 
       @Trace()
       async slow() {

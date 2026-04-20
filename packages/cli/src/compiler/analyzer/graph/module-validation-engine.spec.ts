@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import type { Gildash, HeritageNode, FullSymbol } from '@zipbul/gildash';
-import type { SymbolSearchResult } from '@zipbul/gildash/dist/src/search/symbol-search';
-import type { Implementation } from '@zipbul/gildash/dist/src/semantic/types';
+import type { Gildash, HeritageNode, FullSymbol, SymbolSearchResult, Implementation } from '@zipbul/gildash';
 
 import type { ClassMetadata } from '../interfaces';
 import type { ClassDefinition, ProviderRef } from './interfaces';

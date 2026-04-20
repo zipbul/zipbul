@@ -14,7 +14,7 @@ import type {
   InternalRouteHandler,
   InternalRouteEntry,
 } from './interfaces';
-import type { ErrorResponseData, RouteHandlerFunction } from './types';
+import type { ErrorResponseData, RouteHandlerFunction, RouteHandlerResult } from './types';
 
 import { HttpContext } from './http-context';
 import { HttpServer } from './http-server';
@@ -138,7 +138,7 @@ export class HttpAdapter extends Adapter {
       const result = await this.runHttpMiddlewares(onRequestMws, http);
 
       if (result !== undefined && isErr(result)) {
-        writeErrorResponse(http.response, result.data);
+        writeErrorResponse(http.response, result.data as ErrorResponseData);
         return;
       }
 
@@ -274,9 +274,9 @@ export class HttpAdapter extends Adapter {
         if (http.response.isSent() || result === undefined) return;
 
         if (isErr(result)) {
-          writeErrorResponse(http.response, result.data);
+          writeErrorResponse(http.response, result.data as ErrorResponseData);
         } else {
-          await writeSuccessResponse(http.response, result, http);
+          await writeSuccessResponse(http.response, result as RouteHandlerResult, http);
         }
       }],
       [HttpStep.Serialize, (context: AdapterContext) => {
@@ -339,6 +339,34 @@ export class HttpAdapter extends Adapter {
    * @returns `Err` with structured 400 response for baker errors.
    * @public
    */
+  /**
+   * HTTP protocol translation for unhandled throws.
+   *
+   * Symmetric to {@link wrapValidationError}: the base class emits a
+   * protocol-agnostic `{ message, cause }` shape which cannot be rendered
+   * as an HTTP response. This override returns an {@link ErrorResponseData}
+   * (generic 500) so the `WriteResponse` step can render a conforming wire
+   * response without any runtime shape inspection.
+   */
+  protected override wrapUnhandledException(_error: unknown): Err<unknown> {
+    return err({
+      status: StatusCodes.INTERNAL_SERVER_ERROR,
+      message: 'Internal Server Error',
+    } satisfies ErrorResponseData);
+  }
+
+  /**
+   * HTTP protocol translation for filter-author contract violations
+   * (matched filter returned a non-`Err` value). Same shape as
+   * {@link wrapUnhandledException} — generic 500.
+   */
+  protected override wrapInvalidFilterResult(_error: unknown, _filterResult: unknown): Err<unknown> {
+    return err({
+      status: StatusCodes.INTERNAL_SERVER_ERROR,
+      message: 'Internal Server Error',
+    } satisfies ErrorResponseData);
+  }
+
   protected override wrapValidationError(_entry: ResolvedValidationEntry, errors: unknown): Err<unknown> {
     if (isBakerError(errors)) {
       return err({
@@ -392,8 +420,10 @@ export class HttpAdapter extends Adapter {
     const res = http.response;
 
     if (!res.isSent()) {
-      // Headers preserved — OnRequest에서 설정된 CORS/보안 헤더 유지.
-      // status + body + content-type만 덮어쓴다.
+      // Philosophy: `throw` reaching this point means an invariant was
+      // violated (bug, misconfiguration, or unexpected failure). Request
+      // errors flow as `Err<ErrorResponseData>`, not exceptions. Respond
+      // with a generic 500; headers set earlier (CORS, security) survive.
       res.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
       res.setContentType('text/plain');
       res.setBody('Internal Server Error');

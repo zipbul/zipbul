@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'bun:test';
 import { ClusterBaseWorker } from './cluster-base-worker';
-import type { ClusterWorkerStats } from './interfaces';
 
 class TestWorker extends ClusterBaseWorker {
   bootstrap(): void {
@@ -121,7 +120,7 @@ describe('ClusterBaseWorker', () => {
       // Allocate significant garbage to ensure measurable difference even under parallel load
       let garbage: unknown[] | undefined = [];
       for (let idx = 0; idx < 200_000; idx++) {
-        garbage.push({ data: new Array(100).fill(idx) });
+        garbage.push({ data: Array.from({ length: 100 }, () => idx) });
       }
 
       // Measure with garbage alive

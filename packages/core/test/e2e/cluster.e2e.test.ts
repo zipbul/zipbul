@@ -7,30 +7,23 @@ import type { RpcCallable } from '../../src/cluster/types';
 
 type HttpWorkerRpc = ClusterBaseWorker & Record<string, RpcCallable>;
 
-const HTTP_WORKER_SCRIPT = new URL('./fixtures/http-worker.ts', import.meta.url);
+const HTTP_WORKER_SCRIPT = new URL('../fixtures/http-worker.ts', import.meta.url);
 
-/** Find an available port by binding to port 0. */
-async function findAvailablePort(): Promise<number> {
-  const server = Bun.serve({ port: 0, fetch: () => new Response('') });
-  const port = server.port;
-  server.stop(true);
-
+/**
+ * Find an available port via `Bun.listen` (raw TCP). `Bun.serve({ port: 0 })`
+ * can surface EADDRINUSE on some Linux/WSL2 builds; raw TCP listen is the
+ * Bun-native primitive that reliably honors ephemeral-port allocation.
+ */
+function findAvailablePort(): number {
+  const listener = Bun.listen({
+    hostname: '127.0.0.1',
+    port: 0,
+    socket: { data() {} },
+  });
+  const port = listener.port;
+  listener.stop();
+  if (port === undefined) throw new Error('Bun.listen did not allocate a port');
   return port;
-}
-
-async function waitForCondition(
-  predicate: () => boolean,
-  timeoutMs: number,
-  intervalMs = 50,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    if (predicate()) return true;
-    await new Promise<void>((resolve) => setTimeout(resolve, intervalMs));
-  }
-
-  return predicate();
 }
 
 function createHttpManager(size: number, config?: Record<string, unknown>): ClusterManager<HttpWorkerRpc> {
@@ -66,7 +59,7 @@ describe('Cluster E2E — reusePort HTTP', () => {
   });
 
   it('should serve HTTP requests from multiple workers on the same port via reusePort', async () => {
-    const port = await findAvailablePort();
+    const port = findAvailablePort();
     manager = createHttpManager(2);
 
     // Init workers with the shared port
@@ -96,7 +89,7 @@ describe('Cluster E2E — reusePort HTTP', () => {
   });
 
   it('should distribute requests across workers (probabilistic)', async () => {
-    const port = await findAvailablePort();
+    const port = findAvailablePort();
     manager = createHttpManager(2);
 
     await manager.init({ port });
@@ -125,7 +118,7 @@ describe('Cluster E2E — reusePort HTTP', () => {
   });
 
   it('should continue serving after one worker crashes via process.exit', async () => {
-    const port = await findAvailablePort();
+    const port = findAvailablePort();
     manager = createHttpManager(2, {
       crashWindowMs: 10_000,
       maxCrashesInWindow: 1,
@@ -163,7 +156,7 @@ describe('Cluster E2E — reusePort HTTP', () => {
   }, 15_000);
 
   it('should handle concurrent requests across multiple workers', async () => {
-    const port = await findAvailablePort();
+    const port = findAvailablePort();
     manager = createHttpManager(3);
 
     await manager.init({ port });
@@ -193,7 +186,7 @@ describe('Cluster E2E — reusePort HTTP', () => {
   });
 
   it('should survive worker crash during active request handling', async () => {
-    const port = await findAvailablePort();
+    const port = findAvailablePort();
     manager = createHttpManager(2, {
       crashWindowMs: 10_000,
       maxCrashesInWindow: 2,
@@ -227,7 +220,7 @@ describe('Cluster E2E — reusePort HTTP', () => {
   });
 
   it('should maintain service during rolling restart', async () => {
-    const port = await findAvailablePort();
+    const port = findAvailablePort();
     manager = createHttpManager(2);
 
     await manager.init({ port });
@@ -235,7 +228,7 @@ describe('Cluster E2E — reusePort HTTP', () => {
 
     // Start continuous requests
     let requestsDuringRestart = 0;
-    let failuresDuringRestart = 0;
+    let _failuresDuringRestart = 0;
     const done = { value: false };
 
     const requestLoop = (async () => {
@@ -246,10 +239,10 @@ describe('Cluster E2E — reusePort HTTP', () => {
           if (response.status === 200) {
             requestsDuringRestart++;
           } else {
-            failuresDuringRestart++;
+            _failuresDuringRestart++;
           }
         } catch {
-          failuresDuringRestart++;
+          _failuresDuringRestart++;
         }
 
         await new Promise<void>((resolve) => setTimeout(resolve, 5));
@@ -274,7 +267,7 @@ describe('Cluster E2E — reusePort HTTP', () => {
   });
 
   it('should gracefully shutdown all workers and release the port', async () => {
-    const port = await findAvailablePort();
+    const port = findAvailablePort();
     manager = createHttpManager(2);
 
     await manager.init({ port });

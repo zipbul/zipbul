@@ -1,4 +1,4 @@
-import type { AdapterCollection, Configurer, Context, PrimitiveArray } from '@zipbul/common';
+import type { AdapterCollection, ApplicationContext, Configurer, PrimitiveArray } from '@zipbul/common';
 
 import type { ScalarSetupOptions } from './interfaces';
 
@@ -13,7 +13,7 @@ export class ScalarConfigurer implements Configurer {
     this.options = options;
   }
 
-  public configure(_app: Context, adapters: AdapterCollection): void {
+  public configure(_app: ApplicationContext, adapters: AdapterCollection): void {
     if (this.options === undefined) {
       throw new Error('Scalar: ScalarConfigurer options are required before configure().');
     }

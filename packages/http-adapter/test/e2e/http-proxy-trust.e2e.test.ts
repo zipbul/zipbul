@@ -9,10 +9,13 @@ mock.module('@zipbul/logger', () => ({
   },
 }));
 
-const { HttpAdapter } = await import('../src/http-adapter');
-const { HttpServer } = await import('../src/http-server');
-const { HttpContext } = await import('../src/http-context');
-const { HttpRequest } = await import('../src/http-request');
+const { HttpAdapter } = await import('../../src/http-adapter');
+type HttpAdapter = InstanceType<typeof HttpAdapter>;
+const { HttpServer } = await import('../../src/http-server');
+type HttpServer = InstanceType<typeof HttpServer>;
+const { HttpContext } = await import('../../src/http-context');
+type HttpContext = InstanceType<typeof HttpContext>;
+// HttpRequest not needed at top level in this e2e test.
 
 type Adapter = InstanceType<typeof HttpAdapter>;
 type Server = InstanceType<typeof HttpServer>;

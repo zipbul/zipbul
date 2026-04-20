@@ -186,6 +186,10 @@ export interface HandlerIndexEntry {
   guardBindings?: readonly CompiledPipelineBindingEntry[];
   /** Lossless exception filter bindings collected during AOT. */
   exceptionFilterBindings?: readonly CompiledPipelineBindingEntry[];
+  /** Pipeline steps before the handler step (adapter-specific). */
+  compiledPre?: readonly string[];
+  /** Pipeline steps after the handler step (adapter-specific). */
+  compiledPost?: readonly string[];
 }
 
 export interface HandlerParamEntry {

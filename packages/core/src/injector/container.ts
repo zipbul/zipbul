@@ -149,7 +149,7 @@ export class Container implements ZipbulContainer {
    * @param contextId - Unique identifier for this request scope.
    * @returns A scoped container that delegates singletons to this parent.
    */
-  createRequestScope(contextId: string): ZipbulContainer {
+  createRequestScope(contextId: string): ZipbulContainer & { dispose: () => Promise<void> } {
     return new RequestScopeContainer(this, contextId);
   }
 

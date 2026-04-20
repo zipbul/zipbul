@@ -1,8 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 
 import { contextKey, type ZipbulContainer } from '@zipbul/common';
-import type { Logger } from '@zipbul/logger';
-
 import { HttpContext } from './http-context';
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
@@ -300,7 +298,7 @@ describe('HttpContext', () => {
     it('should call server.timeout with the raw request and seconds', () => {
       const rawRequest = new Request('http://localhost/test');
       const timeoutSpy = mock((_req: Request, _seconds: number) => undefined);
-      const server = { timeout: timeoutSpy } as unknown as import('bun').Server;
+      const server = { timeout: timeoutSpy } as unknown as import('bun').Server<undefined>;
 
       const ctx = new HttpContext(createStubRequest(), createStubResponse(), rawRequest, undefined, server);
       ctx.setTimeout(60);
@@ -313,7 +311,7 @@ describe('HttpContext', () => {
     it('should pass 0 through for infinite timeout (SSE pattern)', () => {
       const rawRequest = new Request('http://localhost/events');
       const timeoutSpy = mock((_req: Request, _seconds: number) => undefined);
-      const server = { timeout: timeoutSpy } as unknown as import('bun').Server;
+      const server = { timeout: timeoutSpy } as unknown as import('bun').Server<undefined>;
 
       const ctx = new HttpContext(createStubRequest(), createStubResponse(), rawRequest, undefined, server);
       ctx.setTimeout(0);
@@ -330,7 +328,7 @@ describe('HttpContext', () => {
 
     it('should be no-op when rawRequest is undefined', () => {
       const timeoutSpy = mock((_req: Request, _seconds: number) => undefined);
-      const server = { timeout: timeoutSpy } as unknown as import('bun').Server;
+      const server = { timeout: timeoutSpy } as unknown as import('bun').Server<undefined>;
 
       const ctx = new HttpContext(createStubRequest(), createStubResponse(), undefined, undefined, server);
       ctx.setTimeout(30);
@@ -341,7 +339,7 @@ describe('HttpContext', () => {
     it('should still work after consumeRawRequest clears the main reference', () => {
       const rawRequest = new Request('http://localhost/test');
       const timeoutSpy = mock((_req: Request, _seconds: number) => undefined);
-      const server = { timeout: timeoutSpy } as unknown as import('bun').Server;
+      const server = { timeout: timeoutSpy } as unknown as import('bun').Server<undefined>;
 
       const ctx = new HttpContext(createStubRequest(), createStubResponse(), rawRequest, undefined, server);
       ctx.consumeRawRequest();

@@ -1,7 +1,6 @@
-import { describe, it, expect, mock, beforeEach, type Mock } from 'bun:test';
-import type { AdapterClass, ApplicationContext, ZipbulContainer, ProviderToken, GuardDefinition } from '@zipbul/common';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import type { AdapterClass, ApplicationContext, ProviderToken, GuardDefinition } from '@zipbul/common';
 import { defineMiddleware, defineGuard } from '@zipbul/common';
-import type { Adapter } from '../adapter/adapter';
 
 let mockAdapterConfig: Record<string, unknown> | undefined;
 
@@ -16,9 +15,10 @@ mock.module('../runtime/bootstrap-state', () => ({
 }));
 
 const { Application } = await import('./application');
+type Application = InstanceType<typeof Application>;
 
 function createMockAdapterClass() {
-  const startFn = mock(() => Promise.resolve());
+  const startFn = mock((_ctx?: ApplicationContext) => Promise.resolve());
   const stopFn = mock(() => Promise.resolve());
   const initializePipelineFn = mock(function () {});
 
@@ -44,12 +44,12 @@ function createWirableAdapterClass() {
   const startFn = mock(() => Promise.resolve());
   const stopFn = mock(() => Promise.resolve());
 
-  let currentInstance: any;
+
   const applyMiddlewareConfigFn = mock(function () {});
   const initializePipelineFn = mock(function () {});
 
   class WirableMockAdapter {
-    constructor() { currentInstance = this; }
+    constructor() {}
     start = startFn;
     stop = stopFn;
     applyMiddlewareConfig = applyMiddlewareConfigFn;
@@ -931,14 +931,12 @@ describe('Application', () => {
       const startFn = mock(() => Promise.resolve());
       const stopFn = mock(() => Promise.resolve());
 
-      let currentInstance: any;
-      const addGuardsFn = mock(function () { return currentInstance; });
-      const addExceptionFiltersFn = mock(function () { return currentInstance; });
+      const addGuardsFn = mock(function (this: object) { return this; });
+      const addExceptionFiltersFn = mock(function (this: object) { return this; });
       const applyMiddlewareConfigFn = mock(function () {});
       const initializePipelineFn = mock(function () {});
 
       class GuardWirableMockAdapter {
-        constructor() { currentInstance = this; }
         start = startFn;
         stop = stopFn;
         addGuards = addGuardsFn;
@@ -999,18 +997,16 @@ describe('Application', () => {
     it('should wire guards after exceptionFilters', async () => {
       const wireOrder: string[] = [];
       const adapter = createGuardWirableAdapterClass();
-      adapter.addExceptionFiltersFn.mockImplementation(function () {
+      adapter.addExceptionFiltersFn.mockImplementation(function (this: object) {
         wireOrder.push('exceptionFilters');
-        return currentInstance;
+        return this;
       });
-      adapter.addGuardsFn.mockImplementation(function () {
+      adapter.addGuardsFn.mockImplementation(function (this: object) {
         wireOrder.push('guards');
-        return currentInstance;
+        return this;
       });
 
-      let currentInstance: any;
       class OrderTrackingAdapter {
-        constructor() { currentInstance = this; }
         start = adapter.startFn;
         stop = adapter.stopFn;
         addGuards = adapter.addGuardsFn;

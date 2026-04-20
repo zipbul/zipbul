@@ -641,7 +641,7 @@ describe('detectFrameworkCallsFromInitializer', () => {
   });
 
   it('should not detect when initializer is undefined', () => {
-    const symbol = makeSymbol({ initializer: undefined });
+    const symbol = makeSymbol();
     const conversionResult = makeConversionResult();
     const createApplicationCalls: CreateApplicationCall[] = [];
     const defineModuleCalls: DefineModuleCall[] = [];
@@ -839,7 +839,7 @@ describe('resolveExportDefaultDefineModule', () => {
 
     const body = parsed.program.body;
     const exportDefault = body.find(stmt => stmt.type === 'ExportDefaultDeclaration');
-    const callExpr = (exportDefault as Record<string, unknown>)?.declaration as { start: number; end: number };
+    const callExpr = (exportDefault as unknown as Record<string, unknown>)?.declaration as { start: number; end: number };
 
     const calls: DefineModuleCall[] = [
       makeDefineModuleCall({ start: callExpr.start, end: callExpr.end }),

@@ -242,7 +242,7 @@ export async function getFileAnalysis(filePath: string, fileMap: Map<string, Fil
 export async function findClassMetadata(
   className: string,
   importSource: string | null,
-  sourceFile: string,
+  _sourceFile: string,
   fileMap: Map<string, FileAnalysis>,
   parser: AstParser,
 ): Promise<ClassMetadata | null> {

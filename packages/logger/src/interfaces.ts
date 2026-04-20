@@ -18,13 +18,22 @@ export interface Loggable {
 }
 
 export interface LogContextConstructor {
-  name?: string;
+  readonly name?: string;
 }
 
-export interface LogContextTarget {
-  name?: string;
-  constructor?: LogContextConstructor;
-}
+/**
+ * Any object-like value the {@link Logger} can derive a context name from.
+ *
+ * The `Logger` constructor accepts either a `string` or a taggable object;
+ * the idiomatic form is `new Logger(this)` inside a class. Every ECMAScript
+ * object has a `.constructor` with a `.name`, but TypeScript structural
+ * typing does not surface that implicit property on `this`. This shape
+ * accepts any non-null object — runtime reads `.name` / `.constructor.name`.
+ */
+export type LogContextTarget = {
+  readonly name?: string;
+  readonly constructor?: LogContextConstructor;
+};
 
 export interface LoggerPrettyOptions {
   colors?: Record<LogLevel, Color>;

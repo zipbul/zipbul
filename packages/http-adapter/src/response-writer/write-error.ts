@@ -1,26 +1,20 @@
-import { StatusCodes } from 'http-status-codes';
-
 import type { HttpResponse } from '../http-response';
-import { HttpError } from '../errors/http-error';
-import { isErrorResponseData } from './type-guards';
+import type { ErrorResponseData } from '../types';
 
-export function writeErrorResponse(res: HttpResponse, errorData: unknown): void {
-  if (errorData instanceof HttpError) {
-    res.setStatus(errorData.statusCode);
-    res.setBody({ status: errorData.statusCode, message: errorData.message });
-    return;
-  }
-
-  if (isErrorResponseData(errorData)) {
-    res.setStatus(errorData.status);
-    res.setBody({
-      status: errorData.status,
-      message: errorData.message,
-      ...(errorData.errors !== undefined ? { errors: [...errorData.errors] } : {}),
-    });
-    return;
-  }
-
-  res.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
-  res.setBody({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Internal Server Error' });
+/**
+ * Writes a typed error value to the HTTP response.
+ *
+ * The framework routes request-level failures exclusively as
+ * `Err<ErrorResponseData>`. Uncaught `throw` is handled separately by the
+ * dispatcher's emergency teardown (generic 500) — this function expects
+ * an already-typed payload.
+ */
+export function writeErrorResponse(res: HttpResponse, err: ErrorResponseData): void {
+  res.setStatus(err.status);
+  res.setBody({
+    status: err.status,
+    message: err.message,
+    ...(err.errors !== undefined ? { errors: [...err.errors] } : {}),
+  });
 }
+

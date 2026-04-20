@@ -2,8 +2,8 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
 import type { ZipbulContainer, Context } from '@zipbul/common';
 
-import { Container } from '../../core/src/injector/container';
-import type { RequestScopeContainer } from '../../core/src/injector/request-scope-container';
+import { Container } from '../../../core/src/injector/container';
+import type { RequestScopeContainer } from '../../../core/src/injector/request-scope-container';
 
 /**
  * [OVERFLOW Checkpoint]
@@ -106,7 +106,8 @@ mock.module('@zipbul/logger', () => ({
 
 // utils/ip.ts no longer used — IP resolution moved to http-server.ts internals
 
-const { HttpServer } = await import('../src/http-server');
+const { HttpServer } = await import('../../src/http-server');
+type HttpServer = InstanceType<typeof HttpServer>;
 
 type HttpServerInstance = InstanceType<typeof HttpServer>;
 
@@ -508,13 +509,15 @@ describe('Request scope HTTP lifecycle', () => {
 
     // Assert
     expect(results).toHaveLength(3);
+    const [r0, r1, r2] = results;
+    if (r0 === undefined || r1 === undefined || r2 === undefined) throw new Error('expected three results');
     // Singleton is same across all
-    expect(results[0].singleton).toBe(results[1].singleton);
-    expect(results[1].singleton).toBe(results[2].singleton);
+    expect(r0.singleton).toBe(r1.singleton);
+    expect(r1.singleton).toBe(r2.singleton);
     expect(singletonCount).toBe(1);
     // Request-scoped are all different
-    expect(results[0].request).not.toBe(results[1].request);
-    expect(results[1].request).not.toBe(results[2].request);
+    expect(r0.request).not.toBe(r1.request);
+    expect(r1.request).not.toBe(r2.request);
     expect(requestCount).toBe(3);
   });
 

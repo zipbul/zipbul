@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, afterAll, beforeAll } from 'bun:test';
 import type { Context, ZipbulContainer, CompiledHandlerEntry } from '@zipbul/common';
-import { defineMiddleware, defineGuard, defineExceptionFilter, contextKey } from '@zipbul/common';
+import { defineMiddleware, defineGuard, contextKey } from '@zipbul/common';
 import { err } from '@zipbul/result';
 import { getAdapterContext } from '@zipbul/core';
 import { StatusCodes } from 'http-status-codes';
@@ -183,17 +183,41 @@ mock.module('@zipbul/core', () => ({
   }),
 }));
 
-const { HttpAdapter } = await import('../src/http-adapter');
-const { HttpServer } = await import('../src/http-server');
-const { HttpContext } = await import('../src/http-context');
-const { HttpPhase } = await import('../src/enums');
-const { ServerSentEvent } = await import('../src/server-sent-event');
-const { HttpError } = await import('../src/errors/http-error');
+const { HttpAdapter } = await import('../../src/http-adapter');
+type HttpAdapter = InstanceType<typeof HttpAdapter>;
+const { HttpServer } = await import('../../src/http-server');
+type HttpServer = InstanceType<typeof HttpServer>;
+const { HttpContext } = await import('../../src/http-context');
+type HttpContext = InstanceType<typeof HttpContext>;
+const { HttpPhase } = await import('../../src/enums');
+const { ServerSentEvent } = await import('../../src/server-sent-event');
+type ServerSentEvent = InstanceType<typeof ServerSentEvent>;
+const { httpError } = await import('../../src/http-error');
 
 type HttpAdapterInstance = InstanceType<typeof HttpAdapter>;
 type HttpServerInstance = InstanceType<typeof HttpServer>;
 
 const RequestCount = contextKey<number>('request-count');
+
+/**
+ * Shape of JSON bodies this e2e suite asserts against. `response.json()`
+ * returns `unknown` by contract; tests narrow via cast to this shape.
+ * Every field is optional — individual tests assert only the ones they
+ * expect. Additional keys pass through `[key: string]: unknown`.
+ */
+interface E2EBody {
+  status?: number;
+  message?: string;
+  requestId?: string;
+  id?: string;
+  data?: unknown;
+  errors?: readonly unknown[];
+  [key: string]: unknown;
+}
+
+async function bodyOf(response: Response): Promise<E2EBody> {
+  return (await response.json()) as E2EBody;
+}
 
 function deepServiceCall(): string {
   const ctx = getAdapterContext();
@@ -250,17 +274,22 @@ function buildHandlerIndex(routes: readonly RouteDefinition[]): {
 
   controllerInstances.set('TestController', controllerInstance);
 
-  const handlerIndex: CompiledHandlerEntry[] = routes.map((route) => ({
-    id: `HttpAdapter:TestController.${route.controllerMethod.name}`,
-    adapterId: 'HttpAdapter',
-    controllerKey: 'TestController',
-    methodName: route.controllerMethod.name,
-    handlerDecorator: route.method,
-    handlerDecoratorArgs: [route.path],
-    options: route.options as CompiledHandlerEntry['options'],
-    compiledPre: ['BeforeParse', 'ParseBody', 'BeforeValidate', 'Validation', 'Guard', 'BeforeHandle'],
-    compiledPost: ['WriteResponse', 'AfterHandle', 'Serialize', 'BeforeResponse'],
-  }));
+  const handlerIndex: CompiledHandlerEntry[] = routes.map((route): CompiledHandlerEntry => {
+    const base = {
+      id: `HttpAdapter:TestController.${route.controllerMethod.name}`,
+      adapterId: 'HttpAdapter',
+      controllerKey: 'TestController',
+      methodName: route.controllerMethod.name,
+      handlerDecorator: route.method,
+      handlerDecoratorArgs: [route.path] as readonly unknown[],
+      compiledPre: ['BeforeParse', 'ParseBody', 'BeforeValidate', 'Validation', 'Guard', 'BeforeHandle'] as readonly string[],
+      compiledPost: ['WriteResponse', 'AfterHandle', 'Serialize', 'BeforeResponse'] as readonly string[],
+    };
+    if (route.options !== undefined) {
+      return { ...base, options: route.options as NonNullable<CompiledHandlerEntry['options']> };
+    }
+    return base;
+  });
 
   const metadata = new Map<
     new (...args: readonly unknown[]) => unknown,
@@ -329,7 +358,7 @@ describe('HttpAdapter E2E', () => {
         const http = ctx.to(HttpContext);
         if (!http.request.path.startsWith('/envelope')) return undefined;
         const body = http.response.getBody();
-        if (body !== undefined && body !== null && typeof body === 'object' && !(body instanceof Uint8Array) && !(body instanceof ArrayBuffer)) {
+        if (body !== undefined && body !== null && typeof body === 'object' && !(body instanceof Uint8Array) && !(body instanceof ArrayBuffer) && !(body instanceof Blob) && !(body instanceof ReadableStream)) {
           http.response.setBody({ envelope: true, data: body });
         }
         http.response.setHeader('x-after-handle', 'applied');
@@ -348,13 +377,10 @@ describe('HttpAdapter E2E', () => {
       }),
     ]);
 
-    // Exception filter for HttpError
-    adapter.addExceptionFilters([
-      defineExceptionFilter([HttpError], () => (thrown: unknown) => {
-        const httpError = thrown as InstanceType<typeof HttpError>;
-        return err({ status: httpError.statusCode, message: httpError.message });
-      }),
-    ]);
+    // No HttpError exception filter needed — framework philosophy is
+    // that request-level errors flow as `Err<ErrorResponseData>` via the
+    // `httpError()` factory. `throw` is reserved for invariants and is
+    // handled by the dispatcher's generic-500 emergency teardown.
 
     // BeforeResponse middleware that conditionally throws for emergency teardown test
     adapter.addMiddlewares(HttpPhase.BeforeResponse, [
@@ -1083,12 +1109,10 @@ describe('HttpAdapter E2E', () => {
       // ── BATCH 6: Error handling exhaustive ─────────────────────
       {
         method: 'Get',
-        path: 'throw-http-error',
+        path: 'http-error',
         controllerMethod: {
-          name: 'getThrowHttpError',
-          handler: () => {
-            throw new HttpError(StatusCodes.FORBIDDEN, 'Forbidden');
-          },
+          name: 'getReturnHttpError',
+          handler: () => httpError(StatusCodes.FORBIDDEN, 'Forbidden'),
         },
       },
       {
@@ -1466,7 +1490,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ message: 'hello', count: 42 });
     expect(response.headers.get('content-type')).toContain('application/json');
   });
@@ -1484,7 +1508,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(201);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: payload });
   });
 
@@ -1622,7 +1646,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(404);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toBe('Not Found');
   });
 
@@ -1635,7 +1659,7 @@ describe('HttpAdapter E2E', () => {
     const allow = response.headers.get('allow');
     expect(allow).not.toBeNull();
     expect(allow).toContain('GET');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toBeDefined();
     expect(typeof body.message).toBe('string');
   });
@@ -1650,7 +1674,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('Invalid JSON');
   });
 
@@ -1667,7 +1691,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(413);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('size limit');
   });
 
@@ -1684,7 +1708,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(413);
-    const responseBody = await response.json();
+    const responseBody = await bodyOf(response);
     expect(responseBody.message).toContain('size limit');
   });
 
@@ -1701,7 +1725,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(415);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('Content-Encoding');
     expect(response.headers.get('accept-encoding')).toBe('identity');
   });
@@ -1712,7 +1736,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(501);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('Not Implemented');
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
   });
@@ -1723,7 +1747,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(500);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.status).toBe(500);
     expect(body.message).toBe('Internal Server Error');
   });
@@ -1734,7 +1758,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(403);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toBe('Forbidden');
   });
 
@@ -1749,7 +1773,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ message: 'hello', count: 42 });
   });
 
@@ -1763,7 +1787,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('UTF-8');
   });
 
@@ -1777,7 +1801,7 @@ describe('HttpAdapter E2E', () => {
     expect(setCookies.length).toBeGreaterThanOrEqual(2);
     expect(setCookies.some(cookie => cookie.includes('session=abc123'))).toBe(true);
     expect(setCookies.some(cookie => cookie.includes('theme=dark'))).toBe(true);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ ok: true });
   });
 
@@ -1789,11 +1813,13 @@ describe('HttpAdapter E2E', () => {
 
     // Act
     const responses = await Promise.all(
-      ids.map(id => fetch(`${BASE_URL}/concurrent/${id}`).then(res => res.json())),
+      ids.map(id =>
+        fetch(`${BASE_URL}/concurrent/${id}`).then(res => res.json() as Promise<E2EBody>),
+      ),
     );
 
     // Assert
-    const returnedIds = responses.map((res: { id: string }) => res.id);
+    const returnedIds = responses.map(res => res.id);
     expect(new Set(returnedIds).size).toBe(10);
     for (const id of ids) {
       expect(returnedIds).toContain(id);
@@ -1806,15 +1832,15 @@ describe('HttpAdapter E2E', () => {
     // Arrange & Act
     const responses = await Promise.all(
       Array.from({ length: 20 }, (_, index) =>
-        fetch(`${BASE_URL}/concurrent/${index}`).then(res => res.json()),
+        fetch(`${BASE_URL}/concurrent/${index}`).then(res => res.json() as Promise<E2EBody>),
       ),
     );
 
     // Assert
-    const requestIds = responses.map((res: { requestId: string }) => res.requestId);
+    const requestIds = responses.map(res => res.requestId);
     const uniqueIds = new Set(requestIds);
     expect(uniqueIds.size).toBe(20);
-    expect(requestIds.every((id: string) => typeof id === 'string' && id.length > 0)).toBe(true);
+    expect(requestIds.every(id => typeof id === 'string' && id.length > 0)).toBe(true);
   });
 
   // ── ID: Idempotency ────────────────────────────────────────
@@ -1839,7 +1865,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ message: 'hello', count: 42 });
   });
 
@@ -1851,7 +1877,7 @@ describe('HttpAdapter E2E', () => {
     expect(response.status).toBe(200);
     const setCookies = response.headers.getSetCookie();
     expect(setCookies.length).toBeGreaterThanOrEqual(1);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ ok: true });
   });
 
@@ -1862,7 +1888,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(422);
     expect(response.headers.get('x-finalizer')).toBe('ran');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.status).toBe(422);
     expect(body.message).toBe('Validation failed');
   });
@@ -1873,7 +1899,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.headers.get('x-before-response')).toBe('applied');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ message: 'hello', count: 42 });
   });
 
@@ -1888,7 +1914,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(cleanupMiddlewareCalls.length).toBeGreaterThan(countBefore);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ message: 'hello', count: 42 });
   });
 
@@ -1900,7 +1926,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(201);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ created: true });
   });
 
@@ -1912,7 +1938,7 @@ describe('HttpAdapter E2E', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('x-custom-header')).toBe('custom-value');
     expect(response.headers.get('x-another')).toBe('another-value');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ ok: true });
   });
 
@@ -1936,7 +1962,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(429);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ message: 'Too Many Requests' });
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
   });
@@ -1949,7 +1975,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ path: '/context-access' });
   });
 
@@ -1961,7 +1987,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ count: 42 });
   });
 
@@ -1974,7 +2000,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(500);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.status).toBe(500);
     expect(body.message).toBe('Internal Server Error');
   });
@@ -1987,7 +2013,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ deleted: '42' });
   });
 
@@ -2006,7 +2032,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ updated: '7', body: payload });
   });
 
@@ -2025,7 +2051,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ patched: '3', body: payload });
   });
 
@@ -2044,7 +2070,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.hasRawBody).toBe(true);
     expect(body.bodyLength).toBe(new TextEncoder().encode(payload).byteLength);
   });
@@ -2072,7 +2098,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(501);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('Not Implemented');
   });
 
@@ -2169,7 +2195,7 @@ describe('HttpAdapter E2E', () => {
   it('should not leak request path in 404 error message', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/secret-admin-panel`);
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(404);
@@ -2192,7 +2218,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(413);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('size limit');
   });
 
@@ -2213,7 +2239,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: payload });
   });
 
@@ -2244,7 +2270,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('UTF-8');
   });
 
@@ -2258,7 +2284,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('UTF-8');
   });
 
@@ -2275,7 +2301,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.hasBody).toBe(false);
   });
 
@@ -2292,7 +2318,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: payload });
   });
 
@@ -2302,7 +2328,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ deleted: '99' });
   });
 
@@ -2320,7 +2346,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(415);
     expect(response.headers.get('accept-encoding')).toBe('identity');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
     expect(body.message).toContain('Content-Encoding');
   });
@@ -2341,7 +2367,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: payload });
   });
 
@@ -2358,7 +2384,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(413);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('size limit');
   });
 
@@ -2375,7 +2401,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.hasRawBody).toBe(true);
     expect(body.bodyLength).toBe(new TextEncoder().encode(payload).byteLength);
   });
@@ -2602,7 +2628,7 @@ describe('HttpAdapter E2E', () => {
   it('should return 404 without leaking path for secret endpoint', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/secret-path`);
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(404);
@@ -2619,7 +2645,7 @@ describe('HttpAdapter E2E', () => {
     const allow = response.headers.get('allow');
     expect(allow).not.toBeNull();
     expect(allow).toContain('GET');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
   });
 
@@ -2630,8 +2656,8 @@ describe('HttpAdapter E2E', () => {
   it('should isolate concurrent requests with parallel GET', async () => {
     // Arrange & Act
     const [response1, response2] = await Promise.all([
-      fetch(`${BASE_URL}/concurrent/1`).then(res => res.json()),
-      fetch(`${BASE_URL}/concurrent/2`).then(res => res.json()),
+      fetch(`${BASE_URL}/concurrent/1`).then(res => res.json() as Promise<E2EBody>),
+      fetch(`${BASE_URL}/concurrent/2`).then(res => res.json() as Promise<E2EBody>),
     ]);
 
     // Assert
@@ -2657,7 +2683,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: payload });
   });
 
@@ -2691,7 +2717,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.hasBody).toBe(false);
   });
 
@@ -2701,7 +2727,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ deleted: '55' });
   });
 
@@ -2711,7 +2737,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ message: 'hello', count: 42 });
   });
 
@@ -2738,7 +2764,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.isStream).toBe(true);
   });
 
@@ -2755,7 +2781,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(413);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('size limit');
   });
 
@@ -2772,7 +2798,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(413);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('size limit');
   });
 
@@ -2786,7 +2812,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('UTF-8');
   });
 
@@ -2800,7 +2826,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('UTF-8');
   });
 
@@ -2818,7 +2844,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(415);
     expect(response.headers.get('accept-encoding')).toBe('identity');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
     expect(body.message).toContain('Content-Encoding');
   });
@@ -2837,7 +2863,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(415);
     expect(response.headers.get('accept-encoding')).toBe('identity');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
     expect(body.message).toContain('Content-Encoding');
   });
@@ -2858,7 +2884,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: payload });
   });
 
@@ -2875,7 +2901,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.raw).toBe(new TextEncoder().encode(textPayload).byteLength);
     expect(body.body).toBe(textPayload);
   });
@@ -2890,7 +2916,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('charset');
   });
 
@@ -3219,13 +3245,13 @@ describe('HttpAdapter E2E', () => {
   // ── BATCH 6: Error handling exhaustive (new tests) ────────────
   // ══════════════════════════════════════════════════════════════
 
-  it('should return status and message for thrown HttpError', async () => {
+  it('should return status and message for handler-returned httpError()', async () => {
     // Arrange & Act
-    const response = await fetch(`${BASE_URL}/throw-http-error`);
+    const response = await fetch(`${BASE_URL}/http-error`);
 
     // Assert
     expect(response.status).toBe(403);
-    const body = await response.json();
+    const body = await response.json() as { status: number; message: string };
     expect(body.status).toBe(403);
     expect(body.message).toBe('Forbidden');
   });
@@ -3236,7 +3262,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(500);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.status).toBe(500);
     expect(body.message).toBe('Internal Server Error');
   });
@@ -3248,7 +3274,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(500);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.status).toBe(500);
     expect(typeof body.message).toBe('string');
   });
@@ -3259,19 +3285,20 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(422);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toBe('Validation');
-    expect(body.errors).toBeInstanceOf(Array);
-    expect(body.errors.length).toBe(1);
-    expect(body.errors[0].path).toBe('name');
-    expect(body.errors[0].code).toBe('required');
-    expect(body.errors[0].message).toBe('required');
+    const errors = body.errors as readonly Record<string, unknown>[];
+    expect(errors).toBeInstanceOf(Array);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.path).toBe('name');
+    expect(errors[0]?.code).toBe('required');
+    expect(errors[0]?.message).toBe('required');
   });
 
   it('should return 404 without leaking path for /any-secret-path', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/any-secret-path`);
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(404);
@@ -3290,7 +3317,7 @@ describe('HttpAdapter E2E', () => {
     expect(allow).toContain('DELETE');
     expect(allow).toContain('PUT');
     expect(allow).toContain('PATCH');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
   });
 
@@ -3300,7 +3327,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(501);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toBe('Not Implemented');
   });
 
@@ -3338,7 +3365,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.headers.get('x-before-response')).toBe('applied');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ message: 'hello', count: 42 });
   });
 
@@ -3367,7 +3394,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.path).toBe('/context-access');
   });
 
@@ -3378,13 +3405,13 @@ describe('HttpAdapter E2E', () => {
     // Act
     const responses = await Promise.all(
       Array.from({ length: count }, (_, index) =>
-        fetch(`${BASE_URL}/concurrent/${index}`).then(res => res.json()),
+        fetch(`${BASE_URL}/concurrent/${index}`).then(res => res.json() as Promise<E2EBody>),
       ),
     );
 
     // Assert
-    const ids = responses.map((res: { id: string }) => res.id);
-    const requestIds = responses.map((res: { requestId: string }) => res.requestId);
+    const ids = responses.map(res => res.id);
+    const requestIds = responses.map(res => res.requestId);
     expect(new Set(ids).size).toBe(count);
     expect(new Set(requestIds).size).toBe(count);
   });
@@ -3463,7 +3490,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(201);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: payload });
   });
 
@@ -3546,7 +3573,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: payload });
   });
 
@@ -3563,7 +3590,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(201);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: payload });
   });
 
@@ -3580,7 +3607,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(201);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: payload });
   });
 
@@ -3594,7 +3621,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(201);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: null });
   });
 
@@ -3608,7 +3635,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(201);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: 42 });
   });
 
@@ -3622,7 +3649,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(201);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: 'hello' });
   });
 
@@ -3636,7 +3663,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(201);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: true });
   });
 
@@ -3650,7 +3677,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('Invalid JSON');
   });
 
@@ -3664,7 +3691,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(400);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toContain('Invalid JSON');
   });
 
@@ -3706,7 +3733,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: {} });
     expect(response.headers.get('content-type')).toContain('application/json');
   });
@@ -3722,7 +3749,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(201);
     expect(response.headers.get('content-type')).toContain('application/json');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ received: [1, 2, 3] });
   });
 
@@ -3832,7 +3859,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(404);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
   });
 
@@ -3843,7 +3870,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(405);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
   });
 
@@ -3861,7 +3888,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(413);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
   });
 
@@ -3876,7 +3903,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(400);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
   });
 
@@ -3894,7 +3921,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(415);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
   });
 
@@ -3905,7 +3932,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(403);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
   });
 
@@ -3916,7 +3943,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(404);
     expect(response.headers.get('content-type')).toContain('application/json');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toHaveProperty('message');
   });
 
@@ -3927,7 +3954,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(405);
     expect(response.headers.get('content-type')).toContain('application/json');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toHaveProperty('message');
   });
 
@@ -3945,7 +3972,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(413);
     expect(response.headers.get('content-type')).toContain('application/json');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toHaveProperty('message');
   });
 
@@ -3958,7 +3985,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(200);
     expect(response.headers.get('x-before-parsing')).toBe('applied');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ ok: true });
   });
 
@@ -3969,7 +3996,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
     expect(response.headers.get('x-before-parsing')).toBe('applied');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ ok: true });
   });
 
@@ -3990,7 +4017,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(422);
     expect(response.headers.get('x-before-response')).toBe('applied');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toBe('Validation');
   });
 
@@ -4021,7 +4048,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(cleanupMiddlewareCalls.length).toBeGreaterThan(countBefore);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.message).toBe('string');
   });
 
@@ -4041,14 +4068,14 @@ describe('HttpAdapter E2E', () => {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
-        }).then(res => res.json()),
+        }).then(res => res.json() as Promise<E2EBody>),
       ),
     );
 
     // Assert
     expect(responses.length).toBe(5);
     for (let i = 0; i < payloads.length; i++) {
-      expect(responses[i].received).toEqual(payloads[i]);
+      expect(responses[i]?.received).toEqual(payloads[i]);
     }
   });
 
@@ -4064,11 +4091,11 @@ describe('HttpAdapter E2E', () => {
     expect(successRes.status).toBe(200);
     expect(errorRes.status).toBe(403);
     expect(notFoundRes.status).toBe(404);
-    const successBody = await successRes.json();
+    const successBody = await bodyOf(successRes);
     expect(successBody).toEqual({ message: 'hello', count: 42 });
-    const errorBody = await errorRes.json();
+    const errorBody = await bodyOf(errorRes);
     expect(typeof errorBody.message).toBe('string');
-    const notFoundBody = await notFoundRes.json();
+    const notFoundBody = await bodyOf(notFoundRes);
     expect(typeof notFoundBody.message).toBe('string');
   });
 
@@ -4097,7 +4124,7 @@ describe('HttpAdapter E2E', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('x-custom-header')).toBe('custom-value');
     expect(response.headers.get('x-another')).toBe('another-value');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ ok: true });
   });
 
@@ -4154,7 +4181,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(429);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toBe('Too Many Requests');
     expect(response.headers.get('content-type')).toContain('application/json');
   });
@@ -4162,7 +4189,7 @@ describe('HttpAdapter E2E', () => {
   it('should preserve body when handler calls send() with body', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/rate-limited`);
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(429);
@@ -4194,7 +4221,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.body).toBe('plain text update');
   });
 
@@ -4208,7 +4235,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.body).toBe('plain text patch');
   });
 
@@ -4217,7 +4244,7 @@ describe('HttpAdapter E2E', () => {
   it('should return status field in error response for guard rejection', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/guarded`);
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(body.status).toBe(403);
@@ -4227,7 +4254,7 @@ describe('HttpAdapter E2E', () => {
   it('should return status field in 404 error response', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/nowhere`);
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(404);
@@ -4237,7 +4264,7 @@ describe('HttpAdapter E2E', () => {
   it('should return status field in 405 error response', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/json`, { method: 'DELETE' });
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(405);
@@ -4255,7 +4282,7 @@ describe('HttpAdapter E2E', () => {
       body: largeBody,
     });
 
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(413);
@@ -4273,7 +4300,7 @@ describe('HttpAdapter E2E', () => {
       body: '{}',
     });
 
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(415);
@@ -4293,7 +4320,7 @@ describe('HttpAdapter E2E', () => {
       body: '{}',
     });
 
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(415);
@@ -4314,7 +4341,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(415);
     expect(response.headers.get('accept-encoding')).toBe('identity');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.message).toBeDefined();
   });
 
@@ -4333,7 +4360,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.hasRawBody).toBe(true);
     expect(body.bodyLength).toBe(payload.length);
   });
@@ -4343,7 +4370,7 @@ describe('HttpAdapter E2E', () => {
   it('should return JSON body for 501 unknown method', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/json`, { method: 'LINK' });
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(501);
@@ -4391,7 +4418,7 @@ describe('HttpAdapter E2E', () => {
   it('should return correct path from getAdapterContext() for different routes', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/context-access`);
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Assert
     expect(response.status).toBe(200);
@@ -4445,8 +4472,8 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(res1.status).toBe(400);
     expect(res2.status).toBe(400);
-    const body1 = await res1.json();
-    const body2 = await res2.json();
+    const body1 = await bodyOf(res1);
+    const body2 = await bodyOf(res2);
     expect(typeof body1.message).toBe('string');
     expect(typeof body2.message).toBe('string');
   });
@@ -4459,7 +4486,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.deleted).toBe('42');
   });
 
@@ -4469,7 +4496,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ ok: true });
   });
 
@@ -4521,7 +4548,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.isStream).toBe(true);
   });
 
@@ -4535,7 +4562,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.type).toBe('http');
   });
 
@@ -4545,7 +4572,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ after: true });
     expect(response.headers.get('x-before-reset')).toBeNull();
   });
@@ -4559,7 +4586,7 @@ describe('HttpAdapter E2E', () => {
     expect(response.headers.get('x-one')).toBe('1');
     expect(response.headers.get('x-two')).toBe('2');
     expect(response.headers.get('x-three')).toBe('3');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ ok: true });
   });
 
@@ -4570,7 +4597,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(200);
     expect(response.headers.get('x-temp')).toBeNull();
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ ok: true });
   });
 
@@ -4581,7 +4608,7 @@ describe('HttpAdapter E2E', () => {
     // Assert
     expect(response.status).toBe(200);
     expect(typeof response.statusText).toBe('string');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ ok: true });
   });
 
@@ -4595,7 +4622,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.readBack).toEqual({ initial: true });
     expect(body.status).toBeUndefined();
   });
@@ -4606,7 +4633,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(typeof body.hasRawRequest).toBe('boolean');
   });
 
@@ -4642,7 +4669,7 @@ describe('HttpAdapter E2E', () => {
 
     // Assert
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ purged: 'images' });
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
   });
@@ -4681,7 +4708,7 @@ describe('HttpAdapter E2E', () => {
     const response = await fetch(`${BASE_URL}/envelope/users`);
 
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ envelope: true, data: { users: ['alice', 'bob'] } });
     expect(response.headers.get('x-after-handle')).toBe('applied');
   });
@@ -4732,7 +4759,7 @@ describe('HttpAdapter E2E', () => {
     expect(response.status).toBe(429);
     // AfterHandle skipped — isSent() was true
     expect(response.headers.get('x-after-handle')).toBeNull();
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body).toEqual({ limited: true });
   });
 
@@ -4742,7 +4769,7 @@ describe('HttpAdapter E2E', () => {
     expect(response.status).toBe(422);
     // AfterHandle ran — error body is an object, got wrapped
     expect(response.headers.get('x-after-handle')).toBe('applied');
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.envelope).toBe(true);
   });
 
@@ -4820,7 +4847,7 @@ describe('HttpAdapter E2E', () => {
     // AfterHandle wraps as {envelope: true, data: ...} → serialize turns it to JSON string
     // BeforeResponse middleware sees x-before-response header, proving serialize ran before it
     const response = await fetch(`${BASE_URL}/envelope/users`);
-    const body = await response.json();
+    const body = await bodyOf(response);
 
     // Body was serialized to JSON — if it weren't, Content-Type wouldn't be application/json
     expect(response.headers.get('content-type')).toContain('application/json');
@@ -4836,7 +4863,7 @@ describe('HttpAdapter E2E', () => {
     expect(response.headers.get('x-after-handle')).toBe('applied');
     expect(response.headers.get('x-before-response')).toBe('applied');
     // AfterHandle wrapped the body
-    const body = await response.json();
+    const body = await bodyOf(response);
     expect(body.envelope).toBe(true);
   });
 

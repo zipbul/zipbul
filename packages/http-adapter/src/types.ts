@@ -23,6 +23,21 @@ import type { HttpMethod } from '@zipbul/shared';
 export type { HttpMethod };
 export { StatusCodes };
 
+/**
+ * Strict literal union of every HTTP status code defined in `StatusCodes`.
+ *
+ * TypeScript's numeric enum type permits silent widening from plain `number`
+ * (e.g. `const n: number = 999; fn(n)` compiles against an enum parameter).
+ * This derived type closes that hole by expanding the enum into an exact
+ * literal union (`100 | 101 | ... | 511`), so any non-enum numeric argument —
+ * literal or variable — is rejected at compile time.
+ *
+ * Use this everywhere a status code is accepted (`setStatus`, `@Status`,
+ * `ErrorResponseData.status`, `httpError()`). The runtime value is still
+ * a standard number — only the static type is narrowed.
+ */
+export type HttpStatus = `${StatusCodes}` extends `${infer N extends number}` ? N : never;
+
 export type HeadersInit = Headers | Array<[string, string]> | Record<string, string>;
 
 export type RequestParamMap = Record<string, string | undefined>;
@@ -114,7 +129,7 @@ export interface HttpRequestData {
 }
 
 export interface ErrorResponseData {
-  readonly status: StatusCodes;
+  readonly status: HttpStatus;
   readonly message: string;
   readonly errors?: readonly JsonValue[];
 }

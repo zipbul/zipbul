@@ -3,7 +3,12 @@ import { evaluateMemoryAction, MemoryAction } from './memory-pressure';
 import type { ClusterWorkerStats } from './interfaces';
 
 function makeStats(memory: number, heapSize?: number, heapCapacity?: number): ClusterWorkerStats {
-  return { cpu: 0.1, memory, heapSize, heapCapacity };
+  return {
+    cpu: 0.1,
+    memory,
+    ...(heapSize !== undefined ? { heapSize } : {}),
+    ...(heapCapacity !== undefined ? { heapCapacity } : {}),
+  };
 }
 
 describe('evaluateMemoryAction', () => {

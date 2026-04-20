@@ -9,7 +9,7 @@ import type { AnalyzerValue, AnalyzerValueRecord } from './types';
  * Carries source location so consumption sites can produce actionable diagnostics.
  */
 export interface UnresolvableExpression extends AnalyzerValueRecord {
-  readonly [key: typeof ZIPBUL_UNRESOLVABLE]: true;
+  readonly [ZIPBUL_UNRESOLVABLE]: true;
   readonly nodeType?: string | undefined;
   readonly sourceText?: string | undefined;
   readonly start?: number | undefined;

@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 
-import type { LogMessage, Transport } from '../interfaces';
+import type { LogMessage } from '../interfaces';
 
 import { TestTransport } from '../transports/test';
 

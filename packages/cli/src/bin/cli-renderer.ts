@@ -284,9 +284,15 @@ export class CliRenderer implements CliRendererLike {
     const lines: string[] = [headerLine];
 
     for (let index = 0; index < entries.length; index++) {
-      const sizeCol = pc.bold(formattedSizes[index].padStart(maxSizeLength));
-      const gzipCol = hasGzip ? `  ${pc.dim(formattedGzips[index].padStart(maxGzipLength))}` : '';
-      lines.push(`${pc.dim(entries[index].name.padEnd(maxNameLength))}  ${sizeCol}${gzipCol}`);
+      const entry = entries[index];
+      const formattedSize = formattedSizes[index];
+      const formattedGzip = formattedGzips[index];
+      if (entry === undefined || formattedSize === undefined) continue;
+      const sizeCol = pc.bold(formattedSize.padStart(maxSizeLength));
+      const gzipCol = hasGzip && formattedGzip !== undefined
+        ? `  ${pc.dim(formattedGzip.padStart(maxGzipLength))}`
+        : '';
+      lines.push(`${pc.dim(entry.name.padEnd(maxNameLength))}  ${sizeCol}${gzipCol}`);
     }
 
     const separatorLength = maxNameLength + 2 + maxSizeLength + (hasGzip ? 2 + maxGzipLength : 0);

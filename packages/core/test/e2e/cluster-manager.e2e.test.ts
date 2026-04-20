@@ -4,11 +4,11 @@ import { ClusterManager } from '../../src/cluster/cluster-manager';
 import { WorkerState } from '../../src/cluster/enums';
 import type { ClusterBaseWorker } from '../../src/cluster/cluster-base-worker';
 import type { RpcCallable } from '../../src/cluster/types';
-import type { CrashDiagnostics } from '../../src/cluster/crash-diagnostics';
+
 
 type TestWorkerRpc = ClusterBaseWorker & Record<string, RpcCallable>;
 
-const WORKER_SCRIPT = new URL('./fixtures/test-worker.ts', import.meta.url);
+const WORKER_SCRIPT = new URL('../fixtures/test-worker.ts', import.meta.url);
 
 async function waitForCondition(
   predicate: () => boolean,

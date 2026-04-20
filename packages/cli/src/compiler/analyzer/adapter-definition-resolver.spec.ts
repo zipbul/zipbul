@@ -3,6 +3,8 @@ import { join } from 'path';
 
 import { isErr } from '@zipbul/result';
 import { ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
+
+import { unwrapOk } from '../../../test/shared/assertions';
 import type { FileAnalysis } from './graph/interfaces';
 
 import type { FileSetup } from '../../../test/shared/interfaces';
@@ -230,7 +232,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     // Assert
     expect(Object.keys(result.adapterStaticSchemas)).toEqual(['TestAdapter']);
@@ -326,7 +328,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     // Assert
     expect(Object.keys(result.adapterStaticSchemas)).toEqual(['AdapterA', 'AdapterB']);
@@ -379,7 +381,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     // Assert
     expect(Object.keys(result.adapterStaticSchemas)).toEqual(['TestAdapter']);
@@ -407,7 +409,7 @@ describe('AdapterDefinitionResolver', () => {
     const barrelAnalysis: FileAnalysis = {
       filePath: barrelFile,
       classes: [],
-      reExports: [{ module: specFile, names: [{ local: 'adapterDefinition', exported: 'adapterDefinition' }] }],
+      reExports: [{ module: specFile, exportAll: false, names: [{ local: 'adapterDefinition', exported: 'adapterDefinition' }] }],
       exports: [],
     };
 
@@ -429,7 +431,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     // Assert
     expect(Object.keys(result.adapterStaticSchemas)).toEqual(['TestAdapter']);
@@ -441,7 +443,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     // Assert
     const expectedFile = PathResolver.normalize('src/controllers.ts');
@@ -516,7 +518,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert — should not throw (module middleware hook 'OnReceive' is valid)
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     expect(Object.keys(result.adapterStaticSchemas)).toEqual(['TestAdapter']);
   });
@@ -570,7 +572,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     expect(result.handlerIndex.length).toBe(1);
   });
@@ -624,7 +626,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act & Assert
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     expect(result.handlerIndex.length).toBe(1);
   });
@@ -786,7 +788,7 @@ describe('AdapterDefinitionResolver', () => {
     const fileMap = await buildStandardFileMap(createTestAdapterClass('MyCustomAdapter'));
     const resolver = new AdapterDefinitionResolver();
 
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
     expect(Object.keys(result.adapterStaticSchemas)).toEqual(['MyCustomAdapter']);
   });
 
@@ -1062,9 +1064,12 @@ describe('AdapterDefinitionResolver', () => {
           className: 'SampleController',
           decorators: [{ name: 'Controller', arguments: [] }],
           methods: [
-            { name: 'handle', decorators: [{ name: 'Get', arguments: [] }] },
-            { name: 'handle', decorators: [{ name: 'Get', arguments: [] }] },
+            { name: 'handle', decorators: [{ name: 'Get', arguments: [] }], parameters: [] },
+            { name: 'handle', decorators: [{ name: 'Get', arguments: [] }], parameters: [] },
           ],
+          constructorParams: [],
+          properties: [],
+          imports: {},
         },
       ],
       reExports: [],
@@ -1193,7 +1198,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     // Assert
     expect(result.handlerIndex).toEqual([]);
@@ -1444,7 +1449,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     // Assert — alphabetical order
     expect(Object.keys(result.adapterStaticSchemas)).toEqual(['AlphaAdapter', 'BravoAdapter']);
@@ -1517,7 +1522,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     // Assert — a-controller should come before z-controller
     const ids = result.handlerIndex.map(e => e.id);
@@ -1647,7 +1652,7 @@ describe('AdapterDefinitionResolver', () => {
     const resolver = new AdapterDefinitionResolver();
 
     // Act
-    const result = await resolver.resolve({ fileMap, projectRoot });
+    const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
     // Assert — only 'TestAdapter' adapter handler should appear
     expect(result.handlerIndex.length).toBe(1);
@@ -1869,7 +1874,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -1899,7 +1904,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -1930,7 +1935,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -1963,7 +1968,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -1996,7 +2001,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -2028,7 +2033,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -2056,7 +2061,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -2088,7 +2093,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -2119,7 +2124,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const mwRegistrations = result.routeRegistrations.filter(reg => reg.key.includes('__route_mw__'));
@@ -2180,7 +2185,7 @@ describe('AdapterDefinitionResolver', () => {
         registerControllers() {},
       } as unknown;
 
-      const result = await resolver.resolve({ fileMap, projectRoot, graph: graph as never });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot, graph: graph as never }));
       const entry = result.handlerIndex[0];
 
       expect(entry?.ownerModuleName).toBe('AppModule');
@@ -2255,7 +2260,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -2287,7 +2292,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -2350,8 +2355,12 @@ describe('AdapterDefinitionResolver', () => {
                   { name: 'Get', arguments: [] },
                   { name: 'UseGuards', arguments: [unresolvableArg] },
                 ],
+                parameters: [],
               },
             ],
+            constructorParams: [],
+            properties: [],
+            imports: {},
           },
         ],
         reExports: [],
@@ -2472,7 +2481,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert — the resolver still produces a valid result (warning, not error)
       // The warning is logged but does not affect the return value.
@@ -2498,8 +2507,12 @@ describe('AdapterDefinitionResolver', () => {
                   { name: 'Get', arguments: [] },
                   { name: 'Post', arguments: [] },
                 ],
+                parameters: [],
               },
             ],
+            constructorParams: [],
+            properties: [],
+            imports: {},
           },
         ],
         reExports: [],
@@ -2572,7 +2585,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -2606,7 +2619,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -2644,7 +2657,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert — both handlers have the class-level option
       expect(result.handlerIndex.length).toBe(2);
@@ -2681,7 +2694,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert — method-level overrides class-level
       const entry = result.handlerIndex[0];
@@ -2716,7 +2729,7 @@ describe('AdapterDefinitionResolver', () => {
       const resolver = new AdapterDefinitionResolver();
 
       // Act
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       // Assert
       const entry = result.handlerIndex[0];
@@ -2747,7 +2760,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
       const entry = result.handlerIndex[0];
 
       expect(entry?.compiledPre).toEqual(['ResolveRoute', 'ParseBody']);
@@ -2761,7 +2774,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
       const entry = result.handlerIndex[0];
 
       expect(entry?.compiledPre).not.toContain('Handler');
@@ -2775,7 +2788,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
       const entry = result.handlerIndex[0];
 
       // No middlewares registered for any phase → all phase steps eliminated
@@ -2826,7 +2839,7 @@ describe('AdapterDefinitionResolver', () => {
         registerControllers() {},
       } as unknown;
 
-      const result = await resolver.resolve({ fileMap, projectRoot, graph: graph as never });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot, graph: graph as never }));
       const entry = result.handlerIndex[0];
 
       expect(entry?.compiledPre).toContain('OnReceive');
@@ -2853,7 +2866,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
       const entry = result.handlerIndex[0];
 
       expect(entry?.compiledPre).toContain('OnReceive');
@@ -2866,7 +2879,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
       const entry = result.handlerIndex[0];
 
       expect(entry?.compiledPre).not.toContain('Guard');
@@ -2893,7 +2906,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
       const entry = result.handlerIndex[0];
 
       expect(entry?.compiledPre).toContain('Guard');
@@ -2906,7 +2919,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
       const entry = result.handlerIndex[0];
 
       expect(entry?.compiledPre).not.toContain('Validation');
@@ -2922,7 +2935,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
       const entry = result.handlerIndex[0];
 
       // Adapter steps always retained, phases eliminated (no MW)
@@ -2937,7 +2950,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(controllerCode, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
       const entry = result.handlerIndex[0];
 
       // OnComplete is a phase with no MW → eliminated from post
@@ -2949,7 +2962,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildStandardFileMap();
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
       const entry = result.handlerIndex[0];
 
       expect(entry?.compiledPre).toBeUndefined();
@@ -3012,7 +3025,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       expect(result.handlerIndex.length).toBe(2);
       const entryA = result.handlerIndex[0]!;
@@ -3072,7 +3085,7 @@ describe('AdapterDefinitionResolver', () => {
         registerControllers() {},
       } as unknown;
 
-      const result = await resolver.resolve({ fileMap, projectRoot, graph: graph as never });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot, graph: graph as never }));
 
       expect(result.handlerIndex.length).toBe(2);
 
@@ -3105,7 +3118,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       expect(result.handlerIndex.length).toBe(2);
 
@@ -3134,7 +3147,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       expect(result.handlerIndex.length).toBe(2);
       expect(result.handlerIndex[0]!.validations).toBe(result.handlerIndex[1]!.validations);
@@ -3160,7 +3173,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       expect(result.handlerIndex.length).toBe(1);
 
@@ -3190,7 +3203,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       expect(result.handlerIndex.length).toBe(1);
       expect(result.handlerIndex[0]!.validations).toBeUndefined();
@@ -3224,7 +3237,7 @@ describe('AdapterDefinitionResolver', () => {
       const fileMap = await buildFileMapWithCode(code, adapterClass);
       const resolver = new AdapterDefinitionResolver();
 
-      const result = await resolver.resolve({ fileMap, projectRoot });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot }));
 
       expect(result.handlerIndex.length).toBe(2);
       expect(result.handlerIndex[0]!.options).toBe(result.handlerIndex[1]!.options);
@@ -3274,7 +3287,7 @@ describe('AdapterDefinitionResolver', () => {
         registerControllers() {},
       } as unknown;
 
-      const result = await resolver.resolve({ fileMap, projectRoot, graph: graph as never });
+      const result = unwrapOk(await resolver.resolve({ fileMap, projectRoot, graph: graph as never }));
 
       expect(result.handlerIndex.length).toBe(2);
 

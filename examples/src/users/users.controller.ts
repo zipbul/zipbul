@@ -49,14 +49,14 @@ export class UsersController {
 
   @Post()
   create(ctx: HttpContext): void {
-    this.usersService.create(ctx.request.body as User);
+    this.usersService.create(ctx.request.body as unknown as User);
   }
 
   @Put(':id')
   update(ctx: HttpContext): void {
     const params = ctx.request.getParams(IdRouteParams);
 
-    this.usersService.update(Number(params.id), ctx.request.body as User);
+    this.usersService.update(Number(params.id), ctx.request.body as unknown as User);
   }
 
   @Delete(':id')

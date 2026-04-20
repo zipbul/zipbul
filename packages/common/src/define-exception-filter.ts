@@ -5,9 +5,15 @@ import type { AdapterContext } from './interfaces';
 /**
  * Constructor-like type that matches concrete and abstract error classes.
  *
+ * Uses contravariant `never[]` for args so every Error-subclass constructor
+ * (which typically declares `(message?: string)` or richer signatures) is
+ * assignable. Runtime `instanceof` checks care only about class identity,
+ * not argument shape — the type exists solely to narrow the `catchTypes`
+ * array to "classes whose instances are Errors".
+ *
  * @public
  */
-export type ExceptionConstructorLike = abstract new (...args: readonly unknown[]) => Error;
+export type ExceptionConstructorLike = abstract new (...args: never[]) => Error;
 
 /**
  * Handler function for an exception filter definition.

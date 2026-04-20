@@ -1,3 +1,5 @@
+import type { HttpStatus } from '../types';
+
 /**
  * Enables raw request body capture for this handler.
  *
@@ -86,7 +88,7 @@ export function BodyLimit(_bytes: number): MethodDecorator {
  *
  * @public
  */
-export function Status(_code: number): MethodDecorator {
+export function Status(_code: HttpStatus): MethodDecorator {
   return () => {};
 }
 
