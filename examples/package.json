@@ -14,8 +14,7 @@
     "@zipbul/core": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
     "@zipbul/logger": "workspace:*",
-    "@zipbul/result": "^1.0.0",
-    "@zipbul/scalar": "workspace:*"
+    "@zipbul/result": "^1.0.0"
   },
   "devDependencies": {
     "@zipbul/cli": "workspace:*",

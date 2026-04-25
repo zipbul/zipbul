@@ -80,7 +80,7 @@ Contract-Impact: breaking|non-breaking|none
      - `revert`: 이전 커밋 되돌림
    - `scope`는 가능하면 변경 범위를 명시한다.
    - 기본 scope 목록:
-     - `cli`, `common`, `core`, `http-adapter`, `logger`, `scalar`, `examples`
+     - `cli`, `common`, `core`, `http-adapter`, `logger`, `examples`
      - `repo`, `config`, `plan`, `eslint`, `scripts`
      - (패키지 내부 기능 단위 scope는 금지한다.)
    - 새로운 scope가 필요하면 PR에서 함께 제안한다.

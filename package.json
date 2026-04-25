@@ -38,7 +38,7 @@
     "knip": "knip",
     "prepare": "husky",
     "test": "bun run test:unit && bun run test:integration && bun run test:e2e && bun run test:smoke",
-    "test:unit": "bun test packages/common/src packages/core/src packages/http-adapter/src packages/cli/src packages/logger/src packages/scalar/src",
+    "test:unit": "bun test packages/common/src packages/core/src packages/http-adapter/src packages/cli/src packages/logger/src",
     "test:integration": "bun test packages/core/test/integration packages/cli/test/integration",
     "test:e2e": "bun test packages/core/test/e2e packages/http-adapter/test/e2e",
     "test:smoke": "bun test packages/http-adapter/test/smoke",
