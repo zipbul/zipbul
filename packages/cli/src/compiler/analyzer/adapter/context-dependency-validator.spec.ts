@@ -5,7 +5,7 @@ import {
   type ContextDependencyViolation,
 } from './context-dependency-validator';
 import type { HandlerIndexEntry, RouteRegistration } from '../interfaces';
-import type { MiddlewareContextAugment } from '../../generator/context-types-generator';
+import type { MiddlewareProducerInfo } from './middleware-context-types';
 import type { ContextOperation } from '../parser/context-operation-extractor';
 import { ZIPBUL_REF } from '@zipbul/common';
 
@@ -28,13 +28,10 @@ function makeHandler(
   } as never;
 }
 
-function makeAugment(name: string, ops: ContextOperation[]): MiddlewareContextAugment {
+function makeProducer(name: string, ops: ContextOperation[]): MiddlewareProducerInfo {
   return {
     middlewareName: name,
-    contextType: 'HttpContext',
     sourceFilePath: '/tmp/' + name + '.ts',
-    augments: [],
-    classImports: new Map(),
     contextOps: ops,
   };
 }
@@ -70,13 +67,13 @@ describe('validateContextDependencies', () => {
     const consumerOps: ContextOperation[] = [
       { kind: 'use', keyIdentifier: 'SessionKey', start: 100 },
     ];
-    const augment = makeAugment('sessionMiddleware', [
+    const producer = makeProducer('sessionMiddleware', [
       { kind: 'set', keyIdentifier: 'SessionKey', start: 50 },
     ]);
     const handlerOps = new Map([[handler.id, consumerOps]]);
     const registrations = [makeRegistration(mwKey, 'sessionMiddleware')];
 
-    const result = validateContextDependencies([handler], handlerOps, [augment], registrations);
+    const result = validateContextDependencies([handler], handlerOps, [producer], registrations);
 
     expect(result).toEqual([]);
   });
@@ -86,12 +83,12 @@ describe('validateContextDependencies', () => {
     const consumerOps: ContextOperation[] = [
       { kind: 'use', keyIdentifier: 'SessionKey', start: 100 },
     ];
-    const augment = makeAugment('sessionMiddleware', [
+    const producer = makeProducer('sessionMiddleware', [
       { kind: 'set', keyIdentifier: 'SessionKey', start: 50 },
     ]);
     const handlerOps = new Map([[handler.id, consumerOps]]);
 
-    const result = validateContextDependencies([handler], handlerOps, [augment], []);
+    const result = validateContextDependencies([handler], handlerOps, [producer], []);
 
     expect(result).toHaveLength(1);
     expect(result[0]?.knownProducersForKey).toEqual(['sessionMiddleware']);
@@ -143,14 +140,14 @@ describe('validateContextDependencies', () => {
     const consumerOps: ContextOperation[] = [
       { kind: 'use', keyIdentifier: 'MissingKey', start: 100 },
     ];
-    const augments = [
-      makeAugment('mwA', [{ kind: 'set', keyIdentifier: 'KeyA', start: 50 }]),
-      makeAugment('mwB', [{ kind: 'set', keyIdentifier: 'KeyB', start: 50 }]),
-      makeAugment('mwC', [{ kind: 'use', keyIdentifier: 'SomeKey', start: 50 }]), // consumer-only, not a producer
+    const producers = [
+      makeProducer('mwA', [{ kind: 'set', keyIdentifier: 'KeyA', start: 50 }]),
+      makeProducer('mwB', [{ kind: 'set', keyIdentifier: 'KeyB', start: 50 }]),
+      makeProducer('mwC', [{ kind: 'use', keyIdentifier: 'SomeKey', start: 50 }]), // consumer-only, not a producer
     ];
     const handlerOps = new Map([[handler.id, consumerOps]]);
 
-    const result = validateContextDependencies([handler], handlerOps, augments);
+    const result = validateContextDependencies([handler], handlerOps, producers);
 
     expect(result).toHaveLength(1);
     expect(result[0]?.knownProducersForKey).toEqual([]);
@@ -160,7 +157,7 @@ describe('validateContextDependencies', () => {
     const mwKey = '__route_mw__:Shared:cls:0';
     const h1 = makeHandler('Adapter:a.ts#A.h', mwKey);
     const h2 = makeHandler('Adapter:b.ts#B.h', mwKey);
-    const augment = makeAugment('mw', [
+    const producer = makeProducer('mw', [
       { kind: 'set', keyIdentifier: 'SharedKey', start: 50 },
     ]);
     const handlerOps = new Map<string, readonly ContextOperation[]>([
@@ -169,7 +166,7 @@ describe('validateContextDependencies', () => {
     ]);
     const registrations = [makeRegistration(mwKey, 'mw')];
 
-    const result = validateContextDependencies([h1, h2], handlerOps, [augment], registrations);
+    const result = validateContextDependencies([h1, h2], handlerOps, [producer], registrations);
 
     expect(result).toHaveLength(1);
     expect(result[0]?.handlerId).toBe(h2.id);

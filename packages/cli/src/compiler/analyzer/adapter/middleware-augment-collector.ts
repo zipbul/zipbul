@@ -14,13 +14,19 @@ import type {
 import type { FileAnalysis } from '../graph/interfaces';
 import type { AdapterStaticSchema } from '../interfaces';
 import type { AnalyzerValueRecord } from '../types';
+import type { ContextAdapterMap } from '../../generator/context-types-generator';
 import type {
-  ContextAdapterMap,
   MiddlewareContextAugment,
-} from '../../generator/context-types-generator';
+  MiddlewareProducerInfo,
+} from './middleware-context-types';
 
 import type { PropAugment } from '../parser/middleware-augment-extractor';
 import { extractMiddlewareAugments } from '../parser/middleware-augment-extractor';
+import {
+  extractContextOperations,
+  findContextBindings,
+  type ContextOperation,
+} from '../parser/context-operation-extractor';
 import { AstParser } from '../parser';
 import { toRecord, isAnalyzerValueArray } from '../type-guards';
 import {
@@ -37,8 +43,10 @@ const logger = new Logger('MiddlewareAugmentCollector');
  * @public
  */
 export interface MiddlewareAugmentCollectionResult {
-  /** Augmentations extracted from registered middleware factory bodies. */
+  /** Augmentations extracted from registered middleware factory bodies (type augmentation). */
   readonly augments: readonly MiddlewareContextAugment[];
+  /** Producer/consumer ops per middleware (runtime data flow — separate concern from augments). */
+  readonly producerInfos: readonly MiddlewareProducerInfo[];
   /** Adapter-provided namespace → interface mapping for declaration merging. */
   readonly adapterMap: ContextAdapterMap;
 }
@@ -73,6 +81,7 @@ export class MiddlewareAugmentCollector {
   ): Promise<MiddlewareAugmentCollectionResult> {
     const adapterMap = buildContextAdapterMap(adapterStaticSchemas);
     const augments: MiddlewareContextAugment[] = [];
+    const producerInfos: MiddlewareProducerInfo[] = [];
 
     // 1. Collect from project source files (already in fileMap)
     const localExports = collectMiddlewareExports(fileMap, registeredMiddlewareRefs);
@@ -86,7 +95,8 @@ export class MiddlewareAugmentCollector {
     const allExports = [...localExports, ...packageExports];
 
     for (const ref of allExports) {
-      // Priority 1: __augments IR field (from zb build --lib output)
+      // Priority 1: __augments IR field (from zb build --lib output) — type augmentation only.
+      // IR does not carry contextOps; producerInfo is empty for these.
       const irAugment = extractAugmentFromIR(ref);
 
       if (irAugment !== null) {
@@ -94,15 +104,20 @@ export class MiddlewareAugmentCollector {
         continue;
       }
 
-      // Priority 2: factory body AST parsing (source available)
-      const astAugment = await extractAugmentFromFile(ref.name, ref.filePath);
+      // Priority 2: factory body AST parsing (source available) — both augments and ops.
+      const ast = await extractFromFile(ref.name, ref.filePath);
 
-      if (astAugment !== null) {
-        augments.push(astAugment);
+      if (ast !== null) {
+        if (ast.augment !== null) {
+          augments.push(ast.augment);
+        }
+        if (ast.producerInfo !== null) {
+          producerInfos.push(ast.producerInfo);
+        }
       }
     }
 
-    return { augments, adapterMap };
+    return { augments, producerInfos, adapterMap };
   }
 
   /**
@@ -384,9 +399,6 @@ function extractAugmentFromIR(ref: MiddlewareExportRef): MiddlewareContextAugmen
     sourceFilePath: ref.filePath,
     augments,
     classImports,
-    // IR (lib build) does not yet emit contextOps. Empty until `zb build --lib`
-    // is extended to serialize ctx.set/use/get patterns.
-    contextOps: [],
   };
 }
 
@@ -462,17 +474,29 @@ function resolvePackageNameFromFilePath(filePath: string): string | null {
 }
 
 /**
- * Parses a source file and extracts middleware augmentations from a named export.
+ * Source-AST extraction result for a single middleware export.
  *
- * Uses `parseSource()` for raw AST access to extract factory function bodies
- * and their augmentation patterns. Works with TypeScript source files —
- * for npm packages, relies on `resolveDistToSource()` in the parser to find
- * the original `.ts` source instead of compiled `.js`.
+ * `augment` and `producerInfo` are independent concerns extracted from the same
+ * factory body in one parse pass — they are returned together for efficiency
+ * but consumed by separate downstream processors (type generator vs validator).
  */
-async function extractAugmentFromFile(
+interface MiddlewareSourceExtraction {
+  readonly augment: MiddlewareContextAugment | null;
+  readonly producerInfo: MiddlewareProducerInfo | null;
+}
+
+/**
+ * Parses a source file and extracts BOTH middleware augmentations and
+ * producer/consumer ops from a named export.
+ *
+ * Uses `parseSource()` for raw AST access to extract factory function bodies.
+ * Works with TypeScript source files — for npm packages, relies on
+ * `resolveDistToSource()` in the parser to find the original `.ts` source.
+ */
+async function extractFromFile(
   name: string,
   filePath: string,
-): Promise<MiddlewareContextAugment | null> {
+): Promise<MiddlewareSourceExtraction | null> {
   const file = Bun.file(filePath);
 
   if (!(await file.exists())) {
@@ -495,14 +519,32 @@ async function extractAugmentFromFile(
     return null;
   }
 
-  const result = extractMiddlewareAugments(factory);
+  const augmentResult = extractMiddlewareAugments(factory);
+  const contextOps = extractMiddlewareContextOps(factory);
 
-  if (result === null) {
+  const augment = augmentResult !== null
+    ? buildContextAugment(name, filePath, augmentResult, parsed.program.body)
+    : null;
+
+  const producerInfo = contextOps.length > 0
+    ? { middlewareName: name, sourceFilePath: filePath, contextOps }
+    : null;
+
+  if (augment === null && producerInfo === null) {
     return null;
   }
 
-  const importMap = buildFileImportMap(parsed.program.body, filePath);
-  const localDeclarations = collectLocalClassDeclarations(parsed.program.body);
+  return { augment, producerInfo };
+}
+
+function buildContextAugment(
+  name: string,
+  filePath: string,
+  result: { contextType: string; augments: readonly PropAugment[] },
+  programBody: readonly AstNode[],
+): MiddlewareContextAugment {
+  const importMap = buildFileImportMap(programBody, filePath);
+  const localDeclarations = collectLocalClassDeclarations(programBody);
   const classImports = new Map<string, string>();
 
   for (const augment of result.augments) {
@@ -510,12 +552,9 @@ async function extractAugmentFromFile(
       const importPath = importMap.get(augment.rhs.identifier);
 
       if (importPath !== undefined) {
-        // If the import resolves to node_modules, use the package name instead
         const resolvedPath = resolvePackageNameFromFilePath(importPath) ?? importPath;
-
         classImports.set(augment.rhs.identifier, resolvedPath);
       } else if (localDeclarations.has(augment.rhs.identifier)) {
-        // Class declared in the same file — use the file path itself
         classImports.set(augment.rhs.identifier, filePath);
       }
     }
@@ -527,9 +566,70 @@ async function extractAugmentFromFile(
     sourceFilePath: filePath,
     augments: result.augments,
     classImports,
-    contextOps: result.contextOps,
   };
 }
+
+/**
+ * `defineMiddleware(() => (ctx) => { ... })` 의 inner handler 본문을 찾아
+ * ctx 작업을 추출한다. binding 변수 (`const x = ctx.to(<Type>)`) 도 root 에 포함.
+ */
+function extractMiddlewareContextOps(
+  factory: OxcFunction | ArrowFunctionExpression,
+): readonly ContextOperation[] {
+  const inner = findInnerHandler(factory);
+  if (inner === null) return [];
+
+  const ctxParam = readFirstParamName(inner);
+  if (ctxParam === null) return [];
+
+  const body = inner.body;
+  if (body === null || body === undefined) return [];
+
+  // findContextBindings expects an AstNode (block body). Concise arrow with
+  // direct expression body has no `const x = ctx.to(...)` bindings to scan.
+  const roots = new Set<string>([ctxParam]);
+  if (body.type === 'BlockStatement') {
+    for (const binding of findContextBindings(body, ctxParam)) {
+      roots.add(binding);
+    }
+  }
+
+  return extractContextOperations(inner, roots);
+}
+
+function findInnerHandler(
+  factory: OxcFunction | ArrowFunctionExpression,
+): OxcFunction | ArrowFunctionExpression | null {
+  const body = factory.body;
+  if (!body) return null;
+
+  // Concise arrow: `() => (ctx) => { ... }`
+  if (body.type !== 'BlockStatement') {
+    return body.type === 'ArrowFunctionExpression' || body.type === 'FunctionExpression'
+      ? (body as ArrowFunctionExpression | OxcFunction)
+      : null;
+  }
+
+  for (const stmt of body.body) {
+    if (
+      stmt.type === 'ReturnStatement'
+      && stmt.argument
+      && (stmt.argument.type === 'ArrowFunctionExpression' || stmt.argument.type === 'FunctionExpression')
+    ) {
+      return stmt.argument as ArrowFunctionExpression | OxcFunction;
+    }
+  }
+  return null;
+}
+
+function readFirstParamName(fn: OxcFunction | ArrowFunctionExpression): string | null {
+  const params = fn.params;
+  if (!params || params.length === 0) return null;
+  const first = params[0];
+  if (first && first.type === 'Identifier') return (first as { name: string }).name;
+  return null;
+}
+
 
 /**
  * Finds the factory function argument of a `defineMiddleware(factory)` call

@@ -1,5 +1,5 @@
 import type { HandlerIndexEntry, RouteRegistration } from '../interfaces';
-import type { MiddlewareContextAugment } from '../../generator/context-types-generator';
+import type { MiddlewareProducerInfo } from './middleware-context-types';
 import type { ContextOperation } from '../parser/context-operation-extractor';
 import { ZIPBUL_REF } from '@zipbul/common';
 import { toRecord } from '../type-guards';
@@ -60,21 +60,20 @@ export interface ContextDependencyViolation {
 export function validateContextDependencies(
   handlerIndex: readonly HandlerIndexEntry[],
   handlerContextOps: ReadonlyMap<string, readonly ContextOperation[]>,
-  augments: readonly MiddlewareContextAugment[],
+  producerInfos: readonly MiddlewareProducerInfo[],
   routeRegistrations: readonly RouteRegistration[] = [],
 ): readonly ContextDependencyViolation[] {
   // middlewareName → produced keys
   const producersByName = new Map<string, Set<string>>();
-  for (const augment of augments) {
-    const ops = augment.contextOps ?? [];
+  for (const info of producerInfos) {
     const produced = new Set<string>();
-    for (const op of ops) {
+    for (const op of info.contextOps) {
       if (op.kind === 'set' && op.keyIdentifier !== null) {
         produced.add(op.keyIdentifier);
       }
     }
     if (produced.size > 0) {
-      producersByName.set(augment.middlewareName, produced);
+      producersByName.set(info.middlewareName, produced);
     }
   }
 

@@ -1,8 +1,5 @@
-import type {
-  PropAugment,
-  AugmentMethodParam,
-} from '../analyzer/parser/middleware-augment-extractor';
-import type { ContextOperation } from '../analyzer/parser/context-operation-extractor';
+import type { AugmentMethodParam, PropAugment } from '../analyzer/parser/middleware-augment-extractor';
+import type { MiddlewareContextAugment } from '../analyzer/adapter/middleware-context-types';
 import type { ImportRegistry } from './import-registry';
 
 /**
@@ -41,33 +38,6 @@ export interface ContextAdapterMap {
   readonly [contextType: string]: AugmentTargetMap;
 }
 
-/**
- * One middleware's contribution.
- */
-export interface MiddlewareContextAugment {
-  /** The middleware identifier (for diagnostics / source comments). */
-  readonly middlewareName: string;
-  /** The context class this middleware narrows to (e.g. `'HttpContext'`). */
-  readonly contextType: string;
-  /** Source file path of the middleware (for import resolution of the type identifiers). */
-  readonly sourceFilePath: string;
-  /** Property/method augmentations the middleware applies. */
-  readonly augments: readonly PropAugment[];
-  /**
-   * Resolved import sources for class identifiers used in `new X(...)` augments.
-   * Map from identifier name → absolute file path of its declaration.
-   */
-  readonly classImports: ReadonlyMap<string, string>;
-  /**
-   * Producer/consumer operations within this middleware's factory body —
-   * `ctx.set(KEY, ...)` (producer), `ctx.use(KEY)` / `ctx.get(KEY)` (consumer).
-   * Used by the AOT dependency validator to verify that handlers' required
-   * keys are produced by some preceding middleware in the pipeline chain.
-   * Optional for backward compatibility with `zb build --lib` IR output that
-   * predates contextOps emission.
-   */
-  readonly contextOps?: readonly ContextOperation[];
-}
 
 /**
  * Generates `.zipbul/context.d.ts` — a declaration merging file that adds

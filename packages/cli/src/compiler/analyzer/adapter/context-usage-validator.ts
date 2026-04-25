@@ -1,6 +1,6 @@
 import type { ContextUsage } from '../parser/handler-context-usage-extractor';
 import type { HandlerIndexEntry } from '../interfaces';
-import type { MiddlewareContextAugment } from '../../generator/context-types-generator';
+import type { MiddlewareContextAugment } from './middleware-context-types';
 
 /**
  * Build-time validation result for a handler's context usages.

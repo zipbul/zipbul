@@ -250,7 +250,7 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
   const dependencyViolations = validateContextDependencies(
     adapterResolution.handlerIndex,
     adapterResolution.handlerContextOps,
-    augmentResult.augments,
+    augmentResult.producerInfos,
     adapterResolution.routeRegistrations,
   );
 

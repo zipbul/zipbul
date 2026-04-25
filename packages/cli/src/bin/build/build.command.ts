@@ -218,7 +218,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const dependencyViolations = validateContextDependencies(
           adapterResolution.handlerIndex,
           adapterResolution.handlerContextOps,
-          augmentResult.augments,
+          augmentResult.producerInfos,
           adapterResolution.routeRegistrations,
         );
 

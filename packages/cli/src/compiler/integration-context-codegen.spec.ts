@@ -17,9 +17,9 @@ import {
 } from './analyzer/parser/middleware-augment-extractor';
 import {
   ContextTypesGenerator,
-  type MiddlewareContextAugment,
   type ContextAdapterMap,
 } from './generator/context-types-generator';
+import type { MiddlewareContextAugment } from './analyzer/adapter/middleware-context-types';
 import { ImportRegistry } from './generator/import-registry';
 import { extractLibAugments, injectAugmentsIntoSource } from './generator/lib-augment-injector';
 import { AstParser } from './analyzer/parser';

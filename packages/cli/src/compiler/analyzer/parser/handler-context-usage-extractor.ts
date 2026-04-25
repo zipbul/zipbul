@@ -6,11 +6,6 @@ import type {
 } from 'oxc-parser';
 
 import { walkChildren } from './ast-node-locator';
-import {
-  extractContextOperations,
-  findContextBindings,
-  type ContextOperation,
-} from './context-operation-extractor';
 
 /**
  * A single member-access chain rooted at the handler's context parameter.
@@ -42,12 +37,6 @@ export interface ContextUsage {
 export interface HandlerContextUsageResult {
   readonly contextParam: string;
   readonly usages: readonly ContextUsage[];
-  /**
-   * Producer/consumer operations on the context object — extracted from
-   * `ctx.set(KEY, ...)` / `ctx.use(KEY)` / `ctx.get(KEY)` and equivalent
-   * calls on `ctx.to(<Type>)` bindings.
-   */
-  readonly contextOps: readonly ContextOperation[];
 }
 
 /**
@@ -69,10 +58,7 @@ export function extractHandlerContextUsages(funcNode: OxcFunction): HandlerConte
 
   visit(body, null, ctxParam, usages);
 
-  const bindings = findContextBindings(body, ctxParam);
-  const contextOps = extractContextOperations(funcNode, new Set([ctxParam, ...bindings]));
-
-  return { contextParam: ctxParam, usages: dedup(usages), contextOps };
+  return { contextParam: ctxParam, usages: dedup(usages) };
 }
 
 function getFirstIdentParam(fn: OxcFunction): string | null {
