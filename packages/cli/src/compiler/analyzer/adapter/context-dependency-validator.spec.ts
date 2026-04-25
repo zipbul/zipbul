@@ -181,11 +181,71 @@ describe('validateContextDependencies', () => {
 
     expect(result).toEqual([]);
   });
+
+  test('reports wrong-phase violation when producer runs in late phase', () => {
+    // Pipeline (HTTP-style): OnRequest=0, Handler=4, AfterHandle=5
+    const pipeline = ['OnRequest', 'BeforeHandle', 'Handler', 'AfterHandle'];
+    const schemas = { TestAdapter: { entryDecorators: { controller: { name: 'C' }, handlers: [] }, pipeline } as never };
+
+    const mwKey = '__route_mw__:C.h:cls:0';
+    const handler: HandlerIndexEntry = {
+      id: 'TestAdapter:f.ts#C.h',
+      adapterId: 'TestAdapter',
+      controllerKey: 'AppModule::Ctrl',
+      methodName: 'handle',
+      handlerDecorator: 'Get',
+      handlerDecoratorArgs: ['/x'],
+      mergedPhaseMiddlewareKeys: { AfterHandle: [mwKey] },
+    } as never;
+    const lateConsumerOps: ContextOperation[] = [
+      { kind: 'use', keyIdentifier: 'SessionKey', start: 100 },
+    ];
+    const lateProducer = makeProducer('lateMiddleware', [
+      { kind: 'set', keyIdentifier: 'SessionKey', start: 50 },
+    ]);
+    const handlerOps = new Map([[handler.id, lateConsumerOps]]);
+    const registrations = [makeRegistration(mwKey, 'lateMiddleware')];
+
+    const result = validateContextDependencies([handler], handlerOps, [lateProducer], registrations, schemas);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.reason).toBe('wrong-phase');
+    expect(result[0]?.wrongPhaseDetails).toEqual([{ middlewareName: 'lateMiddleware', phase: 'AfterHandle' }]);
+  });
+
+  test('passes when producer is in earlier phase than Handler step', () => {
+    const pipeline = ['OnRequest', 'BeforeHandle', 'Handler', 'AfterHandle'];
+    const schemas = { TestAdapter: { entryDecorators: { controller: { name: 'C' }, handlers: [] }, pipeline } as never };
+
+    const mwKey = '__route_mw__:C.h:cls:0';
+    const handler: HandlerIndexEntry = {
+      id: 'TestAdapter:f.ts#C.h',
+      adapterId: 'TestAdapter',
+      controllerKey: 'AppModule::Ctrl',
+      methodName: 'handle',
+      handlerDecorator: 'Get',
+      handlerDecoratorArgs: ['/x'],
+      mergedPhaseMiddlewareKeys: { BeforeHandle: [mwKey] },
+    } as never;
+    const consumerOps: ContextOperation[] = [
+      { kind: 'use', keyIdentifier: 'SessionKey', start: 100 },
+    ];
+    const producer = makeProducer('earlyMiddleware', [
+      { kind: 'set', keyIdentifier: 'SessionKey', start: 50 },
+    ]);
+    const handlerOps = new Map([[handler.id, consumerOps]]);
+    const registrations = [makeRegistration(mwKey, 'earlyMiddleware')];
+
+    const result = validateContextDependencies([handler], handlerOps, [producer], registrations, schemas);
+
+    expect(result).toEqual([]);
+  });
 });
 
 describe('formatViolationMessage', () => {
   test('includes handler ID, key, hint, and known producers', () => {
     const v: ContextDependencyViolation = {
+      reason: 'missing-producer',
       handlerId: 'Adapter:f.ts#C.h',
       keyIdentifier: 'SessionKey',
       start: 100,
@@ -203,6 +263,7 @@ describe('formatViolationMessage', () => {
 
   test('handles empty producer list', () => {
     const v: ContextDependencyViolation = {
+      reason: 'missing-producer',
       handlerId: 'Adapter:f.ts#C.h',
       keyIdentifier: 'SessionKey',
       start: 100,

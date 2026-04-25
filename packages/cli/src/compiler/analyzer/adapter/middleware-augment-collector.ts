@@ -22,7 +22,10 @@ import type {
 
 import type { PropAugment } from '../parser/middleware-augment-extractor';
 import { extractMiddlewareAugments } from '../parser/middleware-augment-extractor';
-import { extractMiddlewareContextOps } from '../parser/context-operation-extractor';
+import {
+  extractMiddlewareContextOps,
+  type ContextOperation,
+} from '../parser/context-operation-extractor';
 import { AstParser } from '../parser';
 import { toRecord, isAnalyzerValueArray } from '../type-guards';
 import {
@@ -91,12 +94,12 @@ export class MiddlewareAugmentCollector {
     const allExports = [...localExports, ...packageExports];
 
     for (const ref of allExports) {
-      // Priority 1: __augments IR field (from zb build --lib output) — type augmentation only.
-      // IR does not carry contextOps; producerInfo is empty for these.
-      const irAugment = extractAugmentFromIR(ref);
+      // Priority 1: IR fields (from zb build --lib output) — both augments and contextOps.
+      const irExtraction = extractFromIR(ref);
 
-      if (irAugment !== null) {
-        augments.push(irAugment);
+      if (irExtraction !== null) {
+        if (irExtraction.augment !== null) augments.push(irExtraction.augment);
+        if (irExtraction.producerInfo !== null) producerInfos.push(irExtraction.producerInfo);
         continue;
       }
 
@@ -104,12 +107,8 @@ export class MiddlewareAugmentCollector {
       const ast = await extractFromFile(ref.name, ref.filePath);
 
       if (ast !== null) {
-        if (ast.augment !== null) {
-          augments.push(ast.augment);
-        }
-        if (ast.producerInfo !== null) {
-          producerInfos.push(ast.producerInfo);
-        }
+        if (ast.augment !== null) augments.push(ast.augment);
+        if (ast.producerInfo !== null) producerInfos.push(ast.producerInfo);
       }
     }
 
@@ -313,31 +312,39 @@ function isDefineMiddlewareCall(rec: AnalyzerValueRecord): boolean {
   return false;
 }
 
-/** Well-known IR property name for pre-extracted augment metadata. */
+/** Well-known IR property names injected by `zb build --lib`. */
 const AUGMENTS_IR_KEY = '__augments';
+const CONTEXT_OPS_IR_KEY = '__contextOps';
 
 /**
- * Extracts augment info from the `__augments` IR field of a defineMiddleware call.
+ * Extracts both augment and producer-info from `__augments` / `__contextOps` IR
+ * fields of a defineMiddleware call. These fields are injected by
+ * `zb build --lib` during library compilation so the consumer compiler doesn't
+ * need to parse the factory body.
  *
- * This field is injected by `zb build --lib` during library compilation.
- * It contains pre-extracted augment metadata so the consumer compiler
- * doesn't need to parse the factory body.
- *
- * Returns null if the IR has no `__augments` field.
+ * Returns `null` if neither field is present.
  */
-function extractAugmentFromIR(ref: MiddlewareExportRef): MiddlewareContextAugment | null {
+function extractFromIR(ref: MiddlewareExportRef): MiddlewareSourceExtraction | null {
   if (ref.irValue === undefined) return null;
 
   const args = isAnalyzerValueArray(ref.irValue.args) ? ref.irValue.args : null;
-
   if (args === null || args.length === 0) return null;
 
   const configObj = toRecord(args[0]);
-
   if (configObj === null) return null;
 
-  const augmentsRaw = configObj[AUGMENTS_IR_KEY];
+  const augment = extractAugmentRecord(configObj, ref);
+  const producerInfo = extractContextOpsRecord(configObj, ref);
 
+  if (augment === null && producerInfo === null) return null;
+  return { augment, producerInfo };
+}
+
+function extractAugmentRecord(
+  configObj: AnalyzerValueRecord,
+  ref: MiddlewareExportRef,
+): MiddlewareContextAugment | null {
+  const augmentsRaw = configObj[AUGMENTS_IR_KEY];
   if (!isAnalyzerValueArray(augmentsRaw)) return null;
 
   const augments: PropAugment[] = [];
@@ -345,7 +352,6 @@ function extractAugmentFromIR(ref: MiddlewareExportRef): MiddlewareContextAugmen
 
   for (const entry of augmentsRaw) {
     const rec = toRecord(entry);
-
     if (rec === null) continue;
 
     const context = rec.context;
@@ -355,34 +361,22 @@ function extractAugmentFromIR(ref: MiddlewareExportRef): MiddlewareContextAugmen
 
     if (typeof context !== 'string' || path === null || typeof kind !== 'string') continue;
 
-    if (contextType === null) {
-      contextType = context;
-    }
+    if (contextType === null) contextType = context;
 
     const pathStrings = path.filter((segment): segment is string => typeof segment === 'string');
-
     if (pathStrings.length !== path.length) continue;
 
     if (kind === 'class' && typeof type === 'string') {
-      augments.push({
-        path: pathStrings,
-        rhs: { kind: 'class', identifier: type },
-      });
+      augments.push({ path: pathStrings, rhs: { kind: 'class', identifier: type } });
     } else if (kind === 'method' && typeof rec.signature === 'string') {
-      augments.push({
-        path: pathStrings,
-        rhs: parseMethodSignature(rec.signature as string),
-      });
+      augments.push({ path: pathStrings, rhs: parseMethodSignature(rec.signature as string) });
     }
   }
 
   if (contextType === null || augments.length === 0) return null;
 
-  // For class augments, the import source is the package that exports the middleware.
-  // The consumer imports the type from the same package.
   const classImports = new Map<string, string>();
   const packageName = resolvePackageNameFromFilePath(ref.filePath);
-
   for (const aug of augments) {
     if (aug.rhs.kind === 'class') {
       classImports.set(aug.rhs.identifier, packageName ?? ref.filePath);
@@ -395,6 +389,35 @@ function extractAugmentFromIR(ref: MiddlewareExportRef): MiddlewareContextAugmen
     sourceFilePath: ref.filePath,
     augments,
     classImports,
+  };
+}
+
+function extractContextOpsRecord(
+  configObj: AnalyzerValueRecord,
+  ref: MiddlewareExportRef,
+): MiddlewareProducerInfo | null {
+  const opsRaw = configObj[CONTEXT_OPS_IR_KEY];
+  if (!isAnalyzerValueArray(opsRaw)) return null;
+
+  const contextOps: ContextOperation[] = [];
+  for (const entry of opsRaw) {
+    const rec = toRecord(entry);
+    if (rec === null) continue;
+
+    const kind = rec.kind;
+    if (kind !== 'set' && kind !== 'use' && kind !== 'get') continue;
+
+    const keyIdentifier = typeof rec.keyIdentifier === 'string' ? rec.keyIdentifier : null;
+
+    contextOps.push({ kind, keyIdentifier, start: null });
+  }
+
+  if (contextOps.length === 0) return null;
+
+  return {
+    middlewareName: ref.name,
+    sourceFilePath: ref.filePath,
+    contextOps,
   };
 }
 

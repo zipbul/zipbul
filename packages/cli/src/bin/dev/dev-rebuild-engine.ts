@@ -246,17 +246,21 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
     }
   }
 
-  // AOT producer-consumer dependency validation
+  // AOT producer-consumer dependency validation — HARD ERROR.
   const dependencyViolations = validateContextDependencies(
     adapterResolution.handlerIndex,
     adapterResolution.handlerContextOps,
     augmentResult.producerInfos,
     adapterResolution.routeRegistrations,
+    adapterResolution.adapterStaticSchemas,
   );
 
-  for (const violation of dependencyViolations) {
-    graph.warnings.push(
-      `[Zipbul AOT] ${formatViolationMessage(violation)}`,
+  if (dependencyViolations.length > 0) {
+    const summary = dependencyViolations
+      .map((v) => `[Zipbul AOT] ${formatViolationMessage(v)}`)
+      .join('\n\n');
+    throw new Error(
+      `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,
     );
   }
 

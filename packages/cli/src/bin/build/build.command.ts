@@ -213,18 +213,24 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
 
         // AOT producer-consumer dependency validation —
-        // every handler's `ctx.use(KEY)` must have a matching `ctx.set(KEY, ...)`
-        // in a middleware registered on the handler's chain.
+        // ctx.use(KEY) must have a matching ctx.set(KEY, ...) in a middleware
+        // registered on the handler's chain AND running in an earlier-or-equal
+        // phase. Violations are HARD ERRORS — runtime would throw, deployment
+        // unsafe, build must fail.
         const dependencyViolations = validateContextDependencies(
           adapterResolution.handlerIndex,
           adapterResolution.handlerContextOps,
           augmentResult.producerInfos,
           adapterResolution.routeRegistrations,
+          adapterResolution.adapterStaticSchemas,
         );
 
-        for (const violation of dependencyViolations) {
-          graph.warnings.push(
-            `[Zipbul AOT] ${formatViolationMessage(violation)}`,
+        if (dependencyViolations.length > 0) {
+          const summary = dependencyViolations
+            .map((v) => `[Zipbul AOT] ${formatViolationMessage(v)}`)
+            .join('\n\n');
+          throw new Error(
+            `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,
           );
         }
 
