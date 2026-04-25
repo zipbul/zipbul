@@ -2933,44 +2933,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect(http.response.getStatus()).toBe(404);
     });
 
-    it('should return 501 Not Implemented for unhandled TRACE (RFC 9110 §9.3.8)', async () => {
-      // Arrange
-      adapter.initializePipeline(createMockContainer());
-
-      const noMatchRouteHandler = {
-        matchRoute: mock(() => ({ kind: 'not-found' })),
-      };
-      adapter.setRouteHandler(noMatchRouteHandler as never);
-
-      const context = createHttpContext('TRACE', '/anywhere');
-
-      // Act
-      await adapter.dispatchRequest(context);
-
-      // Assert
-      const http = context.to(HttpContext);
-      expect(http.response.getStatus()).toBe(501);
-    });
-
-    it('should return 501 Not Implemented for unhandled CONNECT (RFC 9110 §9.3.6)', async () => {
-      // Arrange
-      adapter.initializePipeline(createMockContainer());
-
-      const noMatchRouteHandler = {
-        matchRoute: mock(() => ({ kind: 'not-found' })),
-      };
-      adapter.setRouteHandler(noMatchRouteHandler as never);
-
-      const context = createHttpContext('CONNECT', '/proxy');
-
-      // Act
-      await adapter.dispatchRequest(context);
-
-      // Assert
-      const http = context.to(HttpContext);
-      expect(http.response.getStatus()).toBe(501);
-    });
-
     it('should list all registered methods in Allow header', async () => {
       // Arrange
       adapter.initializePipeline(createMockContainer());

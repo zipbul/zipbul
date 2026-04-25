@@ -485,4 +485,68 @@ describe('HttpServer', () => {
       expect(response.status).toBe(414);
     });
   });
+
+  describe('customMethods normalization & validation', () => {
+    it('should uppercase customMethods entries when building allowedMethods', async () => {
+      const container = createMockContainer();
+      const adapter = createMockAdapter();
+
+      await server.boot(container, {
+        port: 3000,
+        bodyLimit: 1024,
+        customMethods: ['purge', 'PROPfind', 'lock'],
+        handlerIndex: [],
+        controllerInstances: new Map(),
+      } as never, adapter as never);
+
+      const internals = server as unknown as ServerInternals;
+
+      expect(internals.allowedMethods.has('PURGE')).toBe(true);
+      expect(internals.allowedMethods.has('PROPFIND')).toBe(true);
+      expect(internals.allowedMethods.has('LOCK')).toBe(true);
+      expect(internals.allowedMethods.has('purge')).toBe(false);
+      expect(internals.allowedMethods.has('PROPfind')).toBe(false);
+
+      server.stop();
+    });
+
+    it('should reject empty/whitespace customMethods entry at boot', async () => {
+      const fresh = new HttpServer();
+      await expect(
+        fresh.boot(createMockContainer(), {
+          port: 3001,
+          bodyLimit: 1024,
+          customMethods: ['PURGE', '   '],
+          handlerIndex: [],
+          controllerInstances: new Map(),
+        } as never, createMockAdapter() as never),
+      ).rejects.toThrow(/cannot be empty or whitespace/);
+    });
+
+    it('should reject non-token customMethods entry at boot (RFC 9110 §5.1)', async () => {
+      const fresh = new HttpServer();
+      await expect(
+        fresh.boot(createMockContainer(), {
+          port: 3002,
+          bodyLimit: 1024,
+          customMethods: ['FOO BAR'],
+          handlerIndex: [],
+          controllerInstances: new Map(),
+        } as never, createMockAdapter() as never),
+      ).rejects.toThrow(/not a valid HTTP token/);
+    });
+
+    it('should reject non-string customMethods entry at boot', async () => {
+      const fresh = new HttpServer();
+      await expect(
+        fresh.boot(createMockContainer(), {
+          port: 3003,
+          bodyLimit: 1024,
+          customMethods: [123 as unknown as string],
+          handlerIndex: [],
+          controllerInstances: new Map(),
+        } as never, createMockAdapter() as never),
+      ).rejects.toThrow(/must be a string/);
+    });
+  });
 });

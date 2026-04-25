@@ -22,7 +22,7 @@ import { HttpContext } from './http-context';
 import { HttpRequest } from './http-request';
 import { HttpResponse } from './http-response';
 import { HTTP_STANDARD_METHODS } from './http-method';
-import { RouteHandler } from './route-handler';
+import { RouteHandler, isValidMethodToken } from './route-handler';
 import type { HttpAdapter } from './http-adapter';
 import { parseRequestTarget } from './url-parts';
 
@@ -211,7 +211,26 @@ export class HttpServer {
     this.options = options;
     this.requestScopeEnabled = undefined;
 
-    this.allowedMethods = new Set([...HTTP_STANDARD_METHODS, ...(this.options.customMethods ?? [])]);
+    const customMethodsNormalized = (this.options.customMethods ?? []).map((raw, index) => {
+      if (typeof raw !== 'string') {
+        throw new Error(
+          `[HttpServer] customMethods[${index}] must be a string (received: ${typeof raw}).`,
+        );
+      }
+      const trimmed = raw.trim();
+      if (trimmed.length === 0) {
+        throw new Error(`[HttpServer] customMethods[${index}] cannot be empty or whitespace.`);
+      }
+      const upper = trimmed.toUpperCase();
+      if (!isValidMethodToken(upper)) {
+        throw new Error(
+          `[HttpServer] customMethods[${index}] '${raw}' is not a valid HTTP token (RFC 9110 §5.1 — tchar only, no whitespace).`,
+        );
+      }
+      return upper;
+    });
+
+    this.allowedMethods = new Set([...HTTP_STANDARD_METHODS, ...customMethodsNormalized]);
 
     this.logger.debug('Booting...');
 
@@ -223,7 +242,7 @@ export class HttpServer {
       handlerDecoratorNames: this.adapter.decorators.handlers.map(h => h.name),
     };
 
-    const routeHandler = new RouteHandler(metadataRegistry, decoratorConfig);
+    const routeHandler = new RouteHandler(metadataRegistry, decoratorConfig, this.allowedMethods);
 
     if (options.handlerIndex !== undefined && options.handlerIndex.length > 0) {
       routeHandler.registerFromHandlerIndex(

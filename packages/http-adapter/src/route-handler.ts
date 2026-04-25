@@ -68,15 +68,18 @@ export class RouteHandler {
   private readonly router: Router<MatchedRouteMetadata>;
   private readonly logger = Logger.inherit();
   private readonly registeredMethods = new Set<string>();
+  private readonly allowedMethods: ReadonlySet<string>;
 
   constructor(
     metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
     decoratorConfig: RouteHandlerDecoratorConfig,
+    allowedMethods: ReadonlySet<string>,
     routerOptions?: RouterOptions,
   ) {
     this.metadataRegistry = metadataRegistry;
     this.metatypeIndex = buildMetatypeIndex(metadataRegistry);
     this.decoratorConfig = decoratorConfig;
+    this.allowedMethods = allowedMethods;
     this.router = new Router<MatchedRouteMetadata>({
       ignoreTrailingSlash: true,
       enableCache: true,
@@ -132,6 +135,36 @@ export class RouteHandler {
     controllerInstances?: Map<string, unknown>,
     buildPipeline?: PipelineBuildFn,
   ): void {
+    // Phase 1: 모든 entry 의 메서드를 검증한다 (원자성 — 한 entry 라도 거부되면 등록 0 건).
+    for (const entry of entries) {
+      if (entry.adapterId !== this.decoratorConfig.adapterId) continue;
+
+      const httpMethod = extractHttpMethod(entry);
+
+      if (httpMethod === null) {
+        throw new Error(
+          `[RouteHandler] Cannot register handler at ${entry.controllerKey}.${entry.methodName}: ` +
+          `method token is missing or empty (RFC 9110 §5.1).`,
+        );
+      }
+
+      if (!isValidMethodToken(httpMethod)) {
+        throw new Error(
+          `[RouteHandler] Cannot register handler at ${entry.controllerKey}.${entry.methodName}: ` +
+          `method '${httpMethod}' is not a valid HTTP token (RFC 9110 §5.1 — tchar only, no whitespace).`,
+        );
+      }
+
+      if (!this.allowedMethods.has(httpMethod)) {
+        throw new Error(
+          `[RouteHandler] Cannot register handler for unsupported method '${httpMethod}' ` +
+          `at ${entry.controllerKey}.${entry.methodName}. ` +
+          `Add '${httpMethod}' to HttpServerOptions.customMethods to opt in.`,
+        );
+      }
+    }
+
+    // Phase 2: 검증 통과 후 실제 등록.
     let routeCount = 0;
 
     for (const entry of entries) {
@@ -140,13 +173,7 @@ export class RouteHandler {
       }
 
       const isCustomMethod = entry.handlerDecorator === 'Method';
-      const httpMethod = isCustomMethod
-        ? (typeof entry.handlerDecoratorArgs[0] === 'string' ? entry.handlerDecoratorArgs[0].toUpperCase() : '')
-        : entry.handlerDecorator.toUpperCase();
-
-      if (httpMethod.length === 0) {
-        continue;
-      }
+      const httpMethod = extractHttpMethod(entry)!;
 
       const instance = controllerInstances?.get(entry.controllerKey);
 
@@ -227,6 +254,12 @@ export class RouteHandler {
 
       if (method !== 'GET') {
         continue;
+      }
+
+      if (!this.allowedMethods.has(method)) {
+        throw new Error(
+          `[RouteHandler] Cannot register internal route for unsupported method '${method}' at ${route.path}.`,
+        );
       }
 
       const fullPath = route.path.startsWith('/') ? route.path : `/${route.path}`;
@@ -356,6 +389,35 @@ export class RouteHandler {
     };
   }
 
+}
+
+// RFC 9110 §5.1 token 문자 (tchar). 빈 문자열 / 공백 / CTL / non-ASCII 거부.
+const HTTP_TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+/**
+ * RFC 9110 §5.1 token 검증. HTTP 메서드는 token 형태여야 한다.
+ */
+export function isValidMethodToken(method: string): boolean {
+  return HTTP_TOKEN_PATTERN.test(method);
+}
+
+/**
+ * AOT 컴파일된 핸들러 entry 에서 HTTP 메서드 토큰 추출.
+ * 빈 문자열 / 비-string 인자는 `null` 반환.
+ */
+function extractHttpMethod(entry: CompiledHandlerEntry): string | null {
+  const isCustomMethod = entry.handlerDecorator === 'Method';
+
+  const raw = isCustomMethod
+    ? entry.handlerDecoratorArgs[0]
+    : entry.handlerDecorator;
+
+  if (typeof raw !== 'string') return null;
+
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+
+  return trimmed.toUpperCase();
 }
 
 /**

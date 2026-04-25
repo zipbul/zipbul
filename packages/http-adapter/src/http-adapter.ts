@@ -303,9 +303,6 @@ export class HttpAdapter extends Adapter {
     const matchResult = this.routeHandler.matchRoute(req.method, req.path);
 
     if (matchResult.kind === 'not-found') {
-      if (req.method === 'TRACE' || req.method === 'CONNECT') {
-        return err({ status: StatusCodes.NOT_IMPLEMENTED, message: `${req.method} is not supported` });
-      }
       return err({ status: StatusCodes.NOT_FOUND, message: 'Not Found' });
     }
 
