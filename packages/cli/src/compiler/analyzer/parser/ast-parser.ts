@@ -35,29 +35,8 @@ import { enrichFactoryValues, detectFrameworkCallsFromInitializer, convertModule
 import { resolveInjectCallee, findImportSourceForCallee, buildInjectCallFromCapture } from './inject-call-analyzer';
 import { extractExceptionFiltersFromConfigure, extractMiddlewaresFromConfigure } from './method-metadata-extractor';
 import { extractHandlerContextUsages } from './handler-context-usage-extractor';
-import {
-  extractContextOperations,
-  findContextBindings,
-  type ContextOperation,
-} from './context-operation-extractor';
+import { extractHandlerContextOps } from './context-operation-extractor';
 import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, getMethodAstMeta, isAnonymousClassSymbol, extractFunctionSourceText } from './ast-node-locator';
-
-import type { Function as OxcFunction } from 'oxc-parser';
-
-function extractHandlerContextOpsFromFunction(
-  funcNode: OxcFunction,
-): readonly ContextOperation[] | undefined {
-  const params = funcNode.params;
-  if (!params || params.length === 0) return undefined;
-  const first = params[0];
-  if (!first || first.type !== 'Identifier') return undefined;
-  const ctxParam = (first as { name: string }).name;
-  const body = funcNode.body;
-  if (!body) return undefined;
-  const roots = new Set<string>([ctxParam, ...findContextBindings(body, ctxParam)]);
-  const ops = extractContextOperations(funcNode, roots);
-  return ops.length > 0 ? ops : undefined;
-}
 
 
 /**
@@ -308,7 +287,10 @@ export class AstParser {
       extractMiddlewaresFromConfigure,
       extractExceptionFiltersFromConfigure,
       extractHandlerContextUsages: (funcNode) => extractHandlerContextUsages(funcNode)?.usages,
-      extractHandlerContextOps: (funcNode) => extractHandlerContextOpsFromFunction(funcNode),
+      extractHandlerContextOps: (funcNode) => {
+        const ops = extractHandlerContextOps(funcNode);
+        return ops.length > 0 ? ops : undefined;
+      },
     };
 
     const anonymousCheck: AnonymousClassCallback = {

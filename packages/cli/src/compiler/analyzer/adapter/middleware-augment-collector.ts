@@ -22,11 +22,7 @@ import type {
 
 import type { PropAugment } from '../parser/middleware-augment-extractor';
 import { extractMiddlewareAugments } from '../parser/middleware-augment-extractor';
-import {
-  extractContextOperations,
-  findContextBindings,
-  type ContextOperation,
-} from '../parser/context-operation-extractor';
+import { extractMiddlewareContextOps } from '../parser/context-operation-extractor';
 import { AstParser } from '../parser';
 import { toRecord, isAnalyzerValueArray } from '../type-guards';
 import {
@@ -522,6 +518,7 @@ async function extractFromFile(
   const augmentResult = extractMiddlewareAugments(factory);
   const contextOps = extractMiddlewareContextOps(factory);
 
+
   const augment = augmentResult !== null
     ? buildContextAugment(name, filePath, augmentResult, parsed.program.body)
     : null;
@@ -568,68 +565,6 @@ function buildContextAugment(
     classImports,
   };
 }
-
-/**
- * `defineMiddleware(() => (ctx) => { ... })` 의 inner handler 본문을 찾아
- * ctx 작업을 추출한다. binding 변수 (`const x = ctx.to(<Type>)`) 도 root 에 포함.
- */
-function extractMiddlewareContextOps(
-  factory: OxcFunction | ArrowFunctionExpression,
-): readonly ContextOperation[] {
-  const inner = findInnerHandler(factory);
-  if (inner === null) return [];
-
-  const ctxParam = readFirstParamName(inner);
-  if (ctxParam === null) return [];
-
-  const body = inner.body;
-  if (body === null || body === undefined) return [];
-
-  // findContextBindings expects an AstNode (block body). Concise arrow with
-  // direct expression body has no `const x = ctx.to(...)` bindings to scan.
-  const roots = new Set<string>([ctxParam]);
-  if (body.type === 'BlockStatement') {
-    for (const binding of findContextBindings(body, ctxParam)) {
-      roots.add(binding);
-    }
-  }
-
-  return extractContextOperations(inner, roots);
-}
-
-function findInnerHandler(
-  factory: OxcFunction | ArrowFunctionExpression,
-): OxcFunction | ArrowFunctionExpression | null {
-  const body = factory.body;
-  if (!body) return null;
-
-  // Concise arrow: `() => (ctx) => { ... }`
-  if (body.type !== 'BlockStatement') {
-    return body.type === 'ArrowFunctionExpression' || body.type === 'FunctionExpression'
-      ? (body as ArrowFunctionExpression | OxcFunction)
-      : null;
-  }
-
-  for (const stmt of body.body) {
-    if (
-      stmt.type === 'ReturnStatement'
-      && stmt.argument
-      && (stmt.argument.type === 'ArrowFunctionExpression' || stmt.argument.type === 'FunctionExpression')
-    ) {
-      return stmt.argument as ArrowFunctionExpression | OxcFunction;
-    }
-  }
-  return null;
-}
-
-function readFirstParamName(fn: OxcFunction | ArrowFunctionExpression): string | null {
-  const params = fn.params;
-  if (!params || params.length === 0) return null;
-  const first = params[0];
-  if (first && first.type === 'Identifier') return (first as { name: string }).name;
-  return null;
-}
-
 
 /**
  * Finds the factory function argument of a `defineMiddleware(factory)` call

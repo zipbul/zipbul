@@ -9,8 +9,10 @@ import type {
 } from 'oxc-parser';
 
 import { walkChildren } from './ast-node-locator';
-
-type FunctionExpression = OxcFunction;
+import {
+  findInnerHandler,
+  readFirstIdentifierParam,
+} from './context-operation-extractor';
 
 /**
  * RHS shape of an augmenting assignment.
@@ -72,13 +74,13 @@ export interface MiddlewareAugmentResult {
  * @returns Extracted augmentations, or `null` if no `ctx.to(...)` binding is found.
  */
 export function extractMiddlewareAugments(factory: OxcFunction | ArrowFunctionExpression): MiddlewareAugmentResult | null {
-  const handler = findHandlerFunction(factory);
+  const handler = findInnerHandler(factory);
 
   if (!handler) {
     return null;
   }
 
-  const ctxParam = getFirstParamName(handler);
+  const ctxParam = readFirstIdentifierParam(handler);
 
   if (!ctxParam) {
     return null;
@@ -106,51 +108,6 @@ export function extractMiddlewareAugments(factory: OxcFunction | ArrowFunctionEx
   };
 }
 
-/**
- * The factory passed to `defineMiddleware` is `() => (ctx) => { ... }`.
- * The outer function returns the handler. Find that returned function.
- */
-function findHandlerFunction(factory: OxcFunction | ArrowFunctionExpression): OxcFunction | ArrowFunctionExpression | null {
-  const body = factory.body;
-
-  if (!body) {
-    return null;
-  }
-
-  // Concise arrow body: `() => (ctx) => { ... }`
-  if (body.type !== 'BlockStatement') {
-    return isFunctionLike(body) ? body : null;
-  }
-
-  // Block body: walk statements looking for `return <fn>` or final expression
-  for (const stmt of body.body) {
-    if (stmt.type === 'ReturnStatement' && stmt.argument && isFunctionLike(stmt.argument)) {
-      return stmt.argument;
-    }
-  }
-
-  return null;
-}
-
-function isFunctionLike(node: AstNode): node is ArrowFunctionExpression | FunctionExpression {
-  return node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression';
-}
-
-function getFirstParamName(fn: ArrowFunctionExpression | OxcFunction): string | null {
-  const params = fn.params;
-
-  if (!params || params.length === 0) {
-    return null;
-  }
-
-  const first = params[0];
-
-  if (first && first.type === 'Identifier') {
-    return first.name;
-  }
-
-  return null;
-}
 
 interface ContextBinding {
   readonly varName: string;
@@ -278,7 +235,7 @@ function extractClassRhs(expr: NewExpression): AugmentRhs | null {
   return { kind: 'class', identifier: expr.callee.name };
 }
 
-function extractMethodRhs(expr: ArrowFunctionExpression | FunctionExpression): AugmentRhs {
+function extractMethodRhs(expr: ArrowFunctionExpression | OxcFunction): AugmentRhs {
   const typeParams: string[] = [];
   const tParams = (expr as ArrowFunctionExpression).typeParameters;
 
