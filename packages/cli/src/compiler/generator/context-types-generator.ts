@@ -2,6 +2,7 @@ import type {
   PropAugment,
   AugmentMethodParam,
 } from '../analyzer/parser/middleware-augment-extractor';
+import type { ContextOperation } from '../analyzer/parser/context-operation-extractor';
 import type { ImportRegistry } from './import-registry';
 
 /**
@@ -57,6 +58,15 @@ export interface MiddlewareContextAugment {
    * Map from identifier name → absolute file path of its declaration.
    */
   readonly classImports: ReadonlyMap<string, string>;
+  /**
+   * Producer/consumer operations within this middleware's factory body —
+   * `ctx.set(KEY, ...)` (producer), `ctx.use(KEY)` / `ctx.get(KEY)` (consumer).
+   * Used by the AOT dependency validator to verify that handlers' required
+   * keys are produced by some preceding middleware in the pipeline chain.
+   * Optional for backward compatibility with `zb build --lib` IR output that
+   * predates contextOps emission.
+   */
+  readonly contextOps?: readonly ContextOperation[];
 }
 
 /**

@@ -1,4 +1,4 @@
-import { UseGuards } from '@zipbul/common';
+import { UseGuards, UseMiddlewares } from '@zipbul/common';
 import { inject } from '@zipbul/core';
 import { RestController, Get, Post, Put, Delete, type HttpContext } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
@@ -11,6 +11,8 @@ import { AddressDto } from './dto/address.dto';
 import { CreateUserComplexDto } from './dto/complex.dto';
 import { SocialDto } from './dto/social.dto';
 import { AuditService } from './audit.service';
+import { sessionMiddleware } from './session.middleware';
+import { SessionContext } from './session-context';
 import { UsersService } from './users.service';
 
 @RestController('users')
@@ -61,10 +63,14 @@ export class UsersController {
 
   @Delete(':id')
   @UseGuards(authGuard)
-  delete(ctx: HttpContext): void {
+  @UseMiddlewares('BeforeHandle', [sessionMiddleware])
+  delete(ctx: HttpContext): { readonly deletedUserId: number; readonly bySessionUserId: number; readonly token: string } {
     const params = ctx.request.getParams(IdRouteParams);
+    const session = ctx.use(SessionContext);
 
-    this.auditService.logAction('delete', `userId=${params.id}`);
+    this.auditService.logAction('delete', `userId=${params.id} by=${session.userId}`);
     this.usersService.delete(Number(params.id));
+
+    return { deletedUserId: Number(params.id), bySessionUserId: session.userId, token: session.token };
   }
 }

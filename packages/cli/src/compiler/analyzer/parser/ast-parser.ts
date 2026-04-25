@@ -286,6 +286,7 @@ export class AstParser {
       extractMiddlewaresFromConfigure,
       extractExceptionFiltersFromConfigure,
       extractHandlerContextUsages: (funcNode) => extractHandlerContextUsages(funcNode)?.usages,
+      extractHandlerContextOps: (funcNode) => extractHandlerContextUsages(funcNode)?.contextOps,
     };
 
     const anonymousCheck: AnonymousClassCallback = {

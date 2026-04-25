@@ -141,6 +141,21 @@ fi
 # main.ts 가 등록한 OnRequest 미들웨어가 모든 응답에
 # X-Response-Time 헤더를 부착하는지 검증.
 # ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════
+# Producer/consumer context key — sessionMiddleware sets SessionContext,
+# UsersController.delete consumes via ctx.use(SessionContext).
+# AOT validator must have approved this build (no missing-producer warning).
+# ═══════════════════════════════════════════════════════
+echo "[ContextKey] sessionMiddleware producer + ctx.use consumer"
+RESP=$(curl -s -X DELETE "http://localhost:$PORT/users/1" -H 'Authorization: Bearer test-token')
+if echo "$RESP" | grep -q '"bySessionUserId":1' && echo "$RESP" | grep -q '"token":"test-token"'; then
+  echo "  [PASS] Session reached handler via ctx.use(SessionContext)"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] Session payload missing in response: $RESP"
+  FAIL=$((FAIL + 1))
+fi
+
 echo "[Middleware] OnRequest requestTimingMiddleware"
 TIMING=$(curl -s -I "http://localhost:$PORT/posts" | grep -i 'x-response-time')
 if [ -n "$TIMING" ]; then

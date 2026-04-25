@@ -9,6 +9,10 @@ import type {
 } from 'oxc-parser';
 
 import { walkChildren } from './ast-node-locator';
+import {
+  extractContextOperations,
+  type ContextOperation,
+} from './context-operation-extractor';
 
 type FunctionExpression = OxcFunction;
 
@@ -52,6 +56,13 @@ export interface MiddlewareAugmentResult {
   /** The class passed to `ctx.to(<Type>)` — used by the caller to look up adapter mapping. */
   readonly contextType: string;
   readonly augments: readonly PropAugment[];
+  /**
+   * Producer/consumer operations within the middleware factory body —
+   * extracted from `ctx.set(KEY, ...)` / `ctx.use(KEY)` / `ctx.get(KEY)`
+   * and equivalent calls on `ctx.to(<Type>)` bindings. Used for AOT
+   * dependency validation (producer-consumer chain).
+   */
+  readonly contextOps: readonly ContextOperation[];
 }
 
 /**
@@ -100,9 +111,12 @@ export function extractMiddlewareAugments(factory: OxcFunction | ArrowFunctionEx
 
   collectAssignments(handlerBody, binding.varName, augments);
 
+  const contextOps = extractContextOperations(handler, new Set([ctxParam, binding.varName]));
+
   return {
     contextType: binding.contextType,
     augments,
+    contextOps,
   };
 }
 

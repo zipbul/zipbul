@@ -10,6 +10,10 @@ import { buildFileAnalysis } from '../build/build-analysis';
 import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from '../build/build-artifact-writer';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
 import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
+import {
+  validateContextDependencies,
+  formatViolationMessage,
+} from '../../compiler/analyzer/adapter/context-dependency-validator';
 import { ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
 
 import type { CliRendererLike, CollectedClass } from '../interfaces';
@@ -240,6 +244,20 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
         `[Zipbul AOT] Handler '${warning.handlerId}' accesses '${warning.usagePath.join('.')}' which is provided by middleware '${warning.providedByMiddleware}', but that middleware is not registered for this handler.`,
       );
     }
+  }
+
+  // AOT producer-consumer dependency validation
+  const dependencyViolations = validateContextDependencies(
+    adapterResolution.handlerIndex,
+    adapterResolution.handlerContextOps,
+    augmentResult.augments,
+    adapterResolution.routeRegistrations,
+  );
+
+  for (const violation of dependencyViolations) {
+    graph.warnings.push(
+      `[Zipbul AOT] ${formatViolationMessage(violation)}`,
+    );
   }
 
   // Generate entry.ts

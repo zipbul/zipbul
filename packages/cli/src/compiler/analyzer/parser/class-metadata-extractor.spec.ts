@@ -73,6 +73,7 @@ function createNoopMethodCallbacks(): MethodMetadataCallbacks {
     extractMiddlewaresFromConfigure: mock(() => []),
     extractExceptionFiltersFromConfigure: mock(() => []),
     extractHandlerContextUsages: mock(() => undefined),
+    extractHandlerContextOps: mock(() => undefined),
   };
 }
 

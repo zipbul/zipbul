@@ -19,6 +19,10 @@ import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { EntryGenerator, ManifestGenerator, ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
 import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
+import {
+  validateContextDependencies,
+  formatViolationMessage,
+} from '../../compiler/analyzer/adapter/context-dependency-validator';
 import { buildLib } from './lib-build';
 import { CliRenderer } from '../cli-renderer';
 import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from './build-artifact-writer';
@@ -206,6 +210,22 @@ export function createBuildCommand(deps: BuildCommandDeps) {
               `[Zipbul AOT] Handler '${warning.handlerId}' accesses '${warning.usagePath.join('.')}' which is provided by middleware '${warning.providedByMiddleware}', but that middleware is not registered for this handler.`,
             );
           }
+        }
+
+        // AOT producer-consumer dependency validation —
+        // every handler's `ctx.use(KEY)` must have a matching `ctx.set(KEY, ...)`
+        // in a middleware registered on the handler's chain.
+        const dependencyViolations = validateContextDependencies(
+          adapterResolution.handlerIndex,
+          adapterResolution.handlerContextOps,
+          augmentResult.augments,
+          adapterResolution.routeRegistrations,
+        );
+
+        for (const violation of dependencyViolations) {
+          graph.warnings.push(
+            `[Zipbul AOT] ${formatViolationMessage(violation)}`,
+          );
         }
 
         const entryPointFile = join(buildTempDir, 'entry.ts');

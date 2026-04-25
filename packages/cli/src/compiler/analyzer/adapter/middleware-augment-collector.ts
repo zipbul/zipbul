@@ -384,6 +384,9 @@ function extractAugmentFromIR(ref: MiddlewareExportRef): MiddlewareContextAugmen
     sourceFilePath: ref.filePath,
     augments,
     classImports,
+    // IR (lib build) does not yet emit contextOps. Empty until `zb build --lib`
+    // is extended to serialize ctx.set/use/get patterns.
+    contextOps: [],
   };
 }
 
@@ -524,6 +527,7 @@ async function extractAugmentFromFile(
     sourceFilePath: filePath,
     augments: result.augments,
     classImports,
+    contextOps: result.contextOps,
   };
 }
 
