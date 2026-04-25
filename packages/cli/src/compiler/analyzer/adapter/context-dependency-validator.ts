@@ -63,12 +63,25 @@ function buildPhaseRanker(pipeline: readonly string[] | undefined): PhaseRanker 
  * @public
  */
 /**
- * Violation reason — distinguishes "no producer at all" from "wrong phase".
+ * Violation reason.
  *
- * `missing-producer`  : no registered middleware produces this key.
- * `wrong-phase`       : producer is registered but its phase runs AFTER the consumer.
+ * - `missing-producer` : no registered middleware produces this key
+ * - `wrong-phase`      : producer is registered but in a phase running AFTER the consumer
+ * - `wrong-order`      : producer is registered in the same phase as the consumer
+ *                        but registered AFTER (later in the phase array)
  */
-export type ContextDependencyViolationReason = 'missing-producer' | 'wrong-phase';
+export type ContextDependencyViolationReason =
+  | 'missing-producer'
+  | 'wrong-phase'
+  | 'wrong-order';
+
+/**
+ * Source of the consumer that triggered the violation.
+ *
+ * - `handler`    : the handler method itself (`ctx.use(KEY)` in the body)
+ * - `middleware` : a middleware in the chain (`ctx.use(KEY)` in factory body)
+ */
+export type ContextDependencyConsumerSource = 'handler' | 'middleware';
 
 export interface ContextDependencyViolation {
   readonly reason: ContextDependencyViolationReason;
@@ -77,18 +90,25 @@ export interface ContextDependencyViolation {
   readonly keyIdentifier: string;
   /** Source byte offset of the `ctx.use(KEY)` call (oxc-parser `start`). */
   readonly start: number | null;
+  /** Where the consumer call originated. */
+  readonly consumerSource: ContextDependencyConsumerSource;
   /**
-   * Middleware names in *any* augment that produce this key —
-   * used for diagnostic suggestions ("you forgot to register one of: A, B").
+   * Middleware export name that contains the consumer call —
+   * `null` if `consumerSource === 'handler'`.
+   */
+  readonly consumerMiddlewareName: string | null;
+  /**
+   * Middleware names in *any* registered middleware that produce this key —
+   * used for diagnostic suggestions.
    */
   readonly knownProducersForKey: readonly string[];
   /** Middleware names registered for this handler (for diagnostic context). */
   readonly registeredMiddlewares: readonly string[];
   /**
-   * For `wrong-phase` violations, the phase(s) of the producer middleware that
-   * runs AFTER the consumer — diagnostic helps user fix the registration phase.
+   * For `wrong-phase` / `wrong-order` violations, the producer middleware that
+   * runs AFTER the consumer in the pipeline.
    */
-  readonly wrongPhaseDetails?: readonly { readonly middlewareName: string; readonly phase: string }[];
+  readonly wrongPositionDetails?: readonly { readonly middlewareName: string; readonly phase: string }[];
 }
 
 /**
@@ -111,9 +131,11 @@ export function validateContextDependencies(
   routeRegistrations: readonly RouteRegistration[] = [],
   adapterStaticSchemas: Readonly<Record<string, AdapterStaticSchema>> = {},
 ): readonly ContextDependencyViolation[] {
-  // middlewareName → produced keys
+  const producerInfoByName = new Map<string, MiddlewareProducerInfo>();
   const producersByName = new Map<string, Set<string>>();
+
   for (const info of producerInfos) {
+    producerInfoByName.set(info.middlewareName, info);
     const produced = new Set<string>();
     for (const op of info.contextOps) {
       if (op.kind === 'set' && op.keyIdentifier !== null) {
@@ -125,13 +147,9 @@ export function validateContextDependencies(
     }
   }
 
-  // produced key → middleware names that produce it (for diagnostic suggestions)
   const producersByKey = invertProducerMap(producersByName);
-
-  // container key → middleware ref name (from registrations)
   const keyToRefName = buildKeyToRefName(routeRegistrations);
 
-  // adapterId → phase ranker
   const rankerByAdapter = new Map<string, PhaseRanker>();
   for (const [adapterId, schema] of Object.entries(adapterStaticSchemas)) {
     rankerByAdapter.set(adapterId, buildPhaseRanker(schema.pipeline));
@@ -140,74 +158,163 @@ export function validateContextDependencies(
   const violations: ContextDependencyViolation[] = [];
 
   for (const entry of handlerIndex) {
-    const ops = handlerContextOps.get(entry.id);
-    if (ops === undefined) continue;
-
     const ranker = rankerByAdapter.get(entry.adapterId) ?? buildPhaseRanker(undefined);
+    const consumerRank = ranker.handlerStepRank;
     const registeredNames = collectRegisteredMiddlewareNames(entry, keyToRefName);
 
-    // Producer keys grouped by their effective rank — only producers running at
-    // or before the handler step are reachable. `wrongPhaseProducers` collects
-    // producers that exist on the chain but run too late, for `wrong-phase`
-    // diagnostic specificity.
-    const reachableKeys = new Set<string>();
-    const wrongPhaseProducerByKey = new Map<string, Array<{ middlewareName: string; phase: string }>>();
+    // Pre-compute set of all keys produced by *some* registered middleware on
+    // this chain — used to distinguish missing-producer vs wrong-phase/order.
+    const allProducedOnChain = new Set<string>();
+    for (const name of registeredNames) {
+      const produced = producersByName.get(name);
+      if (produced === undefined) continue;
+      for (const k of produced) allProducedOnChain.add(k);
+    }
 
-    if (entry.mergedPhaseMiddlewareKeys !== undefined) {
-      for (const [phase, keys] of Object.entries(entry.mergedPhaseMiddlewareKeys)) {
-        const phaseRank = ranker.rank(phase);
-        const consumerRank = ranker.handlerStepRank;
-        const isReachable = phaseRank === null
-          || consumerRank === null
-          || phaseRank <= consumerRank;
+    // ── Topological walk of the middleware chain (phase rank, then order) ──
+    const reachable = new Set<string>();
+    const lateProducerByKey = new Map<string, Array<{ middlewareName: string; phase: string }>>();
 
-        for (const key of keys) {
-          const middlewareName = keyToRefName.get(key);
-          if (middlewareName === undefined) continue;
-          const producedKeys = producersByName.get(middlewareName);
-          if (producedKeys === undefined) continue;
+    const sortedPhases = sortPhasesByRank(entry.mergedPhaseMiddlewareKeys, ranker);
 
-          if (isReachable) {
-            for (const k of producedKeys) reachableKeys.add(k);
-          } else {
-            for (const k of producedKeys) {
-              let arr = wrongPhaseProducerByKey.get(k);
+    for (const { phase, keys } of sortedPhases) {
+      const phaseRank = ranker.rank(phase);
+      const inChainScope =
+        phaseRank === null
+        || consumerRank === null
+        || phaseRank <= consumerRank;
+
+      for (const key of keys) {
+        const mwName = keyToRefName.get(key);
+        if (mwName === undefined) continue;
+
+        const info = producerInfoByName.get(mwName);
+        if (info === undefined) continue;
+
+        if (inChainScope) {
+          // 1) Validate this middleware's consumer ops against currently-reachable keys.
+          for (const op of info.contextOps) {
+            if (op.kind !== 'use') continue;
+            if (op.keyIdentifier === null) continue;
+            if (reachable.has(op.keyIdentifier)) continue;
+
+            violations.push(buildViolation({
+              entry,
+              keyIdentifier: op.keyIdentifier,
+              start: op.start,
+              consumerSource: 'middleware',
+              consumerMiddlewareName: mwName,
+              consumerPhase: phase,
+              allProducedOnChain,
+              producersByKey,
+              registeredNames,
+              lateProducerByKey,
+            }));
+          }
+
+          // 2) Add this middleware's producers to reachable AFTER consumer check
+          //    (so a same-middleware self-use is not auto-satisfied).
+          for (const op of info.contextOps) {
+            if (op.kind === 'set' && op.keyIdentifier !== null) {
+              reachable.add(op.keyIdentifier);
+            }
+          }
+        } else {
+          // Producer in late phase — record for diagnostic specificity.
+          for (const op of info.contextOps) {
+            if (op.kind === 'set' && op.keyIdentifier !== null) {
+              let arr = lateProducerByKey.get(op.keyIdentifier);
               if (arr === undefined) {
                 arr = [];
-                wrongPhaseProducerByKey.set(k, arr);
+                lateProducerByKey.set(op.keyIdentifier, arr);
               }
-              arr.push({ middlewareName, phase });
+              arr.push({ middlewareName: mwName, phase });
             }
           }
         }
       }
     }
 
-    for (const op of ops) {
-      if (op.kind !== 'use') continue;
-      if (op.keyIdentifier === null) continue;
-      if (reachableKeys.has(op.keyIdentifier)) continue;
+    // ── Validate handler's own ctx.use ops ──
+    const handlerOps = handlerContextOps.get(entry.id);
+    if (handlerOps !== undefined) {
+      for (const op of handlerOps) {
+        if (op.kind !== 'use') continue;
+        if (op.keyIdentifier === null) continue;
+        if (reachable.has(op.keyIdentifier)) continue;
 
-      const wrongPhaseDetails = wrongPhaseProducerByKey.get(op.keyIdentifier);
-      const reason: ContextDependencyViolationReason = wrongPhaseDetails !== undefined && wrongPhaseDetails.length > 0
-        ? 'wrong-phase'
-        : 'missing-producer';
-
-      violations.push({
-        reason,
-        handlerId: entry.id,
-        keyIdentifier: op.keyIdentifier,
-        start: op.start,
-        knownProducersForKey: [...(producersByKey.get(op.keyIdentifier) ?? new Set<string>())].sort(),
-        registeredMiddlewares: [...registeredNames].sort(),
-        ...(wrongPhaseDetails !== undefined && wrongPhaseDetails.length > 0
-          ? { wrongPhaseDetails: [...wrongPhaseDetails] }
-          : {}),
-      });
+        violations.push(buildViolation({
+          entry,
+          keyIdentifier: op.keyIdentifier,
+          start: op.start,
+          consumerSource: 'handler',
+          consumerMiddlewareName: null,
+          consumerPhase: null,
+          allProducedOnChain,
+          producersByKey,
+          registeredNames,
+          lateProducerByKey,
+        }));
+      }
     }
   }
 
   return violations;
+}
+
+interface ViolationContext {
+  readonly entry: HandlerIndexEntry;
+  readonly keyIdentifier: string;
+  readonly start: number | null;
+  readonly consumerSource: ContextDependencyConsumerSource;
+  readonly consumerMiddlewareName: string | null;
+  readonly consumerPhase: string | null;
+  readonly allProducedOnChain: ReadonlySet<string>;
+  readonly producersByKey: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly registeredNames: ReadonlySet<string>;
+  readonly lateProducerByKey: ReadonlyMap<string, ReadonlyArray<{ middlewareName: string; phase: string }>>;
+}
+
+function buildViolation(ctx: ViolationContext): ContextDependencyViolation {
+  const lateProducers = ctx.lateProducerByKey.get(ctx.keyIdentifier) ?? [];
+  const producedOnChain = ctx.allProducedOnChain.has(ctx.keyIdentifier);
+
+  let reason: ContextDependencyViolationReason;
+  if (!producedOnChain) {
+    reason = 'missing-producer';
+  } else if (lateProducers.length > 0) {
+    reason = 'wrong-phase';
+  } else {
+    // Producer exists on chain at same/earlier phase but consumer hit it
+    // before producer ran — same-phase order issue.
+    reason = 'wrong-order';
+  }
+
+  return {
+    reason,
+    handlerId: ctx.entry.id,
+    keyIdentifier: ctx.keyIdentifier,
+    start: ctx.start,
+    consumerSource: ctx.consumerSource,
+    consumerMiddlewareName: ctx.consumerMiddlewareName,
+    knownProducersForKey: [...(ctx.producersByKey.get(ctx.keyIdentifier) ?? new Set<string>())].sort(),
+    registeredMiddlewares: [...ctx.registeredNames].sort(),
+    ...(lateProducers.length > 0 ? { wrongPositionDetails: [...lateProducers] } : {}),
+  };
+}
+
+function sortPhasesByRank(
+  mergedPhaseMiddlewareKeys: HandlerIndexEntry['mergedPhaseMiddlewareKeys'] | undefined,
+  ranker: PhaseRanker,
+): Array<{ phase: string; keys: readonly string[] }> {
+  if (mergedPhaseMiddlewareKeys === undefined) return [];
+  const entries: Array<{ phase: string; keys: readonly string[]; rank: number }> = [];
+  for (const [phase, keys] of Object.entries(mergedPhaseMiddlewareKeys)) {
+    const rank = ranker.rank(phase) ?? Number.MAX_SAFE_INTEGER;
+    entries.push({ phase, keys, rank });
+  }
+  entries.sort((a, b) => a.rank - b.rank);
+  return entries.map(({ phase, keys }) => ({ phase, keys }));
 }
 
 function invertProducerMap(byName: ReadonlyMap<string, ReadonlySet<string>>): Map<string, Set<string>> {
@@ -266,27 +373,43 @@ function collectRegisteredMiddlewareNames(
  * @public
  */
 export function formatViolationMessage(violation: ContextDependencyViolation): string {
-  const summary = violation.reason === 'wrong-phase'
-    ? `Handler '${violation.handlerId}' calls ctx.use(${violation.keyIdentifier}) but the producing middleware is registered in a phase that runs AFTER the handler.`
-    : `Handler '${violation.handlerId}' calls ctx.use(${violation.keyIdentifier}) but no middleware in its registered chain produces this key.`;
+  const consumerLabel = violation.consumerSource === 'middleware'
+    ? `Middleware '${violation.consumerMiddlewareName}' (in handler '${violation.handlerId}')`
+    : `Handler '${violation.handlerId}'`;
 
-  const lines = [
-    summary,
-    `  Required key: ${violation.keyIdentifier}`,
-  ];
+  const summary = (() => {
+    switch (violation.reason) {
+      case 'missing-producer':
+        return `${consumerLabel} calls ctx.use(${violation.keyIdentifier}) but no middleware in its registered chain produces this key.`;
+      case 'wrong-phase':
+        return `${consumerLabel} calls ctx.use(${violation.keyIdentifier}) but the producing middleware is registered in a phase that runs AFTER this consumer.`;
+      case 'wrong-order':
+        return `${consumerLabel} calls ctx.use(${violation.keyIdentifier}) but the producing middleware is registered AFTER this consumer in the same phase.`;
+    }
+  })();
 
-  if (violation.reason === 'wrong-phase' && violation.wrongPhaseDetails !== undefined) {
-    const details = violation.wrongPhaseDetails
+  const lines = [summary, `  Required key: ${violation.keyIdentifier}`];
+
+  if (
+    (violation.reason === 'wrong-phase' || violation.reason === 'wrong-order')
+    && violation.wrongPositionDetails !== undefined
+  ) {
+    const details = violation.wrongPositionDetails
       .map((d) => `${d.middlewareName} @ ${d.phase}`)
       .join(', ');
-    lines.push(`  Producer registered in late phase: ${details}`);
-    lines.push(`  Hint: move the producer middleware to OnRequest, BeforeParse, BeforeValidate, or BeforeHandle phase.`);
+    lines.push(`  Producer registered in late position: ${details}`);
+  }
+
+  if (violation.reason === 'wrong-phase') {
+    lines.push(`  Hint: move the producer middleware to an earlier phase.`);
+  } else if (violation.reason === 'wrong-order') {
+    lines.push(`  Hint: register the producer middleware BEFORE this consumer in the @UseMiddlewares array.`);
   } else {
-    lines.push(`  Hint: register a middleware that calls ctx.set(${violation.keyIdentifier}, ...) before this handler runs.`);
+    lines.push(`  Hint: register a middleware that calls ctx.set(${violation.keyIdentifier}, ...) before this consumer runs.`);
   }
 
   if (violation.knownProducersForKey.length > 0) {
-    lines.push(`  Producers found in this build (not registered for this handler): ${violation.knownProducersForKey.join(', ')}`);
+    lines.push(`  Producers in this build: ${violation.knownProducersForKey.join(', ')}`);
   } else {
     lines.push(`  No middleware in this build produces '${violation.keyIdentifier}'.`);
   }

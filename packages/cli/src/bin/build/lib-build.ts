@@ -25,7 +25,7 @@ interface FileAugmentReport {
 
 interface MiddlewareReport {
   readonly name: string;
-  readonly contextType: string;
+  readonly contextType: string | null;
   readonly augmentCount: number;
 }
 

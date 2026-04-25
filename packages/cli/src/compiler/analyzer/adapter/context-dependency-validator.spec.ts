@@ -210,7 +210,130 @@ describe('validateContextDependencies', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0]?.reason).toBe('wrong-phase');
-    expect(result[0]?.wrongPhaseDetails).toEqual([{ middlewareName: 'lateMiddleware', phase: 'AfterHandle' }]);
+    expect(result[0]?.wrongPositionDetails).toEqual([{ middlewareName: 'lateMiddleware', phase: 'AfterHandle' }]);
+  });
+
+  test('reports wrong-order when producer is registered AFTER consumer in same phase', () => {
+    const pipeline = ['OnRequest', 'BeforeHandle', 'Handler', 'AfterHandle'];
+    const schemas = { TestAdapter: { entryDecorators: { controller: { name: 'C' }, handlers: [] }, pipeline } as never };
+
+    const consumerKey = '__route_mw__:C.h:cls:0';
+    const producerKey = '__route_mw__:C.h:cls:1';
+    const handler: HandlerIndexEntry = {
+      id: 'TestAdapter:f.ts#C.h',
+      adapterId: 'TestAdapter',
+      controllerKey: 'AppModule::Ctrl',
+      methodName: 'handle',
+      handlerDecorator: 'Get',
+      handlerDecoratorArgs: ['/x'],
+      // Same phase, consumer registered FIRST
+      mergedPhaseMiddlewareKeys: { BeforeHandle: [consumerKey, producerKey] },
+    } as never;
+    const consumerInfo = makeProducer('consumerMiddleware', [
+      { kind: 'use', keyIdentifier: 'SharedKey', start: 50 },
+    ]);
+    const producerInfo = makeProducer('producerMiddleware', [
+      { kind: 'set', keyIdentifier: 'SharedKey', start: 50 },
+    ]);
+    const registrations = [
+      makeRegistration(consumerKey, 'consumerMiddleware'),
+      makeRegistration(producerKey, 'producerMiddleware'),
+    ];
+
+    const result = validateContextDependencies(
+      [handler],
+      new Map(),
+      [consumerInfo, producerInfo],
+      registrations,
+      schemas,
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.reason).toBe('wrong-order');
+    expect(result[0]?.consumerSource).toBe('middleware');
+    expect(result[0]?.consumerMiddlewareName).toBe('consumerMiddleware');
+  });
+
+  test('passes when producer is registered BEFORE consumer in same phase', () => {
+    const pipeline = ['OnRequest', 'BeforeHandle', 'Handler', 'AfterHandle'];
+    const schemas = { TestAdapter: { entryDecorators: { controller: { name: 'C' }, handlers: [] }, pipeline } as never };
+
+    const producerKey = '__route_mw__:C.h:cls:0';
+    const consumerKey = '__route_mw__:C.h:cls:1';
+    const handler: HandlerIndexEntry = {
+      id: 'TestAdapter:f.ts#C.h',
+      adapterId: 'TestAdapter',
+      controllerKey: 'AppModule::Ctrl',
+      methodName: 'handle',
+      handlerDecorator: 'Get',
+      handlerDecoratorArgs: ['/x'],
+      mergedPhaseMiddlewareKeys: { BeforeHandle: [producerKey, consumerKey] },
+    } as never;
+    const producerInfo = makeProducer('producerMiddleware', [
+      { kind: 'set', keyIdentifier: 'SharedKey', start: 50 },
+    ]);
+    const consumerInfo = makeProducer('consumerMiddleware', [
+      { kind: 'use', keyIdentifier: 'SharedKey', start: 50 },
+    ]);
+    const registrations = [
+      makeRegistration(producerKey, 'producerMiddleware'),
+      makeRegistration(consumerKey, 'consumerMiddleware'),
+    ];
+
+    const result = validateContextDependencies(
+      [handler],
+      new Map(),
+      [producerInfo, consumerInfo],
+      registrations,
+      schemas,
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  test('reports middleware-as-consumer wrong-phase violation', () => {
+    const pipeline = ['OnRequest', 'BeforeHandle', 'Handler', 'AfterHandle'];
+    const schemas = { TestAdapter: { entryDecorators: { controller: { name: 'C' }, handlers: [] }, pipeline } as never };
+
+    const consumerKey = '__route_mw__:C.h:cls:0';
+    const producerKey = '__route_mw__:C.h:cls:1';
+    const handler: HandlerIndexEntry = {
+      id: 'TestAdapter:f.ts#C.h',
+      adapterId: 'TestAdapter',
+      controllerKey: 'AppModule::Ctrl',
+      methodName: 'handle',
+      handlerDecorator: 'Get',
+      handlerDecoratorArgs: ['/x'],
+      mergedPhaseMiddlewareKeys: {
+        OnRequest: [consumerKey],   // consumer in early phase
+        BeforeHandle: [producerKey], // producer in later phase
+      },
+    } as never;
+    const consumerInfo = makeProducer('earlyConsumer', [
+      { kind: 'use', keyIdentifier: 'SharedKey', start: 50 },
+    ]);
+    const producerInfo = makeProducer('lateProducer', [
+      { kind: 'set', keyIdentifier: 'SharedKey', start: 50 },
+    ]);
+    const registrations = [
+      makeRegistration(consumerKey, 'earlyConsumer'),
+      makeRegistration(producerKey, 'lateProducer'),
+    ];
+
+    const result = validateContextDependencies(
+      [handler],
+      new Map(),
+      [consumerInfo, producerInfo],
+      registrations,
+      schemas,
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.consumerSource).toBe('middleware');
+    expect(result[0]?.consumerMiddlewareName).toBe('earlyConsumer');
+    expect(result[0]?.reason).toBe('wrong-order');
+    // (BeforeHandle producer was in ≤Handler phase scope, so it's reachable but
+    //  still "after" the OnRequest consumer in walk order — wrong-order classification.)
   });
 
   test('passes when producer is in earlier phase than Handler step', () => {
@@ -249,6 +372,8 @@ describe('formatViolationMessage', () => {
       handlerId: 'Adapter:f.ts#C.h',
       keyIdentifier: 'SessionKey',
       start: 100,
+      consumerSource: 'handler',
+      consumerMiddlewareName: null,
       knownProducersForKey: ['authMiddleware', 'cookieMiddleware'],
       registeredMiddlewares: [],
     };
@@ -267,6 +392,8 @@ describe('formatViolationMessage', () => {
       handlerId: 'Adapter:f.ts#C.h',
       keyIdentifier: 'SessionKey',
       start: 100,
+      consumerSource: 'handler',
+      consumerMiddlewareName: null,
       knownProducersForKey: [],
       registeredMiddlewares: [],
     };

@@ -41,8 +41,8 @@ export interface LibAugmentEntry {
    * Consumed by the AOT producer-consumer dependency validator after lib install.
    */
   readonly contextOps: readonly SerializedContextOp[];
-  /** Context type from ctx.to() call. */
-  readonly contextType: string;
+  /** Context type from `ctx.to(<Type>)` call — `null` when no augments exist. */
+  readonly contextType: string | null;
 }
 
 /**
@@ -144,10 +144,10 @@ export function injectAugmentsIntoSource(
   let result = sourceText;
 
   for (const entry of sorted) {
-    const augmentsJson = JSON.stringify(
-      entry.augments.map(serializeAugmentEntry),
-    );
-    const contextOpsJson = entry.contextOps.length > 0
+    const augmentsField = entry.augments.length > 0
+      ? `, __augments: ${JSON.stringify(entry.augments.map(serializeAugmentEntry))}`
+      : '';
+    const contextOpsField = entry.contextOps.length > 0
       ? `, __contextOps: ${JSON.stringify(entry.contextOps)}`
       : '';
 
@@ -156,11 +156,11 @@ export function injectAugmentsIntoSource(
     if (entry.configText !== null) {
       const lastBrace = entry.configText.lastIndexOf('}');
       if (lastBrace === -1) continue;
-      newCallBody = `${entry.configText.slice(0, lastBrace)}, __augments: ${augmentsJson}${contextOpsJson}${entry.configText.slice(lastBrace)}`;
+      newCallBody = `${entry.configText.slice(0, lastBrace)}${augmentsField}${contextOpsField}${entry.configText.slice(lastBrace)}`;
     } else if (entry.adaptersText !== null) {
-      newCallBody = `{ adapters: ${entry.adaptersText}, factory: ${entry.factoryText}, __augments: ${augmentsJson}${contextOpsJson} }`;
+      newCallBody = `{ adapters: ${entry.adaptersText}, factory: ${entry.factoryText}${augmentsField}${contextOpsField} }`;
     } else {
-      newCallBody = `{ factory: ${entry.factoryText}, __augments: ${augmentsJson}${contextOpsJson} }`;
+      newCallBody = `{ factory: ${entry.factoryText}${augmentsField}${contextOpsField} }`;
     }
 
     // Replace defineMiddleware(originalArg) → defineMiddleware(newCallBody)
@@ -244,7 +244,7 @@ function processDefineMiddlewareCall(
     configText: configNode !== null ? sourceText.slice(configNode.start, configNode.end) : null,
     augments: serializedAugments,
     contextOps: serializedContextOps,
-    contextType: augmentResult?.contextType ?? '',
+    contextType: augmentResult?.contextType ?? null,
   };
 }
 
