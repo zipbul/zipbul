@@ -22,6 +22,7 @@ import type { HttpResponse } from './http-response';
 import { Router } from '@zipbul/router';
 import { parseDecoratorOptions, buildResponseDefaultsApplier } from './route-options';
 import { addWithHeadAlias } from './pipeline/router-register';
+import { FORBIDDEN_HTTP_METHODS } from './http-method';
 
 type HttpCompiledHandlerEntry = CompiledHandlerEntry;
 
@@ -152,6 +153,16 @@ export class RouteHandler {
         throw new Error(
           `[RouteHandler] Cannot register handler at ${entry.controllerKey}.${entry.methodName}: ` +
           `method '${httpMethod}' is not a valid HTTP token (RFC 9110 §5.1 — tchar only, no whitespace).`,
+        );
+      }
+
+      if (FORBIDDEN_HTTP_METHODS.has(httpMethod)) {
+        throw new Error(
+          `[RouteHandler] @Method('${httpMethod}', ...) at ${entry.controllerKey}.${entry.methodName} ` +
+          `is permanently rejected. ` +
+          `${httpMethod === 'TRACE'
+            ? 'TRACE carries XST risk (OWASP); RFC 9110 §9.3.8 echo rules cannot be statically enforced for user handlers.'
+            : 'CONNECT is for forward proxies (RFC 9110 §9.3.6); origin servers cannot meaningfully handle it.'}`,
         );
       }
 

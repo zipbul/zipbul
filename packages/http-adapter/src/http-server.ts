@@ -23,6 +23,7 @@ import { HttpRequest } from './http-request';
 import { HttpResponse } from './http-response';
 import { HTTP_STANDARD_METHODS } from './http-method';
 import { RouteHandler, isValidMethodToken } from './route-handler';
+import { FORBIDDEN_HTTP_METHODS } from './http-method';
 import type { HttpAdapter } from './http-adapter';
 import { parseRequestTarget } from './url-parts';
 
@@ -225,6 +226,14 @@ export class HttpServer {
       if (!isValidMethodToken(upper)) {
         throw new Error(
           `[HttpServer] customMethods[${index}] '${raw}' is not a valid HTTP token (RFC 9110 §5.1 — tchar only, no whitespace).`,
+        );
+      }
+      if (FORBIDDEN_HTTP_METHODS.has(upper)) {
+        throw new Error(
+          `[HttpServer] customMethods[${index}] '${upper}' is permanently unsupported.\n` +
+          `  TRACE: XST attack vector (OWASP); RFC 9110 §9.3.8 echo rules cannot be statically enforced for user handlers.\n` +
+          `  CONNECT: RFC 9110 §9.3.6 — forward-proxy method; origin servers cannot meaningfully implement it.\n` +
+          `  Industry consensus: nginx, Apache (default off), Express, NestJS, Fastify, Vercel — none support these.`,
         );
       }
       return upper;

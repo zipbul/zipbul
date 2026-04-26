@@ -29,6 +29,10 @@ export const Head =
  * The method string must also be listed in `HttpServerOptions.customMethods`
  * so that the server accepts the method instead of returning 501.
  *
+ * **Permanently forbidden methods** — `TRACE`, `CONNECT` — are rejected at
+ * compile time (case-insensitive via `Uppercase<>`) and at runtime. See
+ * {@link ForbiddenHttpMethod}.
+ *
  * @param method - Custom HTTP method token (e.g. `'PURGE'`, `'PROPFIND'`).
  * @param pathOrOptions - Route path or options. Same as `@Get()` / `@Post()`.
  *
@@ -46,5 +50,8 @@ export const Head =
  * @public
  */
 export const Method =
-  (_method: string, _pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
+  <const M extends string>(
+    _method: Uppercase<M> extends import('../http-method').ForbiddenHttpMethod ? never : M,
+    _pathOrOptions?: string | HttpMethodDecoratorOptions,
+  ): MethodDecorator =>
   () => {};

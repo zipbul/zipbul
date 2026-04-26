@@ -950,10 +950,10 @@ describe('RouteHandler', () => {
           controllerKey: 'TestCtrl',
           methodName: 'handle',
           handlerDecorator: 'Method',
-          handlerDecoratorArgs: ['TRACE', '/x'],
+          handlerDecoratorArgs: ['PURGE', '/x'],
           params: [],
         } as never], controllerInstances);
-      }).toThrow(/unsupported method 'TRACE'/);
+      }).toThrow(/unsupported method 'PURGE'/);
     });
 
     it('should accept @Method registration when method is opted in via customMethods', () => {
@@ -1055,7 +1055,7 @@ describe('RouteHandler', () => {
             params: [],
           },
         ] as never, controllerInstances, mock(() => ({ pre: [], post: [], filters: [] })) as never);
-      }).toThrow(/unsupported method 'TRACE'/);
+      }).toThrow(/permanently rejected/);
 
       // 첫 번째 라우트도 등록되지 않아야 함 (원자성)
       const matchResult = handler.matchRoute('GET', '/ok');

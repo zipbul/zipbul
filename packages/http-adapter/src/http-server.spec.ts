@@ -548,5 +548,44 @@ describe('HttpServer', () => {
         } as never, createMockAdapter() as never),
       ).rejects.toThrow(/must be a string/);
     });
+
+    it('should reject TRACE in customMethods at boot (forbidden — XST)', async () => {
+      const fresh = new HttpServer();
+      await expect(
+        fresh.boot(createMockContainer(), {
+          port: 3004,
+          bodyLimit: 1024,
+          customMethods: ['TRACE'] as unknown as readonly string[],
+          handlerIndex: [],
+          controllerInstances: new Map(),
+        } as never, createMockAdapter() as never),
+      ).rejects.toThrow(/permanently unsupported/);
+    });
+
+    it('should reject CONNECT in customMethods at boot (forbidden — RFC 9110 §9.3.6)', async () => {
+      const fresh = new HttpServer();
+      await expect(
+        fresh.boot(createMockContainer(), {
+          port: 3005,
+          bodyLimit: 1024,
+          customMethods: ['CONNECT'] as unknown as readonly string[],
+          handlerIndex: [],
+          controllerInstances: new Map(),
+        } as never, createMockAdapter() as never),
+      ).rejects.toThrow(/permanently unsupported/);
+    });
+
+    it('should reject lowercase "trace" in customMethods (uppercase normalization)', async () => {
+      const fresh = new HttpServer();
+      await expect(
+        fresh.boot(createMockContainer(), {
+          port: 3006,
+          bodyLimit: 1024,
+          customMethods: ['trace'] as unknown as readonly string[],
+          handlerIndex: [],
+          controllerInstances: new Map(),
+        } as never, createMockAdapter() as never),
+      ).rejects.toThrow(/permanently unsupported/);
+    });
   });
 });

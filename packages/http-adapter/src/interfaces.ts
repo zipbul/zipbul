@@ -12,6 +12,21 @@ import type {
   RequestIdOptions,
 } from './types';
 import type { HttpContext } from './http-context';
+import type { ForbiddenHttpMethod } from './http-method';
+
+/**
+ * Maps a tuple of method strings, replacing any element whose uppercase form
+ * is a {@link ForbiddenHttpMethod} (`'TRACE'` / `'CONNECT'`) with `never`.
+ *
+ * Used to reject forbidden methods at compile time when users pass literal
+ * (or `as const`) arrays to `customMethods`. Computed runtime arrays bypass
+ * this check and are caught by the boot-time validator.
+ *
+ * @public
+ */
+export type SafeCustomMethods<T extends readonly string[]> = {
+  readonly [K in keyof T]: Uppercase<T[K] & string> extends ForbiddenHttpMethod ? never : T[K];
+};
 
 /**
  * TLS configuration for the HTTP server.
