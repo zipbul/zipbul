@@ -1,8 +1,9 @@
 /**
  * Publish script for changesets/action.
  *
- * 1. Resolves `workspace:*` → real versions in package.json (in-place)
- * 2. Copies root LICENSE into each public package directory
+ * 1. Resolves `workspace:*` and `catalog:` protocols → real versions in
+ *    package.json (in-place). npm registry does not understand either protocol.
+ * 2. Copies root LICENSE into each public package directory.
  * 3. Runs `npx changeset publish` with stdout inherited so
  *    changesets/action can parse `New tag:` lines for GitHub releases.
  */
@@ -14,7 +15,7 @@ const root = join(import.meta.dirname, '..');
 const packagesDir = join(root, 'packages');
 const entries = await readdir(packagesDir);
 
-// ── 1. Resolve workspace:* ─────────────────────────────────
+// ── 1a. Build workspace version map ─────────────────────────
 
 const versionMap = new Map<string, string>();
 
@@ -30,6 +31,13 @@ for (const entry of entries) {
   }
 }
 
+// ── 1b. Load root catalog (Bun catalogs) ────────────────────
+
+const rootPkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+const catalog: Record<string, string> = rootPkg.workspaces?.catalog ?? {};
+
+// ── 1c. Resolve workspace:* and catalog: in each package ────
+
 for (const entry of entries) {
   const pkgJsonPath = join(packagesDir, entry, 'package.json');
   let raw: string;
@@ -40,7 +48,7 @@ for (const entry of entries) {
     continue;
   }
 
-  if (!raw.includes('workspace:')) continue;
+  if (!raw.includes('workspace:') && !raw.includes('catalog:')) continue;
 
   const pkg = JSON.parse(raw);
   let changed = false;
@@ -50,22 +58,31 @@ for (const entry of entries) {
     if (!deps) continue;
 
     for (const [name, range] of Object.entries(deps)) {
-      if (typeof range !== 'string' || !range.startsWith('workspace:')) continue;
+      if (typeof range !== 'string') continue;
 
-      const realVersion = versionMap.get(name);
-      if (!realVersion) {
-        console.error(`Cannot resolve ${name} (${range}) — not found in workspace`);
-        process.exit(1);
+      if (range.startsWith('workspace:')) {
+        const realVersion = versionMap.get(name);
+        if (!realVersion) {
+          console.error(`Cannot resolve ${name} (${range}) — not found in workspace`);
+          process.exit(1);
+        }
+        deps[name] = realVersion;
+        changed = true;
+      } else if (range === 'catalog:' || range.startsWith('catalog:')) {
+        const catalogRange = catalog[name];
+        if (!catalogRange) {
+          console.error(`Cannot resolve ${name} (${range}) — not found in root catalog`);
+          process.exit(1);
+        }
+        deps[name] = catalogRange;
+        changed = true;
       }
-
-      deps[name] = realVersion;
-      changed = true;
     }
   }
 
   if (changed) {
     await writeFile(pkgJsonPath, JSON.stringify(pkg, null, 2) + '\n');
-    console.log(`Resolved workspace protocols in ${pkg.name}`);
+    console.log(`Resolved workspace/catalog protocols in ${pkg.name}`);
   }
 }
 

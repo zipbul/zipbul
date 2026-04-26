@@ -1,25 +1,36 @@
 {
   "name": "@zipbul/cli",
-  "private": true,
+  "version": "0.0.0",
+  "description": "AOT compiler CLI with dev watch and build commands for Zipbul",
+  "license": "MIT",
+  "type": "module",
+  "module": "index.ts",
   "bin": {
     "zb": "./src/bin/zb.ts"
   },
-  "type": "module",
-  "module": "index.ts",
+  "files": [
+    "src",
+    "index.ts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zipbul/zipbul",
+    "directory": "packages/cli"
+  },
   "scripts": {
     "build": "bun build ./src/bin/zb.ts --compile --outfile dist/zb"
   },
   "dependencies": {
-    "@clack/prompts": "^0.11.0",
-    "picocolors": "^1.1.0",
-    "@zipbul/gildash": "0.24.4",
+    "@clack/prompts": "catalog:",
+    "picocolors": "catalog:",
+    "@zipbul/gildash": "catalog:",
     "@zipbul/logger": "workspace:*",
-    "@zipbul/result": "^1.0.0",
-    "oxc-parser": "0.121.0"
+    "@zipbul/result": "catalog:",
+    "oxc-parser": "catalog:"
   },
   "devDependencies": {
     "@zipbul/common": "workspace:*",
-    "@types/bun": "^1.3.0",
-    "typescript": "^5"
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
   }
 }
