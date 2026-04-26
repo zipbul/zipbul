@@ -262,17 +262,46 @@ describe('HTTP misc E2E', () => {
   });
 });
 
+async function bootWithMethodToken(token: string): Promise<{ server: Server; adapter: Adapter; port: number }> {
+  const port = 50000 + Math.floor(Math.random() * 10000);
+  const container = emptyContainer();
+  const adapter = new HttpAdapter({ port });
+  adapter.initializePipeline(container);
+  const server = new HttpServer();
+  class TestController { handle = (): string => 'ok'; }
+  const controllerInstances = new Map<string, unknown>([['TestController', new TestController()]]);
+  const handlerIndex = [{
+    id: `HttpAdapter:TestController.handle`,
+    adapterId: 'HttpAdapter',
+    controllerKey: 'TestController',
+    methodName: 'handle',
+    handlerDecorator: 'Method',
+    handlerDecoratorArgs: [token, '/x'] as readonly unknown[],
+    compiledPre: [] as readonly string[],
+    compiledPost: [] as readonly string[],
+  }];
+  const metadata = new Map();
+  metadata.set(TestController, { className: 'TestController', decorators: [{ name: 'RestController', arguments: [] }] });
+  await server.boot(container, {
+    port,
+    metadata,
+    handlerIndex,
+    controllerInstances,
+  } as never, adapter as never);
+  return { server, adapter, port };
+}
+
 describe('Forbidden HTTP methods (TRACE/CONNECT) — live boot rejection', () => {
-  it('rejects boot when customMethods contains TRACE', async () => {
-    await expect(boot({ customMethods: ['TRACE'] }, [])).rejects.toThrow(/permanently unsupported/);
+  it('rejects boot when @Method handler uses TRACE', async () => {
+    await expect(bootWithMethodToken('TRACE')).rejects.toThrow(/permanently rejected/);
   });
 
-  it('rejects boot when customMethods contains CONNECT', async () => {
-    await expect(boot({ customMethods: ['CONNECT'] }, [])).rejects.toThrow(/permanently unsupported/);
+  it('rejects boot when @Method handler uses CONNECT', async () => {
+    await expect(bootWithMethodToken('CONNECT')).rejects.toThrow(/permanently rejected/);
   });
 
-  it('rejects boot when customMethods contains lowercase trace (case-insensitive)', async () => {
-    await expect(boot({ customMethods: ['trace'] }, [])).rejects.toThrow(/permanently unsupported/);
+  it('rejects boot when @Method handler uses lowercase trace (uppercase normalization)', async () => {
+    await expect(bootWithMethodToken('trace')).rejects.toThrow(/permanently rejected/);
   });
 });
 

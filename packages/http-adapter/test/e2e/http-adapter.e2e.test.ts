@@ -311,7 +311,7 @@ describe('HttpAdapter E2E', () => {
   const cleanupMiddlewareCalls: string[] = [];
 
   beforeAll(async () => {
-    adapter = new HttpAdapter({ port: TEST_PORT, bodyLimit: 1024, customMethods: ['PURGE'] });
+    adapter = new HttpAdapter({ port: TEST_PORT, bodyLimit: 1024 });
 
     // OnRequest CORS middleware
     adapter.addMiddlewares(HttpPhase.OnRequest, [
@@ -1471,7 +1471,6 @@ describe('HttpAdapter E2E', () => {
     await server.boot(container, {
       port: TEST_PORT,
       bodyLimit: 1024,
-      customMethods: ['PURGE'],
       metadata: builtIndex.metadata as never,
       handlerIndex: patchedHandlerIndex,
       controllerInstances: builtIndex.controllerInstances,
@@ -4674,8 +4673,8 @@ describe('HttpAdapter E2E', () => {
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
   });
 
-  it('should return 501 for custom method not in customMethods', async () => {
-    // Arrange & Act — PROPFIND is not in customMethods
+  it('should return 501 for custom method not declared via @Method anywhere', async () => {
+    // Arrange & Act — PROPFIND has no @Method handler → not in auto-derived allowedMethods
     const response = await fetch(`${BASE_URL}/cache/images`, { method: 'PROPFIND' });
 
     // Assert

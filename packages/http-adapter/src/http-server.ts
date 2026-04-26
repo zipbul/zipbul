@@ -21,9 +21,7 @@ import type { HttpMethod } from '@zipbul/shared';
 import { HttpContext } from './http-context';
 import { HttpRequest } from './http-request';
 import { HttpResponse } from './http-response';
-import { HTTP_STANDARD_METHODS } from './http-method';
-import { RouteHandler, isValidMethodToken } from './route-handler';
-import { FORBIDDEN_HTTP_METHODS } from './http-method';
+import { RouteHandler } from './route-handler';
 import type { HttpAdapter } from './http-adapter';
 import { parseRequestTarget } from './url-parts';
 
@@ -212,35 +210,6 @@ export class HttpServer {
     this.options = options;
     this.requestScopeEnabled = undefined;
 
-    const customMethodsNormalized = (this.options.customMethods ?? []).map((raw, index) => {
-      if (typeof raw !== 'string') {
-        throw new Error(
-          `[HttpServer] customMethods[${index}] must be a string (received: ${typeof raw}).`,
-        );
-      }
-      const trimmed = raw.trim();
-      if (trimmed.length === 0) {
-        throw new Error(`[HttpServer] customMethods[${index}] cannot be empty or whitespace.`);
-      }
-      const upper = trimmed.toUpperCase();
-      if (!isValidMethodToken(upper)) {
-        throw new Error(
-          `[HttpServer] customMethods[${index}] '${raw}' is not a valid HTTP token (RFC 9110 §5.1 — tchar only, no whitespace).`,
-        );
-      }
-      if (FORBIDDEN_HTTP_METHODS.has(upper)) {
-        throw new Error(
-          `[HttpServer] customMethods[${index}] '${upper}' is permanently unsupported.\n` +
-          `  TRACE: XST attack vector (OWASP); RFC 9110 §9.3.8 echo rules cannot be statically enforced for user handlers.\n` +
-          `  CONNECT: RFC 9110 §9.3.6 — forward-proxy method; origin servers cannot meaningfully implement it.\n` +
-          `  Industry consensus: nginx, Apache (default off), Express, NestJS, Fastify, Vercel — none support these.`,
-        );
-      }
-      return upper;
-    });
-
-    this.allowedMethods = new Set([...HTTP_STANDARD_METHODS, ...customMethodsNormalized]);
-
     this.logger.debug('Booting...');
 
     const metadataRegistry = options.metadata ?? new Map<MetadataRegistryKey, ClassMetadata>();
@@ -251,7 +220,7 @@ export class HttpServer {
       handlerDecoratorNames: this.adapter.decorators.handlers.map(h => h.name),
     };
 
-    const routeHandler = new RouteHandler(metadataRegistry, decoratorConfig, this.allowedMethods);
+    const routeHandler = new RouteHandler(metadataRegistry, decoratorConfig);
 
     if (options.handlerIndex !== undefined && options.handlerIndex.length > 0) {
       routeHandler.registerFromHandlerIndex(
@@ -260,6 +229,9 @@ export class HttpServer {
         this.adapter.buildRoutePipeline.bind(this.adapter),
       );
     }
+
+    // allowedMethods 는 route-handler 의 스캔 결과 (HTTP_STANDARD ∪ @Method 토큰) 를 단일 진실 원천으로 사용.
+    this.allowedMethods = routeHandler.getServerAllowedMethods();
 
     if (Array.isArray(options.internalRoutes) && options.internalRoutes.length > 0) {
       routeHandler.registerInternalRoutes(options.internalRoutes);

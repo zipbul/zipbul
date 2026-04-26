@@ -1,8 +1,9 @@
 /**
  * HTTP methods natively supported by the framework — those with dedicated
  * decorators (`@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Options`, `@Head`).
- * Used as the base set for `allowedMethods`; non-standard methods may be
- * appended via `HttpServerOptions.customMethods` at boot time.
+ * Used as the base set for the server's allowed-methods set; additional
+ * non-standard methods are appended automatically when discovered through
+ * `@Method('X', …)` decorators during the AOT handler-index scan at boot.
  *
  * TRACE / CONNECT are permanently unsupported — see {@link ForbiddenHttpMethod}.
  * Requests with these methods receive 501 Not Implemented (RFC 9110 §15.6.2).
@@ -13,8 +14,8 @@ export const HTTP_STANDARD_METHODS: ReadonlySet<string> = new Set<string>([
 
 /**
  * HTTP methods that are *permanently* rejected by the framework, both at
- * compile time (decorator + options type narrowing) and at runtime (boot
- * validation throws).
+ * compile time (`@Method` decorator generic via `Uppercase<>`) and at boot
+ * time (handler-index scan throws on TRACE/CONNECT).
  *
  * - `TRACE`: XST attack vector (OWASP). RFC 9110 §9.3.8 echo rules require
  *   strict server-side enforcement (sensitive header stripping) that cannot

@@ -10,7 +10,6 @@ mock.module('@zipbul/logger', () => ({
 }));
 
 const { RouteHandler } = await import('./route-handler');
-const { HTTP_STANDARD_METHODS } = await import('./http-method');
 
 type RouteHandlerInstance = InstanceType<typeof RouteHandler>;
 
@@ -18,7 +17,6 @@ function createRouteHandler(): RouteHandlerInstance {
   return new RouteHandler(
     new Map(),
     { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
-    HTTP_STANDARD_METHODS,
   );
 }
 
@@ -780,7 +778,6 @@ describe('RouteHandler', () => {
       const handlerWithMeta = new RouteHandler(
         metatypeRegistry as never,
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
-        HTTP_STANDARD_METHODS,
       );
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
@@ -820,7 +817,6 @@ describe('RouteHandler', () => {
       const handlerWithMeta = new RouteHandler(
         metatypeRegistry as never,
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
-        HTTP_STANDARD_METHODS,
       );
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
@@ -858,7 +854,6 @@ describe('RouteHandler', () => {
       const handlerWithMeta = new RouteHandler(
         metatypeRegistry as never,
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
-        HTTP_STANDARD_METHODS,
       );
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
@@ -887,7 +882,6 @@ describe('RouteHandler', () => {
       const handlerWithMeta = new RouteHandler(
         new Map() as never,
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
-        HTTP_STANDARD_METHODS,
       );
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
@@ -931,59 +925,34 @@ describe('RouteHandler', () => {
     });
   });
 
-  // ── Method allowlist enforcement (boot-time) ────────────
+  // ── @Method scan validation (boot-time) ────────────────
 
-  describe('method allowlist', () => {
-    it('should throw when @Method registers a method not in allowedMethods', () => {
+  describe('method scan', () => {
+    it('auto-adds @Method token to server allowed-methods set', () => {
       const handler = new RouteHandler(
         new Map() as never,
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Method'] },
-        HTTP_STANDARD_METHODS,
       );
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
 
-      expect(() => {
-        handler.registerFromHandlerIndex([{
-          id: 'TestAdapter:test#TestCtrl.handle',
-          adapterId: 'TestAdapter',
-          controllerKey: 'TestCtrl',
-          methodName: 'handle',
-          handlerDecorator: 'Method',
-          handlerDecoratorArgs: ['PURGE', '/x'],
-          params: [],
-        } as never], controllerInstances);
-      }).toThrow(/unsupported method 'PURGE'/);
-    });
+      handler.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#TestCtrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'TestCtrl',
+        methodName: 'handle',
+        handlerDecorator: 'Method',
+        handlerDecoratorArgs: ['PURGE', '/x'],
+        params: [],
+      } as never], controllerInstances, mock(() => ({ pre: [], post: [], filters: [] })) as never);
 
-    it('should accept @Method registration when method is opted in via customMethods', () => {
-      const allowedWithPurge = new Set([...HTTP_STANDARD_METHODS, 'PURGE']);
-      const handler = new RouteHandler(
-        new Map() as never,
-        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Method'] },
-        allowedWithPurge,
-      );
-      const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
-
-      expect(() => {
-        handler.registerFromHandlerIndex([{
-          id: 'TestAdapter:test#TestCtrl.handle',
-          adapterId: 'TestAdapter',
-          controllerKey: 'TestCtrl',
-          methodName: 'handle',
-          handlerDecorator: 'Method',
-          handlerDecoratorArgs: ['PURGE', '/x'],
-          params: [],
-        } as never], controllerInstances, mock(() => ({ pre: [], post: [], filters: [] })) as never);
-      }).not.toThrow();
+      expect(handler.getServerAllowedMethods().has('PURGE')).toBe(true);
     });
 
     it('should reject @Method registration with empty method token', () => {
       const handler = new RouteHandler(
         new Map() as never,
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Method'] },
-        HTTP_STANDARD_METHODS,
       );
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
@@ -1002,11 +971,9 @@ describe('RouteHandler', () => {
     });
 
     it('should reject @Method registration with whitespace in method token', () => {
-      const allowed = new Set([...HTTP_STANDARD_METHODS, 'FOOBAR']);
       const handler = new RouteHandler(
         new Map() as never,
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Method'] },
-        allowed,
       );
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
@@ -1028,7 +995,6 @@ describe('RouteHandler', () => {
       const handler = new RouteHandler(
         new Map() as never,
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get', 'Method'] },
-        HTTP_STANDARD_METHODS,
       );
       const instance = { handle: () => 'ok' };
       const controllerInstances = new Map([['TestCtrl', instance]]);
@@ -1062,23 +1028,5 @@ describe('RouteHandler', () => {
       expect(matchResult.kind).toBe('not-found');
     });
 
-    it('should reject internal route registration for method not in allowedMethods', () => {
-      // GET 은 standard 라 정상 통과해야 하므로, 정책 일관성 검증을 위해
-      // allowedMethods 에서 GET 을 제외한 비정상 Set 을 주입하여 검증한다.
-      const allowedWithoutGet = new Set(['POST']);
-      const handler = new RouteHandler(
-        new Map() as never,
-        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
-        allowedWithoutGet,
-      );
-
-      expect(() => {
-        handler.registerInternalRoutes([{
-          method: 'GET',
-          path: '/internal',
-          handler: () => 'ok',
-        } as never]);
-      }).toThrow(/unsupported method 'GET'/);
-    });
   });
 });

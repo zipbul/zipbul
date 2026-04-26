@@ -22,7 +22,7 @@ import type { HttpResponse } from './http-response';
 import { Router } from '@zipbul/router';
 import { parseDecoratorOptions, buildResponseDefaultsApplier } from './route-options';
 import { addWithHeadAlias } from './pipeline/router-register';
-import { FORBIDDEN_HTTP_METHODS } from './http-method';
+import { FORBIDDEN_HTTP_METHODS, HTTP_STANDARD_METHODS } from './http-method';
 
 type HttpCompiledHandlerEntry = CompiledHandlerEntry;
 
@@ -69,18 +69,16 @@ export class RouteHandler {
   private readonly router: Router<MatchedRouteMetadata>;
   private readonly logger = Logger.inherit();
   private readonly registeredMethods = new Set<string>();
-  private readonly allowedMethods: ReadonlySet<string>;
+  private readonly allowedMethods = new Set<string>(HTTP_STANDARD_METHODS);
 
   constructor(
     metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
     decoratorConfig: RouteHandlerDecoratorConfig,
-    allowedMethods: ReadonlySet<string>,
     routerOptions?: RouterOptions,
   ) {
     this.metadataRegistry = metadataRegistry;
     this.metatypeIndex = buildMetatypeIndex(metadataRegistry);
     this.decoratorConfig = decoratorConfig;
-    this.allowedMethods = allowedMethods;
     this.router = new Router<MatchedRouteMetadata>({
       ignoreTrailingSlash: true,
       enableCache: true,
@@ -114,13 +112,25 @@ export class RouteHandler {
       };
     }
 
-    const allowedMethods = this.getAllowedMethods(path);
+    const allowedMethods = this.getAllowedMethodsForPath(path);
 
     if (allowedMethods.length > 0) {
       return { kind: 'method-not-allowed', allowedMethods };
     }
 
     return { kind: 'not-found' };
+  }
+
+  /**
+   * Returns the server-wide set of allowed HTTP methods.
+   * Seeded with the standard 7 (RFC 9110 §9.1) and extended at boot time
+   * by `registerFromHandlerIndex` with any additional `@Method('X', …)` tokens
+   * declared by the user. TRACE/CONNECT are permanently excluded.
+   *
+   * @public
+   */
+  getServerAllowedMethods(): ReadonlySet<string> {
+    return this.allowedMethods;
   }
 
   /**
@@ -166,13 +176,7 @@ export class RouteHandler {
         );
       }
 
-      if (!this.allowedMethods.has(httpMethod)) {
-        throw new Error(
-          `[RouteHandler] Cannot register handler for unsupported method '${httpMethod}' ` +
-          `at ${entry.controllerKey}.${entry.methodName}. ` +
-          `Add '${httpMethod}' to HttpServerOptions.customMethods to opt in.`,
-        );
-      }
+      this.allowedMethods.add(httpMethod);
     }
 
     // Phase 2: 검증 통과 후 실제 등록.
@@ -267,12 +271,6 @@ export class RouteHandler {
         continue;
       }
 
-      if (!this.allowedMethods.has(method)) {
-        throw new Error(
-          `[RouteHandler] Cannot register internal route for unsupported method '${method}' at ${route.path}.`,
-        );
-      }
-
       const fullPath = route.path.startsWith('/') ? route.path : `/${route.path}`;
       const entry: MatchedRouteMetadata = {
         handler: route.handler,
@@ -303,7 +301,7 @@ export class RouteHandler {
     this.router.build();
   }
 
-  private getAllowedMethods(path: string): string[] {
+  private getAllowedMethodsForPath(path: string): string[] {
     const methods: string[] = [];
 
     for (const method of this.registeredMethods) {

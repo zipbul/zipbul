@@ -26,11 +26,13 @@ export const Head =
  * Declares a handler for a custom HTTP method not covered by the standard
  * seven (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS).
  *
- * The method string must also be listed in `HttpServerOptions.customMethods`
- * so that the server accepts the method instead of returning 501.
+ * The decorator is the single source of truth: the method token is collected
+ * during the AOT handler-index scan at boot, validated (RFC 9110 §5.1 token),
+ * and added to the server's allowed-methods set automatically. No additional
+ * configuration is required.
  *
  * **Permanently forbidden methods** — `TRACE`, `CONNECT` — are rejected at
- * compile time (case-insensitive via `Uppercase<>`) and at runtime. See
+ * compile time (case-insensitive via `Uppercase<>`) and at scan time. See
  * {@link ForbiddenHttpMethod}.
  *
  * @param method - Custom HTTP method token (e.g. `'PURGE'`, `'PROPFIND'`).
