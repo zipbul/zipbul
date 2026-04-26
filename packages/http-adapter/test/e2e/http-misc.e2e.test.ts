@@ -262,6 +262,20 @@ describe('HTTP misc E2E', () => {
   });
 });
 
+describe('Forbidden HTTP methods (TRACE/CONNECT) — live boot rejection', () => {
+  it('rejects boot when customMethods contains TRACE', async () => {
+    await expect(boot({ customMethods: ['TRACE'] }, [])).rejects.toThrow(/permanently unsupported/);
+  });
+
+  it('rejects boot when customMethods contains CONNECT', async () => {
+    await expect(boot({ customMethods: ['CONNECT'] }, [])).rejects.toThrow(/permanently unsupported/);
+  });
+
+  it('rejects boot when customMethods contains lowercase trace (case-insensitive)', async () => {
+    await expect(boot({ customMethods: ['trace'] }, [])).rejects.toThrow(/permanently unsupported/);
+  });
+});
+
 async function sendRawWithCL(port: number, contentLength: number): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     let buffer = '';
