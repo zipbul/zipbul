@@ -1729,14 +1729,13 @@ describe('HttpAdapter E2E', () => {
     expect(response.headers.get('accept-encoding')).toBe('identity');
   });
 
-  it('should return 501 for unknown HTTP method', async () => {
-    // Arrange & Act
+  it('should return 405 with Allow header for unknown HTTP method on registered path', async () => {
+    // Arrange & Act — /json is registered with GET; LINK is unknown
     const response = await fetch(`${BASE_URL}/json`, { method: 'LINK' });
 
     // Assert
-    expect(response.status).toBe(501);
-    const body = await bodyOf(response);
-    expect(body.message).toContain('Not Implemented');
+    expect(response.status).toBe(405);
+    expect(response.headers.get('allow')).toContain('GET');
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
   });
 
@@ -2088,17 +2087,16 @@ describe('HttpAdapter E2E', () => {
     expect(body).toBe('native');
   });
 
-  // ── NE: 501 with CORS ─────────────────────────────────────
+  // ── NE: 405 with CORS ─────────────────────────────────────
 
-  it('should include CORS headers on 501 for unknown method', async () => {
+  it('should include CORS headers on 405 for unknown method on registered path', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/json`, { method: 'LINK' });
 
     // Assert
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(405);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
-    const body = await bodyOf(response);
-    expect(body.message).toContain('Not Implemented');
+    expect(response.headers.get('allow')).toContain('GET');
   });
 
   // ── HP: send() only → 204 ─────────────────────────────────
@@ -3320,14 +3318,13 @@ describe('HttpAdapter E2E', () => {
     expect(typeof body.message).toBe('string');
   });
 
-  it('should return 501 for unknown HTTP method (TRACE)', async () => {
+  it('should return 405 for unknown HTTP method on registered path', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/json`, { method: 'LINK' });
 
     // Assert
-    expect(response.status).toBe(501);
-    const body = await bodyOf(response);
-    expect(body.message).toBe('Not Implemented');
+    expect(response.status).toBe(405);
+    expect(response.headers.get('allow')).toContain('GET');
   });
 
   // ══════════════════════════════════════════════════════════════
@@ -4366,15 +4363,13 @@ describe('HttpAdapter E2E', () => {
 
   // ── Additional coverage: 501 response details ─────────────────
 
-  it('should return JSON body for 501 unknown method', async () => {
+  it('should return 405 with Allow header for unknown method on registered path', async () => {
     // Arrange & Act
     const response = await fetch(`${BASE_URL}/json`, { method: 'LINK' });
-    const body = await bodyOf(response);
 
     // Assert
-    expect(response.status).toBe(501);
-    expect(body.message).toBe('Not Implemented');
-    expect(response.headers.get('content-type')).toContain('application/json');
+    expect(response.status).toBe(405);
+    expect(response.headers.get('allow')).toContain('GET');
   });
 
   // ── Additional coverage: native Response passthrough ──────────
@@ -4673,12 +4668,13 @@ describe('HttpAdapter E2E', () => {
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
   });
 
-  it('should return 501 for custom method not declared via @Method anywhere', async () => {
-    // Arrange & Act — PROPFIND has no @Method handler → not in auto-derived allowedMethods
+  it('should return 405 with Allow for unknown custom method on path that has PURGE', async () => {
+    // Arrange & Act — /cache/:key has PURGE; PROPFIND not registered
     const response = await fetch(`${BASE_URL}/cache/images`, { method: 'PROPFIND' });
 
     // Assert
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(405);
+    expect(response.headers.get('allow')).toContain('PURGE');
   });
 
   it('should return 404 for custom method on non-matching path', async () => {
@@ -4886,16 +4882,16 @@ describe('HttpAdapter E2E', () => {
     expect(response.status).toBe(414);
   });
 
-  it('should respond 501 Not Implemented for unhandled TRACE via raw TCP (RFC 9110 §9.3.8)', async () => {
+  it('should respond 404 for unhandled TRACE via raw TCP (no route registered)', async () => {
     const { status } = await sendRawHttpRequest('TRACE', '/any-path');
 
-    expect(status).toBe(501);
+    expect(status).toBe(404);
   });
 
-  it('should respond 501 Not Implemented for unhandled CONNECT via raw TCP (RFC 9110 §9.3.6)', async () => {
+  it('should respond 404 for unhandled CONNECT via raw TCP (no route registered)', async () => {
     const { status } = await sendRawHttpRequest('CONNECT', '/proxy-target');
 
-    expect(status).toBe(501);
+    expect(status).toBe(404);
   });
 
   it('should expose runtime metrics via server.getMetrics()', () => {

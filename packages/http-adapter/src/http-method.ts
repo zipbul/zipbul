@@ -6,7 +6,9 @@
  * `@Method('X', …)` decorators during the AOT handler-index scan at boot.
  *
  * TRACE / CONNECT are permanently unsupported — see {@link ForbiddenHttpMethod}.
- * Requests with these methods receive 501 Not Implemented (RFC 9110 §15.6.2).
+ * Boot-time scan rejects @Method handlers that declare them; runtime requests
+ * resolve to 404 (no path) or 405 + Allow (path exists) like any other
+ * unregistered method.
  */
 export const HTTP_STANDARD_METHODS: ReadonlySet<string> = new Set<string>([
   'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS',

@@ -22,7 +22,7 @@ import type { HttpResponse } from './http-response';
 import { Router } from '@zipbul/router';
 import { parseDecoratorOptions, buildResponseDefaultsApplier } from './route-options';
 import { addWithHeadAlias } from './pipeline/router-register';
-import { FORBIDDEN_HTTP_METHODS, HTTP_STANDARD_METHODS } from './http-method';
+import { FORBIDDEN_HTTP_METHODS } from './http-method';
 
 type HttpCompiledHandlerEntry = CompiledHandlerEntry;
 
@@ -69,7 +69,6 @@ export class RouteHandler {
   private readonly router: Router<MatchedRouteMetadata>;
   private readonly logger = Logger.inherit();
   private readonly registeredMethods = new Set<string>();
-  private readonly allowedMethods = new Set<string>(HTTP_STANDARD_METHODS);
 
   constructor(
     metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
@@ -122,18 +121,6 @@ export class RouteHandler {
   }
 
   /**
-   * Returns the server-wide set of allowed HTTP methods.
-   * Seeded with the standard 7 (RFC 9110 §9.1) and extended at boot time
-   * by `registerFromHandlerIndex` with any additional `@Method('X', …)` tokens
-   * declared by the user. TRACE/CONNECT are permanently excluded.
-   *
-   * @public
-   */
-  getServerAllowedMethods(): ReadonlySet<string> {
-    return this.allowedMethods;
-  }
-
-  /**
    * Registers routes from AOT-compiled handler index.
    *
    * @param entries - Compiled handler entries from AOT.
@@ -176,7 +163,6 @@ export class RouteHandler {
         );
       }
 
-      this.allowedMethods.add(httpMethod);
     }
 
     // Phase 2: 검증 통과 후 실제 등록.

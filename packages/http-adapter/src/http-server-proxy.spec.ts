@@ -577,15 +577,13 @@ describe('resolveProxyInfo', () => {
 // ── createHttpRequest ────────────────────────────────────────
 
 describe('createHttpRequest', () => {
-  const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
-
   it('should return ok with correct fields for valid GET', () => {
     const raw = new Request('http://example.com/path?q=1', {
       method: 'GET',
       headers: { 'content-type': 'application/json' },
     });
 
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -608,7 +606,7 @@ describe('createHttpRequest', () => {
       ipChain: ['1.2.3.4'],
     };
 
-    const result = createHttpRequest(raw, '10.0.0.1', true, proxyInfo, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', true, proxyInfo);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -624,7 +622,7 @@ describe('createHttpRequest', () => {
   it('should use URL values when no proxy info', () => {
     const raw = new Request('https://direct.example.com:9090/test', { method: 'GET' });
 
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -636,20 +634,12 @@ describe('createHttpRequest', () => {
     }
   });
 
-  it('should return not-implemented for unknown method', () => {
-    const raw = new Request('http://example.com/', { method: 'PROPFIND' });
-
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
-
-    expect(result.kind).toBe('not-implemented');
-  });
-
   it('should return bad-request for duplicate inconsistent content-length', () => {
     const headers = new Headers();
     headers.set('content-length', '5, 3');
     const raw = new Request('http://example.com/', { method: 'GET', headers });
 
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('bad-request');
   });
@@ -657,7 +647,7 @@ describe('createHttpRequest', () => {
   it('should set queryString to null when absent', () => {
     const raw = new Request('http://example.com/path', { method: 'GET' });
 
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -668,7 +658,7 @@ describe('createHttpRequest', () => {
   it('should set queryString when present', () => {
     const raw = new Request('http://example.com/path?foo=bar&baz=1', { method: 'GET' });
 
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -682,7 +672,7 @@ describe('createHttpRequest', () => {
       headers: { 'content-type': 'text/html; charset=utf-8' },
     });
 
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -702,7 +692,7 @@ describe('createHttpRequest', () => {
       ipChain: ['::ffff:192.168.1.1'],
     };
 
-    const result = createHttpRequest(raw, '10.0.0.1', true, proxyInfo, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', true, proxyInfo);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -720,7 +710,7 @@ describe('createHttpRequest', () => {
       ipChain: ['1.2.3.4'],
     };
 
-    const result = createHttpRequest(raw, '10.0.0.1', true, proxyInfo, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', true, proxyInfo);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -738,7 +728,7 @@ describe('createHttpRequest', () => {
       ipChain: ['1.2.3.4'],
     };
 
-    const result = createHttpRequest(raw, '10.0.0.1', true, proxyInfo, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', true, proxyInfo);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -756,7 +746,7 @@ describe('createHttpRequest', () => {
       ipChain: ['1.2.3.4'],
     };
 
-    const result = createHttpRequest(raw, '10.0.0.1', true, proxyInfo, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', true, proxyInfo);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {

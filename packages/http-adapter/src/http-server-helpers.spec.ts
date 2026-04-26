@@ -29,7 +29,6 @@ const { __internals } = await import('./http-server');
 
 const {
   parseContentLength,
-  validateHttpMethod,
   resolveRawBody,
   createHttpRequest,
 } = __internals;
@@ -569,24 +568,6 @@ describe('defaultPortByProtocol', () => {
   });
 });
 
-describe('validateHttpMethod', () => {
-  it('should return method when in allowed set', () => {
-    const allowed = new Set(['GET', 'POST']);
-
-    const result = validateHttpMethod('GET', allowed);
-
-    expect(result).toBe('GET');
-  });
-
-  it('should return null for unknown method', () => {
-    const allowed = new Set(['GET', 'POST']);
-
-    const result = validateHttpMethod('PATCH', allowed);
-
-    expect(result).toBeNull();
-  });
-});
-
 describe('normalizeIp', () => {
   it('should return null when ip is null', () => {
     const result = normalizeIp(null);
@@ -1014,15 +995,13 @@ describe('ipv4ToNumber', () => {
 });
 
 describe('createHttpRequest', () => {
-  const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
-
   it('should return ok with valid request', () => {
     const raw = new Request('http://example.com/path?q=1', {
       method: 'GET',
       headers: { 'content-type': 'application/json' },
     });
 
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -1038,14 +1017,6 @@ describe('createHttpRequest', () => {
     }
   });
 
-  it('should return not-implemented when method is invalid', () => {
-    const raw = new Request('http://example.com/', { method: 'PROPFIND' });
-
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
-
-    expect(result.kind).toBe('not-implemented');
-  });
-
   it('should return bad-request when content-length is inconsistent', () => {
     const raw = new Request('http://example.com/', { method: 'GET' });
     const headers = new Headers(raw.headers);
@@ -1055,22 +1026,9 @@ describe('createHttpRequest', () => {
       headers,
     });
 
-    const result = createHttpRequest(modifiedRequest, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(modifiedRequest, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('bad-request');
-  });
-
-  it('should return not-implemented with request field for unsupported method', () => {
-    const raw = new Request('http://example.com/resource', { method: 'LINK' });
-
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
-
-    expect(result.kind).toBe('not-implemented');
-    expect('request' in result).toBe(true);
-    if (result.kind === 'not-implemented') {
-      expect(result.request.method).toBe('LINK');
-      expect(result.request.path).toBe('/resource');
-    }
   });
 
   it('should return bad-request with invalid-url reason and no request field for invalid URL', () => {
@@ -1082,7 +1040,7 @@ describe('createHttpRequest', () => {
       signal: AbortSignal.timeout(5000),
     } as unknown as Request;
 
-    const result = createHttpRequest(invalidRaw, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(invalidRaw, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('bad-request');
     if (result.kind === 'bad-request') {
@@ -1100,7 +1058,7 @@ describe('createHttpRequest', () => {
       headers,
     });
 
-    const result = createHttpRequest(modifiedRequest, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(modifiedRequest, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('bad-request');
     if (result.kind === 'bad-request') {
@@ -1118,7 +1076,7 @@ describe('createHttpRequest', () => {
       headers: { 'content-type': 'text/html', 'x-custom': 'value' },
     });
 
-    const result = createHttpRequest(raw, '192.168.1.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '192.168.1.1', false, null);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -1143,7 +1101,7 @@ describe('createHttpRequest', () => {
     const longPath = '/' + 'a'.repeat(10_000);
     const raw = new Request(`http://example.com${longPath}`, { method: 'GET' });
 
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS, undefined, 8192);
+    const result = createHttpRequest(raw, '10.0.0.1', false, null, undefined, 8192);
 
     expect(result.kind).toBe('uri-too-long');
   });
@@ -1151,7 +1109,7 @@ describe('createHttpRequest', () => {
   it('should accept URL at maxUriLength boundary', () => {
     const raw = new Request('http://example.com/ok', { method: 'GET' });
 
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS, undefined, raw.url.length);
+    const result = createHttpRequest(raw, '10.0.0.1', false, null, undefined, raw.url.length);
 
     expect(result.kind).toBe('ok');
   });

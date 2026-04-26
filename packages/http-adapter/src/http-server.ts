@@ -35,11 +35,6 @@ interface CreateHttpRequestResult {
   readonly request: HttpRequest;
 }
 
-interface CreateHttpRequestNotImplemented {
-  readonly kind: 'not-implemented';
-  readonly request: HttpRequest;
-}
-
 interface CreateHttpRequestBadRequest {
   readonly kind: 'bad-request';
   readonly reason: 'invalid-url' | 'invalid-content-length';
@@ -52,7 +47,6 @@ interface CreateHttpRequestUriTooLong {
 
 type CreateHttpRequestOutput =
   | CreateHttpRequestResult
-  | CreateHttpRequestNotImplemented
   | CreateHttpRequestBadRequest
   | CreateHttpRequestUriTooLong;
 
@@ -79,12 +73,6 @@ function parseContentLength(headers: Headers): number | null | 'invalid' {
   return parsed < 0 ? 'invalid' : parsed;
 }
 
-function validateHttpMethod(method: string, allowedMethods: ReadonlySet<string>): HttpMethod | null {
-  // as 허용 사유: allowedMethods.has(method) 통과 = 런타임 검증 완료.
-  // HttpMethod open union의 TS 타입 시스템 한계.
-  return allowedMethods.has(method) ? method as HttpMethod : null;
-}
-
 function resolveRawBody(matchedRoute: MatchedRouteMetadata | undefined): boolean {
   return matchedRoute?.rawBody === true;
 }
@@ -96,15 +84,12 @@ function createHttpRequest(
   socketIp: string | null,
   isTrustedProxy: boolean,
   proxyInfo: ResolvedProxyInfo | null,
-  allowedMethods: ReadonlySet<string>,
   requestIdOptions?: RequestIdOptions,
   maxUriLength: number = DEFAULT_MAX_URI_LENGTH,
 ): CreateHttpRequestOutput {
   if (raw.url.length > maxUriLength) {
     return { kind: 'uri-too-long' };
   }
-
-  const validatedMethod = validateHttpMethod(raw.method, allowedMethods);
 
   const parsedTarget = parseRequestTarget(raw.url);
   if (parsedTarget === null) {
@@ -116,8 +101,7 @@ function createHttpRequest(
   const urlProtocol = rawProtocol !== null && rawProtocol.length > 0 ? rawProtocol : null;
   const urlHost = parsedTarget.authority;
 
-  // Method string for HttpRequest — use raw method even if not in allowedMethods
-  const method = (validatedMethod ?? raw.method) as HttpMethod;
+  const method = raw.method as HttpMethod;
 
   const request = new HttpRequest({
     ...(requestIdOptions?.header !== undefined ? { requestIdHeaderName: requestIdOptions.header } : {}),
@@ -146,10 +130,6 @@ function createHttpRequest(
     signal: raw.signal,
   });
 
-  if (validatedMethod === null) {
-    return { kind: 'not-implemented', request };
-  }
-
   if (contentLength === 'invalid') {
     return { kind: 'bad-request', reason: 'invalid-content-length', request };
   }
@@ -177,7 +157,6 @@ export class HttpServer {
 
   private options: HttpServerOptions;
   private server: Server<unknown>;
-  private allowedMethods: ReadonlySet<string>;
   private requestScopeEnabled: boolean | undefined;
 
   /**
@@ -229,9 +208,6 @@ export class HttpServer {
         this.adapter.buildRoutePipeline.bind(this.adapter),
       );
     }
-
-    // allowedMethods 는 route-handler 의 스캔 결과 (HTTP_STANDARD ∪ @Method 토큰) 를 단일 진실 원천으로 사용.
-    this.allowedMethods = routeHandler.getServerAllowedMethods();
 
     if (Array.isArray(options.internalRoutes) && options.internalRoutes.length > 0) {
       routeHandler.registerInternalRoutes(options.internalRoutes);
@@ -304,7 +280,6 @@ export class HttpServer {
       socketIp,
       isTrusted,
       proxyInfo,
-      this.allowedMethods,
       this.options.requestId,
       this.options.maxUriLength,
     );
@@ -330,12 +305,10 @@ export class HttpServer {
       : undefined;
     const context = new HttpContext(zipbulReq, zipbulRes, req, requestContainer, server);
 
-    // not-implemented, 기타 bad-request: pipelineError로 설정.
-    // executePipeline이 OnRequest MW 실행 후 이 에러를 반환하여
+    // bad-request (invalid-content-length 등): pipelineError 로 설정.
+    // executePipeline 이 OnRequest MW 실행 후 이 에러를 반환하여
     // CORS 등 미들웨어 헤더가 응답에 포함된다.
-    if (createResult.kind === 'not-implemented') {
-      context.pipelineError = { status: StatusCodes.NOT_IMPLEMENTED, message: 'Not Implemented' };
-    } else if (createResult.kind === 'bad-request') {
+    if (createResult.kind === 'bad-request') {
       context.pipelineError = { status: StatusCodes.BAD_REQUEST, message: 'Bad Request' };
     }
 
@@ -372,7 +345,6 @@ export class HttpServer {
 
 export const __internals = {
   parseContentLength,
-  validateHttpMethod,
   resolveRawBody,
   createHttpRequest,
 };

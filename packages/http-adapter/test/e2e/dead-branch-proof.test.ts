@@ -1,13 +1,12 @@
 /**
- * 증명 — 삭제된 TRACE/CONNECT 분기가 production 에서 도달 불가능함을 런타임 검증.
+ * 모든 미지원 메서드(TRACE/CONNECT/LINK 등)가 resolveRoute 를 통과해
+ * 404/405 로 일관 처리되는지 검증 — 501 fast path 폐기 후 동작.
  *
- * 가설:
- *   (A) TRACE/CONNECT 요청은 pipelineError 경로로만 501 반환됨
- *       (resolveRoute 의 not-found 분기 도달 안 함)
- *   (B) 정상 메서드 + 미등록 path 는 resolveRoute → not-found 분기 도달 → 404
- *   (C) 미지원 메서드(LINK 등) 도 동일 — pipelineError 경로
- *
- * 방법: resolveRoute 를 spy 로 wrapping, 호출 여부 + matchResult 관찰.
+ * - TRACE /any-path → resolveRoute 호출 → not-found → 404
+ * - CONNECT path-form → 동일
+ * - CONNECT authority-form → parseRequestTarget 실패 → 400 (resolveRoute 도달 안 함)
+ * - LINK /whatever → resolveRoute 호출 → 404
+ * - 등록 path 에 다른 메서드 → 405 + Allow
  */
 import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
 import type { ZipbulContainer, CompiledHandlerEntry } from '@zipbul/common';
@@ -67,7 +66,7 @@ async function rawTcp(req: string): Promise<{ status: number; body: string }> {
   });
 }
 
-describe('Dead branch proof — TRACE/CONNECT cannot reach resolveRoute', () => {
+describe('Unknown methods route through resolveRoute → 404/405 (501 fast path removed)', () => {
   beforeAll(async () => {
     adapter = new HttpAdapter({ port: PORT, bodyLimit: 1024 });
 
@@ -111,40 +110,46 @@ describe('Dead branch proof — TRACE/CONNECT cannot reach resolveRoute', () => 
     server.stop();
   });
 
-  it('(A) TRACE raw TCP → 501 WITHOUT calling resolveRoute', async () => {
+  it('TRACE /any-path → 404 via resolveRoute not-found', async () => {
     resolveRouteSpy.mockClear();
     const { status } = await rawTcp(`TRACE /any-path HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n`);
 
-    expect(status).toBe(501);
-    expect(resolveRouteSpy).not.toHaveBeenCalled();
+    expect(status).toBe(404);
+    expect(resolveRouteSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('(A) CONNECT path-form raw TCP → 501 WITHOUT calling resolveRoute', async () => {
-    // Note: RFC 9112 §3.2.3 mandates authority-form for CONNECT, but Bun accepts
-    // path-form too. authority-form (host:port) fails parseRequestTarget → 400
-    // (also without resolveRoute). Either path proves the dead branch is unreachable.
+  it('CONNECT /proxy-target (path-form) → 404 via resolveRoute not-found', async () => {
     resolveRouteSpy.mockClear();
     const { status } = await rawTcp(`CONNECT /proxy-target HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n`);
 
-    expect(status).toBe(501);
-    expect(resolveRouteSpy).not.toHaveBeenCalled();
+    expect(status).toBe(404);
+    expect(resolveRouteSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('(A) CONNECT authority-form raw TCP → 400 WITHOUT calling resolveRoute', async () => {
+  it('CONNECT authority-form → 400 via parseRequestTarget failure (no resolveRoute)', async () => {
     resolveRouteSpy.mockClear();
     const { status } = await rawTcp(`CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nConnection: close\r\n\r\n`);
 
-    // authority-form fails parseRequestTarget → bad-request (invalid-url) → 400
+    // authority-form fails parseRequestTarget → bad-request (invalid-url) → 400 (early exit before resolveRoute)
     expect(status).toBe(400);
     expect(resolveRouteSpy).not.toHaveBeenCalled();
   });
 
-  it('(C) LINK (unknown method) → 501 WITHOUT calling resolveRoute', async () => {
+  it('LINK /whatever (unknown method, unregistered path) → 404 via resolveRoute', async () => {
     resolveRouteSpy.mockClear();
     const resp = await fetch(`${BASE}/whatever`, { method: 'LINK' });
 
-    expect(resp.status).toBe(501);
-    expect(resolveRouteSpy).not.toHaveBeenCalled();
+    expect(resp.status).toBe(404);
+    expect(resolveRouteSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('LINK /registered (unknown method, registered path) → 405 + Allow', async () => {
+    resolveRouteSpy.mockClear();
+    const resp = await fetch(`${BASE}/registered`, { method: 'LINK' });
+
+    expect(resp.status).toBe(405);
+    expect(resp.headers.get('allow')).toContain('GET');
+    expect(resolveRouteSpy).toHaveBeenCalledTimes(1);
   });
 
   it('(B) GET /unknown-path → 404 via resolveRoute not-found (alive branch)', async () => {
