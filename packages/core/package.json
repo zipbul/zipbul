@@ -1,6 +1,6 @@
 {
   "name": "@zipbul/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DI container, application bootstrap and module system for Zipbul",
   "license": "MIT",
   "type": "module",
