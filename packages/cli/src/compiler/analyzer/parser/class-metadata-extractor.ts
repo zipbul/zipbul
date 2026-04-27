@@ -167,16 +167,11 @@ export function convertClassSymbol(
         const isStatic = member.modifiers.includes('static');
         const memberName = member.name;
 
-        // Check raw AST for computed/private
-        const astMeta = rawClassNode !== null
-          ? astLocators.getMethodAstMeta(rawClassNode, memberName)
-          : null;
-        const isComputed = astMeta?.isComputed ?? false;
-        const isPrivateName = astMeta?.isPrivateName ?? false;
-
-        // gildash gives "unknown" for computed/private methods — treat as unnamed
-        const isUnresolvableName = memberName === 'unknown' && (isComputed || isPrivateName);
-        let methodName = isUnresolvableName ? '' : memberName;
+        // gildash 0.25+ keyKind: 'private' | 'literal' | 'computed' | undefined.
+        // - private (`#name`): name 은 bare ('name') — 식별자로 사용 가능, isPrivateName 만 표시
+        // - computed (`[expr]`): name 은 source text ('[Symbol.iterator]') — JS 식별자 아님 → synthetic 또는 skip
+        const isComputed = member.keyKind === 'computed';
+        const isPrivateName = member.keyKind === 'private';
 
         const methodDecorators = (member.decorators ?? []).map(decorator => {
           const converted = convertDecorator(decorator);
@@ -184,9 +179,12 @@ export function convertClassSymbol(
           return { ...converted, name: resolveOriginalName(converted.name, context.currentOriginalNames) };
         });
 
-        if (!isNonEmptyString(methodName)) {
-          if (isComputed && methodDecorators.length > 0) {
-            methodName = `__computed_${astMeta?.start ?? 0}__`;
+        let methodName = memberName;
+
+        if (isComputed) {
+          if (methodDecorators.length > 0) {
+            const lineHint = member.span?.start?.line ?? 0;
+            methodName = `__computed_${lineHint}__`;
           } else {
             continue;
           }

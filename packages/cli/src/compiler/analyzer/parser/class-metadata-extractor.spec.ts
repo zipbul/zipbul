@@ -817,14 +817,15 @@ describe('convertClassSymbol', () => {
     const { parsed, symbols, importMap } = parseFixture(code);
     const symbol = findClassSymbol(symbols, 'MyClass');
 
-    // Simulate computed method scenario: gildash gives name "unknown" for computed methods
+    // gildash 0.25+: computed key 의 name 은 source text + keyKind: 'computed' 로 표시
     const symbolWithComputed: ExtractedSymbol = {
       ...symbol,
       members: [
         {
           kind: 'method',
           methodKind: 'method',
-          name: 'unknown',
+          name: '[Symbol.iterator]',
+          keyKind: 'computed',
           span: { start: { line: 2, column: 2 }, end: { line: 2, column: 20 } },
           isExported: false,
           modifiers: [],
@@ -833,10 +834,7 @@ describe('convertClassSymbol', () => {
       ],
     };
 
-    const astLocators: AstNodeLocatorCallbacks = {
-      ...createRealAstLocators(),
-      getMethodAstMeta: mock(() => ({ isComputed: true, isPrivateName: false, start: 42 })),
-    };
+    const astLocators: AstNodeLocatorCallbacks = createRealAstLocators();
 
     const result = convertClassSymbol(
       symbolWithComputed, parsed, {}, importMap,
@@ -849,7 +847,8 @@ describe('convertClassSymbol', () => {
     const metadata = result as ClassMetadata;
 
     expect(metadata.methods).toHaveLength(1);
-    expect(metadata.methods[0]?.name).toBe('__computed_42__');
+    // span.start.line 기반 disambiguator (구 byte offset 대체)
+    expect(metadata.methods[0]?.name).toBe('__computed_2__');
     expect(metadata.methods[0]?.isComputed).toBe(true);
   });
 
