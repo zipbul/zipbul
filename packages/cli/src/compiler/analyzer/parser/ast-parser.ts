@@ -2,7 +2,7 @@ import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'path';
 
-import { parseSource, extractSymbols, patternSearch, buildLineOffsets } from '@zipbul/gildash';
+import { parseSource, extractSymbols, extractRelations, patternSearch, buildLineOffsets } from '@zipbul/gildash';
 import type { ParsedFile, PatternMatch } from '@zipbul/gildash';
 import type { ImportEntry } from '../interfaces';
 import type { ClassMetadata } from '../interfaces';
@@ -99,7 +99,9 @@ export class AstParser {
     let moduleDefinition: ModuleDefinition | undefined;
     let parseError: ReturnType<typeof err<Diagnostic>> | null = null;
 
-    // 2. buildImportState from staticImports
+    // 2. extractRelations once — feeds both import and export state builders
+    const relations = extractRelations(parsed.program, filename);
+
     const tracking: ImportTrackingState = {
       currentImports: this.currentImports,
       currentImportSources: this.currentImportSources,
@@ -107,7 +109,7 @@ export class AstParser {
     };
 
     buildImportState(
-      parsed.module.staticImports,
+      relations,
       filename,
       imports,
       importEntries,
@@ -119,9 +121,9 @@ export class AstParser {
       tracking,
     );
 
-    // 3. buildExportState from staticExports
+    // 3. buildExportState — re-exports come through extractRelations too
     buildExportState(
-      parsed.module.staticExports,
+      relations,
       filename,
       reExports,
       (sourcePath, importPath) => this.resolvePath(sourcePath, importPath),

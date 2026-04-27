@@ -1,24 +1,10 @@
-import type {
-  StaticImport, StaticExport,
-  ExportNamedDeclaration, ExportDefaultDeclaration, ModuleExportName,
-} from 'oxc-parser';
+import type { CodeRelation, Node } from '@zipbul/gildash';
 
 import type { ImportEntry } from '../interfaces';
 import type { DefineModuleCall, ReExport } from '../parser-models';
 import type { ReExportName } from '../types';
 import { isNonEmptyString } from '../type-guards';
 import { FRAMEWORK_CREATE_APPLICATION, FRAMEWORK_DEFINE_MODULE } from '@zipbul/common';
-
-/**
- * Extracts the exported name from an `ExportNamedDeclaration` specifier's
- * `local` or `exported` node.
- *
- * @param node - The module export name node
- * @returns The string name (identifier name or literal value)
- */
-function getExportName(node: ModuleExportName): string {
-  return node.type === 'Literal' ? String(node.value) : node.name;
-}
 
 /** Callback that resolves a raw import specifier to an absolute path. */
 interface ImportPathResolver {
@@ -32,26 +18,40 @@ export interface ImportTrackingState {
   currentOriginalNames: Record<string, string>;
 }
 
+interface RelationMeta {
+  readonly isType?: boolean;
+  readonly isExternal?: boolean;
+  readonly isReExport?: boolean;
+  readonly importKind?: 'namespace' | 'default' | undefined;
+  readonly specifiers?: ReadonlyArray<{ readonly local: string; readonly exported: string }>;
+}
+
+function parseRelationMeta(rel: CodeRelation): RelationMeta {
+  if (rel.metaJson === undefined || rel.metaJson === null) {
+    return rel.meta as RelationMeta ?? {};
+  }
+
+  try {
+    return JSON.parse(rel.metaJson) as RelationMeta;
+  } catch {
+    return {};
+  }
+}
+
 /**
- * Populates import tracking state from oxc-parser `StaticImport` entries.
+ * Populates import tracking state from gildash `extractRelations` output.
  *
- * Produces the same `imports`, `importEntries`, `currentImports`,
- * `currentImportSources`, `currentOriginalNames`, and alias/namespace sets
- * that the monolithic parser previously built internally.
+ * Replaces the previous `parsed.module.staticImports` (oxc-direct) walk
+ * with a binding-level CodeRelation traversal — matches the maintainer's
+ * confirmed contract that `import { Foo, type Bar }` splits into separate
+ * `'imports'` and `'type-references'` relations per binding.
  *
- * @param staticImports - Import entries from `ParsedFile.module.staticImports`
- * @param filename - Current file path for resolving relative imports
- * @param imports - Output map of local name to resolved path
- * @param importEntries - Output list of import entries
- * @param createApplicationAliases - Aliases for `createApplication`
- * @param createApplicationNamespaces - Namespace imports from `@zipbul/core`
- * @param defineModuleAliases - Aliases for `defineModule`
- * @param defineModuleNamespaces - Namespace imports from `@zipbul/core`
- * @param resolvePath - Callback to resolve an import specifier to an absolute path
- * @param tracking - Mutable import-tracking state (currentImports, currentImportSources, currentOriginalNames)
+ * Produces the same outputs the monolithic parser previously built:
+ * `imports`, `importEntries`, `currentImports`, `currentImportSources`,
+ * `currentOriginalNames`, framework alias/namespace sets.
  */
 export function buildImportState(
-  staticImports: readonly StaticImport[],
+  relations: readonly CodeRelation[],
   filename: string,
   imports: Record<string, string>,
   importEntries: ImportEntry[],
@@ -62,137 +62,222 @@ export function buildImportState(
   resolvePath: ImportPathResolver,
   tracking: ImportTrackingState,
 ): void {
-  for (const imp of staticImports) {
-    const sourceValue = imp.moduleRequest.value;
-    const resolvedSource = resolvePath(filename, sourceValue);
+  // 한 import statement 안의 여러 binding 은 같은 source 의 여러 relation 으로 split.
+  // importEntries 는 source 당 1회 push 가 원본 동작.
+  // 외부 모듈은 `specifier` 에 raw 가 들어오고 dstFilePath 는 null,
+  // 내부 모듈은 `specifier` 가 없고 dstFilePath 에 절대 경로가 들어온다.
+  const seenSources = new Map<string, string>(); // source key -> resolvedSource
+
+  for (const rel of relations) {
+    if (rel.type !== 'imports' && rel.type !== 'type-references') {
+      continue;
+    }
+
+    const meta = parseRelationMeta(rel);
+
+    // type-references 중 re-export 는 import 가 아니라 export 영역 — 여기서 제외.
+    if (meta.isReExport === true) {
+      continue;
+    }
+
+    const externalSpecifier = rel.specifier;
+    const internalDst = rel.dstFilePath;
+    const sourceKey = externalSpecifier ?? internalDst;
+
+    if (sourceKey === null || sourceKey === undefined) {
+      continue;
+    }
+
+    let resolvedSource = seenSources.get(sourceKey);
+
+    if (resolvedSource === undefined) {
+      resolvedSource = externalSpecifier !== undefined
+        ? resolvePath(filename, externalSpecifier)
+        : sourceKey;
+      seenSources.set(sourceKey, resolvedSource);
+      const sourceText = externalSpecifier ?? sourceKey;
+      importEntries.push({
+        source: sourceText,
+        resolvedSource,
+        isRelative: externalSpecifier === undefined || sourceText.startsWith('.'),
+      });
+    }
+
+    const sourceValue = externalSpecifier ?? sourceKey;
+
+    // type-only binding 은 추적 대상에서 제외 (기존 동작).
+    if (rel.type === 'type-references') {
+      continue;
+    }
+
+    const localName = rel.srcSymbolName;
+
+    if (localName === null) {
+      continue;
+    }
+
+    imports[localName] = resolvedSource;
+    tracking.currentImports[localName] = resolvedSource;
+    tracking.currentImportSources[localName] = sourceValue;
+
     const isCoreImport = sourceValue === '@zipbul/core';
 
-    importEntries.push({ source: sourceValue, resolvedSource, isRelative: sourceValue.startsWith('.') });
-
-    for (const entry of imp.entries) {
-      if (entry.isType) {
-        continue;
-      }
-
-      const localName = entry.localName.value;
-
-      imports[localName] = resolvedSource;
-      tracking.currentImports[localName] = resolvedSource;
-      tracking.currentImportSources[localName] = sourceValue;
-
-      if (entry.importName.kind === 'Name') {
-        const importedName = entry.importName.name;
-
-        if (importedName !== null && importedName !== localName) {
-          tracking.currentOriginalNames[localName] = importedName;
-        }
-
-        if (isCoreImport) {
-          if (importedName === FRAMEWORK_CREATE_APPLICATION) {
-            createApplicationAliases.add(localName);
-          }
-
-          if (importedName === FRAMEWORK_DEFINE_MODULE) {
-            defineModuleAliases.add(localName);
-          }
-        }
-      }
-
-      if (entry.importName.kind === 'NamespaceObject' && isCoreImport) {
+    if (meta.importKind === 'namespace') {
+      // `import * as ns` — alias 추적 무관, namespace 셋에 추가.
+      if (isCoreImport) {
         createApplicationNamespaces.add(localName);
         defineModuleNamespaces.add(localName);
+      }
+
+      continue;
+    }
+
+    const importedName = rel.dstSymbolName;
+
+    if (importedName !== null && importedName !== localName) {
+      tracking.currentOriginalNames[localName] = importedName;
+    }
+
+    if (isCoreImport && importedName !== null) {
+      if (importedName === FRAMEWORK_CREATE_APPLICATION) {
+        createApplicationAliases.add(localName);
+      }
+
+      if (importedName === FRAMEWORK_DEFINE_MODULE) {
+        defineModuleAliases.add(localName);
       }
     }
   }
 }
 
 /**
- * Populates re-export entries from oxc-parser `StaticExport` entries.
+ * Populates re-export entries from gildash `extractRelations` output.
  *
- * Replaces the manual `ExportAllDeclaration` and `ExportNamedDeclaration`
- * with-source traversal.
- *
- * @param staticExports - Export entries from `ParsedFile.module.staticExports`
- * @param filename - Current file path for resolving relative imports
- * @param reExports - Output list of re-export entries
- * @param resolvePath - Callback to resolve an import specifier to an absolute path
+ * Replaces the previous `parsed.module.staticExports` walk. Re-export-all
+ * (`export * from 'X'`) produces a relation with `srcSymbolName === null`
+ * and the meta carries `isReExport: true`. Named re-exports carry a
+ * `specifiers` array.
  */
 export function buildExportState(
-  staticExports: readonly StaticExport[],
+  relations: readonly CodeRelation[],
   filename: string,
   reExports: ReExport[],
   resolvePath: ImportPathResolver,
 ): void {
-  for (const exp of staticExports) {
-    for (const entry of exp.entries) {
-      if (entry.moduleRequest === null) {
-        continue;
-      }
+  // 외부 모듈 re-export 는 specifier 에 raw + dstFilePath null,
+  // 내부 모듈 re-export 는 dstFilePath 에 resolved + specifier 없음.
+  // 한 source 당 한 ReExport 객체로 묶기 위해 중간 캐시 사용.
+  const groups = new Map<string, ReExport>();
 
-      const sourceValue = entry.moduleRequest.value;
-      const resolvedSource = resolvePath(filename, sourceValue);
-
-      if (entry.importName.kind === 'AllButDefault' || entry.importName.kind === 'All') {
-        reExports.push({
-          module: resolvedSource,
-          exportAll: true,
-        });
-
-        continue;
-      }
-
-      if (entry.importName.kind === 'Name' && entry.exportName.kind === 'Name') {
-        const localName = entry.importName.name ?? '';
-        const exportedName = entry.exportName.name ?? '';
-
-        if (localName.length > 0 && exportedName.length > 0) {
-          const existing = reExports.find(
-            re => re.module === resolvedSource && !re.exportAll,
-          );
-
-          if (existing) {
-            const names = existing.names ?? [];
-
-            names.push({ local: localName, exported: exportedName });
-            existing.names = names;
-          } else {
-            reExports.push({
-              module: resolvedSource,
-              exportAll: false,
-              names: [{ local: localName, exported: exportedName }],
-            });
-          }
-        }
-      }
+  for (const rel of relations) {
+    if (rel.type !== 're-exports' && rel.type !== 'type-references') {
+      continue;
     }
+
+    const meta = parseRelationMeta(rel);
+
+    if (rel.type === 'type-references' && meta.isReExport !== true) {
+      continue;
+    }
+
+    const externalSpecifier = rel.specifier;
+    const internalDst = rel.dstFilePath;
+    const resolvedSource = externalSpecifier !== undefined
+      ? resolvePath(filename, externalSpecifier)
+      : internalDst;
+
+    if (resolvedSource === null || resolvedSource === undefined) {
+      continue;
+    }
+
+    if (rel.srcSymbolName === null && rel.dstSymbolName === null) {
+      // export * from 'X'
+      reExports.push({ module: resolvedSource, exportAll: true });
+
+      continue;
+    }
+
+    const localName = rel.dstSymbolName ?? rel.srcSymbolName;
+    const exportedName = rel.srcSymbolName ?? rel.dstSymbolName;
+
+    if (!isNonEmptyString(localName) || !isNonEmptyString(exportedName)) {
+      continue;
+    }
+
+    let group = groups.get(resolvedSource);
+
+    if (group === undefined) {
+      group = { module: resolvedSource, exportAll: false, names: [] };
+      groups.set(resolvedSource, group);
+      reExports.push(group);
+    }
+
+    const names = group.names ?? [];
+
+    names.push({ local: localName, exported: exportedName });
+    group.names = names;
   }
 }
+
+/**
+ * Structural shape of an `ExportNamedDeclaration` AST node — the subset
+ * the cli touches. `Node` from gildash/oxc is the full union; we narrow
+ * by `type` discriminator and access fields via `as` because gildash
+ * does not re-export the named subtype.
+ */
+type ExportNamedDeclarationLike = {
+  readonly type: 'ExportNamedDeclaration';
+  readonly source: { readonly value: string } | null;
+  readonly declaration: AnyDeclaration | null;
+  readonly specifiers: ReadonlyArray<{
+    readonly local: { readonly type: 'Identifier'; readonly name: string } | { readonly type: 'Literal'; readonly value: string | number };
+    readonly exported: { readonly type: 'Identifier'; readonly name: string } | { readonly type: 'Literal'; readonly value: string | number };
+  }>;
+};
+
+type ExportDefaultDeclarationLike = {
+  readonly type: 'ExportDefaultDeclaration';
+  readonly declaration: { readonly type: 'Identifier'; readonly name: string } | { readonly type: string };
+};
+
+type AnyDeclaration =
+  | { readonly type: 'ClassDeclaration'; readonly id: { readonly name: string } | null }
+  | { readonly type: 'TSEnumDeclaration'; readonly id: { readonly name: string } }
+  | {
+    readonly type: 'VariableDeclaration';
+    readonly declarations: ReadonlyArray<{
+      readonly id: { readonly type: 'Identifier'; readonly name: string } | { readonly type: string };
+    }>;
+  }
+  | { readonly type: string };
 
 /**
  * Collects exported names from an `ExportNamedDeclaration` node.
  *
  * Handles class declarations, enum declarations, variable declarations, and
  * named export specifiers. Skips re-exports (nodes with a `source`).
- *
- * @param node - The export named declaration AST node
- * @param localExports - Output list of exported names (mutated)
- * @param exportMappings - Output list of local-to-exported name mappings (mutated)
- * @param _defineModuleCalls - List of defineModule calls (unused in body, kept for call-site compatibility)
  */
 export function collectExportNames(
-  node: ExportNamedDeclaration,
+  node: Node,
   localExports: string[],
   exportMappings: ReExportName[],
   _defineModuleCalls: DefineModuleCall[],
 ): void {
-  if (node.source !== null) {
+  if (node.type !== 'ExportNamedDeclaration') {
     return;
   }
 
-  const declaration = node.declaration;
+  const named = node as unknown as ExportNamedDeclarationLike;
+
+  if (named.source !== null) {
+    return;
+  }
+
+  const declaration = named.declaration;
 
   if (declaration?.type === 'ClassDeclaration') {
-    const name = declaration.id?.name;
+    const classDecl = declaration as Extract<AnyDeclaration, { type: 'ClassDeclaration' }>;
+    const name = classDecl.id?.name;
 
     if (isNonEmptyString(name)) {
       localExports.push(name);
@@ -202,7 +287,8 @@ export function collectExportNames(
   }
 
   if (declaration?.type === 'TSEnumDeclaration') {
-    const name = declaration.id.name;
+    const enumDecl = declaration as Extract<AnyDeclaration, { type: 'TSEnumDeclaration' }>;
+    const name = enumDecl.id.name;
 
     if (isNonEmptyString(name)) {
       localExports.push(name);
@@ -212,8 +298,10 @@ export function collectExportNames(
   }
 
   if (declaration?.type === 'VariableDeclaration') {
-    for (const decl of declaration.declarations) {
-      const declName = decl.id.type === 'Identifier' ? decl.id.name : null;
+    const varDecl = declaration as Extract<AnyDeclaration, { type: 'VariableDeclaration' }>;
+
+    for (const decl of varDecl.declarations) {
+      const declName = decl.id.type === 'Identifier' ? (decl.id as { name: string }).name : null;
 
       if (isNonEmptyString(declName)) {
         localExports.push(declName);
@@ -223,9 +311,9 @@ export function collectExportNames(
     return;
   }
 
-  for (const spec of node.specifiers) {
-    const localName = getExportName(spec.local);
-    const exportedName = getExportName(spec.exported);
+  for (const spec of named.specifiers) {
+    const localName = spec.local.type === 'Literal' ? String(spec.local.value) : spec.local.name;
+    const exportedName = spec.exported.type === 'Literal' ? String(spec.exported.value) : spec.exported.name;
 
     if (!isNonEmptyString(localName) || !isNonEmptyString(exportedName)) {
       continue;
@@ -238,21 +326,21 @@ export function collectExportNames(
 
 /**
  * Resolves `export default <identifier>` to a defineModule call.
- *
- * When the default export is an identifier that matches a known defineModule
- * call's local name, marks that call as the default export.
- *
- * @param node - The export default declaration AST node
- * @param defineModuleCalls - List of defineModule calls to search and mutate
  */
 export function resolveExportDefaultForDefineModuleInline(
-  node: ExportDefaultDeclaration,
+  node: Node,
   defineModuleCalls: DefineModuleCall[],
 ): void {
-  const decl = node.declaration;
+  if (node.type !== 'ExportDefaultDeclaration') {
+    return;
+  }
+
+  const def = node as unknown as ExportDefaultDeclarationLike;
+  const decl = def.declaration;
 
   if (decl.type === 'Identifier') {
-    const name = decl.name;
+    const ident = decl as { name: string };
+    const name = ident.name;
 
     if (isNonEmptyString(name)) {
       const existing = defineModuleCalls.find(call => call.localName === name);
