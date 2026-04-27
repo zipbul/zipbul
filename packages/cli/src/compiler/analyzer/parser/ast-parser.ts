@@ -36,7 +36,7 @@ import { resolveInjectCallee, findImportSourceForCallee, buildInjectCallFromCapt
 import { extractExceptionFiltersFromConfigure, extractMiddlewaresFromConfigure } from './method-metadata-extractor';
 import { extractHandlerContextUsages } from './handler-context-usage-extractor';
 import { extractHandlerContextOps } from './context-operation-extractor';
-import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, getMethodAstMeta, isAnonymousClassSymbol, extractFunctionSourceText } from './ast-node-locator';
+import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, isAnonymousClassSymbol, extractFunctionSourceText } from './ast-node-locator';
 
 
 /**
@@ -300,7 +300,6 @@ export class AstParser {
       findClassAstNode,
       findMethodBodyAstNode,
       findPropertyAstNode,
-      getMethodAstMeta,
     };
 
     const methodCallbacks: MethodMetadataCallbacks = {

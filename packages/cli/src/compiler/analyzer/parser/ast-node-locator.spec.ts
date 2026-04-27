@@ -13,7 +13,6 @@ import {
   findClassAstNode,
   findMethodBodyAstNode,
   findPropertyAstNode,
-  getMethodAstMeta,
   getCalleeMethodName,
 } from './ast-node-locator';
 
@@ -487,88 +486,9 @@ describe('findPropertyAstNode', () => {
   });
 });
 
-describe('getMethodAstMeta', () => {
-  it('should return metadata for a regular method', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { handle() {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'handle');
-
-    expect(meta).not.toBeNull();
-    expect(meta!.isComputed).toBe(false);
-    expect(meta!.isPrivateName).toBe(false);
-    expect(typeof meta!.start).toBe('number');
-  });
-
-  it('should return null for non-existent method', () => {
-    const classNode = parseAndFindClass('class Svc { handle() {} }', 'Svc');
-    const meta = getMethodAstMeta(classNode, 'missing');
-
-    expect(meta).toBeNull();
-  });
-
-  it('should return null for empty class', () => {
-    const classNode = parseAndFindClass('class Empty {}', 'Empty');
-    const meta = getMethodAstMeta(classNode, 'anything');
-
-    expect(meta).toBeNull();
-  });
-
-  it('should detect private method names', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { #secret() {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'secret');
-
-    expect(meta).not.toBeNull();
-    expect(meta!.isPrivateName).toBe(true);
-    expect(meta!.isComputed).toBe(false);
-  });
-
-  it('should detect computed method with "unknown" name', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { [Symbol.iterator]() {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'unknown');
-
-    expect(meta).not.toBeNull();
-    expect(meta!.isComputed).toBe(true);
-  });
-
-  it('should not match constructor', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { constructor() {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'constructor');
-
-    expect(meta).toBeNull();
-  });
-
-  it('should not match getter or setter', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { get val() { return 1; } set val(v: number) {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'val');
-
-    expect(meta).toBeNull();
-  });
-
-  it('should find method with string literal key', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { "my-method"() {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'my-method');
-
-    expect(meta).not.toBeNull();
-    expect(meta!.isComputed).toBe(false);
-  });
-});
+// getMethodAstMeta 는 gildash 0.25 의 ExtractedSymbol.keyKind 도입 이후
+// dead code 가 되어 제거됨. computed/private 메서드 감지는
+// class-metadata-extractor 가 ExtractedSymbol.keyKind 를 직접 사용한다.
 
 describe('getCalleeMethodName', () => {
   it('should extract method name from this.method() call', () => {

@@ -19,7 +19,7 @@ import type {
   AnonymousClassCallback,
   ClassMetadataContext,
 } from './class-metadata-extractor';
-import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, getMethodAstMeta } from './ast-node-locator';
+import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode } from './ast-node-locator';
 
 interface ParseFixture {
   parsed: ParsedFile;
@@ -64,7 +64,6 @@ function createRealAstLocators(): AstNodeLocatorCallbacks {
     findClassAstNode,
     findMethodBodyAstNode,
     findPropertyAstNode,
-    getMethodAstMeta,
   };
 }
 
@@ -877,7 +876,6 @@ describe('convertClassSymbol', () => {
 
     const astLocators: AstNodeLocatorCallbacks = {
       ...createRealAstLocators(),
-      getMethodAstMeta: mock(() => ({ isComputed: true, isPrivateName: false, start: 42 })),
     };
 
     const result = convertClassSymbol(
@@ -909,7 +907,6 @@ describe('convertClassSymbol', () => {
       findClassAstNode: mock(() => null),
       findMethodBodyAstNode: mock(() => null),
       findPropertyAstNode: mock(() => null),
-      getMethodAstMeta: mock(() => null),
     };
 
     const result = convertClassSymbol(

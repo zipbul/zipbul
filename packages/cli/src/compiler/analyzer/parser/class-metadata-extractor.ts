@@ -33,11 +33,6 @@ export interface AstNodeLocatorCallbacks {
   findMethodBodyAstNode(classNode: Class, methodName: string): OxcFunction | null;
   /** Finds the PropertyDefinition AST node for a named property within a class. */
   findPropertyAstNode(classNode: Class, propName: string): PropertyDefinition | null;
-  /** Returns computed/private metadata for a method within a class. */
-  getMethodAstMeta(
-    classNode: Class,
-    methodName: string,
-  ): { isComputed: boolean; isPrivateName: boolean; start: number } | null;
 }
 
 /**
