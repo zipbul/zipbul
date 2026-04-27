@@ -1,6 +1,6 @@
 {
   "name": "@zipbul/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "AOT compiler CLI with dev watch and build commands for Zipbul",
   "license": "MIT",
   "type": "module",
