@@ -121,6 +121,24 @@ export class AstParser {
       tracking,
     );
 
+    // 2b. Side-effect imports (`import './x'`) produce no relations in
+    // gildash's extractRelations output. Walk parsed.module.staticImports
+    // directly to recover importEntry rows for them — required by
+    // config-extractor when scanning external adapter packages.
+    for (const imp of parsed.module.staticImports) {
+      if (imp.entries.length > 0) {
+        continue;
+      }
+
+      const sourceValue = imp.moduleRequest.value;
+      const resolvedSource = this.resolvePath(filename, sourceValue);
+      const isRelative = sourceValue.startsWith('.');
+
+      if (!importEntries.some(e => e.source === sourceValue)) {
+        importEntries.push({ source: sourceValue, resolvedSource, isRelative });
+      }
+    }
+
     // 3. buildExportState — re-exports come through extractRelations too
     buildExportState(
       relations,
