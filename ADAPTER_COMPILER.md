@@ -16,11 +16,13 @@
 6. peer dependency (`@zipbul/core`, `@zipbul/common`) 해상도
 7. node_modules 의 ambient declaration / type-only import 처리
 8. UTF-8 인코딩 강제 (BOM 허용, locale-independent 파싱)
-9. AST 파싱 (oxc-parser)
+9. AST 파싱은 `@zipbul/gildash` 의 `parseSource(filePath, sourceText)` 단일 진입점을 통해서만 수행 — `oxc-parser` 직접 import 전면 금지 (Section N 의 정책 참조)
 
 ## B. 정적 분석 — 추출
 
-10. `defineAdapter()` 호출 위치 + 인자 객체 추출
+> 본 섹션의 모든 추출은 `@zipbul/gildash` 의 공개 API (`extractSymbols`, `extractRelations`, `patternSearch`, `Visitor`, `visitorKeys`) 위에서 수행한다. 자체 AST 노드 매칭 코드를 새로 추가하지 않는다 — 길대시 API 가 부족하면 길대시 측 패치 요청을 우선 (Section N).
+
+10. `defineAdapter()` 호출 위치 + 인자 객체 추출 — `extractSymbols` 의 variable initializer (`ExpressionValue`) 또는 호출 패턴 매칭으로 획득
 11. `adapter` 필드 → 어댑터 클래스 식별
 12. `context` 필드 → Context 클래스 식별
 13. `pipeline` 배열 → phase/step 순서 추출
@@ -169,6 +171,71 @@
 118. 사용자 앱 컴파일 출력에 의존한 어댑터 manifest 들의 hash 임베딩 (사용자 빌드 결정성)
 119. 다중 어댑터 (사용자가 여러 어댑터 동시 사용) 시 manifest 병합 규칙 — 데코레이터 이름 충돌 검출
 
+## N. AST 분석 인프라 정책 — `@zipbul/gildash` 단일 진입점
+
+> 어댑터 컴파일러 + 미들웨어 컴파일러 + 사용자 앱 빌드 + dev 모드 — 모든 정적 분석은 `@zipbul/gildash` 의 공개 API 위에서만 수행.
+> 본 정책은 본 PR 범위에서 동시 적용 (= 어댑터 컴파일러 MVP 와 oxc 직접 의존 제거를 한 묶음으로 진행).
+
+### 정책
+
+120. `@zipbul/cli` 의 `package.json` 에서 `oxc-parser` 의존성 제거. catalog 항목 (`workspaces.catalog["oxc-parser"]`) 도 삭제. transitive 로 길대시가 가져오는 것만 인정.
+121. cli 의 어떤 파일도 `from 'oxc-parser'` import 금지 — 위반 시 빌드 실패 (lint rule 또는 typecheck 실패로 강제).
+122. AST 노드 타입은 길대시 re-export (`Program`, `Node`, `Visitor`, `visitorKeys`, `VisitorObject`) 만 사용. 길대시가 노출하지 않는 raw oxc 타입 (`Class`, `CallExpression`, `Function`, `MethodDefinition`, `Expression`, `MemberExpression`, `VariableDeclaration`, `ExportNamedDeclaration`, `ExportDefaultDeclaration`, `ModuleExportName`, `StaticImport`, `ImportNameKind`) 은 길대시 고수준 API (`extractSymbols`, `extractRelations`, `patternSearch`) 로 흡수.
+123. `parseSync` / `parseAsync` 직접 호출 금지 — 모두 `parseSource(filePath, sourceText)` 의 `Result<ParsedFile, GildashError>` 반환을 통과해야 함.
+
+### 길대시 API → cli 추출기 매핑 (확정)
+
+| cli 책임 | 길대시 API | 비고 |
+|---|---|---|
+| 클래스/메서드/데코레이터/생성자/파라미터/heritage/modifiers 추출 | `extractSymbols(parsed)` | `ExtractedSymbol` 의 `kind === 'class'` 필터 후 `members` 순회 |
+| `import { X, type Y } from 'M'` binding 단위 분리 | `extractRelations(ast, filePath)` | `'imports'` / `'type-references'` / `'re-exports'` 가 binding 단위로 split. `meta.isType` 도 보존 (메인테이너 회신 확정) |
+| `defineAdapter` / `defineMiddleware` / `defineGuard` / `defineExceptionFilter` / `defineModule` 호출 인자 정규화 | `extractSymbols` 의 variable initializer (`ExpressionValue`) | cli 측에 50–100 줄 어댑터 1개 추가 (아래 Item 124) |
+| `ctx.use(KEY)` / `ctx.set(KEY, V)` / `ctx.get(KEY)` 패턴 매칭 | `patternSearch({ pattern, filePaths })` | 파일 단위 매칭 → cli 측에서 메서드 `span` 으로 함수 본문 범위 필터 + ctx 매개변수 shadow 검사 후처리 |
+| 노드 walk | 길대시 `Visitor` + `visitorKeys` | cli 의 자체 `walkChildren` 폐기 |
+| byte offset → line·col 변환 | `buildLineOffsets` + `getLineColumn` | 이미 cli 가 사용 중 (변경 없음) |
+
+### 신규 cli 측 어댑터
+
+124. `@zipbul/cli/src/compiler/analyzer/expression-value-to-zipbul-ir.ts` 신설 — 단일 책임:
+  - `ExpressionIdentifier` → `{ [ZIPBUL_REF]: name, [ZIPBUL_IMPORT_SOURCE]?: importSource }`
+  - `ExpressionMember` → `{ [ZIPBUL_REF]: 'object.property', [ZIPBUL_IMPORT_SOURCE]?: importSource }`
+  - `ExpressionCall` → `{ [ZIPBUL_CALL]: callee, [ZIPBUL_IMPORT_SOURCE]?: ..., args: [...] }` — `callee==='lazy'` + `arguments[0].kind==='function'` 이면 `{ [ZIPBUL_LAZY_REF]: refName }` 로 후처리 (refName 은 함수 본문에서 추출)
+  - `ExpressionNew` → `{ [ZIPBUL_NEW]: callee, args: [...] }`
+  - `ExpressionFunction` → `{ [ZIPBUL_FACTORY_CODE]: sourceText, __zipbul_factory_params?: [...] }`
+  - `ExpressionSpread` → `{ [ZIPBUL_SPREAD]: argument }`
+  - `ExpressionUnresolvable` / `ExpressionTemplate` → `{ [ZIPBUL_UNRESOLVABLE]: true, sourceText }`
+  - `ExpressionObject` → 평이한 객체 + `computed` 키는 `${ZIPBUL_COMPUTED_PREFIX}${index}` 로 변환 (`ZIPBUL_COMPUTED_KEY`/`ZIPBUL_COMPUTED_VALUE` 에 배치)
+  - `ExpressionArray` → 평이한 배열
+  - 리터럴 (`string`/`number`/`boolean`/`null`/`undefined`) → 값 그대로
+
+### 폐기 / 흡수 대상 cli 파일
+
+125. 다음 11개 파일에서 `oxc-parser` 직접 import 0 으로 만들기 — 본 PR 의 인수 기준:
+
+  - `packages/cli/src/compiler/analyzer/expression-converter.ts` — Item 124 의 어댑터로 대체 후 폐기
+  - `packages/cli/src/compiler/analyzer/parser/ast-node-locator.ts` — `walkChildren` 폐기, 길대시 `Visitor` 직접 사용
+  - `packages/cli/src/compiler/analyzer/parser/class-metadata-extractor.ts` — `extractSymbols` 호출 + 얇은 매핑 레이어
+  - `packages/cli/src/compiler/analyzer/parser/method-metadata-extractor.ts` — 동일
+  - `packages/cli/src/compiler/analyzer/parser/import-export-extractor.ts` — `extractRelations` 분기로 전환
+  - `packages/cli/src/compiler/analyzer/parser/context-operation-extractor.ts` — `patternSearch` + 메서드 span 필터
+  - `packages/cli/src/compiler/analyzer/parser/handler-context-usage-extractor.ts` — 동일 (중복 제거 후 단일 헬퍼로 통합)
+  - `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts` — `extractSymbols` + `ExpressionValue` 어댑터
+  - `packages/cli/src/compiler/analyzer/adapter/middleware-augment-collector.ts` — 동일
+  - `packages/cli/src/compiler/analyzer/adapter/config-extractor.ts` — `defineAdapter` 호출 추출을 `extractSymbols.initializer` 기반으로 전환
+  - `packages/cli/src/compiler/generator/lib-augment-injector.ts` — JS 후처리 시점의 oxc 사용을 길대시 기반 또는 string-level 처리로 흡수
+
+### 회귀 가드
+
+126. 본 PR 의 typecheck 단계에서 `oxc-parser` 가 `@zipbul/cli` 의 직간접 의존 그래프에 *직접 import* 형태로 등장하면 실패. (lockfile 의 transitive 로 존재하는 것은 허용 — 길대시가 가져오는 것이므로.)
+127. 회귀 방지 단위 테스트 — cli 의 `oxc-parser` import 부재를 grep 으로 검증하는 lint 룰 또는 spec 1개 추가.
+128. 기존 cli 의 모든 unit/integration/e2e 회귀 통과 (1909 / 369 / 94 / 1 baseline 보존).
+
+### 메인테이너 협력 사항 — 본 PR 범위 외
+
+- 길대시 측 신규 API 추가 0건 (확정).
+- 길대시 측 modifier enum 에 `'generator'` 추가 — cli 사용 0건 확인됨, 불필요.
+- 향후 cli 마이그레이션 중 길대시 API 의 사실상 부족분이 발견되면 그때 별도 회신.
+
 ---
 
 ## 책임 외 — 명시 제외
@@ -188,9 +255,10 @@
 
 ## 합계
 
-119 항목. 13 카테고리 (A~M).
+128 항목. 14 카테고리 (A~N).
 
 - A~L (1–113): 어댑터 패키지 빌드 시점에 어댑터 컴파일러가 직접 수행하는 책임.
 - M (114–119): 사용자 앱 빌드 측이 manifest 를 소비하는 짝 contract — 어댑터 컴파일러와 동시 완성되어야 외부 환경 완결.
+- N (120–128): AST 분석 인프라 정책 — `@zipbul/gildash` 단일 진입점, `oxc-parser` 직접 의존 제거. 어댑터 컴파일러 MVP 와 동일 PR 안에서 동시 적용.
 
 근거는 모두 zipbul 본체 contract 또는 컴파일러 표준 책임. 새 항목 도입은 zipbul 본체 코드 라인 인용 후 추가.
