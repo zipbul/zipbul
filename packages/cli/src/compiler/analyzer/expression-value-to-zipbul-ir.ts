@@ -131,6 +131,14 @@ export function convertFunctionExpression(expr: ExpressionFunction): AnalyzerVal
         entry.importSource = param.typeImportSource;
       }
 
+      if (param.isOptional === true) {
+        entry.isOptional = true;
+      }
+
+      if (typeof param.defaultValue === 'string') {
+        entry.defaultValue = param.defaultValue;
+      }
+
       return entry;
     });
 

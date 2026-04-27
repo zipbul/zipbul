@@ -121,6 +121,17 @@ describe('expression-value-to-zipbul-ir', () => {
     expect((result as Record<string, unknown>)[ZIPBUL_CALL]).toBe('lazy');
   });
 
+  test('lazy() with no arguments falls through to generic call (length>0 guard)', () => {
+    const result = convertCallExpression({
+      kind: 'call',
+      callee: 'lazy',
+      arguments: [],
+    });
+    const r = result as Record<string, unknown>;
+    expect(r[ZIPBUL_CALL]).toBe('lazy');
+    expect(r.args).toEqual([]);
+  });
+
   // ── New ───────────────────────────────────────────────────
 
   test('new expression becomes ZIPBUL_NEW', () => {
@@ -278,14 +289,18 @@ describe('expression-value-to-zipbul-ir', () => {
     });
   });
 
-  test('lazy with function arg whose body is not an identifier falls back to ZIPBUL_CALL', () => {
+  test('lazy with function arg whose body is not an identifier falls back to ZIPBUL_CALL with function in args', () => {
     const result = convertCallExpression({
       kind: 'call',
       callee: 'lazy',
       arguments: [{ kind: 'function', sourceText: '() => doSomething(x).then(y => y)' }],
     });
-    // body is `doSomething(x)...` — not a bare identifier, not `return X;` → null ref → fallback
-    expect((result as Record<string, unknown>)[ZIPBUL_CALL]).toBe('lazy');
+    const r = result as Record<string, unknown>;
+    expect(r[ZIPBUL_CALL]).toBe('lazy');
+    const args = r.args as Array<Record<string, unknown>>;
+    expect(args).toHaveLength(1);
+    // function expression converted to ZIPBUL_FACTORY_CODE form
+    expect(args[0]?.[ZIPBUL_FACTORY_CODE]).toBe('() => doSomething(x).then(y => y)');
   });
 
   // ── Edge case — deeply nested ──────────────────────────────
@@ -306,6 +321,143 @@ describe('expression-value-to-zipbul-ir', () => {
     expect(args).toHaveLength(1);
     expect(args[0]?.[ZIPBUL_CALL]).toBe('inner');
     expect((args[0]?.args as unknown[])[0]).toBe('x');
+  });
+
+  // ── Empty containers ─────────────────────────────────────
+
+  test('empty array literal returns empty array', () => {
+    expect(convertExpression({ kind: 'array', elements: [] })).toEqual([]);
+  });
+
+  test('empty object literal returns empty record', () => {
+    expect(convertExpression({ kind: 'object', properties: [] })).toEqual({});
+  });
+
+  test('call with empty arguments produces empty args', () => {
+    const result = convertCallExpression({
+      kind: 'call',
+      callee: 'fn',
+      arguments: [],
+    });
+    expect((result as Record<string, unknown>).args).toEqual([]);
+  });
+
+  // ── Numeric edge cases ───────────────────────────────────
+
+  test('negative number passes through', () => {
+    expect(convertExpression({ kind: 'number', value: -42 })).toBe(-42);
+  });
+
+  test('float number passes through', () => {
+    expect(convertExpression({ kind: 'number', value: 3.14 })).toBe(3.14);
+  });
+
+  test('boolean false passes through', () => {
+    expect(convertExpression({ kind: 'boolean', value: false })).toBe(false);
+  });
+
+  // ── Spread variants ──────────────────────────────────────
+
+  test('spread of call expression preserves nested structure', () => {
+    const result = convertExpression({
+      kind: 'spread',
+      argument: {
+        kind: 'call',
+        callee: 'getItems',
+        arguments: [{ kind: 'string', value: 'arg' }],
+      },
+    });
+    const r = result as Record<string, unknown>;
+    const inner = r[ZIPBUL_SPREAD] as Record<string, unknown>;
+    expect(inner[ZIPBUL_CALL]).toBe('getItems');
+    expect((inner.args as unknown[])[0]).toBe('arg');
+  });
+
+  test('spread of object literal preserves keys', () => {
+    const result = convertExpression({
+      kind: 'spread',
+      argument: {
+        kind: 'object',
+        properties: [{ key: 'a', value: { kind: 'number', value: 1 } }],
+      },
+    });
+    const r = result as Record<string, unknown>;
+    const inner = r[ZIPBUL_SPREAD] as Record<string, unknown>;
+    expect(inner.a).toBe(1);
+  });
+
+  // ── Computed property variants ───────────────────────────
+
+  test('computed property whose value is a call expression', () => {
+    const result = convertObjectExpression({
+      kind: 'object',
+      properties: [
+        {
+          key: 'KEY',
+          computed: true,
+          value: {
+            kind: 'call',
+            callee: 'compute',
+            arguments: [{ kind: 'number', value: 1 }],
+          },
+        },
+      ],
+    });
+    expect(result).toHaveProperty(`${ZIPBUL_COMPUTED_PREFIX}0`);
+    const entry = result[`${ZIPBUL_COMPUTED_PREFIX}0`] as Record<string, unknown>;
+    const valExpr = entry[ZIPBUL_COMPUTED_VALUE] as Record<string, unknown>;
+    expect(valExpr[ZIPBUL_CALL]).toBe('compute');
+  });
+
+  test('mix of plain and computed properties preserves both with correct indexing', () => {
+    const result = convertObjectExpression({
+      kind: 'object',
+      properties: [
+        { key: 'a', value: { kind: 'number', value: 1 } },
+        { key: 'KEY1', computed: true, value: { kind: 'string', value: 'v1' } },
+        { key: 'b', value: { kind: 'number', value: 2 } },
+        { key: 'KEY2', computed: true, value: { kind: 'string', value: 'v2' } },
+      ],
+    });
+    expect(result.a).toBe(1);
+    expect(result.b).toBe(2);
+    expect(result[`${ZIPBUL_COMPUTED_PREFIX}0`]).toBeDefined();
+    expect(result[`${ZIPBUL_COMPUTED_PREFIX}1`]).toBeDefined();
+    expect(result[`${ZIPBUL_COMPUTED_PREFIX}2`]).toBeUndefined();
+  });
+
+  // ── Function parameter rich cases ────────────────────────
+
+  test('function parameter with isOptional propagates flag', () => {
+    const result = convertFunctionExpression({
+      kind: 'function',
+      sourceText: '(a?: string) => a',
+      parameters: [
+        { name: 'a', type: 'string', isOptional: true },
+      ],
+    });
+    const params = result.__zipbul_factory_params as Array<Record<string, unknown>>;
+    expect(params[0]?.isOptional).toBe(true);
+  });
+
+  test('function parameter with defaultValue propagates string', () => {
+    const result = convertFunctionExpression({
+      kind: 'function',
+      sourceText: '(a = "x") => a',
+      parameters: [
+        { name: 'a', type: 'string', isOptional: true, defaultValue: '"x"' },
+      ],
+    });
+    const params = result.__zipbul_factory_params as Array<Record<string, unknown>>;
+    expect(params[0]?.defaultValue).toBe('"x"');
+  });
+
+  test('function with no parameters omits __zipbul_factory_params', () => {
+    const result = convertFunctionExpression({
+      kind: 'function',
+      sourceText: '() => 1',
+    });
+    expect(result.__zipbul_factory_params).toBeUndefined();
   });
 
   test('object with nested array of identifiers', () => {
