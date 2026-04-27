@@ -255,4 +255,80 @@ describe('expression-value-to-zipbul-ir', () => {
     expect(extractLazyRefName('() => compute(x)')).toBeNull();
     expect(extractLazyRefName('() => 1 + 2')).toBeNull();
   });
+
+  // ── Edge cases — no importSource ──────────────────────────
+
+  test('identifier without importSource emits undefined importSource', () => {
+    const result = convertExpression({ kind: 'identifier', name: 'localVar' });
+    expect(result).toEqual({
+      [ZIPBUL_REF]: 'localVar',
+      [ZIPBUL_IMPORT_SOURCE]: undefined,
+    });
+  });
+
+  test('member access without importSource emits undefined importSource', () => {
+    const result = convertExpression({
+      kind: 'member',
+      object: 'localObj',
+      property: 'prop',
+    });
+    expect(result).toEqual({
+      [ZIPBUL_REF]: 'localObj.prop',
+      [ZIPBUL_IMPORT_SOURCE]: undefined,
+    });
+  });
+
+  test('lazy with function arg whose body is not an identifier falls back to ZIPBUL_CALL', () => {
+    const result = convertCallExpression({
+      kind: 'call',
+      callee: 'lazy',
+      arguments: [{ kind: 'function', sourceText: '() => doSomething(x).then(y => y)' }],
+    });
+    // body is `doSomething(x)...` — not a bare identifier, not `return X;` → null ref → fallback
+    expect((result as Record<string, unknown>)[ZIPBUL_CALL]).toBe('lazy');
+  });
+
+  // ── Edge case — deeply nested ──────────────────────────────
+
+  test('nested call inside call args recursively converts', () => {
+    const result = convertExpression({
+      kind: 'call',
+      callee: 'outer',
+      arguments: [{
+        kind: 'call',
+        callee: 'inner',
+        arguments: [{ kind: 'string', value: 'x' }],
+      }],
+    });
+    const outer = result as Record<string, unknown>;
+    expect(outer[ZIPBUL_CALL]).toBe('outer');
+    const args = outer.args as Array<Record<string, unknown>>;
+    expect(args).toHaveLength(1);
+    expect(args[0]?.[ZIPBUL_CALL]).toBe('inner');
+    expect((args[0]?.args as unknown[])[0]).toBe('x');
+  });
+
+  test('object with nested array of identifiers', () => {
+    const result = convertExpression({
+      kind: 'object',
+      properties: [
+        {
+          key: 'controllers',
+          value: {
+            kind: 'array',
+            elements: [
+              { kind: 'identifier', name: 'A', importSource: './a' },
+              { kind: 'identifier', name: 'B', importSource: './b' },
+            ],
+          },
+        },
+      ],
+    });
+    const obj = result as Record<string, unknown>;
+    const list = obj.controllers as Array<Record<string, unknown>>;
+    expect(list).toHaveLength(2);
+    expect(list[0]?.[ZIPBUL_REF]).toBe('A');
+    expect(list[0]?.[ZIPBUL_IMPORT_SOURCE]).toBe('./a');
+    expect(list[1]?.[ZIPBUL_REF]).toBe('B');
+  });
 });

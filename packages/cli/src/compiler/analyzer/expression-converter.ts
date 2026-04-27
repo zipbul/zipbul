@@ -1,4 +1,4 @@
-import type { ExpressionValue, ExpressionCall, ExpressionIdentifier, ExpressionFunction } from '@zipbul/gildash';
+import type { ExpressionValue, ExpressionCall, ExpressionIdentifier } from '@zipbul/gildash';
 import type { StaticImport } from 'oxc-parser';
 
 import type { DecoratorMetadata } from './interfaces';
@@ -7,9 +7,20 @@ import type { InjectCall } from './parser-models';
 
 import {
   ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
-  ZIPBUL_FACTORY_CODE, ZIPBUL_SPREAD, ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY,
-  ZIPBUL_COMPUTED_VALUE, ZIPBUL_UNRESOLVABLE, ZIPBUL_LAZY_REF,
+  ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY,
+  ZIPBUL_COMPUTED_VALUE, ZIPBUL_UNRESOLVABLE, ZIPBUL_LAZY_REF, ZIPBUL_SPREAD,
 } from '@zipbul/common';
+
+// Pure ExpressionValue → IR conversion lives in expression-value-to-zipbul-ir.ts
+// (Step 1 adapter). This module re-exports the primitives and layers
+// inject-call collection / type-annotation parsing on top.
+import {
+  convertExpression as adapterConvertExpression,
+  convertFunctionExpression,
+  extractLazyRefName,
+} from './expression-value-to-zipbul-ir';
+
+export const convertExpression: (expr: ExpressionValue) => AnalyzerValue = adapterConvertExpression;
 
 /**
  * Resolved import information for a local binding.
@@ -59,184 +70,6 @@ export function buildImportMap(staticImports: readonly StaticImport[]): ImportMa
   }
 
   return map;
-}
-
-/**
- * Converts a gildash `ExpressionValue` into the compiler's `AnalyzerValue` IR.
- *
- * Handles all 11 ExpressionValue kinds with recursive descent for
- * nested structures (objects, arrays, call arguments).
- *
- * @param expr - Structured expression from gildash extraction
- * @returns The equivalent AnalyzerValue representation
- * @public
- */
-export function convertExpression(expr: ExpressionValue): AnalyzerValue {
-  switch (expr.kind) {
-    case 'string':
-    case 'number':
-    case 'boolean':
-    case 'null':
-      return expr.value;
-
-    case 'undefined':
-      return undefined;
-
-    case 'identifier':
-      return {
-        [ZIPBUL_REF]: expr.originalName ?? expr.name,
-        [ZIPBUL_IMPORT_SOURCE]: expr.importSource,
-      };
-
-    case 'member':
-      return {
-        [ZIPBUL_REF]: `${expr.object}.${expr.property}`,
-        [ZIPBUL_IMPORT_SOURCE]: expr.importSource,
-      };
-
-    case 'call':
-      return convertCallExpression(expr);
-
-    case 'new':
-      return {
-        [ZIPBUL_NEW]: expr.callee,
-        args: expr.arguments.map(convertExpression),
-      };
-
-    case 'object':
-      return convertObjectExpression(expr);
-
-    case 'array':
-      return expr.elements.map(convertExpression);
-
-    case 'spread':
-      return { [ZIPBUL_SPREAD]: convertExpression(expr.argument) };
-
-    case 'function':
-      return convertFunctionExpression(expr);
-
-    case 'template':
-    case 'unresolvable':
-      return { [ZIPBUL_UNRESOLVABLE]: true, sourceText: expr.sourceText };
-  }
-}
-
-/**
- * Converts a gildash `ExpressionCall` into an AnalyzerValue.
- *
- * Detects special patterns:
- * - `lazy(() => X)` → `{ ZIPBUL_LAZY_REF: 'X' }`
- * - Generic calls → `{ ZIPBUL_CALL: callee, ZIPBUL_IMPORT_SOURCE, args }`
- *
- * @param expr - A call expression from gildash extraction
- * @returns AnalyzerValue for the call
- */
-function convertCallExpression(expr: ExpressionCall): AnalyzerValue {
-  if (expr.callee === 'lazy' && expr.arguments.length > 0) {
-    const firstArg = expr.arguments[0];
-
-    if (firstArg !== undefined && firstArg.kind === 'function') {
-      const refName = extractLazyRefName(firstArg.sourceText);
-
-      if (refName !== null) {
-        return { [ZIPBUL_LAZY_REF]: refName };
-      }
-    }
-  }
-
-  return {
-    [ZIPBUL_CALL]: expr.callee,
-    [ZIPBUL_IMPORT_SOURCE]: expr.importSource,
-    args: expr.arguments.map(convertExpression),
-  };
-}
-
-/**
- * Converts a gildash `ExpressionFunction` into an AnalyzerValue.
- *
- * Produces the `ZIPBUL_FACTORY_CODE` sentinel and, when the function has
- * typed parameters (gildash 0.23.0+), includes `__zipbul_factory_params`.
- *
- * @param expr - A function expression from gildash extraction
- * @returns AnalyzerValue for the function
- */
-function convertFunctionExpression(expr: ExpressionFunction): AnalyzerValueRecord {
-  const result: AnalyzerValueRecord = { [ZIPBUL_FACTORY_CODE]: expr.sourceText };
-
-  if (expr.parameters !== undefined && expr.parameters.length > 0) {
-    const params: AnalyzerValueRecord[] = expr.parameters.map(param => {
-      const entry: AnalyzerValueRecord = {
-        name: param.name,
-        typeName: param.type ?? null,
-      };
-
-      if (param.typeImportSource !== undefined) {
-        entry.importSource = param.typeImportSource;
-      }
-
-      return entry;
-    });
-
-    result.__zipbul_factory_params = params;
-  }
-
-  return result;
-}
-
-/**
- * Extracts the returned identifier name from a lazy thunk source text.
- *
- * Matches patterns like `() => Foo` or `() => { return Foo; }`.
- *
- * @param sourceText - Raw source text of the arrow/function expression
- * @returns The identifier name or `null` if not extractable
- */
-function extractLazyRefName(sourceText: string): string | null {
-  const arrowMatch = sourceText.match(/^\s*\(.*?\)\s*=>\s*(\w+)\s*$/);
-
-  if (arrowMatch?.[1] !== undefined) {
-    return arrowMatch[1];
-  }
-
-  const blockMatch = sourceText.match(/return\s+(\w+)\s*;?\s*\}/);
-
-  if (blockMatch?.[1] !== undefined) {
-    return blockMatch[1];
-  }
-
-  return null;
-}
-
-/**
- * Converts a gildash `ExpressionObject` into an `AnalyzerValueRecord`.
- *
- * Handles computed properties using `ZIPBUL_COMPUTED_*` sentinel keys.
- *
- * @param expr - An object expression from gildash extraction
- * @returns AnalyzerValueRecord with converted property values
- */
-function convertObjectExpression(expr: { kind: 'object'; properties: readonly { key: string; value: ExpressionValue; computed?: boolean; shorthand?: boolean }[] }): AnalyzerValueRecord {
-  const result: AnalyzerValueRecord = {};
-  let computedIndex = 0;
-
-  for (const prop of expr.properties) {
-    if (prop.computed === true) {
-      const keyExpr = convertExpression({ kind: 'identifier', name: prop.key } as ExpressionIdentifier);
-      const valExpr = convertExpression(prop.value);
-
-      result[`${ZIPBUL_COMPUTED_PREFIX}${computedIndex}`] = {
-        [ZIPBUL_COMPUTED_KEY]: keyExpr,
-        [ZIPBUL_COMPUTED_VALUE]: valExpr,
-      };
-      computedIndex++;
-
-      continue;
-    }
-
-    result[prop.key] = convertExpression(prop.value);
-  }
-
-  return result;
 }
 
 /**
