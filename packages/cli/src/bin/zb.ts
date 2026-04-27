@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 import { parseArgs } from 'util';
 
 import type { CommandOptions } from './interfaces';

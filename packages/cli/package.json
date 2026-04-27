@@ -6,11 +6,10 @@
   "type": "module",
   "module": "index.ts",
   "bin": {
-    "zb": "./src/bin/zb.ts"
+    "zb": "./dist/zb.js"
   },
   "files": [
-    "src",
-    "index.ts"
+    "dist"
   ],
   "repository": {
     "type": "git",
@@ -18,18 +17,18 @@
     "directory": "packages/cli"
   },
   "scripts": {
-    "build": "bun build ./src/bin/zb.ts --compile --outfile dist/zb"
+    "build": "bun build ./src/bin/zb.ts --outdir dist --target bun --format esm --packages external --minify-syntax --minify-whitespace --banner='#!/usr/bin/env bun'"
   },
   "dependencies": {
     "@clack/prompts": "catalog:",
-    "picocolors": "catalog:",
+    "@zipbul/common": "workspace:*",
     "@zipbul/gildash": "catalog:",
     "@zipbul/logger": "workspace:*",
     "@zipbul/result": "catalog:",
-    "oxc-parser": "catalog:"
+    "oxc-parser": "catalog:",
+    "picocolors": "catalog:"
   },
   "devDependencies": {
-    "@zipbul/common": "workspace:*",
     "@types/bun": "catalog:",
     "typescript": "catalog:"
   }
