@@ -49,7 +49,7 @@ export function extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Res
         for (let index = 0; index < arrayArg.elements.length; index += 1) {
           const el = arrayArg.elements[index];
 
-          if (el === null || el.type === 'SpreadElement') {
+          if (el === null || el === undefined || el.type === 'SpreadElement') {
             return error();
           }
 
@@ -122,7 +122,7 @@ export function extractMiddlewaresFromConfigure(funcNode: OxcFunction): Result<C
         for (let index = 0; index < arrayArg.elements.length; index += 1) {
           const el = arrayArg.elements[index];
 
-          if (el === null || el.type === 'SpreadElement') {
+          if (el === null || el === undefined || el.type === 'SpreadElement') {
             return error();
           }
 
@@ -247,7 +247,9 @@ export function extractDependencies(
   };
 
   if (funcExpression.type === 'ArrowFunctionExpression' || funcExpression.type === 'FunctionExpression') {
-    visit(funcExpression.body);
+    if (funcExpression.body !== null) {
+      visit(funcExpression.body);
+    }
   } else {
     visit(funcExpression);
   }

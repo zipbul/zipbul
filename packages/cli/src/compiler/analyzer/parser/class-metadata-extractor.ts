@@ -53,6 +53,8 @@ export interface MethodMetadataCallbacks {
   extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['exceptionFilters'], Diagnostic>;
   /** Extracts context member-access chains from a handler method body. */
   extractHandlerContextUsages(funcNode: OxcFunction): ClassMetadata['methods'][number]['contextUsages'];
+  /** Extracts producer/consumer ops (`ctx.set/use/get`) from a handler method body. */
+  extractHandlerContextOps(funcNode: OxcFunction): ClassMetadata['methods'][number]['contextOps'];
 }
 
 /**
@@ -248,12 +250,14 @@ export function convertClassSymbol(
 
         if (methodDecorators.length > 0 || methodParams.some(param => param.decorators.length > 0)) {
           let contextUsages: ClassMetadata['methods'][number]['contextUsages'] | undefined;
+          let contextOps: ClassMetadata['methods'][number]['contextOps'] | undefined;
 
           if (rawClassNode !== null) {
             const funcNode = astLocators.findMethodBodyAstNode(rawClassNode, methodName);
 
             if (funcNode !== null) {
               contextUsages = methodCallbacks.extractHandlerContextUsages(funcNode);
+              contextOps = methodCallbacks.extractHandlerContextOps(funcNode);
             }
           }
 
@@ -262,6 +266,7 @@ export function convertClassSymbol(
             decorators: methodDecorators,
             parameters: methodParams,
             ...(contextUsages !== undefined && contextUsages.length > 0 ? { contextUsages } : {}),
+            ...(contextOps !== undefined && contextOps.length > 0 ? { contextOps } : {}),
             isStatic: isStatic || undefined,
             isComputed: isComputed || undefined,
             isPrivateName: isPrivateName || undefined,

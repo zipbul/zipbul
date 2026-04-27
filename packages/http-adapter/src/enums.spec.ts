@@ -48,7 +48,7 @@ describe('isHttpPhase', () => {
 
 describe('HttpPhase', () => {
   it('should have exactly 7 values', () => {
-    const values = Object.values(HttpPhase);
+    const values: readonly string[] = Object.values(HttpPhase);
 
     expect(values).toHaveLength(7);
     expect(values).toContain('OnRequest');
@@ -61,12 +61,12 @@ describe('HttpPhase', () => {
   });
 
   it('should contain all expected phase values', () => {
-    expect(HttpPhase.OnRequest).toBe('OnRequest');
-    expect(HttpPhase.BeforeParse).toBe('BeforeParse');
-    expect(HttpPhase.BeforeValidate).toBe('BeforeValidate');
-    expect(HttpPhase.BeforeHandle).toBe('BeforeHandle');
-    expect(HttpPhase.AfterHandle).toBe('AfterHandle');
-    expect(HttpPhase.BeforeResponse).toBe('BeforeResponse');
-    expect(HttpPhase.AfterResponse).toBe('AfterResponse');
+    expect(HttpPhase.OnRequest as string).toBe('OnRequest');
+    expect(HttpPhase.BeforeParse as string).toBe('BeforeParse');
+    expect(HttpPhase.BeforeValidate as string).toBe('BeforeValidate');
+    expect(HttpPhase.BeforeHandle as string).toBe('BeforeHandle');
+    expect(HttpPhase.AfterHandle as string).toBe('AfterHandle');
+    expect(HttpPhase.BeforeResponse as string).toBe('BeforeResponse');
+    expect(HttpPhase.AfterResponse as string).toBe('AfterResponse');
   });
 });

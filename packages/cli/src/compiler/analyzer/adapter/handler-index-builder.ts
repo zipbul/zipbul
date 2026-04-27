@@ -6,6 +6,7 @@ import type {
   RouteRegistration,
 } from '../interfaces';
 import type { ContextUsage } from '../parser/handler-context-usage-extractor';
+import type { ContextOperation } from '../parser/context-operation-extractor';
 import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../../../diagnostics';
 import type { CompiledValidationEntry } from '@zipbul/common';
@@ -77,10 +78,11 @@ export function buildHandlerIndex(
   projectRoot: string,
   controllerAdapterMap: Map<string, string>,
   graph?: AdapterResolveParams['graph'],
-): Result<{ entries: HandlerIndexEntry[]; routeRegistrations: RouteRegistration[]; handlerContextUsages: Map<string, readonly ContextUsage[]> }, Diagnostic> {
+): Result<{ entries: HandlerIndexEntry[]; routeRegistrations: RouteRegistration[]; handlerContextUsages: Map<string, readonly ContextUsage[]>; handlerContextOps: Map<string, readonly ContextOperation[]> }, Diagnostic> {
   const entries: HandlerIndexEntry[] = [];
   const routeRegistrations: RouteRegistration[] = [];
   const handlerContextUsages = new Map<string, readonly ContextUsage[]>();
+  const handlerContextOps = new Map<string, readonly ContextOperation[]>();
   const seen = new Set<string>();
   const internPool = new InternPool();
 
@@ -248,6 +250,10 @@ export function buildHandlerIndex(
             handlerContextUsages.set(id, method.contextUsages);
           }
 
+          if (method.contextOps !== undefined && method.contextOps.length > 0) {
+            handlerContextOps.set(id, method.contextOps);
+          }
+
           entries.push({
             id,
             adapterId: extraction.adapterId,
@@ -295,7 +301,7 @@ export function buildHandlerIndex(
 
   const sorted = entries.sort((a, b) => a.id.localeCompare(b.id));
 
-  return { entries: sorted, routeRegistrations, handlerContextUsages };
+  return { entries: sorted, routeRegistrations, handlerContextUsages, handlerContextOps };
 }
 
 /**

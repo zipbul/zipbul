@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'bun:test';
 import type { Context } from './interfaces';
 import type { AdapterClass } from './adapter/types';
-import type { GuardHandlerFn } from './define-guard';
 import { Adapter } from '@zipbul/core';
 import { defineGuard } from './define-guard';
 
 class FakeAdapterA extends Adapter {
-  static readonly validPhases: ReadonlySet<string> = new Set();
+  static override readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators = { controller: () => {}, handlers: [] };
   protected emergencyTeardown() {}
   protected async executePipeline() { return undefined as never; }
@@ -15,7 +14,7 @@ class FakeAdapterA extends Adapter {
 }
 
 class FakeAdapterB extends Adapter {
-  static readonly validPhases: ReadonlySet<string> = new Set();
+  static override readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators = { controller: () => {}, handlers: [] };
   protected emergencyTeardown() {}
   protected async executePipeline() { return undefined as never; }

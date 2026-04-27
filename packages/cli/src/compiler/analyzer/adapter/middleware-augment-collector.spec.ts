@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeAll, mock } from 'bun:test';
+import { describe, expect, test, beforeAll } from 'bun:test';
 import { MiddlewareAugmentCollector } from './middleware-augment-collector';
 import type { FileAnalysis } from '../graph/interfaces';
 import type { AdapterStaticSchema } from '../interfaces';
@@ -57,17 +57,13 @@ const HTTP_ADAPTER_SCHEMA: AdapterStaticSchema = {
   },
 };
 
-function writeTempFile(path: string, content: string): void {
-  Bun.write(path, content);
-}
-
 function buildFileAnalysis(filePath: string, exportedValues: Record<string, unknown>): FileAnalysis {
   return {
     filePath,
     classes: [],
     reExports: [],
     exports: Object.keys(exportedValues),
-    exportedValues: exportedValues as FileAnalysis['exportedValues'],
+    exportedValues: exportedValues as NonNullable<FileAnalysis['exportedValues']>,
   };
 }
 

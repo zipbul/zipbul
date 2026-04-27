@@ -78,7 +78,9 @@ export function buildModuleTree(input: ModuleTreeInput, options?: ModuleTreeOpti
 
     if (hashIndex !== -1) {
       const className = handler.id.slice(hashIndex + 1).split('.')[0];
-      handlersByController.set(className, (handlersByController.get(className) ?? 0) + 1);
+      if (className !== undefined) {
+        handlersByController.set(className, (handlersByController.get(className) ?? 0) + 1);
+      }
     }
   }
 
@@ -136,10 +138,12 @@ export function buildModuleTree(input: ModuleTreeInput, options?: ModuleTreeOpti
 
   for (let index = 1; index < moduleEntries.length; index++) {
     const entry = moduleEntries[index];
+    if (entry === undefined) continue;
     let parentPath: string | undefined;
 
     for (let parentIndex = index - 1; parentIndex >= 0; parentIndex--) {
       const candidate = moduleEntries[parentIndex];
+      if (candidate === undefined) continue;
 
       if (entry.dir.startsWith(candidate.dir + '/') || entry.dir === candidate.dir) {
         parentPath = candidate.path;
@@ -170,8 +174,8 @@ export function buildModuleTree(input: ModuleTreeInput, options?: ModuleTreeOpti
     });
   };
 
-  if (moduleEntries.length > 0) {
-    const root = moduleEntries[0];
+  const root = moduleEntries[0];
+  if (root !== undefined) {
     walkTree(root.mod, root.path, '', true, true);
   }
 

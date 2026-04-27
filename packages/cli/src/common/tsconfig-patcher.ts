@@ -33,13 +33,14 @@ export async function ensureTsconfigIncludesZipbul(projectRoot: string): Promise
   }
 
   let include = parsed.include;
+  let includeArray: unknown[];
 
-  if (!Array.isArray(include)) {
-    include = [];
-    parsed.include = include;
+  if (Array.isArray(include)) {
+    includeArray = include;
+  } else {
+    includeArray = [];
+    parsed.include = includeArray;
   }
-
-  const includeArray = include satisfies unknown[];
 
   if (includeArray.some((entry) => entry === ZIPBUL_DTS_GLOB)) {
     return false;

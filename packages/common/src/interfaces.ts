@@ -65,14 +65,15 @@ export interface AdapterContext {
 }
 
 /**
- * Parameter decorator marking a constructor parameter for context injection.
- * This is a no-op at runtime — actual resolution happens at AOT build time.
+ * Alias for {@link AdapterContext}.
+ *
+ * Handlers conventionally annotate their context parameter as `ctx: Context`.
+ * The alias keeps that idiom readable while the underlying interface remains
+ * `AdapterContext`.
  *
  * @public
  */
-export function Context(): ParameterDecorator {
-  return () => {};
-}
+export type Context = AdapterContext;
 
 // DI Interfaces
 export type ProviderToken = string | symbol | ClassToken | Class;
@@ -179,6 +180,12 @@ export interface ZipbulContainer {
    * @returns A scoped container that implements `ZipbulContainer`.
    */
   createRequestScope?(contextId: string): ZipbulContainer;
+
+  /**
+   * Returns whether any provider is registered with request scope.
+   * Used by adapters to skip unnecessary request-scope container creation.
+   */
+  hasRequestScope?(): boolean;
 
   /**
    * Disposes scoped resources. No-op on the root container.

@@ -7,6 +7,7 @@ import type {
 } from '@zipbul/common';
 import type { AnalyzerValue } from './types';
 import type { ContextUsage } from './parser/handler-context-usage-extractor';
+import type { ContextOperation } from './parser/context-operation-extractor';
 
 export type CompiledPhaseMiddlewareKeys = Readonly<Record<string, readonly string[]>>;
 export type { CompiledPipelineScope };
@@ -69,6 +70,13 @@ export interface MethodMetadata {
   parameters: MethodParameterMetadata[];
   /** Context member-access chains extracted from the handler body (e.g. `ctx.request.getBody(Dto)`). */
   contextUsages?: readonly ContextUsage[];
+  /**
+   * Producer/consumer ops extracted from the handler body —
+   * `ctx.set(KEY, ...)`, `ctx.use(KEY)`, `ctx.get(KEY)` and equivalents on
+   * `ctx.to(<Type>)` bindings. Used by the AOT dependency validator to
+   * verify that required keys are produced by registered middleware.
+   */
+  contextOps?: readonly ContextOperation[];
   isStatic?: boolean | undefined;
   isComputed?: boolean | undefined;
   isPrivateName?: boolean | undefined;
@@ -186,6 +194,10 @@ export interface HandlerIndexEntry {
   guardBindings?: readonly CompiledPipelineBindingEntry[];
   /** Lossless exception filter bindings collected during AOT. */
   exceptionFilterBindings?: readonly CompiledPipelineBindingEntry[];
+  /** Pipeline steps before the handler step (adapter-specific). */
+  compiledPre?: readonly string[];
+  /** Pipeline steps after the handler step (adapter-specific). */
+  compiledPost?: readonly string[];
 }
 
 export interface HandlerParamEntry {
@@ -214,4 +226,9 @@ export interface AdapterResolution {
   routeRegistrations: RouteRegistration[];
   /** Per-handler context usages for build-time augment validation. Keyed by handler ID. */
   handlerContextUsages: Map<string, readonly ContextUsage[]>;
+  /**
+   * Per-handler context producer/consumer ops (`ctx.set/use/get`).
+   * Used by the AOT producer-consumer dependency validator.
+   */
+  handlerContextOps: Map<string, readonly ContextOperation[]>;
 }

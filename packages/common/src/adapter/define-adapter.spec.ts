@@ -24,7 +24,7 @@ class FakeContext {
 }
 
 class FakeAdapter extends Adapter {
-  static readonly validPhases: ReadonlySet<string> = new Set();
+  static override readonly validPhases: ReadonlySet<string> = new Set();
   readonly decorators: AdapterEntryDecorators = {
     controller: controllerDeco,
     handlers: [getDeco, postDeco],

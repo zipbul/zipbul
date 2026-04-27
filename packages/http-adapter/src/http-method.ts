@@ -1,8 +1,38 @@
 /**
- * Standard HTTP methods supported by the framework.
- * Used as the base set for `allowedMethods`; custom methods are
- * appended via `HttpServerOptions.customMethods` at boot time.
+ * HTTP methods natively supported by the framework — those with dedicated
+ * decorators (`@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Options`, `@Head`).
+ * Used as the base set for the server's allowed-methods set; additional
+ * non-standard methods are appended automatically when discovered through
+ * `@Method('X', …)` decorators during the AOT handler-index scan at boot.
+ *
+ * TRACE / CONNECT are permanently unsupported — see {@link ForbiddenHttpMethod}.
+ * Boot-time scan rejects @Method handlers that declare them; runtime requests
+ * resolve to 404 (no path) or 405 + Allow (path exists) like any other
+ * unregistered method.
  */
 export const HTTP_STANDARD_METHODS: ReadonlySet<string> = new Set<string>([
   'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS',
+]);
+
+/**
+ * HTTP methods that are *permanently* rejected by the framework, both at
+ * compile time (`@Method` decorator generic via `Uppercase<>`) and at boot
+ * time (handler-index scan throws on TRACE/CONNECT).
+ *
+ * - `TRACE`: XST attack vector (OWASP). RFC 9110 §9.3.8 echo rules require
+ *   strict server-side enforcement (sensitive header stripping) that cannot
+ *   be statically guaranteed for user-written handlers.
+ * - `CONNECT`: RFC 9110 §9.3.6 — designed for forward proxies. Origin server
+ *   frameworks (zipbul) cannot meaningfully implement CONNECT semantics.
+ *
+ * Industry consensus: nginx, Apache (TraceEnable off default), Express,
+ * NestJS, Fastify, Vercel, Cloudflare Workers — none expose these methods.
+ *
+ * @public
+ */
+export type ForbiddenHttpMethod = 'TRACE' | 'CONNECT';
+
+/** Runtime mirror of {@link ForbiddenHttpMethod} for boot-time guards. */
+export const FORBIDDEN_HTTP_METHODS: ReadonlySet<string> = new Set<string>([
+  'TRACE', 'CONNECT',
 ]);

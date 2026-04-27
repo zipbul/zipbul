@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, spyOn, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, spyOn } from 'bun:test';
 
 mock.module('@zipbul/logger', () => ({
   Logger: class {
@@ -17,30 +17,19 @@ mock.module('@zipbul/baker', () => ({
   isBakerError: () => false,
 }));
 
+// Direct imports from source modules
+import { parseContentTypeInfo, parseParameters } from './content-type';
+import { resolveRequestId, validateRequestId } from './request-id';
+import { extractHostname, extractPort, defaultPortByProtocol } from './url-parts';
+import { normalizeIp, validateForwardedHost, parseForwardedLast, evaluateTrustProxy, resolveProxyInfo, resolveClientIp, isTrustedIp, isInCidrRange, matchesCidr, ipv4ToNumber } from './proxy';
+import { parseJsonBody } from './body';
+
+// Runtime-only internals still accessed via __internals
 const { __internals } = await import('./http-server');
 
 const {
-  parseContentTypeInfo,
-  parseParameters,
   parseContentLength,
-  resolveRequestId,
-  validateRequestId,
-  extractHostname,
-  extractPort,
-  defaultPortByProtocol,
-  validateHttpMethod,
-  normalizeIp,
-  parseJsonBody,
   resolveRawBody,
-  validateForwardedHost,
-  parseForwardedLast,
-  evaluateTrustProxy,
-  resolveProxyInfo,
-  resolveClientIp,
-  isTrustedIp,
-  isInCidrRange,
-  matchesCidr,
-  ipv4ToNumber,
   createHttpRequest,
 } = __internals;
 
@@ -396,6 +385,23 @@ describe('parseContentLength', () => {
 
     expect(result).toBe('invalid');
   });
+
+  it('should return invalid when content-length is negative (RFC 9110 §8.6)', () => {
+    const headers = new Headers({ 'content-length': '-1' });
+
+    const result = parseContentLength(headers);
+
+    expect(result).toBe('invalid');
+  });
+
+  it('should return invalid when duplicate consistent negative "-5, -5"', () => {
+    const headers = new Headers();
+    headers.append('content-length', '-5, -5');
+
+    const result = parseContentLength(headers);
+
+    expect(result).toBe('invalid');
+  });
 });
 
 describe('validateRequestId', () => {
@@ -559,24 +565,6 @@ describe('defaultPortByProtocol', () => {
     const result = defaultPortByProtocol('ftp');
 
     expect(result).toBe(80);
-  });
-});
-
-describe('validateHttpMethod', () => {
-  it('should return method when in allowed set', () => {
-    const allowed = new Set(['GET', 'POST']);
-
-    const result = validateHttpMethod('GET', allowed);
-
-    expect(result).toBe('GET');
-  });
-
-  it('should return null for unknown method', () => {
-    const allowed = new Set(['GET', 'POST']);
-
-    const result = validateHttpMethod('PATCH', allowed);
-
-    expect(result).toBeNull();
   });
 });
 
@@ -1007,15 +995,13 @@ describe('ipv4ToNumber', () => {
 });
 
 describe('createHttpRequest', () => {
-  const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
-
   it('should return ok with valid request', () => {
     const raw = new Request('http://example.com/path?q=1', {
       method: 'GET',
       headers: { 'content-type': 'application/json' },
     });
 
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -1031,14 +1017,6 @@ describe('createHttpRequest', () => {
     }
   });
 
-  it('should return not-implemented when method is invalid', () => {
-    const raw = new Request('http://example.com/', { method: 'PROPFIND' });
-
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
-
-    expect(result.kind).toBe('not-implemented');
-  });
-
   it('should return bad-request when content-length is inconsistent', () => {
     const raw = new Request('http://example.com/', { method: 'GET' });
     const headers = new Headers(raw.headers);
@@ -1048,26 +1026,12 @@ describe('createHttpRequest', () => {
       headers,
     });
 
-    const result = createHttpRequest(modifiedRequest, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(modifiedRequest, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('bad-request');
   });
 
-  it('should return not-implemented with request field for unsupported method', () => {
-    const raw = new Request('http://example.com/resource', { method: 'LINK' });
-
-    const result = createHttpRequest(raw, '10.0.0.1', false, null, ALLOWED_METHODS);
-
-    expect(result.kind).toBe('not-implemented');
-    expect('request' in result).toBe(true);
-    if (result.kind === 'not-implemented') {
-      expect(result.request.method).toBe('LINK');
-      expect(result.request.path).toBe('/resource');
-    }
-  });
-
   it('should return bad-request with invalid-url reason and no request field for invalid URL', () => {
-    const raw = new Request('http://example.com/');
     // Create a Request-like object with an invalid URL to trigger the URL parse failure
     const invalidRaw = {
       url: ':::invalid',
@@ -1076,7 +1040,7 @@ describe('createHttpRequest', () => {
       signal: AbortSignal.timeout(5000),
     } as unknown as Request;
 
-    const result = createHttpRequest(invalidRaw, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(invalidRaw, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('bad-request');
     if (result.kind === 'bad-request') {
@@ -1094,7 +1058,7 @@ describe('createHttpRequest', () => {
       headers,
     });
 
-    const result = createHttpRequest(modifiedRequest, '10.0.0.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(modifiedRequest, '10.0.0.1', false, null);
 
     expect(result.kind).toBe('bad-request');
     if (result.kind === 'bad-request') {
@@ -1112,7 +1076,7 @@ describe('createHttpRequest', () => {
       headers: { 'content-type': 'text/html', 'x-custom': 'value' },
     });
 
-    const result = createHttpRequest(raw, '192.168.1.1', false, null, ALLOWED_METHODS);
+    const result = createHttpRequest(raw, '192.168.1.1', false, null);
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
@@ -1131,5 +1095,22 @@ describe('createHttpRequest', () => {
       expect(typeof result.request.requestId).toBe('string');
       expect(result.request.requestId.length).toBeGreaterThan(0);
     }
+  });
+
+  it('should return uri-too-long when URL exceeds maxUriLength', () => {
+    const longPath = '/' + 'a'.repeat(10_000);
+    const raw = new Request(`http://example.com${longPath}`, { method: 'GET' });
+
+    const result = createHttpRequest(raw, '10.0.0.1', false, null, undefined, 8192);
+
+    expect(result.kind).toBe('uri-too-long');
+  });
+
+  it('should accept URL at maxUriLength boundary', () => {
+    const raw = new Request('http://example.com/ok', { method: 'GET' });
+
+    const result = createHttpRequest(raw, '10.0.0.1', false, null, undefined, raw.url.length);
+
+    expect(result.kind).toBe('ok');
   });
 });

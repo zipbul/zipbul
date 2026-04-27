@@ -35,6 +35,7 @@ import { enrichFactoryValues, detectFrameworkCallsFromInitializer, convertModule
 import { resolveInjectCallee, findImportSourceForCallee, buildInjectCallFromCapture } from './inject-call-analyzer';
 import { extractExceptionFiltersFromConfigure, extractMiddlewaresFromConfigure } from './method-metadata-extractor';
 import { extractHandlerContextUsages } from './handler-context-usage-extractor';
+import { extractHandlerContextOps } from './context-operation-extractor';
 import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, getMethodAstMeta, isAnonymousClassSymbol, extractFunctionSourceText } from './ast-node-locator';
 
 
@@ -68,7 +69,7 @@ export class AstParser {
 
     if (isErr(parseResult)) {
       return err(buildDiagnostic({
-        reason: `Parse error in ${filename}: ${parseResult.reason}`,
+        reason: `Parse error in ${filename}: ${JSON.stringify(parseResult.data)}`,
         file: filename,
       }));
     }
@@ -286,6 +287,10 @@ export class AstParser {
       extractMiddlewaresFromConfigure,
       extractExceptionFiltersFromConfigure,
       extractHandlerContextUsages: (funcNode) => extractHandlerContextUsages(funcNode)?.usages,
+      extractHandlerContextOps: (funcNode) => {
+        const ops = extractHandlerContextOps(funcNode);
+        return ops.length > 0 ? ops : undefined;
+      },
     };
 
     const anonymousCheck: AnonymousClassCallback = {
@@ -393,7 +398,7 @@ export class AstParser {
         const funcExpr = symbol.initializer ?? {
           kind: 'function' as const,
           sourceText: extractFunctionSourceText(parsed, symbol.name, this.currentCode),
-          parameters: symbol.parameters,
+          ...(symbol.parameters !== undefined ? { parameters: symbol.parameters } : {}),
         };
         const conversionResult = convertExpressionDeep(funcExpr, filename, conversionOptions);
 

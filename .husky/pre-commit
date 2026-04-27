@@ -1,20 +1,18 @@
 #!/usr/bin/env sh
 set -eu
 
-#bunx lint-staged
-
 staged_files="$(git diff --cached --name-only --diff-filter=ACMR || true)"
 
 if [ -z "$staged_files" ]; then
 	exit 0
 fi
 
-should_run_tests=0
+should_run_checks=0
 
 for file in $staged_files; do
 	case "$file" in
 		package.json|tsconfig.json|*.ts|*.js)
-			should_run_tests=1
+			should_run_checks=1
 			break
 			;;
 		*)
@@ -22,6 +20,10 @@ for file in $staged_files; do
 	esac
 done
 
-#if [ "$should_run_tests" -eq 1 ]; then
-#	bun test
-#fi
+if [ "$should_run_checks" -eq 1 ]; then
+	# Keep pre-commit fast: typecheck + unit specs only.
+	# Integration / e2e / cluster / soak tests live under packages/*/test/
+	# and run in CI (or manually via `bun run test:integration`).
+	bun run typecheck
+	bun run test:unit
+fi

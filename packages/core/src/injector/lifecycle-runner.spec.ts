@@ -90,7 +90,7 @@
  *   28. [OR] runDestroyHooks: should call onDestroy in reverse of registration order when three singletons registered
  */
 
-import { describe, it, expect, mock, spyOn, beforeEach } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 
 import type { Token } from './types';
 import type { Container } from './container';

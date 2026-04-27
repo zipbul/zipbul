@@ -131,6 +131,7 @@ export class AdapterDefinitionResolver {
       handlerIndex: handlerIndexResult.entries,
       routeRegistrations: handlerIndexResult.routeRegistrations,
       handlerContextUsages: handlerIndexResult.handlerContextUsages,
+      handlerContextOps: handlerIndexResult.handlerContextOps,
     };
   }
 }

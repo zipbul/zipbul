@@ -524,7 +524,7 @@ describe('RouteHandler', () => {
       // Assert
       const match = handler.matchRoute('GET', '/redirect-test');
       expect(match.kind).toBe('matched');
-      expect((match as MatchRouteResult).route.redirect).toEqual({ url: '/target', status: undefined });
+      expect((match as MatchRouteResult).route.redirect).toEqual({ url: '/target' });
     });
 
     it('should set redirect with url and status when Redirect has two arguments', () => {
@@ -923,5 +923,110 @@ describe('RouteHandler', () => {
 
       expect(capturedValidations).toEqual([]);
     });
+  });
+
+  // ── @Method scan validation (boot-time) ────────────────
+
+  describe('method scan', () => {
+    it('accepts @Method registration with non-standard token without throwing', () => {
+      const handler = new RouteHandler(
+        new Map() as never,
+        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Method'] },
+      );
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      expect(() => {
+        handler.registerFromHandlerIndex([{
+          id: 'TestAdapter:test#TestCtrl.handle',
+          adapterId: 'TestAdapter',
+          controllerKey: 'TestCtrl',
+          methodName: 'handle',
+          handlerDecorator: 'Method',
+          handlerDecoratorArgs: ['PURGE', '/x'],
+          params: [],
+        } as never], controllerInstances, mock(() => ({ pre: [], post: [], filters: [] })) as never);
+      }).not.toThrow();
+    });
+
+    it('should reject @Method registration with empty method token', () => {
+      const handler = new RouteHandler(
+        new Map() as never,
+        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Method'] },
+      );
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      expect(() => {
+        handler.registerFromHandlerIndex([{
+          id: 'TestAdapter:test#TestCtrl.handle',
+          adapterId: 'TestAdapter',
+          controllerKey: 'TestCtrl',
+          methodName: 'handle',
+          handlerDecorator: 'Method',
+          handlerDecoratorArgs: ['', '/x'],
+          params: [],
+        } as never], controllerInstances);
+      }).toThrow(/method token is missing or empty/);
+    });
+
+    it('should reject @Method registration with whitespace in method token', () => {
+      const handler = new RouteHandler(
+        new Map() as never,
+        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Method'] },
+      );
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      expect(() => {
+        handler.registerFromHandlerIndex([{
+          id: 'TestAdapter:test#TestCtrl.handle',
+          adapterId: 'TestAdapter',
+          controllerKey: 'TestCtrl',
+          methodName: 'handle',
+          handlerDecorator: 'Method',
+          handlerDecoratorArgs: ['FOO BAR', '/x'],
+          params: [],
+        } as never], controllerInstances);
+      }).toThrow(/not a valid HTTP token/);
+    });
+
+    it('should be atomic — no routes registered when one entry is invalid', () => {
+      const handler = new RouteHandler(
+        new Map() as never,
+        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get', 'Method'] },
+      );
+      const instance = { handle: () => 'ok' };
+      const controllerInstances = new Map([['TestCtrl', instance]]);
+
+      // 2 entries: 첫 번째는 valid GET, 두 번째는 invalid TRACE
+      expect(() => {
+        handler.registerFromHandlerIndex([
+          {
+            id: 'TestAdapter:test#TestCtrl.handle',
+            adapterId: 'TestAdapter',
+            controllerKey: 'TestCtrl',
+            methodName: 'handle',
+            handlerDecorator: 'Get',
+            handlerDecoratorArgs: ['ok'],
+            params: [],
+          },
+          {
+            id: 'TestAdapter:test#TestCtrl.handle2',
+            adapterId: 'TestAdapter',
+            controllerKey: 'TestCtrl',
+            methodName: 'handle',
+            handlerDecorator: 'Method',
+            handlerDecoratorArgs: ['TRACE', '/x'],
+            params: [],
+          },
+        ] as never, controllerInstances, mock(() => ({ pre: [], post: [], filters: [] })) as never);
+      }).toThrow(/permanently rejected/);
+
+      // 첫 번째 라우트도 등록되지 않아야 함 (원자성)
+      const matchResult = handler.matchRoute('GET', '/ok');
+      expect(matchResult.kind).toBe('not-found');
+    });
+
   });
 });

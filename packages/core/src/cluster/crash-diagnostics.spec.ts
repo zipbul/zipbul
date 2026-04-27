@@ -2,6 +2,18 @@ import { describe, it, expect } from 'bun:test';
 import { extractCrashDiagnostics } from './crash-diagnostics';
 import type { CrashDiagnostics } from './crash-diagnostics';
 
+type Narrowed<T extends CrashDiagnostics['type']> = Extract<CrashDiagnostics, { type: T }>;
+
+function narrow<T extends CrashDiagnostics['type']>(
+  diag: CrashDiagnostics,
+  expected: T,
+): Narrowed<T> {
+  if (diag.type !== expected) {
+    throw new Error(`expected CrashDiagnostics.type '${expected}', got '${diag.type}'`);
+  }
+  return diag as Narrowed<T>;
+}
+
 describe('extractCrashDiagnostics', () => {
   describe('Error input', () => {
     it('should extract message and stack from a standard Error', () => {
@@ -9,9 +21,10 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(error);
 
       expect(result.type).toBe('error');
-      expect(result.message).toBe('something broke');
-      expect(result.stack).toBeDefined();
-      expect(result.error).toBe(error);
+      const narrowed = narrow(result, 'error');
+      expect(narrowed.message).toBe('something broke');
+      expect(narrowed.stack).toBeDefined();
+      expect(narrowed.error).toBe(error);
     });
 
     it('should extract name from a custom error class', () => {
@@ -26,8 +39,9 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(error);
 
       expect(result.type).toBe('error');
-      expect(result.name).toBe('CustomError');
-      expect(result.message).toBe('custom');
+      const narrowed = narrow(result, 'error');
+      expect(narrowed.name).toBe('CustomError');
+      expect(narrowed.message).toBe('custom');
     });
   });
 
@@ -37,9 +51,10 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(event);
 
       expect(result.type).toBe('close');
-      expect(result.code).toBe(1);
-      expect(result.reason).toBe('exited');
-      expect(result.wasClean).toBe(false);
+      const narrowed = narrow(result, 'close');
+      expect(narrowed.code).toBe(1);
+      expect(narrowed.reason).toBe('exited');
+      expect(narrowed.wasClean).toBe(false);
     });
 
     it('should extract code 137 for OOM-killed worker', () => {
@@ -47,8 +62,9 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(event);
 
       expect(result.type).toBe('close');
-      expect(result.code).toBe(137);
-      expect(result.wasClean).toBe(false);
+      const narrowed = narrow(result, 'close');
+      expect(narrowed.code).toBe(137);
+      expect(narrowed.wasClean).toBe(false);
     });
 
     it('should extract code 0 for normal exit', () => {
@@ -56,8 +72,9 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(event);
 
       expect(result.type).toBe('close');
-      expect(result.code).toBe(0);
-      expect(result.wasClean).toBe(true);
+      const narrowed = narrow(result, 'close');
+      expect(narrowed.code).toBe(0);
+      expect(narrowed.wasClean).toBe(true);
     });
   });
 
@@ -68,9 +85,10 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(event);
 
       expect(result.type).toBe('error-event');
-      expect(result.error).toBe(innerError);
-      expect(result.message).toBe('real cause');
-      expect(result.stack).toBeDefined();
+      const narrowed = narrow(result, 'error-event');
+      expect(narrowed.error).toBe(innerError);
+      expect(narrowed.message).toBe('real cause');
+      expect(narrowed.stack).toBeDefined();
     });
 
     it('should handle ErrorEvent where .error is not an Error instance', () => {
@@ -78,8 +96,9 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(event);
 
       expect(result.type).toBe('error-event');
-      expect(result.error).toBeUndefined();
-      expect(result.message).toBe('msg');
+      const narrowed = narrow(result, 'error-event');
+      expect(narrowed.error).toBeUndefined();
+      expect(narrowed.message).toBe('msg');
     });
 
     it('should handle ErrorEvent with filename and lineno', () => {
@@ -93,9 +112,10 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(event);
 
       expect(result.type).toBe('error-event');
-      expect(result.filename).toBe('/worker.ts');
-      expect(result.lineno).toBe(42);
-      expect(result.colno).toBe(10);
+      const narrowed = narrow(result, 'error-event');
+      expect(narrowed.filename).toBe('/worker.ts');
+      expect(narrowed.lineno).toBe(42);
+      expect(narrowed.colno).toBe(10);
     });
 
     it('should handle ErrorEvent with no .error property', () => {
@@ -103,8 +123,9 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(event);
 
       expect(result.type).toBe('error-event');
-      expect(result.error).toBeUndefined();
-      expect(result.message).toBe('generic');
+      const narrowed = narrow(result, 'error-event');
+      expect(narrowed.error).toBeUndefined();
+      expect(narrowed.message).toBe('generic');
     });
   });
 
@@ -114,7 +135,8 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(event);
 
       expect(result.type).toBe('message-event');
-      expect(result.message).toBeDefined();
+      const narrowed = narrow(result, 'message-event');
+      expect(narrowed.message).toBeDefined();
     });
   });
 
@@ -124,7 +146,8 @@ describe('extractCrashDiagnostics', () => {
       const result = extractCrashDiagnostics(event);
 
       expect(result.type).toBe('unknown-event');
-      expect(result.message).toBe('unknown');
+      const narrowed = narrow(result, 'unknown-event');
+      expect(narrowed.message).toBe('unknown');
     });
   });
 });

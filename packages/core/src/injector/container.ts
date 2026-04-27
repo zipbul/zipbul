@@ -37,6 +37,7 @@ export class Container implements ZipbulContainer {
   private registrationOrder: Token[] = [];
   private scopedKeys?: Map<ProviderToken, string>;
   private readonly constructorParamsCache = new Map<Class, readonly ConstructorParamMetadata[]>();
+  private _hasRequestScope = false;
 
   constructor(initialFactories?: Map<Token, FactoryFn>) {
     if (initialFactories) {
@@ -67,6 +68,7 @@ export class Container implements ZipbulContainer {
 
     this.registrations.set(token, { factory: factory as FactoryFn, scope, visibleTo });
     this.registrationOrder.push(token);
+    if (scope === 'request') this._hasRequestScope = true;
   }
 
   get(token: Token): ContainerValue {
@@ -137,13 +139,17 @@ export class Container implements ZipbulContainer {
     return this.registrationOrder;
   }
 
+  hasRequestScope(): boolean {
+    return this._hasRequestScope;
+  }
+
   /**
    * Creates a request-scoped child container.
    *
    * @param contextId - Unique identifier for this request scope.
    * @returns A scoped container that delegates singletons to this parent.
    */
-  createRequestScope(contextId: string): ZipbulContainer {
+  createRequestScope(contextId: string): ZipbulContainer & { dispose: () => Promise<void> } {
     return new RequestScopeContainer(this, contextId);
   }
 

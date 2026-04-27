@@ -14,6 +14,7 @@ import {
   type MiddlewareAugmentResult,
   type PropAugment,
 } from '../analyzer/parser/middleware-augment-extractor';
+import { extractMiddlewareContextOps } from '../analyzer/parser/context-operation-extractor';
 
 /**
  * Extracted augment metadata for a single middleware export.
@@ -35,8 +36,23 @@ export interface LibAugmentEntry {
   readonly configText: string | null;
   /** JSON-serializable augment metadata to inject. */
   readonly augments: readonly SerializedAugment[];
-  /** Context type from ctx.to() call. */
-  readonly contextType: string;
+  /**
+   * JSON-serializable producer/consumer ops (`ctx.set/use/get(KEY, ...)`).
+   * Consumed by the AOT producer-consumer dependency validator after lib install.
+   */
+  readonly contextOps: readonly SerializedContextOp[];
+  /** Context type from `ctx.to(<Type>)` call — `null` when no augments exist. */
+  readonly contextType: string | null;
+}
+
+/**
+ * Serialized context operation entry for the `__contextOps` field.
+ *
+ * @public
+ */
+export interface SerializedContextOp {
+  readonly kind: 'set' | 'use' | 'get';
+  readonly keyIdentifier: string | null;
 }
 
 /**
@@ -128,25 +144,23 @@ export function injectAugmentsIntoSource(
   let result = sourceText;
 
   for (const entry of sorted) {
-    const augmentsJson = JSON.stringify(
-      entry.augments.map(serializeAugmentEntry),
-    );
+    const augmentsField = entry.augments.length > 0
+      ? `, __augments: ${JSON.stringify(entry.augments.map(serializeAugmentEntry))}`
+      : '';
+    const contextOpsField = entry.contextOps.length > 0
+      ? `, __contextOps: ${JSON.stringify(entry.contextOps)}`
+      : '';
 
     let newCallBody: string;
 
     if (entry.configText !== null) {
-      // Config object overload: inject __augments before closing brace
       const lastBrace = entry.configText.lastIndexOf('}');
-
       if (lastBrace === -1) continue;
-
-      newCallBody = `${entry.configText.slice(0, lastBrace)}, __augments: ${augmentsJson}${entry.configText.slice(lastBrace)}`;
+      newCallBody = `${entry.configText.slice(0, lastBrace)}${augmentsField}${contextOpsField}${entry.configText.slice(lastBrace)}`;
     } else if (entry.adaptersText !== null) {
-      // Adapters + factory overload: wrap both in config object
-      newCallBody = `{ adapters: ${entry.adaptersText}, factory: ${entry.factoryText}, __augments: ${augmentsJson} }`;
+      newCallBody = `{ adapters: ${entry.adaptersText}, factory: ${entry.factoryText}${augmentsField}${contextOpsField} }`;
     } else {
-      // Factory-only overload: wrap in config object
-      newCallBody = `{ factory: ${entry.factoryText}, __augments: ${augmentsJson} }`;
+      newCallBody = `{ factory: ${entry.factoryText}${augmentsField}${contextOpsField} }`;
     }
 
     // Replace defineMiddleware(originalArg) → defineMiddleware(newCallBody)
@@ -204,10 +218,22 @@ function processDefineMiddlewareCall(
   if (factory === null || factoryNode === null) return null;
 
   const augmentResult: MiddlewareAugmentResult | null = extractMiddlewareAugments(factory);
+  const contextOps = extractMiddlewareContextOps(factory);
 
-  if (augmentResult === null || augmentResult.augments.length === 0) return null;
+  // Skip emit if neither augments nor contextOps exist — middleware adds nothing
+  // observable to the AOT layer.
+  const hasAugments = augmentResult !== null && augmentResult.augments.length > 0;
+  const hasContextOps = contextOps.length > 0;
+  if (!hasAugments && !hasContextOps) return null;
 
-  const serialized = augmentResult.augments.map(aug => propAugmentToSerialized(aug, augmentResult.contextType));
+  const serializedAugments = hasAugments
+    ? augmentResult!.augments.map(aug => propAugmentToSerialized(aug, augmentResult!.contextType))
+    : [];
+
+  const serializedContextOps: SerializedContextOp[] = contextOps.map((op) => ({
+    kind: op.kind,
+    keyIdentifier: op.keyIdentifier,
+  }));
 
   return {
     name,
@@ -216,8 +242,9 @@ function processDefineMiddlewareCall(
     factoryText: sourceText.slice(factoryNode.start, factoryNode.end),
     adaptersText: adaptersNode !== null ? sourceText.slice(adaptersNode.start, adaptersNode.end) : null,
     configText: configNode !== null ? sourceText.slice(configNode.start, configNode.end) : null,
-    augments: serialized,
-    contextType: augmentResult.contextType,
+    augments: serializedAugments,
+    contextOps: serializedContextOps,
+    contextType: augmentResult?.contextType ?? null,
   };
 }
 

@@ -2,7 +2,7 @@
  * Zipbul HTTP 파이프라인 마이크로벤치마크.
  * fetch() 핸들러를 직접 호출하여 네트워크 오버헤드 없이 순수 프레임워크 비용을 측정.
  */
-import { bench, group, run } from 'mitata';
+import { bench, summary, run } from 'mitata';
 import { $ } from 'bun';
 import { join } from 'node:path';
 
@@ -57,34 +57,34 @@ for (let i = 0; i < 1000; i++) {
   await (await fetch(`${BASELINE_URL}/`)).text();
 }
 
-group('loopback fetch: GET / → JSON', () => {
-  bench('Bun.serve (baseline)', async () => {
+summary(() => {
+  bench('loopback fetch: Bun.serve (baseline)', async () => {
     await (await fetch(`${BASELINE_URL}/`)).text();
   });
 
-  bench('Zipbul (full pipeline)', async () => {
+  bench('loopback fetch: Zipbul (full pipeline)', async () => {
     await (await fetch(`${ZIPBUL_URL}/`)).text();
   });
 });
 
-group('object creation (no I/O)', () => {
-  bench('Response.json()', () => {
+summary(() => {
+  bench('object creation: Response.json()', () => {
     Response.json({ message: 'Hello, World!' });
   });
 
-  bench('new Request()', () => {
+  bench('object creation: new Request()', () => {
     new Request('http://localhost/');
   });
 
-  bench('new URL()', () => {
+  bench('object creation: new URL()', () => {
     new URL('http://localhost/');
   });
 
-  bench('new Headers()', () => {
+  bench('object creation: new Headers()', () => {
     new Headers();
   });
 
-  bench('JSON.stringify()', () => {
+  bench('object creation: JSON.stringify()', () => {
     JSON.stringify({ message: 'Hello, World!' });
   });
 });
@@ -92,21 +92,21 @@ group('object creation (no I/O)', () => {
 import { AsyncLocalStorage } from 'async_hooks';
 const als = new AsyncLocalStorage<unknown>();
 
-group('async overhead', () => {
-  bench('AsyncLocalStorage.run()', () => {
+summary(() => {
+  bench('async overhead: AsyncLocalStorage.run()', () => {
     als.run({}, () => {});
   });
 
-  bench('await Promise.resolve()', async () => {
+  bench('async overhead: await Promise.resolve()', async () => {
     await Promise.resolve();
   });
 
-  bench('empty async function', async () => {
+  bench('async overhead: empty async function', async () => {
     await (async () => {})();
   });
 });
 
-await run({ avg: true, min_max: true, percentiles: true });
+await run();
 
 void baselineServer.stop();
 process.exit(0);

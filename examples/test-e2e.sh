@@ -101,11 +101,24 @@ assert_body_contains() {
 }
 
 # ═══════════════════════════════════════════════════════
-# TODO 1: @UseExceptionFilters(PaymentErrorFilter)
+# Result pattern (business failure) — httpError(402)
+# /billing/charge with amount > 1000 returns 402 via Result,
+# without ExceptionFilter. Body shape: { status, message, errors }.
 # ═══════════════════════════════════════════════════════
-echo "[TODO 1] PaymentErrorFilter"
-assert_status "PaymentErrorFilter returns 402" "402" POST "/billing/charge" '{"amount":1500}'
-assert_body_contains "PaymentErrorFilter body has PAYMENT_REQUIRED" "PAYMENT_REQUIRED" POST "/billing/charge" '{"amount":1500}'
+echo "[Result pattern] httpError on business failure"
+assert_status "POST /billing/charge amount=1500 → 402" "402" POST "/billing/charge" '{"amount":1500}'
+assert_body_contains "402 body has 'Insufficient funds'" "Insufficient funds" POST "/billing/charge" '{"amount":1500}'
+assert_body_contains "402 body has structured 'errors'" "checking-account-limit" POST "/billing/charge" '{"amount":1500}'
+
+# ═══════════════════════════════════════════════════════
+# ExceptionFilter (system failure) — gatewayExceptionFilter
+# /billing/verify with amount % 7 === 0 makes PaymentGateway throw
+# GatewayTimeoutError; the filter translates it to 504.
+# ═══════════════════════════════════════════════════════
+echo "[ExceptionFilter] system throw → HTTP translation"
+assert_status "POST /billing/verify amount=14 → 504" "504" POST "/billing/verify" '{"amount":14}'
+assert_body_contains "504 body has 'Gateway Timeout'" "Gateway Timeout" POST "/billing/verify" '{"amount":14}'
+assert_status "POST /billing/verify amount=10 → 200 (no throw)" "200" POST "/billing/verify" '{"amount":10}'
 
 # ═══════════════════════════════════════════════════════
 # TODO 11: @UseGuards(authGuard)
@@ -120,6 +133,36 @@ if [ "$STATUS" = "200" ] || [ "$STATUS" = "204" ]; then
   PASS=$((PASS + 1))
 else
   echo "  [FAIL] With auth header → expected 200/204, got $STATUS"
+  FAIL=$((FAIL + 1))
+fi
+
+# ═══════════════════════════════════════════════════════
+# Middleware: requestTimingMiddleware (OnRequest phase, global)
+# main.ts 가 등록한 OnRequest 미들웨어가 모든 응답에
+# X-Response-Time 헤더를 부착하는지 검증.
+# ═══════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════
+# Producer/consumer context key — sessionMiddleware sets SessionContext,
+# UsersController.delete consumes via ctx.use(SessionContext).
+# AOT validator must have approved this build (no missing-producer warning).
+# ═══════════════════════════════════════════════════════
+echo "[ContextKey] sessionMiddleware producer + ctx.use consumer"
+RESP=$(curl -s -X DELETE "http://localhost:$PORT/users/1" -H 'Authorization: Bearer test-token')
+if echo "$RESP" | grep -q '"bySessionUserId":1' && echo "$RESP" | grep -q '"token":"test-token"'; then
+  echo "  [PASS] Session reached handler via ctx.use(SessionContext)"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] Session payload missing in response: $RESP"
+  FAIL=$((FAIL + 1))
+fi
+
+echo "[Middleware] OnRequest requestTimingMiddleware"
+TIMING=$(curl -s -I "http://localhost:$PORT/posts" | grep -i 'x-response-time')
+if [ -n "$TIMING" ]; then
+  echo "  [PASS] X-Response-Time header present on /posts ($TIMING)"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] X-Response-Time header missing — OnRequest middleware not invoked"
   FAIL=$((FAIL + 1))
 fi
 

@@ -6,10 +6,13 @@ export { MetadataGenerator } from './metadata-generator';
 export { ContextTypesGenerator } from './context-types-generator';
 export type {
   ContextAdapterMap,
-  MiddlewareContextAugment,
   AugmentTargetMap,
   AugmentTargetEntry,
 } from './context-types-generator';
+export type {
+  MiddlewareContextAugment,
+  MiddlewareProducerInfo,
+} from '../analyzer/adapter/middleware-context-types';
 export type {
   ManifestJsonParams,
   MetadataClassEntry,

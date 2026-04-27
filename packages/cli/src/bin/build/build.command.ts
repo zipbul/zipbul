@@ -11,7 +11,6 @@ import { validateCreateApplication } from '../../compiler/analyzer/validation';
 import {
   outputDirPath,
   tempDirPath,
-  cacheFilePath,
   scanGlobSorted,
   writeIfChanged,
 } from '../../common';
@@ -20,9 +19,12 @@ import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { EntryGenerator, ManifestGenerator, ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
 import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
+import {
+  validateContextDependencies,
+  formatViolationMessage,
+} from '../../compiler/analyzer/adapter/context-dependency-validator';
 import { buildLib } from './lib-build';
 import { CliRenderer } from '../cli-renderer';
-import { loadBuildCache, saveBuildCache, computeTsconfigHash } from './build-cache';
 import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from './build-artifact-writer';
 import { formatCount, buildModuleTree } from '../module-tree-renderer';
 import { scanAndParseFiles } from './build-file-scanner';
@@ -63,11 +65,6 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const parser = deps.createParser();
       const userMain = resolve(projectRoot, config.entry);
 
-      // Load build cache
-      const buildCachePath = cacheFilePath(projectRoot, 'file-analysis-cache.json');
-      const tsconfigHash = await computeTsconfigHash(projectRoot);
-      const buildCache = await loadBuildCache(buildCachePath, tsconfigHash);
-
       const scanSpinner = renderer.startSpinner('[1/4] \u{1F50D} Scanning source files');
 
       const scanResult = await scanAndParseFiles({
@@ -75,16 +72,14 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         srcDir,
         entry: config.entry,
         parser,
-        buildCache,
         scanFiles: deps.scanFiles,
         resolveImport: deps.resolveImport,
         renderer,
       });
 
-      const { fileMap, contentHashes, allClasses, cacheHits } = scanResult;
-      const cacheSuffix = cacheHits > 0 ? `, ${formatCount(cacheHits)} cached` : '';
+      const { fileMap, allClasses } = scanResult;
 
-      scanSpinner.stop(`[1/4] \u{1F50D} Scanned ${formatCount(fileMap.size)} files (${formatCount(allClasses.length)} classes${cacheSuffix})`);
+      scanSpinner.stop(`[1/4] \u{1F50D} Scanned ${formatCount(fileMap.size)} files (${formatCount(allClasses.length)} classes)`);
 
       const appEntry = validateCreateApplication(fileMap);
 
@@ -217,6 +212,28 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           }
         }
 
+        // AOT producer-consumer dependency validation —
+        // ctx.use(KEY) must have a matching ctx.set(KEY, ...) in a middleware
+        // registered on the handler's chain AND running in an earlier-or-equal
+        // phase. Violations are HARD ERRORS — runtime would throw, deployment
+        // unsafe, build must fail.
+        const dependencyViolations = validateContextDependencies(
+          adapterResolution.handlerIndex,
+          adapterResolution.handlerContextOps,
+          augmentResult.producerInfos,
+          adapterResolution.routeRegistrations,
+          adapterResolution.adapterStaticSchemas,
+        );
+
+        if (dependencyViolations.length > 0) {
+          const summary = dependencyViolations
+            .map((v) => `[Zipbul AOT] ${formatViolationMessage(v)}`)
+            .join('\n\n');
+          throw new Error(
+            `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,
+          );
+        }
+
         const entryPointFile = join(buildTempDir, 'entry.ts');
         const entryGen = deps.createEntryGenerator();
         const buildEntryContent = await entryGen.generate(userMain, false);
@@ -294,9 +311,6 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
 
         bundleSpinner.stop('[4/4] \u{1F4E6} Application bundled');
-
-        // Persist build cache for next run
-        await saveBuildCache(buildCachePath, tsconfigHash, fileMap, contentHashes);
 
         const moduleTreeResult = buildModuleTree(
           { modules: graph.modules, handlerIndex: adapterResolution.handlerIndex },

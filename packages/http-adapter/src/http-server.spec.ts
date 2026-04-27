@@ -34,7 +34,7 @@ interface ServerInternals {
   allowedMethods: ReadonlySet<string>;
 }
 
-function createMockContainer(overrides?: Partial<ZipbulContainer>): ZipbulContainer {
+function createMockContainer(overrides?: Partial<Record<keyof ZipbulContainer, unknown>>): ZipbulContainer {
   return {
     get: mock(() => undefined),
     set: mock(() => {}),
@@ -110,17 +110,7 @@ describe('HttpServer', () => {
       const mockCreateRequestScope = mock(() => createMockContainer());
       const container = createMockContainer({
         createRequestScope: mockCreateRequestScope,
-        keys: mock(function* () {
-          yield 'singleton::A';
-          yield 'transient::B';
-        }),
-        getRegistration: mock((token: unknown) => {
-          if (token === 'singleton::A') return { scope: 'singleton' };
-          if (token === 'transient::B') return { scope: 'transient' };
-          return undefined;
-        }),
-      } as Partial<ZipbulContainer> & {
-        getRegistration(token: unknown): { scope?: string } | undefined;
+        hasRequestScope: () => false,
       });
       const adapter = createMockAdapter();
       wireServer(server, container, adapter);
@@ -432,8 +422,9 @@ describe('HttpServer', () => {
 
       // Assert — options contain tls
       expect(internals.options.tls).toEqual(tlsOptions);
-      expect(internals.options.tls.cert).toBe('test-cert');
-      expect(internals.options.tls.key).toBe('test-key');
+      const tls = internals.options.tls as { cert: string; key: string };
+      expect(tls.cert).toBe('test-cert');
+      expect(tls.key).toBe('test-key');
     });
 
     it('should not have tls in options when not configured', () => {
@@ -450,4 +441,49 @@ describe('HttpServer', () => {
       expect(internals.options.tls).toBeUndefined();
     });
   });
+
+  describe('getMetrics', () => {
+    it('should return undefined when server is not booted', () => {
+      const fresh = new HttpServer();
+
+      expect(fresh.getMetrics()).toBeUndefined();
+    });
+
+    it('should return snapshot of pendingRequests and pendingWebSockets', () => {
+      const metricsServer = new HttpServer();
+      const internals = metricsServer as unknown as ServerInternals;
+      internals.server = { pendingRequests: 7, pendingWebSockets: 2 };
+
+      expect(metricsServer.getMetrics()).toEqual({ pendingRequests: 7, pendingWebSockets: 2 });
+    });
+  });
+
+  describe('fetch URI length defense', () => {
+    it('should respond 414 when request URL exceeds maxUriLength', async () => {
+      const container = createMockContainer();
+      const adapter = createMockAdapter();
+      wireServer(server, container, adapter);
+      const internals = server as unknown as ServerInternals;
+      internals.options = { ...internals.options, maxUriLength: 64 };
+
+      const longRequest = new Request(`http://localhost/${'a'.repeat(200)}`, { method: 'GET' });
+
+      const response = await server.fetch(longRequest, mockBunServer);
+
+      expect(response.status).toBe(414);
+    });
+
+    it('should use default 8192 limit when maxUriLength option is not provided', async () => {
+      const container = createMockContainer();
+      const adapter = createMockAdapter();
+      wireServer(server, container, adapter);
+
+      const longRequest = new Request(`http://localhost/${'a'.repeat(9000)}`, { method: 'GET' });
+
+      const response = await server.fetch(longRequest, mockBunServer);
+
+      expect(response.status).toBe(414);
+    });
+  });
+
 });

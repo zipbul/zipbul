@@ -15,15 +15,14 @@ export class HttpRequest {
   public readonly isTrustedProxy: boolean;
   public readonly signal: AbortSignal;
 
-  // ── mutable — 파이프라인에서 재할당 ──
-  public method: HttpMethod;
-  public url: string;
-  public path: string;
-  public body: RequestBodyValue;
-  public params: RequestParamMap;
-  public rawBody: Uint8Array | null;
-  /** Parsed query parameters. Set by BeforeValidation middleware (e.g. parseQuery). */
-  public query: unknown;
+  // ── mutable — 파이프라인/미들웨어에서 setter로 재할당 ──
+  private _method: HttpMethod;
+  private _url: string;
+  private _path: string;
+  private _body: RequestBodyValue;
+  private _params: RequestParamMap;
+  private _rawBody: Uint8Array | null;
+  private _query: unknown;
 
   private _queryString: string | null | undefined = undefined;
   private _contentType: ContentTypeInfo | null | undefined = undefined;
@@ -56,14 +55,43 @@ export class HttpRequest {
     this._origin = data.origin;
 
     // mutable
-    this.method = data.method;
-    this.url = data.url;
-    this.path = data.path;
-    this.body = undefined;
-    this.params = {};
-    this.rawBody = null;
-    this.query = undefined;
+    this._method = data.method;
+    this._url = data.url;
+    this._path = data.path;
+    this._body = undefined;
+    this._params = {};
+    this._rawBody = null;
+    this._query = undefined;
   }
+
+  // ── Public accessors for mutable fields ─────────────────────
+
+  get method(): HttpMethod { return this._method; }
+  set method(value: HttpMethod) { this._method = value; }
+
+  get url(): string { return this._url; }
+  set url(value: string) {
+    this._url = value;
+    this._queryString = undefined; // invalidate cached queryString
+  }
+
+  get path(): string { return this._path; }
+  set path(value: string) { this._path = value; }
+
+  get body(): RequestBodyValue { return this._body; }
+  set body(value: RequestBodyValue) { this._body = value; }
+
+  get params(): RequestParamMap { return this._params; }
+  set params(value: RequestParamMap) { this._params = value; }
+
+  get rawBody(): Uint8Array | null { return this._rawBody; }
+  set rawBody(value: Uint8Array | null) { this._rawBody = value; }
+
+  /** Parsed query parameters. Set by BeforeValidation middleware (e.g. parseQuery). */
+  get query(): unknown { return this._query; }
+  set query(value: unknown) { this._query = value; }
+
+  // ── Lazy-computed getters ─────────────────────────────────
 
   get requestId(): string {
     if (this._requestId !== undefined) {

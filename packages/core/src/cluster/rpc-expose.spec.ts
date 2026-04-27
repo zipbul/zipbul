@@ -17,15 +17,15 @@ describe('exposeWorker', () => {
     messageHandler = undefined;
 
     // Mock worker scope
-    const addSpy = spyOn(globalThis, 'addEventListener').mockImplementation(
-      ((event: string, handler: EventListenerOrEventListenerObject) => {
+    spyOn(globalThis, 'addEventListener').mockImplementation(
+      ((event: string, handler: unknown) => {
         if (event === 'message' && typeof handler === 'function') {
           messageHandler = handler as (event: MessageEvent<ZipbulValue>) => void;
         }
       }) as typeof globalThis.addEventListener,
     );
 
-    const postSpy = spyOn(globalThis, 'postMessage').mockImplementation(((data: unknown) => {
+    spyOn(globalThis, 'postMessage').mockImplementation(((data: unknown) => {
       postedMessages.push(data);
     }) as typeof globalThis.postMessage);
   });
@@ -44,11 +44,11 @@ describe('exposeWorker', () => {
   });
 
   it('should call the target method when a valid RPC message arrives', async () => {
-    const target = { doWork: mock(() => 42) as RpcCallable };
+    const target = { doWork: mock(() => 42) as unknown as RpcCallable };
 
     exposeWorker(target, ['doWork']);
 
-    messageHandler?.({ data: { id: 'test-1', method: 'doWork', args: [] } } as MessageEvent<ZipbulValue>);
+    messageHandler?.({ data: { id: 'test-1', method: 'doWork', args: [] } } as unknown as MessageEvent<ZipbulValue>);
 
     // Wait for async handler
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -64,13 +64,13 @@ describe('exposeWorker', () => {
 
   it('should reject calls to methods not in the whitelist', async () => {
     const target = {
-      allowed: mock(() => 'ok') as RpcCallable,
-      forbidden: mock(() => 'bad') as RpcCallable,
+      allowed: mock(() => 'ok') as unknown as RpcCallable,
+      forbidden: mock(() => 'bad') as unknown as RpcCallable,
     };
 
     exposeWorker(target, ['allowed']);
 
-    messageHandler?.({ data: { id: 'test-2', method: 'forbidden', args: [] } } as MessageEvent<ZipbulValue>);
+    messageHandler?.({ data: { id: 'test-2', method: 'forbidden', args: [] } } as unknown as MessageEvent<ZipbulValue>);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -89,7 +89,7 @@ describe('exposeWorker', () => {
 
     exposeWorker(target, ['fail']);
 
-    messageHandler?.({ data: { id: 'test-3', method: 'fail', args: [] } } as MessageEvent<ZipbulValue>);
+    messageHandler?.({ data: { id: 'test-3', method: 'fail', args: [] } } as unknown as MessageEvent<ZipbulValue>);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -101,12 +101,12 @@ describe('exposeWorker', () => {
   });
 
   it('should ignore non-RPC messages', async () => {
-    const target = { doWork: mock(() => 'ok') as RpcCallable };
+    const target = { doWork: mock(() => 'ok') as unknown as RpcCallable };
 
     exposeWorker(target, ['doWork']);
 
     // Send a non-RPC message (missing required fields)
-    messageHandler?.({ data: { type: 'not-rpc' } } as MessageEvent<ZipbulValue>);
+    messageHandler?.({ data: { type: 'not-rpc' } } as unknown as MessageEvent<ZipbulValue>);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -121,12 +121,12 @@ describe('exposeWorker', () => {
         const b = args[1] as number;
 
         return a + b;
-      }) as RpcCallable,
+      }) as unknown as RpcCallable,
     };
 
     exposeWorker(target, ['add']);
 
-    messageHandler?.({ data: { id: 'test-4', method: 'add', args: [3, 7] } } as MessageEvent<ZipbulValue>);
+    messageHandler?.({ data: { id: 'test-4', method: 'add', args: [3, 7] } } as unknown as MessageEvent<ZipbulValue>);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 

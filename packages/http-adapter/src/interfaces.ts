@@ -15,22 +15,26 @@ import type { HttpContext } from './http-context';
 
 /**
  * TLS configuration for the HTTP server.
- * Re-exports Bun's native `TLSOptions` to avoid type duplication.
+ * Accepts a single `TLSOptions` or an array for SNI (multi-domain hosting),
+ * where each entry specifies its own `serverName`.
  *
  * @public
  */
-export type HttpTlsOptions = import('bun').TLSOptions;
+export type HttpTlsOptions =
+  | import('bun').TLSOptions
+  | readonly import('bun').TLSOptions[];
 
 export interface HttpServerOptions extends ApplicationOptions {
   readonly port?: number;
   readonly hostname?: string;
   readonly bodyLimit?: number;
+  /** Maximum request URI length in bytes. Exceeding requests receive 414. Default: 8192. */
+  readonly maxUriLength?: number;
   readonly trustProxy?: TrustProxyConfig;
   readonly reusePort?: boolean;
   readonly name?: string;
   readonly logLevel?: string;
   readonly requestId?: RequestIdOptions;
-  readonly customMethods?: readonly string[];
   readonly textMediaTypes?: readonly string[];
   /** Idle connection timeout in seconds. Default: 30. */
   readonly idleTimeout?: number;

@@ -113,7 +113,7 @@ export function resolveSpreadBundle(
           const resolved = gildash.resolveSymbol(varName, importSource);
 
           if (!resolved.circular) {
-            resolvedFile = resolved.filePath;
+            resolvedFile = resolved.originalFilePath;
             resolvedName = resolved.originalName;
           }
         } catch {

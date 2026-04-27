@@ -23,7 +23,6 @@ Zipbul is designed from the ground up to leverage Bun's performance while provid
 - 🔧 **AOT Compilation** — Static analysis and code generation at build time
 - 💉 **Dependency Injection** — Powerful DI container with scoped providers
 - 🌐 **HTTP Adapter** — High-performance HTTP server with routing
-- 📝 **OpenAPI/Scalar** — Automatic API documentation generation
 - 🔄 **Hot Reload** — Fast development iteration with file watching
 - ✅ **Type-Safe** — Full TypeScript support with strict type checking
 
@@ -98,7 +97,6 @@ bun .zipbul/index.ts
 | [@zipbul/common](./packages/common)             | Shared interfaces, decorators, and utilities               |
 | [@zipbul/http-adapter](./packages/http-adapter) | HTTP server adapter with routing and middleware            |
 | [@zipbul/logger](./packages/logger)             | Structured logging utility                                 |
-| [@zipbul/scalar](./packages/scalar)             | OpenAPI documentation with Scalar UI                       |
 
 ## Project Structure
 

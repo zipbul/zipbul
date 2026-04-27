@@ -1,7 +1,5 @@
-import type {
-  PropAugment,
-  AugmentMethodParam,
-} from '../analyzer/parser/middleware-augment-extractor';
+import type { AugmentMethodParam, PropAugment } from '../analyzer/parser/middleware-augment-extractor';
+import type { MiddlewareContextAugment } from '../analyzer/adapter/middleware-context-types';
 import type { ImportRegistry } from './import-registry';
 
 /**
@@ -40,24 +38,6 @@ export interface ContextAdapterMap {
   readonly [contextType: string]: AugmentTargetMap;
 }
 
-/**
- * One middleware's contribution.
- */
-export interface MiddlewareContextAugment {
-  /** The middleware identifier (for diagnostics / source comments). */
-  readonly middlewareName: string;
-  /** The context class this middleware narrows to (e.g. `'HttpContext'`). */
-  readonly contextType: string;
-  /** Source file path of the middleware (for import resolution of the type identifiers). */
-  readonly sourceFilePath: string;
-  /** Property/method augmentations the middleware applies. */
-  readonly augments: readonly PropAugment[];
-  /**
-   * Resolved import sources for class identifiers used in `new X(...)` augments.
-   * Map from identifier name → absolute file path of its declaration.
-   */
-  readonly classImports: ReadonlyMap<string, string>;
-}
 
 /**
  * Generates `.zipbul/context.d.ts` — a declaration merging file that adds

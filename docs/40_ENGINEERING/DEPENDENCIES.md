@@ -88,17 +88,13 @@
   - `peerDependencies`: 필수: `@zipbul/core`, (사용 시) `@zipbul/common`, `@zipbul/logger`
   - `dependencies`: 어댑터 자체 구현에 필요한 외부 라이브러리
 
-- 런타임 플러그인(예: `@zipbul/scalar`)
-  - `peerDependencies`: 필수: `@zipbul/common`, (사용 시) `@zipbul/logger`
-  - `dependencies`: 플러그인 자체 구현에 필요한 외부 라이브러리
-
 - 공용 기반(`@zipbul/common`, `@zipbul/logger`)
   - `dependencies`: 자체 런타임 구현에 필요한 외부 라이브러리만 선언한다
   - `peerDependencies`: 기본값으로 비운다
 
 - CLI 툴링(`@zipbul/cli`)
   - `dependencies`: CLI 실행/분석/생성에 필요로 하는 라이브러리 및 패키지
-    - 단, 프레임워크 런타임 구현 패키지(`@zipbul/core`, `@zipbul/http-adapter`, `@zipbul/scalar`, `@zipbul/logger`)에 의존해서는 안 된다.
+    - 단, 프레임워크 런타임 구현 패키지(`@zipbul/core`, `@zipbul/http-adapter`, `@zipbul/logger`)에 의존해서는 안 된다.
     - CLI가 프레임워크 계약(Contract)을 공유해야 한다면, `@zipbul/common`에만 의존할 수 있다.
   - `peerDependencies`: 기본값으로 비운다
 
@@ -121,10 +117,6 @@
 - `@zipbul/http-adapter`
   - `dependencies`: 어댑터 자체 구현에 필요한 외부 라이브러리
   - `peerDependencies`: 필수: `@zipbul/core`, `@zipbul/common`, `@zipbul/logger`
-
-- `@zipbul/scalar`
-  - `dependencies`: 플러그인 자체 구현에 필요한 외부 라이브러리
-  - `peerDependencies`: 필수: `@zipbul/common`, (사용 시) `@zipbul/logger`
 
 - `@zipbul/cli`
   - `dependencies`: CLI 실행에 필요한 라이브러리(파서/파일 I/O/템플릿 등)

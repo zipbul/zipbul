@@ -10,15 +10,14 @@
     "@changesets/cli": "^2.29.4",
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
-    "@types/bun": "^1.3.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260202.1",
-    "dependency-cruiser": "^17.3.7",
+    "@types/bun": "catalog:",
     "husky": "^9.1.7",
     "knip": "^5.63.1",
     "lint-staged": "^16.1.6",
     "oxfmt": "^0.26.0",
     "oxlint": "^1.41.0",
-    "oxlint-tsgolint": "^0.11.1"
+    "oxlint-tsgolint": "^0.11.1",
+    "typescript": "catalog:"
   },
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
@@ -37,18 +36,51 @@
   "private": true,
   "scripts": {
     "knip": "knip",
-    "deps": "depcruise packages",
     "prepare": "husky",
-    "test": "bun test",
+    "test": "bun run test:unit && bun run test:integration && bun run test:e2e && bun run test:smoke",
+    "test:unit": "bun test packages/common/src packages/core/src packages/http-adapter/src packages/cli/src packages/logger/src",
+    "test:integration": "bun test packages/core/test/integration packages/cli/test/integration",
+    "test:e2e": "bun test packages/core/test/e2e packages/http-adapter/test/e2e",
+    "test:smoke": "bun test packages/http-adapter/test/smoke",
+    "test:perf": "bun test packages/http-adapter/test/perf --timeout 0",
     "test:coverage": "bun test --coverage",
+    "typecheck": "bunx tsc --noEmit",
     "kb:migrate": "bunx drizzle-kit migrate --config tooling/mcp/drizzle.config.ts",
     "kb:http": "bun tooling/mcp/src/http-server.ts",
     "kb:http:verify": "bun --env-file=.env tooling/mcp/test/integration/tools/_http-verify-all.ts"
   },
   "type": "module",
-  "workspaces": [
-    "packages/**/*",
-    "examples",
-    "benchmark"
-  ]
+  "workspaces": {
+    "packages": [
+      "packages/**/*",
+      "examples",
+      "benchmark"
+    ],
+    "catalog": {
+      "@clack/prompts": "^1.2.0",
+      "@nestjs/common": "^11.1.19",
+      "@nestjs/core": "^11.1.19",
+      "@nestjs/platform-express": "^11.1.19",
+      "@nestjs/platform-fastify": "^11.1.19",
+      "@types/bun": "^1.3.13",
+      "@types/express": "^5.0.6",
+      "@types/node": "^25.6.0",
+      "@zipbul/baker": "^2.2.0",
+      "@zipbul/gildash": "0.24.5",
+      "@zipbul/result": "^1.0.0",
+      "@zipbul/router": "^0.2.3",
+      "@zipbul/shared": "^0.0.11",
+      "elysia": "^1.4.28",
+      "exponential-backoff": "^3.1.3",
+      "express": "^5.2.1",
+      "fastify": "^5.8.5",
+      "hono": "^4.12.15",
+      "http-status-codes": "^2.3.0",
+      "mitata": "^1.0.34",
+      "oxc-parser": "0.127.0",
+      "picocolors": "^1.1.1",
+      "reflect-metadata": "^0.2.2",
+      "typescript": "5.9.3"
+    }
+  }
 }

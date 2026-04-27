@@ -1,4 +1,5 @@
 import { StatusCodes, getReasonPhrase } from 'http-status-codes';
+import type { HttpStatus } from './types';
 
 import type { HttpRequest } from './http-request';
 import type { ResponseBodyValue } from './types';
@@ -7,13 +8,20 @@ import { ContentType, HeaderField } from './enums';
 
 const DANGEROUS_SCHEME_PATTERN = /^(?:javascript|data|vbscript):/i;
 
+/** Fire-and-forget cancel — swallows errors from already-closed streams. */
+function cancelStreamQuietly(response: Response | undefined): void {
+  const body = response?.body;
+  if (body === null || body === undefined) return;
+  body.cancel().catch(() => {});
+}
+
 export class HttpResponse {
   private readonly req: HttpRequest;
   private _body: ResponseBodyValue | undefined;
   private _headers: Headers | undefined;
   private _contentType: string | undefined;
   private _contentLength: string | undefined;
-  private _status: StatusCodes | 0 = 0;
+  private _status: HttpStatus | undefined;
   private _statusText: string | undefined;
 
   /** Cached final Response — once built via end(), never rebuilt. */
@@ -79,12 +87,12 @@ export class HttpResponse {
    * @public
    */
   reset(): void {
-    void this._rawNativeResponse?.body?.cancel();
+    cancelStreamQuietly(this._rawNativeResponse);
     this._headers = undefined;
     this._contentType = undefined;
     this._contentLength = undefined;
     this._body = undefined;
-    this._status = 0;
+    this._status = undefined;
     this._statusText = undefined;
     this._committed = false;
     this._serialized = false;
@@ -95,11 +103,11 @@ export class HttpResponse {
 
   // ── Status ──────────────────────────────────────────────────
 
-  getStatus(): StatusCodes | 0 {
+  getStatus(): HttpStatus | undefined {
     return this._status;
   }
 
-  setStatus(status: StatusCodes, statusText?: string): this {
+  setStatus(status: HttpStatus, statusText?: string): this {
     this._status = status;
     this._statusText = statusText ?? getReasonPhrase(status);
     return this;
@@ -221,8 +229,10 @@ export class HttpResponse {
    * @public
    */
   setBody(data: ResponseBodyValue | undefined): this {
+    this._serialized = false;
+
     if (data instanceof ReadableStream) {
-      void this._rawNativeResponse?.body?.cancel();
+      cancelStreamQuietly(this._rawNativeResponse);
       this._body = undefined;
       this._rawNativeResponse = new Response(data);
       this._mergedNativeResponse = undefined;
@@ -230,7 +240,7 @@ export class HttpResponse {
     }
 
     if (data instanceof Blob) {
-      void this._rawNativeResponse?.body?.cancel();
+      cancelStreamQuietly(this._rawNativeResponse);
       this._body = undefined;
       if (this.getContentType() === null && data.type) {
         this.setContentType(data.type);
@@ -242,7 +252,7 @@ export class HttpResponse {
     }
 
     // Buffered body — clear native path
-    void this._rawNativeResponse?.body?.cancel();
+    cancelStreamQuietly(this._rawNativeResponse);
     this._body = data;
     this._rawNativeResponse = undefined;
     this._mergedNativeResponse = undefined;
@@ -272,7 +282,7 @@ export class HttpResponse {
    * @public
    */
   setNativeResponse(response: Response): void {
-    void this._rawNativeResponse?.body?.cancel();
+    cancelStreamQuietly(this._rawNativeResponse);
     this._rawNativeResponse = response;
     this._mergedNativeResponse = undefined;
     this._body = undefined;
@@ -337,7 +347,7 @@ export class HttpResponse {
    * @public
    */
   cancelNativeStream(): void {
-    void this._rawNativeResponse?.body?.cancel();
+    cancelStreamQuietly(this._rawNativeResponse);
   }
 
   // ── Serialize (Content-Type inference + JSON.stringify) ──────
@@ -396,7 +406,7 @@ export class HttpResponse {
 
     // 1. Redirect: Location header → default 302, body removed
     if (typeof location === 'string' && location.length > 0) {
-      if (!this._status) {
+      if (this._status === undefined) {
         this.setStatus(StatusCodes.MOVED_TEMPORARILY);
       }
       this._body = undefined;
@@ -417,14 +427,14 @@ export class HttpResponse {
     }
 
     // 3. Auto 204: no status + no body — skip Content-Type
-    if (!this._status && this._body === undefined) {
+    if (this._status === undefined && this._body === undefined) {
       this.setStatus(StatusCodes.NO_CONTENT);
       return this.createResponse();
     }
 
     // 4. HEAD: Content-Length from serialized body, then body removed (RFC 9110 §9.3.2)
     if (this.req.method === 'HEAD') {
-      if (!this._status) {
+      if (this._status === undefined) {
         this.setStatus(StatusCodes.OK);
       }
 
@@ -449,7 +459,7 @@ export class HttpResponse {
    */
   private createResponse(): Response {
     const body = this.normalizeBody();
-    const status = this._status || StatusCodes.OK;
+    const status = this._status ?? StatusCodes.OK;
     const headers = this.buildHeaders();
 
     // Status range validation (integrates former toResponse logic)

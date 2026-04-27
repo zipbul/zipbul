@@ -17,14 +17,14 @@ function parseMethodFunction(classSource: string): OxcFunction {
   const parsed = parseSource('test.ts', classSource);
 
   if (isErr(parsed)) {
-    throw new Error(`Parse failure: ${parsed.reason}`);
+    throw new Error(`Parse failure: ${JSON.stringify(parsed.data)}`);
   }
 
   const classNode = parsed.program.body[0] as Class;
   const method = classNode.body.body[0];
 
-  if (method.type !== 'MethodDefinition') {
-    throw new Error(`Expected MethodDefinition, got ${method.type}`);
+  if (method === undefined || method.type !== 'MethodDefinition') {
+    throw new Error(`Expected MethodDefinition, got ${method === undefined ? 'undefined' : method.type}`);
   }
 
   return method.value;
@@ -38,13 +38,13 @@ function parseExpression(source: string): Expression {
   const parsed = parseSource('test.ts', source);
 
   if (isErr(parsed)) {
-    throw new Error(`Parse failure: ${parsed.reason}`);
+    throw new Error(`Parse failure: ${JSON.stringify(parsed.data)}`);
   }
 
   const stmt = parsed.program.body[0];
 
-  if (stmt.type !== 'VariableDeclaration') {
-    throw new Error(`Expected VariableDeclaration, got ${stmt.type}`);
+  if (stmt === undefined || stmt.type !== 'VariableDeclaration') {
+    throw new Error(`Expected VariableDeclaration, got ${stmt === undefined ? 'undefined' : stmt.type}`);
   }
 
   const init = stmt.declarations[0]?.init;
@@ -251,7 +251,7 @@ describe('extractMiddlewaresFromConfigure', () => {
 
       expect(isErr(result)).toBe(false);
 
-      if (!isErr(result)) {
+      if (!isErr(result) && result !== undefined) {
         expect(result).toHaveLength(1);
         expect(result[0]?.name).toBe('AuthMw');
         expect(result[0]?.lifecycle).toBeUndefined();
@@ -266,7 +266,7 @@ describe('extractMiddlewaresFromConfigure', () => {
 
       expect(isErr(result)).toBe(false);
 
-      if (!isErr(result)) {
+      if (!isErr(result) && result !== undefined) {
         expect(result).toHaveLength(1);
         expect(result[0]?.name).toBe('LogMw');
         expect(result[0]?.lifecycle).toBeUndefined();

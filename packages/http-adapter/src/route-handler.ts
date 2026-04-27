@@ -20,6 +20,9 @@ import type {
 import { HttpContext } from './http-context';
 import type { HttpResponse } from './http-response';
 import { Router } from '@zipbul/router';
+import { parseDecoratorOptions, buildResponseDefaultsApplier } from './route-options';
+import { addWithHeadAlias } from './pipeline/router-register';
+import { FORBIDDEN_HTTP_METHODS } from './http-method';
 
 type HttpCompiledHandlerEntry = CompiledHandlerEntry;
 
@@ -91,7 +94,14 @@ export class RouteHandler {
    * @public
    */
   matchRoute(method: string, path: string): MatchRouteOutput {
-    const result = this.router.match(method, path);
+    // @zipbul/router 는 미등록 메서드에 대해 RouterError('method-not-found') 를 throw 한다.
+    // 프레임워크는 이를 404/501 결정 로직으로 흘려보내야 하므로 여기서 not-found 로 정규화한다.
+    let result: ReturnType<typeof this.router.match>;
+    try {
+      result = this.router.match(method as Parameters<typeof this.router.match>[0], path);
+    } catch {
+      result = null;
+    }
 
     if (result !== null) {
       return {
@@ -101,7 +111,7 @@ export class RouteHandler {
       };
     }
 
-    const allowedMethods = this.getAllowedMethods(path);
+    const allowedMethods = this.getAllowedMethodsForPath(path);
 
     if (allowedMethods.length > 0) {
       return { kind: 'method-not-allowed', allowedMethods };
@@ -123,6 +133,39 @@ export class RouteHandler {
     controllerInstances?: Map<string, unknown>,
     buildPipeline?: PipelineBuildFn,
   ): void {
+    // Phase 1: 모든 entry 의 메서드를 검증한다 (원자성 — 한 entry 라도 거부되면 등록 0 건).
+    for (const entry of entries) {
+      if (entry.adapterId !== this.decoratorConfig.adapterId) continue;
+
+      const httpMethod = extractHttpMethod(entry);
+
+      if (httpMethod === null) {
+        throw new Error(
+          `[RouteHandler] Cannot register handler at ${entry.controllerKey}.${entry.methodName}: ` +
+          `method token is missing or empty (RFC 9110 §5.1).`,
+        );
+      }
+
+      if (!isValidMethodToken(httpMethod)) {
+        throw new Error(
+          `[RouteHandler] Cannot register handler at ${entry.controllerKey}.${entry.methodName}: ` +
+          `method '${httpMethod}' is not a valid HTTP token (RFC 9110 §5.1 — tchar only, no whitespace).`,
+        );
+      }
+
+      if (FORBIDDEN_HTTP_METHODS.has(httpMethod)) {
+        throw new Error(
+          `[RouteHandler] @Method('${httpMethod}', ...) at ${entry.controllerKey}.${entry.methodName} ` +
+          `is permanently rejected. ` +
+          `${httpMethod === 'TRACE'
+            ? 'TRACE carries XST risk (OWASP); RFC 9110 §9.3.8 echo rules cannot be statically enforced for user handlers.'
+            : 'CONNECT is for forward proxies (RFC 9110 §9.3.6); origin servers cannot meaningfully handle it.'}`,
+        );
+      }
+
+    }
+
+    // Phase 2: 검증 통과 후 실제 등록.
     let routeCount = 0;
 
     for (const entry of entries) {
@@ -131,13 +174,7 @@ export class RouteHandler {
       }
 
       const isCustomMethod = entry.handlerDecorator === 'Method';
-      const httpMethod = isCustomMethod
-        ? (typeof entry.handlerDecoratorArgs[0] === 'string' ? entry.handlerDecoratorArgs[0].toUpperCase() : '')
-        : entry.handlerDecorator.toUpperCase();
-
-      if (httpMethod.length === 0) {
-        continue;
-      }
+      const httpMethod = extractHttpMethod(entry)!;
 
       const instance = controllerInstances?.get(entry.controllerKey);
 
@@ -159,27 +196,13 @@ export class RouteHandler {
       const controllerPrefix = this.getControllerPrefix(entry.controllerKey);
       const fullPath = '/' + [controllerPrefix, rawPath].filter(Boolean).join('/').replace(/\/+/g, '/');
 
-      const hasRawBody = entry.options?.some(option => option.name === 'RawBody') === true;
-      const hasSse = entry.options?.some(option => option.name === 'Sse') === true;
-      const bodyLimitOption = entry.options?.find(option => option.name === 'BodyLimit');
-      const bodyLimitValue = bodyLimitOption?.arguments?.[0];
-      const statusOption = entry.options?.find(option => option.name === 'Status');
-      const statusValue = statusOption?.arguments?.[0];
-      const redirectOption = entry.options?.find(option => option.name === 'Redirect');
-      const contentTypeOption = entry.options?.find(option => option.name === 'ContentType');
-      const contentTypeValue = contentTypeOption?.arguments?.[0];
-      const headerOptions = entry.options?.filter(option => option.name === 'Header') ?? [];
-      const headers: Array<readonly [string, string]> = headerOptions
-        .filter(option => typeof option.arguments?.[0] === 'string' && typeof option.arguments?.[1] === 'string')
-        .map(option => [option.arguments![0] as string, option.arguments![1] as string] as const);
+      const parsed = parseDecoratorOptions(entry.options);
 
       const responseDefaultsApplier = buildResponseDefaultsApplier(
-        typeof statusValue === 'number' ? statusValue : undefined,
-        typeof contentTypeValue === 'string' ? contentTypeValue : undefined,
-        headers,
-        redirectOption !== undefined && typeof redirectOption.arguments?.[0] === 'string'
-          ? { url: redirectOption.arguments[0] as string, ...(redirectOption.arguments?.[1] !== undefined ? { status: redirectOption.arguments[1] as 301 | 302 | 303 | 307 | 308 } : {}) }
-          : undefined,
+        parsed.status,
+        parsed.contentType,
+        parsed.headers,
+        parsed.redirect,
       );
 
       const pipeline = buildPipeline !== undefined
@@ -188,15 +211,13 @@ export class RouteHandler {
 
       const routeEntry: MatchedRouteMetadata = {
         handler,
-        rawBody: hasRawBody,
-        sse: hasSse,
-        bodyLimit: typeof bodyLimitValue === 'number' ? bodyLimitValue : undefined,
-        status: typeof statusValue === 'number' ? statusValue : undefined,
-        redirect: redirectOption !== undefined && typeof redirectOption.arguments?.[0] === 'string'
-          ? { url: redirectOption.arguments[0] as string, ...(redirectOption.arguments?.[1] !== undefined ? { status: redirectOption.arguments[1] as 301 | 302 | 303 | 307 | 308 } : {}) }
-          : undefined,
-        contentType: typeof contentTypeValue === 'string' ? contentTypeValue : undefined,
-        headers,
+        rawBody: parsed.rawBody,
+        sse: parsed.sse,
+        bodyLimit: parsed.bodyLimit,
+        status: parsed.status,
+        redirect: parsed.redirect,
+        contentType: parsed.contentType,
+        headers: parsed.headers,
         ...(responseDefaultsApplier !== undefined ? { applyResponseDefaults: responseDefaultsApplier } : {}),
         validations,
         pre: pipeline.pre,
@@ -204,15 +225,15 @@ export class RouteHandler {
         filters: pipeline.filters,
       };
 
-      this.router.add(httpMethod, fullPath, routeEntry);
-      this.registeredMethods.add(httpMethod);
-      this.logger.debug(`${httpMethod} ${fullPath} → ${entry.controllerKey}.${entry.methodName} (AOT)`);
-
-      if (httpMethod === 'GET') {
-        this.router.add('HEAD', fullPath, routeEntry);
-        this.registeredMethods.add('HEAD');
-        this.logger.debug(`HEAD ${fullPath} → ${entry.controllerKey}.${entry.methodName} (auto from GET)`);
-      }
+      addWithHeadAlias({
+        router: this.router,
+        method: httpMethod,
+        path: fullPath,
+        entry: routeEntry,
+        registeredMethods: this.registeredMethods,
+        logger: this.logger,
+        sourceLabel: ` → ${entry.controllerKey}.${entry.methodName} (AOT)`,
+      });
       routeCount++;
     }
 
@@ -252,21 +273,21 @@ export class RouteHandler {
         filters: [],
       };
 
-      this.router.add(method, fullPath, entry);
-      this.registeredMethods.add(method);
-      this.logger.debug(`${method} ${fullPath} (internal)`);
-
-      if (method === 'GET') {
-        this.router.add('HEAD', fullPath, entry);
-        this.registeredMethods.add('HEAD');
-        this.logger.debug(`HEAD ${fullPath} (internal, auto from GET)`);
-      }
+      addWithHeadAlias({
+        router: this.router,
+        method,
+        path: fullPath,
+        entry,
+        registeredMethods: this.registeredMethods,
+        logger: this.logger,
+        sourceLabel: ' (internal)',
+      });
     }
 
     this.router.build();
   }
 
-  private getAllowedMethods(path: string): string[] {
+  private getAllowedMethodsForPath(path: string): string[] {
     const methods: string[] = [];
 
     for (const method of this.registeredMethods) {
@@ -365,6 +386,35 @@ export class RouteHandler {
 
 }
 
+// RFC 9110 §5.1 token 문자 (tchar). 빈 문자열 / 공백 / CTL / non-ASCII 거부.
+const HTTP_TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+/**
+ * RFC 9110 §5.1 token 검증. HTTP 메서드는 token 형태여야 한다.
+ */
+export function isValidMethodToken(method: string): boolean {
+  return HTTP_TOKEN_PATTERN.test(method);
+}
+
+/**
+ * AOT 컴파일된 핸들러 entry 에서 HTTP 메서드 토큰 추출.
+ * 빈 문자열 / 비-string 인자는 `null` 반환.
+ */
+function extractHttpMethod(entry: CompiledHandlerEntry): string | null {
+  const isCustomMethod = entry.handlerDecorator === 'Method';
+
+  const raw = isCustomMethod
+    ? entry.handlerDecoratorArgs[0]
+    : entry.handlerDecorator;
+
+  if (typeof raw !== 'string') return null;
+
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+
+  return trimmed.toUpperCase();
+}
+
 /**
  * Builds a reverse index from className → constructor for O(1) metatype resolution.
  */
@@ -408,31 +458,3 @@ function resolveAccessorIO(accessor: string | undefined): AccessorIO | undefined
   }
 }
 
-function buildResponseDefaultsApplier(
-  status: number | undefined,
-  contentType: string | undefined,
-  headers: readonly (readonly [string, string])[],
-  redirect: { readonly url: string; readonly status?: 301 | 302 | 303 | 307 | 308 } | undefined,
-): ((response: HttpResponse) => void) | undefined {
-  if (status === undefined && contentType === undefined && headers.length === 0 && redirect === undefined) {
-    return undefined;
-  }
-
-  return (response: HttpResponse): void => {
-    if (status !== undefined) {
-      response.setStatus(status);
-    }
-
-    if (contentType !== undefined) {
-      response.setContentType(contentType);
-    }
-
-    for (const [name, value] of headers) {
-      response.setHeader(name, value);
-    }
-
-    if (redirect !== undefined) {
-      response.redirect(redirect.url, redirect.status);
-    }
-  };
-}

@@ -580,7 +580,7 @@ describe('getCalleeMethodName', () => {
     const exprStmt = block.body[0]!;
 
     // exprStmt is ExpressionStatement with expression being CallExpression
-    const callExpr = (exprStmt as Record<string, unknown>).expression as CallExpression;
+    const callExpr = (exprStmt as unknown as Record<string, unknown>).expression as CallExpression;
 
     expect(getCalleeMethodName(callExpr)).toBe('execute');
   });
@@ -588,7 +588,7 @@ describe('getCalleeMethodName', () => {
   it('should return null for a plain function call', () => {
     const code = 'function test() { doSomething(); }';
     const parsed = parse(code);
-    const funcDecl = parsed.program.body[0] as Record<string, unknown>;
+    const funcDecl = parsed.program.body[0] as unknown as Record<string, unknown>;
     const body = (funcDecl as Record<string, unknown>).body as Record<string, unknown>;
     const bodyStatements = (body as Record<string, unknown>).body as Array<Record<string, unknown>>;
     const exprStmt = bodyStatements[0]!;
@@ -604,7 +604,7 @@ describe('getCalleeMethodName', () => {
     const methodBody = findMethodBodyAstNode(classNode, 'run')!;
     const block = methodBody.body!;
     const exprStmt = block.body[0]!;
-    const callExpr = (exprStmt as Record<string, unknown>).expression as CallExpression;
+    const callExpr = (exprStmt as unknown as Record<string, unknown>).expression as CallExpression;
 
     expect(getCalleeMethodName(callExpr)).toBeNull();
   });

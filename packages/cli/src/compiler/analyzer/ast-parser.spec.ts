@@ -161,7 +161,7 @@ describe('AstParser', () => {
     ].join('\n');
     const parser = new AstParser();
     const result = await parseOrFail(parser, '/app/src/consumer.ts', source);
-    const refValue = result.exportedValues['ref'] as Record<string, unknown> | undefined;
+    const refValue = result.exportedValues?.['ref'] as Record<string, unknown> | undefined;
 
     expect(refValue?.__zipbul_ref).toBe('MyClass');
   });
@@ -195,7 +195,7 @@ describe('AstParser', () => {
     const parser = new AstParser();
     const result = await parseOrFail(parser, '/app/src/consumer.ts', source);
     const localValues = result.localValues;
-    const refValue = localValues['ref'] as Record<string, unknown> | undefined;
+    const refValue = localValues?.['ref'] as Record<string, unknown> | undefined;
 
     expect(refValue?.__zipbul_lazy_ref).toBe('MyService');
   });
@@ -225,7 +225,7 @@ describe('AstParser', () => {
     ].join('\n');
     const parser = new AstParser();
     const result = await parseOrFail(parser, '/app/src/service.ts', source);
-    const refValue = result.exportedValues['ref'] as Record<string, unknown> | undefined;
+    const refValue = result.exportedValues?.['ref'] as Record<string, unknown> | undefined;
 
     expect(refValue?.__zipbul_ref).toBe('DefaultClass');
   });
@@ -239,7 +239,7 @@ describe('AstParser', () => {
     const parser = new AstParser();
     const result = await parseOrFail(parser, '/app/src/main.ts', source);
     const localValues = result.localValues;
-    const valRef = localValues['val'] as Record<string, unknown> | undefined;
+    const valRef = localValues?.['val'] as Record<string, unknown> | undefined;
 
     expect(valRef?.__zipbul_ref).toBe('ns.something');
   });

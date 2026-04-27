@@ -23,7 +23,6 @@ Zipbul는 Bun의 성능을 최대한 활용하면서 친숙한 NestJS 스타일�
 - 🔧 **AOT 컴파일** — 빌드 시점의 정적 분석 및 코드 생성
 - 💉 **의존성 주입** — 스코프 프로바이더를 지원하는 강력한 DI 컨테이너
 - 🌐 **HTTP 어댑터** — 라우팅을 지원하는 고성능 HTTP 서버
-- 📝 **OpenAPI/Scalar** — 자동 API 문서 생성
 - 🔄 **핫 리로드** — 파일 감시를 통한 빠른 개발 반복
 - ✅ **타입 안전** — 엄격한 타입 검사를 지원하는 완전한 TypeScript 지원
 
@@ -98,7 +97,6 @@ bun .zipbul/index.ts
 | [@zipbul/common](./packages/common)             | 공유 인터페이스, 데코레이터, 유틸리티                          |
 | [@zipbul/http-adapter](./packages/http-adapter) | 라우팅과 미들웨어를 지원하는 HTTP 서버 어댑터                  |
 | [@zipbul/logger](./packages/logger)             | 구조화된 로깅 유틸리티                                         |
-| [@zipbul/scalar](./packages/scalar)             | Scalar UI를 활용한 OpenAPI 문서                                |
 
 ## 프로젝트 구조
 

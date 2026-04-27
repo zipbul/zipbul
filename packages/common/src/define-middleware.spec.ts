@@ -6,8 +6,8 @@ import { contextKey, type ContextKey } from './context-key';
 import { defineMiddleware } from './define-middleware';
 
 class FakeAdapterA extends Adapter {
-  static readonly validPhases: ReadonlySet<string> = new Set();
-  readonly decorators = { controller: () => {}, handlers: [] };
+  static override readonly validPhases: ReadonlySet<string> = new Set();
+  override readonly decorators = { controller: () => {}, handlers: [] };
   protected emergencyTeardown() {}
   protected async executePipeline() { return undefined as never; }
   async start() {}
@@ -15,8 +15,8 @@ class FakeAdapterA extends Adapter {
 }
 
 class FakeAdapterB extends Adapter {
-  static readonly validPhases: ReadonlySet<string> = new Set();
-  readonly decorators = { controller: () => {}, handlers: [] };
+  static override readonly validPhases: ReadonlySet<string> = new Set();
+  override readonly decorators = { controller: () => {}, handlers: [] };
   protected emergencyTeardown() {}
   protected async executePipeline() { return undefined as never; }
   async start() {}

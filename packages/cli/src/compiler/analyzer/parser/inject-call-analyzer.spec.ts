@@ -12,17 +12,27 @@ import {
   resolveInjectCallee,
 } from './inject-call-analyzer';
 
-interface PatternMatchWithCaptures extends PatternMatch {
-  readonly startOffset?: number;
-  readonly endOffset?: number;
-  readonly captures?: Record<string, { text: string }>;
-}
+type PatternMatchWithCaptures = PatternMatch;
+
+const cap = (text: string) => ({
+  text,
+  startLine: 1,
+  endLine: 1,
+  startColumn: 0,
+  endColumn: 0,
+  startOffset: 0,
+  endOffset: 0,
+});
 
 function createMatch(overrides: Partial<PatternMatchWithCaptures>): PatternMatchWithCaptures {
   return {
     filePath: '/app/src/test.ts',
     startLine: 1,
     endLine: 1,
+    startColumn: 0,
+    endColumn: 0,
+    startOffset: 0,
+    endOffset: 0,
     matchedText: 'inject(Token)',
     ...overrides,
   };
@@ -110,7 +120,7 @@ describe('buildInjectCallFromCapture', () => {
 
   it('should return invalid when args contain multiple top-level arguments', () => {
     const result = buildInjectCallFromCapture(
-      { text: 'TokenA, TokenB' },
+      cap('TokenA, TokenB'),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -124,7 +134,7 @@ describe('buildInjectCallFromCapture', () => {
 
   it('should return invalid when args text is empty', () => {
     const result = buildInjectCallFromCapture(
-      { text: '' },
+      cap(''),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -138,7 +148,7 @@ describe('buildInjectCallFromCapture', () => {
 
   it('should return invalid when args text is whitespace only', () => {
     const result = buildInjectCallFromCapture(
-      { text: '   ' },
+      cap('   '),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -152,7 +162,7 @@ describe('buildInjectCallFromCapture', () => {
 
   it('should return thunk tokenKind when arg is arrow function', () => {
     const result = buildInjectCallFromCapture(
-      { text: '() => TokenA' },
+      cap('() => TokenA'),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -171,7 +181,7 @@ describe('buildInjectCallFromCapture', () => {
 
   it('should return thunk tokenKind when arg is function expression', () => {
     const result = buildInjectCallFromCapture(
-      { text: 'function() { return TokenA; }' },
+      cap('function() { return TokenA; }'),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -188,7 +198,7 @@ describe('buildInjectCallFromCapture', () => {
 
   it('should return token tokenKind when arg is bare identifier', () => {
     const result = buildInjectCallFromCapture(
-      { text: 'TokenA' },
+      cap('TokenA'),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -207,7 +217,7 @@ describe('buildInjectCallFromCapture', () => {
   it('should return token tokenKind when arg is member expression', () => {
     const imports = { ns: '@zipbul/common' };
     const result = buildInjectCallFromCapture(
-      { text: 'ns.MyToken' },
+      cap('ns.MyToken'),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -225,7 +235,7 @@ describe('buildInjectCallFromCapture', () => {
 
   it('should return invalid when arg is unrecognized pattern', () => {
     const result = buildInjectCallFromCapture(
-      { text: 'a + b' },
+      cap('a + b'),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -247,7 +257,7 @@ describe('buildInjectCallFromCapture', () => {
     };
     const imports = { Alias: './tokens' };
     const result = buildInjectCallFromCapture(
-      { text: 'Alias' },
+      cap('Alias'),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -272,7 +282,7 @@ describe('buildInjectCallFromCapture', () => {
     };
     const imports = { Alias: './tokens' };
     const result = buildInjectCallFromCapture(
-      { text: '() => Alias' },
+      cap('() => Alias'),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -298,7 +308,7 @@ describe('buildInjectCallFromCapture', () => {
       return name;
     };
     const result = buildInjectCallFromCapture(
-      { text: 'myModule.Token' },
+      cap('myModule.Token'),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -316,7 +326,7 @@ describe('buildInjectCallFromCapture', () => {
 
   it('should not treat comma inside nested parens as multi-arg', () => {
     const result = buildInjectCallFromCapture(
-      { text: '() => TokenA' },
+      cap('() => TokenA'),
       defaultCallee,
       defaultImportSource,
       defaultFilePath,
@@ -340,7 +350,7 @@ describe('collectFactoryInjectCalls', () => {
         matchedText: 'inject(TokenA)',
         startOffset: 10,
         endOffset: 24,
-        captures: { '$$$ARGS': { text: 'TokenA' } },
+        captures: { '$$$ARGS': cap('TokenA') },
       }),
     ];
     const injectCalls: InjectCall[] = [];
@@ -363,15 +373,16 @@ describe('collectFactoryInjectCalls', () => {
   });
 
   it('should skip matches without byte offsets', () => {
-    const matches: PatternMatchWithCaptures[] = [
-      createMatch({
-        matchedText: 'inject(TokenA)',
-        captures: { '$$$ARGS': { text: 'TokenA' } },
-      }),
-    ];
+    const matchWithoutOffsets = {
+      filePath: '/app/src/test.ts',
+      startLine: 1,
+      endLine: 1,
+      matchedText: 'inject(TokenA)',
+      captures: { '$$$ARGS': cap('TokenA') },
+    } as unknown as PatternMatch;
     const injectCalls: InjectCall[] = [];
     const result = collectFactoryInjectCalls(
-      matches as PatternMatch[],
+      [matchWithoutOffsets],
       [],
       0,
       100,
@@ -392,7 +403,7 @@ describe('collectFactoryInjectCalls', () => {
         matchedText: 'inject(TokenA)',
         startOffset: 200,
         endOffset: 214,
-        captures: { '$$$ARGS': { text: 'TokenA' } },
+        captures: { '$$$ARGS': cap('TokenA') },
       }),
     ];
     const injectCalls: InjectCall[] = [];
@@ -419,7 +430,7 @@ describe('collectFactoryInjectCalls', () => {
         matchedText: 'inject(TokenA)',
         startOffset: 10,
         endOffset: 24,
-        captures: { '$$$ARGS': { text: 'TokenA' } },
+        captures: { '$$$ARGS': cap('TokenA') },
       }),
     ];
     const injectCalls: InjectCall[] = [];
@@ -446,7 +457,7 @@ describe('collectFactoryInjectCalls', () => {
         matchedText: 'notInject(TokenA)',
         startOffset: 10,
         endOffset: 27,
-        captures: { '$$$ARGS': { text: 'TokenA' } },
+        captures: { '$$$ARGS': cap('TokenA') },
       }),
     ];
     const injectCalls: InjectCall[] = [];
@@ -473,7 +484,7 @@ describe('collectFactoryInjectCalls', () => {
         matchedText: 'inject(TokenA)',
         startOffset: 60,
         endOffset: 74,
-        captures: { '$$$ARGS': { text: 'TokenA' } },
+        captures: { '$$$ARGS': cap('TokenA') },
       }),
     ];
     const injectCalls: InjectCall[] = [];

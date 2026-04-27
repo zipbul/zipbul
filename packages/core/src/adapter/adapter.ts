@@ -445,13 +445,46 @@ export abstract class Adapter implements AdapterContract {
       const filterResult = await entry.handler(error, context);
 
       if (!isErr(filterResult)) {
-        return err({ message: 'Exception filter must return Err', cause: error });
+        return this.wrapInvalidFilterResult(error, filterResult);
       }
 
       return filterResult;
     }
 
+    return this.wrapUnhandledException(error);
+  }
+
+  /**
+   * Protocol-translation hook: builds the `Err` returned when no registered
+   * exception filter matches a thrown value.
+   *
+   * The core base class returns a protocol-agnostic `{ message, cause }`
+   * shape. Adapters override this to produce their protocol-specific error
+   * payload (e.g. `ErrorResponseData` for HTTP). This is the symmetric
+   * counterpart to {@link wrapValidationError}.
+   *
+   * @param error - The thrown value that matched no filter.
+   * @public
+   */
+  protected wrapUnhandledException(error: unknown): Err<unknown> {
     return err({ message: 'Unhandled error', cause: error });
+  }
+
+  /**
+   * Protocol-translation hook: builds the `Err` returned when a matched
+   * exception filter returns a non-`Err` value (filter-author contract
+   * violation).
+   *
+   * The core base class returns a protocol-agnostic `{ message, cause }`
+   * shape. Adapters override this to produce their protocol-specific error
+   * payload.
+   *
+   * @param error - The original thrown value.
+   * @param _filterResult - The non-`Err` value the filter returned.
+   * @public
+   */
+  protected wrapInvalidFilterResult(error: unknown, _filterResult: unknown): Err<unknown> {
+    return err({ message: 'Exception filter must return Err', cause: error });
   }
 
   // ── Pipeline step resolution ───────────────────────────────

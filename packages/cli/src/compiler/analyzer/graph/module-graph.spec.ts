@@ -810,7 +810,7 @@ describe('ModuleGraph', () => {
       const mockGildash = {
         resolveSymbol: (name: string, _source: string) => ({
           originalName: name,
-          filePath: originalPath,
+          originalFilePath: originalPath,
           circular: false,
         }),
       };

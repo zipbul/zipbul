@@ -6,11 +6,12 @@ import { runInNewContext } from 'node:vm';
 import { ModuleKind, ScriptTarget, transpileModule } from 'typescript';
 
 import type { FileAnalysis } from '../analyzer/graph/interfaces';
-import type { ClassMetadata, RouteRegistration } from '../analyzer/interfaces';
+import type { ClassMetadata, HandlerIndexEntry, RouteRegistration } from '../analyzer/interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
 import type { DeepFreezeModule, GeneratedBlockParams, MetadataRegistryModule, ScopedKeysMapModule } from './types';
 
 import { isErr } from '@zipbul/result';
+import { unwrapOk } from '../../../test/shared/assertions';
 import { ModuleGraph } from '../analyzer/graph/module-graph';
 
 import { ManifestGenerator } from './manifest-generator';
@@ -191,7 +192,7 @@ describe('ManifestGenerator', () => {
     // Arrange
     const graph = createSingleModuleGraph();
     const gen = new ManifestGenerator();
-    const code = gen.generate(graph, [], '/out');
+    const code = unwrapOk(gen.generate(graph, [], '/out'));
     const deepFreezeBlock = extractGeneratedBlock({
       code,
       matcher: /const deepFreeze = \([\s\S]*?\n};/,
@@ -226,7 +227,7 @@ describe('ManifestGenerator', () => {
     // Arrange
     const graph = createSingleModuleGraph();
     const gen = new ManifestGenerator();
-    const code = gen.generate(graph, [], '/out');
+    const code = unwrapOk(gen.generate(graph, [], '/out'));
     const deepFreezeBlock = extractGeneratedBlock({
       code,
       matcher: /const deepFreeze = \([\s\S]*?\n};/,
@@ -261,7 +262,7 @@ describe('ManifestGenerator', () => {
     // Arrange
     const graph = createSingleModuleGraph();
     const gen = new ManifestGenerator();
-    const code = gen.generate(graph, [], '/out');
+    const code = unwrapOk(gen.generate(graph, [], '/out'));
     const deepFreezeBlock = extractGeneratedBlock({
       code,
       matcher: /const deepFreeze = \([\s\S]*?\n};/,
@@ -304,14 +305,13 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {
         test: {
-          entryDecorators: { controller: 'Controller', handler: ['Get'] },
+          entryDecorators: { controller: 'Controller', handlers: ['Get'] },
         },
       },
-      handlerIndex: [{ id: 'test:src/controllers.ts#SampleController.handle' }],
+      handlerIndex: [{ id: 'test:src/controllers.ts#SampleController.handle' } as unknown as HandlerIndexEntry],
     });
     // Act
     const parsed = JSON.parse(json);
@@ -335,19 +335,18 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {
         b: {
-          entryDecorators: { controller: 'Controller', handler: ['Get'] },
+          entryDecorators: { controller: 'Controller', handlers: ['Get'] },
         },
         a: {
-          entryDecorators: { controller: 'Controller', handler: ['Get'] },
+          entryDecorators: { controller: 'Controller', handlers: ['Get'] },
         },
       },
       handlerIndex: [
-        { id: 'b:src/controllers.ts#BController.handle' },
-        { id: 'a:src/controllers.ts#AController.handle' },
+        { id: 'b:src/controllers.ts#BController.handle' } as unknown as HandlerIndexEntry,
+        { id: 'a:src/controllers.ts#AController.handle' } as unknown as HandlerIndexEntry,
       ],
     });
     const parsed = JSON.parse(json);
@@ -409,7 +408,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -435,7 +433,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -460,7 +457,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -508,7 +504,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -538,7 +533,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -561,7 +555,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -593,7 +586,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -616,7 +608,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -639,7 +630,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -662,7 +652,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -685,7 +674,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -706,7 +694,6 @@ describe('ManifestGenerator', () => {
         module: { fileName: '__module__.ts' },
         sourceDir: 'src',
         entry: 'src/main.ts',
-        mcp: { exclude: [] },
       },
       adapterStaticSchemas: {},
       handlerIndex: [],
@@ -742,7 +729,7 @@ describe('ManifestGenerator', () => {
       const graph = createSingleModuleGraph();
       const gen = new ManifestGenerator();
       const registrations: readonly RouteRegistration[] = [
-        { key: 'middleware::LogMiddleware', value: 'LogMiddleware' },
+        { key: 'middleware::LogMiddleware', value: 'LogMiddleware' , kind: 'ref' },
       ];
 
       // Act
@@ -761,9 +748,9 @@ describe('ManifestGenerator', () => {
       const graph = createSingleModuleGraph();
       const gen = new ManifestGenerator();
       const registrations: readonly RouteRegistration[] = [
-        { key: 'middleware::AuthMiddleware', value: 'AuthMiddleware' },
-        { key: 'filter::HttpExceptionFilter', value: 'HttpExceptionFilter' },
-        { key: 'guard::RoleGuard', value: 'RoleGuard' },
+        { key: 'middleware::AuthMiddleware', value: 'AuthMiddleware' , kind: 'ref' },
+        { key: 'filter::HttpExceptionFilter', value: 'HttpExceptionFilter' , kind: 'ref' },
+        { key: 'guard::RoleGuard', value: 'RoleGuard' , kind: 'ref' },
       ];
 
       // Act
@@ -784,7 +771,7 @@ describe('ManifestGenerator', () => {
       const graph = createSingleModuleGraph();
       const gen = new ManifestGenerator();
       const registrations: readonly RouteRegistration[] = [
-        { key: 'pipeline::exact-key-test', value: 'SomeValue' },
+        { key: 'pipeline::exact-key-test', value: 'SomeValue' , kind: 'ref' },
       ];
 
       // Act
@@ -803,7 +790,7 @@ describe('ManifestGenerator', () => {
       const graph = createSingleModuleGraph();
       const gen = new ManifestGenerator();
       const registrations: readonly RouteRegistration[] = [
-        { key: 'adapter:http.middleware:cors.filter', value: 'CorsFilter' },
+        { key: 'adapter:http.middleware:cors.filter', value: 'CorsFilter' , kind: 'ref' },
       ];
 
       // Act

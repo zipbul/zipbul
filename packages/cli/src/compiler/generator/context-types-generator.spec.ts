@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   ContextTypesGenerator,
-  type MiddlewareContextAugment,
   type ContextAdapterMap,
 } from './context-types-generator';
+import type { MiddlewareContextAugment } from '../analyzer/adapter/middleware-context-types';
 import { ImportRegistry } from './import-registry';
 
 const HTTP_ADAPTER_MAP: ContextAdapterMap = {
