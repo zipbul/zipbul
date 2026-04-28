@@ -4,6 +4,7 @@ import type {
   ExpressionFunction,
   ExpressionIdentifier,
   ExpressionObject,
+  KeyExpression,
 } from '@zipbul/gildash';
 
 import type { AnalyzerValue, AnalyzerValueRecord } from './types';
@@ -149,20 +150,45 @@ export function convertFunctionExpression(expr: ExpressionFunction): AnalyzerVal
 }
 
 /**
+ * Determines whether a `KeyExpression` is a computed key
+ * (`[expr]`) versus a plain literal/identifier key.
+ *
+ * Plain identifier keys (in source: `{ foo: 1 }`) are encoded by gildash
+ * as `{ kind: 'string', value: 'foo' }` — same as string-literal keys.
+ * Numeric keys (`{ 42: 'x' }`) are `{ kind: 'number', value: 42 }`.
+ * Anything else (identifier ref, member access, call, etc.) is `[expr]`.
+ */
+function isComputedKey(key: KeyExpression): boolean {
+  return key.kind !== 'string' && key.kind !== 'number' && key.kind !== 'boolean' && key.kind !== 'null' && key.kind !== 'undefined';
+}
+
+/**
  * Object expression → `AnalyzerValueRecord`. Computed keys are encoded
  * as `${ZIPBUL_COMPUTED_PREFIX}${index}` entries with `ZIPBUL_COMPUTED_KEY`
- * and `ZIPBUL_COMPUTED_VALUE` sub-records.
+ * and `ZIPBUL_COMPUTED_VALUE` sub-records. Spread entries become a single
+ * `${ZIPBUL_COMPUTED_PREFIX}spread${index}` carrying `ZIPBUL_SPREAD`.
  *
  * @public
  */
 export function convertObjectExpression(expr: ExpressionObject): AnalyzerValueRecord {
   const result: AnalyzerValueRecord = {};
   let computedIndex = 0;
+  let spreadIndex = 0;
 
-  for (const prop of expr.properties) {
-    if (prop.computed === true) {
-      const keyExpr = convertExpression({ kind: 'identifier', name: prop.key } as ExpressionIdentifier);
-      const valExpr = convertExpression(prop.value);
+  for (const entry of expr.properties) {
+    if (entry.kind === 'spread') {
+      // Spread inside an object literal — encode as a synthetic computed slot.
+      result[`${ZIPBUL_COMPUTED_PREFIX}spread${spreadIndex}`] = { [ZIPBUL_SPREAD]: convertExpression(entry.argument) };
+      spreadIndex++;
+
+      continue;
+    }
+
+    const key = entry.key;
+
+    if (isComputedKey(key)) {
+      const keyExpr = convertExpression(key);
+      const valExpr = convertExpression(entry.value);
 
       result[`${ZIPBUL_COMPUTED_PREFIX}${computedIndex}`] = {
         [ZIPBUL_COMPUTED_KEY]: keyExpr,
@@ -173,7 +199,15 @@ export function convertObjectExpression(expr: ExpressionObject): AnalyzerValueRe
       continue;
     }
 
-    result[prop.key] = convertExpression(prop.value);
+    // Static key (string / number / boolean / null literal). Coerce to string —
+    // JS object keys are always strings (or symbols) at runtime.
+    const staticKey = key.kind === 'string' || key.kind === 'number' || key.kind === 'boolean'
+      ? String(key.value)
+      : key.kind === 'null'
+        ? 'null'
+        : 'undefined';
+
+    result[staticKey] = convertExpression(entry.value);
   }
 
   return result;

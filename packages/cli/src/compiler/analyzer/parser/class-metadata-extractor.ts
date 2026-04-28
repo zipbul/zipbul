@@ -162,11 +162,21 @@ export function convertClassSymbol(
         const isStatic = member.modifiers.includes('static');
         const memberName = member.name;
 
-        // gildash 0.25+ keyKind: 'private' | 'literal' | 'computed' | undefined.
-        // - private (`#name`): name 은 bare ('name') — 식별자로 사용 가능, isPrivateName 만 표시
-        // - computed (`[expr]`): name 은 source text ('[Symbol.iterator]') — JS 식별자 아님 → synthetic 또는 skip
-        const isComputed = member.keyKind === 'computed';
-        const isPrivateName = member.keyKind === 'private';
+        // gildash 0.26+ key: SymbolKey = { kind: 'private' } | KeyExpression | undefined.
+        // - undefined: plain identifier key — name carries the identifier
+        // - { kind: 'private' }: `#name` private member — name carries '#name' (full source form)
+        // - { kind: 'string' | 'number' | 'boolean' | 'null' }: string/numeric literal key
+        //   (e.g. `'my-method'() {}`) — name carries the literal value, NOT computed
+        // - any other ExpressionValue kind: computed `[expr]` — name carries source text
+        const memberKey = member.key;
+        const isPrivateName = memberKey !== undefined && memberKey.kind === 'private';
+        const isComputed = memberKey !== undefined
+          && memberKey.kind !== 'private'
+          && memberKey.kind !== 'string'
+          && memberKey.kind !== 'number'
+          && memberKey.kind !== 'boolean'
+          && memberKey.kind !== 'null'
+          && memberKey.kind !== 'undefined';
 
         const methodDecorators = (member.decorators ?? []).map(decorator => {
           const converted = convertDecorator(decorator);

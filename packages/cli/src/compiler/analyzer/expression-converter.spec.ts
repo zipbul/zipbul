@@ -157,8 +157,8 @@ describe('convertExpression', () => {
     const result = convertExpression({
       kind: 'object',
       properties: [
-        { key: 'name', value: { kind: 'string', value: 'test' } },
-        { key: 'count', value: { kind: 'number', value: 5 } },
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'test' } },
+        { kind: 'property', key: { kind: 'string', value: 'count' }, value: { kind: 'number', value: 5 } },
       ],
     });
 
@@ -169,8 +169,8 @@ describe('convertExpression', () => {
     const result = convertExpression({
       kind: 'object',
       properties: [
-        { key: 'MySymbol', value: { kind: 'string', value: 'val' }, computed: true },
-        { key: 'normal', value: { kind: 'number', value: 1 } },
+        { kind: 'property', key: { kind: 'identifier', name: 'MySymbol' }, value: { kind: 'string', value: 'val' } },
+        { kind: 'property', key: { kind: 'string', value: 'normal' }, value: { kind: 'number', value: 1 } },
       ],
     });
 
@@ -236,10 +236,8 @@ describe('convertExpression', () => {
     const result = convertExpression({
       kind: 'object',
       properties: [
-        { key: 'name', value: { kind: 'string', value: 'user' } },
-        {
-          key: 'providers',
-          value: {
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'user' } },
+        { kind: 'property', key: { kind: 'string', value: 'providers' }, value: {
             kind: 'array',
             elements: [
               { kind: 'identifier', name: 'Svc', importSource: './svc', originalName: 'MyService' },

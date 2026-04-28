@@ -377,19 +377,36 @@ export function convertExpressionDeep(expr: ExpressionValue, filePath: string, m
       case 'object': {
         const result: AnalyzerValueRecord = {};
         let computedIndex = 0;
+        let spreadIndex = 0;
 
-        for (const prop of node.properties) {
-          if (prop.computed === true) {
+        for (const entry of node.properties) {
+          if (entry.kind === 'spread') {
+            result[`${ZIPBUL_COMPUTED_PREFIX}spread${spreadIndex}`] = { [ZIPBUL_SPREAD]: convert(entry.argument) };
+            spreadIndex++;
+
+            continue;
+          }
+
+          const k = entry.key;
+          const isComputed = k.kind !== 'string' && k.kind !== 'number' && k.kind !== 'boolean' && k.kind !== 'null' && k.kind !== 'undefined';
+
+          if (isComputed) {
             result[`${ZIPBUL_COMPUTED_PREFIX}${computedIndex}`] = {
-              [ZIPBUL_COMPUTED_KEY]: convert({ kind: 'identifier', name: prop.key } as ExpressionIdentifier),
-              [ZIPBUL_COMPUTED_VALUE]: convert(prop.value),
+              [ZIPBUL_COMPUTED_KEY]: convert(k),
+              [ZIPBUL_COMPUTED_VALUE]: convert(entry.value),
             };
             computedIndex++;
 
             continue;
           }
 
-          result[prop.key] = convert(prop.value);
+          const staticKey = k.kind === 'string' || k.kind === 'number' || k.kind === 'boolean'
+            ? String(k.value)
+            : k.kind === 'null'
+              ? 'null'
+              : 'undefined';
+
+          result[staticKey] = convert(entry.value);
         }
 
         return result;

@@ -824,7 +824,7 @@ describe('convertClassSymbol', () => {
           kind: 'method',
           methodKind: 'method',
           name: '[Symbol.iterator]',
-          keyKind: 'computed',
+          key: { kind: 'member', object: 'Symbol', property: 'iterator' },
           span: { start: { line: 2, column: 2 }, end: { line: 2, column: 20 } },
           isExported: false,
           modifiers: [],

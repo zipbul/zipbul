@@ -340,7 +340,7 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        { key: 'name', value: { kind: 'string', value: 'AppModule' } },
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'AppModule' } },
       ],
     };
 
@@ -354,7 +354,7 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        { key: 'name', value: { kind: 'number', value: 42 } },
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'number', value: 42 } },
       ],
     };
 
@@ -368,9 +368,7 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        {
-          key: 'providers',
-          value: {
+        { kind: 'property', key: { kind: 'string', value: 'providers' }, value: {
             kind: 'array',
             elements: [
               { kind: 'identifier', name: 'ServiceA' },
@@ -390,9 +388,7 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        {
-          key: 'adapters',
-          value: { kind: 'identifier', name: 'HttpAdapter' },
+        { kind: 'property', key: { kind: 'string', value: 'adapters' }, value: { kind: 'identifier', name: 'HttpAdapter' },
         },
       ],
     };
@@ -444,9 +440,7 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        {
-          key: 'providers',
-          value: { kind: 'identifier', name: 'someRef' },
+        { kind: 'property', key: { kind: 'string', value: 'providers' }, value: { kind: 'identifier', name: 'someRef' },
         },
       ],
     };
@@ -460,17 +454,13 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        { key: 'name', value: { kind: 'string', value: 'TestModule' } },
-        {
-          key: 'providers',
-          value: {
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'TestModule' } },
+        { kind: 'property', key: { kind: 'string', value: 'providers' }, value: {
             kind: 'array',
             elements: [{ kind: 'string', value: 'token' }],
           },
         },
-        {
-          key: 'adapters',
-          value: { kind: 'identifier', name: 'Adapter' },
+        { kind: 'property', key: { kind: 'string', value: 'adapters' }, value: { kind: 'identifier', name: 'Adapter' },
         },
       ],
     };

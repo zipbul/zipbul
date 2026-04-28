@@ -153,8 +153,8 @@ describe('expression-value-to-zipbul-ir', () => {
     const result = convertObjectExpression({
       kind: 'object',
       properties: [
-        { key: 'port', value: { kind: 'number', value: 5000 } },
-        { key: 'name', value: { kind: 'string', value: 'app' } },
+        { kind: 'property', key: { kind: 'string', value: 'port' }, value: { kind: 'number', value: 5000 } },
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'app' } },
       ],
     });
 
@@ -165,7 +165,7 @@ describe('expression-value-to-zipbul-ir', () => {
     const result = convertObjectExpression({
       kind: 'object',
       properties: [
-        { key: 'KEY', value: { kind: 'string', value: 'v' }, computed: true },
+        { kind: 'property', key: { kind: 'identifier', name: 'KEY' }, value: { kind: 'string', value: 'v' } },
       ],
     });
 
@@ -378,7 +378,7 @@ describe('expression-value-to-zipbul-ir', () => {
       kind: 'spread',
       argument: {
         kind: 'object',
-        properties: [{ key: 'a', value: { kind: 'number', value: 1 } }],
+        properties: [{ kind: 'property', key: { kind: 'string', value: 'a' }, value: { kind: 'number', value: 1 } }],
       },
     });
     const r = result as Record<string, unknown>;
@@ -393,8 +393,8 @@ describe('expression-value-to-zipbul-ir', () => {
       kind: 'object',
       properties: [
         {
-          key: 'KEY',
-          computed: true,
+          kind: 'property',
+          key: { kind: 'identifier', name: 'KEY' },
           value: {
             kind: 'call',
             callee: 'compute',
@@ -413,10 +413,10 @@ describe('expression-value-to-zipbul-ir', () => {
     const result = convertObjectExpression({
       kind: 'object',
       properties: [
-        { key: 'a', value: { kind: 'number', value: 1 } },
-        { key: 'KEY1', computed: true, value: { kind: 'string', value: 'v1' } },
-        { key: 'b', value: { kind: 'number', value: 2 } },
-        { key: 'KEY2', computed: true, value: { kind: 'string', value: 'v2' } },
+        { kind: 'property', key: { kind: 'string', value: 'a' }, value: { kind: 'number', value: 1 } },
+        { kind: 'property', key: { kind: 'identifier', name: 'KEY1' }, value: { kind: 'string', value: 'v1' } },
+        { kind: 'property', key: { kind: 'string', value: 'b' }, value: { kind: 'number', value: 2 } },
+        { kind: 'property', key: { kind: 'identifier', name: 'KEY2' }, value: { kind: 'string', value: 'v2' } },
       ],
     });
     expect(result.a).toBe(1);
@@ -464,9 +464,7 @@ describe('expression-value-to-zipbul-ir', () => {
     const result = convertExpression({
       kind: 'object',
       properties: [
-        {
-          key: 'controllers',
-          value: {
+        { kind: 'property', key: { kind: 'string', value: 'controllers' }, value: {
             kind: 'array',
             elements: [
               { kind: 'identifier', name: 'A', importSource: './a' },
