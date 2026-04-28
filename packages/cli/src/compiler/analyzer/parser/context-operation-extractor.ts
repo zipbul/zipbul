@@ -1,13 +1,19 @@
-import type {
-  Node as AstNode,
-  Function as OxcFunction,
-  ArrowFunctionExpression,
-  CallExpression,
-  Expression,
-  MemberExpression,
-} from 'oxc-parser';
+import type { Node as AstNode } from '@zipbul/gildash';
 
 import { walkChildren } from './ast-node-locator';
+
+/**
+ * Type predicate for function-like nodes (`FunctionDeclaration`,
+ * `FunctionExpression`, `ArrowFunctionExpression`). Narrows `AstNode` to the
+ * subset that carries `params`/`body` shape used by ctx-op extraction.
+ */
+type FunctionLike = Extract<AstNode, { type: 'FunctionDeclaration' | 'FunctionExpression' | 'ArrowFunctionExpression' }>;
+
+function isFunctionLike(node: AstNode): node is FunctionLike {
+  return node.type === 'FunctionDeclaration'
+    || node.type === 'FunctionExpression'
+    || node.type === 'ArrowFunctionExpression';
+}
 
 /**
  * 단일 ctx 작업 호출 — `<rootVar>.set(KEY, ...)` / `<rootVar>.use(KEY)` / `<rootVar>.get(KEY)`.
@@ -45,9 +51,11 @@ export interface ContextOperation {
  * ```
  */
 export function extractContextOperations(
-  funcNode: OxcFunction | ArrowFunctionExpression,
+  funcNode: AstNode,
   rootVarNames: ReadonlySet<string>,
 ): ContextOperation[] {
+  if (!isFunctionLike(funcNode)) return [];
+
   const body = funcNode.body;
   if (!body) return [];
 
@@ -63,8 +71,10 @@ export function extractContextOperations(
  * binding 변수까지 root 에 포함하여 set/use/get 호출을 모두 수집한다.
  */
 export function extractHandlerContextOps(
-  funcNode: OxcFunction | ArrowFunctionExpression,
+  funcNode: AstNode,
 ): readonly ContextOperation[] {
+  if (!isFunctionLike(funcNode)) return [];
+
   const ctxParam = readFirstIdentifierParam(funcNode);
   if (ctxParam === null) return [];
 
@@ -88,7 +98,7 @@ export function extractHandlerContextOps(
  * inner handler 의 첫 번째 파라미터 + `ctx.to(<Type>)` binding 들을 root 로 수집.
  */
 export function extractMiddlewareContextOps(
-  factory: OxcFunction | ArrowFunctionExpression,
+  factory: AstNode,
 ): readonly ContextOperation[] {
   const inner = findInnerHandler(factory);
   if (inner === null) return [];
@@ -105,14 +115,16 @@ export function extractMiddlewareContextOps(
  * augment 추출과 ops 추출 양쪽에서 동일 로직이 필요하므로 단일 소스로 export.
  */
 export function findInnerHandler(
-  factory: OxcFunction | ArrowFunctionExpression,
-): OxcFunction | ArrowFunctionExpression | null {
+  factory: AstNode,
+): AstNode | null {
+  if (!isFunctionLike(factory)) return null;
+
   const body = factory.body;
   if (!body) return null;
 
   if (body.type !== 'BlockStatement') {
     return body.type === 'ArrowFunctionExpression' || body.type === 'FunctionExpression'
-      ? (body as ArrowFunctionExpression | OxcFunction)
+      ? body
       : null;
   }
 
@@ -122,7 +134,7 @@ export function findInnerHandler(
       && stmt.argument
       && (stmt.argument.type === 'ArrowFunctionExpression' || stmt.argument.type === 'FunctionExpression')
     ) {
-      return stmt.argument as ArrowFunctionExpression | OxcFunction;
+      return stmt.argument;
     }
   }
   return null;
@@ -133,13 +145,15 @@ export function findInnerHandler(
  * 비어있거나 destructuring/rest 등이면 `null`.
  */
 export function readFirstIdentifierParam(
-  fn: OxcFunction | ArrowFunctionExpression,
+  fn: AstNode,
 ): string | null {
+  if (!isFunctionLike(fn)) return null;
+
   const params = fn.params;
   if (!params || params.length === 0) return null;
   const first = params[0];
   if (!first || first.type !== 'Identifier') return null;
-  return (first as { name: string }).name;
+  return first.name;
 }
 
 /**
@@ -180,7 +194,7 @@ const TRACKED_METHODS = new Set<'set' | 'use' | 'get'>(['set', 'use', 'get']);
 
 function visitNode(node: AstNode, roots: ReadonlySet<string>, out: ContextOperation[]): void {
   if (node.type === 'CallExpression') {
-    const op = tryExtractOperation(node as CallExpression, roots);
+    const op = tryExtractOperation(node, roots);
     if (op !== null) {
       out.push(op);
     }
@@ -190,27 +204,28 @@ function visitNode(node: AstNode, roots: ReadonlySet<string>, out: ContextOperat
 }
 
 function tryExtractOperation(
-  call: CallExpression,
+  call: AstNode,
   roots: ReadonlySet<string>,
 ): ContextOperation | null {
+  if (call.type !== 'CallExpression') return null;
+
   const callee = call.callee;
   if (callee.type !== 'MemberExpression') return null;
 
-  const member = callee as MemberExpression;
-  if (member.computed) return null;
-  if (member.property.type !== 'Identifier') return null;
+  if (callee.computed) return null;
+  if (callee.property.type !== 'Identifier') return null;
 
-  const methodName = (member.property as { name: string }).name;
+  const methodName = callee.property.name;
   if (!isTrackedMethod(methodName)) return null;
 
-  if (member.object.type !== 'Identifier') return null;
-  const rootName = (member.object as { name: string }).name;
+  if (callee.object.type !== 'Identifier') return null;
+  const rootName = callee.object.name;
   if (!roots.has(rootName)) return null;
 
-  const firstArg = call.arguments[0] as Expression | undefined;
+  const firstArg = call.arguments[0];
   const keyIdentifier =
     firstArg !== undefined && firstArg.type === 'Identifier'
-      ? (firstArg as { name: string }).name
+      ? firstArg.name
       : null;
 
   const start = readStart(call);

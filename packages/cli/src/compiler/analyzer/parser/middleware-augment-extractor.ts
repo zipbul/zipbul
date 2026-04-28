@@ -74,7 +74,7 @@ export interface MiddlewareAugmentResult {
  * @returns Extracted augmentations, or `null` if no `ctx.to(...)` binding is found.
  */
 export function extractMiddlewareAugments(factory: OxcFunction | ArrowFunctionExpression): MiddlewareAugmentResult | null {
-  const handler = findInnerHandler(factory);
+  const handler = findInnerHandler(factory) as (OxcFunction | ArrowFunctionExpression) | null;
 
   if (!handler) {
     return null;

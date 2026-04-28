@@ -305,12 +305,9 @@ export class AstParser {
     const methodCallbacks: MethodMetadataCallbacks = {
       extractMiddlewaresFromConfigure,
       extractExceptionFiltersFromConfigure,
-      // Cast to legacy oxc-narrow signatures of Step 6 extractors. These casts
-      // disappear once Step 6 migrates the two extractors to accept gildash `Node`.
-      extractHandlerContextUsages: (funcNode) =>
-        extractHandlerContextUsages(funcNode as Parameters<typeof extractHandlerContextUsages>[0])?.usages,
+      extractHandlerContextUsages: (funcNode) => extractHandlerContextUsages(funcNode)?.usages,
       extractHandlerContextOps: (funcNode) => {
-        const ops = extractHandlerContextOps(funcNode as Parameters<typeof extractHandlerContextOps>[0]);
+        const ops = extractHandlerContextOps(funcNode);
         return ops.length > 0 ? ops : undefined;
       },
     };

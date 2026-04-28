@@ -1,11 +1,14 @@
-import type {
-  Node as AstNode,
-  Function as OxcFunction,
-  CallExpression,
-  MemberExpression,
-} from 'oxc-parser';
+import type { Node as AstNode } from '@zipbul/gildash';
 
 import { walkChildren } from './ast-node-locator';
+
+type FunctionLike = Extract<AstNode, { type: 'FunctionDeclaration' | 'FunctionExpression' | 'ArrowFunctionExpression' }>;
+
+function isFunctionLike(node: AstNode): node is FunctionLike {
+  return node.type === 'FunctionDeclaration'
+    || node.type === 'FunctionExpression'
+    || node.type === 'ArrowFunctionExpression';
+}
 
 /**
  * A single member-access chain rooted at the handler's context parameter.
@@ -45,7 +48,9 @@ export interface HandlerContextUsageResult {
  * @param funcNode - The handler method's function AST node.
  * @returns Usage list, or `null` if the handler has no first parameter or no body.
  */
-export function extractHandlerContextUsages(funcNode: OxcFunction): HandlerContextUsageResult | null {
+export function extractHandlerContextUsages(funcNode: AstNode): HandlerContextUsageResult | null {
+  if (!isFunctionLike(funcNode)) return null;
+
   const ctxParam = getFirstIdentParam(funcNode);
 
   if (!ctxParam) return null;
@@ -61,7 +66,7 @@ export function extractHandlerContextUsages(funcNode: OxcFunction): HandlerConte
   return { contextParam: ctxParam, usages: dedup(usages) };
 }
 
-function getFirstIdentParam(fn: OxcFunction): string | null {
+function getFirstIdentParam(fn: FunctionLike): string | null {
   if (!fn.params || fn.params.length === 0) return null;
 
   const first = fn.params[0];
@@ -75,20 +80,20 @@ function visit(node: AstNode, parent: AstNode | null, ctxParam: string, out: Con
   if (node.type === 'MemberExpression') {
     const isInnerOfChain = parent !== null
       && parent.type === 'MemberExpression'
-      && (parent as MemberExpression).object === node;
+      && parent.object === node;
 
     if (!isInnerOfChain) {
-      const path = collectMemberPath(node as MemberExpression, ctxParam);
+      const path = collectMemberPath(node, ctxParam);
 
       if (path) {
         const isCall = parent !== null
           && parent.type === 'CallExpression'
-          && (parent as CallExpression).callee === node;
+          && parent.callee === node;
 
         let dtoIdentifier: string | null = null;
 
-        if (isCall) {
-          const firstArg = (parent as CallExpression).arguments[0];
+        if (isCall && parent.type === 'CallExpression') {
+          const firstArg = parent.arguments[0];
 
           if (firstArg && firstArg.type === 'Identifier') {
             dtoIdentifier = firstArg.name;
@@ -103,21 +108,21 @@ function visit(node: AstNode, parent: AstNode | null, ctxParam: string, out: Con
   walkChildren(node, (child) => visit(child, node, ctxParam, out));
 }
 
-function collectMemberPath(node: MemberExpression, ctxParam: string): readonly string[] | null {
+function collectMemberPath(node: AstNode, ctxParam: string): readonly string[] | null {
+  if (node.type !== 'MemberExpression') return null;
+
   const segments: string[] = [];
   let current: AstNode = node;
 
   while (current.type === 'MemberExpression') {
-    const m = current as MemberExpression;
+    if (current.computed) return null;
+    if (current.property.type !== 'Identifier') return null;
 
-    if (m.computed) return null;
-    if (m.property.type !== 'Identifier') return null;
-
-    segments.unshift(m.property.name);
-    current = m.object as AstNode;
+    segments.unshift(current.property.name);
+    current = current.object;
   }
 
-  if (current.type !== 'Identifier' || (current as { name: string }).name !== ctxParam) return null;
+  if (current.type !== 'Identifier' || current.name !== ctxParam) return null;
   if (segments.length === 0) return null;
 
   return segments;

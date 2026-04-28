@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { parseSource, type ParsedFile } from '@zipbul/gildash';
+import { parseSource, type ParsedFile, type Node } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 
-import type { Function as OxcFunction, MethodDefinition } from 'oxc-parser';
 import { extractHandlerContextUsages } from './handler-context-usage-extractor';
 
-function findHandlerMethod(code: string, methodName: string): OxcFunction {
+function findHandlerMethod(code: string, methodName: string): Node {
   const parseResult = parseSource('test.ts', code);
 
   if (isErr(parseResult)) throw new Error('parse failed');
@@ -13,19 +12,22 @@ function findHandlerMethod(code: string, methodName: string): OxcFunction {
   const parsed: ParsedFile = parseResult;
 
   for (const stmt of parsed.program.body) {
-    let classNode: { body: { body: readonly MethodDefinition[] } } | null = null;
+    let classBody: { body: readonly Node[] } | null = null;
 
     if (stmt.type === 'ClassDeclaration') {
-      classNode = stmt as unknown as { body: { body: readonly MethodDefinition[] } };
+      classBody = stmt.body as unknown as { body: readonly Node[] };
     } else if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'ClassDeclaration') {
-      classNode = stmt.declaration as unknown as { body: { body: readonly MethodDefinition[] } };
+      classBody = stmt.declaration.body as unknown as { body: readonly Node[] };
     }
 
-    if (!classNode) continue;
+    if (!classBody) continue;
 
-    for (const member of classNode.body.body) {
-      if (member.type === 'MethodDefinition' && member.key.type === 'Identifier' && member.key.name === methodName) {
-        return member.value as unknown as OxcFunction;
+    for (const member of classBody.body) {
+      const m = member as unknown as { type: string; key: Node; value: Node };
+      if (m.type === 'MethodDefinition'
+        && m.key.type === 'Identifier'
+        && (m.key as unknown as { name: string }).name === methodName) {
+        return m.value;
       }
     }
   }
