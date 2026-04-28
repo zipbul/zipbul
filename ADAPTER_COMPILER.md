@@ -47,13 +47,13 @@
 
 **Step 3b (현재 진행 중)** 는 `ast-node-locator.ts` 와 그 spec 에서 oxc-parser 의 직접 import 를 0 으로 만드는 작업이다. Section 0.4 가 이 Step 의 모든 컨텍스트를 담는 메인 진입점이다. **Step 3b 가 완료되어야 Step 5·6·7·8 이 진입 가능하다** — 이 4개 Step 의 대상 파일들이 `ast-node-locator` 의 `walkChildren`/`getCallExpressionName` 등 헬퍼를 소비하기 때문이며, 헬퍼 시그니처가 oxc 의 narrow 타입에서 gildash 의 `Node` union 으로 변경되는 것이 모든 소비자에게 전파된다.
 
-**Step 4 (`expression-converter.ts` 의 잔존 oxc import 제거)** 는 표면적으로 단순해 보이지만 실제로는 `buildImportMap()` 함수가 oxc 의 `StaticImport` / `ImportNameKind` 의 raw 구조 (특히 `entry.importName.kind === 'Name' | 'Default' | 'NamespaceObject'` 같은 enum 값) 에 직접 의존한다. gildash 의 `extractRelations` 는 binding 단위 relation tuple 을 주지만 이 enum 값에 1:1 대응되는 메타데이터를 노출하지 않는다. 따라서 Step 4 의 작업 방향은 **두 가지 중 하나** 다 — (a) `buildImportMap()` 을 Step 2 의 `extractRelations` 산출물을 직접 소비하도록 재설계하고 cli 측 변환 헬퍼 신설, (b) gildash 메인테이너에 `ImportNameKind` 등가 정보 노출 요청 (Item 132). 두 경로 다 단순 import 교체로는 끝나지 않으며, 사용자 결정이 필요한 정책 단계다. 결정이 보류되면 Step 4 는 Step 3b 완료 후에도 즉시 진입하지 마라 — 그 결정이 작업 범위를 좌우한다.
+**Step 4 (`expression-converter.ts` 의 잔존 oxc import 제거)** 의 본질은 `buildImportMap()` 의 raw `StaticImport` 의존 해소 + 원본 module specifier (`ZIPBUL_IMPORT_SOURCE` IR 에 emit) 의 안정적 획득이다. 본 항목은 길대시 메인테이너와의 2 라운드 회신 끝에 **결정 완료** — 길대시 0.26.0 의 `CodeRelation.specifier` 가 unresolved 케이스에만 보존되는 결함을 0.26.1 patch 로 *resolved 케이스 포함 모든 relation 에 항상 보존* 하도록 수정 (Item 132). 따라서 Step 4 의 작업은 (a) 0.26.1 배포 합류 (catalog `@zipbul/gildash` 버전 갱신), (b) `buildImportMap` 을 `extractRelations` 의 `imports` relation 위로 재설계하면서 aliased named 검출 (`srcSymbolName !== dstSymbolName && dstSymbolName !== 'default' && dstSymbolName !== '*'`) 을 cli 측 헬퍼로 처리, (c) `ImportInfo.importSource` 를 `relation.specifier` 로 교체. **Step 4 는 0.26.1 배포 회신을 받은 후 Step 3b 완료 시점에 진입한다** — 0.26.1 미배포 상태에서 Step 4 진입 시 specifier 누락으로 빌드된 manifest 가 틀린 import 경로를 emit 한다.
 
 **Step 5 (`class-metadata-extractor` / `method-metadata-extractor` → `extractSymbols`)** 는 클래스/메서드 추출을 gildash 의 `extractSymbols` 고수준 API 로 이관하는 작업이다. 0.26 의 `ExtractedSymbol` 는 `members` (중첩 멤버), `decorators`, `heritage`, `modifiers`, `parameters` (파라미터 데코레이터 포함), `span` 을 모두 포함하므로 이론상 cli 의 자체 walker 없이 한 호출로 추출 가능하다. 이 Step 은 Step 3b 가 끝나야 진입 가능 (`ast-node-locator` 의 헬퍼 시그니처가 변경된 후에 그 소비자인 추출기를 손대는 게 안전하다 — 동시 변경 시 회귀 추적이 어려워진다).
 
 **Step 6 (`context-operation-extractor` / `handler-context-usage-extractor` → `findPattern`)** 은 `ctx.use(KEY)` / `ctx.set(KEY, V)` / `ctx.get(KEY)` 같은 패턴 매칭을 gildash 의 `findPattern` (ast-grep 문법) 으로 이관하고, 메서드 `span` 으로 함수 본문 범위 필터링 + ctx 매개변수 shadow 검사를 cli 측 후처리로 남기는 작업이다. 두 추출기는 현재 거의 동일한 로직을 중복 구현하고 있으므로 **단일 헬퍼로 통합** 하는 리팩토링이 같이 들어간다. Step 3b 완료가 진입 조건.
 
-**Step 7 (`middleware-augment-extractor` / `middleware-augment-collector` / `config-extractor` → gildash 어댑터)** 은 미들웨어 augments + contextOps 추출, `defineAdapter` 호출 정규화를 Step 1 어댑터 (`expression-value-to-zipbul-ir.ts`) 의 `ExpressionValue` 변환 위로 이관하는 작업이다. `middleware-augment-extractor.ts` 에 한 가지 큰 블로커가 있다 — `TSType` (제네릭 함수 시그니처 노드) 사용. gildash 가 노출하지 않는 oxc 타입이고, 이를 어떻게 처리할지가 Item 131 의 메인테이너 요청 또는 cli 측 string-level 폴백 (제네릭 `<T>(...)` regex) 결정에 달려있다. Step 4 와 마찬가지로 정책 결정 후 진입.
+**Step 7 (`middleware-augment-extractor` / `middleware-augment-collector` / `config-extractor` → gildash 어댑터)** 은 미들웨어 augments + contextOps 추출, `defineAdapter` 호출 정규화를 Step 1 어댑터 (`expression-value-to-zipbul-ir.ts`) 의 `ExpressionValue` 변환 위로 이관하는 작업이다. `middleware-augment-extractor.ts` 의 `TSType` 의존은 길대시 메인테이너와의 2 라운드 회신 끝에 **(β) cli 자체 stringifier 채택** 으로 결정 완료 (Item 131). 즉 길대시는 `TSType` 을 노출하지 않으며, cli 가 길대시 re-export 5종 (`Program`, `Node`, `Visitor`, `visitorKeys`, `VisitorObject`) 위에 자체 `stringifyTSType` 를 작성한다 — 진입점만 길대시 `Node` 로 받고 변환 로직 (12+ TSType 변형 처리, declaration merging IR emit 형태) 은 cli 도메인 안에서 처리. 본 stringifier 작성이 Step 7 작업 범위에 포함된다. Step 3b 완료 후 즉시 진입 가능 (정책 대기 없음, 0.26.1 배포 의존도 없음).
 
 **Step 8 (`lib-augment-injector` 의 oxc 사용 제거)** 은 JS 산출물 후처리 시점이라 입력이 *컴파일된 JS* 다. 이 단계에서 oxc 를 쓰는 이유는 JS 를 다시 파싱해서 미들웨어 augment 메타를 IR 로 주입하기 위함이다. 두 가지 방향 — (a) gildash 로 다시 파싱 (정공법, 단 비용 큼), (b) string-level 처리 (정규식 기반 sentinel 치환, 가벼움 단 fragility). 본 문서는 결정을 보류 — Step 7 의 메인테이너 요청 결과를 보고 같이 결정.
 
@@ -73,10 +73,10 @@
 | 2 | `import-export-extractor` → `extractRelations` | ✅ | `43fc643` → `5421dbc` → `934e02d` | — |
 | 3a | `getMethodAstMeta` 제거 (dead code) | ✅ | `ae254d8` | — |
 | 3b | `ast-node-locator` 의 oxc 직접 import 전면 제거 | 🟡 | — | — |
-| 4 | `expression-converter.ts` 잔존 oxc import 제거 | ⬜ | — | 3b + (Item 132 결정 또는 변환 헬퍼 신설) |
+| 4 | `expression-converter.ts` 잔존 oxc import 제거 | ⬜ | — | 3b + 길대시 0.26.1 배포 (Item 132 specifier 보존 patch) |
 | 5 | class/method extractors → `extractSymbols` | ⬜ | — | 3b |
 | 6 | ctx ops extractors → `findPattern` + span 필터 | ⬜ | — | 3b |
-| 7 | middleware/adapter extractors → gildash | ⬜ | — | 3b + (Item 131 결정 또는 string 폴백) |
+| 7 | middleware/adapter extractors → gildash + cli stringifier | ⬜ | — | 3b (Item 131 (β) cli 자체 stringifier 결정 완료) |
 | 8 | `lib-augment-injector` 의 oxc 제거 | ⬜ | — | 7 |
 | 9 | oxc 부재 회귀 가드 + catalog 항목 제거 | ⬜ | — | 3b·4·5·6·7·8 |
 | 10 | 어댑터 컴파일러 MVP — `zb build adapter` 본체 | ⬜ | — | 9 |
@@ -229,20 +229,22 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 - ✅ **Item 48b (필수, Section C)** — Adapter 인스턴스의 `clusterStrategy` 속성 추출. 미명시 시 `ClusterStrategy.Shared` 기본값. 근거: `packages/core/src/adapter/adapter.ts:104` (모든 어댑터 클래스가 `readonly clusterStrategy: ClusterStrategy` 선언) + `packages/common/src/adapter/types.ts:39-55` (enum 정의). 런타임 소비: `packages/core/src/application/application.ts:294` (cluster mode 결정 로직). 즉 manifest 가 이 값을 emit 하지 않으면 사용자 앱이 cluster mode 로 동작 못 함. **즉시 채택**.
 - ✅ **Item 54b (필수, Section D)** — `defineAdapter()` 인자의 `provides?: readonly ContextKey<unknown>[]` 추출. 근거: `packages/common/src/adapter/define-adapter.ts:42-43` (config schema 에 optional 필드로 정의). 본 문서 Item 119 (다중 어댑터 ContextKey 충돌 검출) 의 입력 데이터다. **즉시 채택**.
-- 🟡 **Item 54c (조건부, Step 10 결정, Section D)** — Adapter 클래스 생성자 옵션 schema 추출. 예: `HttpAdapter` 생성자가 `HttpServerOptions` 를 받음 (`packages/http-adapter/src/http-adapter.ts:64`). 본 문서의 기존 Item 44 는 시그니처 *검증* 만 다루고, 옵션의 구조 schema 자체는 emit 하지 않는다. 사용자 앱 빌드가 컴파일 타임에 어댑터 옵션을 *검증* 하는 경로가 있다면 (예: 사용자가 `HttpAdapter({ port: 'foo' })` 같은 잘못된 옵션을 빌드 단계에서 잡고 싶다면) 본 manifest 가 필요하다. 미사용 시 `dist/index.d.ts` barrel 에서 type 추론으로 충분. Step 10 진입 시 사용자 결정. 채택 시 신규 manifest `dist/adapter-constructor-schema.json` (Item 71b) 으로 분리 — `peer-contract.json` (어댑터가 *의존* 하는 심볼) 과 의미가 반대 (어댑터가 *제공* 하는 인터페이스).
+- ✅ **Item 54c (필수 채택 확정, Section D)** — Adapter 클래스 생성자 옵션 schema 추출. 예: `HttpAdapter` 생성자가 `HttpServerOptions` 를 받음 (`packages/http-adapter/src/http-adapter.ts:64`). 본 문서의 기존 Item 44 는 시그니처 *검증* 만 다루고, 옵션의 구조 schema 자체는 emit 하지 않는다. **결정 근거 (사용자 확정)**: 어댑터 컴파일러의 존재 이유 자체가 *컴파일 타임에* 어댑터 contract 를 굳혀 사용자 앱 빌드가 그걸 소비하게 하는 것 — 사용자가 `HttpAdapter({ port: 'foo' })` 같은 잘못된 옵션을 *런타임* 에 알게 되는 건 본 컴파일러의 존재 이유와 정면 충돌. 따라서 옵션 schema 의 manifest emit 은 필수. 신규 manifest `dist/adapter-constructor-schema.json` (Item 71b) 으로 분리 — `peer-contract.json` (어댑터가 *의존* 하는 심볼) 과 의미가 반대 (어댑터가 *제공* 하는 인터페이스). Step 10 진입 시 본체 구현.
 - ✅ **Item 58 보강 (필수, Section E)** — `dist/context-augments.d.ts` 의 *내용 형식* 명시. 본 문서가 처음에는 "declaration merging 코드" 라고만 적었으나 구체 템플릿이 없었다. 확정 템플릿: `declare module '<adapter-package>' { interface <ContextType> { <augmentedProp>: <BaseType> & <Augment>; ... } }`. intersection (`&`) 패턴은 TS interface merging 의 표준 방식이며, 사용자 앱이 어댑터 패키지 import 만으로 자동 적용 (별도 augment import 불필요). 소스: `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts` 의 `PropAugment` 추출 결과 소비.
 - ✅ **Item 20·41 정정 (필수, Section B/C)** — 데코레이터 카테고리 표기 정정. 본 문서가 처음에는 "controller / method / option / param" 4분류로 적었으나, `AdapterEntryDecorators` (`packages/common/src/adapter/types.ts:18-30`) 는 `controller: DecoratorRef` (단수, 정확히 1개), `handlers: readonly DecoratorRef[]` (배열, 1개 이상), `options?: readonly DecoratorRef[]` (optional, 0개 이상) 의 3분류만 정의한다. param-level 데코레이터는 어댑터 entry 가 아니라 provider 클래스 생성자 (`@Inject` 등) 에서 별도 추출된다 (Item 21b 신설). Item 41 의 카디널리티 룰도 정정 — controller "정확히 1" (이전 "1+" 는 틀림).
 
 **근거**. 위 갭들이 발견되지 않았다면 어댑터 컴파일러 MVP 가 "어댑터 패키지 입력 → manifest 산출" 의 핵심 책임을 누락한 채 ship 될 수 있다. 특히 `clusterStrategy` 는 `application.ts:294` 의 cluster 분기 로직 (`if (entry.adapter.clusterStrategy === ClusterStrategy.Exclusive)`) 의 입력이므로, manifest 가 이 값을 emit 하지 않으면 사용자 앱은 기본값 `Shared` 로 동작하게 된다 — 즉 `Exclusive` 가 필요한 어댑터 (예: Cron, Leader Election) 도 `Shared` 로 동작해 부작용 (중복 실행, 리더 충돌) 이 발생할 수 있다.
 
-#### 0.6.4 메인테이너 요청 후보 — gildash 측 (Item 131·132)
+#### 0.6.4 메인테이너 회신 결과 — gildash 측 (Item 131·132 결정 종료)
 
-**상황**. Section 0.6.2 의 Step 4·7 블로커는 cli 측 노력만으로는 깔끔하게 해결 안 된다. 두 가지 메인테이너 요청 후보가 있고, 둘 중 하나라도 보강되면 cli 측 "재설계" 부담이 "단순 교체" 로 떨어진다.
+**상황**. Section 0.6.2 의 Step 4·7 블로커에 대해 cli 측이 길대시 메인테이너에게 보강 요청 2 건 (`TSType` 노출, `extractRelations` binding 메타 강화) 을 발송. **2 라운드 회신** 끝에 양 항목 모두 결정 종료 — 사용자가 추가로 정책 결정할 사안 없음.
 
-- **Item 131 — `TSType` 노출**. Step 7 의 `middleware-augment-extractor.ts` 가 제네릭 함수 시그니처 캡처에 사용. gildash 측 작업 범위는 작음 (oxc-parser 의 `TSType` re-export 추가). cli 측 폴백 대안: 제네릭 `<T, ...>(...)` regex 매칭 — gildash 의 변경 없이 즉시 진입 가능하나 중첩 제네릭 / multi-line 시그니처 / 주석 안 토큰 같은 엣지 케이스에 취약하므로 실제 어댑터 패키지의 미들웨어 시그니처 패턴이 단순한 경우만 적용.
-- **Item 132 — `extractRelations` binding 메타 강화**. Step 4 의 `expression-converter.ts:buildImportMap` 이 oxc `ImportNameKind` 등가 정보 (Name / Default / NamespaceObject) 를 필요. gildash 가 binding 단위 relation 에 `meta.importNameKind` 같은 필드를 추가하면 해결. cli 측 폴백 대안: `extractRelations` 산출물 → 기존 import map 형태 변환 헬퍼.
+- **Item 131 (TSType) → (β) cli 자체 stringifier 채택, 길대시 변경 0**. 1차 회신: 길대시가 거절 + 카운터안 `ExpressionCall.typeArguments: string[]` 제시. 2차 회신: cli 측이 사용처 정정 — 카운터안이 callsite 측 typeArguments 를 겨냥했으나 실제 사용처는 미들웨어 팩토리 *내부* 의 inner `ArrowFunctionExpression.typeParameters` (정의 측) + `param.typeAnnotation` 과 `returnType` 의 12+ TSType 변형 구조적 stringification 이라는 점을 코드 인용 (`packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts:240, 276`) 으로 정정. 이를 받아 길대시는 카운터안 철회. 부분 노출 (α: `ExpressionFunction.typeParameters` 등) 도 거절 — 점진적 부분 노출이 누적되면 길대시가 "인덱싱 엔진 → 타입 시스템 어웨어 도구" 정체성 이동을 강요받기 때문. 최종 결정: **(β) cli 가 길대시 re-export 5종 (`Program`, `Node`, `Visitor`, `visitorKeys`, `VisitorObject`) 위에 자체 `stringifyTSType` 를 작성**. 진입점만 길대시 `Node` 로 받고 변환 로직 (TSType 변형 처리, declaration merging IR emit 형태) 은 cli 도메인 안에서 처리. 본 stringifier 작성이 Step 7 작업 범위에 포함된다. 0.26 마이그레이션의 핵심 목표 (cli 의 oxc 직접 의존 0) 는 (β) 만으로 충족.
+- **Item 132 (specifier 보존) → 길대시 0.26.1 patch 결함 수정 수락**. 1차 회신에서 cli 측이 binding kind enum 노출 요청, 길대시가 `dstSymbolName` 으로 1:1 도출 가능하다며 거절. 2차 회신에서 cli 측이 본 요청의 본질을 정정 — binding kind 가 아니라 *raw module specifier 항상 보존* 이 진짜 필요 (cli 가 `ZIPBUL_IMPORT_SOURCE` IR 에 원본 소스 텍스트 emit). 0.26.0 의 `CodeRelation.specifier` 가 unresolved 케이스에만 보존되어 resolved (상대 경로 / 외부 패키지 해상 / tsconfig paths alias 해상) 시 원본 specifier 가 사라지는 누락이 확인됨 — `dstFilePath` 절대 경로에서 원본 텍스트로의 역변환은 fragile (`./foo` vs `./foo/index`, paths alias, exports map 모두 복원 불가). 길대시가 0.26.1 patch 로 *모든* `imports`/`re-exports`/`type-references`/dynamic import/`require()` relation 에 `specifier` 를 항상 보존하도록 결함 수정 (non-breaking, 추가만). 다음 영업일 내 PR + 머지/배포 회신 예정. 한편 aliased detection (`import { Foo as Bar }` → originalName='Foo') 은 0.26.1 와 무관하게 `srcSymbolName !== dstSymbolName && dstSymbolName !== 'default' && dstSymbolName !== '*'` 로 cli 측 헬퍼만으로 해결 가능 — 설계는 지금 시작 가능.
 
-**방향**. Step 3b 종료 후 사용자에게 두 항목을 보고하고 결정 받는다. 결정 옵션 — (a) gildash PR 작성 후 머지 대기 (Step 4·7 일시 보류), (b) cli 측 폴백 즉시 적용 (Step 4·7 진입 가능), (c) 양쪽 병렬 (gildash PR 진행 + cli 폴백 임시 적용 후 메인테이너 머지 시 폴백 제거). 본 문서는 결정을 강제하지 않는다 — 사용자의 우선순위에 달림.
+**Step 진입 영향**.
+- Step 4 — 0.26.1 배포 회신 합류 (catalog 갱신) 후 진입. 이전 본 문서의 "정책 결정 대기" 차단은 해소되었으며, 단일 패키지 배포 대기로 약화되었다.
+- Step 7 — 차단 해소. Step 3b 완료 후 즉시 진입 가능 (정책 대기 없음, 0.26.1 배포 의존도 없음).
 
 ### 0.7 사용자 협업 원칙 — 메모리 동기화 + 강제 사항
 
@@ -263,7 +265,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 2. `git log --oneline -1` 결과가 본 문서의 "Last sync" (`54542c1`) 와 일치하는지 확인. 다르면 본 문서가 stale 일 수 있으니 인벤토리 (Section 0.3, 0.5) 를 grep 으로 재검증.
 3. `bunx tsc --noEmit` 한 번 — 진입 baseline 이 깨끗한지 확인.
 4. 본 Section 0 전체를 처음부터 끝까지 읽어라. 특히 0.4 (Step 3b 작업 컨텍스트), 0.6.2 (블로커), 0.7 (협업 원칙).
-5. Step 4 또는 Step 7 에 진입하려면 **반드시 사용자에게 정책 결정 (Item 131/132 또는 폴백) 을 받은 후** 시작.
+5. Step 4 진입 전 길대시 0.26.1 배포 (Item 132 specifier 보존 patch) 합류 확인 — `packages/cli/node_modules/@zipbul/gildash/package.json` 의 version 이 `0.26.1` 이상인지. Step 7 은 정책 대기 없음 (Item 131 (β) cli 자체 stringifier 결정 완료) — Step 3b 완료 후 즉시 진입 가능.
 
 ---
 
@@ -339,7 +341,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 53. ⬜ Type-only import 추적 (declaration merging 의 import source 해상)
 54. ⬜ tsconfig 의 `paths` alias 정규화 후 모듈 식별
 54b. ⬜ `defineAdapter()` 인자의 `provides?: readonly ContextKey<unknown>[]` 추출 — 어댑터가 핸들러에게 제공하는 Context 키 선언. 근거: `packages/common/src/adapter/define-adapter.ts:42-43`. **필수** — Item 119 다중 어댑터 ContextKey 충돌 검출의 입력 데이터. `dist/peer-contract.json` (Item 69) 에 포함.
-54c. 🟡 (조건부, Step 10 결정) Adapter 클래스 생성자 옵션 파라미터 타입 추출 — 단순 시그니처 검증 (Item 44) 을 넘어 *옵션 schema 자체* 를 manifest 에 emit. 근거: `packages/http-adapter/src/http-adapter.ts:64` (`HttpServerOptions`). 배치: 신규 `dist/adapter-constructor-schema.json` (Item 71b). **채택 조건**: 사용자 앱 빌드가 어댑터 옵션을 *컴파일 타임* 검증하는 경로가 있는 경우. 미사용 시 .d.ts barrel 위임으로 충분 — Step 10 진입 시 결정.
+54c. ⬜ Adapter 클래스 생성자 옵션 파라미터 타입 추출 — 단순 시그니처 검증 (Item 44) 을 넘어 *옵션 schema 자체* 를 manifest 에 emit. 근거: `packages/http-adapter/src/http-adapter.ts:64` (`HttpServerOptions`). 배치: 신규 `dist/adapter-constructor-schema.json` (Item 71b). **사용자 결정 (확정)**: 컴파일 타임 옵션 검증이 본 컴파일러의 존재 이유와 직결되어 필수 채택 — 사용자 앱 빌드가 `HttpAdapter({ port: 'foo' })` 같은 잘못된 옵션을 빌드 단계에서 잡아내야 함. Step 10 진입 시 본체 구현.
 
 ## E. Code Generation
 
@@ -365,7 +367,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 69. ⬜ `dist/peer-contract.json` — `defineAdapter` 가 의존하는 `@zipbul/core` / `@zipbul/common` 심볼 (consumer rank step 등) 의 사용 흔적.
 70. ⬜ JSON 키 순서 결정적 정렬 (canonical serialization).
 71. ⬜ 모든 manifest 의 `$schemaName` 필드로 형식 자기 식별.
-71b. 🟡 (조건부) `dist/adapter-constructor-schema.json` — Adapter 클래스 생성자 옵션 파라미터 schema (Item 54c). `peer-contract.json` 과 의미 분리 — peer-contract 는 *어댑터가 의존하는* 심볼, 본 manifest 는 *어댑터가 노출하는* 옵션 인터페이스.
+71b. ⬜ `dist/adapter-constructor-schema.json` — Adapter 클래스 생성자 옵션 파라미터 schema (Item 54c). `peer-contract.json` 과 의미 분리 — peer-contract 는 *어댑터가 의존하는* 심볼, 본 manifest 는 *어댑터가 노출하는* 옵션 인터페이스. **필수 채택 확정** (Item 54c 결정 근거 참조).
 
 ## G. Atomic Emit + 무결성
 
@@ -493,10 +495,10 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 129. 길대시 측 modifier enum 에 `'generator'` 추가 — cli 사용 0건 확인됨, 불필요.
 130. 향후 cli 마이그레이션 중 길대시 API 의 사실상 부족분이 발견되면 그때 별도 회신.
 
-### 메인테이너 요청 후보 (심층 리뷰 2026-04-28 신규)
+### 메인테이너 결정 결과 (2026-04-28 회신 2 라운드 종료)
 
-131. ⬜ **`TSType` 노출 요청 (Item 137-a)** — 제네릭 함수 시그니처 캡처용. Step 7 `middleware-augment-extractor.ts` 차단 해소. 대안: cli 측 string-level 폴백 (제네릭 `<T>(...)` regex). 결정 필요.
-132. ⬜ **`extractRelations` binding 메타 강화 (Item 137-b)** — oxc `ImportNameKind` 등가 정보 (Name / Default / Namespace) 노출. Step 4 `expression-converter.ts:buildImportMap` 의 raw `StaticImport` 의존 해소. 대안: cli 측 relation tuple → import map 변환 헬퍼 신설.
+131. ✅ **`TSType` 노출 요청 — 길대시 거절 + (β) cli 자체 stringifier 채택**. cli 의 사용처가 callsite typeArguments 가 아니라 미들웨어 팩토리 *내부* inner method 정의 측 (`ArrowFunctionExpression.typeParameters`) 의 typeParameters + param/returnType 의 12+ TSType 변형 구조적 stringification 임을 양측 합의. 길대시는 "인덱싱 엔진 → 타입 시스템 어웨어 도구" 정체성 이동을 받지 않기로 결정 (점진적 부분 노출도 거절). cli 가 길대시 re-export 5종 (`Program`, `Node`, `Visitor`, `visitorKeys`, `VisitorObject`) 위에 자체 `stringifyTSType` 를 작성 — 진입점만 길대시 `Node` 로 받고 변환 로직 전부 cli 도메인 (`stringifyTSType`/declaration merging IR emit 형태) 안에서 처리. **Step 7 작업 범위에 stringifier 작성 포함**.
+132. 🟡 **`extractRelations` binding 메타 강화 — 길대시 결함 수정으로 수락 (0.26.1 patch)**. 본 요청의 본질은 binding kind enum 노출이 아니라 *raw module specifier 항상 보존* 이었음 (cli 가 `ZIPBUL_IMPORT_SOURCE` IR 에 원본 소스 텍스트 emit 필요). 길대시 0.26.0 의 `CodeRelation.specifier` 가 unresolved 케이스에만 보존되어 resolved (상대 경로 / 외부 패키지 해상 / tsconfig paths alias 해상) 시 원본 specifier 가 사라지는 누락 — `dstFilePath` 절대 경로에서 원본 텍스트로의 역변환은 fragile (`./foo` vs `./foo/index`, paths alias, exports map 모두 복원 불가). 길대시가 0.26.1 patch 로 *모든* `imports`/`re-exports`/`type-references`/dynamic import/`require()` relation 에 `specifier` 를 항상 보존하기로 결정 (non-breaking, 추가만). 다음 영업일 내 PR + 머지/배포 회신 예정. **cli 측 `buildImportMap` 재설계 (Step 4) 는 0.26.1 배포 합류 후 진입**. 한편 aliased detection (`import { Foo as Bar }` → originalName='Foo') 은 `srcSymbolName !== dstSymbolName && dstSymbolName !== 'default' && dstSymbolName !== '*'` 로 cli 측 헬퍼만으로 해결 — 0.26.1 와 무관하게 설계 가능.
 
 ---
 
@@ -517,15 +519,15 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 ## 합계
 
-**구성**. 137 항목 = 128 원본 책임 (1~128) + 6 신규 (21b·48b·54b·54c·58보강·71b) + 4 메인테이너 협력 (129·130·131·132). Item 41 카디널리티 룰 정정 포함. 인수인계 섹션 (0) 은 별도.
+**구성**. 137 항목 = 128 원본 책임 (1~128) + 6 신규 (21b·48b·54b·54c·58보강·71b) + 4 메인테이너 협력 (129·130·131·132 — 131·132 는 회신 2 라운드로 결정 종료). Item 41 카디널리티 룰 정정 포함. 인수인계 섹션 (0) 은 별도.
 
 **섹션별 진척도**:
-- **Section 0 (인수인계)**: 운영 컨텍스트 (저장소·런타임·git·테스트·소통) + 12 Step 로드맵 + 회귀 baseline + 잔존 17 파일 인벤토리 + Step 3b 작업 컨텍스트 + catalog 상태 + 심층 리뷰 결과 (gildash 표면 / Step 분할 블로커 / 갭 5건 / 메인테이너 요청 2건) + 사용자 협업 원칙.
-- **Section A~L (1–113 + 21b·48b·54b·54c·71b)**: 어댑터 패키지 빌드 시점 직접 책임. 9 ✅ / 4 🔵 / 2 🟡 (54c·71b 조건부) / 103 ⬜. Step 10 본체 진입 전 진척률 ~7%.
+- **Section 0 (인수인계)**: 운영 컨텍스트 (저장소·런타임·git·테스트·소통) + 12 Step 로드맵 + 회귀 baseline + 잔존 17 파일 인벤토리 + Step 3b 작업 컨텍스트 + catalog 상태 + 심층 리뷰 결과 (gildash 표면 / Step 분할 블로커 / 갭 5건) + 메인테이너 회신 결과 (Item 131·132 결정 종료) + 사용자 협업 원칙.
+- **Section A~L (1–113 + 21b·48b·54b·54c·71b)**: 어댑터 패키지 빌드 시점 직접 책임. 9 ✅ / 4 🔵 / 0 🟡 / 105 ⬜ (Item 54c·71b 필수 채택 확정으로 🟡 해제). Step 10 본체 진입 전 진척률 ~7%.
 - **Section M (114–119)**: 사용자 앱 빌드 측 manifest 소비 짝 contract. 0 ✅ / 6 ⬜. Step 11 진입 시 일괄.
-- **Section N (120–132)**: AST 분석 인프라 정책 — `@zipbul/gildash` 단일 진입점. 4 ✅ / 1 🟡 / 8 ⬜ (메인테이너 요청 2건 포함). Step 3b~9 진행 중.
+- **Section N (120–132)**: AST 분석 인프라 정책 — `@zipbul/gildash` 단일 진입점. 5 ✅ (Item 131 (β) 결정 포함) / 2 🟡 (122 진행 중·132 0.26.1 배포 대기) / 6 ⬜. Step 3b~9 진행 중.
 
-**전체 진행률**: ✅ 13 / 🟡 3 / 🔵 4 / ⬜ 117 = 137. 완료율 약 10%. Step 1·2·3a·회귀 baseline 갱신·심층 리뷰 + 결정 5건 반영 완료.
+**전체 진행률**: ✅ 14 / 🟡 2 / 🔵 4 / ⬜ 117 = 137. 완료율 약 10%. Step 1·2·3a·회귀 baseline 갱신·심층 리뷰·메인테이너 회신 2 라운드 + 결정 7건 반영 완료.
 
 **다음 에이전트가 즉시 시작할 작업** — Step 3b. 진입 전 다음을 순서대로 읽고 실행:
 
@@ -534,6 +536,6 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 3. Section 0.4 (Step 3b 즉시 작업 컨텍스트) — 본 작업의 상황·방향·근거·맥락.
 4. Section 0.6.1 (gildash surface) — `Node` 가 oxc 와 동일 reference 임 확인, narrow 타입은 `node.type === 'X'` 가드 사용.
 5. Section 0.6.2 의 Step 3b 항목 — "단순 import 교체가 아니라 시그니처 일반화 + 진입부 가드 추가" 라는 본 Step 의 본질 비용.
-6. **Step 4 또는 Step 7 진입 전** Section 0.6.4 의 메인테이너 요청 (Item 131·132) 정책 결정을 사용자에게 받아라 — 결정 없이 진입하면 (a) gildash 측 변경을 기다릴지 (b) cli 측 폴백/변환 헬퍼로 우회할지 정해지지 않은 채 작업 범위가 확정되지 않는다.
+6. Section 0.6.4 (메인테이너 회신 결과) — Item 131·132 결정 종료. Step 4 는 길대시 0.26.1 배포 합류 후 진입, Step 7 은 정책 대기 없음 (Step 3b 완료 후 즉시 진입). cli 자체 `stringifyTSType` 작성이 Step 7 작업 범위에 포함됨.
 
 근거는 모두 zipbul 본체 contract 또는 컴파일러 표준 책임. 새 항목 도입은 zipbul 본체 코드 라인 인용 후 추가.
