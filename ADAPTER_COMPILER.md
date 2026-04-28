@@ -4,8 +4,8 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-28 (commit `298384f` — 길대시 메인테이너 회신 2 라운드 결과 반영. Item 131·132 결정 종료, Item 54c·71b 필수 채택 확정. `git log --oneline -1` 로 현재 HEAD 재확인)
-**Branch**: `fix/cli-js-bundle-bin` (main 대비 19 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
+**Last sync**: 2026-04-28 (commit `ae31a7d` — Step 3b 완료. ast-node-locator.ts 의 oxc 직접 import 9종 narrow 타입 제거 + Node union 일반화. baseline 1964/94/370 보존. 본 sync 다음에 메타 정정 커밋 1건 추가 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
+**Branch**: `fix/cli-js-bundle-bin` (main 대비 20 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
 **Baseline**: unit `1964 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
 
 상태 표기 — 본 문서 전체에서 일관된 의미:
@@ -72,7 +72,7 @@
 | 1 | `expression-value-to-zipbul-ir` 어댑터 신설 + 소비자 wiring | ✅ | `002ce9e` → `23f32a2` → `0c74e04` → `6b92958` (0.26) | — |
 | 2 | `import-export-extractor` → `extractRelations` | ✅ | `43fc643` → `5421dbc` → `934e02d` | — |
 | 3a | `getMethodAstMeta` 제거 (dead code) | ✅ | `ae254d8` | — |
-| 3b | `ast-node-locator` 의 oxc 직접 import 전면 제거 | 🟡 | — | — |
+| 3b | `ast-node-locator` 의 oxc 직접 import 전면 제거 | ✅ | `ae31a7d` | — |
 | 4 | `expression-converter.ts` 잔존 oxc import 제거 | ⬜ | — | 3b + 길대시 0.26.1 배포 (Item 132 specifier 보존 patch) |
 | 5 | class/method extractors → `extractSymbols` | ⬜ | — | 3b |
 | 6 | ctx ops extractors → `findPattern` + span 필터 | ⬜ | — | 3b |
@@ -94,7 +94,7 @@
 
 각 Step 종료 시점에 **세 카운트 모두 동일하거나 증가**. 카운트 감소는 회귀 신호. 새 테스트를 의도적으로 추가했다면 본 문서의 baseline 도 같이 업데이트.
 
-### 0.3 oxc-parser 직접 import 잔존 인벤토리 — 17 파일
+### 0.3 oxc-parser 직접 import 잔존 인벤토리 — 15 파일 (Step 3b 완료 후)
 
 다음 명령으로 즉시 재확인할 수 있다 — 본 인벤토리가 stale 인지 의심되면 먼저 실행:
 
@@ -102,11 +102,10 @@
 grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 ```
 
-현재 시점 (commit `54542c1`) 의 결과는 다음 17개. 소스 10개 (미처리) + 스펙 7개 (미처리) + Step 2 에서 이미 완료된 1개 (`import-export-extractor.ts` — 이미 grep 에 잡히지 않음, 참고용).
+현재 시점 (commit `ae31a7d`) 의 결과는 다음 15개. 소스 9개 (미처리) + 스펙 6개 (미처리) + Step 2·3b 에서 이미 완료된 2개 (`import-export-extractor.ts`, `ast-node-locator.ts`/`.spec.ts` — grep 에 잡히지 않음, 참고용).
 
-소스 (미처리 10):
-- `packages/cli/src/compiler/analyzer/expression-converter.ts` — Step 4. `StaticImport` 사용 → `extractRelations` 산출물 소비로 재설계.
-- `packages/cli/src/compiler/analyzer/parser/ast-node-locator.ts` — Step 3b (현재 작업). narrow 타입 9종 사용.
+소스 (미처리 9):
+- `packages/cli/src/compiler/analyzer/expression-converter.ts` — Step 4. `StaticImport` 사용 → `extractRelations` 산출물 소비로 재설계 (길대시 0.26.1 patch 합류 후).
 - `packages/cli/src/compiler/analyzer/parser/class-metadata-extractor.ts` — Step 5. `Node` / `Class` / `PropertyDefinition` / `Function` 사용 → `extractSymbols` 흡수.
 - `packages/cli/src/compiler/analyzer/parser/method-metadata-extractor.ts` — Step 5. `Function` / `Expression` / `Class` 사용.
 - `packages/cli/src/compiler/analyzer/parser/context-operation-extractor.ts` — Step 6. `Function` / `ArrowFunctionExpression` / `CallExpression` / `MemberExpression` 사용.
@@ -116,9 +115,8 @@ grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 - `packages/cli/src/compiler/analyzer/adapter/config-extractor.ts` — Step 7. `Node` 한 곳만 — 사실상 trivial migration.
 - `packages/cli/src/compiler/generator/lib-augment-injector.ts` — Step 8. JS 후처리 시점.
 
-스펙 (미처리 7):
+스펙 (미처리 6):
 - `packages/cli/src/compiler/analyzer/expression-converter.spec.ts` — Step 4 동시.
-- `packages/cli/src/compiler/analyzer/parser/ast-node-locator.spec.ts` — Step 3b 동시.
 - `packages/cli/src/compiler/analyzer/parser/method-metadata-extractor.spec.ts` — Step 5 동시.
 - `packages/cli/src/compiler/analyzer/parser/context-operation-extractor.spec.ts` — Step 6 동시.
 - `packages/cli/src/compiler/analyzer/parser/handler-context-usage-extractor.spec.ts` — Step 6 동시.
@@ -461,7 +459,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 | `import { X, type Y } from 'M'` binding 단위 분리 | `extractRelations(ast, filePath)` — relation `kind` 6종 (`'imports'` / `'type-references'` / `'re-exports'` / `'calls'` / `'extends'` / `'implements'`) 모두 활용 가능. `meta.isType` 보존. heritage (Step 5) 에 `'extends'`/`'implements'` 사용. | 2 | ✅ `43fc643` |
 | `defineAdapter` / `defineMiddleware` / `defineGuard` / `defineExceptionFilter` / `defineModule` 호출 인자 정규화 | `extractSymbols` 의 variable initializer (`ExpressionValue`) → cli 측 어댑터 | 1 | ✅ `002ce9e` (`packages/cli/src/compiler/analyzer/expression-value-to-zipbul-ir.ts`) |
 | `ctx.use(KEY)` / `ctx.set(KEY, V)` / `ctx.get(KEY)` 패턴 매칭 | `patternSearch({ pattern, filePaths })` + 메서드 `span` 으로 함수 본문 범위 필터 + ctx 매개변수 shadow 검사 후처리 | 6 | ⬜ |
-| 노드 walk | 길대시 `Visitor` + `visitorKeys` (cli 자체 `walkChildren` 폐기) | 3b | 🟡 |
+| 노드 walk | 길대시 `visitorKeys` 위에 cli `walkChildren` (gildash `Node` 만 import, 자체 walker 유지) | 3b | ✅ `ae31a7d` |
 | byte offset → line·col 변환 | `buildLineOffsets` + `getLineColumn` (이미 사용 중) | — | ✅ |
 
 ### Step 1 결과 — `expression-value-to-zipbul-ir.ts` 어댑터 (참조용)
@@ -482,7 +480,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 ### 폐기 / 흡수 대상 cli 파일 (Step 별 배정)
 
-125. **현재 진척**: 11개 중 1개 ✅ (`import-export-extractor.ts` Step 2). 나머지 10개는 Step 3b~8 에 배정. Section 0.3 인벤토리 참조.
+125. **현재 진척**: 11개 중 2개 ✅ (`import-export-extractor.ts` Step 2 / `ast-node-locator.ts` Step 3b). 나머지 9개는 Step 4~8 에 배정. Section 0.3 인벤토리 참조.
 
 ### 회귀 가드
 
@@ -525,11 +523,11 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 - **Section 0 (인수인계)**: 운영 컨텍스트 (저장소·런타임·git·테스트·소통) + 12 Step 로드맵 + 회귀 baseline + 잔존 17 파일 인벤토리 + Step 3b 작업 컨텍스트 + catalog 상태 + 심층 리뷰 결과 (gildash 표면 / Step 분할 블로커 / 갭 5건) + 메인테이너 회신 결과 (Item 131·132 결정 종료) + 사용자 협업 원칙.
 - **Section A~L (1–113 + 21b·48b·54b·54c·71b)**: 어댑터 패키지 빌드 시점 직접 책임. 9 ✅ / 4 🔵 / 0 🟡 / 105 ⬜ (Item 54c·71b 필수 채택 확정으로 🟡 해제). Step 10 본체 진입 전 진척률 ~7%.
 - **Section M (114–119)**: 사용자 앱 빌드 측 manifest 소비 짝 contract. 0 ✅ / 6 ⬜. Step 11 진입 시 일괄.
-- **Section N (120–132)**: AST 분석 인프라 정책 — `@zipbul/gildash` 단일 진입점. 5 ✅ (Item 131 (β) 결정 포함) / 2 🟡 (122 진행 중·132 0.26.1 배포 대기) / 6 ⬜. Step 3b~9 진행 중.
+- **Section N (120–132)**: AST 분석 인프라 정책 — `@zipbul/gildash` 단일 진입점. 6 ✅ (Item 131 (β) 결정 + Step 3b 완료 포함) / 1 🟡 (Item 132 0.26.1 배포 대기) / 6 ⬜. Step 4~9 진행 중. Item 122 도 ast-node-locator 부분 ✅ 처리, 나머지 소비자들 Step 4~8 진행 시 자동 해소.
 
-**전체 진행률**: ✅ 14 / 🟡 2 / 🔵 4 / ⬜ 117 = 137. 완료율 약 10%. Step 1·2·3a·회귀 baseline 갱신·심층 리뷰·메인테이너 회신 2 라운드 + 결정 7건 반영 완료.
+**전체 진행률**: ✅ 15 / 🟡 1 / 🔵 4 / ⬜ 117 = 137. 완료율 약 11%. Step 1·2·3a·3b·회귀 baseline 갱신·심층 리뷰·메인테이너 회신 2 라운드 + 결정 7건 반영 완료.
 
-**다음 에이전트가 즉시 시작할 작업** — Step 3b. 진입 전 다음을 순서대로 읽고 실행:
+**다음 에이전트가 즉시 시작할 작업** — Step 5 또는 Step 6 또는 Step 7 (Step 3b 완료 후 모두 진입 가능, 정책 대기 없음). Step 4 는 길대시 0.26.1 배포 합류 후 진입. 진입 전 다음을 순서대로 읽고 실행:
 
 1. Section 0.0 (운영 컨텍스트) — 저장소/런타임/git/baseline 환경 파악.
 2. Section 0.7 (사용자 협업 원칙) — 절대 어기면 안 되는 규칙 9개.
