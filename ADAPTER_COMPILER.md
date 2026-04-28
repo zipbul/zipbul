@@ -4,8 +4,8 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-28 (commit `54542c1`)
-**Branch**: `fix/cli-js-bundle-bin` (main 대비 14 ahead, ADAPTER_COMPILER.md 갱신 시점)
+**Last sync**: 2026-04-28 (commit `79656ac`, 본 sync 다음에 메타데이터 정정 커밋이 1건 추가될 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
+**Branch**: `fix/cli-js-bundle-bin` (main 대비 18 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
 **Baseline**: unit `1964 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
 
 상태 표기 — 본 문서 전체에서 일관된 의미:
@@ -20,15 +20,17 @@
 
 ### 0.0 본 문서를 읽는 새 에이전트에게 — 운영 컨텍스트
 
-본 문서는 사용자가 conversation context 를 클리어하기 직전에 작성된 인수인계 패키지다. 새 에이전트는 prior conversation 을 모르는 상태에서 본 파일과 git history (`git log --oneline -30`) 만으로 작업을 이어가야 한다. 따라서 본 섹션은 *작업 자체* 보다 먼저 알아야 할 *운영 환경* 을 다룬다.
+본 문서는 사용자가 conversation context 를 클리어하기 직전에 작성된 인수인계 패키지다. 새 에이전트는 이전 대화를 모르는 상태에서 본 파일과 git history (`git log --oneline -30`) 만으로 작업을 이어가야 한다. 따라서 본 섹션은 *작업 자체* 보다 먼저 알아야 할 *운영 환경* 을 다룬다.
 
-**저장소 구조**: zipbul 모노레포. 루트는 `/home/revil/projects/zipbul/zipbul`. 작업 디렉토리는 항상 루트로 둔다. 패키지는 `packages/{common,core,cli,http-adapter,logger,result}` 등이며 catalog 기반 dependency 공유 (Bun 1.3 catalog). 본 문서는 루트에 위치한 `ADAPTER_COMPILER.md` 다 — 다른 위치로 옮기지 마라.
+**저장소 구조**: zipbul 모노레포. 루트는 `/home/revil/projects/zipbul/zipbul`. 작업 디렉토리는 항상 루트로 둔다. 패키지는 `packages/{cli,common,core,http-adapter,logger}` 5개 (검증: `ls packages/`); `@zipbul/result` 는 외부 의존 (workspace 패키지 아님). catalog 기반 dependency 공유 (Bun 1.3 catalog). 본 문서는 루트에 위치한 `ADAPTER_COMPILER.md` 다 — 다른 위치로 옮기지 마라.
 
 **런타임·도구**: Bun (현재 설치 1.3.13). Node 사용 금지 — 본 프로젝트의 모든 스크립트·테스트가 `bun` / `bunx` 로 돌아간다. TypeScript 5.9. typecheck 는 `bunx tsc --noEmit` (루트 디렉토리에서). 테스트는 `bun run test:unit` / `bun run test:integration` / `bun run test:e2e` (루트의 `package.json.scripts` 참조). 패키지 매니저 명령도 `bun add`, `bun install`. npm/yarn/pnpm 사용 금지.
 
-**git 작업 규칙**: 사용자가 명시 요청할 때만 커밋. 커밋 메시지는 한국어, scope 명시 (`feat(cli): ...`, `refactor(cli): ...`, `test(cli): ...`, `docs(compiler): ...`). 마지막 라인은 항상 `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` (개행 + 빈 줄 + Co-Authored-By). 메시지는 HEREDOC 으로 전달 (Bash 도구 시스템 가이드 참조). 커밋 amend 금지 — 새 커밋으로. `--no-verify` 금지 — pre-commit hook (Husky) 이 있으면 통과시켜야 한다. force push 금지. main 직접 push 금지. 본 작업 브랜치는 `fix/cli-js-bundle-bin` 이며 main 으로 PR 머지는 사용자가 직접 한다.
+**git 작업 규칙**: 사용자가 명시 요청할 때만 커밋. 커밋 메시지는 한국어, scope 명시 (`feat(cli): ...`, `refactor(cli): ...`, `test(cli): ...`, `docs(compiler): ...`). 마지막 라인은 항상 `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` (개행 + 빈 줄 + Co-Authored-By). 메시지는 HEREDOC 으로 전달 (Bash 도구 시스템 가이드 참조). 커밋 amend 금지 — 새 커밋으로. `--no-verify` 금지 — Husky pre-commit hook 이 `commit-msg` / `pre-commit` / `pre-push` 3종 등록되어 있다 (검증: `ls .husky/`), 통과시켜야 한다. force push 금지. main 직접 push 금지. 본 작업 브랜치는 `fix/cli-js-bundle-bin` 이며 main 으로 PR 머지는 사용자가 직접 한다.
 
 **테스트 카운트 운영 규칙**: 본 문서 곳곳에 "1964 / 94 / 370" baseline 이 박혀있다. 각 Step 작업 후 **세 카운트 모두 동일하거나 증가** 해야 한다. 줄어들면 — 의도적으로 테스트를 삭제했거나 리네임이 안 따라간 것. 의도였다면 본 문서의 baseline 을 즉시 업데이트해라. 의도가 아니라면 회귀이므로 중단하고 원인 추적.
+
+**IDE 진단 vs tsc**: VSCode/JetBrains 의 TypeScript language server 가 표시하는 진단과 `bunx tsc --noEmit` 결과가 어긋날 수 있다. 충돌 시 `bunx tsc --noEmit` 을 단일 진실 원천으로 사용하고, IDE 가 빨간 줄을 그어도 tsc 가 clean 이면 IDE TypeScript server 재시작.
 
 **사용자 의사소통**: 사용자는 한국어로 응답을 원한다 (메모리 `feedback_*` 참조). 검증 없이 추측을 사실처럼 보고하지 마라 — 코드 인용으로 뒷받침하지 못하면 "확인 필요" 로 표시. 사용자가 "완벽하냐?" 라고 물으면 자체 검증 (typecheck + 3종 테스트 + grep) 을 실제로 돌린 결과를 인용해서 답해라 — 거짓 보장은 가장 강하게 금지된 행동이다 (`feedback_fact_based_only`).
 
@@ -83,9 +85,9 @@
 
 ### 0.2 회귀 baseline + 검증 명령
 
-작업 시작 전과 작업 종료 시점에 동일하게 다음 명령을 루트에서 실행해서 "테스트 카운트 보존" 을 검증한다. 본 baseline 은 commit `54542c1` (현 head) 시점 측정값이다.
+작업 시작 전과 작업 종료 시점에 동일하게 다음 명령을 루트에서 실행해서 "테스트 카운트 보존" 을 검증한다. 본 baseline 은 commit `79656ac` 시점 측정값이다.
 
-- `bunx tsc --noEmit` — exit 0, stderr 0 라인. 타입 에러는 IDE diagnostic 과 자주 어긋나므로 IDE 진단 무시하고 본 명령의 결과만 신뢰해라 (prior conversation 에서 IDE 진단 stale 로 한참 헛수고한 이력 있음).
+- `bunx tsc --noEmit` — exit 0, stderr 0 라인. IDE diagnostic 과 어긋나면 본 명령의 결과만 신뢰 (Section 0.0 의 "IDE 진단 vs tsc" 참조).
 - `bun run test:unit` — `1964 pass`. 32 파일.
 - `bun run test:integration` — `94 pass`. 4 파일.
 - `bun run test:e2e` — `370 pass`. 8 파일.
@@ -127,7 +129,7 @@ grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 
 ### 0.4 Step 3b 즉시 작업 컨텍스트 — 본 시점의 메인 진입점
 
-**상황**. `ast-node-locator.ts` (현재 9.3 KB) 는 cli 의 모든 메서드/클래스/호출 노드 추출기가 공유하는 헬퍼 모듈이다. 이 모듈이 oxc-parser 의 narrow 타입 9종 (`Class`, `OxcFunction`, `PropertyDefinition`, `VariableDeclaration`, `CallExpression`, `Directive`, `Statement`, `Expression`, `Node`) 을 직접 import 해서 함수 시그니처에 사용한다. 이 헬퍼를 소비하는 추출기들 (Section 0.3 의 Step 5~8 대상 파일들) 도 동일한 narrow 타입을 받아서 자체 가드/매칭을 수행한다. 따라서 `ast-node-locator.ts` 의 시그니처가 narrow → `Node` union 으로 일반화되면 *모든 소비자에게 전파* 되는 것이 본 Step 의 핵심 부담이다. Step 3a (`getMethodAstMeta` 제거, commit `ae254d8`) 는 0.25 keyKind 마이그레이션 (`8a43f4f`) 이후 dead code 가 된 함수를 미리 청소한 것이며, 본 Step 3b 는 그 정공법 마이그레이션이다.
+**상황**. `ast-node-locator.ts` (현재 9.3 KB) 는 cli 의 모든 메서드/클래스/호출 노드 추출기가 공유하는 헬퍼 모듈이다. 이 모듈이 oxc-parser 의 narrow 타입 9종 (`Class`, `OxcFunction`, `PropertyDefinition`, `VariableDeclaration`, `CallExpression`, `Directive`, `Statement`, `Expression`, `Node`) 을 직접 import 해서 함수 시그니처에 사용한다. 이 헬퍼를 소비하는 추출기들 (Section 0.3 의 Step 5~8 대상 파일들) 도 동일한 narrow 타입을 받아서 자체 가드/매칭을 수행한다. 따라서 `ast-node-locator.ts` 의 시그니처가 narrow → `Node` union 으로 일반화되면 *모든 소비자에게 전파* 되는 것이 본 Step 의 핵심 부담이다. Step 3a (`getMethodAstMeta` 제거, commit `ae254d8`) 는 0.25 keyKind 마이그레이션 (`8a43f4f`) 이후 dead code 가 된 함수를 미리 청소한 것이며, 본 Step 3b 가 본 모듈의 oxc 직접 의존을 제거하는 본 마이그레이션이다.
 
 **방향**. 다음 순서로 진행:
 
@@ -148,17 +150,17 @@ grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 
 (6) 커밋. 메시지 예: `refactor(cli): ast-node-locator 의 oxc 직접 import 제거 — Step 3b`. 본문에 변경 사유 (gildash 단일 진입점 정책, Section N) + 회귀 baseline 보존을 적고 마지막에 `Co-Authored-By: ...` 라인.
 
-**근거**. 이 방향이 정공법인 이유는 두 가지다. 첫째, gildash 가 노출하는 `Node` 는 oxc-parser 의 동일 reference (alias 가 아닌 동일 타입) 이므로, 모든 narrow 타입의 union 에 그대로 좁힐 수 있다 — TypeScript 의 discriminated union narrowing 으로 자연스럽게 해결된다 (Section 0.6.1 의 Agent 3 검증 결과). 둘째, 본 마이그레이션의 최종 목표는 "cli 의 어떤 파일도 oxc-parser 를 직접 import 하지 않음" (Section N Item 121) 이므로, 중간 형태로 "type-only import 만 유지" (옵션 A) 나 "cli 자체 structural type 정의" (옵션 C) 를 거치면 결국 두 번 일을 하는 셈이다.
+**근거**. 이 방향을 채택하는 이유는 두 가지다. 첫째, gildash 가 노출하는 `Node` 는 oxc-parser 의 동일 reference (alias 가 아닌 동일 타입) 이므로, 모든 narrow 타입의 union 에 그대로 좁힐 수 있다 — TypeScript 의 discriminated union narrowing 표준 동작 (Section 0.6.1 의 Agent 3 검증 결과). 둘째, 본 마이그레이션의 최종 목표는 "cli 의 어떤 파일도 oxc-parser 를 직접 import 하지 않음" (Section N Item 121) 이므로, 중간 형태로 "type-only import 만 유지" (옵션 A) 나 "cli 자체 structural type 정의" (옵션 C) 를 거치면 그 중간 형태를 다시 제거하는 작업이 추가된다.
 
-**과거 시도된 잘못된 접근 (반복 금지)**. 이 부분은 prior conversation 에서 사용자가 강하게 거부한 이력이 있어 본 문서에 인용으로 보존한다.
+**과거 시도된 잘못된 접근 (반복 금지)**. 본 마이그레이션 작업 중 사용자가 강하게 거부한 접근들이며, 새 에이전트가 동일 패턴을 다시 제안하지 않도록 인용으로 보존한다.
 
 - ❌ **옵션 A (type-only import 유지)**: oxc-parser 를 `import type` 으로만 유지하되 런타임 의존은 제거. 사용자 거부 사유: "0.25 keyKind 이후 소스 100% 제거가 목표". 즉 type-level 도 직접 의존을 허용하지 않으며, gildash re-export 만 인정. 본 정책이 Section N Item 122 다.
-- ❌ **옵션 C (cli 자체 structural type 정의)**: cli 안에 약 150~200 줄짜리 자체 AST 노드 타입을 정의하고 oxc 와 호환 가능한 형태로 캐스팅. 사용자 거부 사유 (직접 인용): "자체 구조를 정의하냐고 개 호로새끼야 oxc-parser 를 gildash 로 하는데 왜 자체 구조를 정의하냐고". 즉 gildash 가 책임져야 할 영역을 cli 가 떠안는 것을 금지 — 부족한 부분은 gildash 측 패치 요청 (Item 131·132) 이 정공법.
-- ❌ **Extract 유틸리티 (`Extract<Node, { type: 'X' }>`)**: 좁은 타입을 `Extract` 로 합성 시도. 실패 사유: oxc 의 `Function` 이 `FunctionExpression | FunctionDeclaration` 같은 umbrella 인 경우 `type` discriminant 만으로는 분리 안 되며, `Extract<Node, { type: 'Function' }>` 가 never 또는 잘못된 union 으로 평가됨. 결론적으로 in-line 가드가 더 견고.
+- ❌ **옵션 C (cli 자체 structural type 정의)**: cli 안에 자체 AST 노드 타입을 정의하고 oxc 와 호환 가능한 형태로 캐스팅. 사용자 거부 사유 (직접 인용): "자체 구조를 정의하냐고 개 호로새끼야 oxc-parser 를 gildash 로 하는데 왜 자체 구조를 정의하냐고". 즉 gildash 가 책임져야 할 영역을 cli 가 떠안는 것을 금지 — 부족한 부분은 gildash 측 패치 요청 (Item 131·132).
+- ❌ **Extract 유틸리티 (`Extract<Node, { type: 'X' }>`)**: 좁은 타입을 `Extract` 로 합성 시도. 실패 사유: oxc 의 `Function` 이 `FunctionExpression | FunctionDeclaration` 같은 umbrella 인 경우 `type` discriminant 만으로는 분리 안 되며, `Extract<Node, { type: 'Function' }>` 가 never 또는 잘못된 union 으로 평가됨. 결론적으로 in-line 가드 (`if (node.type === 'X')`) 사용.
 
 **맥락 — 놓치면 안 되는 미묘한 제약**.
 - `walkChildren` 의 폐기는 본 Step 의 진짜 비용이다. cli 는 현재 `walkChildren(node, visitor)` 같은 자체 helper 를 갖고 있을 수 있는데 (확인: `grep -n "walkChildren" packages/cli/src` 로 직접 확인 후 진행), 이를 폐기하면서 호출자 모두를 gildash `Visitor` 패턴으로 교체해야 한다. 이 변경이 Step 5·6·7 의 작업 일부와 겹칠 수 있다 — Step 3b 안에서 `walkChildren` 을 *완전히* 폐기하지 않고 *deprecated* 로 표시하고 점진 폐기하는 게 안전할 수도 있다. 판단은 `walkChildren` 의 외부 호출자 수에 따른다.
-- IDE diagnostics 는 prior conversation 에서 stale 정보를 지속적으로 보여줬다. `bunx tsc --noEmit` 의 결과만 신뢰하고, IDE 가 빨간 줄을 그어도 tsc 가 clean 이면 무시. 의심되면 IDE 의 TypeScript server 를 재시작.
+- IDE TypeScript language server 는 캐시 시점이 tsc 와 다를 수 있다. `bunx tsc --noEmit` 의 결과만 단일 진실 원천으로 사용, IDE 가 빨간 줄을 그어도 tsc 가 clean 이면 무시. 의심되면 IDE 의 TypeScript server 재시작 (Section 0.0 도 참조).
 - 본 Step 작업 중 다른 파일 (Step 5~8 대상) 의 typecheck 가 깨질 수 있다 — `ast-node-locator.ts` 의 시그니처가 변하면 소비자도 같이 수정해야 한다. 하지만 그 소비자들의 *로직 마이그레이션* 은 Step 5~8 의 영역이므로, Step 3b 에서는 *시그니처 호환성* 만 유지하는 최소 변경 (예: 소비자에서 `as Class` 캐스팅 추가) 으로 typecheck 통과시키고, 진짜 마이그레이션은 후속 Step 으로 넘긴다. 이 임시 캐스팅들은 Step 5~8 가 끝나면 자연스럽게 사라진다.
 
 **검증 명령 (반복 가능, 작업 종료 시 마지막 실행)**:
@@ -172,7 +174,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 ### 0.5 catalog + 의존성 상태
 
-**상황**. 본 작업의 최종 목표는 cli 가 oxc-parser 에 *직접 의존하지 않는* 것이다 (Section N Item 120, 121). gildash 가 oxc-parser 를 transitive 로 가져오는 것은 허용 — 그 경로로만 oxc 노드 타입에 도달해야 한다. 현재 시점 (commit `54542c1`) 의 의존 상태는 점진 마이그레이션 중간 단계라 직접 의존이 *여전히 명시되어 있다*. Step 3b~8 단계에서는 import 자체는 gildash 경유로 전환하면서, `package.json` 의 dependency 명시는 Step 9 까지 남겨둔다 — 중간 단계에서 catalog 항목을 먼저 지우면 typecheck 가 깨져서 진척이 안 된다.
+**상황**. 본 작업의 최종 목표는 cli 가 oxc-parser 에 *직접 의존하지 않는* 것이다 (Section N Item 120, 121). gildash 가 oxc-parser 를 transitive 로 가져오는 것은 허용 — 그 경로로만 oxc 노드 타입에 도달해야 한다. 현재 시점 (commit `79656ac`) 의 의존 상태는 점진 마이그레이션 중간 단계라 직접 의존이 *여전히 명시되어 있다*. Step 3b~8 단계에서는 import 자체는 gildash 경유로 전환하면서, `package.json` 의 dependency 명시는 Step 9 까지 남겨둔다 — 중간 단계에서 cli 의 일부 파일이 여전히 `from 'oxc-parser'` 라인을 가진 채로 작업이 진행되므로, 그 파일들이 모두 정리되기 전에 catalog 에서 항목을 지우면 해당 파일들의 typecheck 가 깨진다.
 
 **현재 상태** (직접 확인 명령: `grep "oxc-parser" package.json packages/cli/package.json`):
 
@@ -205,13 +207,13 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 - **Walker pre/post 훅 부재** — gildash 는 raw oxc Visitor 만 노출하고 별도의 walker abstraction 을 제공하지 않는다. cli 의 `walkChildren` 같은 헬퍼를 폐기할 때 직접 `visitorKeys` 위에 재귀를 작성해야 한다. Step 3b 의 작업 컨텍스트에 명시.
 - **노출 안 함 (전수)** — 다음 oxc 좁은 타입은 gildash 가 *re-export 하지 않음*: `Class`, `CallExpression`, `Function`, `MethodDefinition`, `Expression`, `MemberExpression`, `VariableDeclaration`, `ExportNamedDeclaration`, `ExportDefaultDeclaration`, `ModuleExportName`, `StaticImport`, `ImportNameKind`, `PropertyDefinition`, `Directive`, `Statement`, `ArrowFunctionExpression`, `AssignmentExpression`, `NewExpression`, `ImportDeclaration`, `TSType`. 즉 cli 가 이 타입들을 사용하려면 `Node` union + `node.type === 'X'` 가드로 풀거나, gildash 메인테이너 측 추가 노출을 요청해야 한다. `TSType` 과 `ImportNameKind` 가 실제로 메인테이너 요청 후보 (Item 131, 132) — 다른 타입들은 union narrowing 으로 충분.
 
-**근거 — 왜 이게 중요한가**. cli 마이그레이션의 모든 Step 의 정공법은 "gildash 의 `Node` union + `extractSymbols`/`extractRelations`/`findPattern` 고수준 API + `visitorKeys` walker" 4가지로 표현된다. 위 검증으로 이 4가지가 0.26 에 모두 존재함이 확인되었으므로, cli 측 작업은 *어떻게 사용할지* 의 문제이지 *gildash 가 부족한지* 의 문제가 아니다 — 단 `TSType` (Step 7 차단), `ImportNameKind` 등가 메타 (Step 4 차단) 두 가지만 예외.
+**근거 — 왜 이게 중요한가**. cli 마이그레이션의 모든 Step 은 "gildash 의 `Node` union + `extractSymbols`/`extractRelations`/`findPattern` 고수준 API + `visitorKeys` walker" 4가지 위에서 수행된다. 위 검증으로 이 4가지가 0.26 에 모두 존재함이 확인되었으므로, cli 측 작업은 *어떻게 사용할지* 의 문제이지 *gildash 가 부족한지* 의 문제가 아니다 — 단 `TSType` (Step 7 차단), `ImportNameKind` 등가 메타 (Step 4 차단) 두 가지만 예외.
 
 #### 0.6.2 Step 분할 블로커 — Agent 1 의 17 파일 분석
 
 **상황**. 본 문서는 17 잔존 파일을 Step 3b~8 에 배정해 놨는데, 각 파일이 실제로 어떤 oxc 타입을 어떻게 사용하는지 검증하지 않으면 Step 분할 자체가 잘못되었을 수 있다. Agent 1 이 17 파일을 전수 분석한 결과, Step 분할은 대체로 옳지만 *3개 Step 에 블로커* 가 있다.
 
-**Step 4 블로커**. `expression-converter.ts` 의 `buildImportMap()` 은 oxc 의 `StaticImport[]` 배열을 받아서 각 entry 의 `entry.importName.kind === 'Name' | 'Default' | 'NamespaceObject'` 같은 enum 분기를 한다. gildash 의 `extractRelations` 는 `kind: 'imports'` 의 relation tuple 을 binding 단위로 주지만, `ImportNameKind` 같은 enum 값에 1:1 대응되는 메타데이터를 노출하지 않는다 (Section 0.6.1). 따라서 단순한 *type 교체* 로 끝나지 않으며, 두 가지 방향 중 선택해야 한다 — (a) cli 측에서 `extractRelations` 산출물 → 기존 import map 형태로 변환하는 헬퍼 작성, (b) Item 132 메인테이너 요청. 이 결정이 Step 4 의 작업 범위 (반나절 vs 한 주) 를 좌우한다. **결정 보류 시 Step 4 진입 금지**.
+**Step 4 블로커**. `expression-converter.ts` 의 `buildImportMap()` 은 oxc 의 `StaticImport[]` 배열을 받아서 각 entry 의 `entry.importName.kind === 'Name' | 'Default' | 'NamespaceObject'` 같은 enum 분기를 한다. gildash 의 `extractRelations` 는 `kind: 'imports'` 의 relation tuple 을 binding 단위로 주지만, `ImportNameKind` 같은 enum 값에 1:1 대응되는 메타데이터를 노출하지 않는다 (Section 0.6.1). 따라서 단순한 *type 교체* 로 끝나지 않으며, 두 가지 방향 중 선택해야 한다 — (a) cli 측에서 `extractRelations` 산출물 → 기존 import map 형태로 변환하는 헬퍼 작성, (b) Item 132 메인테이너 요청. 이 결정이 Step 4 의 작업 범위 (cli 측 변환 헬퍼만 추가 vs gildash 측 PR 작성·머지 대기 후 단순 교체) 를 좌우한다. **결정 보류 시 Step 4 진입 금지**.
 
 **Step 7 블로커**. `middleware-augment-extractor.ts` 가 `TSType` (제네릭 함수 시그니처 노드) 을 사용한다. 미들웨어가 `defineMiddleware<TInput, TOutput>` 같은 제네릭 형태로 타입 augment 를 선언할 때, 그 제네릭 인자를 추출하려면 TS AST 의 `TSType` 노드에 직접 접근해야 한다. gildash 가 노출하지 않는다. 두 가지 방향 — (a) Item 131 메인테이너 요청, (b) cli 측 string-level 폴백 (제네릭 `<T, ...>(...)` regex). string 폴백은 fragile 하지만 gildash 측 변경 없이 즉시 진입 가능. 사용자 결정.
 
@@ -231,13 +233,13 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 - ✅ **Item 58 보강 (필수, Section E)** — `dist/context-augments.d.ts` 의 *내용 형식* 명시. 본 문서가 처음에는 "declaration merging 코드" 라고만 적었으나 구체 템플릿이 없었다. 확정 템플릿: `declare module '<adapter-package>' { interface <ContextType> { <augmentedProp>: <BaseType> & <Augment>; ... } }`. intersection (`&`) 패턴은 TS interface merging 의 표준 방식이며, 사용자 앱이 어댑터 패키지 import 만으로 자동 적용 (별도 augment import 불필요). 소스: `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts` 의 `PropAugment` 추출 결과 소비.
 - ✅ **Item 20·41 정정 (필수, Section B/C)** — 데코레이터 카테고리 표기 정정. 본 문서가 처음에는 "controller / method / option / param" 4분류로 적었으나, `AdapterEntryDecorators` (`packages/common/src/adapter/types.ts:18-30`) 는 `controller: DecoratorRef` (단수, 정확히 1개), `handlers: readonly DecoratorRef[]` (배열, 1개 이상), `options?: readonly DecoratorRef[]` (optional, 0개 이상) 의 3분류만 정의한다. param-level 데코레이터는 어댑터 entry 가 아니라 provider 클래스 생성자 (`@Inject` 등) 에서 별도 추출된다 (Item 21b 신설). Item 41 의 카디널리티 룰도 정정 — controller "정확히 1" (이전 "1+" 는 틀림).
 
-**근거**. 위 갭들이 발견되지 않았다면 어댑터 컴파일러 MVP 가 "어댑터 패키지 입력 → manifest 산출" 의 핵심 책임을 누락한 채 ship 될 위험이 있었다. 특히 `clusterStrategy` 누락은 cluster mode 의 어댑터 동작 자체를 결정하므로 manifest 부재 시 사용자 앱이 *조용히 잘못 동작* 하는 silent failure 시나리오로 이어진다.
+**근거**. 위 갭들이 발견되지 않았다면 어댑터 컴파일러 MVP 가 "어댑터 패키지 입력 → manifest 산출" 의 핵심 책임을 누락한 채 ship 될 수 있다. 특히 `clusterStrategy` 는 `application.ts:294` 의 cluster 분기 로직 (`if (entry.adapter.clusterStrategy === ClusterStrategy.Exclusive)`) 의 입력이므로, manifest 가 이 값을 emit 하지 않으면 사용자 앱은 기본값 `Shared` 로 동작하게 된다 — 즉 `Exclusive` 가 필요한 어댑터 (예: Cron, Leader Election) 도 `Shared` 로 동작해 부작용 (중복 실행, 리더 충돌) 이 발생할 수 있다.
 
 #### 0.6.4 메인테이너 요청 후보 — gildash 측 (Item 131·132)
 
 **상황**. Section 0.6.2 의 Step 4·7 블로커는 cli 측 노력만으로는 깔끔하게 해결 안 된다. 두 가지 메인테이너 요청 후보가 있고, 둘 중 하나라도 보강되면 cli 측 "재설계" 부담이 "단순 교체" 로 떨어진다.
 
-- **Item 131 — `TSType` 노출**. Step 7 의 `middleware-augment-extractor.ts` 가 제네릭 함수 시그니처 캡처에 사용. gildash 측 작업 범위는 작음 (oxc-parser 의 `TSType` re-export 추가). cli 측 폴백 대안: 제네릭 `<T, ...>(...)` regex — 실용적이지만 fragile.
+- **Item 131 — `TSType` 노출**. Step 7 의 `middleware-augment-extractor.ts` 가 제네릭 함수 시그니처 캡처에 사용. gildash 측 작업 범위는 작음 (oxc-parser 의 `TSType` re-export 추가). cli 측 폴백 대안: 제네릭 `<T, ...>(...)` regex 매칭 — gildash 의 변경 없이 즉시 진입 가능하나 중첩 제네릭 / multi-line 시그니처 / 주석 안 토큰 같은 엣지 케이스에 취약하므로 실제 어댑터 패키지의 미들웨어 시그니처 패턴이 단순한 경우만 적용.
 - **Item 132 — `extractRelations` binding 메타 강화**. Step 4 의 `expression-converter.ts:buildImportMap` 이 oxc `ImportNameKind` 등가 정보 (Name / Default / NamespaceObject) 를 필요. gildash 가 binding 단위 relation 에 `meta.importNameKind` 같은 필드를 추가하면 해결. cli 측 폴백 대안: `extractRelations` 산출물 → 기존 import map 형태 변환 헬퍼.
 
 **방향**. Step 3b 종료 후 사용자에게 두 항목을 보고하고 결정 받는다. 결정 옵션 — (a) gildash PR 작성 후 머지 대기 (Step 4·7 일시 보류), (b) cli 측 폴백 즉시 적용 (Step 4·7 진입 가능), (c) 양쪽 병렬 (gildash PR 진행 + cli 폴백 임시 적용 후 메인테이너 머지 시 폴백 제거). 본 문서는 결정을 강제하지 않는다 — 사용자의 우선순위에 달림.
@@ -532,6 +534,6 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 3. Section 0.4 (Step 3b 즉시 작업 컨텍스트) — 본 작업의 상황·방향·근거·맥락.
 4. Section 0.6.1 (gildash surface) — `Node` 가 oxc 와 동일 reference 임 확인, narrow 타입은 `node.type === 'X'` 가드 사용.
 5. Section 0.6.2 의 Step 3b 항목 — "단순 import 교체가 아니라 시그니처 일반화 + 진입부 가드 추가" 라는 본 Step 의 본질 비용.
-6. **Step 4 또는 Step 7 진입 전** Section 0.6.4 의 메인테이너 요청 (Item 131·132) 정책 결정을 사용자에게 받아라 — 결정 없이 진입하면 작업 범위가 한 주씩 늘어날 수 있다.
+6. **Step 4 또는 Step 7 진입 전** Section 0.6.4 의 메인테이너 요청 (Item 131·132) 정책 결정을 사용자에게 받아라 — 결정 없이 진입하면 (a) gildash 측 변경을 기다릴지 (b) cli 측 폴백/변환 헬퍼로 우회할지 정해지지 않은 채 작업 범위가 확정되지 않는다.
 
 근거는 모두 zipbul 본체 contract 또는 컴파일러 표준 책임. 새 항목 도입은 zipbul 본체 코드 라인 인용 후 추가.
