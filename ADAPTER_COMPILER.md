@@ -139,15 +139,15 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 | 7 | `middleware-augment-extractor.ts` 가 `TSType` 사용 (제네릭 함수 시그니처 캡처). gildash 미노출. **메인테이너 요청 (Item 131) 또는 string 기반 폴백** 결정 필요. |
 | 3b | 17 파일 모두 narrow oxc 타입을 함수 파라미터로 받는다. gildash 의 `Node` union + in-line `kind` 가드로 변환 가능 (drop-in 별칭은 없음). 즉 단순 import 교체가 아니라 **시그니처 일반화 + 진입부 가드 추가**. |
 
-#### 0.6.3 Section A~N 갭 5건 — 신규 책임 추가
+#### 0.6.3 Section A~N 갭 — 5건 신규 책임 (확정)
 
-심층 리뷰로 확인된 zipbul 본체 contract 누락:
+심층 리뷰로 확인된 zipbul 본체 contract 누락. **모두 코드 인용 검증 완료, 4건 즉시 채택 + 1건 조건부**.
 
-- **Item 48b (신규, Section C)**: Adapter 인스턴스의 `clusterStrategy` 속성 추출 — 미명시 시 `ClusterStrategy.Shared` 기본. `packages/core/src/adapter/adapter.ts:104` + `packages/common/src/adapter/types.ts:39-55` 근거.
-- **Item 54b (신규, Section D)**: `defineAdapter()` 인자의 `provides?: readonly ContextKey<unknown>[]` 추출 — 어댑터가 핸들러에게 제공하는 Context 키 선언. `packages/common/src/adapter/define-adapter.ts:42-43` 근거. `dist/peer-contract.json` (Item 69) 에 포함.
-- **Item 54c (신규, Section D)**: Adapter 클래스 생성자 옵션 파라미터 타입 추출 (예: `HttpServerOptions`). 단순 시그니처 검증 (Item 44) 을 넘어 *옵션 schema 자체* 를 manifest 에 emit. `packages/http-adapter/src/http-adapter.ts:64` 근거.
-- **Item 58 보강 (Section E)**: `dist/context-augments.d.ts` 의 *내용 형식* 명시 누락. 템플릿: `declare module '<adapter-package>' { interface <ContextType> { <augmentedProp>: <BaseType> & <Augment>; ... } }`. 모든 built-in 미들웨어의 `PropAugment` (path + RHS class/method) 머지. `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts` 의 PropAugment 추출 결과 소비.
-- **Item 20 정정**: 데코레이터 카테고리 "controller / method / option / param" 중 **param 모호** — `AdapterEntryDecorators` (`packages/common/src/adapter/types.ts:18-30`) 는 `controller` / `handlers` / `options` 만 정의, *param-level* 데코레이터는 어댑터 entry 가 아니라 provider 생성자 (`@Inject`) 로 별도 추출 경로. 본 카테고리 표기를 "controller / method / option" 으로 축소하고, provider 생성자 param 데코레이터는 Section B 의 `extractSymbols.parameters[*].decorators` 로 별도 처리 명시.
+- ✅ **Item 48b (필수)**: Adapter 인스턴스의 `clusterStrategy` 추출. 런타임 소비 (`application.ts:294`) 가 manifest 없으면 cluster 모드 불가.
+- ✅ **Item 54b (필수)**: `defineAdapter().provides` ContextKey 배열 추출. Item 119 다중 어댑터 충돌 검출의 입력.
+- 🟡 **Item 54c (조건부, Step 10 결정)**: 생성자 옵션 schema 추출. 사용자 앱 빌드가 컴파일 타임 옵션 검증하는 경로가 있는 경우만 채택 — 신규 `adapter-constructor-schema.json` (Item 71b) 으로 분리. peer-contract 와 의미 다름 (제공 인터페이스 vs 의존 흔적).
+- ✅ **Item 58 보강 (필수)**: `dist/context-augments.d.ts` 템플릿 확정 — `declare module '<adapter-package>' { interface <ContextType> { <augmentedProp>: <BaseType> & <Augment>; ... } }`. intersection 패턴은 TS interface merging 표준.
+- ✅ **Item 20·41 정정 (필수)**: `AdapterEntryDecorators` (`types.ts:18-30`) 코드 인용 — `controller` 정확히 1, `handlers` 1+, `options` 0+. param 어댑터 entry 없음 — provider 생성자는 `extractSymbols.parameters[*].decorators` 로 별도 (Item 21b).
 
 #### 0.6.4 메인테이너 요청 후보 (gildash 측)
 
@@ -219,7 +219,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 38. ⬜ Context 클래스가 패키지에서 export 되는지
 39. ⬜ 한 패키지에 어댑터 클래스 정확히 1개
 40. ⬜ Decorator 이름 중복 없음 (controller / method / option 그룹 내)
-41. ⬜ Decorator 카테고리별 최소 1개 — controller 1+, method 1+ (option 0 허용. param 카테고리는 어댑터 entry 없음 — Item 20 정정 참조)
+41. ⬜ Decorator 카테고리 카디널리티 — `controller` **정확히 1** (단수 `DecoratorRef`), `handlers` (=method) **1+** (배열 필수), `options` **0+** (optional). 근거: `packages/common/src/adapter/types.ts:18-30` `AdapterEntryDecorators` 정의. param 카테고리는 어댑터 entry 에 없음 (Item 20 정정).
 42. ⬜ Phase 이름 중복 없음
 43. ⬜ Step 이름 중복 없음
 44. ⬜ Adapter 생성자 시그니처: 옵션 객체 1개 인자 (또는 무인자) 만 허용
@@ -227,7 +227,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 46. ⬜ peer dependency 버전 범위 명시 여부
 47. ⬜ `package.json.zipbul.kind === "adapter"` 가 누락되면 hard error
 48. ⬜ Manifest 출력 경로가 `files` 필드에 포함되는지
-48b. ⬜ Adapter 인스턴스의 `clusterStrategy` 속성 추출 — 미명시 시 `ClusterStrategy.Shared` 기본. 근거: `packages/core/src/adapter/adapter.ts:104` + `packages/common/src/adapter/types.ts:39-55`. `dist/peer-contract.json` 에 포함.
+48b. ⬜ Adapter 인스턴스의 `clusterStrategy` 속성 추출 — 미명시 시 `ClusterStrategy.Shared` 기본. 근거: `packages/core/src/adapter/adapter.ts:104` + `packages/common/src/adapter/types.ts:39-55` + 런타임 소비 `packages/core/src/application/application.ts:294`. **필수** — manifest 없으면 cluster 모드 동작 불가. `dist/peer-contract.json` 에 포함.
 
 ## D. Type 처리
 
@@ -237,8 +237,8 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 52. 🔵 Built-in 미들웨어의 `PropAugment` 추출 (path + RHS class/method) — cli 측 인프라 있음
 53. ⬜ Type-only import 추적 (declaration merging 의 import source 해상)
 54. ⬜ tsconfig 의 `paths` alias 정규화 후 모듈 식별
-54b. ⬜ `defineAdapter()` 인자의 `provides?: readonly ContextKey<unknown>[]` 추출 — 어댑터가 핸들러에게 제공하는 Context 키 선언. 근거: `packages/common/src/adapter/define-adapter.ts:42-43`. `dist/peer-contract.json` (Item 69) 에 포함.
-54c. ⬜ Adapter 클래스 생성자 옵션 파라미터 타입 추출 — 단순 시그니처 검증 (Item 44) 을 넘어 *옵션 schema 자체* 를 manifest 에 emit. 근거: `packages/http-adapter/src/http-adapter.ts:64` (`HttpServerOptions`). `dist/peer-contract.json` 또는 `dist/adapter-constructor-schema.json` 신규 manifest 에 배치 (Section F 결정 필요).
+54b. ⬜ `defineAdapter()` 인자의 `provides?: readonly ContextKey<unknown>[]` 추출 — 어댑터가 핸들러에게 제공하는 Context 키 선언. 근거: `packages/common/src/adapter/define-adapter.ts:42-43`. **필수** — Item 119 다중 어댑터 ContextKey 충돌 검출의 입력 데이터. `dist/peer-contract.json` (Item 69) 에 포함.
+54c. 🟡 (조건부, Step 10 결정) Adapter 클래스 생성자 옵션 파라미터 타입 추출 — 단순 시그니처 검증 (Item 44) 을 넘어 *옵션 schema 자체* 를 manifest 에 emit. 근거: `packages/http-adapter/src/http-adapter.ts:64` (`HttpServerOptions`). 배치: 신규 `dist/adapter-constructor-schema.json` (Item 71b). **채택 조건**: 사용자 앱 빌드가 어댑터 옵션을 *컴파일 타임* 검증하는 경로가 있는 경우. 미사용 시 .d.ts barrel 위임으로 충분 — Step 10 진입 시 결정.
 
 ## E. Code Generation
 
@@ -264,6 +264,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 69. ⬜ `dist/peer-contract.json` — `defineAdapter` 가 의존하는 `@zipbul/core` / `@zipbul/common` 심볼 (consumer rank step 등) 의 사용 흔적.
 70. ⬜ JSON 키 순서 결정적 정렬 (canonical serialization).
 71. ⬜ 모든 manifest 의 `$schemaName` 필드로 형식 자기 식별.
+71b. 🟡 (조건부) `dist/adapter-constructor-schema.json` — Adapter 클래스 생성자 옵션 파라미터 schema (Item 54c). `peer-contract.json` 과 의미 분리 — peer-contract 는 *어댑터가 의존하는* 심볼, 본 manifest 는 *어댑터가 노출하는* 옵션 인터페이스.
 
 ## G. Atomic Emit + 무결성
 
@@ -415,14 +416,14 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 ## 합계
 
-136 항목 (128 책임 + 5 신규 (21b·48b·54b·54c + Item 58 보강) + 4 메인테이너 협력 (129·130·131·132)) + 인수인계 섹션 (0).
+137 항목 (128 책임 + 6 신규 (21b·48b·54b·54c·58보강·71b) + 4 메인테이너 협력 (129·130·131·132)) + 인수인계 섹션 (0). Item 41 룰 정정 포함.
 
-- 0 (인수인계): 진행 상태 + Step 3b 컨텍스트 + **0.6 심층 리뷰 결과 (gildash 표면 검증 + Step 분할 블로커 + Section 갭 5건 + 메인테이너 요청 2건)** + 사용자 협업 원칙.
-- A~L (1–113 + 21b·48b·54b·54c): 어댑터 패키지 빌드 시점 책임. **현재 9 ✅, 4 🔵, 104 ⬜** — Step 10 본체 진입 전.
+- 0 (인수인계): 진행 상태 + Step 3b 컨텍스트 + **0.6 심층 리뷰 결과 (gildash 표면 검증 + Step 분할 블로커 + Section 갭 5건 확정 + 메인테이너 요청 2건)** + 사용자 협업 원칙.
+- A~L (1–113 + 21b·48b·54b·54c·71b): 어댑터 패키지 빌드 시점 책임. **현재 9 ✅, 4 🔵, 2 🟡 (54c·71b 조건부), 103 ⬜** — Step 10 본체 진입 전.
 - M (114–119): 사용자 앱 빌드 측 manifest 소비 짝 contract — Step 11.
 - N (120–132): AST 분석 인프라 정책 — `@zipbul/gildash` 단일 진입점. **현재 4 ✅, 1 🟡, 8 ⬜** (메인테이너 요청 2건 포함).
 
-**총 진행률**: ✅ 13 / 🟡 1 / 🔵 4 / ⬜ 118. 약 10%.
+**총 진행률**: ✅ 13 / 🟡 3 / 🔵 4 / ⬜ 117. 약 10%.
 
 **다음 에이전트가 즉시 시작할 작업**: Step 3b. Section 0.4 의 컨텍스트 + Section 0.6.1 의 gildash surface (`Node` 는 oxc 와 동일 reference, narrow 타입은 `node.type === 'X'` 가드) + Section 0.6.2 의 Step 분할 블로커 (Step 4·7 은 메인테이너 요청 결정 후 착수) 를 먼저 읽을 것.
 
