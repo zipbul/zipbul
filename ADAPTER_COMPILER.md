@@ -4,8 +4,8 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-28 (commit `ae31a7d` — Step 3b 완료. ast-node-locator.ts 의 oxc 직접 import 9종 narrow 타입 제거 + Node union 일반화. baseline 1964/94/370 보존. 본 sync 다음에 메타 정정 커밋 1건 추가 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
-**Branch**: `fix/cli-js-bundle-bin` (main 대비 20 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
+**Last sync**: 2026-04-28 (commit `734b6dd` — 길대시 0.26.1 catalog 합류, Item 132 specifier 보존 patch 적용. Step 4 차단 해소. baseline 1964/94/370 보존. 본 sync 다음에 메타 정정 커밋 1건 추가 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
+**Branch**: `fix/cli-js-bundle-bin` (main 대비 22 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
 **Baseline**: unit `1964 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
 
 상태 표기 — 본 문서 전체에서 일관된 의미:
@@ -47,7 +47,7 @@
 
 **Step 3b (완료, commit `ae31a7d`)** 는 `ast-node-locator.ts` 와 그 spec 에서 oxc-parser 의 직접 import 를 0 으로 만든 작업이다. Section 0.4 가 본 Step 의 작업 컨텍스트를 담고 있으며, 후속 Step (5·6·7·8) 의 동형 마이그레이션 작업에서 패턴 참조용으로 유지된다. 본 Step 완료로 Step 5·6·7 이 모두 진입 가능 상태가 되었다 — 이 3개 Step 의 대상 파일들이 `ast-node-locator` 의 `walkChildren`/`getCalleeMethodName` 등 헬퍼를 소비하기 때문이며, 헬퍼 시그니처가 narrow 타입에서 `Node` union 으로 일반화된 것을 받아 소비자 측도 같은 패턴으로 마이그레이션한다. 본 Step 작업 중 wiring 지점에 추가한 임시 캐스팅 (ast-parser.ts:299-303 의 `as AstNodeLocatorCallbacks['...']`, class-metadata-extractor.spec.ts 의 동일 형태) 은 Step 5 에서 `AstNodeLocatorCallbacks` 인터페이스가 `Node | null` 형태로 함께 마이그레이션되면 자연스럽게 제거된다.
 
-**Step 4 (`expression-converter.ts` 의 잔존 oxc import 제거)** 의 본질은 `buildImportMap()` 의 raw `StaticImport` 의존 해소 + 원본 module specifier (`ZIPBUL_IMPORT_SOURCE` IR 에 emit) 의 안정적 획득이다. 본 항목은 길대시 메인테이너와의 2 라운드 회신 끝에 **결정 완료** — 길대시 0.26.0 의 `CodeRelation.specifier` 가 unresolved 케이스에만 보존되는 결함을 0.26.1 patch 로 *resolved 케이스 포함 모든 relation 에 항상 보존* 하도록 수정 (Item 132). 따라서 Step 4 의 작업은 (a) 0.26.1 배포 합류 (catalog `@zipbul/gildash` 버전 갱신), (b) `buildImportMap` 을 `extractRelations` 의 `imports` relation 위로 재설계하면서 aliased named 검출 (`srcSymbolName !== dstSymbolName && dstSymbolName !== 'default' && dstSymbolName !== '*'`) 을 cli 측 헬퍼로 처리, (c) `ImportInfo.importSource` 를 `relation.specifier` 로 교체. **Step 4 는 0.26.1 배포 회신을 받은 후 Step 3b 완료 시점에 진입한다** — 0.26.1 미배포 상태에서 Step 4 진입 시 specifier 누락으로 빌드된 manifest 가 틀린 import 경로를 emit 한다.
+**Step 4 (`expression-converter.ts` 의 잔존 oxc import 제거)** 의 본질은 `buildImportMap()` 의 raw `StaticImport` 의존 해소 + 원본 module specifier (`ZIPBUL_IMPORT_SOURCE` IR 에 emit) 의 안정적 획득이다. 본 항목은 길대시 메인테이너와의 2 라운드 회신 끝에 결정 완료, 0.26.1 patch 배포 + cli 합류 완료 (commit `734b6dd`) — *resolved 케이스 포함 모든 relation 에 specifier 가 항상 보존*. 따라서 **Step 4 는 진입 가능 상태**. 작업 내용은 (a) `buildImportMap` 을 `extractRelations` 의 `imports` relation 위로 재설계하면서 aliased named 검출 (`srcSymbolName !== dstSymbolName && dstSymbolName !== 'default' && dstSymbolName !== '*'`) 을 cli 측 헬퍼로 처리, (b) `ImportInfo.importSource` 를 `relation.specifier` 로 교체, (c) 잔존 `from 'oxc-parser'` 라인 제거. cli 측 9 케이스 검증으로 specifier 보존이 모든 import 형태에서 동작함이 직접 측정으로 확인됨.
 
 **Step 5 (`class-metadata-extractor` / `method-metadata-extractor` → `extractSymbols`)** 는 클래스/메서드 추출을 gildash 의 `extractSymbols` 고수준 API 로 이관하는 작업이다. 0.26 의 `ExtractedSymbol` 는 `members` (중첩 멤버), `decorators`, `heritage`, `modifiers`, `parameters` (파라미터 데코레이터 포함), `span` 을 모두 포함하므로 이론상 cli 의 자체 walker 없이 한 호출로 추출 가능하다. 이 Step 은 Step 3b 가 끝나야 진입 가능 (`ast-node-locator` 의 헬퍼 시그니처가 변경된 후에 그 소비자인 추출기를 손대는 게 안전하다 — 동시 변경 시 회귀 추적이 어려워진다).
 
@@ -73,7 +73,7 @@
 | 2 | `import-export-extractor` → `extractRelations` | ✅ | `43fc643` → `5421dbc` → `934e02d` | — |
 | 3a | `getMethodAstMeta` 제거 (dead code) | ✅ | `ae254d8` | — |
 | 3b | `ast-node-locator` 의 oxc 직접 import 전면 제거 | ✅ | `ae31a7d` | — |
-| 4 | `expression-converter.ts` 잔존 oxc import 제거 | ⬜ | — | 3b + 길대시 0.26.1 배포 (Item 132 specifier 보존 patch) |
+| 4 | `expression-converter.ts` 잔존 oxc import 제거 | ⬜ | — | 3b + 길대시 0.26.1 합류 (✅ `734b6dd`) — 진입 가능 |
 | 5 | class/method extractors → `extractSymbols` | ⬜ | — | 3b |
 | 6 | ctx ops extractors → `findPattern` + span 필터 | ⬜ | — | 3b |
 | 7 | middleware/adapter extractors → gildash + cli stringifier | ⬜ | — | 3b (Item 131 (β) cli 자체 stringifier 결정 완료) |
@@ -179,7 +179,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 **현재 상태** (직접 확인 명령: `grep "oxc-parser" package.json packages/cli/package.json`):
 
 루트 `package.json` 의 catalog:
-- `@zipbul/gildash`: `0.26.0`
+- `@zipbul/gildash`: `0.26.1` (Item 132 specifier 보존 patch 합류)
 - `oxc-parser`: `0.127.0`
 
 `packages/cli/package.json` 의 dependencies:
@@ -265,7 +265,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 2. `git log --oneline -1` 결과가 본 문서의 "Last sync" (`54542c1`) 와 일치하는지 확인. 다르면 본 문서가 stale 일 수 있으니 인벤토리 (Section 0.3, 0.5) 를 grep 으로 재검증.
 3. `bunx tsc --noEmit` 한 번 — 진입 baseline 이 깨끗한지 확인.
 4. 본 Section 0 전체를 처음부터 끝까지 읽어라. 특히 0.4 (Step 3b 작업 컨텍스트), 0.6.2 (블로커), 0.7 (협업 원칙).
-5. Step 4 진입 전 길대시 0.26.1 배포 (Item 132 specifier 보존 patch) 합류 확인 — `packages/cli/node_modules/@zipbul/gildash/package.json` 의 version 이 `0.26.1` 이상인지. Step 7 은 정책 대기 없음 (Item 131 (β) cli 자체 stringifier 결정 완료) — Step 3b 완료 후 즉시 진입 가능.
+5. Step 4·5·6·7 모두 진입 가능 — Item 131 (β) cli 자체 stringifier 결정 완료 + Item 132 0.26.1 합류 완료 (Step 3b 완료로 의존성 해소). 정책 대기 없음.
 
 ---
 
@@ -498,7 +498,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 ### 메인테이너 결정 결과 (2026-04-28 회신 2 라운드 종료)
 
 131. ✅ **`TSType` 노출 요청 — 길대시 거절 + (β) cli 자체 stringifier 채택**. cli 의 사용처가 callsite typeArguments 가 아니라 미들웨어 팩토리 *내부* inner method 정의 측 (`ArrowFunctionExpression.typeParameters`) 의 typeParameters + param/returnType 의 12+ TSType 변형 구조적 stringification 임을 양측 합의. 길대시는 "인덱싱 엔진 → 타입 시스템 어웨어 도구" 정체성 이동을 받지 않기로 결정 (점진적 부분 노출도 거절). cli 가 길대시 re-export 5종 (`Program`, `Node`, `Visitor`, `visitorKeys`, `VisitorObject`) 위에 자체 `stringifyTSType` 를 작성 — 진입점만 길대시 `Node` 로 받고 변환 로직 전부 cli 도메인 (`stringifyTSType`/declaration merging IR emit 형태) 안에서 처리. **Step 7 작업 범위에 stringifier 작성 포함**.
-132. 🟡 **`extractRelations` binding 메타 강화 — 길대시 결함 수정으로 수락 (0.26.1 patch)**. 본 요청의 본질은 binding kind enum 노출이 아니라 *raw module specifier 항상 보존* 이었음 (cli 가 `ZIPBUL_IMPORT_SOURCE` IR 에 원본 소스 텍스트 emit 필요). 길대시 0.26.0 의 `CodeRelation.specifier` 가 unresolved 케이스에만 보존되어 resolved (상대 경로 / 외부 패키지 해상 / tsconfig paths alias 해상) 시 원본 specifier 가 사라지는 누락 — `dstFilePath` 절대 경로에서 원본 텍스트로의 역변환은 fragile (`./foo` vs `./foo/index`, paths alias, exports map 모두 복원 불가). 길대시가 0.26.1 patch 로 *모든* `imports`/`re-exports`/`type-references`/dynamic import/`require()` relation 에 `specifier` 를 항상 보존하기로 결정 (non-breaking, 추가만). 다음 영업일 내 PR + 머지/배포 회신 예정. **cli 측 `buildImportMap` 재설계 (Step 4) 는 0.26.1 배포 합류 후 진입**. 한편 aliased detection (`import { Foo as Bar }` → originalName='Foo') 은 `srcSymbolName !== dstSymbolName && dstSymbolName !== 'default' && dstSymbolName !== '*'` 로 cli 측 헬퍼만으로 해결 — 0.26.1 와 무관하게 설계 가능.
+132. ✅ **`extractRelations` binding 메타 강화 — 길대시 0.26.1 patch 배포 + cli 합류 완료 (commit `734b6dd`)**. 본 요청의 본질은 binding kind enum 노출이 아니라 *raw module specifier 항상 보존* 이었음. 길대시 0.26.0 의 `CodeRelation.specifier` 가 unresolved 케이스에만 보존되어 resolved (상대 경로 / 외부 패키지 해상 / tsconfig paths alias 해상) 시 원본 specifier 가 사라지는 누락이 0.26.1 patch 로 수정됨. cli 측 검증 9 케이스 (external/relative/relative-with-index/re-export/side-effect/aliased/default/namespace/type-only) 모두에서 `specifier` 가 원본 소스 텍스트 그대로 보존됨을 직접 측정으로 확인. **Step 4 `buildImportMap` 재설계 차단 해소** — 진입 가능 상태. aliased detection (`import { Foo as Bar }` → originalName='Foo') 은 `srcSymbolName !== dstSymbolName && dstSymbolName !== 'default' && dstSymbolName !== '*'` 로 cli 측 헬퍼만으로 해결.
 
 ---
 
@@ -526,9 +526,9 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 - **Section 0 (인수인계)**: 운영 컨텍스트 + 12 Step 로드맵 + baseline + 잔존 15 파일 인벤토리 + Step 3b 작업 컨텍스트 (완료 후 참조용) + catalog 상태 + 심층 리뷰 결과 + 메인테이너 회신 결과 + 사용자 협업 원칙. 본 섹션은 emoji item 으로 카운트되지 않는 산문이다.
 - **Section A~L (Item 1–113 + 5 sub-items 21b·48b·54b·54c·71b = 118 items)**: ✅ 1 (Item 9) / 🟡 0 / 🔵 3 (Item 22·23·52) / ⬜ 114. Step 10 본체 진입 전 진척률 ~1% (Item 9 만 완료, 나머지 모두 Step 10 영역).
 - **Section M (Item 114–119 = 6 items)**: ✅ 0 / 🟡 0 / 🔵 0 / ⬜ 6. Step 11 진입 시 일괄.
-- **Section N (Item 120–132 중 emoji 가진 10 items)**: ✅ 4 (Item 123·124·128·131) / 🟡 2 (Item 122·132) / 🔵 0 / ⬜ 4 (Item 120·121·126·127). 추가로 emoji 없는 informational 노트 3건 (Item 125 progress note, Item 129·130 메인테이너 협력 — 결정 종료 또는 비협력 항목).
+- **Section N (Item 120–132 중 emoji 가진 10 items)**: ✅ 5 (Item 123·124·128·131·132) / 🟡 1 (Item 122) / 🔵 0 / ⬜ 4 (Item 120·121·126·127). 추가로 emoji 없는 informational 노트 3건 (Item 125 progress note, Item 129·130 메인테이너 협력 — 결정 종료 또는 비협력 항목).
 
-**전체 진행률** (strict emoji tally): ✅ 5 / 🟡 2 / 🔵 3 / ⬜ 124 = 134 emoji 마킹된 책임 + 3 informational 노트 (125·129·130) = 137 항목. 본 카운트는 *책임 수* 기반 — 완료율 (5/134) 약 4%.
+**전체 진행률** (strict emoji tally): ✅ 6 / 🟡 1 / 🔵 3 / ⬜ 124 = 134 emoji 마킹된 책임 + 3 informational 노트 (125·129·130) = 137 항목. 본 카운트는 *책임 수* 기반 — 완료율 (6/134) 약 4.5%.
 
 **작업 진척의 정성적 표기** (책임 단위가 아닌 *Step 단위* 의 진행 — 137 책임이 12 Step 으로 묶여있고, 한 Step 이 여러 책임을 한 번에 해결): Step 1·2·3a·3b 완료, baseline 갱신 완료, 심층 리뷰 + 메인테이너 회신 2 라운드 종료 + 정책 결정 7건 반영 완료. Step 단위 진행률 = 4/12 = 33%. 책임 수 진행률 (4%) 와 Step 진행률 (33%) 의 격차는 Step 10·11·12 가 Section A~M 의 책임 100여 개를 한 번에 산출하는 본격 구현 단계이기 때문 — 현 시점은 *인프라 정비 단계* (Step 1~9) 가 거의 끝나가는 지점.
 
