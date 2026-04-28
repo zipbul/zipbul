@@ -61,9 +61,9 @@ function createDefaultContext(filePath: string = '/app/src/test.ts'): ClassMetad
 
 function createRealAstLocators(): AstNodeLocatorCallbacks {
   return {
-    findClassAstNode: findClassAstNode as AstNodeLocatorCallbacks['findClassAstNode'],
-    findMethodBodyAstNode: findMethodBodyAstNode as AstNodeLocatorCallbacks['findMethodBodyAstNode'],
-    findPropertyAstNode: findPropertyAstNode as AstNodeLocatorCallbacks['findPropertyAstNode'],
+    findClassAstNode,
+    findMethodBodyAstNode,
+    findPropertyAstNode,
   };
 }
 

@@ -1,7 +1,4 @@
-import type {
-  Node as AstNode,
-  Function as OxcFunction,
-} from 'oxc-parser';
+import type { Node as AstNode } from '@zipbul/gildash';
 import type { Result } from '@zipbul/result';
 import { err } from '@zipbul/result';
 
@@ -23,10 +20,12 @@ import { walkChildren, getCalleeMethodName } from './ast-node-locator';
  * @param funcNode - The `configure()` method's function AST node.
  * @returns Array of exception filter metadata, or a diagnostic on invalid syntax.
  */
-export function extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['exceptionFilters'], Diagnostic> {
+export function extractExceptionFiltersFromConfigure(funcNode: AstNode): Result<ClassMetadata['exceptionFilters'], Diagnostic> {
   const exceptionFilters: ClassMetadata['exceptionFilters'] = [];
 
-  if (funcNode.body === null) {
+  const body = getFunctionBody(funcNode);
+
+  if (body === null) {
     return exceptionFilters;
   }
 
@@ -74,7 +73,7 @@ export function extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Res
   };
 
   try {
-    visit(funcNode.body);
+    visit(body);
   } catch {
     return err(buildDiagnostic({
       reason: 'addErrorFilters only supports literal arrays and Identifiers.',
@@ -94,10 +93,12 @@ export function extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Res
  * @param funcNode - The `configure()` method's function AST node.
  * @returns Array of middleware metadata, or a diagnostic on invalid syntax.
  */
-export function extractMiddlewaresFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['middlewares'], Diagnostic> {
+export function extractMiddlewaresFromConfigure(funcNode: AstNode): Result<ClassMetadata['middlewares'], Diagnostic> {
   const middlewares: ClassMetadata['middlewares'] = [];
 
-  if (funcNode.body === null) {
+  const body = getFunctionBody(funcNode);
+
+  if (body === null) {
     return middlewares;
   }
 
@@ -175,7 +176,7 @@ export function extractMiddlewaresFromConfigure(funcNode: OxcFunction): Result<C
   };
 
   try {
-    visit(funcNode.body);
+    visit(body);
   } catch {
     return err(buildDiagnostic({
       reason: 'addMiddlewares only supports literal arrays and Identifier/withOptions.',
@@ -183,6 +184,23 @@ export function extractMiddlewaresFromConfigure(funcNode: OxcFunction): Result<C
   }
 
   return middlewares;
+}
+
+/**
+ * Returns the body of a function-like node (`FunctionDeclaration`,
+ * `FunctionExpression`, `ArrowFunctionExpression`), or `null` if the node is
+ * not a function or the body is missing.
+ */
+function getFunctionBody(node: AstNode): AstNode | null {
+  if (
+    node.type !== 'FunctionDeclaration'
+    && node.type !== 'FunctionExpression'
+    && node.type !== 'ArrowFunctionExpression'
+  ) {
+    return null;
+  }
+
+  return node.body ?? null;
 }
 
 /**

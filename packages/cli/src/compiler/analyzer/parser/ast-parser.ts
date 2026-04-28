@@ -297,17 +297,20 @@ export class AstParser {
     };
 
     const astLocators: AstNodeLocatorCallbacks = {
-      findClassAstNode: findClassAstNode as AstNodeLocatorCallbacks['findClassAstNode'],
-      findMethodBodyAstNode: findMethodBodyAstNode as AstNodeLocatorCallbacks['findMethodBodyAstNode'],
-      findPropertyAstNode: findPropertyAstNode as AstNodeLocatorCallbacks['findPropertyAstNode'],
+      findClassAstNode,
+      findMethodBodyAstNode,
+      findPropertyAstNode,
     };
 
     const methodCallbacks: MethodMetadataCallbacks = {
       extractMiddlewaresFromConfigure,
       extractExceptionFiltersFromConfigure,
-      extractHandlerContextUsages: (funcNode) => extractHandlerContextUsages(funcNode)?.usages,
+      // Cast to legacy oxc-narrow signatures of Step 6 extractors. These casts
+      // disappear once Step 6 migrates the two extractors to accept gildash `Node`.
+      extractHandlerContextUsages: (funcNode) =>
+        extractHandlerContextUsages(funcNode as Parameters<typeof extractHandlerContextUsages>[0])?.usages,
       extractHandlerContextOps: (funcNode) => {
-        const ops = extractHandlerContextOps(funcNode);
+        const ops = extractHandlerContextOps(funcNode as Parameters<typeof extractHandlerContextOps>[0]);
         return ops.length > 0 ? ops : undefined;
       },
     };

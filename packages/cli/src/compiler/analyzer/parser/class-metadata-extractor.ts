@@ -1,8 +1,4 @@
-import type { ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
-import type {
-  Node as AstNode, Class, PropertyDefinition,
-  Function as OxcFunction,
-} from 'oxc-parser';
+import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import type { Result } from '@zipbul/result';
 import { err, isErr } from '@zipbul/result';
 import { ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, TS_UTILITY_TYPES } from '@zipbul/common';
@@ -27,12 +23,12 @@ const UNKNOWN_TYPE_NAME = 'Unknown';
  * to locate raw AST nodes within a parsed class.
  */
 export interface AstNodeLocatorCallbacks {
-  /** Finds the raw Class AST node for the given class name. */
-  findClassAstNode(parsed: ParsedFile, className: string): Class | null;
-  /** Finds the Function AST node for a method body within a class. */
-  findMethodBodyAstNode(classNode: Class, methodName: string): OxcFunction | null;
-  /** Finds the PropertyDefinition AST node for a named property within a class. */
-  findPropertyAstNode(classNode: Class, propName: string): PropertyDefinition | null;
+  /** Finds the raw class declaration node for the given class name. */
+  findClassAstNode(parsed: ParsedFile, className: string): Node | null;
+  /** Finds the function-value node for a method body within a class. */
+  findMethodBodyAstNode(classNode: Node, methodName: string): Node | null;
+  /** Finds the property-definition node for a named property within a class. */
+  findPropertyAstNode(classNode: Node, propName: string): Node | null;
 }
 
 /**
@@ -43,13 +39,13 @@ export interface AstNodeLocatorCallbacks {
  */
 export interface MethodMetadataCallbacks {
   /** Extracts middleware usages from a `configure` method body. */
-  extractMiddlewaresFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['middlewares'], Diagnostic>;
+  extractMiddlewaresFromConfigure(funcNode: Node): Result<ClassMetadata['middlewares'], Diagnostic>;
   /** Extracts exception filter usages from a `configure` method body. */
-  extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['exceptionFilters'], Diagnostic>;
+  extractExceptionFiltersFromConfigure(funcNode: Node): Result<ClassMetadata['exceptionFilters'], Diagnostic>;
   /** Extracts context member-access chains from a handler method body. */
-  extractHandlerContextUsages(funcNode: OxcFunction): ClassMetadata['methods'][number]['contextUsages'];
+  extractHandlerContextUsages(funcNode: Node): ClassMetadata['methods'][number]['contextUsages'];
   /** Extracts producer/consumer ops (`ctx.set/use/get`) from a handler method body. */
-  extractHandlerContextOps(funcNode: OxcFunction): ClassMetadata['methods'][number]['contextOps'];
+  extractHandlerContextOps(funcNode: Node): ClassMetadata['methods'][number]['contextOps'];
 }
 
 /**
@@ -303,7 +299,10 @@ export function convertClassSymbol(
           const rawProperty = rawClassNode !== null
             ? astLocators.findPropertyAstNode(rawClassNode, propName)
             : null;
-          const isOptionalRaw = rawProperty !== null ? Boolean(rawProperty.optional) : false;
+          const isOptionalRaw = rawProperty !== null
+            && rawProperty.type === 'PropertyDefinition'
+            ? Boolean(rawProperty.optional)
+            : false;
           const optional = isOptionalRaw || isProtected;
 
           properties.push({
@@ -448,11 +447,15 @@ function extractTypeArgs(typeText: string | undefined): string[] | undefined {
  * @returns Array of type argument name strings
  */
 function extractHeritageTypeArgs(
-  classNode: Class | null,
+  classNode: Node | null,
   clauseKind: 'extends' | 'implements',
   typeName: string,
 ): string[] {
   if (classNode === null) {
+    return [];
+  }
+
+  if (classNode.type !== 'ClassDeclaration' && classNode.type !== 'ClassExpression') {
     return [];
   }
 
@@ -485,7 +488,6 @@ function extractHeritageTypeArgs(
       }
     }
 
-    // Check superTypeArguments (oxc-parser puts them separately)
     const superTypeArgs = classNode.superTypeArguments;
 
     if (superTypeArgs !== null && superTypeArgs !== undefined && baseName === typeName) {
@@ -497,7 +499,6 @@ function extractHeritageTypeArgs(
     return typeArgs;
   }
 
-  // implements
   const implementsList = classNode.implements ?? [];
 
   for (const impl of implementsList) {
@@ -531,7 +532,7 @@ function extractHeritageTypeArgs(
  * @param typeNode - AST node for a type parameter
  * @returns The resolved type name string
  */
-export function resolveTypeArgName(typeNode: AstNode): string {
+export function resolveTypeArgName(typeNode: Node): string {
   if (typeNode.type === 'TSTypeReference') {
     const typeName = typeNode.typeName;
 

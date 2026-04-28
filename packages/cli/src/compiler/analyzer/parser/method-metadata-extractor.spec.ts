@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
 import { parseSource } from '@zipbul/gildash';
-import type { Function as OxcFunction, Expression, Class } from 'oxc-parser';
+import type { Node } from '@zipbul/gildash';
 
 import {
   extractExceptionFiltersFromConfigure,
@@ -10,31 +10,31 @@ import {
 } from './method-metadata-extractor';
 
 /**
- * Parses a class source string and returns the `OxcFunction` node
- * for the first method definition in the class body.
+ * Parses a class source string and returns the function-value node for the
+ * first method definition in the class body.
  */
-function parseMethodFunction(classSource: string): OxcFunction {
+function parseMethodFunction(classSource: string): Node {
   const parsed = parseSource('test.ts', classSource);
 
   if (isErr(parsed)) {
     throw new Error(`Parse failure: ${JSON.stringify(parsed.data)}`);
   }
 
-  const classNode = parsed.program.body[0] as Class;
+  const classNode = parsed.program.body[0] as unknown as { body: { body: Node[] } };
   const method = classNode.body.body[0];
 
   if (method === undefined || method.type !== 'MethodDefinition') {
     throw new Error(`Expected MethodDefinition, got ${method === undefined ? 'undefined' : method.type}`);
   }
 
-  return method.value;
+  return (method as unknown as { value: Node }).value;
 }
 
 /**
- * Parses an expression source and returns the `Expression` AST node
- * for the first variable declarator's initializer.
+ * Parses an expression source and returns the initializer node for the first
+ * variable declarator.
  */
-function parseExpression(source: string): Expression {
+function parseExpression(source: string): Node {
   const parsed = parseSource('test.ts', source);
 
   if (isErr(parsed)) {
@@ -47,7 +47,7 @@ function parseExpression(source: string): Expression {
     throw new Error(`Expected VariableDeclaration, got ${stmt === undefined ? 'undefined' : stmt.type}`);
   }
 
-  const init = stmt.declarations[0]?.init;
+  const init = stmt.declarations[0]?.init as Node | null | undefined;
 
   if (init === null || init === undefined) {
     throw new Error('No initializer on variable declaration');
@@ -98,16 +98,17 @@ describe('extractExceptionFiltersFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addErrorFilters([A]); } }',
       );
-      const originalBody = funcNode.body;
+      const mutable = funcNode as unknown as { body: unknown };
+      const originalBody = mutable.body;
 
-      funcNode.body = null;
+      mutable.body = null;
 
       const result = extractExceptionFiltersFromConfigure(funcNode);
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([]);
 
-      funcNode.body = originalBody;
+      mutable.body = originalBody;
     });
   });
 
@@ -280,7 +281,7 @@ describe('extractMiddlewaresFromConfigure', () => {
         'class Ctrl { configure() { this.addMiddlewares(lc, [A]); } }',
       );
 
-      funcNode.body = null;
+      (funcNode as unknown as { body: unknown }).body = null;
 
       const result = extractMiddlewaresFromConfigure(funcNode);
 
