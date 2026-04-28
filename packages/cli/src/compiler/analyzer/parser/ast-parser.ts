@@ -297,9 +297,9 @@ export class AstParser {
     };
 
     const astLocators: AstNodeLocatorCallbacks = {
-      findClassAstNode,
-      findMethodBodyAstNode,
-      findPropertyAstNode,
+      findClassAstNode: findClassAstNode as AstNodeLocatorCallbacks['findClassAstNode'],
+      findMethodBodyAstNode: findMethodBodyAstNode as AstNodeLocatorCallbacks['findMethodBodyAstNode'],
+      findPropertyAstNode: findPropertyAstNode as AstNodeLocatorCallbacks['findPropertyAstNode'],
     };
 
     const methodCallbacks: MethodMetadataCallbacks = {

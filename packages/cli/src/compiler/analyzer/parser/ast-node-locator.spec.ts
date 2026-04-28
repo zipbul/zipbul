@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { parseSource, extractSymbols } from '@zipbul/gildash';
-import type { ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
+import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
-import type { Class, CallExpression } from 'oxc-parser';
 
 import {
   isAstNode,
@@ -26,7 +25,7 @@ function parse(code: string, filePath = 'test.ts'): ParsedFile {
   return result;
 }
 
-function parseAndFindClass(code: string, className: string): Class {
+function parseAndFindClass(code: string, className: string): Node {
   const parsed = parse(code);
   const classNode = findClassAstNode(parsed, className);
 
@@ -496,11 +495,9 @@ describe('getCalleeMethodName', () => {
     const parsed = parse(code);
     const classNode = findClassAstNode(parsed, 'Svc')!;
     const methodBody = findMethodBodyAstNode(classNode, 'run')!;
-    const block = methodBody.body!;
-    const exprStmt = block.body[0]!;
-
-    // exprStmt is ExpressionStatement with expression being CallExpression
-    const callExpr = (exprStmt as unknown as Record<string, unknown>).expression as CallExpression;
+    const block = (methodBody as unknown as Record<string, unknown>).body as Record<string, unknown>;
+    const exprStmt = (block.body as Array<Record<string, unknown>>)[0]!;
+    const callExpr = exprStmt.expression as Node;
 
     expect(getCalleeMethodName(callExpr)).toBe('execute');
   });
@@ -509,10 +506,10 @@ describe('getCalleeMethodName', () => {
     const code = 'function test() { doSomething(); }';
     const parsed = parse(code);
     const funcDecl = parsed.program.body[0] as unknown as Record<string, unknown>;
-    const body = (funcDecl as Record<string, unknown>).body as Record<string, unknown>;
-    const bodyStatements = (body as Record<string, unknown>).body as Array<Record<string, unknown>>;
+    const body = funcDecl.body as Record<string, unknown>;
+    const bodyStatements = body.body as Array<Record<string, unknown>>;
     const exprStmt = bodyStatements[0]!;
-    const callExpr = exprStmt.expression as CallExpression;
+    const callExpr = exprStmt.expression as Node;
 
     expect(getCalleeMethodName(callExpr)).toBeNull();
   });
@@ -522,9 +519,9 @@ describe('getCalleeMethodName', () => {
     const parsed = parse(code);
     const classNode = findClassAstNode(parsed, 'Svc')!;
     const methodBody = findMethodBodyAstNode(classNode, 'run')!;
-    const block = methodBody.body!;
-    const exprStmt = block.body[0]!;
-    const callExpr = (exprStmt as unknown as Record<string, unknown>).expression as CallExpression;
+    const block = (methodBody as unknown as Record<string, unknown>).body as Record<string, unknown>;
+    const exprStmt = (block.body as Array<Record<string, unknown>>)[0]!;
+    const callExpr = exprStmt.expression as Node;
 
     expect(getCalleeMethodName(callExpr)).toBeNull();
   });

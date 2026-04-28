@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
 import { parseSource, extractSymbols } from '@zipbul/gildash';
-import type { ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
+import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import { isErr, err } from '@zipbul/result';
 import { ZIPBUL_REF } from '@zipbul/common';
 
@@ -61,9 +61,9 @@ function createDefaultContext(filePath: string = '/app/src/test.ts'): ClassMetad
 
 function createRealAstLocators(): AstNodeLocatorCallbacks {
   return {
-    findClassAstNode,
-    findMethodBodyAstNode,
-    findPropertyAstNode,
+    findClassAstNode: findClassAstNode as AstNodeLocatorCallbacks['findClassAstNode'],
+    findMethodBodyAstNode: findMethodBodyAstNode as AstNodeLocatorCallbacks['findMethodBodyAstNode'],
+    findPropertyAstNode: findPropertyAstNode as AstNodeLocatorCallbacks['findPropertyAstNode'],
   };
 }
 
@@ -1095,7 +1095,7 @@ describe('resolveTypeArgName', () => {
 
     expect(classNode).not.toBeNull();
 
-    const superTypeArgs = classNode!.superTypeArguments;
+    const superTypeArgs = (classNode as unknown as { superTypeArguments?: { params: Node[] } | null }).superTypeArguments;
 
     expect(superTypeArgs).not.toBeNull();
 
@@ -1135,7 +1135,7 @@ describe('resolveTypeArgName', () => {
 
     expect(classNode).not.toBeNull();
 
-    const superTypeArgs = classNode!.superTypeArguments;
+    const superTypeArgs = (classNode as unknown as { superTypeArguments?: { params: Node[] } | null }).superTypeArguments;
 
     if (superTypeArgs !== null && superTypeArgs !== undefined) {
       const firstParam = superTypeArgs.params[0];

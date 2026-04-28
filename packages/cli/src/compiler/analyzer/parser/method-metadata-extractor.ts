@@ -1,5 +1,5 @@
 import type {
-  Node as AstNode, Expression,
+  Node as AstNode,
   Function as OxcFunction,
 } from 'oxc-parser';
 import type { Result } from '@zipbul/result';
@@ -200,7 +200,7 @@ export function extractMiddlewaresFromConfigure(funcNode: OxcFunction): Result<C
  * @returns Array of factory dependencies found in the function body.
  */
 export function extractDependencies(
-  funcExpression: Expression,
+  funcExpression: AstNode,
   offset: number,
   currentImports: Record<string, string>,
   currentOriginalNames: Record<string, string>,
