@@ -4,7 +4,7 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-28 (commit `6b92958`)
+**Last sync**: 2026-04-28 (commit `303fd10`)
 **Branch**: `fix/cli-js-bundle-bin` (main 대비 11 ahead)
 **Baseline**: unit `1964 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
 
@@ -51,9 +51,9 @@ bun run test:e2e             #  370 pass
 
 ### 0.3 oxc-parser 직접 import 잔존 인벤토리 (17 파일)
 
-소스 11 + 스펙 6. Step 별로 정확히 어느 파일이 처리 대상인지 명시한다.
+소스 10 (+ Step 2 에서 이미 처리된 1) + 스펙 7. Step 별로 정확히 어느 파일이 처리 대상인지 명시한다.
 
-**소스 (11)**
+**소스 (10 미처리 + 1 완료)**
 - `packages/cli/src/compiler/analyzer/expression-converter.ts` — Step 4
 - `packages/cli/src/compiler/analyzer/parser/ast-node-locator.ts` — Step 3b
 - `packages/cli/src/compiler/analyzer/parser/class-metadata-extractor.ts` — Step 5
@@ -66,7 +66,7 @@ bun run test:e2e             #  370 pass
 - `packages/cli/src/compiler/generator/lib-augment-injector.ts` — Step 8
 - (이미 처리됨) `import-export-extractor.ts` — Step 2 ✅
 
-**스펙 (6)**
+**스펙 (7)**
 - `expression-converter.spec.ts` — Step 4 동시
 - `ast-node-locator.spec.ts` — Step 3b 동시
 - `method-metadata-extractor.spec.ts` — Step 5 동시
@@ -87,16 +87,16 @@ import type { Class, OxcFunction, PropertyDefinition, VariableDeclaration,
 ```
 
 **대체 전략**:
-1. gildash 의 `Node` (umbrella) 타입 + `kind` discriminant 로 분기. 타입 좁히기는 `node.kind === 'class'` 같은 in-line 가드 함수로.
-2. `Visitor` / `visitorKeys` 는 gildash re-export 사용.
-3. 소비자가 `Class` / `OxcFunction` / `PropertyDefinition` 같은 좁은 타입을 인자로 받던 시그니처는 `Node` 로 일반화 후 함수 진입부에서 `kind` 검사.
+1. gildash 의 `Node` (umbrella, oxc-parser 의 `Node` 와 동일 reference — Section 0.6.1 검증) 타입 + `type` discriminant (PascalCase 문자열) 로 분기. 타입 좁히기는 `node.type === 'Class'` 같은 in-line 가드 함수로.
+2. `Visitor` / `visitorKeys` 는 gildash re-export 사용. 단 walker pre/post 훅은 미노출 — `walkChildren` 폐기 시 직접 `visitorKeys` 위에 재귀 작성.
+3. 소비자가 `Class` / `OxcFunction` / `PropertyDefinition` 같은 좁은 타입을 인자로 받던 시그니처는 `Node` 로 일반화 후 함수 진입부에서 `type` 검사.
 
 **과거 시도된 잘못된 접근 (반복 금지)**:
 - ❌ 옵션 A — oxc-parser 를 type-only import 로만 유지. 사용자 거부 ("0.25 keyKind 이후 소스 100% 제거가 목표")
 - ❌ 옵션 C — cli 안에 자체 structural type (~150 줄) 정의. 사용자 거부 ("자체 구조를 정의하냐고 개 호로새끼야")
 - ❌ Extract 유틸리티 (`Extract<Node, { type: 'X' }>`) — oxc 의 Function umbrella 타입과 호환 안 됨
 
-**올바른 접근**: gildash 가 이미 `Node` / `Visitor` / `visitorKeys` 를 re-export 한다 (Item 122 확정). 부족한 게 발견되면 길대시 측 패치 요청 (Item 137).
+**올바른 접근**: gildash 가 이미 `Node` / `Visitor` / `visitorKeys` 를 re-export 한다 (Item 122 확정, Section 0.6.1 검증). 부족한 게 발견되면 길대시 측 패치 요청 (Item 131·132 메인테이너 요청 후보 참조).
 
 **검증**:
 ```
@@ -136,7 +136,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 | Step | 블로커 | 결정 |
 |---|---|---|
 | 4 | `expression-converter.ts` 의 `buildImportMap()` 이 oxc `StaticImport` / `ImportNameKind` 의 raw 구조에 직접 의존. gildash `extractRelations` 는 binding 단위 relation tuple 을 주지만 `entry.importName.kind === 'Name'` 같은 enum 값에 1:1 대응되지 않음. **Step 2 의 `extractRelations` 산출물을 그대로 소비하도록 재설계** 또는 cli 측에서 relation tuple → import map 변환 헬퍼 신설 필요. 단순 type 교체로는 불가. |
-| 7 | `middleware-augment-extractor.ts` 가 `TSType` 사용 (제네릭 함수 시그니처 캡처). gildash 미노출. **메인테이너 요청 (Item 137-a) 또는 string 기반 폴백** 결정 필요. |
+| 7 | `middleware-augment-extractor.ts` 가 `TSType` 사용 (제네릭 함수 시그니처 캡처). gildash 미노출. **메인테이너 요청 (Item 131) 또는 string 기반 폴백** 결정 필요. |
 | 3b | 17 파일 모두 narrow oxc 타입을 함수 파라미터로 받는다. gildash 의 `Node` union + in-line `kind` 가드로 변환 가능 (drop-in 별칭은 없음). 즉 단순 import 교체가 아니라 **시그니처 일반화 + 진입부 가드 추가**. |
 
 #### 0.6.3 Section A~N 갭 5건 — 신규 책임 추가
@@ -151,8 +151,8 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 #### 0.6.4 메인테이너 요청 후보 (gildash 측)
 
-- **Item 137-a (신규)**: `TSType` (generic type signature 노드) 의 길대시 노출 — Step 7 `middleware-augment-extractor` 차단. 또는 cli 측 string-level 폴백 (제네릭 `<T>(...)` regex) 결정 필요.
-- **Item 137-b (신규)**: `extractRelations` relation 의 binding 메타에 oxc `ImportNameKind` 등가 정보 (Name / Default / Namespace) 노출 — Step 4 차단 해소.
+- **Item 131 (신규, 본 문서 하단)**: `TSType` (generic type signature 노드) 의 길대시 노출 — Step 7 `middleware-augment-extractor` 차단. 또는 cli 측 string-level 폴백 (제네릭 `<T>(...)` regex) 결정 필요.
+- **Item 132 (신규, 본 문서 하단)**: `extractRelations` relation 의 binding 메타에 oxc `ImportNameKind` 등가 정보 (Name / Default / Namespace) 노출 — Step 4 차단 해소.
 - (둘 중 하나라도 보강되면 Step 4·7 의 "재설계" 부담이 "단순 교체" 로 떨어진다.)
 
 ### 0.7 사용자 협업 원칙 (메모리 동기화)
@@ -219,7 +219,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 38. ⬜ Context 클래스가 패키지에서 export 되는지
 39. ⬜ 한 패키지에 어댑터 클래스 정확히 1개
 40. ⬜ Decorator 이름 중복 없음 (controller / method / option 그룹 내)
-41. ⬜ Decorator 카테고리별 최소 1개 — controller 1+, method 1+ (option/param 0 허용)
+41. ⬜ Decorator 카테고리별 최소 1개 — controller 1+, method 1+ (option 0 허용. param 카테고리는 어댑터 entry 없음 — Item 20 정정 참조)
 42. ⬜ Phase 이름 중복 없음
 43. ⬜ Step 이름 중복 없음
 44. ⬜ Adapter 생성자 시그니처: 옵션 객체 1개 인자 (또는 무인자) 만 허용
@@ -259,7 +259,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 64. ⬜ `dist/adapter.manifest.json` — 루트 manifest. 다른 manifest paths 인덱스 + 어댑터 식별자 + 빌드 도구 버전 (`producedBy: "zb@x.y.z"`).
 65. ⬜ `dist/pipeline-schema.json` — pipeline 배열 + consumer rank step + phase enum 값 + step enum 값.
 66. ⬜ `dist/context-namespaces.json` — Context type 이름 + namespace map → property/method schema.
-67. ⬜ `dist/decorator-schema.json` — controller / method / option / param 분류 별 데코레이터 이름 + 인자 schema + import path.
+67. ⬜ `dist/decorator-schema.json` — controller / method / option (어댑터 entry, Item 20 정정) + provider-param (`extractSymbols.parameters[*].decorators`, Item 21b) 별 데코레이터 이름 + 인자 schema + import path.
 68. ⬜ `dist/builtins.json` — 내장 미들웨어 / 가드 / 필터 메타 (augments + contextOps + 등록 phase + factory ref).
 69. ⬜ `dist/peer-contract.json` — `defineAdapter` 가 의존하는 `@zipbul/core` / `@zipbul/common` 심볼 (consumer rank step 등) 의 사용 흔적.
 70. ⬜ JSON 키 순서 결정적 정렬 (canonical serialization).
@@ -346,7 +346,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 120. ⬜ `@zipbul/cli` 의 `package.json` 에서 `oxc-parser` 의존성 제거. catalog 항목 (`workspaces.catalog["oxc-parser"]`) 도 삭제. transitive 로 길대시가 가져오는 것만 인정. **Step 9 에서 회수**. *현재 상태: cli `dependencies."oxc-parser": "catalog:"` 잔존, 루트 catalog `0.127.0` 잔존*.
 121. ⬜ cli 의 어떤 파일도 `from 'oxc-parser'` import 금지 — 위반 시 빌드 실패 (lint rule 또는 typecheck 실패로 강제). **Step 9 에서 회수**.
-122. 🟡 AST 노드 타입은 길대시 re-export (`Program`, `Node`, `Visitor`, `visitorKeys`, `VisitorObject`) 만 사용. 길대시가 노출하지 않는 raw oxc 타입 (`Class`, `CallExpression`, `Function`, `MethodDefinition`, `Expression`, `MemberExpression`, `VariableDeclaration`, `ExportNamedDeclaration`, `ExportDefaultDeclaration`, `ModuleExportName`, `StaticImport`, `ImportNameKind`) 은 길대시 고수준 API (`extractSymbols`, `extractRelations`, `patternSearch`) 로 흡수. **Step 3b~8 진행 중**.
+122. 🟡 AST 노드 타입은 길대시 re-export (`Program`, `Node`, `Visitor`, `visitorKeys`, `VisitorObject`) 만 사용. 길대시가 노출하지 않는 raw oxc 타입 (`Class`, `CallExpression`, `Function`, `MethodDefinition`, `Expression`, `MemberExpression`, `VariableDeclaration`, `ExportNamedDeclaration`, `ExportDefaultDeclaration`, `ModuleExportName`, `StaticImport`, `ImportNameKind`, `PropertyDefinition`, `Directive`, `Statement`, `ArrowFunctionExpression`, `AssignmentExpression`, `NewExpression`, `ImportDeclaration`, `TSType`) 은 길대시 고수준 API (`extractSymbols`, `extractRelations`, `findPattern`) + `Node` union + `node.type === 'X'` 가드로 흡수. **Step 3b~8 진행 중**. `TSType` / `ImportNameKind` 는 Item 131·132 메인테이너 요청 후보.
 123. ✅ `parseSync` / `parseAsync` 직접 호출 금지 — 모두 `parseSource(filePath, sourceText)` 의 `Result<ParsedFile, GildashError>` 반환을 통과. 현재 cli 전체에서 ✅.
 
 ### 길대시 API → cli 추출기 매핑 (확정)
