@@ -4,8 +4,8 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-28 (commit `fb75434` — Step 5 완료. class/method extractors 의 oxc narrow 타입 (Class·PropertyDefinition·Function·Expression) 직접 import 제거 + AstNodeLocatorCallbacks/MethodMetadataCallbacks 인터페이스 시그니처를 Node 로 일반화. Step 3b 임시 캐스팅 제거됨. 잔존 oxc 직접 import 10 파일. baseline 1966/94/370. 본 sync 다음에 메타 정정 커밋 1건 추가 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
-**Branch**: `fix/cli-js-bundle-bin` (main 대비 27 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
+**Last sync**: 2026-04-28 (commit `ad474e2` — Step 6 완료. ctx ops extractors (`context-operation-extractor.ts` + `handler-context-usage-extractor.ts`) 의 oxc narrow 타입 직접 import 제거. `isFunctionLike` 가 Extract 기반 type predicate 패턴 도입. Step 5 임시 캐스팅 제거됨. 잔존 oxc 직접 import 6 파일. baseline 1966/94/370. 본 sync 다음에 메타 정정 커밋 1건 추가 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
+**Branch**: `fix/cli-js-bundle-bin` (main 대비 30 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
 **Baseline**: unit `1966 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
 
 상태 표기 — 본 문서 전체에서 일관된 의미:
@@ -75,7 +75,7 @@
 | 3b | `ast-node-locator` 의 oxc 직접 import 전면 제거 | ✅ | `ae31a7d` | — |
 | 4 | `expression-converter.ts` 잔존 oxc import 제거 | ✅ | `2cee2c2` | 3b + 길대시 0.26.1 합류 (`734b6dd`) |
 | 5 | class/method extractors → `extractSymbols` | ✅ | `fb75434` | 3b |
-| 6 | ctx ops extractors → `findPattern` + span 필터 | ⬜ | — | 3b |
+| 6 | ctx ops extractors → Node union (findPattern 흡수는 후속 리팩토링) | ✅ | `ad474e2` | 3b |
 | 7 | middleware/adapter extractors → gildash + cli stringifier | ⬜ | — | 3b (Item 131 (β) cli 자체 stringifier 결정 완료) |
 | 8 | `lib-augment-injector` 의 oxc 제거 | ⬜ | — | 7 |
 | 9 | oxc 부재 회귀 가드 + catalog 항목 제거 | ⬜ | — | 3b·4·5·6·7·8 |
@@ -94,7 +94,7 @@
 
 각 Step 종료 시점에 **세 카운트 모두 동일하거나 증가**. 카운트 감소는 회귀 신호. 새 테스트를 의도적으로 추가했다면 본 문서의 baseline 도 같이 업데이트.
 
-### 0.3 oxc-parser 직접 import 잔존 인벤토리 — 10 파일 (Step 5 완료 후)
+### 0.3 oxc-parser 직접 import 잔존 인벤토리 — 6 파일 (Step 6 완료 후)
 
 다음 명령으로 즉시 재확인할 수 있다 — 본 인벤토리가 stale 인지 의심되면 먼저 실행:
 
@@ -102,19 +102,15 @@
 grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 ```
 
-현재 시점 (commit `fb75434`) 의 결과는 다음 10개. 소스 6개 (미처리) + 스펙 4개 (미처리) + Step 2·3b·4·5 에서 이미 완료된 5개 (`import-export-extractor.ts`, `ast-node-locator.ts`/`.spec.ts`, `expression-converter.ts`/`.spec.ts`, `class-metadata-extractor.ts`/`method-metadata-extractor.ts`/`method-metadata-extractor.spec.ts` — grep 에 잡히지 않음, 참고용).
+현재 시점 (commit `ad474e2`) 의 결과는 다음 6개. 소스 4개 (미처리) + 스펙 2개 (미처리) + Step 2·3b·4·5·6 에서 이미 완료된 7개 (참고용).
 
-소스 (미처리 6):
-- `packages/cli/src/compiler/analyzer/parser/context-operation-extractor.ts` — Step 6. `Function` / `ArrowFunctionExpression` / `CallExpression` / `MemberExpression` 사용.
-- `packages/cli/src/compiler/analyzer/parser/handler-context-usage-extractor.ts` — Step 6. `Function` / `CallExpression` / `MemberExpression` 사용. `context-operation-extractor` 와 중복 로직 → 단일 헬퍼로 통합.
-- `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts` — Step 7. `Function` / `AssignmentExpression` / `ArrowFunctionExpression` / `NewExpression` / **`TSType`** 사용. `TSType` 이 Item 131 메인테이너 요청 블로커.
+소스 (미처리 4):
+- `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts` — Step 7. `Function` / `AssignmentExpression` / `ArrowFunctionExpression` / `NewExpression` / **`TSType`** 사용. `TSType` 은 Item 131 (β) 결정에 따라 cli 자체 stringifier 작성으로 해결.
 - `packages/cli/src/compiler/analyzer/adapter/middleware-augment-collector.ts` — Step 7. `CallExpression` / `Function` / `ImportDeclaration` / `VariableDeclaration` 사용.
 - `packages/cli/src/compiler/analyzer/adapter/config-extractor.ts` — Step 7. `Node` 한 곳만 — 사실상 trivial migration.
 - `packages/cli/src/compiler/generator/lib-augment-injector.ts` — Step 8. JS 후처리 시점.
 
-스펙 (미처리 4):
-- `packages/cli/src/compiler/analyzer/parser/context-operation-extractor.spec.ts` — Step 6 동시.
-- `packages/cli/src/compiler/analyzer/parser/handler-context-usage-extractor.spec.ts` — Step 6 동시.
+스펙 (미처리 2):
 - `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.spec.ts` — Step 7 동시.
 - `packages/cli/src/compiler/integration-context-codegen.spec.ts` — Step 8 동시.
 
@@ -455,7 +451,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 | 클래스/메서드/데코레이터/생성자/파라미터/heritage/modifiers 추출 | `extractSymbols(parsed)` (이미 활용 중) + 잔존 oxc narrow 타입을 Node union 으로 일반화 | 5 | ✅ `fb75434` |
 | `import { X, type Y } from 'M'` binding 단위 분리 | `extractRelations(ast, filePath)` — relation `kind` 6종 (`'imports'` / `'type-references'` / `'re-exports'` / `'calls'` / `'extends'` / `'implements'`) 모두 활용 가능. `meta.isType` 보존. heritage (Step 5) 에 `'extends'`/`'implements'` 사용. `buildImportMap` (Step 4) 도 본 산출물 소비. | 2·4 | ✅ `43fc643` / `2cee2c2` |
 | `defineAdapter` / `defineMiddleware` / `defineGuard` / `defineExceptionFilter` / `defineModule` 호출 인자 정규화 | `extractSymbols` 의 variable initializer (`ExpressionValue`) → cli 측 어댑터 | 1 | ✅ `002ce9e` (`packages/cli/src/compiler/analyzer/expression-value-to-zipbul-ir.ts`) |
-| `ctx.use(KEY)` / `ctx.set(KEY, V)` / `ctx.get(KEY)` 패턴 매칭 | `patternSearch({ pattern, filePaths })` + 메서드 `span` 으로 함수 본문 범위 필터 + ctx 매개변수 shadow 검사 후처리 | 6 | ⬜ |
+| `ctx.use(KEY)` / `ctx.set(KEY, V)` / `ctx.get(KEY)` 패턴 매칭 | 현재: cli 자체 walker (Node union + `node.type === 'CallExpression'` 가드 + `roots: ReadonlySet<string>` shadow 검사). 후속 리팩토링 후보: `findPattern` ast-grep 으로 흡수 (별도 작업, 본 oxc 제거 목표와 무관). | 6 | ✅ `ad474e2` |
 | 노드 walk | 길대시 `visitorKeys` 위에 cli `walkChildren` (gildash `Node` 만 import, 자체 walker 유지) | 3b | ✅ `ae31a7d` |
 | byte offset → line·col 변환 | `buildLineOffsets` + `getLineColumn` (이미 사용 중) | — | ✅ |
 
@@ -477,7 +473,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 ### 폐기 / 흡수 대상 cli 파일 (Step 별 배정)
 
-125. **현재 진척**: 11개 중 5개 ✅ (`import-export-extractor.ts` Step 2 / `ast-node-locator.ts` Step 3b / `expression-converter.ts` Step 4 / `class-metadata-extractor.ts` + `method-metadata-extractor.ts` Step 5). 나머지 6개는 Step 6~8 에 배정. Section 0.3 인벤토리 참조.
+125. **현재 진척**: 11개 중 7개 ✅ (Step 2: `import-export-extractor.ts` / Step 3b: `ast-node-locator.ts` / Step 4: `expression-converter.ts` / Step 5: `class-metadata-extractor.ts`+`method-metadata-extractor.ts` / Step 6: `context-operation-extractor.ts`+`handler-context-usage-extractor.ts`). 나머지 4개는 Step 7·8 에 배정. Section 0.3 인벤토리 참조.
 
 ### 회귀 가드
 
