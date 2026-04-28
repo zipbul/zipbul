@@ -45,7 +45,7 @@
 
 각 Step 의 의존성을 산문으로 풀면 다음과 같다. **Step 1 (어댑터 신설)** 은 다른 모든 Step 의 토대가 되는 `ExpressionValue → IR` 변환 어댑터를 만든 단계로, 이미 완료되었고 commit `002ce9e` 에서 신설, `23f32a2` 에서 소비자 wiring, `0c74e04` 에서 14개 엣지 케이스 + 파라미터 정보 전파, gildash 0.26 마이그레이션은 `6b92958` (`332315f` 도 동일 시리즈) 에서 처리되었다. **Step 2 (`import-export-extractor` → `extractRelations`)** 는 import binding 단위 분리를 gildash API 로 이관한 작업으로, `43fc643` (본체 이관), `5421dbc` (전용 spec 26케이스 추가), `934e02d` (side-effect import `import './x'` 회귀 복구 — `extractRelations` 가 빈 import 는 emit 안 하므로 `ast-parser.ts` 에 명시 walk 추가) 의 3 커밋으로 완성. **Step 3a (`getMethodAstMeta` 제거)** 는 `8a43f4f` 의 0.25 keyKind 마이그레이션 이후 dead code 가 된 함수를 `ae254d8` 에서 제거.
 
-**Step 3b (완료, commit `ae31a7d`)** 는 `ast-node-locator.ts` 와 그 spec 에서 oxc-parser 의 직접 import 를 0 으로 만든 작업이다. Section 0.4 가 본 Step 의 작업 컨텍스트를 담고 있으며, 후속 Step (5·6·7·8) 의 동형 마이그레이션 작업에서 패턴 참조용으로 유지된다. 본 Step 완료로 Step 5·6·7 이 모두 진입 가능 상태가 되었다 — 이 3개 Step 의 대상 파일들이 `ast-node-locator` 의 `walkChildren`/`getCalleeMethodName` 등 헬퍼를 소비하기 때문이며, 헬퍼 시그니처가 narrow 타입에서 `Node` union 으로 일반화된 것을 받아 소비자 측도 같은 패턴으로 마이그레이션한다. 본 Step 작업 중 wiring 지점에 추가한 임시 캐스팅 (ast-parser.ts:299-303 의 `as AstNodeLocatorCallbacks['...']`, class-metadata-extractor.spec.ts 의 동일 형태) 은 Step 5 에서 `AstNodeLocatorCallbacks` 인터페이스가 `Node | null` 형태로 함께 마이그레이션되면 자연스럽게 제거된다.
+**Step 3b (완료, commit `ae31a7d`)** 는 `ast-node-locator.ts` 와 그 spec 에서 oxc-parser 의 직접 import 를 0 으로 만든 작업이다. Section 0.4 가 본 Step 의 작업 컨텍스트를 담고 있으며, 후속 Step (6·7·8) 의 동형 마이그레이션 작업에서 패턴 참조용으로 유지된다. 본 Step 완료로 Step 5·6·7 이 모두 진입 가능 상태가 되었고 — 이 3개 Step 의 대상 파일들이 `ast-node-locator` 의 `walkChildren`/`getCalleeMethodName` 등 헬퍼를 소비하기 때문이며, 헬퍼 시그니처가 narrow 타입에서 `Node` union 으로 일반화된 것을 받아 소비자 측도 같은 패턴으로 마이그레이션한다. 본 Step 작업 중 wiring 지점에 추가한 임시 캐스팅 (ast-parser.ts:299-303 의 `as AstNodeLocatorCallbacks['...']`, class-metadata-extractor.spec.ts 의 동일 형태) 은 Step 5 (commit `fb75434`) 에서 `AstNodeLocatorCallbacks` 인터페이스가 `Node | null` 형태로 함께 마이그레이션되어 실제로 제거됨. 같은 패턴으로 Step 6 진입 시 `extractHandlerContextUsages`/`extractHandlerContextOps` 의 시그니처가 `Node` 로 일반화되면 ast-parser.ts:308-312 에 Step 5 작업 중 새로 추가한 `as Parameters<typeof X>[0]` 캐스팅도 자연 제거된다.
 
 **Step 4 (`expression-converter.ts` 의 잔존 oxc import 제거)** 의 본질은 `buildImportMap()` 의 raw `StaticImport` 의존 해소 + 원본 module specifier (`ZIPBUL_IMPORT_SOURCE` IR 에 emit) 의 안정적 획득이다. 본 항목은 길대시 메인테이너와의 2 라운드 회신 끝에 결정 완료, 0.26.1 patch 배포 + cli 합류 완료 (commit `734b6dd`) — *resolved 케이스 포함 모든 relation 에 specifier 가 항상 보존*. 따라서 **Step 4 는 진입 가능 상태**. 작업 내용은 (a) `buildImportMap` 을 `extractRelations` 의 `imports` relation 위로 재설계하면서 aliased named 검출 (`srcSymbolName !== dstSymbolName && dstSymbolName !== 'default' && dstSymbolName !== '*'`) 을 cli 측 헬퍼로 처리, (b) `ImportInfo.importSource` 를 `relation.specifier` 로 교체, (c) 잔존 `from 'oxc-parser'` 라인 제거. cli 측 9 케이스 검증으로 specifier 보존이 모든 import 형태에서 동작함이 직접 측정으로 확인됨.
 
@@ -260,7 +260,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 2. `git log --oneline -1` 결과가 본 문서의 "Last sync" (`54542c1`) 와 일치하는지 확인. 다르면 본 문서가 stale 일 수 있으니 인벤토리 (Section 0.3, 0.5) 를 grep 으로 재검증.
 3. `bunx tsc --noEmit` 한 번 — 진입 baseline 이 깨끗한지 확인.
 4. 본 Section 0 전체를 처음부터 끝까지 읽어라. 특히 0.4 (Step 3b 작업 컨텍스트), 0.6.2 (블로커), 0.7 (협업 원칙).
-5. Step 4·5·6·7 모두 진입 가능 — Item 131 (β) cli 자체 stringifier 결정 완료 + Item 132 0.26.1 합류 완료 (Step 3b 완료로 의존성 해소). 정책 대기 없음.
+5. Step 4·5 완료 (commit `2cee2c2` / `fb75434`). **Step 6·7 진입 가능** — Item 131 (β) cli 자체 stringifier 결정 완료 + Item 132 0.26.1 합류 완료. 정책 대기 없음.
 
 ---
 
