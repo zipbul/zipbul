@@ -4,9 +4,9 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-28 (commit `734b6dd` — 길대시 0.26.1 catalog 합류, Item 132 specifier 보존 patch 적용. Step 4 차단 해소. baseline 1964/94/370 보존. 본 sync 다음에 메타 정정 커밋 1건 추가 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
-**Branch**: `fix/cli-js-bundle-bin` (main 대비 22 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
-**Baseline**: unit `1964 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
+**Last sync**: 2026-04-28 (commit `2cee2c2` — Step 4 완료. `expression-converter.ts:buildImportMap` 을 `extractRelations` 위로 재설계 + specifier 사용. 잔존 oxc 직접 import 13 파일. baseline unit 1966 (+2) / integration 94 / e2e 370. 본 sync 다음에 메타 정정 커밋 1건 추가 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
+**Branch**: `fix/cli-js-bundle-bin` (main 대비 24 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
+**Baseline**: unit `1966 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
 
 상태 표기 — 본 문서 전체에서 일관된 의미:
 - ✅ 완료. 실제로 코드/문서가 머지되었고, 회귀 baseline 통과 확인됨. 옆에 적힌 commit hash 가 머지 지점.
@@ -28,7 +28,7 @@
 
 **git 작업 규칙**: 사용자가 명시 요청할 때만 커밋. 커밋 메시지는 한국어, scope 명시 (`feat(cli): ...`, `refactor(cli): ...`, `test(cli): ...`, `docs(compiler): ...`). 마지막 라인은 항상 `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` (개행 + 빈 줄 + Co-Authored-By). 메시지는 HEREDOC 으로 전달 (Bash 도구 시스템 가이드 참조). 커밋 amend 금지 — 새 커밋으로. `--no-verify` 금지 — Husky pre-commit hook 이 `commit-msg` / `pre-commit` / `pre-push` 3종 등록되어 있다 (검증: `ls .husky/`), 통과시켜야 한다. force push 금지. main 직접 push 금지. 본 작업 브랜치는 `fix/cli-js-bundle-bin` 이며 main 으로 PR 머지는 사용자가 직접 한다.
 
-**테스트 카운트 운영 규칙**: 본 문서 곳곳에 "1964 / 94 / 370" baseline 이 박혀있다. 각 Step 작업 후 **세 카운트 모두 동일하거나 증가** 해야 한다. 줄어들면 — 의도적으로 테스트를 삭제했거나 리네임이 안 따라간 것. 의도였다면 본 문서의 baseline 을 즉시 업데이트해라. 의도가 아니라면 회귀이므로 중단하고 원인 추적.
+**테스트 카운트 운영 규칙**: 본 문서 곳곳에 "1966 / 94 / 370" baseline 이 박혀있다. 각 Step 작업 후 **세 카운트 모두 동일하거나 증가** 해야 한다. 줄어들면 — 의도적으로 테스트를 삭제했거나 리네임이 안 따라간 것. 의도였다면 본 문서의 baseline 을 즉시 업데이트해라. 의도가 아니라면 회귀이므로 중단하고 원인 추적.
 
 **IDE 진단 vs tsc**: VSCode/JetBrains 의 TypeScript language server 가 표시하는 진단과 `bunx tsc --noEmit` 결과가 어긋날 수 있다. 충돌 시 `bunx tsc --noEmit` 을 단일 진실 원천으로 사용하고, IDE 가 빨간 줄을 그어도 tsc 가 clean 이면 IDE TypeScript server 재시작.
 
@@ -73,7 +73,7 @@
 | 2 | `import-export-extractor` → `extractRelations` | ✅ | `43fc643` → `5421dbc` → `934e02d` | — |
 | 3a | `getMethodAstMeta` 제거 (dead code) | ✅ | `ae254d8` | — |
 | 3b | `ast-node-locator` 의 oxc 직접 import 전면 제거 | ✅ | `ae31a7d` | — |
-| 4 | `expression-converter.ts` 잔존 oxc import 제거 | ⬜ | — | 3b + 길대시 0.26.1 합류 (✅ `734b6dd`) — 진입 가능 |
+| 4 | `expression-converter.ts` 잔존 oxc import 제거 | ✅ | `2cee2c2` | 3b + 길대시 0.26.1 합류 (`734b6dd`) |
 | 5 | class/method extractors → `extractSymbols` | ⬜ | — | 3b |
 | 6 | ctx ops extractors → `findPattern` + span 필터 | ⬜ | — | 3b |
 | 7 | middleware/adapter extractors → gildash + cli stringifier | ⬜ | — | 3b (Item 131 (β) cli 자체 stringifier 결정 완료) |
@@ -88,13 +88,13 @@
 작업 시작 전과 작업 종료 시점에 동일하게 다음 명령을 루트에서 실행해서 "테스트 카운트 보존" 을 검증한다. 본 baseline 은 commit `79656ac` 시점 측정값이다.
 
 - `bunx tsc --noEmit` — exit 0, stderr 0 라인. IDE diagnostic 과 어긋나면 본 명령의 결과만 신뢰 (Section 0.0 의 "IDE 진단 vs tsc" 참조).
-- `bun run test:unit` — `1964 pass`. 32 파일.
+- `bun run test:unit` — `1966 pass`. 32 파일.
 - `bun run test:integration` — `94 pass`. 4 파일.
 - `bun run test:e2e` — `370 pass`. 8 파일.
 
 각 Step 종료 시점에 **세 카운트 모두 동일하거나 증가**. 카운트 감소는 회귀 신호. 새 테스트를 의도적으로 추가했다면 본 문서의 baseline 도 같이 업데이트.
 
-### 0.3 oxc-parser 직접 import 잔존 인벤토리 — 15 파일 (Step 3b 완료 후)
+### 0.3 oxc-parser 직접 import 잔존 인벤토리 — 13 파일 (Step 4 완료 후)
 
 다음 명령으로 즉시 재확인할 수 있다 — 본 인벤토리가 stale 인지 의심되면 먼저 실행:
 
@@ -102,10 +102,9 @@
 grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 ```
 
-현재 시점 (commit `ae31a7d`) 의 결과는 다음 15개. 소스 9개 (미처리) + 스펙 6개 (미처리) + Step 2·3b 에서 이미 완료된 2개 (`import-export-extractor.ts`, `ast-node-locator.ts`/`.spec.ts` — grep 에 잡히지 않음, 참고용).
+현재 시점 (commit `2cee2c2`) 의 결과는 다음 13개. 소스 8개 (미처리) + 스펙 5개 (미처리) + Step 2·3b·4 에서 이미 완료된 3개 (`import-export-extractor.ts`, `ast-node-locator.ts`/`.spec.ts`, `expression-converter.ts`/`.spec.ts` — grep 에 잡히지 않음, 참고용).
 
-소스 (미처리 9):
-- `packages/cli/src/compiler/analyzer/expression-converter.ts` — Step 4. `StaticImport` 사용 → `extractRelations` 산출물 소비로 재설계 (길대시 0.26.1 patch 합류 후).
+소스 (미처리 8):
 - `packages/cli/src/compiler/analyzer/parser/class-metadata-extractor.ts` — Step 5. `Node` / `Class` / `PropertyDefinition` / `Function` 사용 → `extractSymbols` 흡수.
 - `packages/cli/src/compiler/analyzer/parser/method-metadata-extractor.ts` — Step 5. `Function` / `Expression` / `Class` 사용.
 - `packages/cli/src/compiler/analyzer/parser/context-operation-extractor.ts` — Step 6. `Function` / `ArrowFunctionExpression` / `CallExpression` / `MemberExpression` 사용.
@@ -115,8 +114,7 @@ grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 - `packages/cli/src/compiler/analyzer/adapter/config-extractor.ts` — Step 7. `Node` 한 곳만 — 사실상 trivial migration.
 - `packages/cli/src/compiler/generator/lib-augment-injector.ts` — Step 8. JS 후처리 시점.
 
-스펙 (미처리 6):
-- `packages/cli/src/compiler/analyzer/expression-converter.spec.ts` — Step 4 동시.
+스펙 (미처리 5):
 - `packages/cli/src/compiler/analyzer/parser/method-metadata-extractor.spec.ts` — Step 5 동시.
 - `packages/cli/src/compiler/analyzer/parser/context-operation-extractor.spec.ts` — Step 6 동시.
 - `packages/cli/src/compiler/analyzer/parser/handler-context-usage-extractor.spec.ts` — Step 6 동시.
@@ -143,7 +141,7 @@ grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 
 (5) 검증. 다음 4 명령을 순차로 실행:
 - `bunx tsc --noEmit` — 0 에러.
-- `bun run test:unit` — `1964 pass` 동일하거나 증가.
+- `bun run test:unit` — `1966 pass` 동일하거나 증가.
 - `bun run test:integration` — `94 pass` 동일하거나 증가.
 - `bun run test:e2e` — `370 pass` 동일하거나 증가.
 - `grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-locator.ts packages/cli/src/compiler/analyzer/parser/ast-node-locator.spec.ts` — 0 매치.
@@ -458,7 +456,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 | cli 책임 | 길대시 API | Step | 상태 |
 |---|---|---|---|
 | 클래스/메서드/데코레이터/생성자/파라미터/heritage/modifiers 추출 | `extractSymbols(parsed)` | 5 | ⬜ |
-| `import { X, type Y } from 'M'` binding 단위 분리 | `extractRelations(ast, filePath)` — relation `kind` 6종 (`'imports'` / `'type-references'` / `'re-exports'` / `'calls'` / `'extends'` / `'implements'`) 모두 활용 가능. `meta.isType` 보존. heritage (Step 5) 에 `'extends'`/`'implements'` 사용. | 2 | ✅ `43fc643` |
+| `import { X, type Y } from 'M'` binding 단위 분리 | `extractRelations(ast, filePath)` — relation `kind` 6종 (`'imports'` / `'type-references'` / `'re-exports'` / `'calls'` / `'extends'` / `'implements'`) 모두 활용 가능. `meta.isType` 보존. heritage (Step 5) 에 `'extends'`/`'implements'` 사용. `buildImportMap` (Step 4) 도 본 산출물 소비. | 2·4 | ✅ `43fc643` / `2cee2c2` |
 | `defineAdapter` / `defineMiddleware` / `defineGuard` / `defineExceptionFilter` / `defineModule` 호출 인자 정규화 | `extractSymbols` 의 variable initializer (`ExpressionValue`) → cli 측 어댑터 | 1 | ✅ `002ce9e` (`packages/cli/src/compiler/analyzer/expression-value-to-zipbul-ir.ts`) |
 | `ctx.use(KEY)` / `ctx.set(KEY, V)` / `ctx.get(KEY)` 패턴 매칭 | `patternSearch({ pattern, filePaths })` + 메서드 `span` 으로 함수 본문 범위 필터 + ctx 매개변수 shadow 검사 후처리 | 6 | ⬜ |
 | 노드 walk | 길대시 `visitorKeys` 위에 cli `walkChildren` (gildash `Node` 만 import, 자체 walker 유지) | 3b | ✅ `ae31a7d` |
@@ -482,13 +480,13 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 ### 폐기 / 흡수 대상 cli 파일 (Step 별 배정)
 
-125. **현재 진척**: 11개 중 2개 ✅ (`import-export-extractor.ts` Step 2 / `ast-node-locator.ts` Step 3b). 나머지 9개는 Step 4~8 에 배정. Section 0.3 인벤토리 참조.
+125. **현재 진척**: 11개 중 3개 ✅ (`import-export-extractor.ts` Step 2 / `ast-node-locator.ts` Step 3b / `expression-converter.ts` Step 4). 나머지 8개는 Step 5~8 에 배정. Section 0.3 인벤토리 참조.
 
 ### 회귀 가드
 
 126. ⬜ 본 PR 의 typecheck 단계에서 `oxc-parser` 가 `@zipbul/cli` 의 직간접 의존 그래프에 *직접 import* 형태로 등장하면 실패. (lockfile 의 transitive 로 존재하는 것은 허용.) **Step 9**.
 127. ⬜ 회귀 방지 단위 테스트 — cli 의 `oxc-parser` import 부재를 grep 으로 검증하는 lint 룰 또는 spec 1개 추가. **Step 9**.
-128. ✅ 기존 cli 의 모든 unit/integration/e2e 회귀 통과. **Baseline 갱신: 1964 / 94 / 370** (이전 1909 / 94 / 369 에서 증가, 회귀 없음).
+128. ✅ 기존 cli 의 모든 unit/integration/e2e 회귀 통과. **Baseline 갱신: 1966 / 94 / 370** (Step 4 의 buildImportMap default/namespace 엣지 케이스 spec 2건 추가로 1964 → 1966, 회귀 없음).
 
 ### 메인테이너 협력 사항
 
