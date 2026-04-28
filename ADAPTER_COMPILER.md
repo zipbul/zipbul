@@ -45,7 +45,7 @@
 
 각 Step 의 의존성을 산문으로 풀면 다음과 같다. **Step 1 (어댑터 신설)** 은 다른 모든 Step 의 토대가 되는 `ExpressionValue → IR` 변환 어댑터를 만든 단계로, 이미 완료되었고 commit `002ce9e` 에서 신설, `23f32a2` 에서 소비자 wiring, `0c74e04` 에서 14개 엣지 케이스 + 파라미터 정보 전파, gildash 0.26 마이그레이션은 `6b92958` (`332315f` 도 동일 시리즈) 에서 처리되었다. **Step 2 (`import-export-extractor` → `extractRelations`)** 는 import binding 단위 분리를 gildash API 로 이관한 작업으로, `43fc643` (본체 이관), `5421dbc` (전용 spec 26케이스 추가), `934e02d` (side-effect import `import './x'` 회귀 복구 — `extractRelations` 가 빈 import 는 emit 안 하므로 `ast-parser.ts` 에 명시 walk 추가) 의 3 커밋으로 완성. **Step 3a (`getMethodAstMeta` 제거)** 는 `8a43f4f` 의 0.25 keyKind 마이그레이션 이후 dead code 가 된 함수를 `ae254d8` 에서 제거.
 
-**Step 3b (현재 진행 중)** 는 `ast-node-locator.ts` 와 그 spec 에서 oxc-parser 의 직접 import 를 0 으로 만드는 작업이다. Section 0.4 가 이 Step 의 모든 컨텍스트를 담는 메인 진입점이다. **Step 3b 가 완료되어야 Step 5·6·7·8 이 진입 가능하다** — 이 4개 Step 의 대상 파일들이 `ast-node-locator` 의 `walkChildren`/`getCallExpressionName` 등 헬퍼를 소비하기 때문이며, 헬퍼 시그니처가 oxc 의 narrow 타입에서 gildash 의 `Node` union 으로 변경되는 것이 모든 소비자에게 전파된다.
+**Step 3b (완료, commit `ae31a7d`)** 는 `ast-node-locator.ts` 와 그 spec 에서 oxc-parser 의 직접 import 를 0 으로 만든 작업이다. Section 0.4 가 본 Step 의 작업 컨텍스트를 담고 있으며, 후속 Step (5·6·7·8) 의 동형 마이그레이션 작업에서 패턴 참조용으로 유지된다. 본 Step 완료로 Step 5·6·7 이 모두 진입 가능 상태가 되었다 — 이 3개 Step 의 대상 파일들이 `ast-node-locator` 의 `walkChildren`/`getCalleeMethodName` 등 헬퍼를 소비하기 때문이며, 헬퍼 시그니처가 narrow 타입에서 `Node` union 으로 일반화된 것을 받아 소비자 측도 같은 패턴으로 마이그레이션한다. 본 Step 작업 중 wiring 지점에 추가한 임시 캐스팅 (ast-parser.ts:299-303 의 `as AstNodeLocatorCallbacks['...']`, class-metadata-extractor.spec.ts 의 동일 형태) 은 Step 5 에서 `AstNodeLocatorCallbacks` 인터페이스가 `Node | null` 형태로 함께 마이그레이션되면 자연스럽게 제거된다.
 
 **Step 4 (`expression-converter.ts` 의 잔존 oxc import 제거)** 의 본질은 `buildImportMap()` 의 raw `StaticImport` 의존 해소 + 원본 module specifier (`ZIPBUL_IMPORT_SOURCE` IR 에 emit) 의 안정적 획득이다. 본 항목은 길대시 메인테이너와의 2 라운드 회신 끝에 **결정 완료** — 길대시 0.26.0 의 `CodeRelation.specifier` 가 unresolved 케이스에만 보존되는 결함을 0.26.1 patch 로 *resolved 케이스 포함 모든 relation 에 항상 보존* 하도록 수정 (Item 132). 따라서 Step 4 의 작업은 (a) 0.26.1 배포 합류 (catalog `@zipbul/gildash` 버전 갱신), (b) `buildImportMap` 을 `extractRelations` 의 `imports` relation 위로 재설계하면서 aliased named 검출 (`srcSymbolName !== dstSymbolName && dstSymbolName !== 'default' && dstSymbolName !== '*'`) 을 cli 측 헬퍼로 처리, (c) `ImportInfo.importSource` 를 `relation.specifier` 로 교체. **Step 4 는 0.26.1 배포 회신을 받은 후 Step 3b 완료 시점에 진입한다** — 0.26.1 미배포 상태에서 Step 4 진입 시 specifier 누락으로 빌드된 manifest 가 틀린 import 경로를 emit 한다.
 
@@ -125,7 +125,9 @@ grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 
 스펙은 본체 이관과 같은 커밋에서 처리한다 — type 시그니처가 달라지므로 spec 만 따로 두면 typecheck 통과 안 함.
 
-### 0.4 Step 3b 즉시 작업 컨텍스트 — 본 시점의 메인 진입점
+### 0.4 Step 3b 작업 컨텍스트 — 완료 (commit `ae31a7d`, 참조용 보존)
+
+> 본 섹션은 Step 3b 가 진행되던 시점의 작업 컨텍스트다. 본 Step 은 완료되었으며 (commit `ae31a7d`), 본 섹션은 후속 Step (4·5·6·7·8) 의 동형 마이그레이션 작업에서 패턴 참조용으로 유지된다. 잘못된 접근 (옵션 A/C, Extract 유틸) 의 인용도 후속 Step 에 그대로 적용되므로 보존.
 
 **상황**. `ast-node-locator.ts` (현재 9.3 KB) 는 cli 의 모든 메서드/클래스/호출 노드 추출기가 공유하는 헬퍼 모듈이다. 이 모듈이 oxc-parser 의 narrow 타입 9종 (`Class`, `OxcFunction`, `PropertyDefinition`, `VariableDeclaration`, `CallExpression`, `Directive`, `Statement`, `Expression`, `Node`) 을 직접 import 해서 함수 시그니처에 사용한다. 이 헬퍼를 소비하는 추출기들 (Section 0.3 의 Step 5~8 대상 파일들) 도 동일한 narrow 타입을 받아서 자체 가드/매칭을 수행한다. 따라서 `ast-node-locator.ts` 의 시그니처가 narrow → `Node` union 으로 일반화되면 *모든 소비자에게 전파* 되는 것이 본 Step 의 핵심 부담이다. Step 3a (`getMethodAstMeta` 제거, commit `ae254d8`) 는 0.25 keyKind 마이그레이션 (`8a43f4f`) 이후 dead code 가 된 함수를 미리 청소한 것이며, 본 Step 3b 가 본 모듈의 oxc 직접 의존을 제거하는 본 마이그레이션이다.
 
@@ -519,13 +521,16 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 **구성**. 137 항목 = 128 원본 책임 (1~128) + 6 신규 (21b·48b·54b·54c·58보강·71b) + 4 메인테이너 협력 (129·130·131·132 — 131·132 는 회신 2 라운드로 결정 종료). Item 41 카디널리티 룰 정정 포함. 인수인계 섹션 (0) 은 별도.
 
-**섹션별 진척도**:
-- **Section 0 (인수인계)**: 운영 컨텍스트 (저장소·런타임·git·테스트·소통) + 12 Step 로드맵 + 회귀 baseline + 잔존 17 파일 인벤토리 + Step 3b 작업 컨텍스트 + catalog 상태 + 심층 리뷰 결과 (gildash 표면 / Step 분할 블로커 / 갭 5건) + 메인테이너 회신 결과 (Item 131·132 결정 종료) + 사용자 협업 원칙.
-- **Section A~L (1–113 + 21b·48b·54b·54c·71b)**: 어댑터 패키지 빌드 시점 직접 책임. 9 ✅ / 4 🔵 / 0 🟡 / 105 ⬜ (Item 54c·71b 필수 채택 확정으로 🟡 해제). Step 10 본체 진입 전 진척률 ~7%.
-- **Section M (114–119)**: 사용자 앱 빌드 측 manifest 소비 짝 contract. 0 ✅ / 6 ⬜. Step 11 진입 시 일괄.
-- **Section N (120–132)**: AST 분석 인프라 정책 — `@zipbul/gildash` 단일 진입점. 6 ✅ (Item 131 (β) 결정 + Step 3b 완료 포함) / 1 🟡 (Item 132 0.26.1 배포 대기) / 6 ⬜. Step 4~9 진행 중. Item 122 도 ast-node-locator 부분 ✅ 처리, 나머지 소비자들 Step 4~8 진행 시 자동 해소.
+**섹션별 진척도** (item emoji strict tally — 검증 명령: `awk '/^## A\./,0' ADAPTER_COMPILER.md | grep -oE "^[0-9]+[a-z]?\\. [✅🟡⬜🔵]" | grep -oE "[✅🟡⬜🔵]" | sort | uniq -c`):
 
-**전체 진행률**: ✅ 15 / 🟡 1 / 🔵 4 / ⬜ 117 = 137. 완료율 약 11%. Step 1·2·3a·3b·회귀 baseline 갱신·심층 리뷰·메인테이너 회신 2 라운드 + 결정 7건 반영 완료.
+- **Section 0 (인수인계)**: 운영 컨텍스트 + 12 Step 로드맵 + baseline + 잔존 15 파일 인벤토리 + Step 3b 작업 컨텍스트 (완료 후 참조용) + catalog 상태 + 심층 리뷰 결과 + 메인테이너 회신 결과 + 사용자 협업 원칙. 본 섹션은 emoji item 으로 카운트되지 않는 산문이다.
+- **Section A~L (Item 1–113 + 5 sub-items 21b·48b·54b·54c·71b = 118 items)**: ✅ 1 (Item 9) / 🟡 0 / 🔵 3 (Item 22·23·52) / ⬜ 114. Step 10 본체 진입 전 진척률 ~1% (Item 9 만 완료, 나머지 모두 Step 10 영역).
+- **Section M (Item 114–119 = 6 items)**: ✅ 0 / 🟡 0 / 🔵 0 / ⬜ 6. Step 11 진입 시 일괄.
+- **Section N (Item 120–132 중 emoji 가진 10 items)**: ✅ 4 (Item 123·124·128·131) / 🟡 2 (Item 122·132) / 🔵 0 / ⬜ 4 (Item 120·121·126·127). 추가로 emoji 없는 informational 노트 3건 (Item 125 progress note, Item 129·130 메인테이너 협력 — 결정 종료 또는 비협력 항목).
+
+**전체 진행률** (strict emoji tally): ✅ 5 / 🟡 2 / 🔵 3 / ⬜ 124 = 134 emoji 마킹된 책임 + 3 informational 노트 (125·129·130) = 137 항목. 본 카운트는 *책임 수* 기반 — 완료율 (5/134) 약 4%.
+
+**작업 진척의 정성적 표기** (책임 단위가 아닌 *Step 단위* 의 진행 — 137 책임이 12 Step 으로 묶여있고, 한 Step 이 여러 책임을 한 번에 해결): Step 1·2·3a·3b 완료, baseline 갱신 완료, 심층 리뷰 + 메인테이너 회신 2 라운드 종료 + 정책 결정 7건 반영 완료. Step 단위 진행률 = 4/12 = 33%. 책임 수 진행률 (4%) 와 Step 진행률 (33%) 의 격차는 Step 10·11·12 가 Section A~M 의 책임 100여 개를 한 번에 산출하는 본격 구현 단계이기 때문 — 현 시점은 *인프라 정비 단계* (Step 1~9) 가 거의 끝나가는 지점.
 
 **다음 에이전트가 즉시 시작할 작업** — Step 5 또는 Step 6 또는 Step 7 (Step 3b 완료 후 모두 진입 가능, 정책 대기 없음). Step 4 는 길대시 0.26.1 배포 합류 후 진입. 진입 전 다음을 순서대로 읽고 실행:
 
