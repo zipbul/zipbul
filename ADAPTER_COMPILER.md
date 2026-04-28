@@ -4,8 +4,8 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-28 (commit `79656ac`, 본 sync 다음에 메타데이터 정정 커밋이 1건 추가될 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
-**Branch**: `fix/cli-js-bundle-bin` (main 대비 18 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
+**Last sync**: 2026-04-28 (commit `298384f` — 길대시 메인테이너 회신 2 라운드 결과 반영. Item 131·132 결정 종료, Item 54c·71b 필수 채택 확정. `git log --oneline -1` 로 현재 HEAD 재확인)
+**Branch**: `fix/cli-js-bundle-bin` (main 대비 19 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
 **Baseline**: unit `1964 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
 
 상태 표기 — 본 문서 전체에서 일관된 의미:
