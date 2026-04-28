@@ -384,6 +384,35 @@ describe('convertModuleDefinition', () => {
     expect(result.providers).toHaveLength(2);
   });
 
+  it('should silently skip spread entries (not statically analyzable)', () => {
+    const expr: ExpressionObject = {
+      kind: 'object',
+      properties: [
+        { kind: 'spread', argument: { kind: 'identifier', name: 'baseConfig' } },
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'AppModule' } },
+      ],
+    };
+
+    const result = convertModuleDefinition(expr, new Map(), {});
+
+    expect(result.name).toBe('AppModule');
+    expect(result.nameDeclared).toBe(true);
+  });
+
+  it('should silently skip computed property keys (not supported in module config)', () => {
+    const expr: ExpressionObject = {
+      kind: 'object',
+      properties: [
+        { kind: 'property', key: { kind: 'identifier', name: 'computedKey' }, value: { kind: 'string', value: 'ignored' } },
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'AppModule' } },
+      ],
+    };
+
+    const result = convertModuleDefinition(expr, new Map(), {});
+
+    expect(result.name).toBe('AppModule');
+  });
+
   it('should extract adapters value', () => {
     const expr: ExpressionObject = {
       kind: 'object',

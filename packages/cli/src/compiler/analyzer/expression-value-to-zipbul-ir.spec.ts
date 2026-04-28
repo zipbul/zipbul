@@ -409,6 +409,74 @@ describe('expression-value-to-zipbul-ir', () => {
     expect(valExpr[ZIPBUL_CALL]).toBe('compute');
   });
 
+  // ── Object — 0.26 spread + literal key variants ─────────
+
+  test('object with spread entry produces ZIPBUL_SPREAD slot', () => {
+    const result = convertObjectExpression({
+      kind: 'object',
+      properties: [
+        { kind: 'property', key: { kind: 'string', value: 'a' }, value: { kind: 'number', value: 1 } },
+        { kind: 'spread', argument: { kind: 'identifier', name: 'rest' } },
+      ],
+    });
+    expect(result.a).toBe(1);
+    const spreadKey = `${ZIPBUL_COMPUTED_PREFIX}spread0`;
+    expect(result).toHaveProperty(spreadKey);
+    const entry = result[spreadKey] as Record<string, unknown>;
+    expect(entry[ZIPBUL_SPREAD]).toEqual({ [ZIPBUL_REF]: 'rest', [ZIPBUL_IMPORT_SOURCE]: undefined });
+  });
+
+  test('object with multiple spread entries indexes spread slots independently', () => {
+    const result = convertObjectExpression({
+      kind: 'object',
+      properties: [
+        { kind: 'spread', argument: { kind: 'identifier', name: 'a' } },
+        { kind: 'property', key: { kind: 'string', value: 'x' }, value: { kind: 'number', value: 1 } },
+        { kind: 'spread', argument: { kind: 'identifier', name: 'b' } },
+      ],
+    });
+    expect(result.x).toBe(1);
+    expect(result).toHaveProperty(`${ZIPBUL_COMPUTED_PREFIX}spread0`);
+    expect(result).toHaveProperty(`${ZIPBUL_COMPUTED_PREFIX}spread1`);
+  });
+
+  test('object with numeric literal key coerces to string', () => {
+    const result = convertObjectExpression({
+      kind: 'object',
+      properties: [
+        { kind: 'property', key: { kind: 'number', value: 42 }, value: { kind: 'string', value: 'answer' } },
+      ],
+    });
+    expect(result['42']).toBe('answer');
+  });
+
+  test('object with boolean literal key coerces to string', () => {
+    const result = convertObjectExpression({
+      kind: 'object',
+      properties: [
+        { kind: 'property', key: { kind: 'boolean', value: true }, value: { kind: 'number', value: 1 } },
+      ],
+    });
+    expect(result['true']).toBe(1);
+  });
+
+  test('object with member-access computed key produces computed slot', () => {
+    const result = convertObjectExpression({
+      kind: 'object',
+      properties: [
+        {
+          kind: 'property',
+          key: { kind: 'member', object: 'Symbol', property: 'iterator', importSource: 'globals' },
+          value: { kind: 'function', sourceText: '() => 1' },
+        },
+      ],
+    });
+    expect(result).toHaveProperty(`${ZIPBUL_COMPUTED_PREFIX}0`);
+    const entry = result[`${ZIPBUL_COMPUTED_PREFIX}0`] as Record<string, unknown>;
+    const keyExpr = entry[ZIPBUL_COMPUTED_KEY] as Record<string, unknown>;
+    expect(keyExpr[ZIPBUL_REF]).toBe('Symbol.iterator');
+  });
+
   test('mix of plain and computed properties preserves both with correct indexing', () => {
     const result = convertObjectExpression({
       kind: 'object',
