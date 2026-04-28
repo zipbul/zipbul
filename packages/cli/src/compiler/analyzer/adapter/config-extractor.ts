@@ -23,7 +23,7 @@ import { toRecord, isAnalyzerValueArray } from '../type-guards';
 import { resolveEnumValues, resolvePipelineArray } from './enum-type-resolver';
 
 import type { ContextNamespaceMap } from '../interfaces';
-import type { Node as AstNode } from 'oxc-parser';
+import type { Node as AstNode } from '@zipbul/gildash';
 
 const logger = new Logger('AdapterDefinitionResolver');
 

@@ -1,18 +1,18 @@
-import type {
-  Node as AstNode,
-  Function as OxcFunction,
-  Expression,
-  AssignmentExpression,
-  ArrowFunctionExpression,
-  NewExpression,
-  TSType,
-} from 'oxc-parser';
+import type { Node as AstNode } from '@zipbul/gildash';
 
 import { walkChildren } from './ast-node-locator';
 import {
   findInnerHandler,
   readFirstIdentifierParam,
 } from './context-operation-extractor';
+
+type FunctionLike = Extract<AstNode, { type: 'FunctionDeclaration' | 'FunctionExpression' | 'ArrowFunctionExpression' }>;
+
+function isFunctionLike(node: AstNode): node is FunctionLike {
+  return node.type === 'FunctionDeclaration'
+    || node.type === 'FunctionExpression'
+    || node.type === 'ArrowFunctionExpression';
+}
 
 /**
  * RHS shape of an augmenting assignment.
@@ -73,10 +73,12 @@ export interface MiddlewareAugmentResult {
  * @param factory - The outer factory function passed to `defineMiddleware`.
  * @returns Extracted augmentations, or `null` if no `ctx.to(...)` binding is found.
  */
-export function extractMiddlewareAugments(factory: OxcFunction | ArrowFunctionExpression): MiddlewareAugmentResult | null {
-  const handler = findInnerHandler(factory) as (OxcFunction | ArrowFunctionExpression) | null;
+export function extractMiddlewareAugments(factory: AstNode): MiddlewareAugmentResult | null {
+  if (!isFunctionLike(factory)) return null;
 
-  if (!handler) {
+  const handler = findInnerHandler(factory);
+
+  if (!handler || !isFunctionLike(handler)) {
     return null;
   }
 
@@ -176,13 +178,14 @@ function collectAssignments(body: AstNode, varName: string, out: PropAugment[]):
   visit(body);
 }
 
-function extractAssignment(node: AssignmentExpression, varName: string): PropAugment | null {
-  // node.left is an AssignmentTarget; only MemberExpression targets are augments.
+function extractAssignment(node: AstNode, varName: string): PropAugment | null {
+  if (node.type !== 'AssignmentExpression') return null;
+
   const left = node.left as AstNode;
 
   if (left.type !== 'MemberExpression') return null;
 
-  const path = extractMemberPath(left as Expression, varName);
+  const path = extractMemberPath(left, varName);
 
   if (!path) return null;
 
@@ -199,9 +202,11 @@ function extractAssignment(node: AssignmentExpression, varName: string): PropAug
  * chain has computed access, the root is wrong, or any non-identifier segment
  * is encountered.
  */
-function extractMemberPath(node: Expression, varName: string): readonly string[] | null {
+function extractMemberPath(node: AstNode, varName: string): readonly string[] | null {
+  if (node.type !== 'MemberExpression') return null;
+
   const segments: string[] = [];
-  let current: Expression = node;
+  let current: AstNode = node;
 
   while (current.type === 'MemberExpression') {
     if (current.computed) return null;
@@ -217,7 +222,7 @@ function extractMemberPath(node: Expression, varName: string): readonly string[]
   return segments;
 }
 
-function extractRhs(expr: Expression): AugmentRhs | null {
+function extractRhs(expr: AstNode): AugmentRhs | null {
   if (expr.type === 'NewExpression') {
     return extractClassRhs(expr);
   }
@@ -229,15 +234,16 @@ function extractRhs(expr: Expression): AugmentRhs | null {
   return null;
 }
 
-function extractClassRhs(expr: NewExpression): AugmentRhs | null {
+function extractClassRhs(expr: AstNode): AugmentRhs | null {
+  if (expr.type !== 'NewExpression') return null;
   if (expr.callee.type !== 'Identifier') return null;
 
   return { kind: 'class', identifier: expr.callee.name };
 }
 
-function extractMethodRhs(expr: ArrowFunctionExpression | OxcFunction): AugmentRhs {
+function extractMethodRhs(expr: AstNode): AugmentRhs {
   const typeParams: string[] = [];
-  const tParams = (expr as ArrowFunctionExpression).typeParameters;
+  const tParams = (expr as unknown as { typeParameters?: { params?: Array<{ type: string; name?: { type: string; name: string } }> } }).typeParameters;
 
   if (tParams && tParams.params) {
     for (const tp of tParams.params) {
@@ -248,17 +254,18 @@ function extractMethodRhs(expr: ArrowFunctionExpression | OxcFunction): AugmentR
   }
 
   const params: AugmentMethodParam[] = [];
+  const exprParams = (expr as unknown as { params?: AstNode[] }).params ?? [];
 
-  for (const p of expr.params) {
+  for (const p of exprParams) {
     if (p.type === 'Identifier') {
       params.push({
         name: p.name,
-        type: extractTypeAnnotation(p.typeAnnotation),
+        type: extractTypeAnnotation((p as unknown as { typeAnnotation?: unknown }).typeAnnotation),
       });
     }
   }
 
-  const returnType = extractTypeAnnotation((expr as ArrowFunctionExpression).returnType);
+  const returnType = extractTypeAnnotation((expr as unknown as { returnType?: unknown }).returnType);
 
   return { kind: 'method', typeParams, params, returnType };
 }
@@ -270,10 +277,19 @@ function extractTypeAnnotation(annotation: unknown): string | null {
 
   if (!inner || typeof inner !== 'object') return null;
 
-  return stringifyTSType(inner as TSType);
+  return stringifyTSType(inner as AstNode);
 }
 
-function stringifyTSType(node: TSType): string | null {
+/**
+ * cli-side TypeScript type stringifier — Item 131 (β) decision.
+ *
+ * Walks oxc TS-* node variants exposed through gildash's `Node` union and
+ * produces a textual form suitable for declaration merging IR emit.
+ * gildash intentionally does not expose `TSType` (would push the library from
+ * "indexer" toward "type-system aware tooling"); cli writes its own walker on
+ * the gildash-exposed `Node` discriminants.
+ */
+function stringifyTSType(node: AstNode): string | null {
   switch (node.type) {
     case 'TSStringKeyword': return 'string';
     case 'TSNumberKeyword': return 'number';
@@ -288,14 +304,14 @@ function stringifyTSType(node: TSType): string | null {
     case 'TSSymbolKeyword': return 'symbol';
     case 'TSObjectKeyword': return 'object';
     case 'TSTypeReference': {
-      const name = stringifyTypeName(node.typeName);
+      const name = stringifyTypeName(node.typeName as AstNode);
 
       if (!name) return null;
 
       const args = node.typeArguments;
 
       if (args && args.params && args.params.length > 0) {
-        const argStrs = args.params.map(stringifyTSType).filter((s): s is string => s !== null);
+        const argStrs = args.params.map(p => stringifyTSType(p as AstNode)).filter((s): s is string => s !== null);
 
         return `${name}<${argStrs.join(', ')}>`;
       }
@@ -303,7 +319,7 @@ function stringifyTSType(node: TSType): string | null {
       return name;
     }
     case 'TSArrayType': {
-      const elem = stringifyTSType(node.elementType);
+      const elem = stringifyTSType(node.elementType as AstNode);
 
       return elem ? `${elem}[]` : null;
     }
@@ -318,8 +334,8 @@ function stringifyTypeName(node: AstNode): string | null {
   }
 
   if (node.type === 'TSQualifiedName') {
-    const left = stringifyTypeName((node as { left: AstNode }).left);
-    const right = (node as { right: { name: string } }).right.name;
+    const left = stringifyTypeName(node.left as AstNode);
+    const right = (node.right as unknown as { name: string }).name;
 
     return left ? `${left}.${right}` : null;
   }

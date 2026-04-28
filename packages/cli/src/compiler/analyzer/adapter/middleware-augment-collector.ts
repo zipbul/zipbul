@@ -2,14 +2,7 @@ import { parseSource, type ParsedFile } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 import { ZIPBUL_CALL } from '@zipbul/common';
 
-import type {
-  Node as AstNode,
-  CallExpression,
-  ArrowFunctionExpression,
-  Function as OxcFunction,
-  ImportDeclaration,
-  VariableDeclaration,
-} from 'oxc-parser';
+import type { Node as AstNode } from '@zipbul/gildash';
 
 import type { FileAnalysis } from '../graph/interfaces';
 import type { AdapterStaticSchema } from '../interfaces';
@@ -603,9 +596,9 @@ function buildContextAugment(
 function findDefineMiddlewareFactory(
   programBody: readonly AstNode[],
   name: string,
-): OxcFunction | ArrowFunctionExpression | null {
+): AstNode | null {
   for (const stmt of programBody) {
-    let varDecl: VariableDeclaration | null = null;
+    let varDecl: AstNode | null = null;
 
     if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'VariableDeclaration') {
       varDecl = stmt.declaration;
@@ -613,15 +606,13 @@ function findDefineMiddlewareFactory(
       varDecl = stmt;
     }
 
-    if (varDecl === null) continue;
+    if (varDecl === null || varDecl.type !== 'VariableDeclaration') continue;
 
     for (const decl of varDecl.declarations) {
       if (decl.id.type !== 'Identifier' || decl.id.name !== name) continue;
       if (decl.init === null || decl.init === undefined || decl.init.type !== 'CallExpression') continue;
 
-      const call = decl.init as CallExpression;
-
-      return extractFactoryFromCallArgs(call);
+      return extractFactoryFromCallArgs(decl.init);
     }
   }
 
@@ -637,36 +628,35 @@ function findDefineMiddlewareFactory(
  * 3. `defineMiddleware({ factory: () => ... })` — config object
  */
 function extractFactoryFromCallArgs(
-  call: CallExpression,
-): OxcFunction | ArrowFunctionExpression | null {
+  call: AstNode,
+): AstNode | null {
+  if (call.type !== 'CallExpression') return null;
+
   const args = call.arguments;
 
   if (args.length === 0) return null;
 
-  // Overload 1: factory-only — first arg is function
   const firstArg = args[0]!;
 
   if (isFunctionNode(firstArg)) {
-    return firstArg as ArrowFunctionExpression | OxcFunction;
+    return firstArg;
   }
 
-  // Overload 2: adapters + factory — second arg is function
   if (args.length >= 2) {
     const secondArg = args[1]!;
 
     if (isFunctionNode(secondArg)) {
-      return secondArg as ArrowFunctionExpression | OxcFunction;
+      return secondArg;
     }
   }
 
-  // Overload 3: config object — { factory: () => ... }
   if (firstArg.type === 'ObjectExpression') {
     for (const prop of firstArg.properties) {
       if (prop.type !== 'Property') continue;
       if (prop.key.type !== 'Identifier' || prop.key.name !== 'factory') continue;
 
       if (isFunctionNode(prop.value)) {
-        return prop.value as ArrowFunctionExpression | OxcFunction;
+        return prop.value;
       }
     }
   }
@@ -692,19 +682,17 @@ function buildFileImportMap(
   for (const stmt of programBody) {
     if (stmt.type !== 'ImportDeclaration') continue;
 
-    const imp = stmt as ImportDeclaration;
-    const source = imp.source.value;
+    const source = stmt.source.value;
 
     if (typeof source !== 'string') continue;
 
-    // Resolve relative imports against the source file's directory
     const resolved = source.startsWith('.')
       ? resolveRelativeImport(sourceDir, source)
       : source;
 
-    if (imp.specifiers === undefined) continue;
+    if (stmt.specifiers === undefined) continue;
 
-    for (const spec of imp.specifiers) {
+    for (const spec of stmt.specifiers) {
       if (spec.type === 'ImportSpecifier' && spec.local.type === 'Identifier') {
         map.set(spec.local.name, resolved);
       }
