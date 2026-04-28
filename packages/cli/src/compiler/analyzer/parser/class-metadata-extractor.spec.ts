@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { parseSource, extractSymbols } from '@zipbul/gildash';
+import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
 import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import { isErr, err } from '@zipbul/result';
 import { ZIPBUL_REF } from '@zipbul/common';
@@ -36,7 +36,7 @@ function parseFixture(code: string, filename: string = '/app/src/test.ts'): Pars
 
   const parsed = parseResult;
   const symbols = extractSymbols(parsed);
-  const importMap = buildImportMap(parsed.module.staticImports);
+  const importMap = buildImportMap(extractRelations(parsed.program, filename));
 
   return { parsed, symbols, importMap };
 }

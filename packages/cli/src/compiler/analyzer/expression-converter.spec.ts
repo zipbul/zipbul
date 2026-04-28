@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { StaticImport, ImportNameKind } from 'oxc-parser';
-
-const ImportNameKindName = 'Name' as ImportNameKind;
+import type { CodeRelation } from '@zipbul/gildash';
 
 import {
   ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
@@ -344,35 +342,19 @@ describe('resolveTypeString', () => {
 });
 
 describe('buildImportMap', () => {
-  test('builds map from static imports', () => {
-    const imports: StaticImport[] = [
-      {
-        start: 0,
-        end: 50,
-        moduleRequest: { value: '@zipbul/common', start: 30, end: 46 },
-        entries: [
-          {
-            importName: { kind: ImportNameKindName, name: 'Injectable', start: 10, end: 20 },
-            localName: { value: 'Injectable', start: 10, end: 20 },
-            isType: false,
-          },
-        ],
-      },
-      {
-        start: 51,
-        end: 100,
-        moduleRequest: { value: './my.service', start: 80, end: 94 },
-        entries: [
-          {
-            importName: { kind: ImportNameKindName, name: 'MyService', start: 60, end: 69 },
-            localName: { value: 'Svc', start: 73, end: 76 },
-            isType: false,
-          },
-        ],
-      },
+  const makeRelation = (overrides: Partial<CodeRelation> & Pick<CodeRelation, 'type' | 'srcSymbolName' | 'dstSymbolName' | 'specifier'>): CodeRelation => ({
+    srcFilePath: '/app/src/test.ts',
+    dstFilePath: null,
+    ...overrides,
+  });
+
+  test('builds map from value-level imports', () => {
+    const relations: CodeRelation[] = [
+      makeRelation({ type: 'imports', srcSymbolName: 'Injectable', dstSymbolName: 'Injectable', specifier: '@zipbul/common' }),
+      makeRelation({ type: 'imports', srcSymbolName: 'Svc', dstSymbolName: 'MyService', specifier: './my.service' }),
     ];
 
-    const map = buildImportMap(imports);
+    const map = buildImportMap(relations);
 
     expect(map.get('Injectable')).toEqual({
       importSource: '@zipbul/common',
@@ -385,25 +367,40 @@ describe('buildImportMap', () => {
     expect(map.has('MyService')).toBe(false);
   });
 
-  test('skips type-only imports', () => {
-    const imports: StaticImport[] = [
-      {
-        start: 0,
-        end: 50,
-        moduleRequest: { value: './types', start: 30, end: 39 },
-        entries: [
-          {
-            importName: { kind: ImportNameKindName, name: 'MyType', start: 10, end: 16 },
-            localName: { value: 'MyType', start: 10, end: 16 },
-            isType: true,
-          },
-        ],
-      },
+  test('skips type-only imports (kind === "type-references")', () => {
+    const relations: CodeRelation[] = [
+      makeRelation({ type: 'type-references', srcSymbolName: 'MyType', dstSymbolName: 'MyType', specifier: './types' }),
     ];
 
-    const map = buildImportMap(imports);
+    const map = buildImportMap(relations);
 
     expect(map.size).toBe(0);
+  });
+
+  test('default import — dst="default" treated as non-aliased', () => {
+    const relations: CodeRelation[] = [
+      makeRelation({ type: 'imports', srcSymbolName: 'Default', dstSymbolName: 'default', specifier: '@zipbul/core' }),
+    ];
+
+    const map = buildImportMap(relations);
+
+    expect(map.get('Default')).toEqual({
+      importSource: '@zipbul/core',
+      originalName: null,
+    });
+  });
+
+  test('namespace import — dst="*" treated as non-aliased', () => {
+    const relations: CodeRelation[] = [
+      makeRelation({ type: 'imports', srcSymbolName: 'NS', dstSymbolName: '*', specifier: '@zipbul/core' }),
+    ];
+
+    const map = buildImportMap(relations);
+
+    expect(map.get('NS')).toEqual({
+      importSource: '@zipbul/core',
+      originalName: null,
+    });
   });
 });
 

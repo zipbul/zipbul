@@ -1,5 +1,4 @@
-import type { ExpressionValue, ExpressionCall, ExpressionIdentifier } from '@zipbul/gildash';
-import type { StaticImport } from 'oxc-parser';
+import type { ExpressionValue, ExpressionCall, ExpressionIdentifier, CodeRelation } from '@zipbul/gildash';
 
 import type { DecoratorMetadata } from './interfaces';
 import type { AnalyzerValue, AnalyzerValueRecord } from './types';
@@ -40,33 +39,47 @@ export interface ImportInfo {
 export type ImportMap = ReadonlyMap<string, ImportInfo>;
 
 /**
- * Builds an import map from oxc-parser `StaticImport` entries.
+ * Builds an import map from gildash `CodeRelation` tuples.
  *
- * Each local binding is mapped to its module specifier and original
- * exported name (when aliased).
+ * Each value-level binding (`kind === 'imports'`) is mapped to its raw module
+ * specifier (preserved as-written by gildash 0.26.1+) and original exported
+ * name when aliased. Type-only relations (`kind === 'type-references'`) are
+ * skipped — they do not produce runtime bindings.
  *
- * @param staticImports - Import declarations from `ParsedFile.module.staticImports`
+ * Aliased detection: `srcSymbolName !== dstSymbolName` and `dstSymbolName` is
+ * not the kind sentinel (`'default'` for default imports, `'*'` for namespace
+ * imports). Note: the rare idiom `import { default as Foo } from 'M'` — a
+ * named alias of the default export — is indistinguishable from a bare default
+ * import at this layer (both carry `dstSymbolName === 'default'`); it is
+ * treated as non-aliased here. cli has no such usage.
+ *
+ * @param relations - Output of `extractRelations(parsed.program, filePath)`
  * @returns A read-only map of local name → import metadata
  * @public
  */
-export function buildImportMap(staticImports: readonly StaticImport[]): ImportMap {
+export function buildImportMap(relations: readonly CodeRelation[]): ImportMap {
   const map = new Map<string, ImportInfo>();
 
-  for (const imp of staticImports) {
-    const importSource = imp.moduleRequest.value;
-
-    for (const entry of imp.entries) {
-      if (entry.isType) {
-        continue;
-      }
-
-      const localName = entry.localName.value;
-      const originalName = entry.importName.kind === 'Name' && entry.importName.name !== localName
-        ? entry.importName.name
-        : null;
-
-      map.set(localName, { importSource, originalName });
+  for (const rel of relations) {
+    if (rel.type !== 'imports') {
+      continue;
     }
+
+    if (rel.srcSymbolName === null || rel.specifier === undefined) {
+      continue;
+    }
+
+    const localName = rel.srcSymbolName;
+    const dstName = rel.dstSymbolName;
+    const isAliasedNamed = dstName !== null
+      && dstName !== localName
+      && dstName !== 'default'
+      && dstName !== '*';
+
+    map.set(localName, {
+      importSource: rel.specifier,
+      originalName: isAliasedNamed ? dstName : null,
+    });
   }
 
   return map;

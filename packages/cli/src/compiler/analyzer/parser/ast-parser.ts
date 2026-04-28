@@ -150,8 +150,8 @@ export class AstParser {
     // 4. extractSymbols
     const symbols = extractSymbols(parsed);
 
-    // 5. buildImportMap for type resolution
-    const importMap = buildImportMap(parsed.module.staticImports);
+    // 5. buildImportMap for type resolution (consumes the relations from step 2)
+    const importMap = buildImportMap(relations);
 
     // 5b. Run patternSearch for inject() detection
     // Collect all inject aliases and namespace prefixes
