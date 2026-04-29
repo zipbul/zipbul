@@ -281,6 +281,22 @@ async function runSelfTest(
       });
     }
   }
+
+  // Item 112 — dist/index.js Bun import smoke. Module resolution depends on
+  // the package's node_modules being installed (peer deps reachable from the
+  // package root), which is not guaranteed in fixtures or fresh CI checkouts
+  // before `bun install`. We only verify the file exists and is non-empty;
+  // strict import smoke is gated for the future `--with-self-test` flag.
+  const indexJs = join(stagingDir, 'index.js');
+  if (await pathExists(indexJs)) {
+    const text = await readFile(indexJs, 'utf8');
+    if (text.length === 0) {
+      throw diag('CONTRACT', {
+        reason: `Self-test: dist/index.js is empty.`,
+        file: indexJs,
+      });
+    }
+  }
 }
 
 /**
