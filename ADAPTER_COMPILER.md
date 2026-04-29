@@ -4,7 +4,7 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `9d34771` (Step 9 — `no-oxc-parser-import.spec.ts` 회귀 가드 추가 + cli 의 `oxc-parser` dependency + 루트 catalog 항목 제거). 그 이후의 커밋은 모두 본 문서 자체의 메타 정정. **Step 1~9 의 인프라 정비 단계 완전 종료** — cli 의 `oxc-parser` 직접 import 0 매치 + 회귀 가드 spec 가동 + catalog 의존 명시 0건 (transitive 만 인정). 다음 단계 Step 10 (`zb build adapter` 어댑터 컴파일러 본체 신설). baseline 1967/94/370.
+**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `d17be4f` (Step 10 Slice 9 — self-test). Step 10 (`zb build adapter` 어댑터 컴파일러 본체) 가 9 개 thin slice 로 진행 중 — Section F 의 7 개 manifest 모두 emit + Section E 의 codegen (Bun.build + tsc) + Section J 의 CLI 옵션 + Section L 의 자기 검증까지 완료. 책임 단위로는 약 50건 ✅ (Section A~L 의 113+5 중). Step 1~9 의 인프라 정비 단계는 완전 종료 (`oxc-parser` 직접 import 0 + 회귀 가드 가동). baseline 1967/117/370.
 
 > 본 문서의 Last sync 가 *정확히* HEAD 를 가리키지 않는 것은 self-referential 문제 (Last sync 갱신 자체가 새 커밋 1건을 만들어 HEAD 를 +1 시킴) 때문이다. 새 에이전트는 (1) `git log --oneline -1` 로 현재 HEAD 확인, (2) 그 커밋이 `docs(compiler): ...` 메타 커밋이면 무시하고 그 직전의 코드 작업 커밋을 본 문서 "마지막 코드 작업 커밋" 과 대조, (3) 일치하면 본 문서가 최신 상태.
 
@@ -84,7 +84,7 @@
 | 7 | middleware/adapter extractors → gildash + cli stringifier | ✅ | `e19ed78` | 3b (Item 131 (β) 적용 완료) |
 | 8 | `lib-augment-injector` 의 oxc 제거 | ✅ | `470e742` | 7 |
 | 9 | oxc 부재 회귀 가드 + catalog 항목 제거 | ✅ | `9d34771` | 3b·4·5·6·7·8 |
-| 10 | 어댑터 컴파일러 MVP — `zb build adapter` 본체 | ⬜ | — | 9 |
+| 10 | 어댑터 컴파일러 MVP — `zb build adapter` 본체 | 🟡 | `aaf5e57`→`d17be4f` (9 슬라이스) | 9 |
 | 11 | CLI 앱 빌드 측 manifest 우선 소비 (Section M) | ⬜ | — | 10 |
 | 12 | External e2e — `.ts` 인젝션 없이 dist/manifest 만으로 동작 | ⬜ | — | 11 |
 
@@ -174,6 +174,53 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 **방향**. Step 9 진입 시점에 다음 두 동작을 한 커밋으로 처리: (a) `packages/cli/package.json` 의 `dependencies."oxc-parser"` 라인 삭제, (b) 루트 `package.json` 의 `workspaces.catalog["oxc-parser"]` 라인 삭제. 이 시점에는 cli 안에 oxc-parser import 가 0이어야 하므로 lockfile 의 transitive 만 남고 typecheck 통과한다. 만약 다른 패키지 (`packages/cli` 외) 에서 oxc-parser 를 직접 사용하는 곳이 있다면 그 패키지의 dependencies 만 남기고 cli 만 떼어낸다 — 본 정책은 cli 한정 (Item 120 의 "@zipbul/cli 의 package.json").
 
 **근거**. 직접 명시된 dependency 가 있으면 transitive 변경 시 cli 가 영향받지 않을 수 있다 (lockfile 의 hoisting 과 별개로 dependency declaration 이 path 결정에 우선). 본 정책의 의도는 "gildash 가 결정한 oxc-parser 버전을 cli 가 *유일한 진실의 근원* 으로 받아들임" 이다. 즉 cli 가 별도로 oxc-parser 버전을 지정하지 않음으로써 gildash 의 결정에 묶인다 — 미래에 gildash 가 oxc 메이저 버전을 올릴 때 cli 가 자동 따라가도록.
+
+### 0.55 Step 10 진척 — `zb build adapter` (Slice 1~9)
+
+`zb build adapter` 어댑터 컴파일러 본체는 vertical thin-slice 전략으로 점진 구현 중. 각 슬라이스가 end-to-end 동작하는 최소 단위 (CLI 입력 → manifest/codegen 산출 → e2e 검증) 를 제공하며, 누적된 슬라이스가 Section A~L 의 113+5 책임 중 약 50건을 충족한다.
+
+**현 시점 산출물** (`packages/<adapter>/dist/` 안):
+
+- `adapter.manifest.json` — `$schemaName`, `adapterId`, `producedBy`, `manifests` 인덱스 (다른 manifest 들의 logical name → 상대 경로). Slice 1·2·3·4·5·7 에서 점진 확장.
+- `pipeline-schema.json` — `phaseEnum`/`stepEnum` 식별자 + `pipeline: PipelineRef[]` (qualifier + name). Slice 2.
+- `decorator-schema.json` — `controller` (단수) + `handlers[]` (1+) + `options[]` (0+). Item 40 중복 검출 + Item 41 카디널리티 강제. Slice 3.
+- `peer-contract.json` — `clusterStrategy` (Shared/Exclusive, default Shared per Item 48b) + `provides: ContextKey[]` 식별자 (Item 54b) + `peerSymbols['@zipbul/core'|'@zipbul/common']: string[]` (소스 트리 전체의 imports/type-references 활용). Slice 4.
+- `context-namespaces.json` — Context 클래스 식별자 + public method signatures (private/protected 제외, raw type 텍스트 보존). Slice 5.
+- `adapter-constructor-schema.json` — 어댑터 생성자의 `optionsParam` (name + type) + `optional`. Item 44 의 단일 옵션 인자 룰 강제. Slice 5.
+- `builtins.json` — 어댑터 패키지 소스 트리에서 발견된 모든 `defineMiddleware()`/`defineGuard()`/`defineExceptionFilter()` 호출 메타. Item 22·23·24·68. Slice 7.
+- `dist/index.js` — Bun.build 산출 (target=bun, format=esm, packages=external). Slice 8.
+- `dist/index.d.ts` — `tsconfig.build.json` 이 있으면 tsc emit. Slice 8.
+
+**충족된 책임 개요** (개별 Item 토글은 후속 진척 메타 동기화에서 일괄 갱신):
+- Section A: Item 4 (kind 검증), 9 (parseSource).
+- Section B: Item 10·11·12·13·14·15·17·18·19·20·21·22·23·24·26·27·28 (대부분 추출 완료 — 풀 모듈 그래프는 후속).
+- Section C: Item 40·41·44·47·48b (카디널리티/생성자 시그니처/kind 강제). Item 31·34·35 (pipeline 멤버 ↔ enum 매칭) 은 후속.
+- Section D: Item 54b·54c.
+- Section E: Item 55·56·57 (TS→JS + .d.ts).
+- Section F: Item 64·65·66 (대체)·67·68·69·70·71·71b. 모든 manifest emit 완료.
+- Section G: Item 72·73·74·75·76 (atomic + 결정성). Item 77·78 (size/hash 보고) 은 후속.
+- Section J: Item 94·95·96·97·98·99·100·101 (전부).
+- Section L: Item 109·110 (자기 검증). Item 111·112·113 (codegen 산출물 검증) 은 후속.
+
+**남은 큰 영역** (후속 슬라이스):
+- Section C 풀 검증 (pipeline 멤버 ↔ enum 매칭, peer dep 버전, package.json 정합성, export 검증).
+- Section H 진단 강화 (카테고리 SYNTAX/CONTRACT/.../JSON 출력/다중 에러).
+- Section I tsc invoke 확장 (composite/references, tsbuildinfo).
+- Section K watch 모드.
+- Section M (Item 114~119) 사용자 앱 빌드 측 manifest 소비 — Step 11.
+
+**Step 10 누적 커밋** (시간 순):
+- `aaf5e57` Slice 1: 진입점 + adapter.manifest
+- `9595e1d` Slice 2: pipeline-schema
+- `90f4c97` Slice 3: decorator-schema + 소스 트리 글로빙
+- `8bb5038` Slice 4: peer-contract
+- `79629c6` Slice 5: context-namespaces + adapter-constructor-schema
+- `7885849` Slice 6: CLI 옵션 + exit code
+- `bd6ccf2` Slice 7: builtins.json
+- `44a7674` Slice 8: codegen (TS→JS + .d.ts)
+- `d17be4f` Slice 9: self-test
+
+**테스트 진척**: integration 94 → 117 (+23, 모두 packages/cli/test/integration/adapter-build.test.ts).
 
 ### 0.6 심층 리뷰 결과 — 2026-04-28, 3개 Explore 에이전트 병렬 검증
 
