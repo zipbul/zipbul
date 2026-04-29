@@ -5,6 +5,7 @@ import type { CommandOptions } from './interfaces';
 import { Logger } from '@zipbul/logger';
 import { dev } from './dev';
 import { build } from './build';
+import { buildAdapter } from '../compiler/adapter-build';
 import { DiagnosticError } from '../diagnostics';
 import { CliRenderer } from './cli-renderer';
 
@@ -46,8 +47,9 @@ const USAGE_TEXT = [
   'Usage: zb <command>',
   '',
   'Commands:',
-  '  dev    Generate AOT artifacts and watch',
-  '  build  Generate build output',
+  '  dev              Generate AOT artifacts and watch',
+  '  build            Generate build output',
+  '  build adapter    Compile an adapter package (zipbul.kind === "adapter")',
   '',
   'Options:',
   '  --profile <minimal|standard|full>',
@@ -91,9 +93,18 @@ try {
     case 'dev':
       await dev(commandOptions);
       break;
-    case 'build':
+    case 'build': {
+      const subCommand = positionals[1];
+
+      if (subCommand === 'adapter') {
+        const result = await buildAdapter();
+        renderer.info(`Built adapter manifest: ${result.adapterId} → ${result.manifestPath}`);
+        break;
+      }
+
       await build(commandOptions);
       break;
+    }
     case undefined:
       reportInvalidCommand(command);
       printUsage();
