@@ -260,7 +260,7 @@ describe('zb build adapter — Slice 1', () => {
       [
         `import { defineAdapter } from '@zipbul/common';`,
         `import { A, Ctx, P, S } from './x';`,
-        `export const d = defineAdapter({ adapter: A, context: Ctx, phase: P, step: S, pipeline: [P.X] });`,
+        `export const d = defineAdapter({ adapter: A, context: Ctx, phase: P, step: S, pipeline: [P.X, CoreStep.Handler] });`,
       ].join('\n'),
     );
     await Bun.write(
@@ -324,7 +324,7 @@ describe('zb build adapter — Slice 1', () => {
         `  context: ExContext,`,
         `  phase: P,`,
         `  step: S,`,
-        `  pipeline: [P.X],`,
+        `  pipeline: [P.X, CoreStep.Handler],`,
         `  provides: [KEY_A, KEY_B],`,
         `});`,
       ].join('\n'),
@@ -404,7 +404,7 @@ describe('zb build adapter — Slice 1', () => {
       [
         `import { defineAdapter } from '@zipbul/common';`,
         `import { A, P, S } from './x';`,
-        `export const d = defineAdapter({ adapter: A, phase: P, step: S, pipeline: [P.X] });`,
+        `export const d = defineAdapter({ adapter: A, phase: P, step: S, pipeline: [P.X, CoreStep.Handler] });`,
       ].join('\n'),
     );
     await Bun.write(
@@ -548,6 +548,75 @@ describe('zb build adapter — Slice 1', () => {
     await expect(
       buildAdapter({ packageRoot: pkgRoot, dryRun: true, checkOnly: true }),
     ).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
+  it('rejects pipeline with member not in the configured phase enum', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({ name: '@example/bad-pipeline', version: '0.0.1', zipbul: { kind: 'adapter' } }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-definition.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { CoreStep } from '@zipbul/core';`,
+        `import { A, Ctx, P, S } from './x';`,
+        `export const d = defineAdapter({`,
+        `  adapter: A, context: Ctx, phase: P, step: S,`,
+        `  pipeline: [P.NotARealMember, CoreStep.Handler],`,
+        `});`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/x.ts'),
+      [
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class A {`,
+        `  readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] };`,
+        `}`,
+        `export class Ctx {}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const P = { OnRequest: 'OnRequest' } as const;`,
+        `export const S = { Resolve: 'Resolve' } as const;`,
+      ].join('\n'),
+    );
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
+  it('rejects pipeline missing CoreStep.Handler (Item 32)', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({ name: '@example/no-handler', version: '0.0.1', zipbul: { kind: 'adapter' } }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-definition.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { A, Ctx, P, S } from './x';`,
+        `export const d = defineAdapter({`,
+        `  adapter: A, context: Ctx, phase: P, step: S,`,
+        `  pipeline: [P.OnRequest],`,
+        `});`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/x.ts'),
+      [
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class A {`,
+        `  readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] };`,
+        `}`,
+        `export class Ctx {}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const P = { OnRequest: 'OnRequest' } as const;`,
+        `export const S = { Resolve: 'Resolve' } as const;`,
+      ].join('\n'),
+    );
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
   });
 
   it('rejects empty pipeline arrays', async () => {
