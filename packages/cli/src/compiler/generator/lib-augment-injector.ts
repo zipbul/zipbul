@@ -1,13 +1,7 @@
 import { parseSource, type ParsedFile } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 
-import type {
-  Node as AstNode,
-  CallExpression,
-  ArrowFunctionExpression,
-  Function as OxcFunction,
-  VariableDeclaration,
-} from 'oxc-parser';
+import type { Node as AstNode } from '@zipbul/gildash';
 
 import {
   extractMiddlewareAugments,
@@ -90,7 +84,7 @@ export function extractLibAugments(
   const entries: LibAugmentEntry[] = [];
 
   for (const stmt of parsed.program.body) {
-    let varDecl: VariableDeclaration | null = null;
+    let varDecl: AstNode | null = null;
 
     if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'VariableDeclaration') {
       varDecl = stmt.declaration;
@@ -98,20 +92,19 @@ export function extractLibAugments(
       varDecl = stmt;
     }
 
-    if (varDecl === null) continue;
+    if (varDecl === null || varDecl.type !== 'VariableDeclaration') continue;
 
     for (const decl of varDecl.declarations) {
       if (decl.id.type !== 'Identifier') continue;
       if (decl.init === null || decl.init === undefined || decl.init.type !== 'CallExpression') continue;
 
-      const call = decl.init as CallExpression;
-      const calleeName = extractCalleeName(call);
+      const calleeName = extractCalleeName(decl.init);
 
       if (calleeName !== 'defineMiddleware') continue;
 
       const entry = processDefineMiddlewareCall(
         decl.id.name,
-        call,
+        decl.init,
         sourceText,
       );
 
@@ -176,32 +169,26 @@ export function injectAugmentsIntoSource(
 
 function processDefineMiddlewareCall(
   name: string,
-  call: CallExpression,
+  call: AstNode,
   sourceText: string,
 ): LibAugmentEntry | null {
+  if (call.type !== 'CallExpression') return null;
+
   const args = call.arguments;
 
   if (args.length === 0) return null;
 
   const firstArg = args[0]!;
-  let factory: OxcFunction | ArrowFunctionExpression | null = null;
   let factoryNode: AstNode | null = null;
   let adaptersNode: AstNode | null = null;
   let configNode: AstNode | null = null;
 
-  // Overload 1: factory-only
   if (isFunctionNode(firstArg)) {
-    factory = firstArg as ArrowFunctionExpression | OxcFunction;
     factoryNode = firstArg;
-  }
-  // Overload 2: adapters + factory
-  else if (args.length >= 2 && isFunctionNode(args[1]!)) {
-    factory = args[1] as ArrowFunctionExpression | OxcFunction;
+  } else if (args.length >= 2 && isFunctionNode(args[1]!)) {
     factoryNode = args[1]!;
     adaptersNode = firstArg;
-  }
-  // Overload 3: config object with factory property
-  else if (firstArg.type === 'ObjectExpression') {
+  } else if (firstArg.type === 'ObjectExpression') {
     configNode = firstArg;
 
     for (const prop of firstArg.properties) {
@@ -209,16 +196,15 @@ function processDefineMiddlewareCall(
       if (prop.key.type !== 'Identifier' || prop.key.name !== 'factory') continue;
 
       if (isFunctionNode(prop.value)) {
-        factory = prop.value as ArrowFunctionExpression | OxcFunction;
         factoryNode = prop.value;
       }
     }
   }
 
-  if (factory === null || factoryNode === null) return null;
+  if (factoryNode === null) return null;
 
-  const augmentResult: MiddlewareAugmentResult | null = extractMiddlewareAugments(factory);
-  const contextOps = extractMiddlewareContextOps(factory);
+  const augmentResult: MiddlewareAugmentResult | null = extractMiddlewareAugments(factoryNode);
+  const contextOps = extractMiddlewareContextOps(factoryNode);
 
   // Skip emit if neither augments nor contextOps exist — middleware adds nothing
   // observable to the AOT layer.
@@ -283,9 +269,11 @@ function serializeAugmentEntry(aug: SerializedAugment): Record<string, unknown> 
   return entry;
 }
 
-function extractCalleeName(call: CallExpression): string | null {
+function extractCalleeName(call: AstNode): string | null {
+  if (call.type !== 'CallExpression') return null;
+
   if (call.callee.type === 'Identifier') {
-    return (call.callee as AstNode & { name: string }).name;
+    return call.callee.name;
   }
 
   return null;

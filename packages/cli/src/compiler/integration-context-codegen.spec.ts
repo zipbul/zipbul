@@ -2,14 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { parseSource, type ParsedFile } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 
-import type {
-  Node as AstNode,
-  CallExpression,
-  ArrowFunctionExpression,
-  Function as OxcFunction,
-  VariableDeclaration,
-  ImportDeclaration,
-} from 'oxc-parser';
+import type { Node as AstNode } from '@zipbul/gildash';
 
 import {
   extractMiddlewareAugments,
@@ -33,9 +26,9 @@ const HTTP_ADAPTER_MAP: ContextAdapterMap = {
   },
 };
 
-function findDefineMiddlewareFactory(programBody: readonly AstNode[], name: string): OxcFunction | ArrowFunctionExpression | null {
+function findDefineMiddlewareFactory(programBody: readonly AstNode[], name: string): AstNode | null {
   for (const stmt of programBody) {
-    let varDecl: VariableDeclaration | null = null;
+    let varDecl: AstNode | null = null;
 
     if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'VariableDeclaration') {
       varDecl = stmt.declaration;
@@ -43,19 +36,18 @@ function findDefineMiddlewareFactory(programBody: readonly AstNode[], name: stri
       varDecl = stmt;
     }
 
-    if (!varDecl) continue;
+    if (!varDecl || varDecl.type !== 'VariableDeclaration') continue;
 
     for (const decl of varDecl.declarations) {
       if (decl.id.type !== 'Identifier' || decl.id.name !== name) continue;
       if (!decl.init || decl.init.type !== 'CallExpression') continue;
 
-      const call = decl.init as CallExpression;
-      const arg = call.arguments[0];
+      const arg = decl.init.arguments[0];
 
       if (!arg) return null;
 
       if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
-        return arg as ArrowFunctionExpression | OxcFunction;
+        return arg;
       }
     }
   }
@@ -69,14 +61,13 @@ function buildImportMap(programBody: readonly AstNode[], baseDir: string): Map<s
   for (const stmt of programBody) {
     if (stmt.type !== 'ImportDeclaration') continue;
 
-    const imp = stmt as ImportDeclaration;
-    const source = imp.source.value;
+    const source = stmt.source.value;
 
     if (typeof source !== 'string') continue;
 
     const resolved = source.startsWith('.') ? `${baseDir}/${source}.ts` : source;
 
-    for (const spec of imp.specifiers) {
+    for (const spec of stmt.specifiers) {
       if (spec.type === 'ImportSpecifier' && spec.local.type === 'Identifier') {
         map.set(spec.local.name, resolved);
       }
