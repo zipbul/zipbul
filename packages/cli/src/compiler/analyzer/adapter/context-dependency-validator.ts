@@ -88,7 +88,7 @@ export interface ContextDependencyViolation {
   readonly handlerId: string;
   /** The required key identifier (`KEY` in `ctx.use(KEY)`). */
   readonly keyIdentifier: string;
-  /** Source byte offset of the `ctx.use(KEY)` call (oxc-parser `start`). */
+  /** Source byte offset of the `ctx.use(KEY)` call (gildash `Node.start`). */
   readonly start: number | null;
   /** Where the consumer call originated. */
   readonly consumerSource: ContextDependencyConsumerSource;

@@ -26,7 +26,7 @@ function isFunctionLike(node: AstNode): node is FunctionLike {
  * `keyIdentifier` — 첫 번째 인자의 Identifier 이름. `contextKey<T>(...)` 결과를 참조해야 한다.
  *  비-Identifier (literal, expression 등) 는 `null` 으로 기록 — 검증 대상에서 제외된다.
  *
- * `start` — 진단 메시지용 source byte offset (oxc-parser 의 `start`).
+ * `start` — 진단 메시지용 source byte offset (길대시 `Node.start`).
  *  파일 내용과 결합하여 1-based 라인/컬럼 변환 가능. 추출 실패 시 `null`.
  */
 export interface ContextOperation {
