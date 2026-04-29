@@ -1,6 +1,7 @@
 import { readFile, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
-import { join, resolve, dirname } from 'node:path';
+import { join, resolve, dirname, relative } from 'node:path';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 import { isErr } from '@zipbul/result';
 import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
@@ -11,6 +12,7 @@ import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import type {
   AdapterConstructorSchema,
   AdapterManifest,
+  ArtifactReport,
   BuildAdapterOptions,
   BuildAdapterResult,
   BuiltinEntry,
@@ -135,7 +137,55 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     throw cause;
   }
 
-  return { adapterId: extracted.adapterId, manifestPath };
+  const reports = await collectArtifactReports(outDir);
+
+  return { adapterId: extracted.adapterId, manifestPath, artifacts: reports };
+}
+
+/**
+ * Walks `outDir` and returns per-file size + sha256 hex digest (Item 77).
+ * Excludes tooling metadata that varies per machine (Item 78): `tsbuildinfo`,
+ * source maps, and any dot-prefixed files.
+ */
+async function collectArtifactReports(outDir: string): Promise<readonly ArtifactReport[]> {
+  if (!(await pathExists(outDir))) return [];
+
+  const reports: ArtifactReport[] = [];
+
+  await walkArtifacts(outDir, outDir, reports);
+
+  reports.sort((a, b) => a.relPath.localeCompare(b.relPath));
+
+  return reports;
+}
+
+async function walkArtifacts(dir: string, root: string, out: ArtifactReport[]): Promise<void> {
+  const entries = await readdir(dir);
+
+  for (const entry of entries) {
+    if (entry.startsWith('.')) continue;
+    if (entry === 'tsconfig.tsbuildinfo' || entry.endsWith('.tsbuildinfo')) continue;
+    if (entry.endsWith('.map')) continue;
+
+    const full = join(dir, entry);
+    const info = await stat(full);
+
+    if (info.isDirectory()) {
+      await walkArtifacts(full, root, out);
+      continue;
+    }
+
+    if (!info.isFile()) continue;
+
+    const buf = await readFile(full);
+    const sha256 = createHash('sha256').update(buf).digest('hex');
+
+    out.push({
+      relPath: relative(root, full),
+      bytes: buf.byteLength,
+      sha256,
+    });
+  }
 }
 
 /**

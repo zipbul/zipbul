@@ -192,6 +192,25 @@ describe('zb build adapter — Slice 1', () => {
     expect(schema.optional).toBe(true);
   });
 
+  it('returns per-file artifact size + sha256 in result.artifacts', async () => {
+    await writeMinimalAdapter();
+
+    const result = await buildAdapter({ packageRoot: pkgRoot });
+
+    expect(result.artifacts).toBeDefined();
+    expect(result.artifacts!.length).toBeGreaterThan(0);
+
+    const manifest = result.artifacts!.find((a: { relPath: string }) => a.relPath === 'adapter.manifest.json');
+    expect(manifest).toBeDefined();
+    expect(manifest!.bytes).toBeGreaterThan(0);
+    expect(manifest!.sha256).toMatch(/^[0-9a-f]{64}$/);
+
+    // Re-running yields identical hashes (determinism).
+    const result2 = await buildAdapter({ packageRoot: pkgRoot });
+    const m2 = result2.artifacts!.find((a: { relPath: string }) => a.relPath === 'adapter.manifest.json');
+    expect(m2!.sha256).toBe(manifest!.sha256);
+  });
+
   it('emits dist/builtins.json (empty when no defineMiddleware/Guard/ExceptionFilter calls)', async () => {
     await writeMinimalAdapter();
 

@@ -41,6 +41,25 @@ export interface BuildAdapterResult {
    * field is informational rather than authoritative.
    */
   readonly checked?: boolean;
+  /**
+   * Per-file artifact report (Item 77·78). Only emit-target files are listed —
+   * `tsbuildinfo`, source-map metadata, and other tooling caches are excluded.
+   * Empty when `--dry-run` (no files written) or `--check-only` (verification
+   * mode, no fresh emit).
+   */
+  readonly artifacts?: readonly ArtifactReport[];
+}
+
+/**
+ * Per-file size + content hash report. `bytes` is the on-disk file size in
+ * bytes; `sha256` is the lowercase hex digest of the file content.
+ *
+ * @public
+ */
+export interface ArtifactReport {
+  readonly relPath: string;
+  readonly bytes: number;
+  readonly sha256: string;
 }
 
 /**
