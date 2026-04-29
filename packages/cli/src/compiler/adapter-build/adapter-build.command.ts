@@ -68,13 +68,37 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
 
   const pkgJson = await readPackageJson(packageRoot);
   validateAdapterKind(pkgJson, packageRoot);
-  validatePackageFields(pkgJson, packageRoot);
 
   const sourceTree = await collectSourceTree(packageRoot);
   const entryFile = pickEntrySourceFile(sourceTree, packageRoot);
   const extracted = extractAdapterDefinition(entryFile);
-  validatePipeline(sourceTree, extracted, entryFile.filePath);
-  validateClassExports(sourceTree, extracted, packageRoot);
+
+  // Item 82 — collect validators' diagnostics rather than stopping at the
+  // first failure. Each validator either returns silently or throws a
+  // DiagnosticError; we aggregate before re-throwing.
+  const collected: DiagnosticError[] = [];
+  const collectFrom = (fn: () => void): void => {
+    try { fn(); } catch (cause) {
+      if (cause instanceof DiagnosticError) {
+        collected.push(cause);
+      } else {
+        throw cause;
+      }
+    }
+  };
+  collectFrom(() => validatePackageFields(pkgJson, packageRoot));
+  collectFrom(() => validatePipeline(sourceTree, extracted, entryFile.filePath));
+  collectFrom(() => validateClassExports(sourceTree, extracted, packageRoot));
+
+  if (collected.length > 0) {
+    if (collected.length === 1) throw collected[0]!;
+
+    const lines = collected.map(e => `  - ${e.diagnostic.why}`).join('\n');
+    throw diag('CONTRACT', {
+      reason: `${collected.length} validation errors:\n${lines}`,
+      file: packageRoot,
+    });
+  }
   const decoratorSchema = extractDecoratorSchema(sourceTree, extracted.adapterId, packageRoot);
   const peerContract = extractPeerContract(
     sourceTree,
@@ -586,13 +610,12 @@ function validateAdapterKind(pkg: AdapterPackageJson, packageRoot: string): void
  *   `dependencies` (would bundle two copies).
  */
 function validatePackageFields(pkg: AdapterPackageJson, packageRoot: string): void {
+  // Item 82 — collect every issue inside this validator, throw aggregated.
   const pkgPath = join(packageRoot, 'package.json');
+  const errors: string[] = [];
 
   if (typeof pkg.types === 'string' && !pkg.types.endsWith('.d.ts')) {
-    throw diag('CONTRACT', {
-      reason: `package.json \`types\` must point at a \`.d.ts\` file. Got: ${pkg.types}.`,
-      file: pkgPath,
-    });
+    errors.push(`package.json \`types\` must point at a \`.d.ts\` file. Got: ${pkg.types}.`);
   }
 
   const moduleEntry = typeof pkg.module === 'string' ? normalizeRelative(pkg.module) : null;
@@ -600,10 +623,7 @@ function validatePackageFields(pkg: AdapterPackageJson, packageRoot: string): vo
   const exportsImportNormalized = exportsImport !== null ? normalizeRelative(exportsImport) : null;
 
   if (moduleEntry !== null && exportsImportNormalized !== null && exportsImportNormalized !== moduleEntry) {
-    throw diag('CONTRACT', {
-      reason: `package.json \`module\` (${pkg.module}) and \`exports['.']\` default (${exportsImport}) must resolve to the same path.`,
-      file: pkgPath,
-    });
+    errors.push(`package.json \`module\` (${pkg.module}) and \`exports['.']\` default (${exportsImport}) must resolve to the same path.`);
   }
 
   if (Array.isArray(pkg.files)) {
@@ -612,11 +632,18 @@ function validatePackageFields(pkg: AdapterPackageJson, packageRoot: string): vo
     );
 
     if (!includesDist) {
-      throw diag('CONTRACT', {
-        reason: `package.json \`files\` must include \`dist\` so the compiled output ships in the published tarball. Got: ${JSON.stringify(pkg.files)}.`,
-        file: pkgPath,
-      });
+      errors.push(`package.json \`files\` must include \`dist\` so the compiled output ships in the published tarball. Got: ${JSON.stringify(pkg.files)}.`);
     }
+  }
+
+  if (errors.length === 1) {
+    throw diag('CONTRACT', { reason: errors[0]!, file: pkgPath });
+  }
+  if (errors.length > 1) {
+    throw diag('CONTRACT', {
+      reason: `${errors.length} package.json issues:\n${errors.map(e => `  - ${e}`).join('\n')}`,
+      file: pkgPath,
+    });
   }
 }
 

@@ -549,6 +549,52 @@ describe('zb build adapter — Slice 1', () => {
     await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
   });
 
+  it('aggregates multiple validation errors (Item 82)', async () => {
+    // Two errors at once: bad types field + missing dist in files
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({
+        name: '@example/multi-err',
+        version: '0.0.1',
+        types: 'dist/index.js',          // err1: not .d.ts
+        files: ['src'],                   // err2: dist missing
+        zipbul: { kind: 'adapter' },
+      }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-definition.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { CoreStep } from '@zipbul/core';`,
+        `import { TestAdapter, TestContext, TestPhase, TestStep } from './test-adapter';`,
+        `export const d = defineAdapter({ adapter: TestAdapter, context: TestContext, phase: TestPhase, step: TestStep, pipeline: [TestPhase.OnRequest, CoreStep.Handler] });`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/test-adapter.ts'),
+      [
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class TestAdapter {`,
+        `  readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] };`,
+        `}`,
+        `export class TestContext {}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const TestPhase = { OnRequest: 'OnRequest' } as const;`,
+        `export const TestStep = {} as const;`,
+      ].join('\n'),
+    );
+
+    try {
+      await buildAdapter({ packageRoot: pkgRoot });
+      throw new Error('should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(DiagnosticError);
+      const why = (error as DiagnosticError).diagnostic.why;
+      expect(why).toContain('package.json issues');
+    }
+  });
+
   it('rejects unexported Adapter class (Item 37)', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),
