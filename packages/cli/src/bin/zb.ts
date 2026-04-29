@@ -9,6 +9,15 @@ import { buildAdapter, watchAdapter } from '../compiler/adapter-build';
 import { DiagnosticError } from '../diagnostics';
 import { CliRenderer } from './cli-renderer';
 
+// Item 86 — ANSI color: auto-detect via stdout.isTTY, override with
+// --no-color or NO_COLOR env var (https://no-color.org/ convention).
+if (Bun.argv.includes('--no-color') || process.env.NO_COLOR !== undefined) {
+  process.env.FORCE_COLOR = '0';
+} else if (!process.stdout.isTTY) {
+  // Non-TTY (pipe, CI capture) — disable colors so logs stay clean.
+  process.env.FORCE_COLOR = process.env.FORCE_COLOR ?? '0';
+}
+
 const renderer = new CliRenderer();
 
 const { positionals, values } = parseArgs({
@@ -46,6 +55,9 @@ const { positionals, values } = parseArgs({
       type: 'boolean',
     },
     watch: {
+      type: 'boolean',
+    },
+    'no-color': {
       type: 'boolean',
     },
   },
@@ -86,6 +98,7 @@ const USAGE_TEXT = [
   '  --format=json    Emit machine-friendly JSON to stdout; diagnostics to stderr',
   '  --with-self-test Run strict self-test (re-compile .d.ts + Bun import smoke)',
   '  --watch          Re-build on source changes (debounced)',
+  '  --no-color       Disable ANSI color output (also honors NO_COLOR env)',
   '',
   'Exit codes:',
   '  0  Success',
