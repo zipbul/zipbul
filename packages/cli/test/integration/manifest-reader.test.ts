@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { buildAdapter, readAdapterManifest } from '../../src/compiler/adapter-build';
+import { buildAdapter, readAdapterManifest, detectMultiAdapterConflicts } from '../../src/compiler/adapter-build';
 import { DiagnosticError } from '../../src/diagnostics';
 
 let pkgRoot: string;
@@ -103,3 +103,61 @@ describe('readAdapterManifest — Section M (Step 11)', () => {
     expect(result).not.toBeNull();
   });
 });
+
+describe('detectMultiAdapterConflicts — Item 119', () => {
+  it('returns empty list when adapters are disjoint', () => {
+    const a = manifestFixture('A', { decorators: ['Get', 'Post'], provides: ['kA'] });
+    const b = manifestFixture('B', { decorators: ['Send', 'Recv'], provides: ['kB'] });
+
+    expect(detectMultiAdapterConflicts([a, b])).toEqual([]);
+  });
+
+  it('reports decorator name collision', () => {
+    const a = manifestFixture('A', { decorators: ['Get', 'Inject'], provides: [] });
+    const b = manifestFixture('B', { decorators: ['Inject'], provides: [] });
+
+    const conflicts = detectMultiAdapterConflicts([a, b]);
+
+    expect(conflicts).toEqual([
+      { kind: 'decorator-name', name: 'Inject', adapters: ['A', 'B'] },
+    ]);
+  });
+
+  it('reports context-key collision', () => {
+    const a = manifestFixture('A', { decorators: [], provides: ['SHARED'] });
+    const b = manifestFixture('B', { decorators: [], provides: ['SHARED'] });
+
+    const conflicts = detectMultiAdapterConflicts([a, b]);
+
+    expect(conflicts).toEqual([
+      { kind: 'context-key', name: 'SHARED', adapters: ['A', 'B'] },
+    ]);
+  });
+});
+
+function manifestFixture(adapterId: string, opts: { decorators: readonly string[]; provides: readonly string[] }) {
+  return {
+    adapter: {
+      $schemaName: 'adapter.manifest' as const,
+      adapterId,
+      producedBy: '@zipbul/cli@0.1.0',
+      manifests: {},
+    },
+    pipeline: null,
+    decorators: opts.decorators.length === 0 ? null : {
+      $schemaName: 'adapter.decorator-schema' as const,
+      controller: opts.decorators[0]!,
+      handlers: opts.decorators.slice(1),
+      options: [],
+    },
+    peerContract: opts.provides.length === 0 ? null : {
+      $schemaName: 'adapter.peer-contract' as const,
+      clusterStrategy: 'Shared' as const,
+      provides: opts.provides,
+      peerSymbols: {},
+    },
+    contextNamespaces: null,
+    constructorSchema: null,
+    builtins: null,
+  };
+}

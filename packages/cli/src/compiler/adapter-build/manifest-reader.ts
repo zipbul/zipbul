@@ -166,3 +166,86 @@ function parseProducerVersion(producedBy: string): string | null {
   const match = /^@zipbul\/cli@(\d+\.\d+\.\d+(?:[-+][\w.]+)?)$/.exec(producedBy);
   return match === null ? null : match[1] ?? null;
 }
+
+/**
+ * Detected conflict when the user app installs multiple adapter packages
+ * whose extracted contract overlaps in a way the runtime cannot resolve.
+ *
+ * @public
+ */
+export interface AdapterConflict {
+  readonly kind: 'decorator-name' | 'context-key';
+  readonly name: string;
+  readonly adapters: readonly string[];
+}
+
+/**
+ * Item 119 — detect cross-adapter conflicts when multiple adapter packages
+ * are loaded together. Returns the empty array on a clean install.
+ *
+ * Two flavors of conflict:
+ * 1. **decorator-name** — two adapters declare a decorator with the same
+ *    name across `controller` / `handlers` / `options`. User code referring
+ *    to that name becomes ambiguous.
+ * 2. **context-key** — two adapters declare the same `ContextKey` identifier
+ *    in `defineAdapter({ provides })`. The runtime cannot decide which
+ *    adapter's value to surface.
+ *
+ * Each adapter is identified by `manifest.adapter.adapterId` for diagnostic
+ * purposes.
+ *
+ * @public
+ */
+export function detectMultiAdapterConflicts(manifests: readonly ReadAdapterManifestResult[]): readonly AdapterConflict[] {
+  const decoratorOwners = new Map<string, Set<string>>();
+  const contextKeyOwners = new Map<string, Set<string>>();
+
+  for (const m of manifests) {
+    const adapterId = m.adapter.adapterId;
+
+    if (m.decorators !== null) {
+      const all = [
+        m.decorators.controller,
+        ...m.decorators.handlers,
+        ...m.decorators.options,
+      ];
+      for (const name of all) {
+        let owners = decoratorOwners.get(name);
+        if (owners === undefined) {
+          owners = new Set();
+          decoratorOwners.set(name, owners);
+        }
+        owners.add(adapterId);
+      }
+    }
+
+    if (m.peerContract !== null) {
+      for (const key of m.peerContract.provides) {
+        let owners = contextKeyOwners.get(key);
+        if (owners === undefined) {
+          owners = new Set();
+          contextKeyOwners.set(key, owners);
+        }
+        owners.add(adapterId);
+      }
+    }
+  }
+
+  const conflicts: AdapterConflict[] = [];
+
+  for (const [name, owners] of decoratorOwners) {
+    if (owners.size > 1) {
+      conflicts.push({ kind: 'decorator-name', name, adapters: [...owners].sort() });
+    }
+  }
+
+  for (const [name, owners] of contextKeyOwners) {
+    if (owners.size > 1) {
+      conflicts.push({ kind: 'context-key', name, adapters: [...owners].sort() });
+    }
+  }
+
+  conflicts.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+
+  return conflicts;
+}
