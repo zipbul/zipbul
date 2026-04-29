@@ -4,8 +4,8 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-28 (commit `e19ed78` — Step 7 완료. middleware/adapter extractors 4 파일 oxc narrow 타입 직접 import 제거 + Item 131 (β) cli 자체 stringifyTSType 본체 마이그레이션 (gildash Node union 위 12종 TS-* 변형 처리). 잔존 oxc 직접 import 2 파일 (Step 8 영역만 남음). baseline 1966/94/370. 본 sync 다음에 메타 정정 커밋 1건 추가 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
-**Branch**: `fix/cli-js-bundle-bin` (main 대비 33 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
+**Last sync**: 2026-04-29 (commit `470e742` — Step 8 완료. lib-augment-injector + integration-context-codegen.spec 의 oxc narrow 타입 직접 import 제거. **cli 의 oxc 직접 import 0 매치 달성** — Step 1~8 의 인프라 정비 단계 종료. 다음 단계 Step 9 회귀 가드 + catalog 정리. baseline 1966/94/370. 본 sync 다음에 메타 정정 커밋 1건 추가 예정 — `git log --oneline -1` 로 현재 HEAD 재확인)
+**Branch**: `fix/cli-js-bundle-bin` (main 대비 36 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
 **Baseline**: unit `1966 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
 
 상태 표기 — 본 문서 전체에서 일관된 의미:
@@ -79,7 +79,7 @@
 | 5 | class/method extractors → `extractSymbols` | ✅ | `fb75434` | 3b |
 | 6 | ctx ops extractors → Node union (findPattern 흡수는 후속 리팩토링) | ✅ | `ad474e2` | 3b |
 | 7 | middleware/adapter extractors → gildash + cli stringifier | ✅ | `e19ed78` | 3b (Item 131 (β) 적용 완료) |
-| 8 | `lib-augment-injector` 의 oxc 제거 | ⬜ | — | 7 |
+| 8 | `lib-augment-injector` 의 oxc 제거 | ✅ | `470e742` | 7 |
 | 9 | oxc 부재 회귀 가드 + catalog 항목 제거 | ⬜ | — | 3b·4·5·6·7·8 |
 | 10 | 어댑터 컴파일러 MVP — `zb build adapter` 본체 | ⬜ | — | 9 |
 | 11 | CLI 앱 빌드 측 manifest 우선 소비 (Section M) | ⬜ | — | 10 |
@@ -96,7 +96,7 @@
 
 각 Step 종료 시점에 **세 카운트 모두 동일하거나 증가**. 카운트 감소는 회귀 신호. 새 테스트를 의도적으로 추가했다면 본 문서의 baseline 도 같이 업데이트.
 
-### 0.3 oxc-parser 직접 import 잔존 인벤토리 — 2 파일 (Step 7 완료 후, Step 8 만 남음)
+### 0.3 oxc-parser 직접 import 잔존 인벤토리 — 0 파일 (Step 8 완료, 코드 차원 목표 충족)
 
 다음 명령으로 즉시 재확인할 수 있다 — 본 인벤토리가 stale 인지 의심되면 먼저 실행:
 
@@ -104,13 +104,7 @@
 grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 ```
 
-현재 시점 (commit `e19ed78`) 의 결과는 다음 2개. 모두 Step 8 영역 (JS 후처리). Step 2·3b·4·5·6·7 에서 이미 완료된 11개 (참고용).
-
-소스 (미처리 1):
-- `packages/cli/src/compiler/generator/lib-augment-injector.ts` — Step 8. 미들웨어 라이브러리의 *TS 소스* 를 길대시 `parseSource` 로 파싱해 `defineMiddleware()` 호출 자리에 `__augments`/`__contextOps` 메타를 주입한 변형된 TS 소스를 emit. 잔존 oxc 의존은 narrow 타입 (`OxcFunction`/`CallExpression`/`ArrowFunctionExpression`/`VariableDeclaration`) 의 `import type` 라인뿐 — Step 3b·4·5·6·7 와 동일한 패턴 마이그레이션.
-
-스펙 (미처리 1):
-- `packages/cli/src/compiler/integration-context-codegen.spec.ts` — Step 8 동시.
+현재 시점 (commit `470e742`) 의 결과: cli 전체에서 `from 'oxc-parser'` 0 매치. Step 2·3b·4·5·6·7·8 에서 12 개 파일이 모두 길대시 `Node` union 위로 마이그레이션됨. 다음 단계는 Step 9 — lint rule 또는 spec 으로 회귀 가드 + `package.json` catalog 의 `oxc-parser` 항목 제거.
 
 스펙은 본체 이관과 같은 커밋에서 처리한다 — type 시그니처가 달라지므로 spec 만 따로 두면 typecheck 통과 안 함.
 
@@ -471,7 +465,7 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 ### 폐기 / 흡수 대상 cli 파일 (Step 별 배정)
 
-125. **현재 진척**: 11개 중 10개 ✅ (Step 2: `import-export-extractor.ts` / Step 3b: `ast-node-locator.ts` / Step 4: `expression-converter.ts` / Step 5: `class-metadata-extractor.ts`+`method-metadata-extractor.ts` / Step 6: `context-operation-extractor.ts`+`handler-context-usage-extractor.ts` / Step 7: `middleware-augment-extractor.ts`+`middleware-augment-collector.ts`+`config-extractor.ts`). 나머지 1개 (`lib-augment-injector.ts`) 는 Step 8 영역. Section 0.3 인벤토리 참조.
+125. **현재 진척**: 11개 모두 ✅ — Step 2·3b·4·5·6·7·8 에서 cli 의 모든 oxc 직접 import 제거 완료 (commit `470e742`). 다음은 Step 9 (회귀 가드 + catalog 정리) → Step 10 (어댑터 컴파일러 본체).
 
 ### 회귀 가드
 
