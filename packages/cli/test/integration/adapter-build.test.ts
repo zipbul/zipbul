@@ -428,6 +428,23 @@ describe('zb build adapter — Slice 1', () => {
     await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
   });
 
+  it('diagnostic carries [CATEGORY] prefix per Item 80', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({ name: '@example/no-kind', version: '0.0.1' }),
+    );
+    await Bun.write(join(pkgRoot, 'src/index.ts'), `export const x = 1;`);
+
+    try {
+      await buildAdapter({ packageRoot: pkgRoot });
+      throw new Error('should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(DiagnosticError);
+      const why = (error as DiagnosticError).diagnostic.why;
+      expect(why).toMatch(/^\[(SYNTAX|CONTRACT|MISSING_EXPORT|DUPLICATE|TYPE|IO)\]/);
+    }
+  });
+
   it('rejects packages without zipbul.kind === "adapter"', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),

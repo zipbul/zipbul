@@ -9,6 +9,23 @@ import type { ParsedFile, ExtractedSymbol, ExpressionValue, ExpressionCall, Code
 
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 
+/**
+ * Adapter-build diagnostic category (Item 80). Prefixed onto the diagnostic's
+ * `reason` so downstream tooling can filter without depending on a separate
+ * field in the shared `Diagnostic` shape.
+ */
+type DiagnosticCategory = 'SYNTAX' | 'CONTRACT' | 'MISSING_EXPORT' | 'DUPLICATE' | 'TYPE' | 'IO';
+
+function diag(category: DiagnosticCategory, params: { reason: string; file?: string; symbol?: string; how?: string }): DiagnosticError {
+  const taggedReason = `[${category}] ${params.reason}`;
+  const built = buildDiagnostic({
+    ...params,
+    reason: taggedReason,
+  });
+
+  return new DiagnosticError(built);
+}
+
 import type {
   AdapterConstructorSchema,
   AdapterManifest,
@@ -444,19 +461,19 @@ async function readPackageJson(packageRoot: string): Promise<AdapterPackageJson>
     const text = await readFile(pkgPath, 'utf8');
     return JSON.parse(text) as AdapterPackageJson;
   } catch (cause) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('IO', {
       reason: `Failed to read ${pkgPath}: ${(cause as Error).message ?? String(cause)}`,
       file: pkgPath,
-    }));
+    });
   }
 }
 
 function validateAdapterKind(pkg: AdapterPackageJson, packageRoot: string): void {
   if (pkg.zipbul?.kind !== 'adapter') {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `package.json at ${packageRoot} must declare "zipbul": { "kind": "adapter" }. Found: ${JSON.stringify(pkg.zipbul ?? null)}.`,
       file: join(packageRoot, 'package.json'),
-    }));
+    });
   }
 }
 
@@ -517,10 +534,10 @@ async function pushSourceFile(filePath: string, out: SourceFile[]): Promise<void
   const parseResult = parseSource(filePath, text);
 
   if (isErr(parseResult)) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('SYNTAX', {
       reason: `Failed to parse ${filePath}: ${parseResult.data.message}`,
       file: filePath,
-    }));
+    });
   }
 
   out.push({ filePath, parsed: parseResult, symbols: extractSymbols(parseResult) });
@@ -552,10 +569,10 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
   const adapterCall = findDefineAdapterCall(entry.symbols);
 
   if (adapterCall === null) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('MISSING_EXPORT', {
       reason: `No \`defineAdapter()\` export found in ${entry.filePath}.`,
       file: entry.filePath,
-    }));
+    });
   }
 
   const adapterId = readIdentifierField(adapterCall, 'adapter');
@@ -1166,10 +1183,10 @@ function ensureUnique(names: readonly string[], filePath: string): void {
   }
 
   if (dupes.size > 0) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('DUPLICATE', {
       reason: `Duplicate decorator name(s) [${[...dupes].join(', ')}] in ${filePath} (Item 40).`,
       file: filePath,
-    }));
+    });
   }
 }
 
