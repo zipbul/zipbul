@@ -7,7 +7,13 @@ import type { ParsedFile, ExtractedSymbol, ExpressionValue, ExpressionCall } fro
 
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 
-import type { AdapterManifest, BuildAdapterOptions, BuildAdapterResult } from './interfaces';
+import type {
+  AdapterManifest,
+  BuildAdapterOptions,
+  BuildAdapterResult,
+  PipelineRef,
+  PipelineSchema,
+} from './interfaces';
 
 const PRODUCER_VERSION = '@zipbul/cli@0.1.0';
 
@@ -30,12 +36,17 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   validateAdapterKind(pkgJson, packageRoot);
 
   const entrySourcePath = await resolveAdapterEntrySource(packageRoot, pkgJson);
-  const adapterId = await extractAdapterId(entrySourcePath);
+  const extracted = await extractAdapterDefinition(entrySourcePath);
+  const { adapterId, pipelineSchema } = extracted;
 
-  const manifest: AdapterManifest = {
+  const pipelineSchemaRel = 'pipeline-schema.json';
+  const adapterManifest: AdapterManifest = {
     $schemaName: 'adapter.manifest',
     adapterId,
     producedBy: PRODUCER_VERSION,
+    manifests: {
+      'pipeline-schema': pipelineSchemaRel,
+    },
   };
 
   const manifestPath = join(outDir, 'adapter.manifest.json');
@@ -43,14 +54,21 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   if (!dryRun) {
     await rm(stagingDir, { recursive: true, force: true });
     await mkdir(stagingDir, { recursive: true });
-    const stagingManifestPath = join(stagingDir, 'adapter.manifest.json');
-    await Bun.write(stagingManifestPath, serializeManifest(manifest));
+
+    await Bun.write(join(stagingDir, pipelineSchemaRel), serializeJson(pipelineSchema));
+    // Top-level manifest written last (Item 75): it indexes the other paths.
+    await Bun.write(join(stagingDir, 'adapter.manifest.json'), serializeJson(adapterManifest));
 
     await rm(outDir, { recursive: true, force: true });
     await rename(stagingDir, outDir);
   }
 
   return { adapterId, manifestPath };
+}
+
+interface ExtractedAdapterDefinition {
+  readonly adapterId: string;
+  readonly pipelineSchema: PipelineSchema;
 }
 
 interface AdapterPackageJson {
@@ -109,7 +127,7 @@ async function resolveAdapterEntrySource(packageRoot: string, _pkg: AdapterPacka
   }));
 }
 
-async function extractAdapterId(entryPath: string): Promise<string> {
+async function extractAdapterDefinition(entryPath: string): Promise<ExtractedAdapterDefinition> {
   const sourceText = await readFile(entryPath, 'utf8');
   const parseResult = parseSource(entryPath, sourceText);
 
@@ -131,7 +149,7 @@ async function extractAdapterId(entryPath: string): Promise<string> {
     }));
   }
 
-  const adapterId = readAdapterFieldIdentifier(adapterCall);
+  const adapterId = readIdentifierField(adapterCall, 'adapter');
 
   if (adapterId === null) {
     throw new DiagnosticError(buildDiagnostic({
@@ -140,7 +158,33 @@ async function extractAdapterId(entryPath: string): Promise<string> {
     }));
   }
 
-  return adapterId;
+  const phaseEnum = readIdentifierField(adapterCall, 'phase');
+  const stepEnum = readIdentifierField(adapterCall, 'step');
+
+  if (phaseEnum === null || stepEnum === null) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `defineAdapter() in ${entryPath} must declare \`phase\` and \`step\` fields as enum identifier references.`,
+      file: entryPath,
+    }));
+  }
+
+  const pipeline = readPipelineField(adapterCall);
+
+  if (pipeline === null) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `defineAdapter() in ${entryPath} must declare a non-empty \`pipeline\` array of qualified enum members (e.g. \`HttpPhase.OnRequest\`, \`HttpStep.ResolveRoute\`, \`CoreStep.Handler\`).`,
+      file: entryPath,
+    }));
+  }
+
+  const pipelineSchema: PipelineSchema = {
+    $schemaName: 'adapter.pipeline-schema',
+    phaseEnum,
+    stepEnum,
+    pipeline,
+  };
+
+  return { adapterId, pipelineSchema };
 }
 
 function findDefineAdapterCall(symbols: readonly ExtractedSymbol[]): ExpressionCall | null {
@@ -157,14 +201,14 @@ function findDefineAdapterCall(symbols: readonly ExtractedSymbol[]): ExpressionC
   return null;
 }
 
-function readAdapterFieldIdentifier(call: ExpressionCall): string | null {
+function readIdentifierField(call: ExpressionCall, fieldName: string): string | null {
   const firstArg = call.arguments[0];
 
   if (firstArg === undefined || firstArg.kind !== 'object') return null;
 
   for (const prop of firstArg.properties) {
     if (prop.kind === 'spread') continue;
-    if (prop.key.kind !== 'string' || prop.key.value !== 'adapter') continue;
+    if (prop.key.kind !== 'string' || prop.key.value !== fieldName) continue;
 
     const value: ExpressionValue = prop.value;
 
@@ -174,12 +218,51 @@ function readAdapterFieldIdentifier(call: ExpressionCall): string | null {
   return null;
 }
 
-function serializeManifest(manifest: AdapterManifest): string {
-  // Canonical JSON: sorted keys, LF terminator, UTF-8 (Item 70).
-  const ordered: Record<string, unknown> = {};
-  const keys = Object.keys(manifest).sort();
-  for (const key of keys) {
-    ordered[key] = (manifest as unknown as Record<string, unknown>)[key];
+function readPipelineField(call: ExpressionCall): readonly PipelineRef[] | null {
+  const firstArg = call.arguments[0];
+
+  if (firstArg === undefined || firstArg.kind !== 'object') return null;
+
+  for (const prop of firstArg.properties) {
+    if (prop.kind === 'spread') continue;
+    if (prop.key.kind !== 'string' || prop.key.value !== 'pipeline') continue;
+
+    if (prop.value.kind !== 'array') return null;
+
+    const refs: PipelineRef[] = [];
+
+    for (const element of prop.value.elements) {
+      if (element.kind !== 'member') return null;
+
+      refs.push({ qualifier: element.object, name: element.property });
+    }
+
+    if (refs.length === 0) return null;
+
+    return refs;
   }
-  return `${JSON.stringify(ordered, null, 2)}\n`;
+
+  return null;
+}
+
+function serializeJson(value: unknown): string {
+  // Canonical JSON: sorted keys (recursive), LF terminator, UTF-8 (Item 70).
+  return `${JSON.stringify(canonicalize(value), null, 2)}\n`;
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const ordered: Record<string, unknown> = {};
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    for (const key of keys) {
+      ordered[key] = canonicalize((value as Record<string, unknown>)[key]);
+    }
+    return ordered;
+  }
+
+  return value;
 }
