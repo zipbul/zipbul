@@ -871,6 +871,10 @@ function validatePipeline(tree: SourceTree, extracted: ExtractedAdapterDefinitio
  *
  * Supports both `enum Foo { A, B }` (gildash kind: 'enum') and
  * `const Foo = { A: 'A' } as const` (kind: 'variable' with object initializer).
+ *
+ * Detects duplicate member declarations (Item 42·43) at the raw-key level —
+ * TS rejects duplicate `enum` members at compile time, but const-object
+ * idioms can slip duplicates through. Throws DUPLICATE on collision.
  */
 function resolveEnumMembers(tree: SourceTree, enumName: string): ReadonlySet<string> | null {
   for (const file of tree) {
@@ -879,19 +883,37 @@ function resolveEnumMembers(tree: SourceTree, enumName: string): ReadonlySet<str
 
       if (symbol.kind === 'enum') {
         const members = new Set<string>();
+        const dupes = new Set<string>();
         for (const member of symbol.members ?? []) {
           if (typeof member.name === 'string' && member.name.length > 0) {
+            if (members.has(member.name)) dupes.add(member.name);
             members.add(member.name);
           }
+        }
+        if (dupes.size > 0) {
+          throw diag('DUPLICATE', {
+            reason: `enum \`${enumName}\` has duplicate member name(s): [${[...dupes].join(', ')}] (Item 42·43).`,
+            file: file.filePath,
+          });
         }
         return members;
       }
 
       if (symbol.kind === 'variable' && symbol.initializer !== undefined && symbol.initializer.kind === 'object') {
         const members = new Set<string>();
+        const dupes = new Set<string>();
         for (const prop of symbol.initializer.properties) {
           if (prop.kind === 'spread') continue;
-          if (prop.key.kind === 'string') members.add(prop.key.value);
+          if (prop.key.kind === 'string') {
+            if (members.has(prop.key.value)) dupes.add(prop.key.value);
+            members.add(prop.key.value);
+          }
+        }
+        if (dupes.size > 0) {
+          throw diag('DUPLICATE', {
+            reason: `const enum-object \`${enumName}\` has duplicate key(s): [${[...dupes].join(', ')}] (Item 42·43).`,
+            file: file.filePath,
+          });
         }
         return members;
       }
@@ -901,12 +923,10 @@ function resolveEnumMembers(tree: SourceTree, enumName: string): ReadonlySet<str
   return null;
 }
 
-function ensureUniqueMembers(members: ReadonlySet<string>, enumName: string, filePath: string): void {
-  // Set guarantees uniqueness — but if the source declared duplicate keys
-  // (rare, since TS rejects this), `members` would still drop them. The
-  // check is a placeholder for future enforcement once we read the raw key
-  // list (Item 42·43).
-  void members; void enumName; void filePath;
+function ensureUniqueMembers(_members: ReadonlySet<string>, _enumName: string, _filePath: string): void {
+  // Duplicate detection is now performed inline in resolveEnumMembers().
+  // This stub is retained for call-site backward compat — removed in next
+  // refactor pass once all sites switch to relying on resolver-level checks.
 }
 
 function readProvidesField(call: ExpressionCall): readonly string[] {
