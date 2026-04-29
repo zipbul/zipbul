@@ -473,9 +473,31 @@ async function runCodegen(packageRoot: string, stagingDir: string): Promise<void
 
 async function runTsc(packageRoot: string, tsconfigPath: string, outDir: string): Promise<void> {
   const tscBin = await resolveTscBin(packageRoot);
-  const args = tscBin === 'bunx'
-    ? ['tsc', '-p', tsconfigPath, '--outDir', outDir]
-    : ['-p', tsconfigPath, '--outDir', outDir];
+  // Item 93 — pin tsbuildinfo to .zipbul/cache/<package>.tsbuildinfo so
+  // composite/incremental builds reuse a stable cache across invocations.
+  const cacheDir = join(packageRoot, '.zipbul', 'cache');
+  await mkdir(cacheDir, { recursive: true });
+  const pkgName = (await readPackageJson(packageRoot)).name ?? 'adapter';
+  const safePkgName = pkgName.replace(/[^\w.-]+/g, '_');
+  const tsBuildInfoFile = join(cacheDir, `${safePkgName}.tsbuildinfo`);
+
+  const baseArgs = [
+    '-p', tsconfigPath,
+    '--outDir', outDir,
+    '--tsBuildInfoFile', tsBuildInfoFile,
+  ];
+
+  // Item 92 — when the project uses composite/references, tsc requires
+  // `--build` mode. We probe the tsconfig for `composite` or `references`
+  // and switch invocation accordingly.
+  const buildMode = await tsconfigNeedsBuildMode(tsconfigPath);
+  const args = buildMode
+    ? (tscBin === 'bunx'
+      ? ['tsc', '--build', tsconfigPath, '--force']
+      : ['--build', tsconfigPath, '--force'])
+    : (tscBin === 'bunx'
+      ? ['tsc', ...baseArgs]
+      : baseArgs);
 
   await new Promise<void>((resolveFn, rejectFn) => {
     const child = spawn(tscBin, args, {
@@ -504,6 +526,32 @@ async function runTsc(packageRoot: string, tsconfigPath: string, outDir: string)
       }));
     });
   });
+}
+
+/**
+ * Item 92 — detect whether the tsconfig forces `--build` mode. Returns true
+ * when the JSON declares `compilerOptions.composite: true` or a non-empty
+ * `references` array. We do a shallow JSON parse only; following `extends`
+ * chains is left for a future slice.
+ */
+async function tsconfigNeedsBuildMode(tsconfigPath: string): Promise<boolean> {
+  try {
+    const text = await readFile(tsconfigPath, 'utf8');
+    // tsconfig allows comments + trailing commas; tolerate via stripped JSON.
+    const stripped = text
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|\s)\/\/[^\n]*/g, '$1')
+      .replace(/,(\s*[}\]])/g, '$1');
+    const parsed = JSON.parse(stripped) as {
+      compilerOptions?: { composite?: boolean };
+      references?: readonly unknown[];
+    };
+    if (parsed.compilerOptions?.composite === true) return true;
+    if (Array.isArray(parsed.references) && parsed.references.length > 0) return true;
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 /**
