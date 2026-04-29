@@ -85,6 +85,12 @@ export interface AdapterManifest {
   readonly adapterId: string;
   readonly producedBy: string;
   readonly manifests: { readonly [logicalName: string]: string };
+  /**
+   * sha256 hex digest over the canonicalized concatenation of every other
+   * manifest the build emitted (Item 117·118). User-app build re-hashes
+   * the on-disk tree and invalidates its cache when the value drifts.
+   */
+  readonly contentHash: string;
 }
 
 /**

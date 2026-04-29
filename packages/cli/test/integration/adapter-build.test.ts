@@ -102,6 +102,7 @@ describe('zb build adapter — Slice 1', () => {
         'adapter-constructor-schema': 'adapter-constructor-schema.json',
         'builtins': 'builtins.json',
       },
+      contentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
 
     expect(text.endsWith('\n')).toBe(true);
@@ -190,6 +191,22 @@ describe('zb build adapter — Slice 1', () => {
     expect(schema.$schemaName).toBe('adapter.constructor-schema');
     expect(schema.optionsParam).toEqual({ name: 'options', type: 'TestOptions' });
     expect(schema.optional).toBe(true);
+  });
+
+  it('top-level manifest carries contentHash over all child manifests (Item 117)', async () => {
+    await writeMinimalAdapter();
+
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const text = await readFile(join(pkgRoot, 'dist', 'adapter.manifest.json'), 'utf8');
+    const manifest = JSON.parse(text);
+
+    expect(manifest.contentHash).toMatch(/^[0-9a-f]{64}$/);
+
+    // Re-build → same hash
+    await buildAdapter({ packageRoot: pkgRoot });
+    const text2 = await readFile(join(pkgRoot, 'dist', 'adapter.manifest.json'), 'utf8');
+    expect(JSON.parse(text2).contentHash).toBe(manifest.contentHash);
   });
 
   it('returns per-file artifact size + sha256 in result.artifacts', async () => {

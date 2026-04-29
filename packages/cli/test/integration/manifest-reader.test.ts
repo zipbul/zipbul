@@ -142,6 +142,7 @@ function manifestFixture(adapterId: string, opts: { decorators: readonly string[
       adapterId,
       producedBy: '@zipbul/cli@0.1.0',
       manifests: {},
+      contentHash: '0'.repeat(64),
     },
     pipeline: null,
     decorators: opts.decorators.length === 0 ? null : {

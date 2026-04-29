@@ -101,6 +101,18 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   const contextNamespacesRel = 'context-namespaces.json';
   const constructorSchemaRel = 'adapter-constructor-schema.json';
   const builtinsRel = 'builtins.json';
+
+  const childArtifacts: Array<{ readonly relPath: string; readonly content: string }> = [
+    { relPath: pipelineSchemaRel, content: serializeJson(extracted.pipelineSchema) },
+    { relPath: decoratorSchemaRel, content: serializeJson(decoratorSchema) },
+    { relPath: peerContractRel, content: serializeJson(peerContract) },
+    { relPath: contextNamespacesRel, content: serializeJson(contextNamespaces) },
+    { relPath: constructorSchemaRel, content: serializeJson(constructorSchema) },
+    { relPath: builtinsRel, content: serializeJson(builtins) },
+  ];
+
+  const contentHash = computeManifestTreeHash(childArtifacts);
+
   const adapterManifest: AdapterManifest = {
     $schemaName: 'adapter.manifest',
     adapterId: extracted.adapterId,
@@ -113,17 +125,13 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
       'adapter-constructor-schema': constructorSchemaRel,
       'builtins': builtinsRel,
     },
+    contentHash,
   };
 
   const manifestPath = join(outDir, 'adapter.manifest.json');
 
   const artifacts: Array<{ readonly relPath: string; readonly content: string }> = [
-    { relPath: pipelineSchemaRel, content: serializeJson(extracted.pipelineSchema) },
-    { relPath: decoratorSchemaRel, content: serializeJson(decoratorSchema) },
-    { relPath: peerContractRel, content: serializeJson(peerContract) },
-    { relPath: contextNamespacesRel, content: serializeJson(contextNamespaces) },
-    { relPath: constructorSchemaRel, content: serializeJson(constructorSchema) },
-    { relPath: builtinsRel, content: serializeJson(builtins) },
+    ...childArtifacts,
     // Top-level manifest written last (Item 75) — indexes the other paths.
     { relPath: 'adapter.manifest.json', content: serializeJson(adapterManifest) },
   ];
@@ -1501,6 +1509,21 @@ function readPipelineField(call: ExpressionCall): readonly PipelineRef[] | null 
   }
 
   return null;
+}
+
+/**
+ * Item 117·118 — content hash over all child manifests. Sorted by relPath
+ * for determinism, then sha256 over `relPath + ':' + content` per file.
+ * The user-app build re-derives this and invalidates its compiled cache
+ * when the value drifts (e.g. after `npm install <new-adapter-version>`).
+ */
+function computeManifestTreeHash(artifacts: readonly { relPath: string; content: string }[]): string {
+  const sorted = [...artifacts].sort((a, b) => a.relPath.localeCompare(b.relPath));
+  const hasher = createHash('sha256');
+  for (const a of sorted) {
+    hasher.update(`${a.relPath}\0${a.content}\0`);
+  }
+  return hasher.digest('hex');
 }
 
 function serializeJson(value: unknown): string {
