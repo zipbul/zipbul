@@ -4,12 +4,12 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `470e742` (Step 8 본체 — lib-augment-injector + integration-context-codegen.spec 의 oxc narrow 타입 직접 import 제거). 그 이후의 커밋은 모두 본 문서 자체의 메타 정정 (Last sync 갱신/stale 정정). **cli 의 `oxc-parser` 0 매치 달성** (import + 주석 모두) — Step 1~8 인프라 정비 단계 종료. 다음 단계 Step 9 (회귀 가드 + catalog 정리). baseline 1966/94/370.
+**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `9d34771` (Step 9 — `no-oxc-parser-import.spec.ts` 회귀 가드 추가 + cli 의 `oxc-parser` dependency + 루트 catalog 항목 제거). 그 이후의 커밋은 모두 본 문서 자체의 메타 정정. **Step 1~9 의 인프라 정비 단계 완전 종료** — cli 의 `oxc-parser` 직접 import 0 매치 + 회귀 가드 spec 가동 + catalog 의존 명시 0건 (transitive 만 인정). 다음 단계 Step 10 (`zb build adapter` 어댑터 컴파일러 본체 신설). baseline 1967/94/370.
 
 > 본 문서의 Last sync 가 *정확히* HEAD 를 가리키지 않는 것은 self-referential 문제 (Last sync 갱신 자체가 새 커밋 1건을 만들어 HEAD 를 +1 시킴) 때문이다. 새 에이전트는 (1) `git log --oneline -1` 로 현재 HEAD 확인, (2) 그 커밋이 `docs(compiler): ...` 메타 커밋이면 무시하고 그 직전의 코드 작업 커밋을 본 문서 "마지막 코드 작업 커밋" 과 대조, (3) 일치하면 본 문서가 최신 상태.
 
 **Branch**: `fix/cli-js-bundle-bin` (main 대비 ~40+ ahead, 정확한 카운트는 `git rev-list --count origin/main..HEAD` 로 재확인)
-**Baseline**: unit `1966 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
+**Baseline**: unit `1967 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
 
 상태 표기 — 본 문서 전체에서 일관된 의미:
 - ✅ 완료. 실제로 코드/문서가 머지되었고, 회귀 baseline 통과 확인됨. 옆에 적힌 commit hash 가 머지 지점.
@@ -31,7 +31,7 @@
 
 **git 작업 규칙**: 사용자가 명시 요청할 때만 커밋. 커밋 메시지는 한국어, scope 명시 (`feat(cli): ...`, `refactor(cli): ...`, `test(cli): ...`, `docs(compiler): ...`). 마지막 라인은 항상 `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` (개행 + 빈 줄 + Co-Authored-By). 메시지는 HEREDOC 으로 전달 (Bash 도구 시스템 가이드 참조). 커밋 amend 금지 — 새 커밋으로. `--no-verify` 금지 — Husky pre-commit hook 이 `commit-msg` / `pre-commit` / `pre-push` 3종 등록되어 있다 (검증: `ls .husky/`), 통과시켜야 한다. force push 금지. main 직접 push 금지. 본 작업 브랜치는 `fix/cli-js-bundle-bin` 이며 main 으로 PR 머지는 사용자가 직접 한다.
 
-**테스트 카운트 운영 규칙**: 본 문서 곳곳에 "1966 / 94 / 370" baseline 이 박혀있다. 각 Step 작업 후 **세 카운트 모두 동일하거나 증가** 해야 한다. 줄어들면 — 의도적으로 테스트를 삭제했거나 리네임이 안 따라간 것. 의도였다면 본 문서의 baseline 을 즉시 업데이트해라. 의도가 아니라면 회귀이므로 중단하고 원인 추적.
+**테스트 카운트 운영 규칙**: 본 문서 곳곳에 "1967 / 94 / 370" baseline 이 박혀있다. 각 Step 작업 후 **세 카운트 모두 동일하거나 증가** 해야 한다. 줄어들면 — 의도적으로 테스트를 삭제했거나 리네임이 안 따라간 것. 의도였다면 본 문서의 baseline 을 즉시 업데이트해라. 의도가 아니라면 회귀이므로 중단하고 원인 추적.
 
 **IDE 진단 vs tsc**: VSCode/JetBrains 의 TypeScript language server 가 표시하는 진단과 `bunx tsc --noEmit` 결과가 어긋날 수 있다. 충돌 시 `bunx tsc --noEmit` 을 단일 진실 원천으로 사용하고, IDE 가 빨간 줄을 그어도 tsc 가 clean 이면 IDE TypeScript server 재시작.
 
@@ -83,7 +83,7 @@
 | 6 | ctx ops extractors → Node union (findPattern 흡수는 후속 리팩토링) | ✅ | `ad474e2` | 3b |
 | 7 | middleware/adapter extractors → gildash + cli stringifier | ✅ | `e19ed78` | 3b (Item 131 (β) 적용 완료) |
 | 8 | `lib-augment-injector` 의 oxc 제거 | ✅ | `470e742` | 7 |
-| 9 | oxc 부재 회귀 가드 + catalog 항목 제거 | ⬜ | — | 3b·4·5·6·7·8 |
+| 9 | oxc 부재 회귀 가드 + catalog 항목 제거 | ✅ | `9d34771` | 3b·4·5·6·7·8 |
 | 10 | 어댑터 컴파일러 MVP — `zb build adapter` 본체 | ⬜ | — | 9 |
 | 11 | CLI 앱 빌드 측 manifest 우선 소비 (Section M) | ⬜ | — | 10 |
 | 12 | External e2e — `.ts` 인젝션 없이 dist/manifest 만으로 동작 | ⬜ | — | 11 |
@@ -93,7 +93,7 @@
 작업 시작 전과 작업 종료 시점에 동일하게 다음 명령을 루트에서 실행해서 "테스트 카운트 보존" 을 검증한다. 본 baseline 은 commit `79656ac` 시점 측정값이다.
 
 - `bunx tsc --noEmit` — exit 0, stderr 0 라인. IDE diagnostic 과 어긋나면 본 명령의 결과만 신뢰 (Section 0.0 의 "IDE 진단 vs tsc" 참조).
-- `bun run test:unit` — `1966 pass`. 32 파일.
+- `bun run test:unit` — `1967 pass`. 32 파일.
 - `bun run test:integration` — `94 pass`. 4 파일.
 - `bun run test:e2e` — `370 pass`. 8 파일.
 
@@ -129,7 +129,7 @@ grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 
 (5) 검증. 다음 4 명령을 순차로 실행:
 - `bunx tsc --noEmit` — 0 에러.
-- `bun run test:unit` — `1966 pass` 동일하거나 증가.
+- `bun run test:unit` — `1967 pass` 동일하거나 증가.
 - `bun run test:integration` — `94 pass` 동일하거나 증가.
 - `bun run test:e2e` — `370 pass` 동일하거나 증가.
 - `grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-locator.ts packages/cli/src/compiler/analyzer/parser/ast-node-locator.spec.ts` — 0 매치.
@@ -166,10 +166,10 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 루트 `package.json` 의 catalog:
 - `@zipbul/gildash`: `0.26.1` (Item 132 specifier 보존 patch 합류)
-- `oxc-parser`: `0.127.0`
+- `oxc-parser`: **삭제됨 (Step 9, commit `9d34771`)** — gildash transitive 로만 존재.
 
 `packages/cli/package.json` 의 dependencies:
-- `oxc-parser`: `catalog:` (← 여전히 명시)
+- `oxc-parser`: **삭제됨 (Step 9, commit `9d34771`)** — 정책 충족.
 
 **방향**. Step 9 진입 시점에 다음 두 동작을 한 커밋으로 처리: (a) `packages/cli/package.json` 의 `dependencies."oxc-parser"` 라인 삭제, (b) 루트 `package.json` 의 `workspaces.catalog["oxc-parser"]` 라인 삭제. 이 시점에는 cli 안에 oxc-parser import 가 0이어야 하므로 lockfile 의 transitive 만 남고 typecheck 통과한다. 만약 다른 패키지 (`packages/cli` 외) 에서 oxc-parser 를 직접 사용하는 곳이 있다면 그 패키지의 dependencies 만 남기고 cli 만 떼어낸다 — 본 정책은 cli 한정 (Item 120 의 "@zipbul/cli 의 package.json").
 
@@ -434,8 +434,8 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 ### 정책
 
-120. ⬜ `@zipbul/cli` 의 `package.json` 에서 `oxc-parser` 의존성 제거. catalog 항목 (`workspaces.catalog["oxc-parser"]`) 도 삭제. transitive 로 길대시가 가져오는 것만 인정. **Step 9 에서 회수**. *현재 상태: cli `dependencies."oxc-parser": "catalog:"` 잔존, 루트 catalog `0.127.0` 잔존*.
-121. ⬜ cli 의 어떤 파일도 `from 'oxc-parser'` import 금지 — 위반 시 빌드 실패 (lint rule 또는 typecheck 실패로 강제). **Step 9 에서 회수**.
+120. ✅ `@zipbul/cli` 의 `package.json` 에서 `oxc-parser` 의존성 제거 + 루트 catalog `oxc-parser` 항목 삭제 완료 (commit `9d34771`). transitive 로 길대시가 가져오는 것만 인정. 검증: `packages/cli/node_modules/oxc-parser/` 가 여전히 존재 (gildash transitive).
+121. ✅ cli 의 어떤 파일도 `from 'oxc-parser'` import 금지 — `packages/cli/src/no-oxc-parser-import.spec.ts` 가 모든 `.ts`/`.tsx` 파일을 walk 하며 `'oxc-parser'` / `"oxc-parser"` 문자열을 검사. 위반 시 단일 spec 실패로 빌드 차단 (Husky pre-commit hook + CI test 양쪽에서 강제).
 122. 🟡 AST 노드 타입은 길대시 re-export (`Program`, `Node`, `Visitor`, `visitorKeys`, `VisitorObject`) 만 사용. 길대시가 노출하지 않는 raw oxc 타입 (`Class`, `CallExpression`, `Function`, `MethodDefinition`, `Expression`, `MemberExpression`, `VariableDeclaration`, `ExportNamedDeclaration`, `ExportDefaultDeclaration`, `ModuleExportName`, `StaticImport`, `ImportNameKind`, `PropertyDefinition`, `Directive`, `Statement`, `ArrowFunctionExpression`, `AssignmentExpression`, `NewExpression`, `ImportDeclaration`, `TSType`) 은 길대시 고수준 API (`extractSymbols`, `extractRelations`, `findPattern`) + `Node` union + `node.type === 'X'` 가드로 흡수. **Step 3b~8 진행 중**. `TSType` / `ImportNameKind` 는 Item 131·132 메인테이너 요청 후보.
 123. ✅ `parseSync` / `parseAsync` 직접 호출 금지 — 모두 `parseSource(filePath, sourceText)` 의 `Result<ParsedFile, GildashError>` 반환을 통과. 현재 cli 전체에서 ✅.
 
@@ -472,9 +472,9 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 
 ### 회귀 가드
 
-126. ⬜ 본 PR 의 typecheck 단계에서 `oxc-parser` 가 `@zipbul/cli` 의 직간접 의존 그래프에 *직접 import* 형태로 등장하면 실패. (lockfile 의 transitive 로 존재하는 것은 허용.) **Step 9**.
-127. ⬜ 회귀 방지 단위 테스트 — cli 의 `oxc-parser` import 부재를 grep 으로 검증하는 lint 룰 또는 spec 1개 추가. **Step 9**.
-128. ✅ 기존 cli 의 모든 unit/integration/e2e 회귀 통과. **Baseline 갱신: 1966 / 94 / 370** (Step 4 의 buildImportMap default/namespace 엣지 케이스 spec 2건 추가로 1964 → 1966, 회귀 없음).
+126. ✅ `oxc-parser` 직접 import 회귀 차단 — `no-oxc-parser-import.spec.ts` 가 unit 테스트로 등록되어 `bun run test:unit` 에서 자동 검사. 위반 시 단일 테스트 실패로 빌드 차단. (lockfile transitive 는 허용 — spec 은 *소스 import* 만 검사.) commit `9d34771`.
+127. ✅ 회귀 방지 단위 테스트 추가 완료 — `packages/cli/src/no-oxc-parser-import.spec.ts` (unit 1966 → 1967). commit `9d34771`.
+128. ✅ 기존 cli 의 모든 unit/integration/e2e 회귀 통과. **Baseline 갱신: 1967 / 94 / 370** (Step 4 의 buildImportMap default/namespace 엣지 spec 2건 + Step 9 의 no-oxc-parser-import regression spec 1건 추가로 1964 → 1967, 회귀 없음).
 
 ### 메인테이너 협력 사항
 
@@ -512,9 +512,9 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 - **Section 0 (인수인계)**: 운영 컨텍스트 + 12 Step 로드맵 + baseline + 잔존 15 파일 인벤토리 + Step 3b 작업 컨텍스트 (완료 후 참조용) + catalog 상태 + 심층 리뷰 결과 + 메인테이너 회신 결과 + 사용자 협업 원칙. 본 섹션은 emoji item 으로 카운트되지 않는 산문이다.
 - **Section A~L (Item 1–113 + 5 sub-items 21b·48b·54b·54c·71b = 118 items)**: ✅ 1 (Item 9) / 🟡 0 / 🔵 3 (Item 22·23·52) / ⬜ 114. Step 10 본체 진입 전 진척률 ~1% (Item 9 만 완료, 나머지 모두 Step 10 영역).
 - **Section M (Item 114–119 = 6 items)**: ✅ 0 / 🟡 0 / 🔵 0 / ⬜ 6. Step 11 진입 시 일괄.
-- **Section N (Item 120–132 중 emoji 가진 10 items)**: ✅ 5 (Item 123·124·128·131·132) / 🟡 1 (Item 122) / 🔵 0 / ⬜ 4 (Item 120·121·126·127). 추가로 emoji 없는 informational 노트 3건 (Item 125 progress note, Item 129·130 메인테이너 협력 — 결정 종료 또는 비협력 항목).
+- **Section N (Item 120–132 중 emoji 가진 10 items)**: ✅ 9 (Item 120·121·123·124·126·127·128·131·132) / 🟡 1 (Item 122) / 🔵 0 / ⬜ 0. Step 9 완료로 Section N 의 정책 항목 전부 충족. 추가로 emoji 없는 informational 노트 3건 (Item 125 progress note, Item 129·130 메인테이너 협력 — 결정 종료 또는 비협력 항목).
 
-**전체 진행률** (strict emoji tally): ✅ 6 / 🟡 1 / 🔵 3 / ⬜ 124 = 134 emoji 마킹된 책임 + 3 informational 노트 (125·129·130) = 137 항목. 본 카운트는 *책임 수* 기반 — 완료율 (6/134) 약 4.5%.
+**전체 진행률** (strict emoji tally): ✅ 10 / 🟡 1 / 🔵 3 / ⬜ 120 = 134 emoji 마킹된 책임 + 3 informational 노트 (125·129·130) = 137 항목. 본 카운트는 *책임 수* 기반 — 완료율 (10/134) 약 7.5%. **Step 1~9 의 인프라 정비 단계 완전 종료**, Step 10 (어댑터 컴파일러 `zb build adapter` 본체) 가 Section A~L 의 113+5 책임을 한 번에 산출하는 본격 구현 단계로 진입.
 
 **작업 진척의 정성적 표기** (책임 단위가 아닌 *Step 단위* 의 진행 — 137 책임이 12 Step 으로 묶여있고, 한 Step 이 여러 책임을 한 번에 해결): Step 1·2·3a·3b 완료, baseline 갱신 완료, 심층 리뷰 + 메인테이너 회신 2 라운드 종료 + 정책 결정 7건 반영 완료. Step 단위 진행률 = 4/12 = 33%. 책임 수 진행률 (4%) 와 Step 진행률 (33%) 의 격차는 Step 10·11·12 가 Section A~M 의 책임 100여 개를 한 번에 산출하는 본격 구현 단계이기 때문 — 현 시점은 *인프라 정비 단계* (Step 1~9) 가 거의 끝나가는 지점.
 
