@@ -661,6 +661,7 @@ interface AdapterPackageJson {
   readonly types?: string;
   readonly exports?: unknown;
   readonly files?: readonly string[];
+  readonly dependencies?: Record<string, string>;
   readonly peerDependencies?: Record<string, string>;
   readonly zipbul?: { readonly kind?: string };
 }
@@ -726,6 +727,33 @@ function validatePackageFields(pkg: AdapterPackageJson, packageRoot: string): vo
 
     if (!includesDist) {
       errors.push(`package.json \`files\` must include \`dist\` so the compiled output ships in the published tarball. Got: ${JSON.stringify(pkg.files)}.`);
+    }
+  }
+
+  // Item 6·46 — framework runtime declarations. Skip when the fixture
+  // package.json declares no deps at all (minimal/test packages); enforce
+  // only when the package has any dependency or peerDependency, signaling
+  // intent to publish.
+  const peerDeps = pkg.peerDependencies ?? {};
+  const directDeps = pkg.dependencies ?? {};
+  const declaresAnyDeps = Object.keys(peerDeps).length > 0 || Object.keys(directDeps).length > 0;
+
+  if (declaresAnyDeps) {
+    const requiredFrameworkPeers = ['@zipbul/core', '@zipbul/common'];
+
+    for (const peer of requiredFrameworkPeers) {
+      const peerRange = peerDeps[peer];
+      const directRange = directDeps[peer];
+
+      if (peerRange === undefined && directRange === undefined) {
+        errors.push(`package.json must declare \`${peer}\` in \`peerDependencies\` (preferred — shared with user app) or \`dependencies\`.`);
+        continue;
+      }
+
+      const range = peerRange ?? directRange;
+      if (typeof range !== 'string' || range.trim().length === 0) {
+        errors.push(`package.json \`${peerRange !== undefined ? 'peerDependencies' : 'dependencies'}."${peer}"\` must declare a non-empty semver range. Got: ${JSON.stringify(range)}.`);
+      }
     }
   }
 
