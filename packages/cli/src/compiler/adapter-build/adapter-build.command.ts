@@ -313,12 +313,22 @@ async function runCodegen(packageRoot: string, stagingDir: string): Promise<void
   }
 
   // 1. JS bundle via Bun.build — same shape the package's own scripts use.
+  //
+  // `minify: { syntax, whitespace }` matches the existing convention shared by
+  // the in-tree adapter build scripts (`bun build ... --minify-syntax
+  // --minify-whitespace`). `identifiers: false` keeps exported names readable
+  // for runtime introspection — the manifest references identifiers by name.
   const buildResult = await Bun.build({
     entrypoints: [entryPath],
     outdir: stagingDir,
     target: 'bun',
     format: 'esm',
     packages: 'external',
+    minify: {
+      syntax: true,
+      whitespace: true,
+      identifiers: false,
+    },
   });
 
   if (!buildResult.success) {
