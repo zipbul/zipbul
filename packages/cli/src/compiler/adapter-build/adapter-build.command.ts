@@ -8,9 +8,12 @@ import type { ParsedFile, ExtractedSymbol, ExpressionValue, ExpressionCall, Code
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 
 import type {
+  AdapterConstructorSchema,
   AdapterManifest,
   BuildAdapterOptions,
   BuildAdapterResult,
+  ContextMethodSignature,
+  ContextNamespacesSchema,
   DecoratorSchema,
   PeerContract,
   PipelineRef,
@@ -48,10 +51,22 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     entryFile,
     packageRoot,
   );
+  const contextNamespaces = extractContextNamespaces(
+    sourceTree,
+    extracted.contextType,
+    packageRoot,
+  );
+  const constructorSchema = extractAdapterConstructorSchema(
+    sourceTree,
+    extracted.adapterId,
+    packageRoot,
+  );
 
   const pipelineSchemaRel = 'pipeline-schema.json';
   const decoratorSchemaRel = 'decorator-schema.json';
   const peerContractRel = 'peer-contract.json';
+  const contextNamespacesRel = 'context-namespaces.json';
+  const constructorSchemaRel = 'adapter-constructor-schema.json';
   const adapterManifest: AdapterManifest = {
     $schemaName: 'adapter.manifest',
     adapterId: extracted.adapterId,
@@ -60,6 +75,8 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
       'pipeline-schema': pipelineSchemaRel,
       'decorator-schema': decoratorSchemaRel,
       'peer-contract': peerContractRel,
+      'context-namespaces': contextNamespacesRel,
+      'adapter-constructor-schema': constructorSchemaRel,
     },
   };
 
@@ -72,6 +89,8 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     await Bun.write(join(stagingDir, pipelineSchemaRel), serializeJson(extracted.pipelineSchema));
     await Bun.write(join(stagingDir, decoratorSchemaRel), serializeJson(decoratorSchema));
     await Bun.write(join(stagingDir, peerContractRel), serializeJson(peerContract));
+    await Bun.write(join(stagingDir, contextNamespacesRel), serializeJson(contextNamespaces));
+    await Bun.write(join(stagingDir, constructorSchemaRel), serializeJson(constructorSchema));
     // Top-level manifest written last (Item 75): it indexes the other paths.
     await Bun.write(join(stagingDir, 'adapter.manifest.json'), serializeJson(adapterManifest));
 
@@ -84,6 +103,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
 
 interface ExtractedAdapterDefinition {
   readonly adapterId: string;
+  readonly contextType: string;
   readonly pipelineSchema: PipelineSchema;
   /** Identifier names from `defineAdapter({ provides: [...] })`, or empty when omitted. */
   readonly providesIdents: readonly string[];
@@ -241,10 +261,18 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
 
   const phaseEnum = readIdentifierField(adapterCall, 'phase');
   const stepEnum = readIdentifierField(adapterCall, 'step');
+  const contextType = readIdentifierField(adapterCall, 'context');
 
   if (phaseEnum === null || stepEnum === null) {
     throw new DiagnosticError(buildDiagnostic({
       reason: `defineAdapter() in ${entry.filePath} must declare \`phase\` and \`step\` fields as enum identifier references.`,
+      file: entry.filePath,
+    }));
+  }
+
+  if (contextType === null) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `defineAdapter() in ${entry.filePath} must declare \`context\` field as a Context class identifier reference.`,
       file: entry.filePath,
     }));
   }
@@ -262,6 +290,7 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
 
   return {
     adapterId,
+    contextType,
     pipelineSchema: {
       $schemaName: 'adapter.pipeline-schema',
       phaseEnum,
@@ -357,6 +386,105 @@ function readClusterStrategy(
 
   throw new DiagnosticError(buildDiagnostic({
     reason: `Adapter class \`${adapterId}\` not found while resolving clusterStrategy under ${packageRoot}/src/.`,
+    file: packageRoot,
+  }));
+}
+
+function extractContextNamespaces(
+  tree: SourceTree,
+  contextType: string,
+  packageRoot: string,
+): ContextNamespacesSchema {
+  for (const file of tree) {
+    for (const symbol of file.symbols) {
+      if (symbol.kind !== 'class' || symbol.name !== contextType) continue;
+
+      const methods: ContextMethodSignature[] = [];
+
+      for (const member of symbol.members ?? []) {
+        if (member.kind !== 'method') continue;
+        if (member.modifiers.includes('private') || member.modifiers.includes('protected')) continue;
+        if (member.methodKind !== 'method') continue; // skip getters/setters/constructor
+        if (typeof member.name !== 'string' || member.name.length === 0) continue;
+
+        const params = (member.parameters ?? []).map(p => ({
+          name: p.name,
+          type: p.type ?? null,
+        }));
+
+        methods.push({
+          name: member.name,
+          params,
+          returnType: member.returnType ?? null,
+        });
+      }
+
+      methods.sort((a, b) => a.name.localeCompare(b.name));
+
+      return {
+        $schemaName: 'adapter.context-namespaces',
+        contextType,
+        methods,
+      };
+    }
+  }
+
+  throw new DiagnosticError(buildDiagnostic({
+    reason: `Context class \`${contextType}\` not found anywhere under ${packageRoot}/src/.`,
+    file: packageRoot,
+  }));
+}
+
+function extractAdapterConstructorSchema(
+  tree: SourceTree,
+  adapterId: string,
+  packageRoot: string,
+): AdapterConstructorSchema {
+  for (const file of tree) {
+    for (const symbol of file.symbols) {
+      if (symbol.kind !== 'class' || symbol.name !== adapterId) continue;
+
+      const ctor = (symbol.members ?? []).find(
+        (m): m is ExtractedSymbol => m.kind === 'method' && m.methodKind === 'constructor',
+      );
+
+      if (ctor === undefined) {
+        return {
+          $schemaName: 'adapter.constructor-schema',
+          optionsParam: null,
+          optional: true,
+        };
+      }
+
+      const params = ctor.parameters ?? [];
+      const first = params[0];
+
+      if (first === undefined) {
+        return {
+          $schemaName: 'adapter.constructor-schema',
+          optionsParam: null,
+          optional: true,
+        };
+      }
+
+      // Item 44 — adapter constructors accept at most one options-object param.
+      if (params.length > 1) {
+        throw new DiagnosticError(buildDiagnostic({
+          reason: `Adapter class \`${adapterId}\` (in ${file.filePath}) constructor must accept at most one options parameter (Item 44). Found ${params.length}.`,
+          file: file.filePath,
+        }));
+      }
+
+      return {
+        $schemaName: 'adapter.constructor-schema',
+        optionsParam: { name: first.name, type: first.type ?? null },
+        optional: first.isOptional === true,
+      };
+    }
+  }
+
+  throw new DiagnosticError(buildDiagnostic({
+    reason: `Adapter class \`${adapterId}\` not found while resolving constructor schema under ${packageRoot}/src/.`,
     file: packageRoot,
   }));
 }

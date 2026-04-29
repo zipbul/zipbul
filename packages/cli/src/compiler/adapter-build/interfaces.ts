@@ -92,6 +92,43 @@ export interface DecoratorSchema {
 }
 
 /**
+ * `dist/context-namespaces.json` — the Context class identifier and its
+ * public method signatures (Item 12·18). The full namespace property map
+ * (Item 16) is delivered in a later slice once middleware-augment integration
+ * lands; this slice records only the Context class structural surface.
+ *
+ * @public
+ */
+export interface ContextNamespacesSchema {
+  readonly $schemaName: 'adapter.context-namespaces';
+  /** Identifier name passed as `context` field of `defineAdapter()`. */
+  readonly contextType: string;
+  /** Public methods on the Context class with raw type-annotation text. */
+  readonly methods: readonly ContextMethodSignature[];
+}
+
+export interface ContextMethodSignature {
+  readonly name: string;
+  readonly params: readonly { readonly name: string; readonly type: string | null }[];
+  readonly returnType: string | null;
+}
+
+/**
+ * `dist/adapter-constructor-schema.json` — the adapter class constructor's
+ * options-parameter type (Item 44·54c·71b). User-app build uses this to
+ * compile-time check `new AdapterClass(options)` calls.
+ *
+ * @public
+ */
+export interface AdapterConstructorSchema {
+  readonly $schemaName: 'adapter.constructor-schema';
+  /** The constructor's options parameter name and raw type-annotation text. */
+  readonly optionsParam: { readonly name: string; readonly type: string | null } | null;
+  /** `true` when the options parameter has a `?` modifier or a default value. */
+  readonly optional: boolean;
+}
+
+/**
  * `dist/peer-contract.json` — the adapter's contract with the framework runtime
  * and the user-app build (Item 69).
  *

@@ -33,9 +33,10 @@ describe('zb build adapter — Slice 1', () => {
       [
         `import { defineAdapter } from '@zipbul/common';`,
         `import { CoreStep } from '@zipbul/core';`,
-        `import { TestAdapter, TestPhase, TestStep } from './test-adapter';`,
+        `import { TestAdapter, TestContext, TestPhase, TestStep } from './test-adapter';`,
         `export const adapterDefinition = defineAdapter({`,
         `  adapter: TestAdapter,`,
+        `  context: TestContext,`,
         `  phase: TestPhase,`,
         `  step: TestStep,`,
         `  pipeline: [`,
@@ -52,12 +53,21 @@ describe('zb build adapter — Slice 1', () => {
       join(pkgRoot, 'src/test-adapter.ts'),
       [
         `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export interface TestOptions { readonly port?: number; }`,
         `export class TestAdapter {`,
         `  readonly decorators: AdapterEntryDecorators = {`,
         `    controller: TestController,`,
         `    handlers: [TestGet, TestPost],`,
         `    options: [TestStatus],`,
         `  };`,
+        `  constructor(options: TestOptions = {}) {`,
+        `    void options;`,
+        `  }`,
+        `}`,
+        `export class TestContext {`,
+        `  private internal = 1;`,
+        `  acquire(id: string): void { void id; }`,
+        `  release(): boolean { return true; }`,
         `}`,
         `export const TestController = () => () => {};`,
         `export const TestGet = () => () => {};`,
@@ -88,6 +98,8 @@ describe('zb build adapter — Slice 1', () => {
         'pipeline-schema': 'pipeline-schema.json',
         'decorator-schema': 'decorator-schema.json',
         'peer-contract': 'peer-contract.json',
+        'context-namespaces': 'context-namespaces.json',
+        'adapter-constructor-schema': 'adapter-constructor-schema.json',
       },
     });
 
@@ -149,6 +161,36 @@ describe('zb build adapter — Slice 1', () => {
     expect(contract.peerSymbols['@zipbul/core']).toContain('CoreStep');
   });
 
+  it('emits dist/context-namespaces.json with public method signatures only', async () => {
+    await writeMinimalAdapter();
+
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const text = await readFile(join(pkgRoot, 'dist', 'context-namespaces.json'), 'utf8');
+    const schema = JSON.parse(text);
+
+    expect(schema.$schemaName).toBe('adapter.context-namespaces');
+    expect(schema.contextType).toBe('TestContext');
+    // private `internal` excluded; sorted by name; getters/setters/constructor excluded
+    expect(schema.methods.map((m: { name: string }) => m.name)).toEqual(['acquire', 'release']);
+    const acquire = schema.methods.find((m: { name: string }) => m.name === 'acquire');
+    expect(acquire.params).toEqual([{ name: 'id', type: 'string' }]);
+    expect(acquire.returnType).toBe('void');
+  });
+
+  it('emits dist/adapter-constructor-schema.json with options param type', async () => {
+    await writeMinimalAdapter();
+
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const text = await readFile(join(pkgRoot, 'dist', 'adapter-constructor-schema.json'), 'utf8');
+    const schema = JSON.parse(text);
+
+    expect(schema.$schemaName).toBe('adapter.constructor-schema');
+    expect(schema.optionsParam).toEqual({ name: 'options', type: 'TestOptions' });
+    expect(schema.optional).toBe(true);
+  });
+
   it('peer-contract honors explicit ClusterStrategy.Exclusive on adapter class + provides field', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),
@@ -163,9 +205,10 @@ describe('zb build adapter — Slice 1', () => {
       [
         `import { defineAdapter, type ContextKey } from '@zipbul/common';`,
         `import { ClusterStrategy } from '@zipbul/common';`,
-        `import { ExAdapter, KEY_A, KEY_B, P, S } from './x';`,
+        `import { ExAdapter, ExContext, KEY_A, KEY_B, P, S } from './x';`,
         `export const d = defineAdapter({`,
         `  adapter: ExAdapter,`,
+        `  context: ExContext,`,
         `  phase: P,`,
         `  step: S,`,
         `  pipeline: [P.X],`,
@@ -184,6 +227,7 @@ describe('zb build adapter — Slice 1', () => {
         `    handlers: [H],`,
         `  };`,
         `}`,
+        `export class ExContext {}`,
         `export const C = () => () => {};`,
         `export const H = () => () => {};`,
         `export const KEY_A = {} as unknown;`,
