@@ -16,4 +16,6 @@
  * @public
  */
 export { buildAdapter } from './adapter-build.command';
+export { readAdapterManifest } from './manifest-reader';
 export type { BuildAdapterOptions, BuildAdapterResult } from './interfaces';
+export type { ReadAdapterManifestOptions, ReadAdapterManifestResult } from './manifest-reader';
