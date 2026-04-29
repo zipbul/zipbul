@@ -71,3 +71,22 @@ export interface PipelineSchema {
   /** Ordered pipeline entries in source order. */
   readonly pipeline: readonly PipelineRef[];
 }
+
+/**
+ * `dist/decorator-schema.json` — the adapter's `AdapterEntryDecorators`
+ * (controller / handlers / options) extracted from the adapter class's
+ * `decorators` instance property. Each entry is an identifier name as
+ * written in source — resolution to actual decorator imports is the
+ * user-app build's job (cross-checked against `controllerImports`).
+ *
+ * @public
+ */
+export interface DecoratorSchema {
+  readonly $schemaName: 'adapter.decorator-schema';
+  /** Single class-level controller decorator (Item 41 — exactly 1). */
+  readonly controller: string;
+  /** 1+ method-level handler decorators. */
+  readonly handlers: readonly string[];
+  /** 0+ optional method/class option decorators. */
+  readonly options: readonly string[];
+}

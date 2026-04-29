@@ -1,4 +1,4 @@
-import { readFile, mkdir, rename, rm } from 'node:fs/promises';
+import { readFile, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { isErr } from '@zipbul/result';
@@ -11,6 +11,7 @@ import type {
   AdapterManifest,
   BuildAdapterOptions,
   BuildAdapterResult,
+  DecoratorSchema,
   PipelineRef,
   PipelineSchema,
 } from './interfaces';
@@ -35,17 +36,20 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   const pkgJson = await readPackageJson(packageRoot);
   validateAdapterKind(pkgJson, packageRoot);
 
-  const entrySourcePath = await resolveAdapterEntrySource(packageRoot, pkgJson);
-  const extracted = await extractAdapterDefinition(entrySourcePath);
-  const { adapterId, pipelineSchema } = extracted;
+  const sourceTree = await collectSourceTree(packageRoot);
+  const entryFile = pickEntrySourceFile(sourceTree, packageRoot);
+  const extracted = extractAdapterDefinition(entryFile);
+  const decoratorSchema = extractDecoratorSchema(sourceTree, extracted.adapterId, packageRoot);
 
   const pipelineSchemaRel = 'pipeline-schema.json';
+  const decoratorSchemaRel = 'decorator-schema.json';
   const adapterManifest: AdapterManifest = {
     $schemaName: 'adapter.manifest',
-    adapterId,
+    adapterId: extracted.adapterId,
     producedBy: PRODUCER_VERSION,
     manifests: {
       'pipeline-schema': pipelineSchemaRel,
+      'decorator-schema': decoratorSchemaRel,
     },
   };
 
@@ -55,7 +59,8 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     await rm(stagingDir, { recursive: true, force: true });
     await mkdir(stagingDir, { recursive: true });
 
-    await Bun.write(join(stagingDir, pipelineSchemaRel), serializeJson(pipelineSchema));
+    await Bun.write(join(stagingDir, pipelineSchemaRel), serializeJson(extracted.pipelineSchema));
+    await Bun.write(join(stagingDir, decoratorSchemaRel), serializeJson(decoratorSchema));
     // Top-level manifest written last (Item 75): it indexes the other paths.
     await Bun.write(join(stagingDir, 'adapter.manifest.json'), serializeJson(adapterManifest));
 
@@ -63,13 +68,26 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     await rename(stagingDir, outDir);
   }
 
-  return { adapterId, manifestPath };
+  return { adapterId: extracted.adapterId, manifestPath };
 }
 
 interface ExtractedAdapterDefinition {
   readonly adapterId: string;
   readonly pipelineSchema: PipelineSchema;
 }
+
+/**
+ * Cached `(filePath, parsed, symbols)` triples — every TS file in the package
+ * source tree is parsed once and reused by all extractors that need to look
+ * up classes/exports across files.
+ */
+interface SourceFile {
+  readonly filePath: string;
+  readonly parsed: ParsedFile;
+  readonly symbols: readonly ExtractedSymbol[];
+}
+
+type SourceTree = readonly SourceFile[];
 
 interface AdapterPackageJson {
   readonly name?: string;
@@ -101,51 +119,101 @@ function validateAdapterKind(pkg: AdapterPackageJson, packageRoot: string): void
   }
 }
 
-async function resolveAdapterEntrySource(packageRoot: string, _pkg: AdapterPackageJson): Promise<string> {
-  // Slice 1: probe a conventional set of locations for the file that hosts the
-  // top-level `defineAdapter()` call. Future slices follow the package's
-  // re-export chain to locate the call from the published entry.
-  const candidates = [
-    'src/adapter-definition.ts',
-    'src/adapter.ts',
-    'src/index.ts',
-    'index.ts',
-  ];
+/**
+ * Recursively collects every `.ts` file under `<packageRoot>/src/` (plus
+ * any top-level `index.ts`) and parses each via gildash. Spec/test files
+ * (`*.spec.ts`, `*.test.ts`) and the `dist/` tree are excluded — the
+ * compiler operates on source only.
+ */
+async function collectSourceTree(packageRoot: string): Promise<SourceTree> {
+  const tree: SourceFile[] = [];
+  const srcDir = join(packageRoot, 'src');
 
-  for (const rel of candidates) {
-    const full = join(packageRoot, rel);
-    const file = Bun.file(full);
-    if (await file.exists()) {
-      const text = await file.text();
-      if (text.includes('defineAdapter')) return full;
+  if (await pathExists(srcDir)) {
+    await walkSourceTree(srcDir, tree);
+  }
+
+  const topLevelIndex = join(packageRoot, 'index.ts');
+
+  if (await pathExists(topLevelIndex)) {
+    await pushSourceFile(topLevelIndex, tree);
+  }
+
+  if (tree.length === 0) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `No TypeScript source files found in ${packageRoot}/src/ or ${packageRoot}/index.ts.`,
+      file: packageRoot,
+    }));
+  }
+
+  return tree;
+}
+
+async function walkSourceTree(dir: string, out: SourceFile[]): Promise<void> {
+  const entries = await readdir(dir);
+
+  for (const entry of entries) {
+    const full = join(dir, entry);
+    const info = await stat(full);
+
+    if (info.isDirectory()) {
+      if (entry === 'node_modules' || entry === 'dist' || entry === '.zipbul') continue;
+      await walkSourceTree(full, out);
+      continue;
+    }
+
+    if (!info.isFile()) continue;
+    if (!full.endsWith('.ts')) continue;
+    if (full.endsWith('.spec.ts') || full.endsWith('.test.ts')) continue;
+    if (full.endsWith('.d.ts')) continue;
+
+    await pushSourceFile(full, out);
+  }
+}
+
+async function pushSourceFile(filePath: string, out: SourceFile[]): Promise<void> {
+  const text = await readFile(filePath, 'utf8');
+  const parseResult = parseSource(filePath, text);
+
+  if (isErr(parseResult)) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `Failed to parse ${filePath}: ${parseResult.data.message}`,
+      file: filePath,
+    }));
+  }
+
+  out.push({ filePath, parsed: parseResult, symbols: extractSymbols(parseResult) });
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function pickEntrySourceFile(tree: SourceTree, packageRoot: string): SourceFile {
+  for (const file of tree) {
+    if (findDefineAdapterCall(file.symbols) !== null) {
+      return file;
     }
   }
 
   throw new DiagnosticError(buildDiagnostic({
-    reason: `Adapter source entry not found (no file in [${candidates.join(', ')}] contains \`defineAdapter\`) under ${packageRoot}.`,
+    reason: `No file under ${packageRoot}/src/ exports a \`defineAdapter()\` call. The adapter package must export the result of \`defineAdapter({...})\`.`,
     file: packageRoot,
   }));
 }
 
-async function extractAdapterDefinition(entryPath: string): Promise<ExtractedAdapterDefinition> {
-  const sourceText = await readFile(entryPath, 'utf8');
-  const parseResult = parseSource(entryPath, sourceText);
-
-  if (isErr(parseResult)) {
-    throw new DiagnosticError(buildDiagnostic({
-      reason: `Failed to parse adapter entry ${entryPath}: ${parseResult.data.message}`,
-      file: entryPath,
-    }));
-  }
-
-  const parsed: ParsedFile = parseResult;
-  const symbols = extractSymbols(parsed);
-  const adapterCall = findDefineAdapterCall(symbols);
+function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition {
+  const adapterCall = findDefineAdapterCall(entry.symbols);
 
   if (adapterCall === null) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `No \`defineAdapter()\` export found in ${entryPath}. The adapter package's source entry must export the result of \`defineAdapter({ adapter: SomeClass, ... })\`.`,
-      file: entryPath,
+      reason: `No \`defineAdapter()\` export found in ${entry.filePath}.`,
+      file: entry.filePath,
     }));
   }
 
@@ -153,8 +221,8 @@ async function extractAdapterDefinition(entryPath: string): Promise<ExtractedAda
 
   if (adapterId === null) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `defineAdapter() in ${entryPath} must receive a config object whose \`adapter\` field is a class identifier reference.`,
-      file: entryPath,
+      reason: `defineAdapter() in ${entry.filePath} must receive a config object whose \`adapter\` field is a class identifier reference.`,
+      file: entry.filePath,
     }));
   }
 
@@ -163,8 +231,8 @@ async function extractAdapterDefinition(entryPath: string): Promise<ExtractedAda
 
   if (phaseEnum === null || stepEnum === null) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `defineAdapter() in ${entryPath} must declare \`phase\` and \`step\` fields as enum identifier references.`,
-      file: entryPath,
+      reason: `defineAdapter() in ${entry.filePath} must declare \`phase\` and \`step\` fields as enum identifier references.`,
+      file: entry.filePath,
     }));
   }
 
@@ -172,19 +240,165 @@ async function extractAdapterDefinition(entryPath: string): Promise<ExtractedAda
 
   if (pipeline === null) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `defineAdapter() in ${entryPath} must declare a non-empty \`pipeline\` array of qualified enum members (e.g. \`HttpPhase.OnRequest\`, \`HttpStep.ResolveRoute\`, \`CoreStep.Handler\`).`,
-      file: entryPath,
+      reason: `defineAdapter() in ${entry.filePath} must declare a non-empty \`pipeline\` array of qualified enum members (e.g. \`HttpPhase.OnRequest\`, \`HttpStep.ResolveRoute\`, \`CoreStep.Handler\`).`,
+      file: entry.filePath,
     }));
   }
 
-  const pipelineSchema: PipelineSchema = {
-    $schemaName: 'adapter.pipeline-schema',
-    phaseEnum,
-    stepEnum,
-    pipeline,
+  return {
+    adapterId,
+    pipelineSchema: {
+      $schemaName: 'adapter.pipeline-schema',
+      phaseEnum,
+      stepEnum,
+      pipeline,
+    },
   };
+}
 
-  return { adapterId, pipelineSchema };
+/**
+ * Locates the adapter class by name across the source tree, then reads its
+ * `decorators` instance property to derive the controller / handlers /
+ * options identifiers (Item 19·20·21·67).
+ */
+function extractDecoratorSchema(
+  tree: SourceTree,
+  adapterId: string,
+  packageRoot: string,
+): DecoratorSchema {
+  for (const file of tree) {
+    for (const symbol of file.symbols) {
+      if (symbol.kind !== 'class' || symbol.name !== adapterId) continue;
+
+      const decoratorsMember = (symbol.members ?? []).find(
+        (m): m is ExtractedSymbol => m.kind === 'property' && m.name === 'decorators',
+      );
+
+      if (decoratorsMember === undefined || decoratorsMember.initializer === undefined) {
+        throw new DiagnosticError(buildDiagnostic({
+          reason: `Adapter class \`${adapterId}\` in ${file.filePath} must declare a \`decorators\` instance property of shape \`{ controller, handlers, options? }\`.`,
+          file: file.filePath,
+        }));
+      }
+
+      return readAdapterEntryDecorators(decoratorsMember.initializer, file.filePath, adapterId);
+    }
+  }
+
+  throw new DiagnosticError(buildDiagnostic({
+    reason: `Adapter class \`${adapterId}\` not found anywhere under ${packageRoot}/src/.`,
+    file: packageRoot,
+  }));
+}
+
+function readAdapterEntryDecorators(
+  init: ExpressionValue,
+  filePath: string,
+  adapterId: string,
+): DecoratorSchema {
+  if (init.kind !== 'object') {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `Adapter class \`${adapterId}\` (in ${filePath}) decorators property must be an object literal.`,
+      file: filePath,
+    }));
+  }
+
+  let controller: string | null = null;
+  let handlers: readonly string[] | null = null;
+  let options: readonly string[] = [];
+
+  for (const prop of init.properties) {
+    if (prop.kind === 'spread') continue;
+    if (prop.key.kind !== 'string') continue;
+
+    const fieldName = prop.key.value;
+
+    if (fieldName === 'controller') {
+      if (prop.value.kind !== 'identifier') {
+        throw new DiagnosticError(buildDiagnostic({
+          reason: `decorators.controller in ${filePath} must be a single identifier reference (Item 41 — exactly 1).`,
+          file: filePath,
+        }));
+      }
+      controller = prop.value.name;
+    } else if (fieldName === 'handlers') {
+      handlers = readIdentifierArray(prop.value, 'decorators.handlers', filePath);
+
+      if (handlers.length === 0) {
+        throw new DiagnosticError(buildDiagnostic({
+          reason: `decorators.handlers in ${filePath} must contain at least one identifier reference (Item 41 — 1+).`,
+          file: filePath,
+        }));
+      }
+    } else if (fieldName === 'options') {
+      options = readIdentifierArray(prop.value, 'decorators.options', filePath);
+    }
+  }
+
+  if (controller === null) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `decorators.controller missing in ${filePath} (Item 41).`,
+      file: filePath,
+    }));
+  }
+
+  if (handlers === null) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `decorators.handlers missing in ${filePath} (Item 41).`,
+      file: filePath,
+    }));
+  }
+
+  ensureUnique([controller, ...handlers, ...options], filePath);
+
+  return {
+    $schemaName: 'adapter.decorator-schema',
+    controller,
+    handlers,
+    options,
+  };
+}
+
+function readIdentifierArray(value: ExpressionValue, label: string, filePath: string): readonly string[] {
+  if (value.kind !== 'array') {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `${label} in ${filePath} must be an array literal of identifier references.`,
+      file: filePath,
+    }));
+  }
+
+  const out: string[] = [];
+
+  for (const element of value.elements) {
+    if (element.kind !== 'identifier') {
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `${label} in ${filePath} must contain only identifier references (no spreads, calls, or literals).`,
+        file: filePath,
+      }));
+    }
+    out.push(element.name);
+  }
+
+  return out;
+}
+
+function ensureUnique(names: readonly string[], filePath: string): void {
+  // Item 40 — decorator name uniqueness within the controller/handlers/options
+  // grouping for the adapter entry.
+  const seen = new Set<string>();
+  const dupes = new Set<string>();
+
+  for (const name of names) {
+    if (seen.has(name)) dupes.add(name);
+    seen.add(name);
+  }
+
+  if (dupes.size > 0) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `Duplicate decorator name(s) [${[...dupes].join(', ')}] in ${filePath} (Item 40).`,
+      file: filePath,
+    }));
+  }
 }
 
 function findDefineAdapterCall(symbols: readonly ExtractedSymbol[]): ExpressionCall | null {

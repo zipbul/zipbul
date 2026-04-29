@@ -47,6 +47,26 @@ describe('zb build adapter — Slice 1', () => {
         `});`,
       ].join('\n'),
     );
+
+    await Bun.write(
+      join(pkgRoot, 'src/test-adapter.ts'),
+      [
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class TestAdapter {`,
+        `  readonly decorators: AdapterEntryDecorators = {`,
+        `    controller: TestController,`,
+        `    handlers: [TestGet, TestPost],`,
+        `    options: [TestStatus],`,
+        `  };`,
+        `}`,
+        `export const TestController = () => () => {};`,
+        `export const TestGet = () => () => {};`,
+        `export const TestPost = () => () => {};`,
+        `export const TestStatus = () => () => {};`,
+        `export const TestPhase = { OnRequest: 'OnRequest', AfterResponse: 'AfterResponse' } as const;`,
+        `export const TestStep = { ResolveRoute: 'ResolveRoute' } as const;`,
+      ].join('\n'),
+    );
   }
 
   it('emits dist/adapter.manifest.json with adapter id from defineAdapter()', async () => {
@@ -64,7 +84,10 @@ describe('zb build adapter — Slice 1', () => {
       $schemaName: 'adapter.manifest',
       adapterId: 'TestAdapter',
       producedBy: expect.stringMatching(/^@zipbul\/cli@/),
-      manifests: { 'pipeline-schema': 'pipeline-schema.json' },
+      manifests: {
+        'pipeline-schema': 'pipeline-schema.json',
+        'decorator-schema': 'decorator-schema.json',
+      },
     });
 
     expect(text.endsWith('\n')).toBe(true);
@@ -91,6 +114,89 @@ describe('zb build adapter — Slice 1', () => {
         { qualifier: 'TestPhase', name: 'AfterResponse' },
       ],
     });
+  });
+
+  it('emits dist/decorator-schema.json with controller/handlers/options identifiers', async () => {
+    await writeMinimalAdapter();
+
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const text = await readFile(join(pkgRoot, 'dist', 'decorator-schema.json'), 'utf8');
+    const schema = JSON.parse(text);
+
+    expect(schema).toEqual({
+      $schemaName: 'adapter.decorator-schema',
+      controller: 'TestController',
+      handlers: ['TestGet', 'TestPost'],
+      options: ['TestStatus'],
+    });
+  });
+
+  it('rejects adapter class without decorators property', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({
+        name: '@example/no-decorators',
+        version: '0.0.1',
+        zipbul: { kind: 'adapter' },
+      }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-definition.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { TestAdapter, P, S } from './x';`,
+        `export const d = defineAdapter({ adapter: TestAdapter, phase: P, step: S, pipeline: [P.A] });`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/x.ts'),
+      [
+        `export class TestAdapter {}`,
+        `export const P = { A: 'A' } as const;`,
+        `export const S = {} as const;`,
+      ].join('\n'),
+    );
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
+  it('rejects duplicate decorator names within an adapter entry (Item 40)', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({
+        name: '@example/dup-decorators',
+        version: '0.0.1',
+        zipbul: { kind: 'adapter' },
+      }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-definition.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { A, P, S } from './x';`,
+        `export const d = defineAdapter({ adapter: A, phase: P, step: S, pipeline: [P.X] });`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/x.ts'),
+      [
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class A {`,
+        `  readonly decorators: AdapterEntryDecorators = {`,
+        `    controller: Get,`,
+        `    handlers: [Get, Post],`,
+        `    options: [],`,
+        `  };`,
+        `}`,
+        `export const Get = () => () => {};`,
+        `export const Post = () => () => {};`,
+        `export const P = { X: 'X' } as const;`,
+        `export const S = {} as const;`,
+      ].join('\n'),
+    );
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
   });
 
   it('rejects packages without zipbul.kind === "adapter"', async () => {
