@@ -25,7 +25,6 @@
     "@zipbul/gildash": "catalog:",
     "@zipbul/logger": "workspace:*",
     "@zipbul/result": "catalog:",
-    "oxc-parser": "catalog:",
     "picocolors": "catalog:"
   },
   "devDependencies": {
