@@ -16,6 +16,8 @@
  * @public
  */
 export { buildAdapter } from './adapter-build.command';
+export { watchAdapter } from './watch';
 export { readAdapterManifest, detectMultiAdapterConflicts } from './manifest-reader';
 export type { BuildAdapterOptions, BuildAdapterResult } from './interfaces';
+export type { WatchAdapterOptions, WatchHandle } from './watch';
 export type { ReadAdapterManifestOptions, ReadAdapterManifestResult, AdapterConflict } from './manifest-reader';

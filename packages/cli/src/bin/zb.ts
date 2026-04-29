@@ -5,7 +5,7 @@ import type { CommandOptions } from './interfaces';
 import { Logger } from '@zipbul/logger';
 import { dev } from './dev';
 import { build } from './build';
-import { buildAdapter } from '../compiler/adapter-build';
+import { buildAdapter, watchAdapter } from '../compiler/adapter-build';
 import { DiagnosticError } from '../diagnostics';
 import { CliRenderer } from './cli-renderer';
 
@@ -45,6 +45,9 @@ const { positionals, values } = parseArgs({
     'with-self-test': {
       type: 'boolean',
     },
+    watch: {
+      type: 'boolean',
+    },
   },
 });
 const command = positionals[0];
@@ -82,6 +85,7 @@ const USAGE_TEXT = [
   '  --quiet, -q      Suppress info output; emit only diagnostics',
   '  --format=json    Emit machine-friendly JSON to stdout; diagnostics to stderr',
   '  --with-self-test Run strict self-test (re-compile .d.ts + Bun import smoke)',
+  '  --watch          Re-build on source changes (debounced)',
   '',
   'Exit codes:',
   '  0  Success',
@@ -137,6 +141,28 @@ try {
           ...(values.quiet === true ? { quiet: true as const } : {}),
           ...(values['with-self-test'] === true ? { withSelfTest: true as const } : {}),
         };
+
+        if (values.watch === true) {
+          // Item 102 — watch mode. Initial build runs synchronously; further
+          // rebuilds fire via fs.watch + debounce. SIGINT teardown is left to
+          // process default — closing watchers on exit is best-effort.
+          await watchAdapter({
+            ...adapterOpts,
+            onRebuild(result, error) {
+              if (error !== null) {
+                renderer.error(`watch: rebuild failed — ${error.message}`);
+                return;
+              }
+              if (result === null) return;
+              if (values.quiet !== true) {
+                renderer.info(`watch: rebuilt ${result.adapterId}`);
+              }
+            },
+          });
+          // Keep the process alive — Node exits when no handles remain, but
+          // fs.watch counts as a handle so we never reach this comment.
+          break;
+        }
 
         try {
           const result = await buildAdapter(adapterOpts);
