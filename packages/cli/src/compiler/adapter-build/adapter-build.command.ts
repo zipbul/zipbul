@@ -35,6 +35,7 @@ import type {
   BuiltinEntry,
   BuiltinsManifest,
   ContextMethodSignature,
+  ContextNamespaceProperty,
   ContextNamespacesSchema,
   DecoratorSchema,
   PeerContract,
@@ -1201,31 +1202,44 @@ function extractContextNamespaces(
       if (symbol.kind !== 'class' || symbol.name !== contextType) continue;
 
       const methods: ContextMethodSignature[] = [];
+      const namespaces: ContextNamespaceProperty[] = [];
 
       for (const member of symbol.members ?? []) {
-        if (member.kind !== 'method') continue;
         if (member.modifiers.includes('private') || member.modifiers.includes('protected')) continue;
-        if (member.methodKind !== 'method') continue; // skip getters/setters/constructor
         if (typeof member.name !== 'string' || member.name.length === 0) continue;
 
-        const params = (member.parameters ?? []).map(p => ({
-          name: p.name,
-          type: p.type ?? null,
-        }));
+        if (member.kind === 'method' && member.methodKind === 'method') {
+          const params = (member.parameters ?? []).map(p => ({
+            name: p.name,
+            type: p.type ?? null,
+          }));
+          methods.push({
+            name: member.name,
+            params,
+            returnType: member.returnType ?? null,
+          });
+          continue;
+        }
 
-        methods.push({
-          name: member.name,
-          params,
-          returnType: member.returnType ?? null,
-        });
+        // Item 16 — public properties become namespace entries. Middleware
+        // augments later refine these (e.g. ctx.request.cookie); this
+        // manifest only records the structural surface declared on the class.
+        if (member.kind === 'property') {
+          namespaces.push({
+            name: member.name,
+            type: member.returnType ?? null,
+          });
+        }
       }
 
       methods.sort((a, b) => a.name.localeCompare(b.name));
+      namespaces.sort((a, b) => a.name.localeCompare(b.name));
 
       return {
         $schemaName: 'adapter.context-namespaces',
         contextType,
         methods,
+        namespaces,
       };
     }
   }

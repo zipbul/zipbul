@@ -156,6 +156,19 @@ export interface ContextNamespacesSchema {
   readonly contextType: string;
   /** Public methods on the Context class with raw type-annotation text. */
   readonly methods: readonly ContextMethodSignature[];
+  /**
+   * Public namespace properties on the Context class (Item 16). Each entry
+   * is a public, non-method property whose declared type is preserved as
+   * raw source text. Middleware augments later refine these to concrete
+   * types — this manifest captures only the structural surface the Context
+   * class itself declares.
+   */
+  readonly namespaces: readonly ContextNamespaceProperty[];
+}
+
+export interface ContextNamespaceProperty {
+  readonly name: string;
+  readonly type: string | null;
 }
 
 export interface ContextMethodSignature {
