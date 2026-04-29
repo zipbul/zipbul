@@ -4,8 +4,11 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-29 (HEAD `bdbb0a3` — Step 8 완료 후 stale 5건 정정까지 반영. Step 8 본체는 commit `470e742` (lib-augment-injector + integration-context-codegen.spec 의 oxc narrow 타입 직접 import 제거). **cli 의 `oxc-parser` 0 매치 달성** (import + 주석 모두) — Step 1~8 의 인프라 정비 단계 종료. 다음 단계 Step 9 회귀 가드 + catalog 정리. baseline 1966/94/370. `git log --oneline -1` 로 현재 HEAD 재확인 — `bdbb0a3` 와 다르면 본 문서가 stale 일 수 있음.)
-**Branch**: `fix/cli-js-bundle-bin` (main 대비 42 ahead 시점, 새 에이전트는 `git rev-list --count origin/main..HEAD` 로 재확인)
+**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `470e742` (Step 8 본체 — lib-augment-injector + integration-context-codegen.spec 의 oxc narrow 타입 직접 import 제거). 그 이후의 커밋은 모두 본 문서 자체의 메타 정정 (Last sync 갱신/stale 정정). **cli 의 `oxc-parser` 0 매치 달성** (import + 주석 모두) — Step 1~8 인프라 정비 단계 종료. 다음 단계 Step 9 (회귀 가드 + catalog 정리). baseline 1966/94/370.
+
+> 본 문서의 Last sync 가 *정확히* HEAD 를 가리키지 않는 것은 self-referential 문제 (Last sync 갱신 자체가 새 커밋 1건을 만들어 HEAD 를 +1 시킴) 때문이다. 새 에이전트는 (1) `git log --oneline -1` 로 현재 HEAD 확인, (2) 그 커밋이 `docs(compiler): ...` 메타 커밋이면 무시하고 그 직전의 코드 작업 커밋을 본 문서 "마지막 코드 작업 커밋" 과 대조, (3) 일치하면 본 문서가 최신 상태.
+
+**Branch**: `fix/cli-js-bundle-bin` (main 대비 ~40+ ahead, 정확한 카운트는 `git rev-list --count origin/main..HEAD` 로 재확인)
 **Baseline**: unit `1966 pass` / integration `94 pass` / e2e `370 pass` / typecheck clean.
 
 상태 표기 — 본 문서 전체에서 일관된 의미:
