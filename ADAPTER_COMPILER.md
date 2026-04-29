@@ -4,7 +4,7 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `b3c883d` (Step 10 Slice 15 — package.json fields 정합성). Step 10 가 15 개 thin slice 로 진행 — Section F 의 7 manifest 전부 + Section E codegen (minify 포함, http-adapter byte-equivalent) + Section J CLI 옵션 풀 + Section L 자기 검증 + Section G size/sha256 보고 + Section C pipeline 멤버 검증 + Section H 진단 카테고리 풀 마이그레이션 + Item 45 package.json fields 검증 완료. 책임 단위로 약 65+건 ✅. Step 1~9 인프라 정비 단계 완전 종료. baseline 1967/124/370.
+**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `522b59a` (Slice 21 — multi-adapter conflict detection). Step 10·11 가 21 개 thin slice 로 진행 — Section F 의 7 manifest 전부 + Section E codegen (minify, byte-equivalent) + Section J CLI 옵션 풀 (--out-dir/--dry-run/--check-only/--quiet/--format=json) + Section L 자기 검증 + Section G size/sha256 보고 + Section C pipeline 멤버·enum 중복·class export·defineAdapter 단수 검증 + Section H 진단 카테고리 풀 + Item 45 package.json + Section M (Step 11) manifest reader + 다중 어댑터 충돌 검출까지 완료. 책임 단위로 약 80+건 ✅. baseline 1967/134/370.
 
 > 본 문서의 Last sync 가 *정확히* HEAD 를 가리키지 않는 것은 self-referential 문제 (Last sync 갱신 자체가 새 커밋 1건을 만들어 HEAD 를 +1 시킴) 때문이다. 새 에이전트는 (1) `git log --oneline -1` 로 현재 HEAD 확인, (2) 그 커밋이 `docs(compiler): ...` 메타 커밋이면 무시하고 그 직전의 코드 작업 커밋을 본 문서 "마지막 코드 작업 커밋" 과 대조, (3) 일치하면 본 문서가 최신 상태.
 
@@ -85,7 +85,7 @@
 | 8 | `lib-augment-injector` 의 oxc 제거 | ✅ | `470e742` | 7 |
 | 9 | oxc 부재 회귀 가드 + catalog 항목 제거 | ✅ | `9d34771` | 3b·4·5·6·7·8 |
 | 10 | 어댑터 컴파일러 MVP — `zb build adapter` 본체 | 🟡 | `aaf5e57`→`d17be4f` (9 슬라이스) | 9 |
-| 11 | CLI 앱 빌드 측 manifest 우선 소비 (Section M) | ⬜ | — | 10 |
+| 11 | CLI 앱 빌드 측 manifest 우선 소비 (Section M) | 🟡 | `8b88dff` (read API) → `522b59a` (충돌 검출) | 10 |
 | 12 | External e2e — `.ts` 인젝션 없이 dist/manifest 만으로 동작 | ⬜ | — | 11 |
 
 ### 0.2 회귀 baseline + 검증 명령
@@ -225,8 +225,14 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 - `0b5269b` Slice 13: codegen minify (--minify-syntax + --minify-whitespace)
 - `fec5af9` Slice 14: 진단 카테고리 풀 마이그레이션 (잔존 throw 모두 diag())
 - `b3c883d` Slice 15: package.json fields 정합성 (Item 45)
+- `e4cb812` Slice 16: --format=json + module/exports 정규화
+- `3eab9fb` Slice 17: Adapter/Context export 검증 (Item 37·38·39)
+- `13fefb7` Slice 18: defineAdapter() 단수 검증 (Item 27)
+- `4e03a3a` Slice 19: enum 멤버 중복 검출 (Item 42·43)
+- `8b88dff` Slice 20: readAdapterManifest — Section M / Step 11
+- `522b59a` Slice 21: detectMultiAdapterConflicts — Item 119
 
-**테스트 진척**: integration 94 → 124 (+30, 모두 packages/cli/test/integration/adapter-build.test.ts).
+**테스트 진척**: integration 94 → 134 (+40, packages/cli/test/integration/adapter-build.test.ts + manifest-reader.test.ts).
 
 ### 0.6 심층 리뷰 결과 — 2026-04-28, 3개 Explore 에이전트 병렬 검증
 
