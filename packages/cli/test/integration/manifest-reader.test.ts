@@ -156,6 +156,7 @@ function manifestFixture(adapterId: string, opts: { decorators: readonly string[
       clusterStrategy: 'Shared' as const,
       provides: opts.provides,
       peerSymbols: {},
+      publicExports: [],
     },
     contextNamespaces: null,
     constructorSchema: null,

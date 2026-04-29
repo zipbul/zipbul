@@ -245,4 +245,11 @@ export interface PeerContract {
   readonly clusterStrategy: 'Shared' | 'Exclusive';
   readonly provides: readonly string[];
   readonly peerSymbols: { readonly [packageName: string]: readonly string[] };
+  /**
+   * Public exports of the adapter package's entry barrel (Item 25). Sorted
+   * unique. User-app build joins this against the manifest's adapterId /
+   * decorator names / contextType to flag missing re-exports before the
+   * runtime would.
+   */
+  readonly publicExports: readonly string[];
 }

@@ -1208,13 +1208,58 @@ function extractPeerContract(
 ): PeerContract {
   const clusterStrategy = readClusterStrategy(tree, adapterId, packageRoot);
   const peerSymbols = collectPeerSymbols(tree);
+  const publicExports = collectPublicExports(tree, packageRoot);
 
   return {
     $schemaName: 'adapter.peer-contract',
     clusterStrategy,
     provides: providesIdents,
     peerSymbols,
+    publicExports,
   };
+}
+
+/**
+ * Item 25 — enumerate the package's public exports. Reads the
+ * `<packageRoot>/index.ts` barrel (or `src/index.ts` fallback) and
+ * collects every exported symbol name across `export const`, `export
+ * class`, `export function`, `export { ... }`, and `export { ... } from`.
+ */
+function collectPublicExports(tree: SourceTree, packageRoot: string): readonly string[] {
+  const barrelCandidates = [
+    join(packageRoot, 'index.ts'),
+    join(packageRoot, 'src', 'index.ts'),
+  ];
+
+  let barrel: SourceFile | null = null;
+  for (const candidate of barrelCandidates) {
+    const found = tree.find(f => f.filePath === candidate);
+    if (found !== undefined) { barrel = found; break; }
+  }
+
+  if (barrel === null) return [];
+
+  const exports = new Set<string>();
+
+  for (const symbol of barrel.symbols) {
+    if (!symbol.isExported) continue;
+    if (typeof symbol.name === 'string' && symbol.name.length > 0) {
+      exports.add(symbol.name);
+    }
+  }
+
+  // Re-exports (`export { Foo } from './x'`) come through extractRelations
+  // as kind: 're-exports'. dstSymbolName carries the source name; we want
+  // the local-side export name which lives in srcSymbolName.
+  const relations = extractRelations(barrel.parsed.program, barrel.filePath);
+  for (const rel of relations) {
+    if (rel.type !== 're-exports') continue;
+    if (rel.srcSymbolName !== null && rel.srcSymbolName !== '*') {
+      exports.add(rel.srcSymbolName);
+    }
+  }
+
+  return [...exports].sort();
 }
 
 function readClusterStrategy(
