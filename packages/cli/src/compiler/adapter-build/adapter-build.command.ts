@@ -517,12 +517,13 @@ function validatePackageFields(pkg: AdapterPackageJson, packageRoot: string): vo
     });
   }
 
-  const moduleEntry = typeof pkg.module === 'string' ? pkg.module : null;
+  const moduleEntry = typeof pkg.module === 'string' ? normalizeRelative(pkg.module) : null;
   const exportsImport = readExportsDefault(pkg.exports);
+  const exportsImportNormalized = exportsImport !== null ? normalizeRelative(exportsImport) : null;
 
-  if (moduleEntry !== null && exportsImport !== null && exportsImport !== moduleEntry) {
+  if (moduleEntry !== null && exportsImportNormalized !== null && exportsImportNormalized !== moduleEntry) {
     throw diag('CONTRACT', {
-      reason: `package.json \`module\` (${moduleEntry}) and \`exports['.']\` default (${exportsImport}) must match.`,
+      reason: `package.json \`module\` (${pkg.module}) and \`exports['.']\` default (${exportsImport}) must resolve to the same path.`,
       file: pkgPath,
     });
   }
@@ -539,6 +540,10 @@ function validatePackageFields(pkg: AdapterPackageJson, packageRoot: string): vo
       });
     }
   }
+}
+
+function normalizeRelative(p: string): string {
+  return p.startsWith('./') ? p.slice(2) : p;
 }
 
 function readExportsDefault(exportsField: unknown): string | null {

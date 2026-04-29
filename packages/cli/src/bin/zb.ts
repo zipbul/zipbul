@@ -39,6 +39,9 @@ const { positionals, values } = parseArgs({
       type: 'boolean',
       short: 'q',
     },
+    format: {
+      type: 'string',
+    },
   },
 });
 const command = positionals[0];
@@ -74,6 +77,7 @@ const USAGE_TEXT = [
   '  --dry-run        Validate + canonicalize without writing files',
   '  --check-only     Compare freshly-produced manifests against on-disk dist (CI gate)',
   '  --quiet, -q      Suppress info output; emit only diagnostics',
+  '  --format=json    Emit machine-friendly JSON to stdout; diagnostics to stderr',
   '',
   'Exit codes:',
   '  0  Success',
@@ -121,6 +125,7 @@ try {
       const subCommand = positionals[1];
 
       if (subCommand === 'adapter') {
+        const jsonMode = values.format === 'json';
         const adapterOpts = {
           ...(typeof values['out-dir'] === 'string' ? { outDir: values['out-dir'] } : {}),
           ...(values['dry-run'] === true ? { dryRun: true as const } : {}),
@@ -128,16 +133,37 @@ try {
           ...(values.quiet === true ? { quiet: true as const } : {}),
         };
 
-        const result = await buildAdapter(adapterOpts);
+        try {
+          const result = await buildAdapter(adapterOpts);
 
-        if (values.quiet !== true) {
-          if (adapterOpts.checkOnly === true) {
-            renderer.info(`Adapter manifest check OK: ${result.adapterId}`);
-          } else if (adapterOpts.dryRun === true) {
-            renderer.info(`Adapter manifest dry-run OK: ${result.adapterId} → (would write to ${result.manifestPath})`);
-          } else {
-            renderer.info(`Built adapter manifest: ${result.adapterId} → ${result.manifestPath}`);
+          if (jsonMode) {
+            // Item 85 — machine-friendly JSON to stdout. stderr stays clean.
+            process.stdout.write(`${JSON.stringify({
+              ok: true,
+              adapterId: result.adapterId,
+              manifestPath: result.manifestPath,
+              checked: result.checked ?? false,
+              artifacts: result.artifacts ?? [],
+            })}\n`);
+          } else if (values.quiet !== true) {
+            if (adapterOpts.checkOnly === true) {
+              renderer.info(`Adapter manifest check OK: ${result.adapterId}`);
+            } else if (adapterOpts.dryRun === true) {
+              renderer.info(`Adapter manifest dry-run OK: ${result.adapterId} → (would write to ${result.manifestPath})`);
+            } else {
+              renderer.info(`Built adapter manifest: ${result.adapterId} → ${result.manifestPath}`);
+            }
           }
+        } catch (error) {
+          if (jsonMode) {
+            const why = error instanceof DiagnosticError ? error.diagnostic.why : (error instanceof Error ? error.message : String(error));
+            const where = error instanceof DiagnosticError ? error.diagnostic.where : undefined;
+            // Item 85 — JSON diagnostic to stderr; exit code carries the failure.
+            process.stderr.write(`${JSON.stringify({ ok: false, why, where: where ?? null })}\n`);
+            process.exitCode = 1;
+            break;
+          }
+          throw error;
         }
 
         break;
