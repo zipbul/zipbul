@@ -55,7 +55,9 @@
 
 **Step 7 (`middleware-augment-extractor` / `middleware-augment-collector` / `config-extractor` → gildash 어댑터)** 은 미들웨어 augments + contextOps 추출, `defineAdapter` 호출 정규화를 Step 1 어댑터 (`expression-value-to-zipbul-ir.ts`) 의 `ExpressionValue` 변환 위로 이관하는 작업이다. `middleware-augment-extractor.ts` 의 `TSType` 의존은 길대시 메인테이너와의 2 라운드 회신 끝에 **(β) cli 자체 stringifier 채택** 으로 결정 완료 (Item 131). 즉 길대시는 `TSType` 을 노출하지 않으며, cli 가 길대시 re-export 5종 (`Program`, `Node`, `Visitor`, `visitorKeys`, `VisitorObject`) 위에 자체 `stringifyTSType` 를 작성한다 — 진입점만 길대시 `Node` 로 받고 변환 로직 (12+ TSType 변형 처리, declaration merging IR emit 형태) 은 cli 도메인 안에서 처리. 본 stringifier 작성이 Step 7 작업 범위에 포함된다. Step 3b 완료 후 즉시 진입 가능 (정책 대기 없음, 0.26.1 배포 의존도 없음).
 
-**Step 8 (`lib-augment-injector` 의 oxc 사용 제거)** 은 JS 산출물 후처리 시점이라 입력이 *컴파일된 JS* 다. 이 단계에서 oxc 를 쓰는 이유는 JS 를 다시 파싱해서 미들웨어 augment 메타를 IR 로 주입하기 위함이다. 두 가지 방향 — (a) gildash 로 다시 파싱 (정공법, 단 비용 큼), (b) string-level 처리 (정규식 기반 sentinel 치환, 가벼움 단 fragility). 본 문서는 결정을 보류 — Step 7 의 메인테이너 요청 결과를 보고 같이 결정.
+**Step 8 (`lib-augment-injector` 의 oxc 직접 import 제거)** — 본 문서 이전 버전의 "JS 산출물 후처리" 서술은 잘못이었다 (코드 직접 확인으로 정정). 실제 동작은: 미들웨어 라이브러리 패키지의 `bin/build/lib-build.ts` 가 `*.ts` 소스 파일들을 순회하면서, 각 파일 내 `defineMiddleware()` export 의 호출 자리에 `__augments` / `__contextOps` 메타를 주입한 *변형된 TS 소스* 를 만들어 일반 TS 컴파일러로 넘긴다. `lib-augment-injector.ts` 가 그 두 단계 (`extractLibAugments` 추출 → `injectAugmentsIntoSource` 변형) 를 담당한다. 파싱은 이미 길대시 `parseSource` 로 이루어지고 있으며 (line 1, 85), oxc 직접 의존은 narrow 타입 (`OxcFunction`, `CallExpression`, `ArrowFunctionExpression`, `VariableDeclaration`) 의 `import type` 라인뿐. 따라서 본 Step 의 작업은 Step 3b·4·5·6·7 과 동일한 패턴 — narrow 타입을 `Node` union 으로 일반화 + 진입부 가드. 정책 결정 0건, 별도 설계 0건.
+
+**참고 — 현재 cli 의 컴파일 처리 비대칭**. 본 시점 (Step 8 진입) 의 `lib-build` 는 *미들웨어 라이브러리 패키지* 만 컴파일한다 — `defineMiddleware()` 호출 자리에 IR 을 주입한다. *어댑터 패키지* (`defineAdapter()`) 는 **현재 컴파일 처리 없음** — 사용자 앱 빌드 시점에 정적 분석만 받는다. 본 비대칭이 ADAPTER_COMPILER.md Section A~L (어댑터 컴파일러 본체, Step 10 `zb build adapter`) 가 메워야 할 갭이다. Step 1~9 는 인프라 정비 (gildash 단일 진입점 통일) 단계이며 Step 8 완료 후 Step 9 회귀 가드를 거쳐 Step 10 의 본격 어댑터 컴파일러 신설로 진입한다.
 
 **Step 9 (회귀 가드 + catalog 정리)** 는 cli 의 어떤 파일도 `from 'oxc-parser'` import 를 가지지 않음을 lint 룰 또는 grep 기반 spec 으로 강제하고, `package.json` 의 catalog 에서 `oxc-parser` 항목을 삭제하는 마무리 단계다. Step 3b~8 가 모두 끝나야 진입.
 
@@ -105,7 +107,7 @@ grep -rln "from 'oxc-parser'" packages/cli/src --include="*.ts"
 현재 시점 (commit `e19ed78`) 의 결과는 다음 2개. 모두 Step 8 영역 (JS 후처리). Step 2·3b·4·5·6·7 에서 이미 완료된 11개 (참고용).
 
 소스 (미처리 1):
-- `packages/cli/src/compiler/generator/lib-augment-injector.ts` — Step 8. JS 후처리 시점 (어댑터 컴파일 결과 JS 를 다시 파싱해 IR 주입). 두 가지 방향: (a) gildash 로 다시 파싱, (b) string-level 처리.
+- `packages/cli/src/compiler/generator/lib-augment-injector.ts` — Step 8. 미들웨어 라이브러리의 *TS 소스* 를 길대시 `parseSource` 로 파싱해 `defineMiddleware()` 호출 자리에 `__augments`/`__contextOps` 메타를 주입한 변형된 TS 소스를 emit. 잔존 oxc 의존은 narrow 타입 (`OxcFunction`/`CallExpression`/`ArrowFunctionExpression`/`VariableDeclaration`) 의 `import type` 라인뿐 — Step 3b·4·5·6·7 와 동일한 패턴 마이그레이션.
 
 스펙 (미처리 1):
 - `packages/cli/src/compiler/integration-context-codegen.spec.ts` — Step 8 동시.
