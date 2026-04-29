@@ -12,6 +12,8 @@ import type {
   AdapterManifest,
   BuildAdapterOptions,
   BuildAdapterResult,
+  BuiltinEntry,
+  BuiltinsManifest,
   ContextMethodSignature,
   ContextNamespacesSchema,
   DecoratorSchema,
@@ -68,12 +70,14 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     extracted.adapterId,
     packageRoot,
   );
+  const builtins = extractBuiltins(sourceTree, packageRoot);
 
   const pipelineSchemaRel = 'pipeline-schema.json';
   const decoratorSchemaRel = 'decorator-schema.json';
   const peerContractRel = 'peer-contract.json';
   const contextNamespacesRel = 'context-namespaces.json';
   const constructorSchemaRel = 'adapter-constructor-schema.json';
+  const builtinsRel = 'builtins.json';
   const adapterManifest: AdapterManifest = {
     $schemaName: 'adapter.manifest',
     adapterId: extracted.adapterId,
@@ -84,6 +88,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
       'peer-contract': peerContractRel,
       'context-namespaces': contextNamespacesRel,
       'adapter-constructor-schema': constructorSchemaRel,
+      'builtins': builtinsRel,
     },
   };
 
@@ -95,6 +100,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     { relPath: peerContractRel, content: serializeJson(peerContract) },
     { relPath: contextNamespacesRel, content: serializeJson(contextNamespaces) },
     { relPath: constructorSchemaRel, content: serializeJson(constructorSchema) },
+    { relPath: builtinsRel, content: serializeJson(builtins) },
     // Top-level manifest written last (Item 75) — indexes the other paths.
     { relPath: 'adapter.manifest.json', content: serializeJson(adapterManifest) },
   ];
@@ -546,6 +552,90 @@ function extractAdapterConstructorSchema(
     reason: `Adapter class \`${adapterId}\` not found while resolving constructor schema under ${packageRoot}/src/.`,
     file: packageRoot,
   }));
+}
+
+/**
+ * Walks the package source tree for `defineMiddleware()` / `defineGuard()` /
+ * `defineExceptionFilter()` calls bound to top-level exported variables
+ * (Item 22·23·24·68). For middleware, also captures the optional
+ * `[AdapterClass, ...]` first argument.
+ */
+function extractBuiltins(tree: SourceTree, packageRoot: string): BuiltinsManifest {
+  const middlewares: BuiltinEntry[] = [];
+  const guards: BuiltinEntry[] = [];
+  const exceptionFilters: BuiltinEntry[] = [];
+
+  const KIND_MAP: Record<string, BuiltinEntry['kind']> = {
+    defineMiddleware: 'middleware',
+    defineGuard: 'guard',
+    defineExceptionFilter: 'exception-filter',
+  };
+
+  for (const file of tree) {
+    const sourceFile = relativeFromRoot(file.filePath, packageRoot);
+
+    for (const symbol of file.symbols) {
+      if (symbol.kind !== 'variable' || !symbol.isExported) continue;
+
+      const init = symbol.initializer;
+      if (init === undefined || init.kind !== 'call') continue;
+
+      const kind = KIND_MAP[init.callee];
+      if (kind === undefined) continue;
+
+      const adapters = kind === 'middleware'
+        ? readAdaptersArrayArg(init)
+        : [];
+
+      const entry: BuiltinEntry = {
+        exportName: symbol.name,
+        sourceFile,
+        kind,
+        adapters,
+      };
+
+      if (kind === 'middleware') middlewares.push(entry);
+      else if (kind === 'guard') guards.push(entry);
+      else exceptionFilters.push(entry);
+    }
+  }
+
+  // Stable sort for byte-identical output.
+  const byExport = (a: BuiltinEntry, b: BuiltinEntry): number =>
+    a.sourceFile.localeCompare(b.sourceFile) || a.exportName.localeCompare(b.exportName);
+  middlewares.sort(byExport);
+  guards.sort(byExport);
+  exceptionFilters.sort(byExport);
+
+  return {
+    $schemaName: 'adapter.builtins',
+    middlewares,
+    guards,
+    exceptionFilters,
+  };
+}
+
+function readAdaptersArrayArg(call: ExpressionCall): readonly string[] {
+  // `defineMiddleware([HttpAdapter], factory)` — adapters list is the first arg
+  // and an array literal of identifiers. If the first arg is a function/object,
+  // there's no adapter list (factory-only or config-object overload).
+  const firstArg = call.arguments[0];
+  if (firstArg === undefined) return [];
+  if (firstArg.kind !== 'array') return [];
+
+  const out: string[] = [];
+
+  for (const element of firstArg.elements) {
+    if (element.kind !== 'identifier') continue;
+    out.push(element.name);
+  }
+
+  return out;
+}
+
+function relativeFromRoot(absPath: string, packageRoot: string): string {
+  const root = packageRoot.endsWith('/') ? packageRoot : `${packageRoot}/`;
+  return absPath.startsWith(root) ? absPath.slice(root.length) : absPath;
 }
 
 function collectPeerSymbols(tree: SourceTree): { [packageName: string]: readonly string[] } {
