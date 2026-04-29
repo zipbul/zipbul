@@ -372,14 +372,35 @@ async function runStrictSelfTest(packageRoot: string, stagingDir: string): Promi
   // (b) Item 112 — Bun import smoke.
   const indexJs = join(stagingDir, 'index.js');
   if (await pathExists(indexJs)) {
+    let mod: Record<string, unknown>;
     try {
-      const mod = await import(indexJs);
-      void mod;
+      mod = (await import(indexJs)) as Record<string, unknown>;
     } catch (cause) {
       throw diag('CONTRACT', {
         reason: `Strict self-test (Item 112): dist/index.js failed to import: ${(cause as Error).message ?? String(cause)}`,
         file: indexJs,
       });
+    }
+
+    // (c) Item 113 — runtime introspection: every name listed in
+    // decorator-schema.json must surface as a runtime export of index.js.
+    const decoratorSchemaPath = join(stagingDir, 'decorator-schema.json');
+    if (await pathExists(decoratorSchemaPath)) {
+      const schema = JSON.parse(await readFile(decoratorSchemaPath, 'utf8')) as {
+        controller: string;
+        handlers: readonly string[];
+        options: readonly string[];
+      };
+
+      const expected = [schema.controller, ...schema.handlers, ...schema.options];
+      const missing = expected.filter(name => !(name in mod));
+
+      if (missing.length > 0) {
+        throw diag('CONTRACT', {
+          reason: `Strict self-test (Item 113): runtime exports of dist/index.js are missing decorators referenced in decorator-schema.json: [${missing.join(', ')}]. The barrel either does not re-export these names or they are tree-shaken away.`,
+          file: indexJs,
+        });
+      }
     }
   }
 }
