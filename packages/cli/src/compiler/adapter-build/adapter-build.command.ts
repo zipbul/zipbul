@@ -36,6 +36,13 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   const outDir = resolve(packageRoot, options.outDir ?? 'dist');
   const stagingDir = `${outDir}.staging`;
   const dryRun = options.dryRun === true;
+  const checkOnly = options.checkOnly === true;
+
+  if (dryRun && checkOnly) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `--dry-run and --check-only are mutually exclusive.`,
+    }));
+  }
 
   const pkgJson = await readPackageJson(packageRoot);
   validateAdapterKind(pkgJson, packageRoot);
@@ -82,23 +89,75 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
 
   const manifestPath = join(outDir, 'adapter.manifest.json');
 
-  if (!dryRun) {
-    await rm(stagingDir, { recursive: true, force: true });
-    await mkdir(stagingDir, { recursive: true });
+  const artifacts: Array<{ readonly relPath: string; readonly content: string }> = [
+    { relPath: pipelineSchemaRel, content: serializeJson(extracted.pipelineSchema) },
+    { relPath: decoratorSchemaRel, content: serializeJson(decoratorSchema) },
+    { relPath: peerContractRel, content: serializeJson(peerContract) },
+    { relPath: contextNamespacesRel, content: serializeJson(contextNamespaces) },
+    { relPath: constructorSchemaRel, content: serializeJson(constructorSchema) },
+    // Top-level manifest written last (Item 75) — indexes the other paths.
+    { relPath: 'adapter.manifest.json', content: serializeJson(adapterManifest) },
+  ];
 
-    await Bun.write(join(stagingDir, pipelineSchemaRel), serializeJson(extracted.pipelineSchema));
-    await Bun.write(join(stagingDir, decoratorSchemaRel), serializeJson(decoratorSchema));
-    await Bun.write(join(stagingDir, peerContractRel), serializeJson(peerContract));
-    await Bun.write(join(stagingDir, contextNamespacesRel), serializeJson(contextNamespaces));
-    await Bun.write(join(stagingDir, constructorSchemaRel), serializeJson(constructorSchema));
-    // Top-level manifest written last (Item 75): it indexes the other paths.
-    await Bun.write(join(stagingDir, 'adapter.manifest.json'), serializeJson(adapterManifest));
+  if (checkOnly) {
+    await assertOnDiskMatches(outDir, artifacts);
+    return { adapterId: extracted.adapterId, manifestPath, checked: true };
+  }
+
+  if (dryRun) {
+    return { adapterId: extracted.adapterId, manifestPath };
+  }
+
+  // Atomic emit (Item 72·73·74): write to staging, then swap.
+  await rm(stagingDir, { recursive: true, force: true });
+  await mkdir(stagingDir, { recursive: true });
+
+  try {
+    for (const artifact of artifacts) {
+      await Bun.write(join(stagingDir, artifact.relPath), artifact.content);
+    }
 
     await rm(outDir, { recursive: true, force: true });
     await rename(stagingDir, outDir);
+  } catch (cause) {
+    // Item 74 — failure leaves prior dist/ intact; just clean up staging.
+    await rm(stagingDir, { recursive: true, force: true });
+    throw cause;
   }
 
   return { adapterId: extracted.adapterId, manifestPath };
+}
+
+async function assertOnDiskMatches(
+  outDir: string,
+  artifacts: readonly { readonly relPath: string; readonly content: string }[],
+): Promise<void> {
+  if (!(await pathExists(outDir))) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `--check-only failed: ${outDir} does not exist. Run \`zb build adapter\` first.`,
+      file: outDir,
+    }));
+  }
+
+  for (const artifact of artifacts) {
+    const filePath = join(outDir, artifact.relPath);
+
+    if (!(await pathExists(filePath))) {
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `--check-only failed: ${filePath} is missing — re-run the build.`,
+        file: filePath,
+      }));
+    }
+
+    const onDisk = await readFile(filePath, 'utf8');
+
+    if (onDisk !== artifact.content) {
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `--check-only failed: ${filePath} does not match the freshly produced manifest. The on-disk dist is stale or hand-edited.`,
+        file: filePath,
+      }));
+    }
+  }
 }
 
 interface ExtractedAdapterDefinition {

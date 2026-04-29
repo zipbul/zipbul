@@ -26,6 +26,19 @@ const { positionals, values } = parseArgs({
     lib: {
       type: 'boolean',
     },
+    'out-dir': {
+      type: 'string',
+    },
+    'dry-run': {
+      type: 'boolean',
+    },
+    'check-only': {
+      type: 'boolean',
+    },
+    quiet: {
+      type: 'boolean',
+      short: 'q',
+    },
   },
 });
 const command = positionals[0];
@@ -44,17 +57,28 @@ process.env.LOG_LEVEL = logLevel;
 Logger.configure({ level: logLevel });
 
 const USAGE_TEXT = [
-  'Usage: zb <command>',
+  'Usage: zb <command> [options]',
   '',
   'Commands:',
   '  dev              Generate AOT artifacts and watch',
   '  build            Generate build output',
   '  build adapter    Compile an adapter package (zipbul.kind === "adapter")',
   '',
-  'Options:',
+  'Common options:',
   '  --profile <minimal|standard|full>',
-  '  --lib     Build as library (inject __augments metadata for npm packages)',
-  '  --verbose, -v  Show detailed build information',
+  '  --lib            Build as library (inject __augments metadata for npm packages)',
+  '  --verbose, -v    Show detailed build information',
+  '',
+  'Adapter build options (zb build adapter):',
+  '  --out-dir <path> Override output directory (default: dist)',
+  '  --dry-run        Validate + canonicalize without writing files',
+  '  --check-only     Compare freshly-produced manifests against on-disk dist (CI gate)',
+  '  --quiet, -q      Suppress info output; emit only diagnostics',
+  '',
+  'Exit codes:',
+  '  0  Success',
+  '  1  Compile / contract failure',
+  '  2  Environment / usage error',
 ].join('\n');
 
 const printUsage = (): void => {
@@ -97,8 +121,25 @@ try {
       const subCommand = positionals[1];
 
       if (subCommand === 'adapter') {
-        const result = await buildAdapter();
-        renderer.info(`Built adapter manifest: ${result.adapterId} → ${result.manifestPath}`);
+        const adapterOpts = {
+          ...(typeof values['out-dir'] === 'string' ? { outDir: values['out-dir'] } : {}),
+          ...(values['dry-run'] === true ? { dryRun: true as const } : {}),
+          ...(values['check-only'] === true ? { checkOnly: true as const } : {}),
+          ...(values.quiet === true ? { quiet: true as const } : {}),
+        };
+
+        const result = await buildAdapter(adapterOpts);
+
+        if (values.quiet !== true) {
+          if (adapterOpts.checkOnly === true) {
+            renderer.info(`Adapter manifest check OK: ${result.adapterId}`);
+          } else if (adapterOpts.dryRun === true) {
+            renderer.info(`Adapter manifest dry-run OK: ${result.adapterId} → (would write to ${result.manifestPath})`);
+          } else {
+            renderer.info(`Built adapter manifest: ${result.adapterId} → ${result.manifestPath}`);
+          }
+        }
+
         break;
       }
 
@@ -108,12 +149,12 @@ try {
     case undefined:
       reportInvalidCommand(command);
       printUsage();
-      process.exitCode = 1;
+      process.exitCode = 2;
       break;
     default:
       reportInvalidCommand(command);
       printUsage();
-      process.exitCode = 1;
+      process.exitCode = 2;
   }
 } catch (error) {
   if (error instanceof DiagnosticError) {
@@ -122,5 +163,7 @@ try {
     renderer.error(error instanceof Error ? error.message : 'Unknown error.');
   }
 
+  // Item 98 — exit code 1 = compile/contract failure, 2 = environment/usage error.
+  // DiagnosticError represents a contract violation against the adapter source.
   process.exitCode = 1;
 }

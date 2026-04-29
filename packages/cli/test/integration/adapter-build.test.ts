@@ -377,6 +377,66 @@ describe('zb build adapter — Slice 1', () => {
     await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
   });
 
+  it('--out-dir overrides the default dist/ location', async () => {
+    await writeMinimalAdapter();
+
+    const result = await buildAdapter({ packageRoot: pkgRoot, outDir: 'out' });
+
+    expect(result.manifestPath).toBe(join(pkgRoot, 'out', 'adapter.manifest.json'));
+    const text = await readFile(result.manifestPath, 'utf8');
+    expect(JSON.parse(text).adapterId).toBe('TestAdapter');
+  });
+
+  it('--dry-run validates without writing files', async () => {
+    await writeMinimalAdapter();
+
+    const result = await buildAdapter({ packageRoot: pkgRoot, dryRun: true });
+
+    expect(result.adapterId).toBe('TestAdapter');
+    // No file should be written
+    await expect(readFile(result.manifestPath, 'utf8')).rejects.toThrow();
+  });
+
+  it('--check-only succeeds when on-disk dist matches a fresh build', async () => {
+    await writeMinimalAdapter();
+
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const result = await buildAdapter({ packageRoot: pkgRoot, checkOnly: true });
+
+    expect(result.checked).toBe(true);
+  });
+
+  it('--check-only fails when dist is missing', async () => {
+    await writeMinimalAdapter();
+
+    await expect(
+      buildAdapter({ packageRoot: pkgRoot, checkOnly: true }),
+    ).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
+  it('--check-only fails when dist content is stale (hand-edited)', async () => {
+    await writeMinimalAdapter();
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    // Tamper with the manifest
+    const manifestPath = join(pkgRoot, 'dist', 'adapter.manifest.json');
+    const original = await readFile(manifestPath, 'utf8');
+    await Bun.write(manifestPath, original.replace('"TestAdapter"', '"WrongName"'));
+
+    await expect(
+      buildAdapter({ packageRoot: pkgRoot, checkOnly: true }),
+    ).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
+  it('--dry-run + --check-only is rejected as mutually exclusive', async () => {
+    await writeMinimalAdapter();
+
+    await expect(
+      buildAdapter({ packageRoot: pkgRoot, dryRun: true, checkOnly: true }),
+    ).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
   it('rejects empty pipeline arrays', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),

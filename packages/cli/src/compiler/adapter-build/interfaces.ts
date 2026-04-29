@@ -6,10 +6,22 @@
 export interface BuildAdapterOptions {
   /** Adapter package root. Defaults to `process.cwd()`. */
   readonly packageRoot?: string;
-  /** Override output directory. Defaults to `<packageRoot>/dist`. */
+  /** Override output directory (Item 96 — `--out-dir`). Defaults to `<packageRoot>/dist`. */
   readonly outDir?: string;
-  /** When `true`, skip writing files; useful for verification (Item 100 — `--dry-run`). */
+  /**
+   * When `true`, perform extraction + canonicalize + verify everything, but
+   * skip writing files (Item 100 — `--dry-run`). Existing `dist/` is not
+   * modified.
+   */
   readonly dryRun?: boolean;
+  /**
+   * When `true`, run extraction + canonical serialization in memory and
+   * compare against the on-disk `dist/` (if present). Throws when content
+   * differs — used by CI to gate determinism (Item 101 — `--check-only`).
+   */
+  readonly checkOnly?: boolean;
+  /** Suppress `info` output; only diagnostics emit (Item 97 — `--quiet`). */
+  readonly quiet?: boolean;
 }
 
 /**
@@ -22,6 +34,13 @@ export interface BuildAdapterResult {
   readonly adapterId: string;
   /** Absolute path to the manifest file that was written (or would have been, in dry-run). */
   readonly manifestPath: string;
+  /**
+   * `true` when `--check-only` was set and the existing on-disk `dist/`
+   * matched the freshly produced contents byte-for-byte. `false` only ever
+   * occurs alongside a `DiagnosticError` thrown from buildAdapter, so this
+   * field is informational rather than authoritative.
+   */
+  readonly checked?: boolean;
 }
 
 /**
