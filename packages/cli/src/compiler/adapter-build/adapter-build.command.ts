@@ -125,6 +125,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     }
 
     await runCodegen(packageRoot, stagingDir);
+    await runSelfTest(stagingDir, artifacts);
 
     await rm(outDir, { recursive: true, force: true });
     await rename(stagingDir, outDir);
@@ -135,6 +136,81 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   }
 
   return { adapterId: extracted.adapterId, manifestPath };
+}
+
+/**
+ * Round-trip self-test (Section L). Runs against the staging directory
+ * before the atomic rename — failures abort the build and leave the existing
+ * dist/ untouched.
+ *
+ * Currently checks (Item 109·110):
+ * 1. Every artifact written to staging is parseable JSON.
+ * 2. Each artifact's `$schemaName` matches the expected literal.
+ * 3. The top-level `manifests` index in `adapter.manifest.json` resolves
+ *    to files that actually exist on disk.
+ *
+ * Future slices add Item 111 (.d.ts re-compile check) and Item 112 (Bun
+ * import smoke) — both require running the codegen output, which is more
+ * expensive and best gated by `--with-self-test` style flags.
+ */
+async function runSelfTest(
+  stagingDir: string,
+  artifacts: readonly { readonly relPath: string; readonly content: string }[],
+): Promise<void> {
+  const EXPECTED_SCHEMA: Record<string, string> = {
+    'adapter.manifest.json': 'adapter.manifest',
+    'pipeline-schema.json': 'adapter.pipeline-schema',
+    'decorator-schema.json': 'adapter.decorator-schema',
+    'peer-contract.json': 'adapter.peer-contract',
+    'context-namespaces.json': 'adapter.context-namespaces',
+    'adapter-constructor-schema.json': 'adapter.constructor-schema',
+    'builtins.json': 'adapter.builtins',
+  };
+
+  for (const artifact of artifacts) {
+    const expected = EXPECTED_SCHEMA[artifact.relPath];
+    if (expected === undefined) continue;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(artifact.content);
+    } catch (cause) {
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `Self-test: ${artifact.relPath} is not valid JSON: ${(cause as Error).message ?? String(cause)}`,
+        file: join(stagingDir, artifact.relPath),
+      }));
+    }
+
+    if (typeof parsed !== 'object' || parsed === null) {
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `Self-test: ${artifact.relPath} root must be a JSON object.`,
+        file: join(stagingDir, artifact.relPath),
+      }));
+    }
+
+    const actual = (parsed as Record<string, unknown>)['$schemaName'];
+
+    if (actual !== expected) {
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `Self-test: ${artifact.relPath} \`$schemaName\` must equal \`${expected}\` (got \`${String(actual)}\`).`,
+        file: join(stagingDir, artifact.relPath),
+      }));
+    }
+  }
+
+  // Validate that the top-level manifest's `manifests` index resolves.
+  const topPath = join(stagingDir, 'adapter.manifest.json');
+  const top = JSON.parse(await readFile(topPath, 'utf8')) as { manifests: Record<string, string> };
+
+  for (const [logical, relPath] of Object.entries(top.manifests)) {
+    const referenced = join(stagingDir, relPath);
+    if (!(await pathExists(referenced))) {
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `Self-test: top-level manifest references \`${logical}\` → \`${relPath}\`, but no file exists at that path.`,
+        file: topPath,
+      }));
+    }
+  }
 }
 
 /**
