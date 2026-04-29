@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 import { isErr } from '@zipbul/result';
-import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
+import { parseSource, extractSymbols, extractRelations, buildLineOffsets, getLineColumn } from '@zipbul/gildash';
 import type { ParsedFile, ExtractedSymbol, ExpressionValue, ExpressionCall, CodeRelation } from '@zipbul/gildash';
 
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
@@ -16,11 +16,32 @@ import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
  */
 type DiagnosticCategory = 'SYNTAX' | 'CONTRACT' | 'MISSING_EXPORT' | 'DUPLICATE' | 'TYPE' | 'IO';
 
-function diag(category: DiagnosticCategory, params: { reason: string; file?: string; symbol?: string; how?: string }): DiagnosticError {
-  const taggedReason = `[${category}] ${params.reason}`;
+function diag(
+  category: DiagnosticCategory,
+  params: {
+    reason: string;
+    file?: string;
+    symbol?: string;
+    how?: string;
+    /** Item 79 — when the underlying source span is known, callers may pass
+     * a file's lineOffsets (from `buildLineOffsets`) and a byte offset; the
+     * diagnostic message is annotated with `file:line:column`. */
+    lineOffsets?: readonly number[];
+    offset?: number;
+  },
+): DiagnosticError {
+  let position = '';
+  if (params.lineOffsets !== undefined && typeof params.offset === 'number') {
+    const lc = getLineColumn(params.lineOffsets as number[], params.offset);
+    position = ` at ${params.file ?? '<source>'}:${lc.line}:${lc.column}`;
+  }
+  const taggedReason = `[${category}] ${params.reason}${position}`;
+
   const built = buildDiagnostic({
-    ...params,
     reason: taggedReason,
+    ...(params.file !== undefined ? { file: params.file } : {}),
+    ...(params.symbol !== undefined ? { symbol: params.symbol } : {}),
+    ...(params.how !== undefined ? { how: params.how } : {}),
   });
 
   return new DiagnosticError(built);
@@ -626,6 +647,8 @@ interface SourceFile {
   readonly filePath: string;
   readonly parsed: ParsedFile;
   readonly symbols: readonly ExtractedSymbol[];
+  /** Cached line offsets for byte-offset → line/column conversion (Item 79). */
+  readonly lineOffsets: readonly number[];
 }
 
 type SourceTree = readonly SourceFile[];
@@ -805,7 +828,12 @@ async function pushSourceFile(filePath: string, out: SourceFile[]): Promise<void
     });
   }
 
-  out.push({ filePath, parsed: parseResult, symbols: extractSymbols(parseResult) });
+  out.push({
+    filePath,
+    parsed: parseResult,
+    symbols: extractSymbols(parseResult),
+    lineOffsets: buildLineOffsets(text),
+  });
 }
 
 async function pathExists(p: string): Promise<boolean> {
@@ -855,12 +883,19 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
     });
   }
 
+  // Item 79 — anchor downstream diagnostics at the defineAdapter() call site.
+  const callOffset = (adapterCall as unknown as { start?: number }).start;
+  const posCtx = typeof callOffset === 'number'
+    ? { lineOffsets: entry.lineOffsets, offset: callOffset }
+    : {};
+
   const adapterId = readIdentifierField(adapterCall, 'adapter');
 
   if (adapterId === null) {
     throw diag('CONTRACT', {
-      reason: `defineAdapter() in ${entry.filePath} must receive a config object whose \`adapter\` field is a class identifier reference.`,
+      reason: `defineAdapter() must receive a config object whose \`adapter\` field is a class identifier reference.`,
       file: entry.filePath,
+      ...posCtx,
     });
   }
 
@@ -870,15 +905,17 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
 
   if (phaseEnum === null || stepEnum === null) {
     throw diag('CONTRACT', {
-      reason: `defineAdapter() in ${entry.filePath} must declare \`phase\` and \`step\` fields as enum identifier references.`,
+      reason: `defineAdapter() must declare \`phase\` and \`step\` fields as enum identifier references.`,
       file: entry.filePath,
+      ...posCtx,
     });
   }
 
   if (contextType === null) {
     throw diag('CONTRACT', {
-      reason: `defineAdapter() in ${entry.filePath} must declare \`context\` field as a Context class identifier reference.`,
+      reason: `defineAdapter() must declare \`context\` field as a Context class identifier reference.`,
       file: entry.filePath,
+      ...posCtx,
     });
   }
 
@@ -886,8 +923,9 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
 
   if (pipeline === null) {
     throw diag('CONTRACT', {
-      reason: `defineAdapter() in ${entry.filePath} must declare a non-empty \`pipeline\` array of qualified enum members (e.g. \`HttpPhase.OnRequest\`, \`HttpStep.ResolveRoute\`, \`CoreStep.Handler\`).`,
+      reason: `defineAdapter() must declare a non-empty \`pipeline\` array of qualified enum members (e.g. \`HttpPhase.OnRequest\`, \`HttpStep.ResolveRoute\`, \`CoreStep.Handler\`).`,
       file: entry.filePath,
+      ...posCtx,
     });
   }
 
