@@ -22,6 +22,13 @@ export interface BuildAdapterOptions {
   readonly checkOnly?: boolean;
   /** Suppress `info` output; only diagnostics emit (Item 97 — `--quiet`). */
   readonly quiet?: boolean;
+  /**
+   * Run strict self-test (Item 111·112): re-compile the emitted `.d.ts`
+   * tree via `tsc --noEmit` and dynamically import `dist/index.js`. Off by
+   * default because both checks depend on the package's full peer-dep
+   * graph being installed and resolvable.
+   */
+  readonly withSelfTest?: boolean;
 }
 
 /**

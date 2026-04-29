@@ -148,6 +148,9 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
 
     await runCodegen(packageRoot, stagingDir);
     await runSelfTest(stagingDir, artifacts);
+    if (options.withSelfTest === true) {
+      await runStrictSelfTest(packageRoot, stagingDir);
+    }
 
     await rm(outDir, { recursive: true, force: true });
     await rename(stagingDir, outDir);
@@ -293,6 +296,56 @@ async function runSelfTest(
     if (text.length === 0) {
       throw diag('CONTRACT', {
         reason: `Self-test: dist/index.js is empty.`,
+        file: indexJs,
+      });
+    }
+  }
+}
+
+/**
+ * Strict self-test (Section L Item 111·112). Verifies (a) the emitted .d.ts
+ * tree compiles cleanly via `tsc --noEmit` against the staged dist as the
+ * type root, and (b) `dist/index.js` is dynamically importable. Both checks
+ * require the package's peer dependencies to be installed and resolvable
+ * from `packageRoot/node_modules` — they're gated by `--with-self-test`.
+ */
+async function runStrictSelfTest(packageRoot: string, stagingDir: string): Promise<void> {
+  // (a) Item 111 — re-compile the emitted .d.ts. We invoke tsc with --noEmit
+  // and a synthetic include pattern targeting the staging d.ts files.
+  const indexDts = join(stagingDir, 'index.d.ts');
+  if (await pathExists(indexDts)) {
+    const tscBin = await resolveTscBin(packageRoot);
+    const args = tscBin === 'bunx'
+      ? ['tsc', '--noEmit', '--skipLibCheck', '--target', 'esnext', '--module', 'esnext', '--moduleResolution', 'bundler', indexDts]
+      : ['--noEmit', '--skipLibCheck', '--target', 'esnext', '--module', 'esnext', '--moduleResolution', 'bundler', indexDts];
+
+    await new Promise<void>((resolveFn, rejectFn) => {
+      const child = spawn(tscBin, args, { cwd: packageRoot, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stderr = '';
+      let stdout = '';
+      child.stdout.on('data', chunk => { stdout += String(chunk); });
+      child.stderr.on('data', chunk => { stderr += String(chunk); });
+      child.on('error', rejectFn);
+      child.on('close', code => {
+        if (code === 0) return resolveFn();
+        const message = stderr.trim() !== '' ? stderr.trim() : stdout.trim();
+        rejectFn(diag('TYPE', {
+          reason: `Strict self-test (Item 111): emitted .d.ts failed re-compilation:\n${message}`,
+          file: indexDts,
+        }));
+      });
+    });
+  }
+
+  // (b) Item 112 — Bun import smoke.
+  const indexJs = join(stagingDir, 'index.js');
+  if (await pathExists(indexJs)) {
+    try {
+      const mod = await import(indexJs);
+      void mod;
+    } catch (cause) {
+      throw diag('CONTRACT', {
+        reason: `Strict self-test (Item 112): dist/index.js failed to import: ${(cause as Error).message ?? String(cause)}`,
         file: indexJs,
       });
     }

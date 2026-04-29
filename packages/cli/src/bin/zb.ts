@@ -42,6 +42,9 @@ const { positionals, values } = parseArgs({
     format: {
       type: 'string',
     },
+    'with-self-test': {
+      type: 'boolean',
+    },
   },
 });
 const command = positionals[0];
@@ -78,6 +81,7 @@ const USAGE_TEXT = [
   '  --check-only     Compare freshly-produced manifests against on-disk dist (CI gate)',
   '  --quiet, -q      Suppress info output; emit only diagnostics',
   '  --format=json    Emit machine-friendly JSON to stdout; diagnostics to stderr',
+  '  --with-self-test Run strict self-test (re-compile .d.ts + Bun import smoke)',
   '',
   'Exit codes:',
   '  0  Success',
@@ -131,6 +135,7 @@ try {
           ...(values['dry-run'] === true ? { dryRun: true as const } : {}),
           ...(values['check-only'] === true ? { checkOnly: true as const } : {}),
           ...(values.quiet === true ? { quiet: true as const } : {}),
+          ...(values['with-self-test'] === true ? { withSelfTest: true as const } : {}),
         };
 
         try {
