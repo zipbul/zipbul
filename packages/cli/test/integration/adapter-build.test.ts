@@ -208,6 +208,25 @@ describe('zb build adapter — Slice 1', () => {
     });
   });
 
+  it('emits dist/index.js via Bun.build alongside the manifests', async () => {
+    await writeMinimalAdapter();
+    await Bun.write(
+      join(pkgRoot, 'index.ts'),
+      [
+        `export { TestAdapter, TestContext } from './src/test-adapter';`,
+        `export { adapterDefinition } from './src/adapter-definition';`,
+      ].join('\n'),
+    );
+
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const indexJs = await readFile(join(pkgRoot, 'dist', 'index.js'), 'utf8');
+    expect(indexJs.length).toBeGreaterThan(0);
+    expect(indexJs).toContain('TestAdapter');
+    // Manifests also emitted
+    expect((await readFile(join(pkgRoot, 'dist', 'adapter.manifest.json'), 'utf8')).length).toBeGreaterThan(0);
+  });
+
   it('builtins.json captures defineMiddleware / defineGuard / defineExceptionFilter calls', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),

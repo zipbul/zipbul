@@ -1,5 +1,6 @@
 import { readFile, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { spawn } from 'node:child_process';
 
 import { isErr } from '@zipbul/result';
 import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
@@ -123,6 +124,8 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
       await Bun.write(join(stagingDir, artifact.relPath), artifact.content);
     }
 
+    await runCodegen(packageRoot, stagingDir);
+
     await rm(outDir, { recursive: true, force: true });
     await rename(stagingDir, outDir);
   } catch (cause) {
@@ -133,6 +136,119 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
 
   return { adapterId: extracted.adapterId, manifestPath };
 }
+
+/**
+ * Runs the TS → JS bundle (`Bun.build`) and `tsc --emitDeclarationOnly`
+ * into the staging directory (Item 55·56·57·87·88·89·90).
+ *
+ * The published entrypoint is conventionally `<packageRoot>/index.ts` (the
+ * barrel), not the `defineAdapter()`-bearing file. If absent, falls back to
+ * `<packageRoot>/src/index.ts`.
+ *
+ * `.d.ts` emission is best-effort: when a `tsconfig.build.json` is present
+ * at the package root we invoke `tsc` against it with `--outDir <staging>`;
+ * otherwise we skip and leave it to the package's own build pipeline.
+ */
+async function runCodegen(packageRoot: string, stagingDir: string): Promise<void> {
+  const entryCandidates = ['index.ts', 'src/index.ts'];
+  let entryPath: string | null = null;
+
+  for (const rel of entryCandidates) {
+    const full = join(packageRoot, rel);
+    if (await pathExists(full)) {
+      entryPath = full;
+      break;
+    }
+  }
+
+  if (entryPath === null) {
+    // Adapter packages without a published entrypoint (e.g. internal-only
+    // fixtures) still get manifest emission; codegen simply skips. Later
+    // slices will tighten this against package.json.main/module (Item 45).
+    return;
+  }
+
+  // 1. JS bundle via Bun.build — same shape the package's own scripts use.
+  const buildResult = await Bun.build({
+    entrypoints: [entryPath],
+    outdir: stagingDir,
+    target: 'bun',
+    format: 'esm',
+    packages: 'external',
+  });
+
+  if (!buildResult.success) {
+    const messages = buildResult.logs.map(l => l.message).join('\n  ');
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `Bun.build failed for ${entryPath}:\n  ${messages}`,
+      file: entryPath,
+    }));
+  }
+
+  // 2. .d.ts via tsc — only when the package ships a tsconfig.build.json.
+  const tsconfigBuildPath = join(packageRoot, 'tsconfig.build.json');
+
+  if (await pathExists(tsconfigBuildPath)) {
+    await runTsc(packageRoot, tsconfigBuildPath, stagingDir);
+  }
+}
+
+async function runTsc(packageRoot: string, tsconfigPath: string, outDir: string): Promise<void> {
+  const tscBin = await resolveTscBin(packageRoot);
+  const args = tscBin === 'bunx'
+    ? ['tsc', '-p', tsconfigPath, '--outDir', outDir]
+    : ['-p', tsconfigPath, '--outDir', outDir];
+
+  await new Promise<void>((resolveFn, rejectFn) => {
+    const child = spawn(tscBin, args, {
+      cwd: packageRoot,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stderr = '';
+    let stdout = '';
+
+    child.stdout.on('data', chunk => { stdout += String(chunk); });
+    child.stderr.on('data', chunk => { stderr += String(chunk); });
+
+    child.on('error', rejectFn);
+    child.on('close', code => {
+      if (code === 0) {
+        resolveFn();
+        return;
+      }
+
+      const message = stderr.trim() !== '' ? stderr.trim() : stdout.trim();
+
+      rejectFn(new DiagnosticError(buildDiagnostic({
+        reason: `tsc exited with code ${code} for ${tsconfigPath}:\n${message}`,
+        file: tsconfigPath,
+      })));
+    });
+  });
+}
+
+/**
+ * Resolves a usable `tsc` executable.
+ *
+ * Walk up from `packageRoot` looking for `node_modules/.bin/tsc` — the
+ * monorepo's hoisted dev-dependency typically lives at the workspace root.
+ * Falls back to `bunx tsc` (which itself resolves via the bun cache) when no
+ * local install is found.
+ */
+async function resolveTscBin(packageRoot: string): Promise<string> {
+  let dir = packageRoot;
+  for (let i = 0; i < 8; i += 1) {
+    const candidate = join(dir, 'node_modules', '.bin', 'tsc');
+    if (await pathExists(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  return 'bunx';
+}
+
 
 async function assertOnDiskMatches(
   outDir: string,
