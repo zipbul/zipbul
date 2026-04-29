@@ -2,8 +2,8 @@ import { readFile, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { isErr } from '@zipbul/result';
-import { parseSource, extractSymbols } from '@zipbul/gildash';
-import type { ParsedFile, ExtractedSymbol, ExpressionValue, ExpressionCall } from '@zipbul/gildash';
+import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
+import type { ParsedFile, ExtractedSymbol, ExpressionValue, ExpressionCall, CodeRelation } from '@zipbul/gildash';
 
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 
@@ -12,6 +12,7 @@ import type {
   BuildAdapterOptions,
   BuildAdapterResult,
   DecoratorSchema,
+  PeerContract,
   PipelineRef,
   PipelineSchema,
 } from './interfaces';
@@ -40,9 +41,17 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   const entryFile = pickEntrySourceFile(sourceTree, packageRoot);
   const extracted = extractAdapterDefinition(entryFile);
   const decoratorSchema = extractDecoratorSchema(sourceTree, extracted.adapterId, packageRoot);
+  const peerContract = extractPeerContract(
+    sourceTree,
+    extracted.adapterId,
+    extracted.providesIdents,
+    entryFile,
+    packageRoot,
+  );
 
   const pipelineSchemaRel = 'pipeline-schema.json';
   const decoratorSchemaRel = 'decorator-schema.json';
+  const peerContractRel = 'peer-contract.json';
   const adapterManifest: AdapterManifest = {
     $schemaName: 'adapter.manifest',
     adapterId: extracted.adapterId,
@@ -50,6 +59,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     manifests: {
       'pipeline-schema': pipelineSchemaRel,
       'decorator-schema': decoratorSchemaRel,
+      'peer-contract': peerContractRel,
     },
   };
 
@@ -61,6 +71,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
 
     await Bun.write(join(stagingDir, pipelineSchemaRel), serializeJson(extracted.pipelineSchema));
     await Bun.write(join(stagingDir, decoratorSchemaRel), serializeJson(decoratorSchema));
+    await Bun.write(join(stagingDir, peerContractRel), serializeJson(peerContract));
     // Top-level manifest written last (Item 75): it indexes the other paths.
     await Bun.write(join(stagingDir, 'adapter.manifest.json'), serializeJson(adapterManifest));
 
@@ -74,6 +85,8 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
 interface ExtractedAdapterDefinition {
   readonly adapterId: string;
   readonly pipelineSchema: PipelineSchema;
+  /** Identifier names from `defineAdapter({ provides: [...] })`, or empty when omitted. */
+  readonly providesIdents: readonly string[];
 }
 
 /**
@@ -245,6 +258,8 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
     }));
   }
 
+  const providesIdents = readProvidesField(adapterCall);
+
   return {
     adapterId,
     pipelineSchema: {
@@ -253,7 +268,127 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
       stepEnum,
       pipeline,
     },
+    providesIdents,
   };
+}
+
+function readProvidesField(call: ExpressionCall): readonly string[] {
+  const firstArg = call.arguments[0];
+  if (firstArg === undefined || firstArg.kind !== 'object') return [];
+
+  for (const prop of firstArg.properties) {
+    if (prop.kind === 'spread') continue;
+    if (prop.key.kind !== 'string' || prop.key.value !== 'provides') continue;
+
+    if (prop.value.kind !== 'array') return [];
+
+    const out: string[] = [];
+
+    for (const element of prop.value.elements) {
+      if (element.kind !== 'identifier') continue;
+      out.push(element.name);
+    }
+
+    return out;
+  }
+
+  return [];
+}
+
+/**
+ * Builds `dist/peer-contract.json` from:
+ * 1. The adapter class's `clusterStrategy` instance property (default: Shared).
+ * 2. `defineAdapter({ provides })` field — already extracted into `providesIdents`.
+ * 3. Source-tree-wide imports from `@zipbul/core` and `@zipbul/common` —
+ *    the entire set of peer symbols the adapter actually uses.
+ */
+function extractPeerContract(
+  tree: SourceTree,
+  adapterId: string,
+  providesIdents: readonly string[],
+  _entryFile: SourceFile,
+  packageRoot: string,
+): PeerContract {
+  const clusterStrategy = readClusterStrategy(tree, adapterId, packageRoot);
+  const peerSymbols = collectPeerSymbols(tree);
+
+  return {
+    $schemaName: 'adapter.peer-contract',
+    clusterStrategy,
+    provides: providesIdents,
+    peerSymbols,
+  };
+}
+
+function readClusterStrategy(
+  tree: SourceTree,
+  adapterId: string,
+  packageRoot: string,
+): 'Shared' | 'Exclusive' {
+  for (const file of tree) {
+    for (const symbol of file.symbols) {
+      if (symbol.kind !== 'class' || symbol.name !== adapterId) continue;
+
+      const member = (symbol.members ?? []).find(
+        (m): m is ExtractedSymbol => m.kind === 'property' && m.name === 'clusterStrategy',
+      );
+
+      if (member === undefined || member.initializer === undefined) {
+        // Item 48b — missing → default Shared.
+        return 'Shared';
+      }
+
+      const init = member.initializer;
+
+      if (init.kind === 'member' && (init.property === 'Shared' || init.property === 'Exclusive')) {
+        return init.property;
+      }
+
+      if (init.kind === 'string' && (init.value === 'Shared' || init.value === 'Exclusive')) {
+        return init.value;
+      }
+
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `\`${adapterId}.clusterStrategy\` in ${file.filePath} must be \`ClusterStrategy.Shared\` or \`ClusterStrategy.Exclusive\` (or the equivalent string literal).`,
+        file: file.filePath,
+      }));
+    }
+  }
+
+  throw new DiagnosticError(buildDiagnostic({
+    reason: `Adapter class \`${adapterId}\` not found while resolving clusterStrategy under ${packageRoot}/src/.`,
+    file: packageRoot,
+  }));
+}
+
+function collectPeerSymbols(tree: SourceTree): { [packageName: string]: readonly string[] } {
+  const PEER_PACKAGES = new Set(['@zipbul/core', '@zipbul/common']);
+  const collected = new Map<string, Set<string>>();
+
+  for (const pkg of PEER_PACKAGES) {
+    collected.set(pkg, new Set());
+  }
+
+  for (const file of tree) {
+    const relations: readonly CodeRelation[] = extractRelations(file.parsed.program, file.filePath);
+
+    for (const rel of relations) {
+      if (rel.type !== 'imports' && rel.type !== 'type-references') continue;
+      if (rel.specifier === undefined) continue;
+      if (!PEER_PACKAGES.has(rel.specifier)) continue;
+      if (rel.dstSymbolName === null || rel.dstSymbolName === '*') continue;
+
+      collected.get(rel.specifier)!.add(rel.dstSymbolName);
+    }
+  }
+
+  const out: { [packageName: string]: readonly string[] } = {};
+
+  for (const [pkg, symbols] of collected) {
+    out[pkg] = [...symbols].sort();
+  }
+
+  return out;
 }
 
 /**

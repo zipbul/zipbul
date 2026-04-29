@@ -87,6 +87,7 @@ describe('zb build adapter — Slice 1', () => {
       manifests: {
         'pipeline-schema': 'pipeline-schema.json',
         'decorator-schema': 'decorator-schema.json',
+        'peer-contract': 'peer-contract.json',
       },
     });
 
@@ -130,6 +131,77 @@ describe('zb build adapter — Slice 1', () => {
       handlers: ['TestGet', 'TestPost'],
       options: ['TestStatus'],
     });
+  });
+
+  it('emits dist/peer-contract.json with default Shared cluster + empty provides + peer imports', async () => {
+    await writeMinimalAdapter();
+
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const text = await readFile(join(pkgRoot, 'dist', 'peer-contract.json'), 'utf8');
+    const contract = JSON.parse(text);
+
+    expect(contract.$schemaName).toBe('adapter.peer-contract');
+    expect(contract.clusterStrategy).toBe('Shared');
+    expect(contract.provides).toEqual([]);
+    // entry imports defineAdapter + CoreStep
+    expect(contract.peerSymbols['@zipbul/common']).toContain('defineAdapter');
+    expect(contract.peerSymbols['@zipbul/core']).toContain('CoreStep');
+  });
+
+  it('peer-contract honors explicit ClusterStrategy.Exclusive on adapter class + provides field', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({
+        name: '@example/exclusive-adapter',
+        version: '0.0.1',
+        zipbul: { kind: 'adapter' },
+      }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-definition.ts'),
+      [
+        `import { defineAdapter, type ContextKey } from '@zipbul/common';`,
+        `import { ClusterStrategy } from '@zipbul/common';`,
+        `import { ExAdapter, KEY_A, KEY_B, P, S } from './x';`,
+        `export const d = defineAdapter({`,
+        `  adapter: ExAdapter,`,
+        `  phase: P,`,
+        `  step: S,`,
+        `  pipeline: [P.X],`,
+        `  provides: [KEY_A, KEY_B],`,
+        `});`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/x.ts'),
+      [
+        `import { ClusterStrategy, type AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class ExAdapter {`,
+        `  readonly clusterStrategy = ClusterStrategy.Exclusive;`,
+        `  readonly decorators: AdapterEntryDecorators = {`,
+        `    controller: C,`,
+        `    handlers: [H],`,
+        `  };`,
+        `}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const KEY_A = {} as unknown;`,
+        `export const KEY_B = {} as unknown;`,
+        `export const P = { X: 'X' } as const;`,
+        `export const S = {} as const;`,
+      ].join('\n'),
+    );
+
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const text = await readFile(join(pkgRoot, 'dist', 'peer-contract.json'), 'utf8');
+    const contract = JSON.parse(text);
+
+    expect(contract.clusterStrategy).toBe('Exclusive');
+    expect(contract.provides).toEqual(['KEY_A', 'KEY_B']);
+    expect(contract.peerSymbols['@zipbul/common']).toContain('defineAdapter');
+    expect(contract.peerSymbols['@zipbul/common']).toContain('ClusterStrategy');
   });
 
   it('rejects adapter class without decorators property', async () => {

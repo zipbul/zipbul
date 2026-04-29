@@ -90,3 +90,25 @@ export interface DecoratorSchema {
   /** 0+ optional method/class option decorators. */
   readonly options: readonly string[];
 }
+
+/**
+ * `dist/peer-contract.json` — the adapter's contract with the framework runtime
+ * and the user-app build (Item 69).
+ *
+ * - `clusterStrategy`: `Shared` (default) or `Exclusive`. Item 48b — drives
+ *   cluster mode dispatch in `application.ts:294`.
+ * - `provides`: `ContextKey` identifier names declared in
+ *   `defineAdapter({ provides: [...] })` (Item 54b). Input to multi-adapter
+ *   ContextKey conflict detection (Item 119) at user-app build time.
+ * - `peerSymbols`: imported names per `@zipbul/core` / `@zipbul/common`.
+ *   Used by user-app build to verify the adapter doesn't pull in stale
+ *   peer APIs.
+ *
+ * @public
+ */
+export interface PeerContract {
+  readonly $schemaName: 'adapter.peer-contract';
+  readonly clusterStrategy: 'Shared' | 'Exclusive';
+  readonly provides: readonly string[];
+  readonly peerSymbols: { readonly [packageName: string]: readonly string[] };
+}
