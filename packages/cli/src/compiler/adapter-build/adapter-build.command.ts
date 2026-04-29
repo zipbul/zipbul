@@ -61,9 +61,9 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   const checkOnly = options.checkOnly === true;
 
   if (dryRun && checkOnly) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `--dry-run and --check-only are mutually exclusive.`,
-    }));
+    });
   }
 
   const pkgJson = await readPackageJson(packageRoot);
@@ -243,26 +243,26 @@ async function runSelfTest(
     try {
       parsed = JSON.parse(artifact.content);
     } catch (cause) {
-      throw new DiagnosticError(buildDiagnostic({
+      throw diag('CONTRACT', {
         reason: `Self-test: ${artifact.relPath} is not valid JSON: ${(cause as Error).message ?? String(cause)}`,
         file: join(stagingDir, artifact.relPath),
-      }));
+      });
     }
 
     if (typeof parsed !== 'object' || parsed === null) {
-      throw new DiagnosticError(buildDiagnostic({
+      throw diag('CONTRACT', {
         reason: `Self-test: ${artifact.relPath} root must be a JSON object.`,
         file: join(stagingDir, artifact.relPath),
-      }));
+      });
     }
 
     const actual = (parsed as Record<string, unknown>)['$schemaName'];
 
     if (actual !== expected) {
-      throw new DiagnosticError(buildDiagnostic({
+      throw diag('CONTRACT', {
         reason: `Self-test: ${artifact.relPath} \`$schemaName\` must equal \`${expected}\` (got \`${String(actual)}\`).`,
         file: join(stagingDir, artifact.relPath),
-      }));
+      });
     }
   }
 
@@ -273,10 +273,10 @@ async function runSelfTest(
   for (const [logical, relPath] of Object.entries(top.manifests)) {
     const referenced = join(stagingDir, relPath);
     if (!(await pathExists(referenced))) {
-      throw new DiagnosticError(buildDiagnostic({
+      throw diag('CONTRACT', {
         reason: `Self-test: top-level manifest references \`${logical}\` → \`${relPath}\`, but no file exists at that path.`,
         file: topPath,
-      }));
+      });
     }
   }
 }
@@ -333,10 +333,10 @@ async function runCodegen(packageRoot: string, stagingDir: string): Promise<void
 
   if (!buildResult.success) {
     const messages = buildResult.logs.map(l => l.message).join('\n  ');
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('IO', {
       reason: `Bun.build failed for ${entryPath}:\n  ${messages}`,
       file: entryPath,
-    }));
+    });
   }
 
   // 2. .d.ts via tsc — only when the package ships a tsconfig.build.json.
@@ -374,10 +374,10 @@ async function runTsc(packageRoot: string, tsconfigPath: string, outDir: string)
 
       const message = stderr.trim() !== '' ? stderr.trim() : stdout.trim();
 
-      rejectFn(new DiagnosticError(buildDiagnostic({
+      rejectFn(diag('IO', {
         reason: `tsc exited with code ${code} for ${tsconfigPath}:\n${message}`,
         file: tsconfigPath,
-      })));
+      }));
     });
   });
 }
@@ -409,29 +409,29 @@ async function assertOnDiskMatches(
   artifacts: readonly { readonly relPath: string; readonly content: string }[],
 ): Promise<void> {
   if (!(await pathExists(outDir))) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `--check-only failed: ${outDir} does not exist. Run \`zb build adapter\` first.`,
       file: outDir,
-    }));
+    });
   }
 
   for (const artifact of artifacts) {
     const filePath = join(outDir, artifact.relPath);
 
     if (!(await pathExists(filePath))) {
-      throw new DiagnosticError(buildDiagnostic({
+      throw diag('CONTRACT', {
         reason: `--check-only failed: ${filePath} is missing — re-run the build.`,
         file: filePath,
-      }));
+      });
     }
 
     const onDisk = await readFile(filePath, 'utf8');
 
     if (onDisk !== artifact.content) {
-      throw new DiagnosticError(buildDiagnostic({
+      throw diag('CONTRACT', {
         reason: `--check-only failed: ${filePath} does not match the freshly produced manifest. The on-disk dist is stale or hand-edited.`,
         file: filePath,
-      }));
+      });
     }
   }
 }
@@ -508,10 +508,10 @@ async function collectSourceTree(packageRoot: string): Promise<SourceTree> {
   }
 
   if (tree.length === 0) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `No TypeScript source files found in ${packageRoot}/src/ or ${packageRoot}/index.ts.`,
       file: packageRoot,
-    }));
+    });
   }
 
   return tree;
@@ -569,10 +569,10 @@ function pickEntrySourceFile(tree: SourceTree, packageRoot: string): SourceFile 
     }
   }
 
-  throw new DiagnosticError(buildDiagnostic({
+  throw diag('MISSING_EXPORT', {
     reason: `No file under ${packageRoot}/src/ exports a \`defineAdapter()\` call. The adapter package must export the result of \`defineAdapter({...})\`.`,
     file: packageRoot,
-  }));
+  });
 }
 
 function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition {
@@ -588,10 +588,10 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
   const adapterId = readIdentifierField(adapterCall, 'adapter');
 
   if (adapterId === null) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `defineAdapter() in ${entry.filePath} must receive a config object whose \`adapter\` field is a class identifier reference.`,
       file: entry.filePath,
-    }));
+    });
   }
 
   const phaseEnum = readIdentifierField(adapterCall, 'phase');
@@ -599,26 +599,26 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
   const contextType = readIdentifierField(adapterCall, 'context');
 
   if (phaseEnum === null || stepEnum === null) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `defineAdapter() in ${entry.filePath} must declare \`phase\` and \`step\` fields as enum identifier references.`,
       file: entry.filePath,
-    }));
+    });
   }
 
   if (contextType === null) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `defineAdapter() in ${entry.filePath} must declare \`context\` field as a Context class identifier reference.`,
       file: entry.filePath,
-    }));
+    });
   }
 
   const pipeline = readPipelineField(adapterCall);
 
   if (pipeline === null) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `defineAdapter() in ${entry.filePath} must declare a non-empty \`pipeline\` array of qualified enum members (e.g. \`HttpPhase.OnRequest\`, \`HttpStep.ResolveRoute\`, \`CoreStep.Handler\`).`,
       file: entry.filePath,
-    }));
+    });
   }
 
   const providesIdents = readProvidesField(adapterCall);
@@ -671,20 +671,20 @@ function validatePipeline(tree: SourceTree, extracted: ExtractedAdapterDefinitio
 
     if (ref.qualifier === phaseEnum) {
       if (phaseMembers !== null && !phaseMembers.has(ref.name)) {
-        throw new DiagnosticError(buildDiagnostic({
+        throw diag('CONTRACT', {
           reason: `pipeline[${index}] = \`${ref.qualifier}.${ref.name}\` — \`${ref.name}\` is not a member of \`${phaseEnum}\`. Members: [${[...phaseMembers].sort().join(', ')}].`,
           file: entryFilePath,
-        }));
+        });
       }
       continue;
     }
 
     if (ref.qualifier === stepEnum) {
       if (stepMembers !== null && !stepMembers.has(ref.name)) {
-        throw new DiagnosticError(buildDiagnostic({
+        throw diag('CONTRACT', {
           reason: `pipeline[${index}] = \`${ref.qualifier}.${ref.name}\` — \`${ref.name}\` is not a member of \`${stepEnum}\`. Members: [${[...stepMembers].sort().join(', ')}].`,
           file: entryFilePath,
-        }));
+        });
       }
       continue;
     }
@@ -695,17 +695,17 @@ function validatePipeline(tree: SourceTree, extracted: ExtractedAdapterDefinitio
       continue;
     }
 
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `pipeline[${index}] = \`${ref.qualifier}.${ref.name}\` — qualifier \`${ref.qualifier}\` is not the configured \`phase\` (\`${phaseEnum}\`) or \`step\` (\`${stepEnum}\`) enum, nor \`CoreStep\`.`,
       file: entryFilePath,
-    }));
+    });
   }
 
   if (handlerCount !== 1) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `pipeline must contain exactly one consumer-rank step (\`CoreStep.Handler\`) — found ${handlerCount} (Item 32).`,
       file: entryFilePath,
-    }));
+    });
   }
 }
 
@@ -829,17 +829,17 @@ function readClusterStrategy(
         return init.value;
       }
 
-      throw new DiagnosticError(buildDiagnostic({
+      throw diag('CONTRACT', {
         reason: `\`${adapterId}.clusterStrategy\` in ${file.filePath} must be \`ClusterStrategy.Shared\` or \`ClusterStrategy.Exclusive\` (or the equivalent string literal).`,
         file: file.filePath,
-      }));
+      });
     }
   }
 
-  throw new DiagnosticError(buildDiagnostic({
+  throw diag('MISSING_EXPORT', {
     reason: `Adapter class \`${adapterId}\` not found while resolving clusterStrategy under ${packageRoot}/src/.`,
     file: packageRoot,
-  }));
+  });
 }
 
 function extractContextNamespaces(
@@ -881,10 +881,10 @@ function extractContextNamespaces(
     }
   }
 
-  throw new DiagnosticError(buildDiagnostic({
+  throw diag('MISSING_EXPORT', {
     reason: `Context class \`${contextType}\` not found anywhere under ${packageRoot}/src/.`,
     file: packageRoot,
-  }));
+  });
 }
 
 function extractAdapterConstructorSchema(
@@ -921,10 +921,10 @@ function extractAdapterConstructorSchema(
 
       // Item 44 — adapter constructors accept at most one options-object param.
       if (params.length > 1) {
-        throw new DiagnosticError(buildDiagnostic({
+        throw diag('CONTRACT', {
           reason: `Adapter class \`${adapterId}\` (in ${file.filePath}) constructor must accept at most one options parameter (Item 44). Found ${params.length}.`,
           file: file.filePath,
-        }));
+        });
       }
 
       return {
@@ -935,10 +935,10 @@ function extractAdapterConstructorSchema(
     }
   }
 
-  throw new DiagnosticError(buildDiagnostic({
+  throw diag('MISSING_EXPORT', {
     reason: `Adapter class \`${adapterId}\` not found while resolving constructor schema under ${packageRoot}/src/.`,
     file: packageRoot,
-  }));
+  });
 }
 
 /**
@@ -1074,20 +1074,20 @@ function extractDecoratorSchema(
       );
 
       if (decoratorsMember === undefined || decoratorsMember.initializer === undefined) {
-        throw new DiagnosticError(buildDiagnostic({
+        throw diag('CONTRACT', {
           reason: `Adapter class \`${adapterId}\` in ${file.filePath} must declare a \`decorators\` instance property of shape \`{ controller, handlers, options? }\`.`,
           file: file.filePath,
-        }));
+        });
       }
 
       return readAdapterEntryDecorators(decoratorsMember.initializer, file.filePath, adapterId);
     }
   }
 
-  throw new DiagnosticError(buildDiagnostic({
+  throw diag('MISSING_EXPORT', {
     reason: `Adapter class \`${adapterId}\` not found anywhere under ${packageRoot}/src/.`,
     file: packageRoot,
-  }));
+  });
 }
 
 function readAdapterEntryDecorators(
@@ -1096,10 +1096,10 @@ function readAdapterEntryDecorators(
   adapterId: string,
 ): DecoratorSchema {
   if (init.kind !== 'object') {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `Adapter class \`${adapterId}\` (in ${filePath}) decorators property must be an object literal.`,
       file: filePath,
-    }));
+    });
   }
 
   let controller: string | null = null;
@@ -1114,20 +1114,20 @@ function readAdapterEntryDecorators(
 
     if (fieldName === 'controller') {
       if (prop.value.kind !== 'identifier') {
-        throw new DiagnosticError(buildDiagnostic({
+        throw diag('CONTRACT', {
           reason: `decorators.controller in ${filePath} must be a single identifier reference (Item 41 — exactly 1).`,
           file: filePath,
-        }));
+        });
       }
       controller = prop.value.name;
     } else if (fieldName === 'handlers') {
       handlers = readIdentifierArray(prop.value, 'decorators.handlers', filePath);
 
       if (handlers.length === 0) {
-        throw new DiagnosticError(buildDiagnostic({
+        throw diag('CONTRACT', {
           reason: `decorators.handlers in ${filePath} must contain at least one identifier reference (Item 41 — 1+).`,
           file: filePath,
-        }));
+        });
       }
     } else if (fieldName === 'options') {
       options = readIdentifierArray(prop.value, 'decorators.options', filePath);
@@ -1135,17 +1135,17 @@ function readAdapterEntryDecorators(
   }
 
   if (controller === null) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `decorators.controller missing in ${filePath} (Item 41).`,
       file: filePath,
-    }));
+    });
   }
 
   if (handlers === null) {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `decorators.handlers missing in ${filePath} (Item 41).`,
       file: filePath,
-    }));
+    });
   }
 
   ensureUnique([controller, ...handlers, ...options], filePath);
@@ -1160,20 +1160,20 @@ function readAdapterEntryDecorators(
 
 function readIdentifierArray(value: ExpressionValue, label: string, filePath: string): readonly string[] {
   if (value.kind !== 'array') {
-    throw new DiagnosticError(buildDiagnostic({
+    throw diag('CONTRACT', {
       reason: `${label} in ${filePath} must be an array literal of identifier references.`,
       file: filePath,
-    }));
+    });
   }
 
   const out: string[] = [];
 
   for (const element of value.elements) {
     if (element.kind !== 'identifier') {
-      throw new DiagnosticError(buildDiagnostic({
+      throw diag('CONTRACT', {
         reason: `${label} in ${filePath} must contain only identifier references (no spreads, calls, or literals).`,
         file: filePath,
-      }));
+      });
     }
     out.push(element.name);
   }
