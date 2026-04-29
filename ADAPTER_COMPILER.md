@@ -4,7 +4,7 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `1d21bad` (Slice 29 — Step 12 External e2e). Step 10·11·12 모두 ✅. 30 개 thin slice 누적으로 어댑터 컴파일러 본체 + 사용자 앱 측 manifest 소비 + 외부 e2e 인수 기준 모두 충족. Section F 의 7 manifest + Section E codegen (minify, byte-equivalent) + Section J CLI 옵션 풀 + Section K watch 모드 + Section L 자기 검증 (strict 모드 분리) + Section G size/sha256 + contentHash + Section C 풀 검증 + Section H 진단 카테고리 + 다중 에러 수집 + Item 45/86 + Section M (manifest reader + 충돌 검출) + Step 12 외부 e2e 모두 동작. 책임 단위로 약 100+건 ✅. baseline 1967/139/370.
+**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `d5d6bdb` (Slice 33 — namespace map). Step 10·11·12 모두 ✅. 33 개 thin slice 누적. Section F 의 7 manifest + Section E codegen (minify) + Section J CLI 옵션 풀 + Section K watch + Section L 자기 검증 (Item 109·110·111·112·113 풀 with strict 모드) + Section G size/sha256 + contentHash + Section C 풀 검증 + Section H 진단 카테고리 + 다중 에러 + Section I tsc composite/references/tsbuildinfo + Item 16 namespace map + Item 45/86 + Section M (reader + 충돌 검출) + Step 12 외부 e2e 모두 동작. 책임 단위로 약 110+건 ✅. baseline 1967/139/370.
 
 > 본 문서의 Last sync 가 *정확히* HEAD 를 가리키지 않는 것은 self-referential 문제 (Last sync 갱신 자체가 새 커밋 1건을 만들어 HEAD 를 +1 시킴) 때문이다. 새 에이전트는 (1) `git log --oneline -1` 로 현재 HEAD 확인, (2) 그 커밋이 `docs(compiler): ...` 메타 커밋이면 무시하고 그 직전의 코드 작업 커밋을 본 문서 "마지막 코드 작업 커밋" 과 대조, (3) 일치하면 본 문서가 최신 상태.
 
@@ -238,6 +238,9 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 - `f902990` Slice 27: watch 모드 (Section K Item 102~108)
 - `37e30d5` Slice 28: --no-color + NO_COLOR (Item 86)
 - `1d21bad` Slice 29: Step 12 External e2e (manifest-only consumption)
+- `c36def6` Slice 31: runtime introspection (Item 113)
+- `6205429` Slice 32: tsconfig composite/references + tsbuildinfo (Item 92·93)
+- `d5d6bdb` Slice 33: namespace map (Item 16)
 
 **테스트 진척**: integration 94 → 134 (+40, packages/cli/test/integration/adapter-build.test.ts + manifest-reader.test.ts).
 
