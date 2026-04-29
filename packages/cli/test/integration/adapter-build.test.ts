@@ -491,6 +491,47 @@ describe('zb build adapter — Slice 1', () => {
     await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
   });
 
+  it('rejects multiple defineAdapter() calls in the package (Item 27)', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({ name: '@example/two-adapters', version: '0.0.1', zipbul: { kind: 'adapter' } }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-a.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { CoreStep } from '@zipbul/core';`,
+        `import { A, Ctx, P, S } from './x';`,
+        `export const dA = defineAdapter({ adapter: A, context: Ctx, phase: P, step: S, pipeline: [P.X, CoreStep.Handler] });`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-b.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { CoreStep } from '@zipbul/core';`,
+        `import { A, Ctx, P, S } from './x';`,
+        `export const dB = defineAdapter({ adapter: A, context: Ctx, phase: P, step: S, pipeline: [P.X, CoreStep.Handler] });`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/x.ts'),
+      [
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class A {`,
+        `  readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] };`,
+        `}`,
+        `export class Ctx {}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const P = { X: 'X' } as const;`,
+        `export const S = {} as const;`,
+      ].join('\n'),
+    );
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
   it('rejects unexported Adapter class (Item 37)', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),

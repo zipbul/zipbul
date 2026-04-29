@@ -644,16 +644,31 @@ async function pathExists(p: string): Promise<boolean> {
 }
 
 function pickEntrySourceFile(tree: SourceTree, packageRoot: string): SourceFile {
+  const matches: SourceFile[] = [];
+
   for (const file of tree) {
     if (findDefineAdapterCall(file.symbols) !== null) {
-      return file;
+      matches.push(file);
     }
   }
 
-  throw diag('MISSING_EXPORT', {
-    reason: `No file under ${packageRoot}/src/ exports a \`defineAdapter()\` call. The adapter package must export the result of \`defineAdapter({...})\`.`,
-    file: packageRoot,
-  });
+  if (matches.length === 0) {
+    throw diag('MISSING_EXPORT', {
+      reason: `No file under ${packageRoot}/src/ exports a \`defineAdapter()\` call. The adapter package must export the result of \`defineAdapter({...})\`.`,
+      file: packageRoot,
+    });
+  }
+
+  if (matches.length > 1) {
+    // Item 27 — exactly one defineAdapter() named export per package.
+    const list = matches.map(m => m.filePath).join(', ');
+    throw diag('DUPLICATE', {
+      reason: `Multiple \`defineAdapter()\` calls found in adapter package (${list}). Item 27 requires exactly one.`,
+      file: packageRoot,
+    });
+  }
+
+  return matches[0]!;
 }
 
 function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition {
