@@ -491,6 +491,39 @@ describe('zb build adapter — Slice 1', () => {
     await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
   });
 
+  it('rejects unexported Adapter class (Item 37)', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({ name: '@example/no-export-adapter', version: '0.0.1', zipbul: { kind: 'adapter' } }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-definition.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { CoreStep } from '@zipbul/core';`,
+        `import { A, Ctx, P, S } from './x';`,
+        `export const d = defineAdapter({ adapter: A, context: Ctx, phase: P, step: S, pipeline: [P.X, CoreStep.Handler] });`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/x.ts'),
+      [
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        // intentionally not exported (no `export` keyword on the class)
+        `class A {`,
+        `  readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] };`,
+        `}`,
+        `export class Ctx {}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const P = { X: 'X' } as const;`,
+        `export const S = {} as const;`,
+      ].join('\n'),
+    );
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
   it('rejects packages without zipbul.kind === "adapter"', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),

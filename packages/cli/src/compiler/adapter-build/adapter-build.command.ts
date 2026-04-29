@@ -74,6 +74,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   const entryFile = pickEntrySourceFile(sourceTree, packageRoot);
   const extracted = extractAdapterDefinition(entryFile);
   validatePipeline(sourceTree, extracted, entryFile.filePath);
+  validateClassExports(sourceTree, extracted, packageRoot);
   const decoratorSchema = extractDecoratorSchema(sourceTree, extracted.adapterId, packageRoot);
   const peerContract = extractPeerContract(
     sourceTree,
@@ -714,6 +715,66 @@ function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition
     },
     providesIdents,
   };
+}
+
+/**
+ * Validates Adapter / Context class exports (Item 37·38·39).
+ *
+ * - Item 37: Adapter class must be exported (so user app can `new` it).
+ * - Item 38: Context class must be exported (declaration merging target).
+ * - Item 39: A package may declare exactly one Adapter class. We approximate
+ *   by counting class symbols whose name === adapterId across the tree —
+ *   duplicates here would be re-declarations under the same name (fatal),
+ *   not multiple distinct adapter classes (which is a different smell caught
+ *   by `pickEntrySourceFile` finding only one defineAdapter call).
+ */
+function validateClassExports(tree: SourceTree, extracted: ExtractedAdapterDefinition, packageRoot: string): void {
+  const { adapterId, contextType } = extracted;
+
+  let adapterFound: { exported: boolean; count: number } = { exported: false, count: 0 };
+  let contextFound: { exported: boolean } = { exported: false };
+
+  for (const file of tree) {
+    for (const symbol of file.symbols) {
+      if (symbol.kind !== 'class') continue;
+
+      if (symbol.name === adapterId) {
+        adapterFound = { exported: adapterFound.exported || symbol.isExported, count: adapterFound.count + 1 };
+      }
+
+      if (symbol.name === contextType) {
+        contextFound = { exported: contextFound.exported || symbol.isExported };
+      }
+    }
+  }
+
+  if (adapterFound.count === 0) {
+    throw diag('MISSING_EXPORT', {
+      reason: `Adapter class \`${adapterId}\` not declared anywhere under ${packageRoot}/src/.`,
+      file: packageRoot,
+    });
+  }
+
+  if (adapterFound.count > 1) {
+    throw diag('DUPLICATE', {
+      reason: `Adapter class \`${adapterId}\` declared ${adapterFound.count} times under ${packageRoot}/src/. Only one declaration is allowed (Item 39).`,
+      file: packageRoot,
+    });
+  }
+
+  if (!adapterFound.exported) {
+    throw diag('MISSING_EXPORT', {
+      reason: `Adapter class \`${adapterId}\` must be exported from the adapter package so user apps can instantiate it (Item 37).`,
+      file: packageRoot,
+    });
+  }
+
+  if (!contextFound.exported) {
+    throw diag('MISSING_EXPORT', {
+      reason: `Context class \`${contextType}\` must be exported from the adapter package so declaration-merging consumers can reference it (Item 38).`,
+      file: packageRoot,
+    });
+  }
 }
 
 /**
