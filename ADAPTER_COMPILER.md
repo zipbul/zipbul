@@ -4,7 +4,7 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `d17be4f` (Step 10 Slice 9 — self-test). Step 10 (`zb build adapter` 어댑터 컴파일러 본체) 가 9 개 thin slice 로 진행 중 — Section F 의 7 개 manifest 모두 emit + Section E 의 codegen (Bun.build + tsc) + Section J 의 CLI 옵션 + Section L 의 자기 검증까지 완료. 책임 단위로는 약 50건 ✅ (Section A~L 의 113+5 중). Step 1~9 의 인프라 정비 단계는 완전 종료 (`oxc-parser` 직접 import 0 + 회귀 가드 가동). baseline 1967/117/370.
+**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `9c5935a` (Step 10 Slice 12 — diagnostic 카테고리). Step 10 가 12 개 thin slice 로 진행 중 — Section F 의 7 manifest 전부 + Section E codegen + Section J CLI 옵션 풀 + Section L 자기 검증 + Section G size/sha256 보고 + Section C pipeline 멤버 검증 + Section H 진단 카테고리까지 완료. 책임 단위로 약 60+건 ✅ (Section A~L 의 113+5 중). Step 1~9 인프라 정비 단계 완전 종료 (`oxc-parser` 직접 import 0 + 회귀 가드 가동). baseline 1967/121/370.
 
 > 본 문서의 Last sync 가 *정확히* HEAD 를 가리키지 않는 것은 self-referential 문제 (Last sync 갱신 자체가 새 커밋 1건을 만들어 HEAD 를 +1 시킴) 때문이다. 새 에이전트는 (1) `git log --oneline -1` 로 현재 HEAD 확인, (2) 그 커밋이 `docs(compiler): ...` 메타 커밋이면 무시하고 그 직전의 코드 작업 커밋을 본 문서 "마지막 코드 작업 커밋" 과 대조, (3) 일치하면 본 문서가 최신 상태.
 
@@ -218,9 +218,12 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 - `7885849` Slice 6: CLI 옵션 + exit code
 - `bd6ccf2` Slice 7: builtins.json
 - `44a7674` Slice 8: codegen (TS→JS + .d.ts)
-- `d17be4f` Slice 9: self-test
+- `d17be4f` Slice 9: self-test (manifest schema + path 정합성)
+- `719dbba` Slice 10: artifact size + sha256 보고
+- `dda0a9d` Slice 11: pipeline 멤버 검증 (Section C)
+- `9c5935a` Slice 12: diagnostic 카테고리 (Section H 부분)
 
-**테스트 진척**: integration 94 → 117 (+23, 모두 packages/cli/test/integration/adapter-build.test.ts).
+**테스트 진척**: integration 94 → 121 (+27, 모두 packages/cli/test/integration/adapter-build.test.ts).
 
 ### 0.6 심층 리뷰 결과 — 2026-04-28, 3개 Explore 에이전트 병렬 검증
 
