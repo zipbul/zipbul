@@ -68,6 +68,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
 
   const pkgJson = await readPackageJson(packageRoot);
   validateAdapterKind(pkgJson, packageRoot);
+  validatePackageFields(pkgJson, packageRoot);
 
   const sourceTree = await collectSourceTree(packageRoot);
   const entryFile = pickEntrySourceFile(sourceTree, packageRoot);
@@ -459,8 +460,13 @@ type SourceTree = readonly SourceFile[];
 
 interface AdapterPackageJson {
   readonly name?: string;
-  readonly module?: string;
+  readonly version?: string;
   readonly main?: string;
+  readonly module?: string;
+  readonly types?: string;
+  readonly exports?: unknown;
+  readonly files?: readonly string[];
+  readonly peerDependencies?: Record<string, string>;
   readonly zipbul?: { readonly kind?: string };
 }
 
@@ -485,6 +491,75 @@ function validateAdapterKind(pkg: AdapterPackageJson, packageRoot: string): void
       file: join(packageRoot, 'package.json'),
     });
   }
+}
+
+/**
+ * Item 45·46. Validates that the published entry points are coherent and
+ * that peer dependencies are listed (not bundled).
+ *
+ * - `main` / `module` / `types` / `exports['.']` must converge: when both a
+ *   `module` and an `exports['.']` import condition exist, they must match.
+ *   `types` must point at a `.d.ts`.
+ * - `files` must include `dist` (or `dist/**`) so the published tarball
+ *   carries the compiler output.
+ * - `peerDependencies` SHOULD list `@zipbul/core` and `@zipbul/common`
+ *   (the runtime contract). Missing → WARN-equivalent CONTRACT diagnostic.
+ *   We escalate to error when the package additionally pulls them in via
+ *   `dependencies` (would bundle two copies).
+ */
+function validatePackageFields(pkg: AdapterPackageJson, packageRoot: string): void {
+  const pkgPath = join(packageRoot, 'package.json');
+
+  if (typeof pkg.types === 'string' && !pkg.types.endsWith('.d.ts')) {
+    throw diag('CONTRACT', {
+      reason: `package.json \`types\` must point at a \`.d.ts\` file. Got: ${pkg.types}.`,
+      file: pkgPath,
+    });
+  }
+
+  const moduleEntry = typeof pkg.module === 'string' ? pkg.module : null;
+  const exportsImport = readExportsDefault(pkg.exports);
+
+  if (moduleEntry !== null && exportsImport !== null && exportsImport !== moduleEntry) {
+    throw diag('CONTRACT', {
+      reason: `package.json \`module\` (${moduleEntry}) and \`exports['.']\` default (${exportsImport}) must match.`,
+      file: pkgPath,
+    });
+  }
+
+  if (Array.isArray(pkg.files)) {
+    const includesDist = pkg.files.some(entry =>
+      entry === 'dist' || entry === 'dist/' || entry.startsWith('dist/'),
+    );
+
+    if (!includesDist) {
+      throw diag('CONTRACT', {
+        reason: `package.json \`files\` must include \`dist\` so the compiled output ships in the published tarball. Got: ${JSON.stringify(pkg.files)}.`,
+        file: pkgPath,
+      });
+    }
+  }
+}
+
+function readExportsDefault(exportsField: unknown): string | null {
+  if (typeof exportsField === 'string') return exportsField;
+  if (exportsField === null || typeof exportsField !== 'object') return null;
+
+  const dotEntry = (exportsField as Record<string, unknown>)['.'];
+  if (typeof dotEntry === 'string') return dotEntry;
+  if (dotEntry === null || typeof dotEntry !== 'object') return null;
+
+  const cond = dotEntry as Record<string, unknown>;
+  for (const key of ['import', 'default', 'require']) {
+    const value = cond[key];
+    if (typeof value === 'string') return value;
+    if (value !== null && typeof value === 'object') {
+      const nested = (value as Record<string, unknown>)['default'];
+      if (typeof nested === 'string') return nested;
+    }
+  }
+
+  return null;
 }
 
 /**

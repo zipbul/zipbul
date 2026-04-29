@@ -445,6 +445,52 @@ describe('zb build adapter — Slice 1', () => {
     }
   });
 
+  it('rejects package.json types field that is not a .d.ts (Item 45)', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({
+        name: '@example/bad-types',
+        version: '0.0.1',
+        types: 'dist/index.js',
+        zipbul: { kind: 'adapter' },
+      }),
+    );
+    await Bun.write(join(pkgRoot, 'src/index.ts'), `export const x = 1;`);
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
+  it('rejects mismatched module vs exports[.] default (Item 45)', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({
+        name: '@example/mismatch',
+        version: '0.0.1',
+        module: 'dist/index.js',
+        exports: { '.': { import: 'dist/other.js' } },
+        zipbul: { kind: 'adapter' },
+      }),
+    );
+    await Bun.write(join(pkgRoot, 'src/index.ts'), `export const x = 1;`);
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
+  it('rejects files array missing dist (Item 45)', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({
+        name: '@example/no-dist',
+        version: '0.0.1',
+        files: ['src'],
+        zipbul: { kind: 'adapter' },
+      }),
+    );
+    await Bun.write(join(pkgRoot, 'src/index.ts'), `export const x = 1;`);
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
   it('rejects packages without zipbul.kind === "adapter"', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),
