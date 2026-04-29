@@ -4,7 +4,7 @@
 > 근거: zipbul 본체 (`packages/core`, `packages/common`, `packages/cli`) 가 어댑터에게 요구하는 contract.
 > 외부 프레임워크 비교 0. 개발 단계 무관 항목 (마이그레이션·스키마 버전·생태계 거버넌스) 제외.
 
-**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `eec5a3a` (Slice 23 — dist/index.js 비어있지 않음 self-test). Step 10·11 가 23 개 thin slice 로 진행 — Section F 의 7 manifest 전부 + Section E codegen (minify, byte-equivalent) + Section J CLI 옵션 풀 + Section L 자기 검증 (Item 109·110·112 약식) + Section G size/sha256 보고 + Section C pipeline 멤버·enum 중복·class export·defineAdapter 단수 검증 + Section H 진단 카테고리 풀 + Item 45 package.json + Section M (Step 11) manifest reader + 다중 어댑터 충돌 검출까지 완료. 책임 단위로 약 85+건 ✅. baseline 1967/134/370.
+**Last sync**: 2026-04-29. **마지막 코드 작업 커밋**: `1d21bad` (Slice 29 — Step 12 External e2e). Step 10·11·12 모두 ✅. 30 개 thin slice 누적으로 어댑터 컴파일러 본체 + 사용자 앱 측 manifest 소비 + 외부 e2e 인수 기준 모두 충족. Section F 의 7 manifest + Section E codegen (minify, byte-equivalent) + Section J CLI 옵션 풀 + Section K watch 모드 + Section L 자기 검증 (strict 모드 분리) + Section G size/sha256 + contentHash + Section C 풀 검증 + Section H 진단 카테고리 + 다중 에러 수집 + Item 45/86 + Section M (manifest reader + 충돌 검출) + Step 12 외부 e2e 모두 동작. 책임 단위로 약 100+건 ✅. baseline 1967/139/370.
 
 > 본 문서의 Last sync 가 *정확히* HEAD 를 가리키지 않는 것은 self-referential 문제 (Last sync 갱신 자체가 새 커밋 1건을 만들어 HEAD 를 +1 시킴) 때문이다. 새 에이전트는 (1) `git log --oneline -1` 로 현재 HEAD 확인, (2) 그 커밋이 `docs(compiler): ...` 메타 커밋이면 무시하고 그 직전의 코드 작업 커밋을 본 문서 "마지막 코드 작업 커밋" 과 대조, (3) 일치하면 본 문서가 최신 상태.
 
@@ -85,8 +85,8 @@
 | 8 | `lib-augment-injector` 의 oxc 제거 | ✅ | `470e742` | 7 |
 | 9 | oxc 부재 회귀 가드 + catalog 항목 제거 | ✅ | `9d34771` | 3b·4·5·6·7·8 |
 | 10 | 어댑터 컴파일러 MVP — `zb build adapter` 본체 | 🟡 | `aaf5e57`→`d17be4f` (9 슬라이스) | 9 |
-| 11 | CLI 앱 빌드 측 manifest 우선 소비 (Section M) | 🟡 | `8b88dff` (read API) → `522b59a` (충돌 검출) | 10 |
-| 12 | External e2e — `.ts` 인젝션 없이 dist/manifest 만으로 동작 | ⬜ | — | 11 |
+| 11 | CLI 앱 빌드 측 manifest 우선 소비 (Section M) | ✅ | `8b88dff` (read API) → `522b59a` (충돌 검출) | 10 |
+| 12 | External e2e — `.ts` 인젝션 없이 dist/manifest 만으로 동작 | ✅ | `1d21bad` | 11 |
 
 ### 0.2 회귀 baseline + 검증 명령
 
@@ -232,6 +232,12 @@ grep -rn "from 'oxc-parser'" packages/cli/src/compiler/analyzer/parser/ast-node-
 - `8b88dff` Slice 20: readAdapterManifest — Section M / Step 11
 - `522b59a` Slice 21: detectMultiAdapterConflicts — Item 119
 - `eec5a3a` Slice 23: dist/index.js 비어있지 않음 self-test (Item 112 약식)
+- `383f999` Slice 24: --with-self-test strict 모드 (Item 111·112 풀)
+- `263573b` Slice 25: manifest contentHash (Item 117·118)
+- `652128a` Slice 26: 다중 진단 수집 (Item 82)
+- `f902990` Slice 27: watch 모드 (Section K Item 102~108)
+- `37e30d5` Slice 28: --no-color + NO_COLOR (Item 86)
+- `1d21bad` Slice 29: Step 12 External e2e (manifest-only consumption)
 
 **테스트 진척**: integration 94 → 134 (+40, packages/cli/test/integration/adapter-build.test.ts + manifest-reader.test.ts).
 
