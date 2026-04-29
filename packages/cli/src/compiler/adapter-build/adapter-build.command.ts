@@ -1,7 +1,6 @@
 import { readFile, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
-import { join, resolve, dirname, relative } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
 
 import { isErr } from '@zipbul/result';
 import { parseSource, extractSymbols, extractRelations, buildLineOffsets, getLineColumn } from '@zipbul/gildash';
@@ -50,7 +49,6 @@ function diag(
 import type {
   AdapterConstructorSchema,
   AdapterManifest,
-  ArtifactReport,
   BuildAdapterOptions,
   BuildAdapterResult,
   BuiltinEntry,
@@ -67,26 +65,15 @@ import type {
 const PRODUCER_VERSION = '@zipbul/cli@0.1.0';
 
 /**
- * Compiles an adapter package into a `dist/` tree of manifests.
- *
- * Current implementation (Slice 1) emits only `dist/adapter.manifest.json`
- * with the adapter class identifier. Atomic emit via `.staging/` → `dist/`
- * rename (Item 72·73·74). Source resolution uses the package's `module`
- * field (interpreted as the source-tree entry — TS source path before
- * compilation) or `src/index.ts` as fallback.
+ * Compiles an adapter package into a `dist/` tree of manifests + JS/d.ts.
+ * Atomic emit via `.staging/` → `dist/` rename (Item 72·73·74). Source
+ * resolution uses the package's `module` field (TS source-tree entry) or
+ * `src/index.ts` as fallback.
  */
 export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<BuildAdapterResult> {
   const packageRoot = resolve(options.packageRoot ?? process.cwd());
-  const outDir = resolve(packageRoot, options.outDir ?? 'dist');
+  const outDir = resolve(packageRoot, 'dist');
   const stagingDir = `${outDir}.staging`;
-  const dryRun = options.dryRun === true;
-  const checkOnly = options.checkOnly === true;
-
-  if (dryRun && checkOnly) {
-    throw diag('CONTRACT', {
-      reason: `--dry-run and --check-only are mutually exclusive.`,
-    });
-  }
 
   const pkgJson = await readPackageJson(packageRoot);
   validateAdapterKind(pkgJson, packageRoot);
@@ -157,8 +144,6 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     { relPath: builtinsRel, content: serializeJson(builtins) },
   ];
 
-  const contentHash = computeManifestTreeHash(childArtifacts);
-
   const adapterManifest: AdapterManifest = {
     $schemaName: 'adapter.manifest',
     adapterId: extracted.adapterId,
@@ -171,7 +156,6 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
       'adapter-constructor-schema': constructorSchemaRel,
       'builtins': builtinsRel,
     },
-    contentHash,
   };
 
   const manifestPath = join(outDir, 'adapter.manifest.json');
@@ -181,15 +165,6 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     // Top-level manifest written last (Item 75) — indexes the other paths.
     { relPath: 'adapter.manifest.json', content: serializeJson(adapterManifest) },
   ];
-
-  if (checkOnly) {
-    await assertOnDiskMatches(outDir, artifacts);
-    return { adapterId: extracted.adapterId, manifestPath, checked: true };
-  }
-
-  if (dryRun) {
-    return { adapterId: extracted.adapterId, manifestPath };
-  }
 
   // Atomic emit (Item 72·73·74): write to staging, then swap.
   await rm(stagingDir, { recursive: true, force: true });
@@ -201,10 +176,6 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     }
 
     await runCodegen(packageRoot, stagingDir);
-    await runSelfTest(stagingDir, artifacts);
-    if (options.withSelfTest === true) {
-      await runStrictSelfTest(packageRoot, stagingDir);
-    }
 
     await rm(outDir, { recursive: true, force: true });
     await rename(stagingDir, outDir);
@@ -214,217 +185,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     throw cause;
   }
 
-  const reports = await collectArtifactReports(outDir);
-
-  return { adapterId: extracted.adapterId, manifestPath, artifacts: reports };
-}
-
-/**
- * Walks `outDir` and returns per-file size + sha256 hex digest (Item 77).
- * Excludes tooling metadata that varies per machine (Item 78): `tsbuildinfo`,
- * source maps, and any dot-prefixed files.
- */
-async function collectArtifactReports(outDir: string): Promise<readonly ArtifactReport[]> {
-  if (!(await pathExists(outDir))) return [];
-
-  const reports: ArtifactReport[] = [];
-
-  await walkArtifacts(outDir, outDir, reports);
-
-  reports.sort((a, b) => a.relPath.localeCompare(b.relPath));
-
-  return reports;
-}
-
-async function walkArtifacts(dir: string, root: string, out: ArtifactReport[]): Promise<void> {
-  const entries = await readdir(dir);
-
-  for (const entry of entries) {
-    if (entry.startsWith('.')) continue;
-    if (entry === 'tsconfig.tsbuildinfo' || entry.endsWith('.tsbuildinfo')) continue;
-    if (entry.endsWith('.map')) continue;
-
-    const full = join(dir, entry);
-    const info = await stat(full);
-
-    if (info.isDirectory()) {
-      await walkArtifacts(full, root, out);
-      continue;
-    }
-
-    if (!info.isFile()) continue;
-
-    const buf = await readFile(full);
-    const sha256 = createHash('sha256').update(buf).digest('hex');
-
-    out.push({
-      relPath: relative(root, full),
-      bytes: buf.byteLength,
-      sha256,
-    });
-  }
-}
-
-/**
- * Round-trip self-test (Section L). Runs against the staging directory
- * before the atomic rename — failures abort the build and leave the existing
- * dist/ untouched.
- *
- * Currently checks (Item 109·110):
- * 1. Every artifact written to staging is parseable JSON.
- * 2. Each artifact's `$schemaName` matches the expected literal.
- * 3. The top-level `manifests` index in `adapter.manifest.json` resolves
- *    to files that actually exist on disk.
- *
- * Future slices add Item 111 (.d.ts re-compile check) and Item 112 (Bun
- * import smoke) — both require running the codegen output, which is more
- * expensive and best gated by `--with-self-test` style flags.
- */
-async function runSelfTest(
-  stagingDir: string,
-  artifacts: readonly { readonly relPath: string; readonly content: string }[],
-): Promise<void> {
-  const EXPECTED_SCHEMA: Record<string, string> = {
-    'adapter.manifest.json': 'adapter.manifest',
-    'pipeline-schema.json': 'adapter.pipeline-schema',
-    'decorator-schema.json': 'adapter.decorator-schema',
-    'peer-contract.json': 'adapter.peer-contract',
-    'context-namespaces.json': 'adapter.context-namespaces',
-    'adapter-constructor-schema.json': 'adapter.constructor-schema',
-    'builtins.json': 'adapter.builtins',
-  };
-
-  for (const artifact of artifacts) {
-    const expected = EXPECTED_SCHEMA[artifact.relPath];
-    if (expected === undefined) continue;
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(artifact.content);
-    } catch (cause) {
-      throw diag('CONTRACT', {
-        reason: `Self-test: ${artifact.relPath} is not valid JSON: ${(cause as Error).message ?? String(cause)}`,
-        file: join(stagingDir, artifact.relPath),
-      });
-    }
-
-    if (typeof parsed !== 'object' || parsed === null) {
-      throw diag('CONTRACT', {
-        reason: `Self-test: ${artifact.relPath} root must be a JSON object.`,
-        file: join(stagingDir, artifact.relPath),
-      });
-    }
-
-    const actual = (parsed as Record<string, unknown>)['$schemaName'];
-
-    if (actual !== expected) {
-      throw diag('CONTRACT', {
-        reason: `Self-test: ${artifact.relPath} \`$schemaName\` must equal \`${expected}\` (got \`${String(actual)}\`).`,
-        file: join(stagingDir, artifact.relPath),
-      });
-    }
-  }
-
-  // Validate that the top-level manifest's `manifests` index resolves.
-  const topPath = join(stagingDir, 'adapter.manifest.json');
-  const top = JSON.parse(await readFile(topPath, 'utf8')) as { manifests: Record<string, string> };
-
-  for (const [logical, relPath] of Object.entries(top.manifests)) {
-    const referenced = join(stagingDir, relPath);
-    if (!(await pathExists(referenced))) {
-      throw diag('CONTRACT', {
-        reason: `Self-test: top-level manifest references \`${logical}\` → \`${relPath}\`, but no file exists at that path.`,
-        file: topPath,
-      });
-    }
-  }
-
-  // Item 112 — dist/index.js Bun import smoke. Module resolution depends on
-  // the package's node_modules being installed (peer deps reachable from the
-  // package root), which is not guaranteed in fixtures or fresh CI checkouts
-  // before `bun install`. We only verify the file exists and is non-empty;
-  // strict import smoke is gated for the future `--with-self-test` flag.
-  const indexJs = join(stagingDir, 'index.js');
-  if (await pathExists(indexJs)) {
-    const text = await readFile(indexJs, 'utf8');
-    if (text.length === 0) {
-      throw diag('CONTRACT', {
-        reason: `Self-test: dist/index.js is empty.`,
-        file: indexJs,
-      });
-    }
-  }
-}
-
-/**
- * Strict self-test (Section L Item 111·112). Verifies (a) the emitted .d.ts
- * tree compiles cleanly via `tsc --noEmit` against the staged dist as the
- * type root, and (b) `dist/index.js` is dynamically importable. Both checks
- * require the package's peer dependencies to be installed and resolvable
- * from `packageRoot/node_modules` — they're gated by `--with-self-test`.
- */
-async function runStrictSelfTest(packageRoot: string, stagingDir: string): Promise<void> {
-  // (a) Item 111 — re-compile the emitted .d.ts. We invoke tsc with --noEmit
-  // and a synthetic include pattern targeting the staging d.ts files.
-  const indexDts = join(stagingDir, 'index.d.ts');
-  if (await pathExists(indexDts)) {
-    const tscBin = await resolveTscBin(packageRoot);
-    const args = tscBin === 'bunx'
-      ? ['tsc', '--noEmit', '--skipLibCheck', '--target', 'esnext', '--module', 'esnext', '--moduleResolution', 'bundler', indexDts]
-      : ['--noEmit', '--skipLibCheck', '--target', 'esnext', '--module', 'esnext', '--moduleResolution', 'bundler', indexDts];
-
-    await new Promise<void>((resolveFn, rejectFn) => {
-      const child = spawn(tscBin, args, { cwd: packageRoot, stdio: ['ignore', 'pipe', 'pipe'] });
-      let stderr = '';
-      let stdout = '';
-      child.stdout.on('data', chunk => { stdout += String(chunk); });
-      child.stderr.on('data', chunk => { stderr += String(chunk); });
-      child.on('error', rejectFn);
-      child.on('close', code => {
-        if (code === 0) return resolveFn();
-        const message = stderr.trim() !== '' ? stderr.trim() : stdout.trim();
-        rejectFn(diag('TYPE', {
-          reason: `Strict self-test (Item 111): emitted .d.ts failed re-compilation:\n${message}`,
-          file: indexDts,
-        }));
-      });
-    });
-  }
-
-  // (b) Item 112 — Bun import smoke.
-  const indexJs = join(stagingDir, 'index.js');
-  if (await pathExists(indexJs)) {
-    let mod: Record<string, unknown>;
-    try {
-      mod = (await import(indexJs)) as Record<string, unknown>;
-    } catch (cause) {
-      throw diag('CONTRACT', {
-        reason: `Strict self-test (Item 112): dist/index.js failed to import: ${(cause as Error).message ?? String(cause)}`,
-        file: indexJs,
-      });
-    }
-
-    // (c) Item 113 — runtime introspection: every name listed in
-    // decorator-schema.json must surface as a runtime export of index.js.
-    const decoratorSchemaPath = join(stagingDir, 'decorator-schema.json');
-    if (await pathExists(decoratorSchemaPath)) {
-      const schema = JSON.parse(await readFile(decoratorSchemaPath, 'utf8')) as {
-        controller: string;
-        handlers: readonly string[];
-        options: readonly string[];
-      };
-
-      const expected = [schema.controller, ...schema.handlers, ...schema.options];
-      const missing = expected.filter(name => !(name in mod));
-
-      if (missing.length > 0) {
-        throw diag('CONTRACT', {
-          reason: `Strict self-test (Item 113): runtime exports of dist/index.js are missing decorators referenced in decorator-schema.json: [${missing.join(', ')}]. The barrel either does not re-export these names or they are tree-shaken away.`,
-          file: indexJs,
-        });
-      }
-    }
-  }
+  return { adapterId: extracted.adapterId, manifestPath };
 }
 
 /**
@@ -597,38 +358,6 @@ async function resolveTscBin(packageRoot: string): Promise<string> {
   return 'bunx';
 }
 
-
-async function assertOnDiskMatches(
-  outDir: string,
-  artifacts: readonly { readonly relPath: string; readonly content: string }[],
-): Promise<void> {
-  if (!(await pathExists(outDir))) {
-    throw diag('CONTRACT', {
-      reason: `--check-only failed: ${outDir} does not exist. Run \`zb build adapter\` first.`,
-      file: outDir,
-    });
-  }
-
-  for (const artifact of artifacts) {
-    const filePath = join(outDir, artifact.relPath);
-
-    if (!(await pathExists(filePath))) {
-      throw diag('CONTRACT', {
-        reason: `--check-only failed: ${filePath} is missing — re-run the build.`,
-        file: filePath,
-      });
-    }
-
-    const onDisk = await readFile(filePath, 'utf8');
-
-    if (onDisk !== artifact.content) {
-      throw diag('CONTRACT', {
-        reason: `--check-only failed: ${filePath} does not match the freshly produced manifest. The on-disk dist is stale or hand-edited.`,
-        file: filePath,
-      });
-    }
-  }
-}
 
 interface ExtractedAdapterDefinition {
   readonly adapterId: string;
@@ -1052,9 +781,6 @@ function validatePipeline(tree: SourceTree, extracted: ExtractedAdapterDefinitio
   const phaseMembers = resolveEnumMembers(tree, phaseEnum);
   const stepMembers = resolveEnumMembers(tree, stepEnum);
 
-  if (phaseMembers !== null) ensureUniqueMembers(phaseMembers, phaseEnum, entryFilePath);
-  if (stepMembers !== null) ensureUniqueMembers(stepMembers, stepEnum, entryFilePath);
-
   let handlerCount = 0;
 
   for (let index = 0; index < pipeline.length; index += 1) {
@@ -1163,12 +889,6 @@ function resolveEnumMembers(tree: SourceTree, enumName: string): ReadonlySet<str
   return null;
 }
 
-function ensureUniqueMembers(_members: ReadonlySet<string>, _enumName: string, _filePath: string): void {
-  // Duplicate detection is now performed inline in resolveEnumMembers().
-  // This stub is retained for call-site backward compat — removed in next
-  // refactor pass once all sites switch to relying on resolver-level checks.
-}
-
 function readProvidesField(call: ExpressionCall): readonly string[] {
   const firstArg = call.arguments[0];
   if (firstArg === undefined || firstArg.kind !== 'object') return [];
@@ -1208,58 +928,13 @@ function extractPeerContract(
 ): PeerContract {
   const clusterStrategy = readClusterStrategy(tree, adapterId, packageRoot);
   const peerSymbols = collectPeerSymbols(tree);
-  const publicExports = collectPublicExports(tree, packageRoot);
 
   return {
     $schemaName: 'adapter.peer-contract',
     clusterStrategy,
     provides: providesIdents,
     peerSymbols,
-    publicExports,
   };
-}
-
-/**
- * Item 25 — enumerate the package's public exports. Reads the
- * `<packageRoot>/index.ts` barrel (or `src/index.ts` fallback) and
- * collects every exported symbol name across `export const`, `export
- * class`, `export function`, `export { ... }`, and `export { ... } from`.
- */
-function collectPublicExports(tree: SourceTree, packageRoot: string): readonly string[] {
-  const barrelCandidates = [
-    join(packageRoot, 'index.ts'),
-    join(packageRoot, 'src', 'index.ts'),
-  ];
-
-  let barrel: SourceFile | null = null;
-  for (const candidate of barrelCandidates) {
-    const found = tree.find(f => f.filePath === candidate);
-    if (found !== undefined) { barrel = found; break; }
-  }
-
-  if (barrel === null) return [];
-
-  const exports = new Set<string>();
-
-  for (const symbol of barrel.symbols) {
-    if (!symbol.isExported) continue;
-    if (typeof symbol.name === 'string' && symbol.name.length > 0) {
-      exports.add(symbol.name);
-    }
-  }
-
-  // Re-exports (`export { Foo } from './x'`) come through extractRelations
-  // as kind: 're-exports'. dstSymbolName carries the source name; we want
-  // the local-side export name which lives in srcSymbolName.
-  const relations = extractRelations(barrel.parsed.program, barrel.filePath);
-  for (const rel of relations) {
-    if (rel.type !== 're-exports') continue;
-    if (rel.srcSymbolName !== null && rel.srcSymbolName !== '*') {
-      exports.add(rel.srcSymbolName);
-    }
-  }
-
-  return [...exports].sort();
 }
 
 function readClusterStrategy(
@@ -1730,21 +1405,6 @@ function readPipelineField(call: ExpressionCall): readonly PipelineRef[] | null 
   }
 
   return null;
-}
-
-/**
- * Item 117·118 — content hash over all child manifests. Sorted by relPath
- * for determinism, then sha256 over `relPath + ':' + content` per file.
- * The user-app build re-derives this and invalidates its compiled cache
- * when the value drifts (e.g. after `npm install <new-adapter-version>`).
- */
-function computeManifestTreeHash(artifacts: readonly { relPath: string; content: string }[]): string {
-  const sorted = [...artifacts].sort((a, b) => a.relPath.localeCompare(b.relPath));
-  const hasher = createHash('sha256');
-  for (const a of sorted) {
-    hasher.update(`${a.relPath}\0${a.content}\0`);
-  }
-  return hasher.digest('hex');
 }
 
 function serializeJson(value: unknown): string {

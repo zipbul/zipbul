@@ -102,7 +102,6 @@ describe('zb build adapter — Slice 1', () => {
         'adapter-constructor-schema': 'adapter-constructor-schema.json',
         'builtins': 'builtins.json',
       },
-      contentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
 
     expect(text.endsWith('\n')).toBe(true);
@@ -191,41 +190,6 @@ describe('zb build adapter — Slice 1', () => {
     expect(schema.$schemaName).toBe('adapter.constructor-schema');
     expect(schema.optionsParam).toEqual({ name: 'options', type: 'TestOptions' });
     expect(schema.optional).toBe(true);
-  });
-
-  it('top-level manifest carries contentHash over all child manifests (Item 117)', async () => {
-    await writeMinimalAdapter();
-
-    await buildAdapter({ packageRoot: pkgRoot });
-
-    const text = await readFile(join(pkgRoot, 'dist', 'adapter.manifest.json'), 'utf8');
-    const manifest = JSON.parse(text);
-
-    expect(manifest.contentHash).toMatch(/^[0-9a-f]{64}$/);
-
-    // Re-build → same hash
-    await buildAdapter({ packageRoot: pkgRoot });
-    const text2 = await readFile(join(pkgRoot, 'dist', 'adapter.manifest.json'), 'utf8');
-    expect(JSON.parse(text2).contentHash).toBe(manifest.contentHash);
-  });
-
-  it('returns per-file artifact size + sha256 in result.artifacts', async () => {
-    await writeMinimalAdapter();
-
-    const result = await buildAdapter({ packageRoot: pkgRoot });
-
-    expect(result.artifacts).toBeDefined();
-    expect(result.artifacts!.length).toBeGreaterThan(0);
-
-    const manifest = result.artifacts!.find((a: { relPath: string }) => a.relPath === 'adapter.manifest.json');
-    expect(manifest).toBeDefined();
-    expect(manifest!.bytes).toBeGreaterThan(0);
-    expect(manifest!.sha256).toMatch(/^[0-9a-f]{64}$/);
-
-    // Re-running yields identical hashes (determinism).
-    const result2 = await buildAdapter({ packageRoot: pkgRoot });
-    const m2 = result2.artifacts!.find((a: { relPath: string }) => a.relPath === 'adapter.manifest.json');
-    expect(m2!.sha256).toBe(manifest!.sha256);
   });
 
   it('emits dist/builtins.json (empty when no defineMiddleware/Guard/ExceptionFilter calls)', async () => {
@@ -688,66 +652,6 @@ describe('zb build adapter — Slice 1', () => {
     );
 
     await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toBeInstanceOf(DiagnosticError);
-  });
-
-  it('--out-dir overrides the default dist/ location', async () => {
-    await writeMinimalAdapter();
-
-    const result = await buildAdapter({ packageRoot: pkgRoot, outDir: 'out' });
-
-    expect(result.manifestPath).toBe(join(pkgRoot, 'out', 'adapter.manifest.json'));
-    const text = await readFile(result.manifestPath, 'utf8');
-    expect(JSON.parse(text).adapterId).toBe('TestAdapter');
-  });
-
-  it('--dry-run validates without writing files', async () => {
-    await writeMinimalAdapter();
-
-    const result = await buildAdapter({ packageRoot: pkgRoot, dryRun: true });
-
-    expect(result.adapterId).toBe('TestAdapter');
-    // No file should be written
-    await expect(readFile(result.manifestPath, 'utf8')).rejects.toThrow();
-  });
-
-  it('--check-only succeeds when on-disk dist matches a fresh build', async () => {
-    await writeMinimalAdapter();
-
-    await buildAdapter({ packageRoot: pkgRoot });
-
-    const result = await buildAdapter({ packageRoot: pkgRoot, checkOnly: true });
-
-    expect(result.checked).toBe(true);
-  });
-
-  it('--check-only fails when dist is missing', async () => {
-    await writeMinimalAdapter();
-
-    await expect(
-      buildAdapter({ packageRoot: pkgRoot, checkOnly: true }),
-    ).rejects.toBeInstanceOf(DiagnosticError);
-  });
-
-  it('--check-only fails when dist content is stale (hand-edited)', async () => {
-    await writeMinimalAdapter();
-    await buildAdapter({ packageRoot: pkgRoot });
-
-    // Tamper with the manifest
-    const manifestPath = join(pkgRoot, 'dist', 'adapter.manifest.json');
-    const original = await readFile(manifestPath, 'utf8');
-    await Bun.write(manifestPath, original.replace('"TestAdapter"', '"WrongName"'));
-
-    await expect(
-      buildAdapter({ packageRoot: pkgRoot, checkOnly: true }),
-    ).rejects.toBeInstanceOf(DiagnosticError);
-  });
-
-  it('--dry-run + --check-only is rejected as mutually exclusive', async () => {
-    await writeMinimalAdapter();
-
-    await expect(
-      buildAdapter({ packageRoot: pkgRoot, dryRun: true, checkOnly: true }),
-    ).rejects.toBeInstanceOf(DiagnosticError);
   });
 
   it('rejects pipeline with member not in the configured phase enum', async () => {

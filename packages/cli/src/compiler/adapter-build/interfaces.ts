@@ -6,29 +6,6 @@
 export interface BuildAdapterOptions {
   /** Adapter package root. Defaults to `process.cwd()`. */
   readonly packageRoot?: string;
-  /** Override output directory (Item 96 — `--out-dir`). Defaults to `<packageRoot>/dist`. */
-  readonly outDir?: string;
-  /**
-   * When `true`, perform extraction + canonicalize + verify everything, but
-   * skip writing files (Item 100 — `--dry-run`). Existing `dist/` is not
-   * modified.
-   */
-  readonly dryRun?: boolean;
-  /**
-   * When `true`, run extraction + canonical serialization in memory and
-   * compare against the on-disk `dist/` (if present). Throws when content
-   * differs — used by CI to gate determinism (Item 101 — `--check-only`).
-   */
-  readonly checkOnly?: boolean;
-  /** Suppress `info` output; only diagnostics emit (Item 97 — `--quiet`). */
-  readonly quiet?: boolean;
-  /**
-   * Run strict self-test (Item 111·112): re-compile the emitted `.d.ts`
-   * tree via `tsc --noEmit` and dynamically import `dist/index.js`. Off by
-   * default because both checks depend on the package's full peer-dep
-   * graph being installed and resolvable.
-   */
-  readonly withSelfTest?: boolean;
 }
 
 /**
@@ -39,44 +16,14 @@ export interface BuildAdapterOptions {
 export interface BuildAdapterResult {
   /** Resolved adapter class identifier (the `adapter` field of `defineAdapter()`). */
   readonly adapterId: string;
-  /** Absolute path to the manifest file that was written (or would have been, in dry-run). */
+  /** Absolute path to the manifest file that was written. */
   readonly manifestPath: string;
-  /**
-   * `true` when `--check-only` was set and the existing on-disk `dist/`
-   * matched the freshly produced contents byte-for-byte. `false` only ever
-   * occurs alongside a `DiagnosticError` thrown from buildAdapter, so this
-   * field is informational rather than authoritative.
-   */
-  readonly checked?: boolean;
-  /**
-   * Per-file artifact report (Item 77·78). Only emit-target files are listed —
-   * `tsbuildinfo`, source-map metadata, and other tooling caches are excluded.
-   * Empty when `--dry-run` (no files written) or `--check-only` (verification
-   * mode, no fresh emit).
-   */
-  readonly artifacts?: readonly ArtifactReport[];
 }
 
 /**
- * Per-file size + content hash report. `bytes` is the on-disk file size in
- * bytes; `sha256` is the lowercase hex digest of the file content.
- *
- * @public
- */
-export interface ArtifactReport {
-  readonly relPath: string;
-  readonly bytes: number;
-  readonly sha256: string;
-}
-
-/**
- * Top-level manifest emitted at `dist/adapter.manifest.json`.
- *
- * Schema fields are stable and machine-consumed by the user-app build. The
- * `$schemaName` field self-identifies the format (Item 71). `producedBy`
- * carries the tool version so the user app can perform compatibility checks
- * (Item 116). `manifests` indexes the other JSON files emitted alongside
- * (Item 64) so consumers can locate them by logical name.
+ * Top-level manifest emitted at `dist/adapter.manifest.json`. `$schemaName`
+ * self-identifies the format. `producedBy` records the tool version. `manifests`
+ * indexes the sibling JSON files by logical name.
  *
  * @public
  */
@@ -85,12 +32,6 @@ export interface AdapterManifest {
   readonly adapterId: string;
   readonly producedBy: string;
   readonly manifests: { readonly [logicalName: string]: string };
-  /**
-   * sha256 hex digest over the canonicalized concatenation of every other
-   * manifest the build emitted (Item 117·118). User-app build re-hashes
-   * the on-disk tree and invalidates its cache when the value drifts.
-   */
-  readonly contentHash: string;
 }
 
 /**
@@ -245,11 +186,4 @@ export interface PeerContract {
   readonly clusterStrategy: 'Shared' | 'Exclusive';
   readonly provides: readonly string[];
   readonly peerSymbols: { readonly [packageName: string]: readonly string[] };
-  /**
-   * Public exports of the adapter package's entry barrel (Item 25). Sorted
-   * unique. User-app build joins this against the manifest's adapterId /
-   * decorator names / contextType to flag missing re-exports before the
-   * runtime would.
-   */
-  readonly publicExports: readonly string[];
 }

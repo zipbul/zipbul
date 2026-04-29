@@ -16,9 +16,11 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const SELF_PATH = join('packages', 'cli', 'src', 'no-oxc-parser-import.spec.ts');
+const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)));
+const SELF_PATH = fileURLToPath(import.meta.url);
 
 async function* walkTsFiles(dir: string): AsyncIterable<string> {
   const entries = await readdir(dir);
@@ -44,8 +46,8 @@ describe('no oxc-parser direct import in @zipbul/cli', () => {
   it('every cli source file accesses AST only via @zipbul/gildash', async () => {
     const offenders: Array<{ file: string; line: number; text: string }> = [];
 
-    for await (const file of walkTsFiles('packages/cli/src')) {
-      if (file.endsWith(SELF_PATH)) continue;
+    for await (const file of walkTsFiles(SRC_DIR)) {
+      if (file === SELF_PATH) continue;
 
       const text = await readFile(file, 'utf8');
       const lines = text.split('\n');
