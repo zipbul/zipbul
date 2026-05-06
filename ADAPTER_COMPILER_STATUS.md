@@ -26,31 +26,11 @@ zipbul 은 AOT (Ahead-of-Time) 컴파일러를 가진다 — 사용자 앱 빌�
 
 **어댑터 컴파일러 (`zb build adapter`) 의 존재 이유는 (B)**. (A) 는 *임시 dev 흐름이지, 진짜 배포 시나리오가 아님*. ADAPTER_COMPILER.md Section A~L 의 113 + 5 책임은 모두 (B) 흐름의 어댑터 측 컴파일러 (어댑터 → manifest 생산자) 책임이며, Section M Item 114~119 는 그 짝 contract — 사용자 앱 빌드 측의 manifest 소비자. 두 짝이 모두 작동해야 (B) 흐름이 완성되고, 그래야 어댑터를 패킹·설치 시나리오로 ship 할 수 있다.
 
-**현재 상태 요약 (commit `5143811`)**. 어댑터 컴파일러 본체 (Section A~L 의 manifest 생산자) 는 부분 구현되어 작동 — `cd packages/http-adapter && zb build adapter` 가 7개 manifest + JS + d.ts 를 `dist/` 에 emit. 그러나 사용자 앱 빌드 측 manifest 소비 진입점 (Section M, Step 11) 은 read API (`manifest-reader.ts`) 가 한때 작성되었으나 (commit `8b88dff` / `522b59a` / `1d21bad`) 실제 사용자 앱 빌드 (`zb build` 의 `AdapterDefinitionResolver`) 에 wiring 안 됨. 그 위에 본 refactor 커밋 `5143811` 이 잉여 13 건 제거 중에 read API 자체를 잘못 같이 삭제. 결과: 패킹·설치 빌드 실패 (`bun pm pack` → 압축해제 설치 → `zb build` → "No adapter definition found", Section A.3 e2e 재현 가능). 어댑터 컴파일러의 존재 이유 (B) 의 절반만 작동.
+**현재 상태 요약 (commit `5143811`)**. 어댑터 컴파일러 본체 (Section A~L 의 manifest 생산자) 는 부분 구현되어 작동 — `cd packages/http-adapter && zb build adapter` 가 7개 manifest + JS + d.ts 를 `dist/` 에 emit. 그러나 사용자 앱 빌드 측 manifest 소비 진입점 (Section M) 은 read API (`manifest-reader.ts`) 가 commit `5143811` 에서 잘못 일괄 삭제되었고 사용자 앱 빌드 (`zb build` 의 `AdapterDefinitionResolver`) wiring 도 미완. 결과: 패킹·설치 빌드 실패 (`bun pm pack` → 압축해제 설치 → `zb build` → "No adapter definition found", Section A.3 e2e 재현 가능). 어댑터 컴파일러의 존재 이유 (B) 의 절반만 작동.
 
 본 문서의 잔여 작업 4 영역은 이 절반을 채우는 작업이다 — 영역 1 (read API 복원) → 영역 2 (사용자 앱 빌드 wiring) → 영역 3 (augment 흡수) → 영역 4 (`ADAPTER_COMPILER.md` 동기화 + 본 문서 폐기).
 
-### 0.1 commit `5143811` 의 변경 — 본 문서 기준점
-
-본 문서는 commit `5143811` 시점의 코드를 기준으로 한다. 그 커밋이 무엇을 했는지 한 단락으로:
-
-`refactor(cli/adapter-build): 잉여 기능 제거 및 범위 축소`. 11 파일 변경 (+33 / -1419). 사용자 명시 거부 + 잉여 판단으로 13 건 제거. 변경 요약:
-
-- CLI 옵션 8 종 (`--check-only`, `--with-self-test`, `--watch`, `--format=json`, `--no-color`, `--out-dir`, `--dry-run`, `--quiet`) 제거, JSON 출력 고정, `dist/` 출력 디렉토리 고정 — `packages/cli/src/bin/zb.ts` 단순화.
-- `BuildAdapterResult.artifacts`(size+sha256) 필드 제거 (Item 77).
-- `AdapterManifest.contentHash` 필드 제거 (Item 117·118).
-- `PeerContract.publicExports` 필드 제거 (Item 25).
-- `runSelfTest` 함수 + 호출부 제거 (Section L Item 109·110).
-- 전용 `manifest-reader.ts` (Slice 20, commit `8b88dff` 도입, Slice 21 `522b59a` 에서 `detectMultiAdapterConflicts` 추가, 251 줄) **삭제**.
-- 전용 통합 테스트 2 파일 (`manifest-reader.test.ts` 5 건 + `external-consumption.test.ts` 2 건) **삭제** + `adapter-build.test.ts` 의 `contentHash` / `result.artifacts` 검증 블록 2 건 정정.
-- `watch.ts` + `watch.test.ts` 제거 (Section K Item 102~108).
-- `ensureUniqueMembers` 빈 stub (이미 검증은 `resolveEnumMembers` 인라인) + 호출부 정리.
-- `buildAdapter` JSDoc stale 문구 (`Slice 1 emits only adapter.manifest.json`) 정정.
-- `no-oxc-parser-import.spec.ts` 의 cwd 의존 경로 (`packages/cli/src` 상대) → `import.meta.url` 기반 자기 위치 해상으로 변경 (cwd 무관).
-
-13 건 제거 중 12 건은 사용자 명시 거부 또는 사용자 검토 후 잉여 확정. **마지막 1 건 — manifest-reader 와 그 통합 테스트 — 의 삭제는 잘못된 판단**. 이 read API 는 어댑터 컴파일러의 짝 contract 인 사용자 앱 빌드 측 진입점이며, 본 문서의 영역 1 에서 복원 대상.
-
-### 0.2 운영 환경
+### 0.1 운영 환경
 
 - **저장소**: `/home/revil/projects/zipbul/zipbul`. 패키지 5 개 (`packages/{cli,common,core,http-adapter,logger}`). 작업 cwd 는 항상 루트.
 - **런타임**: Bun 1.3.13. Node 사용 금지. 모든 스크립트 `bun` / `bunx`. npm/yarn/pnpm 금지.
@@ -59,7 +39,7 @@ zipbul 은 AOT (Ahead-of-Time) 컴파일러를 가진다 — 사용자 앱 빌�
 - **git**: 사용자 명시 요청 시에만 커밋. 한국어 메시지, scope 명시 (`feat(cli)` / `refactor(cli)` / `test(cli)` / `docs(compiler)` / `docs(compiler-status)`). 마지막 라인 항상 `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`. amend 금지 (pre-commit hook 실패 시 새 커밋), force push 금지, `--no-verify` 금지. `.husky/` 의 commit-msg / pre-commit / pre-push 통과 필수. 작업 브랜치 `fix/cli-js-bundle-bin`, main PR 머지는 사용자 직접.
 - **사용자 의사소통**: 한국어. 검증 없는 추측·보장 금지 (`feedback_no_unverified_claims` / `feedback_fact_based_only`). "확실하냐?" / "완벽하냐?" 질문 시 typecheck + 3 종 테스트 + grep 실측 결과 인용. 추측을 사실처럼 보고하면 가장 강하게 거부됨.
 
-### 0.3 작업 시작 전 강제 체크리스트
+### 0.2 작업 시작 전 강제 체크리스트
 
 작업 시작 시 다음을 순서대로:
 
@@ -148,83 +128,49 @@ rm -f /home/revil/projects/zipbul/zipbul/packages/http-adapter/zipbul-http-adapt
 
 ---
 
-## B. 현재 구현 상태 — Spec 항목 ↔ 코드 1:1 대조 (commit `5143811`)
+## B. 미완료/거부 항목 — Spec 항목 ↔ 코드 1:1 대조
 
-본 섹션은 `ADAPTER_COMPILER.md` Section A~N 의 137 항목 각각이 commit `5143811` 시점에 (1) 구현되어 있는지, (2) 사용자 명시 거부로 제거되었는지, (3) 명세는 되었으나 미구현인지를 코드 라인 인용으로 분류한다. 항목 정의 자체는 `ADAPTER_COMPILER.md` 본문 참조.
+본 섹션은 `ADAPTER_COMPILER.md` Section A~M 의 137 항목 중 **미완료(⬜/🟡) 또는 거부(❌) 또는 복원 대상(🔁)** 만 코드 라인 인용으로 추적한다. ✅ 완료 항목은 본 표에서 제외 — 명세 정의는 ADAPTER_COMPILER.md 본문 참조.
 
 **표기 규약**:
-- ✅ 구현 완료. 코드 라인 인용으로 검증.
 - 🟡 부분 구현. 명세의 일부만 충족. 무엇이 빠졌는지 비고에 명시.
-- ⬜ 미구현. 명세는 있으나 코드 0 건. 영역 3 또는 미정의 후속 작업 대상.
+- ⬜ 미구현. 명세는 있으나 코드 0 건.
 - ❌ 사용자 명시 거부로 제거. commit `5143811` 변경. 거부 사유 비고에 명시.
 - 🔁 인프라 잘못 삭제, 영역 1 에서 복원 대상.
 
-### B.1 Section A — Front-end (소스 수집·파싱, Item 1~9)
+### B.1 Section A — Front-end (소스 수집·파싱)
 
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
-| 1 | `.ts` 소스 수집 (test/spec/fixtures 제외) | 🟡 | `adapter-build.command.ts:531 collectSourceTree` → `:555 walkSourceTree` 가 `node_modules` / `dist` / `.zipbul` 디렉토리 + `*.spec.ts` / `*.test.ts` / `*.d.ts` 제외 (`:563~573`). **`test-fixtures/` 디렉토리 명시 제외 안 함** — 명세상 "fixtures 제외" 와 일부 불일치. 보강 필요 시 영역 3 에 흡수 |
-| 2 | 심볼릭 링크 정규화 | 🟡 | `:74 packageRoot = resolve(options.packageRoot ?? process.cwd())` 로 절대화. 워크스페이스 심볼릭 링크 별도 해상 안 함 (Bun/Node 의 path resolve 가 link 를 따라가지는 않음) — 어댑터 패키지가 모노레포 심볼릭으로 link 된 경우 link target 으로의 정규화 미구현 |
-| 3 | `tsconfig.json` 발견·로드·`extends` 체인 평탄화 | ⬜ | adapter-build 자체 `extends` 평탄화 코드 0. tsc invoke (Item 87) 에 위임 — tsc 가 자체 처리. 명세상 어댑터 컴파일러가 평탄화하라는 의도였다면 미구현 |
-| 4 | `package.json` 로드 + `zipbul.kind === "adapter"` 확인 | ✅ | `:412 validateAdapterKind` 가 `pkg.zipbul?.kind !== 'adapter'` 시 hard error (CONTRACT 카테고리) |
+| 1 | `.ts` 소스 수집 (test/spec/fixtures 제외) | 🟡 | `adapter-build.command.ts:531 collectSourceTree` → `:555 walkSourceTree` 가 `node_modules` / `dist` / `.zipbul` 디렉토리 + `*.spec.ts` / `*.test.ts` / `*.d.ts` 제외 (`:563~573`). **`test-fixtures/` 디렉토리 명시 제외 안 함** |
+| 2 | 심볼릭 링크 정규화 | 🟡 | `:74 packageRoot = resolve(...)` 로 절대화. 워크스페이스 심볼릭 링크 별도 해상 안 함 — 어댑터 패키지가 모노레포 심볼릭으로 link 된 경우 link target 으로의 정규화 미구현 |
+| 3 | `tsconfig.json` 발견·로드·`extends` 체인 평탄화 | ⬜ | adapter-build 자체 평탄화 코드 0. tsc invoke (Item 87) 에 위임 — 명세상 어댑터 컴파일러가 평탄화하라는 의도였다면 미구현 |
 | 5 | 모듈 의존 그래프 구성 | 🟡 | `extractRelations` 부분 활용 (`:1182 collectPeerSymbols` 가 imports/type-references relation 만 활용). 풀 모듈 그래프 (re-export 체인 추적, 의존 순서) 미구성 |
-| 6 | peer dependency (`@zipbul/core` / `@zipbul/common`) 해상도 | ✅ | `:435 validatePackageFields` `:464~498` 블록 — peer / direct dep 양쪽 검사 후 빠지면 CONTRACT 에러 |
 | 7 | ambient declaration / type-only import | ⬜ | 처리 코드 0 |
-| 8 | UTF-8 인코딩 강제 (BOM 허용) | 🟡 | `readFile(path, 'utf8')` 모두 명시 (`:1`, `:401`, `:577~578`). BOM 처리 명시 없음 — `parseSource` 가 BOM 처리 위임 추정, 직접 검증 안 함 |
-| 9 | `parseSource` 단일 진입점 | ✅ | `:6 import { parseSource, extractSymbols, extractRelations, buildLineOffsets, getLineColumn } from '@zipbul/gildash'` — oxc 직접 import 0 (no-oxc-parser-import.spec 회귀 가드) |
+| 8 | UTF-8 인코딩 강제 (BOM 허용) | 🟡 | `readFile(path, 'utf8')` 명시 (`:1`, `:401`, `:577~578`). BOM 처리 명시 없음 — `parseSource` 위임 추정, 직접 검증 안 함 |
 
-### B.2 Section B — 정적 분석 추출 (Item 10~28)
+### B.2 Section B — 정적 분석 추출
 
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
-| 10 | `defineAdapter()` 호출 위치·인자 추출 | ✅ | `:1352 findDefineAdapterCall` (extractedSymbols 전체에서 단일 매칭) → `:633 extractAdapterDefinition` |
-| 11 | `adapter` 필드 → 어댑터 클래스 식별 | ✅ | `extractAdapterDefinition` 내 `readIdentifierField('adapter')` |
-| 12 | `context` 필드 → Context 클래스 식별 | ✅ | 동일 (`'context'`) |
-| 13 | `pipeline` 배열 → phase/step 추출 | ✅ | `:1383 readPipelineField` |
-| 14 | `phase` enum 멤버명·값 | ✅ | `:845 resolveEnumMembers` (인라인 dedup 포함) |
-| 15 | `step` enum 멤버명·값 | ✅ | 동일 |
-| 16 | Context 클래스 namespace map 자동 도출 | ✅ | `:981 extractContextNamespaces` 의 `namespaces: ContextNamespaceProperty[]` — public non-method 속성 추출 (raw 타입 텍스트 보존) |
-| 17 | Adapter 클래스 메서드 시그니처 수집 | ⬜ | adapter 클래스 자체의 method 별도 추출 없음 — 생성자만 (Item 54c 의 `extractAdapterConstructorSchema`) |
-| 18 | Context 클래스 메서드 시그니처 수집 | ✅ | `extractContextNamespaces.methods: ContextMethodSignature[]` |
-| 19 | 어댑터 export 데코레이터 enumerate | ✅ | `:1212 extractDecoratorSchema` |
-| 20 | Decorator 분류 (controller / handlers / options) | ✅ | `extractDecoratorSchema` 가 `controller` (단수) / `handlers[]` / `options[]` 3 분류 — Item 41 카디널리티 정정 반영 |
+| 17 | Adapter 클래스 메서드 시그니처 수집 | ⬜ | adapter 클래스 자체의 method 별도 추출 없음 — 생성자만 |
 | 21 | Decorator 인자 schema | ⬜ | 데코레이터 *이름* 만 추출, 인자 schema 미추출 |
-| 21b | Provider 생성자 파라미터 데코레이터 (`@Inject` 등) | — | E3 결정 — 어댑터 컴파일러 책임 외, 사용자 앱 빌드 책임. 명세 분류 오류로 영역 4 시점에 본 항목 위치 정정 |
-| 22 | `defineMiddleware` 호출 추출 | ✅ | `:1099 extractBuiltins` (kind: 'middleware') — 호출 메타 (exportName / sourceFile / kind / adapters) 만 |
-| 23 | 미들웨어 augments + contextOps 추출 | ⬜ | `extractBuiltins` 가 augments / contextOps 미추출. cli 측 `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts` 가 사용자 앱 빌드 흐름에서 같은 일을 하나 어댑터 컴파일러로 흡수 안 됨. 영역 3 흡수 대상 |
-| 24 | `defineGuard` / `defineExceptionFilter` 추출 | ✅ | `extractBuiltins` 동일 함수 (kind: 'guard' / 'exception-filter') |
-| 25 | Public export 전수 (barrel 분석) | ❌ | commit `5143811` 에서 `PeerContract.publicExports` 필드 제거. **거부 사유**: barrel 분석 자체가 어댑터 contract 와 무관 (어댑터 export 는 `index.ts` 에 명시되며 manifest 의 다른 항목이 어댑터 관점 정보를 모두 커버) |
-| 26 | 어댑터 ID (어댑터 클래스 이름) | ✅ | `extracted.adapterId` (= `adapter` 필드의 식별자) |
-| 27 | `defineAdapter` named export 단 1 개 | ✅ | `findDefineAdapterCall` 가 단일 매칭 강제, 복수 시 throw |
-| 28 | Re-export 체인 분석 | ⬜ | adapter-build 측 미처리. 사용자 앱 빌드 측 `analyzer/parser/import-export-extractor.ts` 가 처리하나 어댑터 컴파일러로 흡수 안 됨 |
+| 21b | Provider 생성자 파라미터 데코레이터 | — | E3 결정 — 어댑터 컴파일러 책임 외, 사용자 앱 빌드 책임. 영역 4 시점에 본 항목 위치 정정 |
+| 23 | 미들웨어 augments + contextOps 추출 | ⬜ | `extractBuiltins` 가 augments / contextOps 미추출. cli 측 `middleware-augment-extractor.ts` 가 사용자 앱 빌드 흐름에서 같은 일을 하나 어댑터 컴파일러로 흡수 안 됨. 영역 3 흡수 대상 |
+| 25 | Public export 전수 (barrel 분석) | ❌ | commit `5143811` 에서 `PeerContract.publicExports` 제거. **거부 사유**: barrel 분석 자체가 어댑터 contract 와 무관 |
+| 28 | Re-export 체인 분석 | ⬜ | adapter-build 측 미처리 |
 
-### B.3 Section C — 검증 (Item 29~48b)
+### B.3 Section C — 검증
 
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
-| 29 | Adapter 가 `core/Adapter` interface 구현 (tsc 위임) | 🟡 | `runTsc` 가 `--emitDeclarationOnly` 호출하지만 별도 `--noEmit` 으로 interface 구현 강제는 안 함. tsc emit 시 부산물로 검사되긴 함 |
+| 29 | Adapter 가 `core/Adapter` interface 구현 (tsc 위임) | 🟡 | `runTsc` 가 `--emitDeclarationOnly` 호출하지만 별도 `--noEmit` 으로 interface 구현 강제는 안 함 |
 | 30 | Context 가 `common/AdapterContext` interface 구현 (tsc 위임) | 🟡 | 동일 |
-| 31 | pipeline 항목 ↔ phase/step 멤버 매칭 | ✅ | `:778 validatePipeline` 의 `:798 if (phaseMembers !== null && !phaseMembers.has(ref.name))` / `:808 stepMembers.has` |
 | 32 | pipeline 에 핸들러 step 정확히 1 개 | ⬜ | `validatePipeline` 에 consumer rank 카운트 없음 |
-| 33 | pipeline 비어있지 않음 | ✅ | `readPipelineField` 빈 배열 시 null 반환 → `extractAdapterDefinition` 에서 throw |
-| 34 | phase enum 멤버명 ↔ pipeline 일치 | ✅ | Item 31 과 동일 |
-| 35 | step enum 멤버명 ↔ pipeline 일치 | ✅ | 동일 |
 | 36 | Decorator 시그니처 호환 (MethodDecorator 등) | 🟡 | tsc 위임 |
-| 37 | 어댑터 클래스 export 검증 | ✅ | `:715 validateClassExports` |
-| 38 | Context 클래스 export 검증 | ✅ | 동일 함수 |
-| 39 | 한 패키지에 어댑터 클래스 정확히 1 개 | ✅ | `findDefineAdapterCall` 의 단일 매칭 강제 (Item 27 과 같은 가드) |
-| 40 | Decorator 이름 중복 없음 | ✅ | `:1333 ensureUnique` (controller / handlers / options 그룹 내) |
-| 41 | Decorator 카디널리티 (controller=1, handlers≥1, options≥0) | ✅ | `extractDecoratorSchema` + `readAdapterEntryDecorators` 카디널리티 강제 |
-| 42 | Phase 이름 중복 없음 | ✅ | `:845 resolveEnumMembers` 인라인 dedup |
-| 43 | Step 이름 중복 없음 | ✅ | 동일 |
-| 44 | Adapter 생성자 옵션 1 인자 (또는 무인자) | ✅ | `:1039 extractAdapterConstructorSchema` 강제 |
-| 45 | `package.json` main / module / types / exports 정합성 | ✅ | `:435 validatePackageFields` |
-| 46 | peer dep 버전 범위 명시 | ✅ | `validatePackageFields` `:464~498` |
-| 47 | `zipbul.kind` 누락 hard error | ✅ | `validateAdapterKind` |
 | 48 | Manifest 출력 경로가 `files` 필드에 포함 | ⬜ | `validatePackageFields` 가 `files` 필드 검사 안 함 |
-| 48b | `clusterStrategy` 추출 (Shared default) | ✅ | `:940 readClusterStrategy` |
 
-### B.4 Section D — Type 처리 (Item 49~54c)
+### B.4 Section D — Type 처리
 
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
@@ -234,98 +180,64 @@ rm -f /home/revil/projects/zipbul/zipbul/packages/http-adapter/zipbul-http-adapt
 | 52 | Built-in 미들웨어 PropAugment 추출 | ⬜ | `extractBuiltins` augments 미추출 (Item 23 과 동일 영역) |
 | 53 | Type-only import 추적 | ⬜ | 미처리 |
 | 54 | tsconfig `paths` alias 정규화 | ⬜ | 미처리 |
-| 54b | `defineAdapter.provides` 추출 | ✅ | `:892 readProvidesField` → peer-contract 에 emit |
-| 54c | Adapter 생성자 옵션 schema | ✅ | `:1039 extractAdapterConstructorSchema` → `dist/adapter-constructor-schema.json` emit |
 
-### B.5 Section E — Code Generation (Item 55~63)
+### B.5 Section E — Code Generation
 
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
-| 55 | TS → JS 컴파일 | ✅ | `:228 Bun.build({ entrypoints, outdir: stagingDir, target: 'bun', format: 'esm', packages: 'external', minify: { syntax, whitespace, identifiers: false } })` |
-| 56 | `dist/index.js` 생성 | ✅ | 동일 호출의 산출 |
-| 57 | `dist/index.d.ts` 생성 | 🟡 | `:252 if (await pathExists(tsconfigBuildPath)) await runTsc(...)` — `tsconfig.build.json` 존재 시에만. 부재 시 skip (`:218` 주석) |
+| 57 | `dist/index.d.ts` 생성 | 🟡 | `:252 if (await pathExists(tsconfigBuildPath)) await runTsc(...)` — `tsconfig.build.json` 존재 시에만. 부재 시 skip |
 | 58 | `dist/context-augments.d.ts` declaration merging | ⬜ | 코드 0 건. **누락**. 영역 3 |
-| 59 | Source map (`.js.map`) | ⬜ | `Bun.build` 호출에 `sourcemap` 옵션 없음 (`:228~239`) — 미생성 |
-| 60 | JS 산출물 `__augments` / `__contextOps` IR injection | ⬜ | 코드 0 건. Item 23·52·58 과 같은 augment 영역 |
-| 61 | 런타임 보존 (어댑터 클래스 / Context / 데코레이터 / enum 값으로 import 가능) | 🟡 | `Bun.build({ minify: { identifiers: false } })` (`:237`) — 식별자 보존. 실제 import 성공 검증은 self-test (Item 112) 가 했으나 현재 ❌제거 |
+| 59 | Source map (`.js.map`) | ⬜ | `Bun.build` 호출에 `sourcemap` 옵션 없음 — 미생성 |
+| 60 | JS 산출물 `__augments` / `__contextOps` IR injection | ⬜ | 코드 0 건. 영역 3 |
+| 61 | 런타임 보존 (import 가능) | 🟡 | `minify: { identifiers: false }` 식별자 보존. 실제 import 성공 검증은 self-test 가 했으나 ❌제거 |
 | 62 | ESM `export *` named binding 안정성 | ⬜ | 미검증 |
 | 63 | `sideEffects: false` 호환성 자동 산출 | ⬜ | 미처리 |
 
-### B.6 Section F — Manifest Emission (Item 64~71b)
+### B.6 Section G — Atomic Emit + 무결성
 
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
-| 64 | `dist/adapter.manifest.json` (루트 인덱스) | ✅ | `:147 adapterManifest` 객체 + `:166 artifacts` 배열 마지막 |
-| 65 | `dist/pipeline-schema.json` | ✅ | `:139` |
-| 66 | `dist/context-namespaces.json` | ✅ | `:142` |
-| 67 | `dist/decorator-schema.json` | ✅ | `:140` |
-| 68 | `dist/builtins.json` | ✅ | `:144` |
-| 69 | `dist/peer-contract.json` | ✅ | `:141` |
-| 70 | JSON 키 순서 결정적 정렬 (canonical) | ✅ | `:1410 serializeJson` + `:1415 canonicalize` (재귀 키 정렬) |
-| 71 | 모든 manifest `$schemaName` 자기 식별 | ✅ | `interfaces.ts` 의 각 인터페이스 `readonly $schemaName: 'adapter.X'` 강제 |
-| 71b | `dist/adapter-constructor-schema.json` | ✅ | `:143` |
-
-### B.7 Section G — Atomic Emit + 무결성 (Item 72~78)
-
-| Item | 명세 요약 | 상태 | 근거 |
-|---|---|---|---|
-| 72 | `dist/.staging/` 에 쓰기 | ✅ | `:75 outDir = ... 'dist'`, `:76 stagingDir = '${outDir}.staging'`, `:171 mkdir(stagingDir)` |
-| 73 | 검증 후 `.staging/` → `dist/` atomic rename | ✅ | `:181 rename(stagingDir, outDir)` |
-| 74 | 실패 시 staging cleanup, dist 무손상 | ✅ | `:182~186 try/catch` |
-| 75 | manifest 가 마지막 | ✅ | `:163~167 artifacts` 배열 — child 6 개 → 마지막에 adapter.manifest.json |
 | 76 | 결정성 (재실행 byte-identical) | 🟡 | `serializeJson` + `canonicalize` 가 키 정렬로 결정성 보장. byte-identical 직접 측정 코드 없음 |
-| 77 | 산출물 size / hash 보고 | ❌ | commit `5143811` 에서 `result.artifacts` 제거. **거부 사유**: CI 게이트 등 외부 운영 영역으로, 어댑터 컴파일러 본 책임 외 |
-| 78 | tsbuildinfo / sourcemap 메타파일 결정성 비교 제외 | ✅ | `:265 tsBuildInfoFile = .zipbul/cache/<pkg>.tsbuildinfo` (dist 외부 위치) |
+| 77 | 산출물 size / hash 보고 | ❌ | commit `5143811` 에서 `result.artifacts` 제거. **거부 사유**: CI 게이트 등 외부 운영 영역, 어댑터 컴파일러 본 책임 외 |
 
-### B.8 Section H — Diagnostics (Item 79~86)
+### B.7 Section H — Diagnostics
 
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
-| 79 | file:line:column 위치 정보 | ✅ | `:18 diag` 함수 — `lineOffsets` + `getLineColumn` 으로 position 합성 (`:32~37`) |
-| 80 | 카테고리 (SYNTAX / CONTRACT / MISSING_EXPORT / DUPLICATE / TYPE / IO) | ✅ | `:16 type DiagnosticCategory` + `diag(category, ...)` 모든 throw 사이트에 카테고리 prefix |
-| 81 | tsc 에러 → contract 위반 vs 일반 타입 에러 분류 | ⬜ | tsc 에러는 IO 카테고리로 통합 (`runTsc` 내부) — 분류 안 함 |
-| 82 | 다중 에러 보고 | ✅ | `:88~110 collectFrom` — 검증자별 try/catch 후 aggregate, 1 건이면 그대로 throw, 2 건+ 면 합쳐서 throw |
+| 81 | tsc 에러 → contract 위반 vs 일반 타입 에러 분류 | ⬜ | tsc 에러는 IO 카테고리로 통합 — 분류 안 함 |
 | 83 | 진단 출력 형식 통일 (`file:line ERROR/WARN [CATEGORY] message`) | 🟡 | `taggedReason = [${category}] ${reason} at ${file}:${line}:${col}` 형식. WARN/ERROR 통일은 미확인 |
-| 84 | WARN vs ERROR 분리 | ⬜ | adapter-build 는 모두 ERROR (DiagnosticError throw). WARN 경로 없음 |
+| 84 | WARN vs ERROR 분리 | ⬜ | adapter-build 는 모두 ERROR. WARN 경로 없음 |
 | 85 | `--format=json` | ❌ | commit `5143811` 에서 옵션 제거, JSON 출력 고정. **거부 사유**: 옵션 분기 불필요 (항상 JSON) |
-| 86 | ANSI 컬러 + `--no-color` | ❌ | 옵션 제거. **거부 사유**: 어댑터 컴파일러 출력은 항상 JSON 단일 라인 — 컬러 무관 |
+| 86 | ANSI 컬러 + `--no-color` | ❌ | 옵션 제거. **거부 사유**: 출력은 항상 JSON 단일 라인 — 컬러 무관 |
 
-### B.9 Section I — Build Pipeline Integration (Item 87~93)
+### B.8 Section I — Build Pipeline Integration
 
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
 | 87 | tsc invoke (`--noEmit` / `--emitDeclarationOnly`) | 🟡 | `:257 runTsc` 가 `--emitDeclarationOnly` 호출 (tsconfig.build.json 의 옵션 의존). `--noEmit` 별도 호출 없음 — typecheck 강제는 emit 부산물에 의존 |
-| 88 | tsc 종료 코드 처리 | ✅ | `runTsc` 내 spawn 결과 exit code 검사 후 비 0 시 throw (IO 카테고리) |
 | 89 | tsc stdout/stderr 캡처 + 진단 변환 | 🟡 | spawn 으로 캡처하나 raw 출력을 단일 IO 메시지로 묶음 — 진단 라인별 변환 안 함 |
-| 90 | tsc 실패 시 빌드 중단 + cleanup | ✅ | `runCodegen` 내 throw → `buildAdapter` `:182~186 catch` 가 staging cleanup |
-| 91 | tsc 환경 부재 시 명확한 에러 | ✅ | `:348 resolveTscBin` 부재 시 throw |
-| 92 | composite / references 트리 처리 | ✅ | `:320 tsconfigNeedsBuildMode` 검사 후 build mode 분기 (`tsc --build` 또는 단일 `tsc -p`) |
-| 93 | tsbuildinfo `.zipbul/cache/<pkg>.tsbuildinfo` | ✅ | `:265 tsBuildInfoFile = join(cacheDir, '${safePkgName}.tsbuildinfo')` |
 
-### B.10 Section J — CLI Contract (Item 94~101)
+### B.9 Section J — CLI Contract
 
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
-| 94 | `zb build adapter` 서브커맨드 라우팅 | ✅ | `packages/cli/src/bin/zb.ts:99 if (subCommand === 'adapter')` |
-| 95 | 작업 디렉토리 = 어댑터 패키지 루트 | ✅ | `buildAdapter()` 의 `:74 packageRoot ?? process.cwd()` + `:79 validateAdapterKind` |
 | 96 | `--out-dir` 옵션 | ❌ | commit `5143811` 에서 제거, `dist/` 고정. **거부 사유**: 어댑터 산출 위치는 contract — 옵션 분기 불필요 |
-| 97 | verbose / quiet 분리 | 🟡 | `--verbose, -v` 만 (`zb.ts:23~25`). `--quiet` 제거. **거부 사유**: JSON 단일 라인 출력 모드에서 quiet 의미 없음 |
-| 98 | exit code (0 / 1 / 2 분리) | 🟡 | success → 0, DiagnosticError → 1 (`zb.ts:113 process.exitCode = 1`). 환경 오류 (2) 분리 안 됨 |
-| 99 | stdout = 진행 / stderr = 진단 | ✅ | `zb.ts:103 process.stdout.write` (성공 JSON) / `:111 process.stderr.write` (실패 JSON) |
+| 97 | verbose / quiet 분리 | 🟡 | `--verbose, -v` 만. `--quiet` 제거. **거부 사유**: JSON 단일 라인 출력 모드에서 quiet 의미 없음 |
+| 98 | exit code (0 / 1 / 2 분리) | 🟡 | success → 0, DiagnosticError → 1. 환경 오류 (2) 분리 안 됨 |
 | 100 | `--dry-run` | ❌ | 제거. **거부 사유**: 산출물 검증만의 특수 모드 — 사용자 명시 거부 |
 | 101 | `--check-only` | ❌ | 제거. **거부 사유**: CI 게이트는 별도 운영 영역 — 어댑터 컴파일러 책임 외 |
 
-### B.11 Section K — Watch / Incremental (Item 102~108)
+### B.10 Section K — Watch / Incremental (Item 102~108)
 
 전부 ❌ — commit `5143811` 에서 `watch.ts` + `watch.test.ts` 삭제. **거부 사유**: 어댑터 컴파일러는 1 회 실행 컴파일러. watch 는 사용자 앱 빌드 (`zb dev`) 의 영역. 어댑터는 변경 빈도 낮고 watch 가 어댑터 컴파일러 본 책임 외.
 
-### B.12 Section L — Self-test (Item 109~113)
+### B.11 Section L — Self-test (Item 109~113)
 
 전부 ❌ — `runSelfTest` 함수 + 호출부 + `--with-self-test` 옵션 제거. **거부 사유**: 자기 검증 모드는 사용자 기능과 컴파일러 개발자 검증을 혼합. 검증은 정식 통합 테스트로 분리되며 (`adapter-build.test.ts` 26 건이 그 역할), 별도 실행 모드 불필요.
 
-### B.13 Section M — CLI Consumer Protocol (Item 114~119)
+### B.12 Section M — CLI Consumer Protocol (Item 114~119)
 
-**전체 영역의 현재 상태**: 사용자 앱 빌드 측 manifest 소비 진입점. 한때 `manifest-reader.ts` (`8b88dff` 168 줄, `522b59a` 251 줄로 강화) + `detectMultiAdapterConflicts` + 통합 테스트 7 건이 작성되었으나 commit `5143811` 에서 잘못 일괄 삭제. 게다가 그 read API 가 있던 시점에도 사용자 앱 빌드 (`AdapterDefinitionResolver.resolve()`, `definition-resolver.ts:53`) 가 호출 안 함 — Step 12 e2e 가 read API 를 직접 호출하는 단위 검증이었지 사용자 앱 빌드 흐름의 wiring 검증 아님. **`ADAPTER_COMPILER.md` 의 Step 11 ✅ / Step 12 ✅ 표기는 misleading**.
+**전체 영역의 현재 상태**: 사용자 앱 빌드 측 manifest 소비 진입점. read API (`manifest-reader.ts` 251 줄 + `detectMultiAdapterConflicts` + 통합 테스트 7 건) 는 commit `5143811` 에서 잘못 일괄 삭제. 또한 read API 가 존재하던 시점에도 사용자 앱 빌드 (`AdapterDefinitionResolver.resolve()`, `definition-resolver.ts:53`) wiring 부재 — read API 만 단위 검증되어 있었고 빌드 흐름 통합은 미완. 영역 1 (read API 복원) → 영역 2 (wiring) 두 단계로 매듭.
 
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
@@ -335,10 +247,6 @@ rm -f /home/revil/projects/zipbul/zipbul/packages/http-adapter/zipbul-http-adapt
 | 117 | manifest 비결정 변경 캐시 무효화 | ❌ | `contentHash` 제거로 감지 수단 없음. **거부 사유**: 사용자 명시 거부 |
 | 118 | manifest hash 임베딩 (사용자 빌드 결정성) | ❌ | 동일 |
 | 119 | 다중 어댑터 manifest 병합 + 충돌 검출 | 🔁 | `detectMultiAdapterConflicts` 가 `manifest-reader.ts` 와 같이 삭제 |
-
-### B.14 Section N — gildash 단일 진입점 정책 (Item 120~132)
-
-전부 ✅ 보존 — Step 9 까지 완료 (commit `9d34771`), 회귀 가드 `no-oxc-parser-import.spec.ts` 가 unit 테스트로 강제. 본 영역 작업은 끝났으며 변경 대상 아님.
 
 ---
 
@@ -403,17 +311,6 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 - **`extractContextNamespaces` 의 raw 타입 텍스트 보존** (Item 49). manifest 소비자가 raw 타입 텍스트를 그대로 받으면 제네릭 / overload / paths alias 해상이 어렵다. JSON-friendly schema 변환은 영역 외이지만, 현재 보존 방식이 미완 contract 임을 명시.
 - **`pickEntrySourceFile`** (`:605`) 의 entry 후보 우선순위 (`module` 필드 → `src/index.ts` fallback) — 명세 (Item 45) 의 `module` 필드 정합성과 맞물림. 검증 자체는 `validatePackageFields` 에 있으나 entry pick 과의 일관성은 별도 검증 없음.
 
-### C.5 `ADAPTER_COMPILER.md` 의 stale 내용
-
-본 항목은 영역 4 의 정리 대상. 진척 추적이 어긋난 부분.
-
-- **Section 0 의 Last sync `54542c1`** — 현재 HEAD `5143811` 와 다름.
-- **Section 0.55 의 36 슬라이스 이력** — Slice 19 (artifacts), 20 (manifest-reader), 21 (충돌 검출), 24 (--with-self-test), 25 (contentHash), 27 (watch), 28 (--no-color), 29 (External e2e), 31 (runtime introspection — `eec5a3a` 자기 검증), 35·36 일부가 `5143811` 에서 제거 또는 부분 제거. 마크 정정 필요.
-- **Section 0.6.x 심층 리뷰 결과** — 코드 인용이 많은데 line 번호가 stale 가능성. 정렬 검증.
-- **Step 10 🟡 / Step 11 ✅ / Step 12 ✅ 마크** — Step 10 은 🟡 로 정직 (일부 미완 명시). Step 11/12 의 ✅ 가 misleading — Step 11 은 read API 가 한때 존재했으나 commit `5143811` 에서 삭제되었고 사용자 앱 빌드 wiring 도 미완. Step 12 의 e2e 는 read API 직접 호출 단위 검증이지 사용자 앱 빌드 흐름의 wiring 검증 아님. 영역 1 후 Step 11 → 🟡 강등, 영역 2 후 Step 11/12 → ✅ 회복.
-- **Item 별 ✅/🟡/⬜ 마크** — Section B 의 본 문서 1:1 대조 결과로 갱신.
-- **Section 합계 baseline `1967 / 94 / 370`** — `94` 는 stale (Step 10·11·12 진척 시점 카운트). 현 시점 측정값 `120`. 갱신.
-
 ---
 
 ## D. 잔여 작업 — 우선순위 + 의존성 (4 영역)
@@ -469,7 +366,7 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 
 (4) **검증**. Section A.3 의 6 단계 명령으로 패킹·설치 e2e 통과. 워크스페이스 dev 시나리오 회귀 (`cd examples && rm -rf .zipbul .zipbul-temp dist && zb build && bun dist/entry.js && curl ...`) 도 통과. 통합 테스트 신규 추가 — `packages/cli/test/integration/adapter-manifest-consumption.test.ts` (가칭) — 합성기 단위 + AdapterDefinitionResolver wiring 단위 검증.
 
-(5) **커밋**. `feat(cli): AdapterDefinitionResolver 의 manifest 우선 분기 + 합성기 — Step 11/12 진짜 통합`. 본문에 (a) Section M Item 114·115·116·119 충족, (b) 패킹·설치 e2e 인수 기준 통과, (c) baseline 갱신 명시.
+(5) **커밋**. `feat(cli): AdapterDefinitionResolver 의 manifest 우선 분기 + 합성기`. 본문에 (a) Section M Item 114·115·116·119 충족, (b) 패킹·설치 e2e 인수 기준 통과, (c) baseline 갱신 명시.
 
 **근거**. 측정으로 검증된 사실:
 - `definition-resolver.ts:55~59` — 어댑터 패키지의 `.ts` 소스 파싱 흐름 진입점.
@@ -500,7 +397,7 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 (4) **검증 어댑터 작성**. http-adapter 가 augment 0 건이면 영역 3 의 e2e 검증을 위한 *별도 fixture 어댑터* 필요 — `packages/cli/test/fixtures/augment-adapter/` 같은 위치에 augment 가지는 미들웨어 포함한 미니 어댑터 작성 후 그것으로 e2e.
 
 **근거**.
-- `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts:240, 276` (line 인용은 `ADAPTER_COMPILER.md` Section 0.6.4 Item 131 의 코드 인용 — 검증 시점에 라인 재확인). cli 측 자체 stringifier 존재.
+- `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts` 의 `stringifyTSType` — 검증 시점에 라인 재확인. cli 측 자체 stringifier 존재.
 - `packages/cli/src/bin/build/lib-augment-injector.ts` — 미들웨어 라이브러리 컴파일에서 동일 패턴.
 - `ADAPTER_COMPILER.md` Item 23·52·58·60 모두 ⬜ 또는 🔵 — 영역 3 가 일괄 진척.
 
@@ -508,23 +405,13 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 - 영역 2 e2e 통과가 영역 3 의 진입 조건. 영역 2 만으로 examples 가 동작해야 함 (http-adapter 가 augment 0 건이면 영역 2 만으로 충분).
 - 영역 3 흡수 후 cli 사용자 앱 빌드 측의 `middleware-augment-collector.ts` (761 줄) 가 어댑터 augment 처리 부분에서 manifest 소비로 단순화 가능 — 코드 일부 폐기. 별도 cleanup.
 
-### D.4 [영역 4, 우선순위 낮, 영역 1·2·3 선행] 문서 동기화 + 본 문서 폐기
+### D.4 [영역 4, 우선순위 낮, 영역 1·2·3 선행] 본 문서 폐기
 
-**상황**. `ADAPTER_COMPILER.md` 의 ✅/🟡/⬜ 마크가 commit `5143811` 의 13 건 제거 + 영역 1·2·3 진척을 반영 못 함. baseline 카운트 stale (`94` → `120` 또는 그 이상). Step 11/12 ✅ 표기가 영역 1·2 완료 후에야 정직.
+**상황**. 영역 1·2·3 모두 완료되면 잔여 작업 0 — 본 문서의 존재 이유 소멸.
 
-**방향**. 4 단계.
+**방향**. 영역 1·2·3·4 모두 완료 시점에 본 문서 폐기 (`git rm`). `ADAPTER_COMPILER.md` 단일 출처 복귀. baseline 카운트는 ADAPTER_COMPILER.md Header 또는 별도 단일 출처로 이관.
 
-(1) **`ADAPTER_COMPILER.md` 의 항목 마크 갱신**. 본 문서 Section B 의 1:1 대조 결과로 ✅/🟡/⬜/❌ 갱신. 사용자 명시 거부 13 건의 항목들 (Item 25·77·85·86·96·97·100·101·102~108·109~113·117·118) 을 ❌ 또는 삭제선으로. 추가로 영역 1·2·3 종료 후 그 시점 충족 항목들 (Section M Item 114·115·116·119, Section E Item 23·52·58·60) ✅ 갱신. **마커 매핑**: 본 문서가 도입한 🔁 (영역 1 복원 대상) 은 `ADAPTER_COMPILER.md` 표기 체계에 없음 — sync 시점에 영역 1 완료된 상태이면 ✅ 로, 영역 1 + 2 까지 완료된 상태이면 ✅ 로 통합 (영역 미완 상태로 sync 시점 도달은 비권장 — 영역 4 의 진입 조건 자체가 영역 1·2·3 완료).
-
-(2) **Section 0.55 의 슬라이스 이력 정정**. 36 슬라이스 중 제거된 것들 (Slice 19·20·21·24·25·27·28·29·31 의 일부 + 35·36 일부) 의 ✅ 마크에 "(제거됨, commit `5143811`)" footnote 또는 삭제선.
-
-(3) **Last sync 갱신** + **baseline 갱신**. Section 0 의 commit hash + Section 0.2 의 `1967 / 94 / 370` → 영역 1·2·3 종료 시점 측정값.
-
-(4) **본 문서 (`ADAPTER_COMPILER_STATUS.md`) 폐기 또는 헤더 변경**. 영역 1·2·3·4 모두 완료 시점에 본 문서 폐기 (`git rm`). `ADAPTER_COMPILER.md` 단일 출처 복귀. 또는 본 문서 상단에 "영역 1·2·3 완료, 명세는 ADAPTER_COMPILER.md 단일 출처. 본 문서는 historical reference." 헤더 추가 후 보존.
-
-**근거**. 본 문서 Section C.5 의 stale 항목 인벤토리.
-
-**맥락**. 영역 4 는 코드 변경 0 — 영역 1·2·3 가 끝나기 전에 미리 진행하면 다시 stale. 후순위 강제.
+**맥락**. 코드 변경 0 — 영역 1·2·3 가 끝나기 전에 진행하면 다시 stale. 후순위 강제.
 
 ---
 
