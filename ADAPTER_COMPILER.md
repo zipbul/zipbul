@@ -162,7 +162,7 @@
 
 각 manifest 는 결정적 JSON (canonical key 정렬, UTF-8, LF). 모든 path 는 `dist/` 기준 상대.
 
-64. ⬜ `dist/adapter.manifest.json` — 루트 manifest. 다른 manifest paths 인덱스 + 어댑터 식별자 + 빌드 도구 버전 (`producedBy: "zb@x.y.z"`).
+64. ⬜ `dist/adapter.manifest.json` — 루트 manifest. 다른 manifest paths 인덱스 + 어댑터 식별자.
 65. ⬜ `dist/pipeline-schema.json` — pipeline 배열 + consumer rank step + phase enum 값 + step enum 값.
 66. ⬜ `dist/context-namespaces.json` — Context type 이름 + namespace map → property/method schema.
 67. ⬜ `dist/decorator-schema.json` — controller / method / option (어댑터 entry, Item 20 정정) + provider-param (`extractSymbols.parameters[*].decorators`, Item 21b) 별 데코레이터 이름 + 인자 schema + import path.
@@ -239,7 +239,6 @@
 
 114. ⬜ 사용자 앱 빌드 시 `node_modules/<adapter-package>/dist/adapter.manifest.json` 우선 로드
 115. ⬜ manifest 부재 시 — hard error (STATUS 문서 Section E1 결정).
-116. ⬜ manifest 의 `producedBy` 필드 ↔ 사용자가 설치한 `@zipbul/cli` 호환성 검사
 117. ⬜ manifest 가 결정적이 아닌 변경 (재게시 없이 dist/ 수정) 시 캐시 무효화
 118. ⬜ 사용자 앱 컴파일 출력에 의존한 어댑터 manifest 들의 hash 임베딩 (사용자 빌드 결정성)
 119. ⬜ 다중 어댑터 (사용자가 여러 어댑터 동시 사용) 시 manifest 병합 규칙 — 데코레이터 이름 충돌 검출

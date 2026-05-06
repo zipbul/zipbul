@@ -15,6 +15,5 @@ export {
 } from './manifest-reader';
 export type {
   ReadAdapterManifestResult,
-  ReadAdapterManifestOptions,
   AdapterConflict,
 } from './manifest-reader';

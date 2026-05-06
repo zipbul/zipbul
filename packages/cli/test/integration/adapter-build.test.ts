@@ -93,7 +93,6 @@ describe('zb build adapter — Slice 1', () => {
     expect(manifest).toEqual({
       $schemaName: 'adapter.manifest',
       adapterId: 'TestAdapter',
-      producedBy: expect.stringMatching(/^@zipbul\/cli@/),
       manifests: {
         'pipeline-schema': 'pipeline-schema.json',
         'decorator-schema': 'decorator-schema.json',

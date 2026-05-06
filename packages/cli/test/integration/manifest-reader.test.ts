@@ -47,27 +47,26 @@ async function writeAdapter(): Promise<void> {
   );
 }
 
-describe('readAdapterManifest — Section M (Step 11)', () => {
+describe('readAdapterManifest — Section M (Item 114·115)', () => {
   it('reads emitted manifest tree from dist/', async () => {
     await writeAdapter();
     await buildAdapter({ packageRoot: pkgRoot });
 
     const result = await readAdapterManifest(join(pkgRoot, 'dist'));
 
-    expect(result).not.toBeNull();
-    expect(result!.adapter.adapterId).toBe('A');
-    expect(result!.adapter.$schemaName).toBe('adapter.manifest');
-    expect(result!.pipeline).not.toBeNull();
-    expect(result!.pipeline!.phaseEnum).toBe('P');
-    expect(result!.decorators).not.toBeNull();
-    expect(result!.decorators!.controller).toBe('C');
-    expect(result!.peerContract).not.toBeNull();
-    expect(result!.contextNamespaces).not.toBeNull();
-    expect(result!.constructorSchema).not.toBeNull();
-    expect(result!.builtins).not.toBeNull();
+    expect(result.adapter.adapterId).toBe('A');
+    expect(result.adapter.$schemaName).toBe('adapter.manifest');
+    expect(result.pipeline).not.toBeNull();
+    expect(result.pipeline!.phaseEnum).toBe('P');
+    expect(result.decorators).not.toBeNull();
+    expect(result.decorators!.controller).toBe('C');
+    expect(result.peerContract).not.toBeNull();
+    expect(result.contextNamespaces).not.toBeNull();
+    expect(result.constructorSchema).not.toBeNull();
+    expect(result.builtins).not.toBeNull();
   });
 
-  it('throws when dist/adapter.manifest.json is missing (Item 115 default)', async () => {
+  it('throws when dist/adapter.manifest.json is missing (Item 115 — hard error)', async () => {
     await writeAdapter();
 
     await expect(
@@ -75,32 +74,48 @@ describe('readAdapterManifest — Section M (Step 11)', () => {
     ).rejects.toBeInstanceOf(DiagnosticError);
   });
 
-  it('returns null when allowMissing=true and manifest absent (Item 115 fallback)', async () => {
-    await writeAdapter();
-
-    const result = await readAdapterManifest(join(pkgRoot, 'dist'), { allowMissing: true });
-
-    expect(result).toBeNull();
-  });
-
-  it('rejects producer/user-app major version mismatch (Item 116)', async () => {
+  it('throws when sibling manifest has wrong $schemaName', async () => {
     await writeAdapter();
     await buildAdapter({ packageRoot: pkgRoot });
 
-    // The fresh manifest declares producedBy `@zipbul/cli@0.1.0`. A user app
-    // running 1.0.0 should be rejected as a major mismatch.
+    // Corrupt the pipeline-schema.json with a wrong $schemaName.
+    await Bun.write(
+      join(pkgRoot, 'dist', 'pipeline-schema.json'),
+      JSON.stringify({ $schemaName: 'adapter.decorator-schema', phaseEnum: 'P', stepEnum: 'S', pipeline: [] }),
+    );
+
     await expect(
-      readAdapterManifest(join(pkgRoot, 'dist'), { userAppCliVersion: '1.0.0' }),
+      readAdapterManifest(join(pkgRoot, 'dist')),
     ).rejects.toBeInstanceOf(DiagnosticError);
   });
 
-  it('accepts matching major version', async () => {
+  it('rejects manifest index entry with `..` segment (path traversal guard)', async () => {
     await writeAdapter();
     await buildAdapter({ packageRoot: pkgRoot });
 
-    const result = await readAdapterManifest(join(pkgRoot, 'dist'), { userAppCliVersion: '0.999.999' });
+    // Corrupt the root manifest's index to point outside dist/.
+    const topPath = join(pkgRoot, 'dist', 'adapter.manifest.json');
+    const top = JSON.parse(await Bun.file(topPath).text());
+    top.manifests['pipeline-schema'] = '../../etc/passwd';
+    await Bun.write(topPath, JSON.stringify(top));
 
-    expect(result).not.toBeNull();
+    await expect(
+      readAdapterManifest(join(pkgRoot, 'dist')),
+    ).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
+  it('rejects manifest index entry that is an absolute path', async () => {
+    await writeAdapter();
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const topPath = join(pkgRoot, 'dist', 'adapter.manifest.json');
+    const top = JSON.parse(await Bun.file(topPath).text());
+    top.manifests['pipeline-schema'] = '/etc/passwd';
+    await Bun.write(topPath, JSON.stringify(top));
+
+    await expect(
+      readAdapterManifest(join(pkgRoot, 'dist')),
+    ).rejects.toBeInstanceOf(DiagnosticError);
   });
 });
 
@@ -140,7 +155,6 @@ function manifestFixture(adapterId: string, opts: { decorators: readonly string[
     adapter: {
       $schemaName: 'adapter.manifest' as const,
       adapterId,
-      producedBy: '@zipbul/cli@0.1.0',
       manifests: {},
     },
     pipeline: null,

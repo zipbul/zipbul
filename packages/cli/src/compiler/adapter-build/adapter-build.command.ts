@@ -58,8 +58,6 @@ import type {
   PipelineSchema,
 } from './interfaces';
 
-const PRODUCER_VERSION = '@zipbul/cli@0.1.0';
-
 /**
  * Compiles an adapter package into a `dist/` tree of manifests + JS/d.ts.
  * Atomic emit via `.staging/` → `dist/` rename (Item 72·73·74). Source
@@ -143,7 +141,6 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   const adapterManifest: AdapterManifest = {
     $schemaName: 'adapter.manifest',
     adapterId: extracted.adapterId,
-    producedBy: PRODUCER_VERSION,
     manifests: {
       'pipeline-schema': pipelineSchemaRel,
       'decorator-schema': decoratorSchemaRel,

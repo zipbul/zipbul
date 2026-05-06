@@ -155,7 +155,7 @@ rm -f /home/revil/projects/zipbul/zipbul/packages/http-adapter/zipbul-http-adapt
 |---|---|---|---|
 | 17 | Adapter 클래스 메서드 시그니처 수집 | ⬜ | adapter 클래스 자체의 method 별도 추출 없음 — 생성자만 |
 | 21 | Decorator 인자 schema | ⬜ | 데코레이터 *이름* 만 추출, 인자 schema 미추출 |
-| 21b | Provider 생성자 파라미터 데코레이터 | — | E3 결정 — 어댑터 컴파일러 책임 외, 사용자 앱 빌드 책임. 영역 4 시점에 본 항목 위치 정정 |
+| 21b | Provider 생성자 파라미터 데코레이터 | — | E2 결정 — 어댑터 컴파일러 책임 외, 사용자 앱 빌드 책임. 영역 4 시점에 본 항목 위치 정정 |
 | 23 | 미들웨어 augments + contextOps 추출 | ⬜ | `extractBuiltins` 가 augments / contextOps 미추출. cli 측 `middleware-augment-extractor.ts` 가 사용자 앱 빌드 흐름에서 같은 일을 하나 어댑터 컴파일러로 흡수 안 됨. 영역 3 흡수 대상 |
 | 25 | Public export 전수 (barrel 분석) | ❌ | commit `5143811` 에서 `PeerContract.publicExports` 제거. **거부 사유**: barrel 분석 자체가 어댑터 contract 와 무관 |
 | 28 | Re-export 체인 분석 | ⬜ | adapter-build 측 미처리 |
@@ -243,7 +243,6 @@ rm -f /home/revil/projects/zipbul/zipbul/packages/http-adapter/zipbul-http-adapt
 |---|---|---|---|
 | 114 | 사용자 앱 빌드 시 `node_modules/<adapter>/dist/adapter.manifest.json` 우선 로드 | 🔁 | read API 삭제 + wiring 미연 |
 | 115 | manifest 부재 시 fallback 정책 | 🔁 | E1 결정 = hard error. 영역 2 wiring 시 적용 |
-| 116 | `producedBy` ↔ cli 버전 호환성 검사 | 🔁 | `manifest-reader.ts` 에 코드 있었음 (`8b88dff` 의 `userAppCliVersion` 옵션) — 같이 삭제 |
 | 117 | manifest 비결정 변경 캐시 무효화 | ❌ | `contentHash` 제거로 감지 수단 없음. **거부 사유**: 사용자 명시 거부 |
 | 118 | manifest hash 임베딩 (사용자 빌드 결정성) | ❌ | 동일 |
 | 119 | 다중 어댑터 manifest 병합 + 충돌 검출 | 🔁 | `detectMultiAdapterConflicts` 가 `manifest-reader.ts` 와 같이 삭제 |
@@ -356,7 +355,7 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 - `result.pipeline.pipeline: PipelineRef[]` → `AdapterStaticSchema.pipeline: readonly string[]` — `PipelineRef.qualifier + '.' + PipelineRef.name` 으로 합쳐서 string 화 (예: `'HttpPhase.OnRequest'`).
 - `result.pipeline.phaseEnum` + `pipeline.stepEnum` → `AdapterStaticSchema.validPhases: Set<string>` (현재 `phase` 만 검증) — `phaseEnum` 의 멤버명 set. 이건 `manifest-reader` 가 `pipeline-schema.json` 만 읽으면 enum 멤버명을 모르므로 *추가 정보 필요* — 매니페스트에 phase/step enum 멤버 자체가 없다. 현재 매니페스트 spec (Item 14·15) 이 멤버명·값을 추출은 하지만 `pipeline-schema.json` 의 emit shape 가 enum 식별자만 담고 멤버는 안 담음. 영역 2 진행 중 매니페스트 shape 확장 필요.
 - `result.decorators` → `AdapterStaticSchema.entryDecorators: AdapterEntryDecoratorsSchema` — `controller` (string) + `handlers: string[]` + `options?: string[]` 그대로 매핑.
-- `result.contextNamespaces.contextType` + `namespaces` → `AdapterStaticSchema.contextNamespaces: ContextNamespaceMap`. `ContextNamespaceMap` shape (`interfaces.ts` 의 `contextType` + `module` (어댑터 패키지 specifier) + `namespaces: Record<string, string>`) 의 `module` 필드는 `result.packageName` 에서 도출 (E7 결정 — `readAdapterManifest` 가 package.json 을 같이 로드해 `ReadAdapterManifestResult.packageName` 노출). 합성기 시그니처: `synthesizeAdapterExtraction(result: ReadAdapterManifestResult): AdapterExtraction` — 단일 인자.
+- `result.contextNamespaces.contextType` + `namespaces` → `AdapterStaticSchema.contextNamespaces: ContextNamespaceMap`. `ContextNamespaceMap` shape (`interfaces.ts` 의 `contextType` + `module` (어댑터 패키지 specifier) + `namespaces: Record<string, string>`) 의 `module` 필드는 `result.packageName` 에서 도출 (E6 결정 — `readAdapterManifest` 가 package.json 을 같이 로드해 `ReadAdapterManifestResult.packageName` 노출). 합성기 시그니처: `synthesizeAdapterExtraction(result: ReadAdapterManifestResult): AdapterExtraction` — 단일 인자.
 
 (2) **`AdapterDefinitionResolver.resolve()` 분기 신설**. `definition-resolver.ts:55~104` 의 entry-loop 안에서, 각 `entryFile` 에 대해 그 파일이 속한 패키지 root 를 찾고 그 root 의 `dist/adapter.manifest.json` 존재 여부 검사. 존재 시 `readAdapterManifest(packageRoot/dist)` → 합성기 호출 → `AdapterExtraction` 직접 push. 부재 시 기존 흐름 (`resolveAdapterDefinitionExport` → `extractFromConfigObject`) fallback.
 
@@ -429,17 +428,7 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 
 **적용**. 영역 2 의 D.2 (3) 의 fallback 경로 자체를 폐기. `AdapterDefinitionResolver` 의 manifest 분기에서 manifest 부재 시 즉시 DiagnosticError throw, `.ts` 파싱 경로로 떨어지지 않음.
 
-### E2 — Stale manifest 검출: **`producedBy` 메이저 mismatch 시 hard error**
-
-**상황**. 사용자 앱이 cli 버전 X 로 빌드, 어댑터는 cli 버전 Y 로 컴파일. manifest 의 `producedBy` 와 사용자 cli 버전이 다를 때.
-
-**결정**. **메이저 버전 mismatch 시 hard error**. 마이너·패치 mismatch 는 통과. (commit `8b88dff` 의 `manifest-reader.ts` 가 이미 이 정책 — `userAppCliVersion` 옵션 + 메이저만 비교, 영역 1 복원으로 정책 그대로 회복.)
-
-**근거**. Item 116 의 명세. 메이저 버전이 cli 의 contract breaking 변경을 의미 — `ReadAdapterManifestResult` shape 변경 등. 마이너·패치는 hash·서식·제약 추가만 허용 — backward compat. `package.json.version` 의 semver 의미 그대로 활용.
-
-**적용**. `manifest-reader.ts` 의 기존 검증 로직 보존. `AdapterDefinitionResolver` 의 manifest 분기에서 `userAppCliVersion: PRODUCER_VERSION` 전달.
-
-### E3 — Item 21b (Provider param decorator) 책임 소재: **사용자 앱 빌드 책임 (어댑터 컴파일러 외)**
+### E2 — Item 21b (Provider param decorator) 책임 소재: **사용자 앱 빌드 책임 (어댑터 컴파일러 외)**
 
 **상황**. `@Inject(Token)` 같은 Provider 클래스 생성자 파라미터 데코레이터를 누가 추출할지.
 
@@ -449,7 +438,7 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 
 **적용**. `extractBuiltins` 와 별개의 provider 추출 함수 신설하지 않음. Item 21b 는 ⬜ 로 표기되어 있으나 책임 소재가 어댑터 컴파일러 외이므로 본 문서 Section B.2 의 ⬜ 표기는 명세 자체의 분류 오류 — 영역 4 시점에 `ADAPTER_COMPILER.md` 의 Item 21b 위치를 "어댑터 컴파일러 책임 외" 표시 또는 명세에서 제거.
 
-### E4 — augment IR injection 시점 (Item 60): **사전 변환 (Bun.build 입력 .ts 변형)**
+### E3 — augment IR injection 시점 (Item 60): **사전 변환 (Bun.build 입력 .ts 변형)**
 
 **상황**. 어댑터 내장 미들웨어의 `__augments` IR 을 JS 산출물에 어떻게 주입할지.
 
@@ -459,7 +448,7 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 
 **적용**. 영역 3 진입 시 `lib-build.ts` 의 패턴 참조해서 어댑터 컴파일러용 사전 변환 모듈 신설 (`packages/cli/src/compiler/adapter-build/lib-augment-injector.ts` 또는 기존 모듈을 어댑터 컴파일러로도 호출). `runCodegen` 의 Bun.build 호출 직전에 변형된 .ts 들을 임시 디렉토리에 쓰고 그 디렉토리를 entrypoint root 로 사용.
 
-### E5 — `pipeline-schema.json` 에 phase/step enum 멤버 추가: **추가**
+### E4 — `pipeline-schema.json` 에 phase/step enum 멤버 추가: **추가**
 
 **상황**. 영역 2 의 합성기가 `AdapterStaticSchema.validPhases: Set<string>` 을 채우려면 phase enum 멤버명을 알아야 함. 현재 `pipeline-schema.json` 은 enum *식별자만* 담고 멤버는 안 담음.
 
@@ -469,7 +458,7 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 
 **적용**. 영역 2 의 D.2 첫 단계 — 매니페스트 shape 확장 + emit 코드 변경. backward-compat: 기존 manifest 에 두 필드가 없으면 `manifest-reader` 는 빈 배열로 처리 (영역 1 복원 시점에 기본값 설정).
 
-### E6 — http-adapter augment 여부 (영역 3 진입 조건): **0 건, 영역 3 지연**
+### E5 — http-adapter augment 여부 (영역 3 진입 조건): **0 건, 영역 3 지연**
 
 **상황**. http-adapter 의 내장 미들웨어가 `defineMiddleware<TInput>` 같은 제네릭 (= augment) 을 사용하는지.
 
@@ -479,7 +468,7 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 
 **적용**. **영역 3 는 augment 가지는 어댑터가 작성되는 시점까지 지연**. examples 의 패킹·설치 e2e (Section A.3) 는 영역 1·2 만으로 통과 가능. 영역 3 의 인수 어댑터가 부재하므로 지금 진입해도 검증 fixture 를 별도로 만들어야 하고 — 그 fixture 가 미래 실제 augment 어댑터의 형태와 어긋날 위험. 후속 어댑터 개발 시점에 영역 3 진입.
 
-### E7 — 합성기로의 `packageName` 전달: **`readAdapterManifest` 가 package.json 같이 로드 (read API 책임 확장)**
+### E6 — 합성기로의 `packageName` 전달: **`readAdapterManifest` 가 package.json 같이 로드 (read API 책임 확장)**
 
 **상황**. 합성기가 `ContextNamespaceMap.module` 필드 (= 어댑터 패키지 specifier) 를 채우려면 어댑터 `package.json.name` 이 필요. 그 값이 어디서 흘러오는지.
 

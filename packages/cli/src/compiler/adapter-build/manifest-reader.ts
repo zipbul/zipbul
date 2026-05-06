@@ -1,19 +1,19 @@
 /**
  * User-app build side — read pre-compiled adapter manifests from
- * `node_modules/<adapter>/dist/`. Step 11 of ADAPTER_COMPILER.md
- * (Section M, Items 114·115·116).
+ * `node_modules/<adapter>/dist/` (Section M, Items 114·115·119).
  *
- * Step 10 (`zb build adapter`) emits a tree of canonical JSON manifests
- * inside the adapter package's `dist/`. The user app's build (`zb build`)
- * loads those manifests directly instead of re-running static analysis on
- * the adapter's `.ts` source. This module is the read-side contract — pure
- * JSON parsing + light validation, no AST work.
+ * `zb build adapter` emits a tree of canonical JSON manifests inside the
+ * adapter package's `dist/`. The user app's build (`zb build`) loads those
+ * manifests directly instead of re-running static analysis on the adapter's
+ * `.ts` source. This module is the read-side contract — pure JSON parsing,
+ * no AST work.
  *
  * @public
  */
 import { readFile, stat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
+import { compareCodePoint } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 
 import type {
@@ -25,6 +25,20 @@ import type {
   AdapterConstructorSchema,
   BuiltinsManifest,
 } from './interfaces';
+
+interface SiblingSchemaSpec<T> {
+  readonly logicalName: string;
+  readonly schemaName: T;
+}
+
+const SIBLING_SCHEMAS = {
+  pipeline: { logicalName: 'pipeline-schema', schemaName: 'adapter.pipeline-schema' } as const,
+  decorators: { logicalName: 'decorator-schema', schemaName: 'adapter.decorator-schema' } as const,
+  peerContract: { logicalName: 'peer-contract', schemaName: 'adapter.peer-contract' } as const,
+  contextNamespaces: { logicalName: 'context-namespaces', schemaName: 'adapter.context-namespaces' } as const,
+  constructorSchema: { logicalName: 'adapter-constructor-schema', schemaName: 'adapter.constructor-schema' } as const,
+  builtins: { logicalName: 'builtins', schemaName: 'adapter.builtins' } as const,
+} satisfies Record<string, SiblingSchemaSpec<string>>;
 
 /**
  * Result of `readAdapterManifest()` — every emitted manifest joined with the
@@ -44,23 +58,10 @@ export interface ReadAdapterManifestResult {
   readonly builtins: BuiltinsManifest | null;
 }
 
-export interface ReadAdapterManifestOptions {
-  /**
-   * `zb` version of the user-app build. When set, `producedBy` of the
-   * manifest must declare a compatible producer (currently: same major).
-   * Mismatch → `DiagnosticError` (Item 116).
-   */
-  readonly userAppCliVersion?: string;
-  /**
-   * When `true` and the adapter package does not ship a manifest tree, fall
-   * back to `null` (Item 115 — caller may then run static analysis).
-   * Default: `false` — manifest absence is fatal.
-   */
-  readonly allowMissing?: boolean;
-}
-
 /**
- * Reads the adapter's manifest tree from `<adapterPackageDist>/`.
+ * Reads the adapter's manifest tree from `<adapterPackageDist>/`. Throws
+ * `DiagnosticError` (E1: hard error) when the manifest is missing — the user
+ * app must run `zb build adapter` in the adapter package first.
  *
  * @param adapterPackageDist - Absolute path to the adapter package's `dist/`.
  * Typically `node_modules/<name>/dist/`.
@@ -69,15 +70,13 @@ export interface ReadAdapterManifestOptions {
  */
 export async function readAdapterManifest(
   adapterPackageDist: string,
-  options: ReadAdapterManifestOptions = {},
-): Promise<ReadAdapterManifestResult | null> {
+): Promise<ReadAdapterManifestResult> {
   const distPath = resolve(adapterPackageDist);
   const topPath = join(distPath, 'adapter.manifest.json');
 
   if (!(await pathExists(topPath))) {
-    if (options.allowMissing === true) return null;
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Adapter manifest missing at ${topPath}. Run \`zb build adapter\` in the adapter package first, or pass \`allowMissing: true\` to fall back.`,
+      reason: `[CONTRACT] Adapter manifest missing at ${topPath}. Run \`zb build adapter\` in the adapter package first.`,
       file: topPath,
     }));
   }
@@ -91,18 +90,14 @@ export async function readAdapterManifest(
     }));
   }
 
-  if (typeof options.userAppCliVersion === 'string') {
-    assertProducerCompatible(adapter.producedBy, options.userAppCliVersion, topPath);
-  }
+  const indexed = adapter.manifests;
 
-  const indexed = adapter.manifests ?? {};
-
-  const pipeline = await loadOptional<PipelineSchema>(distPath, indexed['pipeline-schema']);
-  const decorators = await loadOptional<DecoratorSchema>(distPath, indexed['decorator-schema']);
-  const peerContract = await loadOptional<PeerContract>(distPath, indexed['peer-contract']);
-  const contextNamespaces = await loadOptional<ContextNamespacesSchema>(distPath, indexed['context-namespaces']);
-  const constructorSchema = await loadOptional<AdapterConstructorSchema>(distPath, indexed['adapter-constructor-schema']);
-  const builtins = await loadOptional<BuiltinsManifest>(distPath, indexed['builtins']);
+  const pipeline = await loadSibling<PipelineSchema>(distPath, indexed, SIBLING_SCHEMAS.pipeline);
+  const decorators = await loadSibling<DecoratorSchema>(distPath, indexed, SIBLING_SCHEMAS.decorators);
+  const peerContract = await loadSibling<PeerContract>(distPath, indexed, SIBLING_SCHEMAS.peerContract);
+  const contextNamespaces = await loadSibling<ContextNamespacesSchema>(distPath, indexed, SIBLING_SCHEMAS.contextNamespaces);
+  const constructorSchema = await loadSibling<AdapterConstructorSchema>(distPath, indexed, SIBLING_SCHEMAS.constructorSchema);
+  const builtins = await loadSibling<BuiltinsManifest>(distPath, indexed, SIBLING_SCHEMAS.builtins);
 
   return { adapter, pipeline, decorators, peerContract, contextNamespaces, constructorSchema, builtins };
 }
@@ -119,11 +114,31 @@ async function loadJson<T>(absPath: string): Promise<T> {
   }
 }
 
-async function loadOptional<T>(distPath: string, relPath: string | undefined): Promise<T | null> {
+async function loadSibling<T extends { readonly $schemaName: string }>(
+  distPath: string,
+  indexed: AdapterManifest['manifests'],
+  spec: SiblingSchemaSpec<T['$schemaName']>,
+): Promise<T | null> {
+  const relPath = indexed[spec.logicalName];
   if (relPath === undefined) return null;
+
+  if (isAbsolute(relPath) || relPath.split(/[/\\]/).some(seg => seg === '..')) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] Manifest index entry \`${spec.logicalName}\` points outside dist (${relPath}).`,
+    }));
+  }
+
   const full = join(distPath, relPath);
   if (!(await pathExists(full))) return null;
-  return loadJson<T>(full);
+
+  const value = await loadJson<T>(full);
+  if (value.$schemaName !== spec.schemaName) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] ${full} \`$schemaName\` is \`${String(value.$schemaName)}\`, expected \`${spec.schemaName}\`.`,
+      file: full,
+    }));
+  }
+  return value;
 }
 
 async function pathExists(p: string): Promise<boolean> {
@@ -133,38 +148,6 @@ async function pathExists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/**
- * Item 116 — basic compatibility check between the manifest's `producedBy`
- * and the user app's `zb` version. Same major considered compatible; minor
- * differences logged informationally; major mismatch is fatal.
- *
- * Producer string format: `@zipbul/cli@<semver>` (Slice 1 convention).
- */
-function assertProducerCompatible(producedBy: string, userAppVersion: string, manifestPath: string): void {
-  const producerVersion = parseProducerVersion(producedBy);
-  if (producerVersion === null) {
-    throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Manifest \`producedBy\` (${producedBy}) does not match \`@zipbul/cli@<semver>\` shape; cannot verify compatibility.`,
-      file: manifestPath,
-    }));
-  }
-
-  const producerMajor = producerVersion.split('.')[0]!;
-  const userMajor = userAppVersion.split('.')[0]!;
-
-  if (producerMajor !== userMajor) {
-    throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Adapter manifest at ${manifestPath} was produced by ${producedBy}, but the user-app build runs @zipbul/cli@${userAppVersion}. Major versions must match (re-run \`zb build adapter\` in the adapter package).`,
-      file: manifestPath,
-    }));
-  }
-}
-
-function parseProducerVersion(producedBy: string): string | null {
-  const match = /^@zipbul\/cli@(\d+\.\d+\.\d+(?:[-+][\w.]+)?)$/.exec(producedBy);
-  return match === null ? null : match[1] ?? null;
 }
 
 /**
@@ -235,17 +218,20 @@ export function detectMultiAdapterConflicts(manifests: readonly ReadAdapterManif
 
   for (const [name, owners] of decoratorOwners) {
     if (owners.size > 1) {
-      conflicts.push({ kind: 'decorator-name', name, adapters: [...owners].sort() });
+      conflicts.push({ kind: 'decorator-name', name, adapters: [...owners].sort(compareCodePoint) });
     }
   }
 
   for (const [name, owners] of contextKeyOwners) {
     if (owners.size > 1) {
-      conflicts.push({ kind: 'context-key', name, adapters: [...owners].sort() });
+      conflicts.push({ kind: 'context-key', name, adapters: [...owners].sort(compareCodePoint) });
     }
   }
 
-  conflicts.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  conflicts.sort((a, b) => {
+    const kindDiff = compareCodePoint(a.kind, b.kind);
+    return kindDiff !== 0 ? kindDiff : compareCodePoint(a.name, b.name);
+  });
 
   return conflicts;
 }

@@ -22,15 +22,14 @@ export interface BuildAdapterResult {
 
 /**
  * Top-level manifest emitted at `dist/adapter.manifest.json`. `$schemaName`
- * self-identifies the format. `producedBy` records the tool version. `manifests`
- * indexes the sibling JSON files by logical name.
+ * self-identifies the format. `manifests` indexes the sibling JSON files by
+ * logical name.
  *
  * @public
  */
 export interface AdapterManifest {
   readonly $schemaName: 'adapter.manifest';
   readonly adapterId: string;
-  readonly producedBy: string;
   readonly manifests: { readonly [logicalName: string]: string };
 }
 

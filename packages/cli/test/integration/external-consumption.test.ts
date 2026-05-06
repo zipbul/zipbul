@@ -90,22 +90,21 @@ describe('Step 12 External e2e — manifest-only adapter consumption', () => {
     //    fixture's dist.
     const manifest = await readAdapterManifest(join(adapterRoot, 'dist'));
 
-    expect(manifest).not.toBeNull();
-    expect(manifest!.adapter.adapterId).toBe('Foo');
-    expect(manifest!.pipeline!.pipeline).toEqual([
+    expect(manifest.adapter.adapterId).toBe('Foo');
+    expect(manifest.pipeline!.pipeline).toEqual([
       { qualifier: 'FooPhase', name: 'OnRequest' },
       { qualifier: 'CoreStep', name: 'Handler' },
     ]);
-    expect(manifest!.decorators!.controller).toBe('FooController');
-    expect(manifest!.decorators!.handlers).toEqual(['FooGet']);
-    expect(manifest!.peerContract!.clusterStrategy).toBe('Shared');
+    expect(manifest.decorators!.controller).toBe('FooController');
+    expect(manifest.decorators!.handlers).toEqual(['FooGet']);
+    expect(manifest.peerContract!.clusterStrategy).toBe('Shared');
 
     // 3. dist/index.js must exist + be non-empty (runtime entry).
     const indexJs = await readFile(join(adapterRoot, 'dist', 'index.js'), 'utf8');
     expect(indexJs.length).toBeGreaterThan(0);
 
     // 4. Multi-adapter conflict scan with a single adapter → empty.
-    const conflicts = detectMultiAdapterConflicts([manifest!]);
+    const conflicts = detectMultiAdapterConflicts([manifest]);
     expect(conflicts).toEqual([]);
   });
 
@@ -149,7 +148,7 @@ describe('Step 12 External e2e — manifest-only adapter consumption', () => {
     await buildAdapter({ packageRoot: adapterRoot });
     const bManifest = await readAdapterManifest(join(adapterRoot, 'dist'));
 
-    const conflicts = detectMultiAdapterConflicts([aManifest!, bManifest!]);
+    const conflicts = detectMultiAdapterConflicts([aManifest, bManifest]);
 
     expect(conflicts.length).toBeGreaterThan(0);
     expect(conflicts.find(c => c.kind === 'decorator-name' && c.name === 'AlphaController')).toBeDefined();
