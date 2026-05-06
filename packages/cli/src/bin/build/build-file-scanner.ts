@@ -5,7 +5,7 @@ import type { CollectedClass, CliRendererLike } from '../interfaces';
 
 import { isErr } from '@zipbul/result';
 import type { AstParser, FileAnalysis } from '../../compiler/analyzer';
-import { compareCodePoint } from '../../common';
+import { compareCodePoint, distToSourceCandidates } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { buildFileAnalysis } from './build-analysis';
 
@@ -14,33 +14,18 @@ import { buildFileAnalysis } from './build-analysis';
 // ---------------------------------------------------------------------------
 
 /**
- * Maps a dist/ build output path back to the original TypeScript source.
- *
- * When a package.json `exports` field points to `./dist/index.js`,
- * `Bun.resolveSync` returns the dist path. The AOT compiler needs
- * the TypeScript source, so we check the package root and `src/`
- * for a matching `.ts` file.
+ * Maps a dist/ build output path back to the original TypeScript source —
+ * async wrapper that probes filesystem via Bun.file.
  */
 async function resolveDistToSource(resolvedPath: string): Promise<string | null> {
-  const distSegmentIndex = resolvedPath.lastIndexOf('/dist/');
+  const candidates = distToSourceCandidates(resolvedPath);
 
-  if (distSegmentIndex === -1) {
-    return null;
-  }
+  if (candidates === null) return null;
 
-  const packageRoot = resolvedPath.slice(0, distSegmentIndex);
-  const relative = resolvedPath.slice(distSegmentIndex + 6).replace(/\.js$/, '.ts');
-
-  const rootCandidate = join(packageRoot, relative);
-
-  if (await Bun.file(rootCandidate).exists()) {
-    return rootCandidate;
-  }
-
-  const srcCandidate = join(packageRoot, 'src', relative);
-
-  if (await Bun.file(srcCandidate).exists()) {
-    return srcCandidate;
+  for (const candidate of candidates) {
+    if (await Bun.file(candidate).exists()) {
+      return candidate;
+    }
   }
 
   return null;

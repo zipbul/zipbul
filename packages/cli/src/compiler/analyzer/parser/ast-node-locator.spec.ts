@@ -4,8 +4,6 @@ import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 
 import {
-  isAstNode,
-  walkChildren,
   findVariableInitAstNode,
   extractFunctionSourceText,
   isAnonymousClassSymbol,
@@ -41,93 +39,6 @@ function makeSymbol(name: string): ExtractedSymbol {
 
   return extractSymbols(parsed)[0]!;
 }
-
-describe('isAstNode', () => {
-  it('should return true for a valid AST node', () => {
-    const parsed = parse('const x = 1;');
-    const firstStmt = parsed.program.body[0]!;
-
-    expect(isAstNode(firstStmt)).toBe(true);
-  });
-
-  it('should return false for null', () => {
-    expect(isAstNode(null)).toBe(false);
-  });
-
-  it('should return false for undefined', () => {
-    expect(isAstNode(undefined)).toBe(false);
-  });
-
-  it('should return false for a plain string', () => {
-    expect(isAstNode('hello')).toBe(false);
-  });
-
-  it('should return false for a number', () => {
-    expect(isAstNode(42)).toBe(false);
-  });
-
-  it('should return false for an object without type property', () => {
-    expect(isAstNode({ name: 'foo' })).toBe(false);
-  });
-
-  it('should return false for an object with non-string type property', () => {
-    expect(isAstNode({ type: 123 })).toBe(false);
-  });
-
-  it('should return true for a plain object with string type property', () => {
-    expect(isAstNode({ type: 'Identifier' })).toBe(true);
-  });
-});
-
-describe('walkChildren', () => {
-  it('should visit child nodes of a variable declaration', () => {
-    const parsed = parse('const x = 1;');
-    const stmt = parsed.program.body[0]!;
-    const visited: string[] = [];
-
-    walkChildren(stmt, (child) => {
-      visited.push(child.type);
-    });
-
-    expect(visited.length).toBeGreaterThan(0);
-    expect(visited).toContain('VariableDeclarator');
-  });
-
-  it('should visit children of a function declaration body', () => {
-    const parsed = parse('function foo() { return 1; }');
-    const stmt = parsed.program.body[0]!;
-    const visited: string[] = [];
-
-    walkChildren(stmt, (child) => {
-      visited.push(child.type);
-    });
-
-    expect(visited.length).toBeGreaterThan(0);
-  });
-
-  it('should not call visitor when node has no visitor keys', () => {
-    const fakeNode = { type: 'NonExistentNodeType', start: 0, end: 0 } as never;
-    const visited: string[] = [];
-
-    walkChildren(fakeNode, (child) => {
-      visited.push(child.type);
-    });
-
-    expect(visited).toHaveLength(0);
-  });
-
-  it('should visit array children (e.g. body statements)', () => {
-    const parsed = parse('{ const a = 1; const b = 2; }');
-    const block = parsed.program.body[0]!;
-    const visited: string[] = [];
-
-    walkChildren(block, (child) => {
-      visited.push(child.type);
-    });
-
-    expect(visited.filter((nodeType) => nodeType === 'VariableDeclaration')).toHaveLength(2);
-  });
-});
 
 describe('findVariableInitAstNode', () => {
   it('should find variable initializer for a simple const declaration', () => {

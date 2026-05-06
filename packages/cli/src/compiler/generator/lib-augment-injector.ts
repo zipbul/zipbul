@@ -1,4 +1,4 @@
-import { parseSource, type ParsedFile } from '@zipbul/gildash';
+import { parseSource, type ParsedFile, is, isFunctionNode } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 
 import type { Node as AstNode } from '@zipbul/gildash';
@@ -86,17 +86,17 @@ export function extractLibAugments(
   for (const stmt of parsed.program.body) {
     let varDecl: AstNode | null = null;
 
-    if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'VariableDeclaration') {
+    if (is.ExportNamedDeclaration(stmt) && stmt.declaration && is.VariableDeclaration(stmt.declaration)) {
       varDecl = stmt.declaration;
-    } else if (stmt.type === 'VariableDeclaration') {
+    } else if (is.VariableDeclaration(stmt)) {
       varDecl = stmt;
     }
 
-    if (varDecl === null || varDecl.type !== 'VariableDeclaration') continue;
+    if (varDecl === null || !is.VariableDeclaration(varDecl)) continue;
 
     for (const decl of varDecl.declarations) {
-      if (decl.id.type !== 'Identifier') continue;
-      if (decl.init === null || decl.init === undefined || decl.init.type !== 'CallExpression') continue;
+      if (!is.Identifier(decl.id)) continue;
+      if (decl.init === null || decl.init === undefined || !is.CallExpression(decl.init)) continue;
 
       const calleeName = extractCalleeName(decl.init);
 
@@ -172,7 +172,7 @@ function processDefineMiddlewareCall(
   call: AstNode,
   sourceText: string,
 ): LibAugmentEntry | null {
-  if (call.type !== 'CallExpression') return null;
+  if (!is.CallExpression(call)) return null;
 
   const args = call.arguments;
 
@@ -188,12 +188,12 @@ function processDefineMiddlewareCall(
   } else if (args.length >= 2 && isFunctionNode(args[1]!)) {
     factoryNode = args[1]!;
     adaptersNode = firstArg;
-  } else if (firstArg.type === 'ObjectExpression') {
+  } else if (is.ObjectExpression(firstArg)) {
     configNode = firstArg;
 
     for (const prop of firstArg.properties) {
-      if (prop.type !== 'Property') continue;
-      if (prop.key.type !== 'Identifier' || prop.key.name !== 'factory') continue;
+      if (!is.Property(prop)) continue;
+      if (!is.Identifier(prop.key) || prop.key.name !== 'factory') continue;
 
       if (isFunctionNode(prop.value)) {
         factoryNode = prop.value;
@@ -270,15 +270,12 @@ function serializeAugmentEntry(aug: SerializedAugment): Record<string, unknown> 
 }
 
 function extractCalleeName(call: AstNode): string | null {
-  if (call.type !== 'CallExpression') return null;
+  if (!is.CallExpression(call)) return null;
 
-  if (call.callee.type === 'Identifier') {
+  if (is.Identifier(call.callee)) {
     return call.callee.name;
   }
 
   return null;
 }
 
-function isFunctionNode(node: AstNode): boolean {
-  return node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression';
-}

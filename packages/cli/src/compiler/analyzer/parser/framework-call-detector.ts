@@ -1,4 +1,4 @@
-import { parseSource, extractSymbols } from '@zipbul/gildash';
+import { parseSource, extractSymbols, is } from '@zipbul/gildash';
 import type { ParsedFile, ExtractedSymbol, ExpressionObject, PatternMatch } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 import {
@@ -409,13 +409,13 @@ export function resolveExportDefaultDefineModule(
   }
 
   for (const stmt of parsed.program.body) {
-    if (stmt.type !== 'ExportDefaultDeclaration') {
+    if (!is.ExportDefaultDeclaration(stmt)) {
       continue;
     }
 
     const decl = stmt.declaration;
 
-    if (decl.type === 'CallExpression') {
+    if (is.CallExpression(decl)) {
       const existing = defineModuleCalls.find(
         call => call.start === decl.start && call.end === decl.end,
       );
@@ -425,7 +425,7 @@ export function resolveExportDefaultDefineModule(
       }
     }
 
-    if (decl.type === 'Identifier') {
+    if (is.Identifier(decl)) {
       const name = decl.name;
 
       if (isNonEmptyString(name)) {

@@ -5,7 +5,7 @@ import { dirname, join, resolve, relative } from 'path';
 import type { CliRendererLike } from '../interfaces';
 import type { BuildCommandDeps } from './interfaces';
 
-import { parseSource } from '@zipbul/gildash';
+import { extractSymbols, parseSource } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import {
@@ -350,34 +350,18 @@ function extractAndDetectSkipped(
 
   if (isErr(parseResult)) return { entries, skipped };
 
-  for (const stmt of parseResult.program.body) {
-    let varDecl = null;
+  const symbols = extractSymbols(parseResult);
 
-    if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'VariableDeclaration') {
-      varDecl = stmt.declaration;
-    } else if (stmt.type === 'VariableDeclaration') {
-      varDecl = stmt;
-    }
+  for (const symbol of symbols) {
+    if (symbol.kind !== 'variable') continue;
+    if (symbol.initializer === undefined || symbol.initializer.kind !== 'call') continue;
+    if (symbol.initializer.callee !== 'defineMiddleware') continue;
+    if (successNames.has(symbol.name)) continue;
 
-    if (varDecl === null) continue;
-
-    for (const decl of varDecl.declarations) {
-      if (decl.id.type !== 'Identifier') continue;
-      if (decl.init === null || decl.init === undefined || decl.init.type !== 'CallExpression') continue;
-
-      const callee = decl.init.callee;
-
-      if (callee.type !== 'Identifier' || (callee as { name: string }).name !== 'defineMiddleware') continue;
-
-      const name = (decl.id as { name: string }).name;
-
-      if (successNames.has(name)) continue;
-
-      skipped.push({
-        name,
-        reason: 'No context augments detected. Ensure the factory uses ctx.to(<ContextType>) and assigns properties like http.request.<prop> = new <Class>(...).',
-      });
-    }
+    skipped.push({
+      name: symbol.name,
+      reason: 'No context augments detected. Ensure the factory uses ctx.to(<ContextType>) and assigns properties like http.request.<prop> = new <Class>(...).',
+    });
   }
 
   return { entries, skipped };

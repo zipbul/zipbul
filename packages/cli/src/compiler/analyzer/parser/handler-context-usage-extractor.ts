@@ -1,14 +1,8 @@
+import { isFunctionNode, walk, is } from '@zipbul/gildash';
 import type { Node as AstNode } from '@zipbul/gildash';
 
-import { walkChildren } from './ast-node-locator';
+type FunctionLike = AstNode & { type: 'FunctionDeclaration' | 'FunctionExpression' | 'ArrowFunctionExpression' };
 
-type FunctionLike = Extract<AstNode, { type: 'FunctionDeclaration' | 'FunctionExpression' | 'ArrowFunctionExpression' }>;
-
-function isFunctionLike(node: AstNode): node is FunctionLike {
-  return node.type === 'FunctionDeclaration'
-    || node.type === 'FunctionExpression'
-    || node.type === 'ArrowFunctionExpression';
-}
 
 /**
  * A single member-access chain rooted at the handler's context parameter.
@@ -49,7 +43,7 @@ export interface HandlerContextUsageResult {
  * @returns Usage list, or `null` if the handler has no first parameter or no body.
  */
 export function extractHandlerContextUsages(funcNode: AstNode): HandlerContextUsageResult | null {
-  if (!isFunctionLike(funcNode)) return null;
+  if (!isFunctionNode(funcNode)) return null;
 
   const ctxParam = getFirstIdentParam(funcNode);
 
@@ -61,7 +55,11 @@ export function extractHandlerContextUsages(funcNode: AstNode): HandlerContextUs
 
   const usages: ContextUsage[] = [];
 
-  visit(body, null, ctxParam, usages);
+  walk(body, {
+    enter(node, parent) {
+      visitMember(node, parent, ctxParam, usages);
+    },
+  });
 
   return { contextParam: ctxParam, usages: dedup(usages) };
 }
@@ -71,58 +69,56 @@ function getFirstIdentParam(fn: FunctionLike): string | null {
 
   const first = fn.params[0];
 
-  if (first && first.type === 'Identifier') return first.name;
+  if (first && is.Identifier(first)) return first.name;
 
   return null;
 }
 
-function visit(node: AstNode, parent: AstNode | null, ctxParam: string, out: ContextUsage[]): void {
-  if (node.type === 'MemberExpression') {
-    const isInnerOfChain = parent !== null
-      && parent.type === 'MemberExpression'
-      && parent.object === node;
+function visitMember(node: AstNode, parent: AstNode | null, ctxParam: string, out: ContextUsage[]): void {
+  if (!is.MemberExpression(node)) return;
 
-    if (!isInnerOfChain) {
-      const path = collectMemberPath(node, ctxParam);
+  const isInnerOfChain = parent !== null
+    && is.MemberExpression(parent)
+    && parent.object === node;
 
-      if (path) {
-        const isCall = parent !== null
-          && parent.type === 'CallExpression'
-          && parent.callee === node;
+  if (isInnerOfChain) return;
 
-        let dtoIdentifier: string | null = null;
+  const path = collectMemberPath(node, ctxParam);
 
-        if (isCall && parent.type === 'CallExpression') {
-          const firstArg = parent.arguments[0];
+  if (!path) return;
 
-          if (firstArg && firstArg.type === 'Identifier') {
-            dtoIdentifier = firstArg.name;
-          }
-        }
+  const isCall = parent !== null
+    && is.CallExpression(parent)
+    && parent.callee === node;
 
-        out.push({ path, isCall, dtoIdentifier });
-      }
+  let dtoIdentifier: string | null = null;
+
+  if (isCall && parent !== null && is.CallExpression(parent)) {
+    const firstArg = parent.arguments[0];
+
+    if (firstArg && is.Identifier(firstArg)) {
+      dtoIdentifier = firstArg.name;
     }
   }
 
-  walkChildren(node, (child) => visit(child, node, ctxParam, out));
+  out.push({ path, isCall, dtoIdentifier });
 }
 
 function collectMemberPath(node: AstNode, ctxParam: string): readonly string[] | null {
-  if (node.type !== 'MemberExpression') return null;
+  if (!is.MemberExpression(node)) return null;
 
   const segments: string[] = [];
   let current: AstNode = node;
 
-  while (current.type === 'MemberExpression') {
+  while (is.MemberExpression(current)) {
     if (current.computed) return null;
-    if (current.property.type !== 'Identifier') return null;
+    if (!is.Identifier(current.property)) return null;
 
     segments.unshift(current.property.name);
     current = current.object;
   }
 
-  if (current.type !== 'Identifier' || current.name !== ctxParam) return null;
+  if (!is.Identifier(current) || current.name !== ctxParam) return null;
   if (segments.length === 0) return null;
 
   return segments;

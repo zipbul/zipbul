@@ -10,7 +10,7 @@ export {
   cacheFilePath,
   tempDirPath,
 } from './paths';
-export { PathResolver } from './path-resolver';
+export { PathResolver, distToSourceCandidates } from './path-resolver';
 export { writeIfChanged } from './write-if-changed';
 export { ensureTsconfigIncludesZipbul } from './tsconfig-patcher';
 

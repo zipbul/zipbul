@@ -3,7 +3,7 @@ import { join, resolve, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
 
 import { isErr } from '@zipbul/result';
-import { parseSource, extractSymbols, extractRelations, buildLineOffsets, getLineColumn } from '@zipbul/gildash';
+import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
 import type { ParsedFile, ExtractedSymbol, ExpressionValue, ExpressionCall, CodeRelation } from '@zipbul/gildash';
 
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
@@ -22,17 +22,13 @@ function diag(
     file?: string;
     symbol?: string;
     how?: string;
-    /** Item 79 — when the underlying source span is known, callers may pass
-     * a file's lineOffsets (from `buildLineOffsets`) and a byte offset; the
-     * diagnostic message is annotated with `file:line:column`. */
-    lineOffsets?: readonly number[];
-    offset?: number;
+    /** Item 79 — pre-resolved line/column from gildash `ExtractedSymbol.span`. */
+    position?: { line: number; column: number };
   },
 ): DiagnosticError {
   let position = '';
-  if (params.lineOffsets !== undefined && typeof params.offset === 'number') {
-    const lc = getLineColumn(params.lineOffsets as number[], params.offset);
-    position = ` at ${params.file ?? '<source>'}:${lc.line}:${lc.column}`;
+  if (params.position !== undefined) {
+    position = ` at ${params.file ?? '<source>'}:${params.position.line}:${params.position.column}`;
   }
   const taggedReason = `[${category}] ${params.reason}${position}`;
 
@@ -376,8 +372,6 @@ interface SourceFile {
   readonly filePath: string;
   readonly parsed: ParsedFile;
   readonly symbols: readonly ExtractedSymbol[];
-  /** Cached line offsets for byte-offset → line/column conversion (Item 79). */
-  readonly lineOffsets: readonly number[];
 }
 
 type SourceTree = readonly SourceFile[];
@@ -589,7 +583,6 @@ async function pushSourceFile(filePath: string, out: SourceFile[]): Promise<void
     filePath,
     parsed: parseResult,
     symbols: extractSymbols(parseResult),
-    lineOffsets: buildLineOffsets(text),
   });
 }
 
@@ -631,20 +624,20 @@ function pickEntrySourceFile(tree: SourceTree, packageRoot: string): SourceFile 
 }
 
 function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition {
-  const adapterCall = findDefineAdapterCall(entry.symbols);
+  const found = findDefineAdapterCall(entry.symbols);
 
-  if (adapterCall === null) {
+  if (found === null) {
     throw diag('MISSING_EXPORT', {
       reason: `No \`defineAdapter()\` export found in ${entry.filePath}.`,
       file: entry.filePath,
     });
   }
 
-  // Item 79 — anchor downstream diagnostics at the defineAdapter() call site.
-  const callOffset = (adapterCall as unknown as { start?: number }).start;
-  const posCtx = typeof callOffset === 'number'
-    ? { lineOffsets: entry.lineOffsets, offset: callOffset }
-    : {};
+  const { call: adapterCall, symbol } = found;
+
+  // Item 79 — anchor downstream diagnostics at the defineAdapter() call site,
+  // using gildash's pre-resolved span (line/column) on the variable symbol.
+  const posCtx = { position: { line: symbol.span.start.line, column: symbol.span.start.column } };
 
   const adapterId = readIdentifierField(adapterCall, 'adapter');
 
@@ -1349,7 +1342,7 @@ function ensureUnique(names: readonly string[], filePath: string): void {
   }
 }
 
-function findDefineAdapterCall(symbols: readonly ExtractedSymbol[]): ExpressionCall | null {
+function findDefineAdapterCall(symbols: readonly ExtractedSymbol[]): { call: ExpressionCall; symbol: ExtractedSymbol } | null {
   for (const symbol of symbols) {
     if (symbol.kind !== 'variable' || !symbol.isExported) continue;
     const init = symbol.initializer;
@@ -1357,7 +1350,7 @@ function findDefineAdapterCall(symbols: readonly ExtractedSymbol[]): ExpressionC
     if (init === undefined || init.kind !== 'call') continue;
     if (init.callee !== 'defineAdapter') continue;
 
-    return init;
+    return { call: init, symbol };
   }
 
   return null;

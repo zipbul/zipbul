@@ -1,4 +1,4 @@
-import { parseSource, type ParsedFile } from '@zipbul/gildash';
+import { parseSource, type ParsedFile, is, isFunctionNode } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 import { ZIPBUL_CALL } from '@zipbul/common';
 
@@ -600,17 +600,17 @@ function findDefineMiddlewareFactory(
   for (const stmt of programBody) {
     let varDecl: AstNode | null = null;
 
-    if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'VariableDeclaration') {
+    if (is.ExportNamedDeclaration(stmt) && stmt.declaration && is.VariableDeclaration(stmt.declaration)) {
       varDecl = stmt.declaration;
-    } else if (stmt.type === 'VariableDeclaration') {
+    } else if (is.VariableDeclaration(stmt)) {
       varDecl = stmt;
     }
 
-    if (varDecl === null || varDecl.type !== 'VariableDeclaration') continue;
+    if (varDecl === null || !is.VariableDeclaration(varDecl)) continue;
 
     for (const decl of varDecl.declarations) {
-      if (decl.id.type !== 'Identifier' || decl.id.name !== name) continue;
-      if (decl.init === null || decl.init === undefined || decl.init.type !== 'CallExpression') continue;
+      if (!is.Identifier(decl.id) || decl.id.name !== name) continue;
+      if (decl.init === null || decl.init === undefined || !is.CallExpression(decl.init)) continue;
 
       return extractFactoryFromCallArgs(decl.init);
     }
@@ -630,7 +630,7 @@ function findDefineMiddlewareFactory(
 function extractFactoryFromCallArgs(
   call: AstNode,
 ): AstNode | null {
-  if (call.type !== 'CallExpression') return null;
+  if (!is.CallExpression(call)) return null;
 
   const args = call.arguments;
 
@@ -650,10 +650,10 @@ function extractFactoryFromCallArgs(
     }
   }
 
-  if (firstArg.type === 'ObjectExpression') {
+  if (is.ObjectExpression(firstArg)) {
     for (const prop of firstArg.properties) {
-      if (prop.type !== 'Property') continue;
-      if (prop.key.type !== 'Identifier' || prop.key.name !== 'factory') continue;
+      if (!is.Property(prop)) continue;
+      if (!is.Identifier(prop.key) || prop.key.name !== 'factory') continue;
 
       if (isFunctionNode(prop.value)) {
         return prop.value;
@@ -662,10 +662,6 @@ function extractFactoryFromCallArgs(
   }
 
   return null;
-}
-
-function isFunctionNode(node: AstNode): boolean {
-  return node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression';
 }
 
 /**
@@ -680,7 +676,7 @@ function buildFileImportMap(
   const sourceDir = sourceFilePath.replace(/\/[^/]+$/, '');
 
   for (const stmt of programBody) {
-    if (stmt.type !== 'ImportDeclaration') continue;
+    if (!is.ImportDeclaration(stmt)) continue;
 
     const source = stmt.source.value;
 
@@ -693,7 +689,7 @@ function buildFileImportMap(
     if (stmt.specifiers === undefined) continue;
 
     for (const spec of stmt.specifiers) {
-      if (spec.type === 'ImportSpecifier' && spec.local.type === 'Identifier') {
+      if (is.ImportSpecifier(spec) && is.Identifier(spec.local)) {
         map.set(spec.local.name, resolved);
       }
     }
@@ -710,21 +706,15 @@ function collectLocalClassDeclarations(programBody: readonly AstNode[]): Set<str
   const names = new Set<string>();
 
   for (const stmt of programBody) {
-    if (stmt.type === 'ClassDeclaration') {
-      const id = (stmt as AstNode & { id?: AstNode }).id;
-
-      if (id !== undefined && id.type === 'Identifier') {
-        names.add((id as AstNode & { name: string }).name);
+    if (is.ClassDeclaration(stmt)) {
+      if (stmt.id && is.Identifier(stmt.id)) {
+        names.add(stmt.id.name);
       }
-    } else if (stmt.type === 'ExportNamedDeclaration') {
-      const decl = (stmt as AstNode & { declaration?: AstNode }).declaration;
+    } else if (is.ExportNamedDeclaration(stmt)) {
+      const decl = stmt.declaration;
 
-      if (decl !== undefined && decl.type === 'ClassDeclaration') {
-        const id = (decl as AstNode & { id?: AstNode }).id;
-
-        if (id !== undefined && id.type === 'Identifier') {
-          names.add((id as AstNode & { name: string }).name);
-        }
+      if (decl && is.ClassDeclaration(decl) && decl.id && is.Identifier(decl.id)) {
+        names.add(decl.id.name);
       }
     }
   }

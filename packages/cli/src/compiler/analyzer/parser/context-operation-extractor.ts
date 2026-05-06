@@ -1,19 +1,5 @@
+import { isFunctionNode, walk, is } from '@zipbul/gildash';
 import type { Node as AstNode } from '@zipbul/gildash';
-
-import { walkChildren } from './ast-node-locator';
-
-/**
- * Type predicate for function-like nodes (`FunctionDeclaration`,
- * `FunctionExpression`, `ArrowFunctionExpression`). Narrows `AstNode` to the
- * subset that carries `params`/`body` shape used by ctx-op extraction.
- */
-type FunctionLike = Extract<AstNode, { type: 'FunctionDeclaration' | 'FunctionExpression' | 'ArrowFunctionExpression' }>;
-
-function isFunctionLike(node: AstNode): node is FunctionLike {
-  return node.type === 'FunctionDeclaration'
-    || node.type === 'FunctionExpression'
-    || node.type === 'ArrowFunctionExpression';
-}
 
 /**
  * 단일 ctx 작업 호출 — `<rootVar>.set(KEY, ...)` / `<rootVar>.use(KEY)` / `<rootVar>.get(KEY)`.
@@ -54,13 +40,20 @@ export function extractContextOperations(
   funcNode: AstNode,
   rootVarNames: ReadonlySet<string>,
 ): ContextOperation[] {
-  if (!isFunctionLike(funcNode)) return [];
+  if (!isFunctionNode(funcNode)) return [];
 
   const body = funcNode.body;
   if (!body) return [];
 
   const ops: ContextOperation[] = [];
-  visitNode(body, rootVarNames, ops);
+  walk(body, {
+    enter(node) {
+      if (is.CallExpression(node)) {
+        const op = tryExtractOperation(node, rootVarNames);
+        if (op !== null) ops.push(op);
+      }
+    },
+  });
   return ops;
 }
 
@@ -73,7 +66,7 @@ export function extractContextOperations(
 export function extractHandlerContextOps(
   funcNode: AstNode,
 ): readonly ContextOperation[] {
-  if (!isFunctionLike(funcNode)) return [];
+  if (!isFunctionNode(funcNode)) return [];
 
   const ctxParam = readFirstIdentifierParam(funcNode);
   if (ctxParam === null) return [];
@@ -82,7 +75,7 @@ export function extractHandlerContextOps(
   if (!body) return [];
 
   const roots = new Set<string>([ctxParam]);
-  if (body.type === 'BlockStatement') {
+  if (is.BlockStatement(body)) {
     for (const binding of findContextBindings(body, ctxParam)) {
       roots.add(binding);
     }
@@ -117,22 +110,22 @@ export function extractMiddlewareContextOps(
 export function findInnerHandler(
   factory: AstNode,
 ): AstNode | null {
-  if (!isFunctionLike(factory)) return null;
+  if (!isFunctionNode(factory)) return null;
 
   const body = factory.body;
   if (!body) return null;
 
-  if (body.type !== 'BlockStatement') {
-    return body.type === 'ArrowFunctionExpression' || body.type === 'FunctionExpression'
+  if (!is.BlockStatement(body)) {
+    return is.ArrowFunctionExpression(body) || is.FunctionExpression(body)
       ? body
       : null;
   }
 
   for (const stmt of body.body) {
     if (
-      stmt.type === 'ReturnStatement'
+      is.ReturnStatement(stmt)
       && stmt.argument
-      && (stmt.argument.type === 'ArrowFunctionExpression' || stmt.argument.type === 'FunctionExpression')
+      && (is.ArrowFunctionExpression(stmt.argument) || is.FunctionExpression(stmt.argument))
     ) {
       return stmt.argument;
     }
@@ -147,12 +140,12 @@ export function findInnerHandler(
 export function readFirstIdentifierParam(
   fn: AstNode,
 ): string | null {
-  if (!isFunctionLike(fn)) return null;
+  if (!isFunctionNode(fn)) return null;
 
   const params = fn.params;
   if (!params || params.length === 0) return null;
   const first = params[0];
-  if (!first || first.type !== 'Identifier') return null;
+  if (!first || !is.Identifier(first)) return null;
   return first.name;
 }
 
@@ -166,65 +159,52 @@ export function findContextBindings(
 ): readonly string[] {
   const bindings: string[] = [];
 
-  const visit = (node: AstNode): void => {
-    if (node.type === 'VariableDeclaration') {
+  walk(body, {
+    enter(node) {
+      if (!is.VariableDeclaration(node)) return;
       for (const decl of node.declarations) {
-        if (decl.id.type !== 'Identifier' || !decl.init) continue;
+        if (!is.Identifier(decl.id) || !decl.init) continue;
 
         const init = decl.init;
-        if (init.type !== 'CallExpression') continue;
+        if (!is.CallExpression(init)) continue;
 
         const callee = init.callee;
-        if (callee.type !== 'MemberExpression' || callee.computed) continue;
-        if (callee.object.type !== 'Identifier' || callee.object.name !== ctxParam) continue;
-        if (callee.property.type !== 'Identifier' || callee.property.name !== 'to') continue;
+        if (!is.MemberExpression(callee) || callee.computed) continue;
+        if (!is.Identifier(callee.object) || callee.object.name !== ctxParam) continue;
+        if (!is.Identifier(callee.property) || callee.property.name !== 'to') continue;
 
         bindings.push(decl.id.name);
       }
-    }
+    },
+  });
 
-    walkChildren(node, visit);
-  };
-
-  visit(body);
   return bindings;
 }
 
 const TRACKED_METHODS = new Set<'set' | 'use' | 'get'>(['set', 'use', 'get']);
 
-function visitNode(node: AstNode, roots: ReadonlySet<string>, out: ContextOperation[]): void {
-  if (node.type === 'CallExpression') {
-    const op = tryExtractOperation(node, roots);
-    if (op !== null) {
-      out.push(op);
-    }
-  }
-
-  walkChildren(node, (child) => visitNode(child, roots, out));
-}
-
 function tryExtractOperation(
   call: AstNode,
   roots: ReadonlySet<string>,
 ): ContextOperation | null {
-  if (call.type !== 'CallExpression') return null;
+  if (!is.CallExpression(call)) return null;
 
   const callee = call.callee;
-  if (callee.type !== 'MemberExpression') return null;
+  if (!is.MemberExpression(callee)) return null;
 
   if (callee.computed) return null;
-  if (callee.property.type !== 'Identifier') return null;
+  if (!is.Identifier(callee.property)) return null;
 
   const methodName = callee.property.name;
   if (!isTrackedMethod(methodName)) return null;
 
-  if (callee.object.type !== 'Identifier') return null;
+  if (!is.Identifier(callee.object)) return null;
   const rootName = callee.object.name;
   if (!roots.has(rootName)) return null;
 
   const firstArg = call.arguments[0];
   const keyIdentifier =
-    firstArg !== undefined && firstArg.type === 'Identifier'
+    firstArg !== undefined && is.Identifier(firstArg)
       ? firstArg.name
       : null;
 
@@ -238,7 +218,6 @@ function isTrackedMethod(name: string): name is 'set' | 'use' | 'get' {
 }
 
 function readStart(node: AstNode): number | null {
-  const start = (node as { start?: number }).start;
-  return typeof start === 'number' ? start : null;
+  return typeof node.start === 'number' ? node.start : null;
 }
 

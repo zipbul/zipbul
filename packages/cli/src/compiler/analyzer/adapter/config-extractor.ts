@@ -12,7 +12,7 @@ import type { Diagnostic } from '../../../diagnostics';
 
 import { dirname, join } from 'path';
 import { err, isErr } from '@zipbul/result';
-import { parseSource, type ParsedFile } from '@zipbul/gildash';
+import { extractSymbols, parseSource, type ParsedFile } from '@zipbul/gildash';
 import {
   ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
 } from '@zipbul/common';
@@ -23,7 +23,6 @@ import { toRecord, isAnalyzerValueArray } from '../type-guards';
 import { resolveEnumValues, resolvePipelineArray } from './enum-type-resolver';
 
 import type { ContextNamespaceMap } from '../interfaces';
-import type { Node as AstNode } from '@zipbul/gildash';
 
 const logger = new Logger('AdapterDefinitionResolver');
 
@@ -609,38 +608,26 @@ async function extractContextGetterTypes(
   if (isErr(parseResult)) return null;
 
   const parsed: ParsedFile = parseResult;
+  const symbols = extractSymbols(parsed);
 
-  // Find the class declaration
+  const classSymbol = symbols.find(s => s.kind === 'class' && s.name === contextClassName);
+
+  if (classSymbol === undefined) return null;
+
   const namespaces: Record<string, string> = {};
 
-  for (const stmt of parsed.program.body) {
-    const classDecl = extractClassDeclaration(stmt, contextClassName);
+  for (const member of classSymbol.members ?? []) {
+    if (member.kind !== 'method' || member.methodKind !== 'getter') continue;
+    if (member.modifiers.includes('private') || member.modifiers.includes('protected')) continue;
 
-    if (classDecl === null) continue;
+    const returnType = member.returnType;
 
-    for (const member of classDecl.body.body) {
-      if (member.type !== 'MethodDefinition' || (member as AstNode & { kind: string }).kind !== 'get') continue;
+    // Only capture simple type-name references (skip unions / primitives /
+    // generics / array types — they're not augmentation targets).
+    if (typeof returnType !== 'string' || returnType.length === 0) continue;
+    if (!/^[A-Z][A-Za-z0-9_]*$/.test(returnType)) continue;
 
-      const key = member.key;
-
-      if (key.type !== 'Identifier') continue;
-
-      const returnType = (member.value as AstNode & { returnType?: AstNode })?.returnType;
-      const typeAnnotation = (returnType as AstNode & { typeAnnotation?: AstNode })?.typeAnnotation;
-
-      if (typeAnnotation === undefined || typeAnnotation === null) continue;
-
-      // Only capture simple type references (not unions, not primitives)
-      if (typeAnnotation.type !== 'TSTypeReference') continue;
-
-      const typeName = (typeAnnotation as AstNode & { typeName?: AstNode }).typeName;
-
-      if (typeName === undefined || typeName.type !== 'Identifier') continue;
-
-      namespaces[(key as AstNode & { name: string }).name] = (typeName as AstNode & { name: string }).name;
-    }
-
-    break; // found the class, stop searching
+    namespaces[member.name] = returnType;
   }
 
   if (Object.keys(namespaces).length === 0) return null;
@@ -655,36 +642,6 @@ async function extractContextGetterTypes(
     module: moduleSpecifier,
     namespaces,
   };
-}
-
-/**
- * Extracts a class declaration from a statement, handling ExportNamedDeclaration wrapping.
- */
-function extractClassDeclaration(
-  stmt: AstNode,
-  className: string,
-): (AstNode & { body: { body: AstNode[] } }) | null {
-  let decl: AstNode | null = null;
-
-  if (stmt.type === 'ClassDeclaration') {
-    decl = stmt;
-  } else if (stmt.type === 'ExportNamedDeclaration') {
-    const exportDecl = stmt as AstNode & { declaration?: AstNode };
-
-    if (exportDecl.declaration?.type === 'ClassDeclaration') {
-      decl = exportDecl.declaration;
-    }
-  }
-
-  if (decl === null) return null;
-
-  const classId = (decl as AstNode & { id?: AstNode }).id;
-
-  if (classId === undefined || classId.type !== 'Identifier') return null;
-
-  if ((classId as AstNode & { name: string }).name !== className) return null;
-
-  return decl as AstNode & { body: { body: AstNode[] } };
 }
 
 /**

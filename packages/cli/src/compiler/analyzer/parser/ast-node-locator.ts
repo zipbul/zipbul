@@ -1,56 +1,20 @@
-import { visitorKeys } from '@zipbul/gildash';
+import { is } from '@zipbul/gildash';
 import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
-
-/**
- * Checks whether a value is an AST node (object with a string `type` field).
- */
-export function isAstNode(value: unknown): value is Node {
-  return typeof value === 'object' && value !== null && 'type' in value
-    && typeof (value as Record<string, unknown>).type === 'string';
-}
-
-/**
- * Walks child AST nodes of a parent node using gildash-exported `visitorKeys`.
- *
- * Only traverses keys known to contain AST children — avoiding structural fields
- * like `type`, `start`, `end`, `parent`.
- */
-export function walkChildren(node: Node, visitor: (child: Node) => void): void {
-  const keys = visitorKeys[node.type];
-
-  if (!keys) {
-    return;
-  }
-
-  for (const key of keys) {
-    const child = (node as unknown as Record<string, unknown>)[key];
-
-    if (Array.isArray(child)) {
-      for (const item of child) {
-        if (isAstNode(item)) {
-          visitor(item);
-        }
-      }
-    } else if (isAstNode(child)) {
-      visitor(child);
-    }
-  }
-}
 
 /**
  * Extracts the string key name from a class member key node.
  * Handles `Identifier`, `PrivateIdentifier`, and string `Literal` keys.
  */
 function getPropertyKeyName(key: Node): string | null {
-  if (key.type === 'Identifier') {
+  if (is.Identifier(key)) {
     return key.name;
   }
 
-  if (key.type === 'PrivateIdentifier') {
+  if (is.PrivateIdentifier(key)) {
     return key.name;
   }
 
-  if (key.type === 'Literal' && typeof key.value === 'string') {
+  if (is.Literal(key) && typeof key.value === 'string') {
     return key.value;
   }
 
@@ -65,18 +29,18 @@ function getPropertyKeyName(key: Node): string | null {
  * a static member expression.
  */
 export function getCalleeMethodName(node: Node): string | null {
-  if (node.type !== 'CallExpression') {
+  if (!is.CallExpression(node)) {
     return null;
   }
 
   const callee = node.callee;
 
-  if (callee.type === 'MemberExpression' && !callee.computed) {
-    if (callee.property.type === 'Identifier') {
+  if (is.MemberExpression(callee) && !callee.computed) {
+    if (is.Identifier(callee.property)) {
       return callee.property.name;
     }
 
-    if (callee.property.type === 'PrivateIdentifier') {
+    if (is.PrivateIdentifier(callee.property)) {
       return callee.property.name;
     }
   }
@@ -89,15 +53,15 @@ export function getCalleeMethodName(node: Node): string | null {
  * Returns the variable declaration node, or `null` if the statement is not one.
  */
 function extractVariableDeclaration(stmt: Node): Node | null {
-  if (stmt.type === 'VariableDeclaration') {
+  if (is.VariableDeclaration(stmt)) {
     return stmt;
   }
 
-  if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+  if (is.ExportNamedDeclaration(stmt) || is.ExportDefaultDeclaration(stmt)) {
     const decl = stmt.declaration;
 
-    if (decl && (decl as Node).type === 'VariableDeclaration') {
-      return decl as Node;
+    if (decl && is.VariableDeclaration(decl)) {
+      return decl;
     }
   }
 
@@ -109,15 +73,15 @@ function extractVariableDeclaration(stmt: Node): Node | null {
  * Returns the function node (FunctionDeclaration), or `null`.
  */
 function extractFunctionDeclaration(stmt: Node): Node | null {
-  if (stmt.type === 'FunctionDeclaration') {
+  if (is.FunctionDeclaration(stmt)) {
     return stmt;
   }
 
-  if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+  if (is.ExportNamedDeclaration(stmt) || is.ExportDefaultDeclaration(stmt)) {
     const decl = stmt.declaration;
 
-    if (decl && (decl as Node).type === 'FunctionDeclaration') {
-      return decl as Node;
+    if (decl && is.FunctionDeclaration(decl)) {
+      return decl;
     }
   }
 
@@ -129,15 +93,15 @@ function extractFunctionDeclaration(stmt: Node): Node | null {
  * Returns the class node, or `null`.
  */
 function extractClassFromStatement(stmt: Node): Node | null {
-  if (stmt.type === 'ClassDeclaration') {
+  if (is.ClassDeclaration(stmt)) {
     return stmt;
   }
 
-  if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+  if (is.ExportNamedDeclaration(stmt) || is.ExportDefaultDeclaration(stmt)) {
     const decl = stmt.declaration;
 
-    if (decl && (decl as Node).type === 'ClassDeclaration') {
-      return decl as Node;
+    if (decl && is.ClassDeclaration(decl)) {
+      return decl;
     }
   }
 
@@ -148,14 +112,13 @@ function extractClassFromStatement(stmt: Node): Node | null {
  * Iterates declarators of a `VariableDeclaration` node.
  */
 function* iterDeclarators(varDecl: Node): IterableIterator<{ name: string | null; init: Node | null }> {
-  if (varDecl.type !== 'VariableDeclaration') {
+  if (!is.VariableDeclaration(varDecl)) {
     return;
   }
 
   for (const decl of varDecl.declarations) {
-    const id = decl.id as Node;
-    const declName = id.type === 'Identifier' ? id.name : null;
-    const init = (decl.init ?? null) as Node | null;
+    const declName = is.Identifier(decl.id) ? decl.id.name : null;
+    const init = decl.init ?? null;
 
     yield { name: declName, init };
   }
@@ -194,7 +157,7 @@ export function extractFunctionSourceText(parsed: ParsedFile, functionName: stri
     const funcDecl = extractFunctionDeclaration(stmt);
 
     if (funcDecl !== null) {
-      if (funcDecl.type === 'FunctionDeclaration' && funcDecl.id?.name === functionName) {
+      if (is.FunctionDeclaration(funcDecl) && funcDecl.id?.name === functionName) {
         return code.slice(funcDecl.start, funcDecl.end);
       }
 
@@ -206,7 +169,7 @@ export function extractFunctionSourceText(parsed: ParsedFile, functionName: stri
     if (varDecl !== null) {
       for (const { name, init } of iterDeclarators(varDecl)) {
         if (name === functionName && init !== null) {
-          if (init.type === 'ArrowFunctionExpression' || init.type === 'FunctionExpression') {
+          if (is.ArrowFunctionExpression(init) || is.FunctionExpression(init)) {
             return code.slice(init.start, init.end);
           }
         }
@@ -228,7 +191,7 @@ export function isAnonymousClassSymbol(parsed: ParsedFile, _symbol: ExtractedSym
       continue;
     }
 
-    if (classNode.type === 'ClassDeclaration' && classNode.id === null) {
+    if (is.ClassDeclaration(classNode) && classNode.id === null) {
       return true;
     }
   }
@@ -243,21 +206,17 @@ export function isAnonymousClassSymbol(parsed: ParsedFile, _symbol: ExtractedSym
  */
 export function findClassAstNode(parsed: ParsedFile, className: string): Node | null {
   for (const stmt of parsed.program.body as readonly Node[]) {
-    if (stmt.type === 'ClassDeclaration') {
+    if (is.ClassDeclaration(stmt)) {
       if (stmt.id?.name === className) {
         return stmt;
       }
     }
 
-    if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+    if (is.ExportNamedDeclaration(stmt) || is.ExportDefaultDeclaration(stmt)) {
       const declaration = stmt.declaration;
 
-      if (declaration && (declaration as Node).type === 'ClassDeclaration') {
-        const classDecl = declaration as Node;
-
-        if (classDecl.type === 'ClassDeclaration' && classDecl.id?.name === className) {
-          return classDecl;
-        }
+      if (declaration && is.ClassDeclaration(declaration) && declaration.id?.name === className) {
+        return declaration;
       }
     }
   }
@@ -272,12 +231,12 @@ export function findClassAstNode(parsed: ParsedFile, className: string): Node | 
  * method's `value` (a `FunctionExpression`-like node), or `null`.
  */
 export function findMethodBodyAstNode(classNode: Node, methodName: string): Node | null {
-  if (classNode.type !== 'ClassDeclaration' && classNode.type !== 'ClassExpression') {
+  if (!is.ClassDeclaration(classNode) && !is.ClassExpression(classNode)) {
     return null;
   }
 
   for (const member of classNode.body.body as readonly Node[]) {
-    if (member.type !== 'MethodDefinition') {
+    if (!is.MethodDefinition(member)) {
       continue;
     }
 
@@ -285,10 +244,10 @@ export function findMethodBodyAstNode(classNode: Node, methodName: string): Node
       continue;
     }
 
-    const name = getPropertyKeyName(member.key as Node);
+    const name = getPropertyKeyName(member.key);
 
     if (name === methodName) {
-      return member.value as Node;
+      return member.value;
     }
   }
 
@@ -299,16 +258,16 @@ export function findMethodBodyAstNode(classNode: Node, methodName: string): Node
  * Finds a `PropertyDefinition` node for a named property in a class node.
  */
 export function findPropertyAstNode(classNode: Node, propName: string): Node | null {
-  if (classNode.type !== 'ClassDeclaration' && classNode.type !== 'ClassExpression') {
+  if (!is.ClassDeclaration(classNode) && !is.ClassExpression(classNode)) {
     return null;
   }
 
   for (const member of classNode.body.body as readonly Node[]) {
-    if (member.type !== 'PropertyDefinition') {
+    if (!is.PropertyDefinition(member)) {
       continue;
     }
 
-    const name = getPropertyKeyName(member.key as Node);
+    const name = getPropertyKeyName(member.key);
 
     if (name === propName) {
       return member;

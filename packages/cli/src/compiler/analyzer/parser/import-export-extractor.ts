@@ -1,3 +1,4 @@
+import { is } from '@zipbul/gildash';
 import type { CodeRelation, Node } from '@zipbul/gildash';
 
 import type { ImportEntry } from '../interfaces';
@@ -220,38 +221,6 @@ export function buildExportState(
 }
 
 /**
- * Structural shape of an `ExportNamedDeclaration` AST node — the subset
- * the cli touches. `Node` from gildash/oxc is the full union; we narrow
- * by `type` discriminator and access fields via `as` because gildash
- * does not re-export the named subtype.
- */
-type ExportNamedDeclarationLike = {
-  readonly type: 'ExportNamedDeclaration';
-  readonly source: { readonly value: string } | null;
-  readonly declaration: AnyDeclaration | null;
-  readonly specifiers: ReadonlyArray<{
-    readonly local: { readonly type: 'Identifier'; readonly name: string } | { readonly type: 'Literal'; readonly value: string | number };
-    readonly exported: { readonly type: 'Identifier'; readonly name: string } | { readonly type: 'Literal'; readonly value: string | number };
-  }>;
-};
-
-type ExportDefaultDeclarationLike = {
-  readonly type: 'ExportDefaultDeclaration';
-  readonly declaration: { readonly type: 'Identifier'; readonly name: string } | { readonly type: string };
-};
-
-type AnyDeclaration =
-  | { readonly type: 'ClassDeclaration'; readonly id: { readonly name: string } | null }
-  | { readonly type: 'TSEnumDeclaration'; readonly id: { readonly name: string } }
-  | {
-    readonly type: 'VariableDeclaration';
-    readonly declarations: ReadonlyArray<{
-      readonly id: { readonly type: 'Identifier'; readonly name: string } | { readonly type: string };
-    }>;
-  }
-  | { readonly type: string };
-
-/**
  * Collects exported names from an `ExportNamedDeclaration` node.
  *
  * Handles class declarations, enum declarations, variable declarations, and
@@ -263,21 +232,18 @@ export function collectExportNames(
   exportMappings: ReExportName[],
   _defineModuleCalls: DefineModuleCall[],
 ): void {
-  if (node.type !== 'ExportNamedDeclaration') {
+  if (!is.ExportNamedDeclaration(node)) {
     return;
   }
 
-  const named = node as unknown as ExportNamedDeclarationLike;
-
-  if (named.source !== null) {
+  if (node.source !== null) {
     return;
   }
 
-  const declaration = named.declaration;
+  const declaration = node.declaration;
 
-  if (declaration?.type === 'ClassDeclaration') {
-    const classDecl = declaration as Extract<AnyDeclaration, { type: 'ClassDeclaration' }>;
-    const name = classDecl.id?.name;
+  if (declaration !== null && is.ClassDeclaration(declaration)) {
+    const name = declaration.id?.name;
 
     if (isNonEmptyString(name)) {
       localExports.push(name);
@@ -286,9 +252,8 @@ export function collectExportNames(
     return;
   }
 
-  if (declaration?.type === 'TSEnumDeclaration') {
-    const enumDecl = declaration as Extract<AnyDeclaration, { type: 'TSEnumDeclaration' }>;
-    const name = enumDecl.id.name;
+  if (declaration !== null && is.TSEnumDeclaration(declaration)) {
+    const name = declaration.id.name;
 
     if (isNonEmptyString(name)) {
       localExports.push(name);
@@ -297,11 +262,9 @@ export function collectExportNames(
     return;
   }
 
-  if (declaration?.type === 'VariableDeclaration') {
-    const varDecl = declaration as Extract<AnyDeclaration, { type: 'VariableDeclaration' }>;
-
-    for (const decl of varDecl.declarations) {
-      const declName = decl.id.type === 'Identifier' ? (decl.id as { name: string }).name : null;
+  if (declaration !== null && is.VariableDeclaration(declaration)) {
+    for (const decl of declaration.declarations) {
+      const declName = is.Identifier(decl.id) ? decl.id.name : null;
 
       if (isNonEmptyString(declName)) {
         localExports.push(declName);
@@ -311,9 +274,13 @@ export function collectExportNames(
     return;
   }
 
-  for (const spec of named.specifiers) {
-    const localName = spec.local.type === 'Literal' ? String(spec.local.value) : spec.local.name;
-    const exportedName = spec.exported.type === 'Literal' ? String(spec.exported.value) : spec.exported.name;
+  for (const spec of node.specifiers) {
+    const localName = is.Literal(spec.local)
+      ? String(spec.local.value)
+      : is.Identifier(spec.local) ? spec.local.name : null;
+    const exportedName = is.Literal(spec.exported)
+      ? String(spec.exported.value)
+      : is.Identifier(spec.exported) ? spec.exported.name : null;
 
     if (!isNonEmptyString(localName) || !isNonEmptyString(exportedName)) {
       continue;
@@ -331,16 +298,14 @@ export function resolveExportDefaultForDefineModuleInline(
   node: Node,
   defineModuleCalls: DefineModuleCall[],
 ): void {
-  if (node.type !== 'ExportDefaultDeclaration') {
+  if (!is.ExportDefaultDeclaration(node)) {
     return;
   }
 
-  const def = node as unknown as ExportDefaultDeclarationLike;
-  const decl = def.declaration;
+  const decl = node.declaration;
 
-  if (decl.type === 'Identifier') {
-    const ident = decl as { name: string };
-    const name = ident.name;
+  if (is.Identifier(decl)) {
+    const name = decl.name;
 
     if (isNonEmptyString(name)) {
       const existing = defineModuleCalls.find(call => call.localName === name);

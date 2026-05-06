@@ -1,3 +1,4 @@
+import { is } from '@zipbul/gildash';
 import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import type { Result } from '@zipbul/result';
 import { err, isErr } from '@zipbul/result';
@@ -300,7 +301,7 @@ export function convertClassSymbol(
             ? astLocators.findPropertyAstNode(rawClassNode, propName)
             : null;
           const isOptionalRaw = rawProperty !== null
-            && rawProperty.type === 'PropertyDefinition'
+            && is.PropertyDefinition(rawProperty)
             ? Boolean(rawProperty.optional)
             : false;
           const optional = isOptionalRaw || isProtected;
@@ -455,7 +456,7 @@ function extractHeritageTypeArgs(
     return [];
   }
 
-  if (classNode.type !== 'ClassDeclaration' && classNode.type !== 'ClassExpression') {
+  if (!is.ClassDeclaration(classNode) && !is.ClassExpression(classNode)) {
     return [];
   }
 
@@ -470,12 +471,12 @@ function extractHeritageTypeArgs(
 
     let baseName: string | null = null;
 
-    if (superClass.type === 'Identifier') {
+    if (is.Identifier(superClass)) {
       baseName = superClass.name;
     }
 
-    if (superClass.type === 'TSInstantiationExpression') {
-      baseName = superClass.expression.type === 'Identifier'
+    if (is.TSInstantiationExpression(superClass)) {
+      baseName = is.Identifier(superClass.expression)
         ? superClass.expression.name
         : null;
 
@@ -503,7 +504,7 @@ function extractHeritageTypeArgs(
 
   for (const impl of implementsList) {
     const expression = impl.expression;
-    const expressionName = expression.type === 'Identifier' ? expression.name : null;
+    const expressionName = is.Identifier(expression) ? expression.name : null;
 
     if (expressionName !== typeName) {
       continue;
@@ -533,10 +534,10 @@ function extractHeritageTypeArgs(
  * @returns The resolved type name string
  */
 export function resolveTypeArgName(typeNode: Node): string {
-  if (typeNode.type === 'TSTypeReference') {
+  if (is.TSTypeReference(typeNode)) {
     const typeName = typeNode.typeName;
 
-    if (typeName.type === 'Identifier') {
+    if (is.Identifier(typeName)) {
       return typeName.name;
     }
   }

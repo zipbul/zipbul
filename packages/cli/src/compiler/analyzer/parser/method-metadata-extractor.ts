@@ -1,3 +1,4 @@
+import { isFunctionNode, walk, is } from '@zipbul/gildash';
 import type { Node as AstNode } from '@zipbul/gildash';
 import type { Result } from '@zipbul/result';
 import { err } from '@zipbul/result';
@@ -7,7 +8,7 @@ import type { FactoryDependency } from '../types';
 import type { Diagnostic } from '../../../diagnostics';
 import { buildDiagnostic } from '../../../diagnostics';
 import { isNonEmptyString } from '../type-guards';
-import { walkChildren, getCalleeMethodName } from './ast-node-locator';
+import { getCalleeMethodName } from './ast-node-locator';
 
 
 /**
@@ -33,47 +34,45 @@ export function extractExceptionFiltersFromConfigure(funcNode: AstNode): Result<
     throw new Error('[Zipbul AOT] addErrorFilters only supports literal arrays and Identifiers.');
   };
 
-  const visit = (node: AstNode): void => {
-    if (node.type === 'CallExpression') {
-      const methodName = getCalleeMethodName(node);
+  try {
+    walk(body, {
+      enter(node) {
+        if (!is.CallExpression(node)) return;
 
-      if (methodName === 'addErrorFilters') {
+        const methodName = getCalleeMethodName(node);
+        if (methodName !== 'addErrorFilters') return;
+
         const args = node.arguments;
         const arrayArg = args.length > 0 ? args[0] : null;
 
-        if (!arrayArg || arrayArg.type !== 'ArrayExpression') {
-          return error();
+        if (!arrayArg || !is.ArrayExpression(arrayArg)) {
+          error();
+          return;
         }
 
         for (let index = 0; index < arrayArg.elements.length; index += 1) {
           const el = arrayArg.elements[index];
 
-          if (el === null || el === undefined || el.type === 'SpreadElement') {
-            return error();
+          if (el === null || el === undefined || is.SpreadElement(el)) {
+            error();
+            return;
           }
 
-          if (el.type === 'Identifier') {
+          if (is.Identifier(el)) {
             if (!isNonEmptyString(el.name)) {
-              return error();
+              error();
+              return;
             }
 
             exceptionFilters.push({ name: el.name, index });
-
             continue;
           }
 
-          return error();
+          error();
+          return;
         }
-
-        return;
-      }
-    }
-
-    walkChildren(node, visit);
-  };
-
-  try {
-    visit(body);
+      },
+    });
   } catch {
     return err(buildDiagnostic({
       reason: 'addErrorFilters only supports literal arrays and Identifiers.',
@@ -106,30 +105,36 @@ export function extractMiddlewaresFromConfigure(funcNode: AstNode): Result<Class
     throw new Error('[Zipbul AOT] addMiddlewares only supports literal arrays and Identifier/withOptions.');
   };
 
-  const visit = (node: AstNode): void => {
-    if (node.type === 'CallExpression') {
-      const methodName = getCalleeMethodName(node);
+  try {
+    walk(body, {
+      enter(node) {
+        if (!is.CallExpression(node)) return;
 
-      if (methodName === 'addMiddlewares') {
+        const methodName = getCalleeMethodName(node);
+        if (methodName !== 'addMiddlewares') return;
+
         const args = node.arguments;
         const lifecycleArg = args.length > 0 ? args[0] : null;
-        const lifecycle = lifecycleArg?.type === 'Identifier' ? lifecycleArg.name : undefined;
+        const lifecycle = lifecycleArg && is.Identifier(lifecycleArg) ? lifecycleArg.name : undefined;
         const arrayArg = args.length > 1 ? args[1] : null;
 
-        if (!arrayArg || arrayArg.type !== 'ArrayExpression') {
-          return error();
+        if (!arrayArg || !is.ArrayExpression(arrayArg)) {
+          error();
+          return;
         }
 
         for (let index = 0; index < arrayArg.elements.length; index += 1) {
           const el = arrayArg.elements[index];
 
-          if (el === null || el === undefined || el.type === 'SpreadElement') {
-            return error();
+          if (el === null || el === undefined || is.SpreadElement(el)) {
+            error();
+            return;
           }
 
-          if (el.type === 'Identifier') {
+          if (is.Identifier(el)) {
             if (!isNonEmptyString(el.name)) {
-              return error();
+              error();
+              return;
             }
 
             if (isNonEmptyString(lifecycle)) {
@@ -137,19 +142,19 @@ export function extractMiddlewaresFromConfigure(funcNode: AstNode): Result<Class
             } else {
               middlewares.push({ name: el.name, index });
             }
-
             continue;
           }
 
-          if (el.type === 'CallExpression') {
+          if (is.CallExpression(el)) {
             const innerCallee = el.callee;
 
-            if (innerCallee.type === 'MemberExpression' && !innerCallee.computed) {
-              const propName = innerCallee.property.name;
+            if (is.MemberExpression(innerCallee) && !innerCallee.computed) {
+              const propName = is.Identifier(innerCallee.property) ? innerCallee.property.name : null;
 
-              if (innerCallee.object.type === 'Identifier' && propName === 'withOptions') {
+              if (is.Identifier(innerCallee.object) && propName === 'withOptions') {
                 if (!isNonEmptyString(innerCallee.object.name)) {
-                  return error();
+                  error();
+                  return;
                 }
 
                 const name = innerCallee.object.name;
@@ -159,24 +164,16 @@ export function extractMiddlewaresFromConfigure(funcNode: AstNode): Result<Class
                 } else {
                   middlewares.push({ name, index });
                 }
-
                 continue;
               }
             }
           }
 
-          return error();
+          error();
+          return;
         }
-
-        return;
-      }
-    }
-
-    walkChildren(node, visit);
-  };
-
-  try {
-    visit(body);
+      },
+    });
   } catch {
     return err(buildDiagnostic({
       reason: 'addMiddlewares only supports literal arrays and Identifier/withOptions.',
@@ -192,11 +189,7 @@ export function extractMiddlewaresFromConfigure(funcNode: AstNode): Result<Class
  * not a function or the body is missing.
  */
 function getFunctionBody(node: AstNode): AstNode | null {
-  if (
-    node.type !== 'FunctionDeclaration'
-    && node.type !== 'FunctionExpression'
-    && node.type !== 'ArrowFunctionExpression'
-  ) {
+  if (!isFunctionNode(node)) {
     return null;
   }
 
@@ -230,47 +223,38 @@ export function extractDependencies(
     return currentOriginalNames[localName] ?? localName;
   };
 
-  const visit = (node: AstNode): void => {
-    if (node.type === 'Identifier') {
-      const name = node.name;
-      const path = isNonEmptyString(name) ? currentImports[name] : undefined;
+  const root = (is.ArrowFunctionExpression(funcExpression) || is.FunctionExpression(funcExpression))
+    ? funcExpression.body
+    : funcExpression;
 
-      if (isNonEmptyString(name) && isNonEmptyString(path) && !defined.has(name)) {
-        deps.push({
-          name: resolveOriginalName(name),
-          path,
-          start: node.start - offset,
-          end: node.end - offset,
-        });
-      }
-    }
+  if (root === null || root === undefined) return deps;
 
-    if (node.type === 'FunctionExpression') {
-      for (const param of node.params) {
-        if (param.type === 'Identifier') {
-          if (isNonEmptyString(param.name)) {
+  walk(root, {
+    enter(node) {
+      if (is.FunctionExpression(node)) {
+        for (const param of node.params) {
+          if (is.Identifier(param) && isNonEmptyString(param.name)) {
             defined.add(param.name);
           }
         }
+        return;
       }
 
-      if (node.body !== null) {
-        visit(node.body);
+      if (is.Identifier(node)) {
+        const name = node.name;
+        const path = isNonEmptyString(name) ? currentImports[name] : undefined;
+
+        if (isNonEmptyString(name) && isNonEmptyString(path) && !defined.has(name)) {
+          deps.push({
+            name: resolveOriginalName(name),
+            path,
+            start: node.start - offset,
+            end: node.end - offset,
+          });
+        }
       }
-
-      return;
-    }
-
-    walkChildren(node, visit);
-  };
-
-  if (funcExpression.type === 'ArrowFunctionExpression' || funcExpression.type === 'FunctionExpression') {
-    if (funcExpression.body !== null) {
-      visit(funcExpression.body);
-    }
-  } else {
-    visit(funcExpression);
-  }
+    },
+  });
 
   return deps;
 }

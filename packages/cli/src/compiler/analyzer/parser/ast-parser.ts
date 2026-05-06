@@ -2,7 +2,9 @@ import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'path';
 
-import { parseSource, extractSymbols, extractRelations, patternSearch, buildLineOffsets } from '@zipbul/gildash';
+import { distToSourceCandidates } from '../../../common';
+
+import { parseSource, extractSymbols, extractRelations, patternSearch, buildLineOffsets, is } from '@zipbul/gildash';
 import type { ParsedFile, PatternMatch } from '@zipbul/gildash';
 import type { ImportEntry } from '../interfaces';
 import type { ClassMetadata } from '../interfaces';
@@ -272,13 +274,13 @@ export class AstParser {
         break;
       }
 
-      if (stmt.type === 'ExportNamedDeclaration') {
+      if (is.ExportNamedDeclaration(stmt)) {
         collectExportNames(stmt, localExports, exportMappings, defineModuleCalls);
 
         continue;
       }
 
-      if (stmt.type === 'ExportDefaultDeclaration') {
+      if (is.ExportDefaultDeclaration(stmt)) {
         resolveExportDefaultForDefineModuleInline(stmt, defineModuleCalls);
       }
     }
@@ -584,40 +586,16 @@ export class AstParser {
   }
 
   /**
-   * Maps a dist/ build output path back to the original TypeScript source.
-   *
-   * When a package.json `exports` field points to `./dist/index.js`,
-   * `Bun.resolveSync` returns the dist path. The AOT compiler needs
-   * the TypeScript source, so we check the package root and `src/`
-   * for a matching `.ts` file.
-   *
-   * @param resolvedPath - Absolute path returned by Bun.resolveSync
-   * @returns The source `.ts` path if found, or `null`
+   * Maps a dist/ build output path back to the original TypeScript source —
+   * sync wrapper that probes filesystem via existsSync.
    */
   private resolveDistToSource(resolvedPath: string): string | null {
-    if (resolvedPath.endsWith('.ts') || resolvedPath.endsWith('.d.ts')) {
-      return null;
-    }
+    const candidates = distToSourceCandidates(resolvedPath);
 
-    const distSegmentIndex = resolvedPath.lastIndexOf('/dist/');
+    if (candidates === null) return null;
 
-    if (distSegmentIndex === -1) {
-      return null;
-    }
-
-    const packageRoot = resolvedPath.slice(0, distSegmentIndex);
-    const relative = resolvedPath.slice(distSegmentIndex + 6).replace(/\.js$/, '.ts');
-
-    const rootCandidate = join(packageRoot, relative);
-
-    if (existsSync(rootCandidate)) {
-      return rootCandidate;
-    }
-
-    const srcCandidate = join(packageRoot, 'src', relative);
-
-    if (existsSync(srcCandidate)) {
-      return srcCandidate;
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate;
     }
 
     return null;
