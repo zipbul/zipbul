@@ -9,3 +9,12 @@
  */
 export { buildAdapter } from './adapter-build.command';
 export type { BuildAdapterOptions, BuildAdapterResult } from './interfaces';
+export {
+  readAdapterManifest,
+  detectMultiAdapterConflicts,
+} from './manifest-reader';
+export type {
+  ReadAdapterManifestResult,
+  ReadAdapterManifestOptions,
+  AdapterConflict,
+} from './manifest-reader';
