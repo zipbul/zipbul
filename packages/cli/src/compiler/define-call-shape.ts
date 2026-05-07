@@ -11,10 +11,13 @@
  *
  * @public
  */
-import { walk, is, buildLineOffsets, getLineColumn } from '@zipbul/gildash';
-import type { Node, ParsedFile } from '@zipbul/gildash';
+import { walk, is, buildLineOffsets, getLineColumn, extractRelations } from '@zipbul/gildash';
+import type { Node, ParsedFile, CodeRelation } from '@zipbul/gildash';
 
 import { buildDiagnostic, DiagnosticError } from '../diagnostics';
+
+/** Modules whose `defineX` exports are regulated. */
+const REGULATED_SOURCES: ReadonlySet<string> = new Set(['@zipbul/common', '@zipbul/core']);
 
 /**
  * Set of factory functions whose calls must follow the `export const X = factory(...)` shape.
@@ -104,23 +107,71 @@ function describeReason(reason: DefineCallShapeReason): string {
   }
 }
 
+/**
+ * Per-file resolver: given the local identifier the call uses, return the
+ * `defineX` original name when (and only when) the local binding traces back
+ * to `@zipbul/common` or `@zipbul/core` via a static import. Captures:
+ *   - `import { defineMiddleware } from '@zipbul/common'`            → 'defineMiddleware'
+ *   - `import { defineMiddleware as mw } from '@zipbul/common'`      → mw → 'defineMiddleware'
+ *   - `import * as zb from '@zipbul/common'; zb.defineMiddleware(…)` → namespace lookup
+ */
+interface CalleeResolver {
+  /** Resolves a local `Identifier(name)` to the `defineX` original name, or null. */
+  named(localName: string): string | null;
+  /** Returns true if `objectName` is an `import * as` namespace from a regulated source. */
+  isRegulatedNamespace(objectName: string): boolean;
+}
+
+function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver {
+  const named = new Map<string, string>();           // localName → originalName
+  const namespaces = new Set<string>();              // localName of `* as ns`
+
+  const relations: readonly CodeRelation[] = extractRelations(file.parsed.program, file.filePath);
+  for (const rel of relations) {
+    if (rel.type !== 'imports') continue;
+    const specifier = rel.specifier;
+    if (specifier === undefined || !REGULATED_SOURCES.has(specifier)) continue;
+
+    const local = rel.srcSymbolName;
+    const imported = rel.dstSymbolName;
+    if (local === null) continue;
+
+    if (imported === '*') {
+      namespaces.add(local);
+      continue;
+    }
+    if (imported === null || imported === 'default') continue;
+
+    if (REGULATED_DEFINE_CALLS.has(imported)) {
+      named.set(local, imported);
+    }
+  }
+
+  return {
+    named: localName => named.get(localName) ?? null,
+    isRegulatedNamespace: objectName => namespaces.has(objectName),
+  };
+}
+
 function classifyFile(file: DefineCallShapeInput, out: DefineCallShapeViolation[]): void {
+  const resolver = buildCalleeResolver(file);
+
   // Step 1 — collect the *legal* set: every CallExpression that sits in the
   // initializer slot of a top-level `export const NAME = <call>` statement.
   const allowed = new WeakSet<object>();
   for (const stmt of file.parsed.program.body as readonly Node[]) {
-    visitTopLevelStatement(stmt, allowed);
+    visitTopLevelStatement(stmt, allowed, resolver);
   }
 
   const lineOffsets = buildLineOffsets(file.parsed.sourceText);
 
-  // Step 2 — walk every CallExpression in the file. Anything calling a
-  // regulated identifier *and not in `allowed`* is a violation.
+  // Step 2 — walk every CallExpression in the file. Anything resolving to a
+  // regulated `defineX` *and not in `allowed`* is a violation.
   walk(file.parsed.program, {
     enter(node) {
       if (!is.CallExpression(node)) return;
-      const calleeName = readCalleeName(node);
-      if (calleeName === null || !REGULATED_DEFINE_CALLS.has(calleeName)) return;
+      const calleeName = resolveRegulatedCallee(node, resolver);
+      if (calleeName === null) return;
       if (allowed.has(node)) return;
 
       const { line, column } = getLineColumn(lineOffsets, node.start);
@@ -135,14 +186,13 @@ function classifyFile(file: DefineCallShapeInput, out: DefineCallShapeViolation[
   });
 }
 
-function visitTopLevelStatement(stmt: Node, allowed: WeakSet<object>): void {
+function visitTopLevelStatement(stmt: Node, allowed: WeakSet<object>, resolver: CalleeResolver): void {
   // `export const NAME = defineX(...)`
   if (is.ExportNamedDeclaration(stmt) && stmt.declaration && is.VariableDeclaration(stmt.declaration)) {
     if (stmt.declaration.kind !== 'const') return;
     for (const decl of stmt.declaration.declarations) {
       if (decl.init !== null && decl.init !== undefined && is.CallExpression(decl.init)) {
-        const calleeName = readCalleeName(decl.init);
-        if (calleeName !== null && REGULATED_DEFINE_CALLS.has(calleeName)) {
+        if (resolveRegulatedCallee(decl.init, resolver) !== null) {
           allowed.add(decl.init);
         }
       }
@@ -150,14 +200,26 @@ function visitTopLevelStatement(stmt: Node, allowed: WeakSet<object>): void {
   }
 }
 
-function readCalleeName(call: Node): string | null {
+/**
+ * Resolves a CallExpression's callee to the regulated `defineX` original
+ * name when the callee references one (via direct import, alias, or
+ * namespace member access from `@zipbul/common` / `@zipbul/core`). Returns
+ * `null` for any other call.
+ */
+function resolveRegulatedCallee(call: Node, resolver: CalleeResolver): string | null {
   if (!is.CallExpression(call)) return null;
   const callee = call.callee;
-  if (is.Identifier(callee)) return callee.name;
-  // `ns.defineMiddleware(...)` — namespace import; allow last segment match
-  if (is.MemberExpression(callee) && !callee.computed && is.Identifier(callee.property)) {
-    return callee.property.name;
+
+  if (is.Identifier(callee)) {
+    return resolver.named(callee.name);
   }
+
+  if (is.MemberExpression(callee) && !callee.computed && is.Identifier(callee.property) && is.Identifier(callee.object)) {
+    if (!resolver.isRegulatedNamespace(callee.object.name)) return null;
+    const propName = callee.property.name;
+    return REGULATED_DEFINE_CALLS.has(propName) ? propName : null;
+  }
+
   return null;
 }
 
