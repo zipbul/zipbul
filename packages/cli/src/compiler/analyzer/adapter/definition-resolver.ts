@@ -1,3 +1,6 @@
+import { join, dirname } from 'node:path';
+import { stat } from 'node:fs/promises';
+
 import type { AdapterResolveParams } from '../graph/interfaces';
 import type {
   AdapterExtraction,
@@ -7,18 +10,12 @@ import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../../../diagnostics';
 
 import { err, isErr } from '@zipbul/result';
+import { buildDiagnostic, DiagnosticError } from '../../../diagnostics';
 import {
-  ZIPBUL_REF, ZIPBUL_CALL,
-  FRAMEWORK_DEFINE_ADAPTER,
-} from '@zipbul/common';
-import { buildDiagnostic } from '../../../diagnostics';
-import { AstParser } from '../parser';
-import { toRecord, isAnalyzerValueArray } from '../type-guards';
-import {
-  collectPackageEntryFiles,
-  resolveAdapterDefinitionExport,
-  extractFromConfigObject,
-} from './config-extractor';
+  readAdapterManifest,
+  synthesizeAdapterExtraction,
+} from '../../adapter-build';
+import { collectPackageEntryFiles } from './config-extractor';
 import {
   buildHandlerIndex,
   buildAdapterStaticSchemaSet,
@@ -26,27 +23,29 @@ import {
 } from './handler-index-builder';
 import { validateMiddlewarePhaseInputs } from './phase-id-validator';
 
+const FIND_ROOT_MAX_DEPTH = 15;
+
 /**
- * Resolves adapter definitions from the project file map,
- * building handler indexes and static schema sets.
+ * Resolves adapter definitions exclusively from pre-compiled manifests
+ * (`<adapterPackage>/dist/adapter.manifest.json`). The user-app build no longer
+ * walks the adapter's `.ts` source tree — that path was removed once the
+ * manifest contract (Section M) became the single integration point.
  *
- * Orchestrates the full adapter resolution pipeline:
- * 1. Collect package entry files
- * 2. Resolve adapter definition exports
- * 3. Extract adapter configurations
- * 4. Build controller-adapter mappings
- * 5. Validate middleware phases
- * 6. Build handler index
+ * Pipeline:
+ * 1. Collect non-relative import targets from the user code (= adapter package
+ *    entry files).
+ * 2. For each unique package root, classify by `package.json#zipbul.kind`.
+ * 3. For every adapter package, require the compiled manifest tree;
+ *    deserialize via `readAdapterManifest()` and synthesize the analyzer-side
+ *    `AdapterExtraction` via `synthesizeAdapterExtraction()`.
+ * 4. Run the existing controller-adapter map / phase validation / handler index
+ *    builders on the aggregated extractions.
  *
  * @public
  */
 export class AdapterDefinitionResolver {
-  private parser = new AstParser();
-
   /**
-   * Resolves all adapter definitions from the given project parameters.
-   *
-   * @param params - The adapter resolve parameters including file map, project root, and optional graph.
+   * @param params - Adapter resolve parameters: fileMap, project root, optional graph.
    * @returns The full adapter resolution containing schemas, handler index, and route registrations.
    * @public
    */
@@ -54,58 +53,41 @@ export class AdapterDefinitionResolver {
     const { fileMap, projectRoot, graph } = params;
     const entryFiles = collectPackageEntryFiles(fileMap);
     const adapterExtractions: AdapterExtraction[] = [];
+    const visitedRoots = new Set<string>();
 
     for (const entryFile of entryFiles) {
-      const resolvedExport = await resolveAdapterDefinitionExport(entryFile, fileMap, new Set(), this.parser);
+      const packageRoot = await findPackageRoot(entryFile);
+      if (packageRoot === null) continue;
+      if (visitedRoots.has(packageRoot)) continue;
+      visitedRoots.add(packageRoot);
 
-      if (resolvedExport === null) {
-        continue;
-      }
+      const kind = await readPackageKind(packageRoot);
+      if (kind !== 'adapter') continue;
 
-      const defineCall = toRecord(resolvedExport.value);
-
-      if (defineCall?.[ZIPBUL_CALL] !== FRAMEWORK_DEFINE_ADAPTER) {
+      const distPath = join(packageRoot, 'dist');
+      const manifestPath = join(distPath, 'adapter.manifest.json');
+      if (!(await pathExists(manifestPath))) {
         return err(buildDiagnostic({
-          reason: `Adapter definition must use defineAdapter(ClassRef) in ${resolvedExport.sourceFile}.`,
-          file: resolvedExport.sourceFile,
+          reason: `[CONTRACT] Adapter package at ${packageRoot} declares \`zipbul.kind=adapter\` but no compiled manifest exists at ${manifestPath}. Run \`zb build adapter\` in the adapter package first.`,
+          file: packageRoot,
         }));
       }
 
-      const args = isAnalyzerValueArray(defineCall.args) ? defineCall.args : [];
-
-      if (args.length !== 1) {
-        return err(buildDiagnostic({
-          reason: `defineAdapter requires exactly one argument in ${resolvedExport.sourceFile}.`,
-          file: resolvedExport.sourceFile,
-        }));
+      let extraction: AdapterExtraction;
+      try {
+        const result = await readAdapterManifest(distPath);
+        extraction = synthesizeAdapterExtraction(result);
+      } catch (cause) {
+        if (cause instanceof DiagnosticError) return err(cause.diagnostic);
+        throw cause;
       }
 
-      const arg = toRecord(args[0]);
-
-      if (arg === null) {
-        return err(buildDiagnostic({
-          reason: `defineAdapter argument must be a config object in ${resolvedExport.sourceFile}.`,
-          file: resolvedExport.sourceFile,
-        }));
-      }
-
-      const adapterField = toRecord(arg.adapter);
-      if (adapterField === null || typeof adapterField[ZIPBUL_REF] !== 'string') {
-        return err(buildDiagnostic({
-          reason: `defineAdapter argument must be a config object with an 'adapter' class reference in ${resolvedExport.sourceFile}.`,
-          file: resolvedExport.sourceFile,
-        }));
-      }
-
-      const configResult = await extractFromConfigObject(arg, resolvedExport.sourceFile, fileMap, this.parser);
-      if (isErr(configResult)) return configResult;
-
-      adapterExtractions.push(configResult);
+      adapterExtractions.push(extraction);
     }
 
     if (adapterExtractions.length === 0) {
       return err(buildDiagnostic({
-        reason: 'No adapter definition found. Export an adapterDefinition from your adapter package entry file.',
+        reason: 'No adapter package found. The user-app build expects at least one imported package whose `package.json#zipbul.kind` is `"adapter"` and which ships a compiled `dist/adapter.manifest.json`.',
       }));
     }
 
@@ -133,5 +115,50 @@ export class AdapterDefinitionResolver {
       handlerContextUsages: handlerIndexResult.handlerContextUsages,
       handlerContextOps: handlerIndexResult.handlerContextOps,
     };
+  }
+}
+
+/**
+ * Walks up from `entryFile` to the nearest `package.json`, returning the
+ * directory that contains it. Capped at `FIND_ROOT_MAX_DEPTH` parent traversals
+ * to avoid runaway loops on misconfigured filesystems.
+ */
+async function findPackageRoot(entryFile: string): Promise<string | null> {
+  let current = dirname(entryFile);
+
+  for (let depth = 0; depth < FIND_ROOT_MAX_DEPTH; depth += 1) {
+    if (await pathExists(join(current, 'package.json'))) return current;
+
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return null;
+}
+
+/**
+ * Reads `<root>/package.json` and returns `zipbul.kind` if present. Returns
+ * `null` when the manifest is unreadable or `kind` is missing — caller treats
+ * `null` the same as "not an adapter".
+ */
+async function readPackageKind(root: string): Promise<string | null> {
+  const pkgPath = join(root, 'package.json');
+  try {
+    const text = await Bun.file(pkgPath).text();
+    const parsed = JSON.parse(text) as { zipbul?: { kind?: unknown } };
+    const kind = parsed.zipbul?.kind;
+    return typeof kind === 'string' ? kind : null;
+  } catch {
+    return null;
+  }
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
   }
 }
