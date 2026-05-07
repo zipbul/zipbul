@@ -129,8 +129,16 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   const constructorSchemaRel = 'adapter-constructor-schema.json';
   const builtinsRel = 'builtins.json';
 
+  const phaseMembers = resolveEnumMembers(sourceTree, extracted.pipelineSchema.phaseEnum);
+  const stepMembers = resolveEnumMembers(sourceTree, extracted.pipelineSchema.stepEnum);
+  const pipelineSchema: PipelineSchema = {
+    ...extracted.pipelineSchema,
+    phaseMembers: phaseMembers === null ? [] : [...phaseMembers],
+    stepMembers: stepMembers === null ? [] : [...stepMembers],
+  };
+
   const childArtifacts: Array<{ readonly relPath: string; readonly content: string }> = [
-    { relPath: pipelineSchemaRel, content: serializeJson(extracted.pipelineSchema) },
+    { relPath: pipelineSchemaRel, content: serializeJson(pipelineSchema) },
     { relPath: decoratorSchemaRel, content: serializeJson(decoratorSchema) },
     { relPath: peerContractRel, content: serializeJson(peerContract) },
     { relPath: contextNamespacesRel, content: serializeJson(contextNamespaces) },
@@ -355,7 +363,12 @@ async function resolveTscBin(packageRoot: string): Promise<string> {
 interface ExtractedAdapterDefinition {
   readonly adapterId: string;
   readonly contextType: string;
-  readonly pipelineSchema: PipelineSchema;
+  /**
+   * Pipeline schema *before* enum-member resolution. The `phaseMembers` /
+   * `stepMembers` fields are filled later in the build flow once the source
+   * tree has been walked (`resolveEnumMembers`).
+   */
+  readonly pipelineSchema: Omit<PipelineSchema, 'phaseMembers' | 'stepMembers'>;
   /** Identifier names from `defineAdapter({ provides: [...] })`, or empty when omitted. */
   readonly providesIdents: readonly string[];
 }

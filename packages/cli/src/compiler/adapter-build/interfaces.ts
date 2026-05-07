@@ -59,6 +59,14 @@ export interface PipelineSchema {
   readonly phaseEnum: string;
   /** Identifier name passed as `step` field of `defineAdapter()`. */
   readonly stepEnum: string;
+  /**
+   * Phase enum members in source declaration order. Empty when the phase enum
+   * is declared outside the adapter package (e.g. `CoreStep` from `@zipbul/core`).
+   * Used by the user-app build to populate `AdapterStaticSchema.validPhases`.
+   */
+  readonly phaseMembers: readonly string[];
+  /** Step enum members in source declaration order. Empty for external enums. */
+  readonly stepMembers: readonly string[];
   /** Ordered pipeline entries in source order. */
   readonly pipeline: readonly PipelineRef[];
 }

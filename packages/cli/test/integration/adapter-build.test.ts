@@ -120,6 +120,8 @@ describe('zb build adapter — Slice 1', () => {
       $schemaName: 'adapter.pipeline-schema',
       phaseEnum: 'TestPhase',
       stepEnum: 'TestStep',
+      phaseMembers: ['OnRequest', 'AfterResponse'],
+      stepMembers: ['ResolveRoute'],
       pipeline: [
         { qualifier: 'TestPhase', name: 'OnRequest' },
         { qualifier: 'TestStep', name: 'ResolveRoute' },
