@@ -252,6 +252,10 @@ export class TickAdapter extends Adapter {
     }
     await this.inflight;
     this.cachedHandlers = null;
+    // Reset round counter so a subsequent start() begins at round 1 again,
+    // honouring `maxRounds` per session rather than accumulating across
+    // start/stop cycles.
+    this.currentRound = 0;
   }
 
   /**
@@ -289,6 +293,7 @@ export class TickAdapter extends Adapter {
     } finally {
       if (timeoutHandle !== null) clearTimeout(timeoutHandle);
       this.cachedHandlers = null;
+      this.currentRound = 0;
     }
   }
 

@@ -119,13 +119,25 @@ export class ConfigLoader {
     return config;
   }
 
+  /** Hard cap on `zipbul.jsonc` size — well-formed configs are kilobytes;
+   *  5MB guards against malformed inputs that would exhaust memory on
+   *  `.text()` + JSONC parse. */
+  private static readonly MAX_CONFIG_BYTES = 5 * 1024 * 1024;
+
   private static async loadJsonConfig(
     path: string,
     cwd: string,
     format: 'json' | 'jsonc',
   ): Promise<ResolvedConfig> {
     const sourcePath = relative(cwd, path);
-    const rawText = await Bun.file(path).text();
+    const file = Bun.file(path);
+    if (file.size > ConfigLoader.MAX_CONFIG_BYTES) {
+      throw new ConfigLoadError(
+        `zipbul config file exceeds the size limit (${String(file.size)} > ${String(ConfigLoader.MAX_CONFIG_BYTES)} bytes).`,
+        sourcePath,
+      );
+    }
+    const rawText = await file.text();
     let parsed: JsonValue;
 
     try {

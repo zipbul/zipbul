@@ -64,7 +64,17 @@ export class InjectorGenerator {
     const allKeys = graph.getAllRegisteredKeys();
     const sortedNodes = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));
 
-    const providerResult = this.generateProviderFactories(sortedNodes, graph, registry, allKeys);
+    // Resolve framework imports via the shared registry so the assembled
+    // runtime.ts has exactly one `Container` / `runInInjectionContext`
+    // import line. Hardcoding `import ... from "@zipbul/core"` in the
+    // template used to collide with the metadata path's relative import
+    // (Container would appear twice — TS2300 duplicate identifier when
+    // tsc is run on the artifact). Resolved before factory generation so
+    // every `runInInjectionContext(...)` call site emits the same alias.
+    const containerAlias = registry.getAlias('Container', '@zipbul/core');
+    const runInjectAlias = registry.getAlias('runInInjectionContext', '@zipbul/core');
+
+    const providerResult = this.generateProviderFactories(sortedNodes, graph, registry, allKeys, runInjectAlias);
 
     if (!providerResult.ok) {
       return providerResult.error;
@@ -73,7 +83,12 @@ export class InjectorGenerator {
     const adapterConfigs = this.generateAdapterConfigs(sortedNodes, registry);
     const dynamicEntries = this.generateDynamicModules(sortedNodes, registry);
 
-    return this.buildContainerCode(providerResult.factoryEntries, adapterConfigs, dynamicEntries);
+    return this.buildContainerCode(
+      providerResult.factoryEntries,
+      adapterConfigs,
+      dynamicEntries,
+      containerAlias,
+    );
   }
 
   /**
@@ -91,6 +106,7 @@ export class InjectorGenerator {
     graph: ModuleGraph,
     registry: ImportRegistry,
     allKeys: Set<string>,
+    runInjectAlias: string,
   ): { ok: true; factoryEntries: string[] } | { ok: false; error: Err<Diagnostic> } {
     const factoryEntries: string[] = [];
     let generateError: Err<Diagnostic> | null = null;
@@ -156,7 +172,7 @@ export class InjectorGenerator {
             });
             const factoryBody = Array.isArray(useClass) ? `[${instances.join(', ')}]` : instances[0];
 
-            factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => runInInjectionContext(c, () => ${factoryBody}), ${opts});`);
+            factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => ${runInjectAlias}(c, () => ${factoryBody}), ${opts});`);
 
             return;
           }
@@ -356,7 +372,7 @@ export class InjectorGenerator {
           const alias = getAlias(clsMeta.className, ref.filePath);
           const deps = resolveConstructorDeps(clsMeta, node, graph, allKeys);
 
-          factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => runInInjectionContext(c, () => new ${alias}(${deps.join(', ')})), ${opts});`);
+          factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => ${runInjectAlias}(c, () => new ${alias}(${deps.join(', ')})), ${opts});`);
         }
       });
     });
@@ -564,13 +580,15 @@ export class InjectorGenerator {
    * @param dynamicEntries - Dynamic module registration lines.
    * @returns The complete generated injector source code.
    */
-  private buildContainerCode(factoryEntries: string[], adapterConfigs: string[], dynamicEntries: string[]): Result<string, Diagnostic> {
+  private buildContainerCode(
+    factoryEntries: string[],
+    adapterConfigs: string[],
+    dynamicEntries: string[],
+    containerAlias: string,
+  ): Result<string, Diagnostic> {
     return `
-import { Container } from "@zipbul/core";
-import { runInInjectionContext } from "@zipbul/core";
-
 export function createContainer() {
-  const container = new Container();
+  const container = new ${containerAlias}();
 ${factoryEntries.join('\n')}
   return container;
 }

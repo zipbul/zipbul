@@ -229,13 +229,28 @@ export function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver 
           const prop = propRaw as {
             type?: string;
             computed?: boolean;
-            key?: { type?: string; name?: string };
+            key?: { type?: string; name?: string; value?: unknown };
             value?: { type?: string; name?: string };
           };
           if (prop.type !== 'Property') continue;
-          if (prop.computed === true) continue;
-          if (prop.key?.type !== 'Identifier' || typeof prop.key.name !== 'string') continue;
-          const original = prop.key.name;
+
+          // Resolve the property name — handles both unquoted identifiers
+          // (`{ defineAdapter: da }`) and string-literal computed keys
+          // (`{ ['defineAdapter']: da }`). Computed keys whose value isn't
+          // a static string (e.g. expressions) are skipped — they cannot
+          // be resolved at AOT time.
+          let original: string | null = null;
+          if (prop.computed === true) {
+            const k = prop.key;
+            if (k?.type === 'Literal' && typeof (k.value as unknown) === 'string') {
+              original = (k.value as string);
+            } else if (k?.type === 'StringLiteral' && typeof (k.value as unknown) === 'string') {
+              original = (k.value as string);
+            }
+          } else if (prop.key?.type === 'Identifier' && typeof prop.key.name === 'string') {
+            original = prop.key.name;
+          }
+          if (original === null) continue;
           if (!REGULATED_DEFINE_CALLS.has(original)) continue;
           if (prop.value?.type !== 'Identifier' || typeof prop.value.name !== 'string') continue;
           named.set(prop.value.name, original);

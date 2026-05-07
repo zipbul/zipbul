@@ -54,20 +54,38 @@ export async function withAtomicEmit<T>(
   options: AtomicEmitOptions,
   emit: (stagingDir: string) => Promise<T>,
 ): Promise<T> {
-  const { finalDir, stagingDir, registerCleanup } = options;
-  const backupDir = `${finalDir}.backup-${randomSuffix()}`;
+  const { finalDir, registerCleanup } = options;
+  // Process-scoped suffix on the caller-supplied staging path eliminates the
+  // collision when two concurrent builds target the same package — each
+  // process gets its own staging directory. The backup path likewise carries
+  // a random suffix so a SIGINT-cancelled build cannot delete a peer
+  // process's backup.
+  const stagingDir = `${options.stagingDir}-${String(process.pid)}-${randomSuffix()}`;
+  const backupDir = `${finalDir}.backup-${String(process.pid)}-${randomSuffix()}`;
 
   await rm(stagingDir, { recursive: true, force: true });
   await mkdir(stagingDir, { recursive: true });
 
-  // SIGINT / SIGTERM cleanup — staging must always be removable; backup is
-  // intentionally left for inspection if the swap was already completed.
-  if (registerCleanup !== undefined) {
-    registerCleanup(() => rm(stagingDir, { recursive: true, force: true }));
-  }
-
   let backupCreated = false;
   let promoted = false;
+
+  // SIGINT / SIGTERM cleanup —
+  //  - Always remove staging.
+  //  - If a signal arrives AFTER `rename(finalDir → backup)` but BEFORE
+  //    `rename(staging → finalDir)`, `finalDir` is currently absent on
+  //    disk; restore it from the backup so the user is not left with a
+  //    missing dist/ they had a working copy of before the cancelled build.
+  if (registerCleanup !== undefined) {
+    registerCleanup(async () => {
+      await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+      if (backupCreated && !promoted) {
+        // Best-effort restore — finalDir might already exist if the swap
+        // partially raced; remove any half-state before restoring.
+        await rm(finalDir, { recursive: true, force: true }).catch(() => {});
+        await rename(backupDir, finalDir).catch(() => {});
+      }
+    });
+  }
 
   try {
     const result = await emit(stagingDir);

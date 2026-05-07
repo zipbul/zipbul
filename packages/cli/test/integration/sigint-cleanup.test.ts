@@ -105,9 +105,28 @@ describe('SIGINT cleanup', () => {
       stdout: 'pipe',
     });
 
-    const stagingDir = `${join(packageRoot, 'dist')}.staging`;
-    const stagingAppeared = await waitFor(() => pathExists(stagingDir), 5_000);
+    // Staging path now carries `-<pid>-<rand>` to prevent collisions
+    // between concurrent builds. Match by glob/prefix instead of hardcoded.
+    const stagingPrefix = `${join(packageRoot, 'dist')}.staging-`;
+    const findStaging = async (): Promise<string | null> => {
+      const { readdir } = await import('node:fs/promises');
+      try {
+        const entries = await readdir(packageRoot);
+        for (const e of entries) {
+          if (e.startsWith('dist.staging-')) return join(packageRoot, e);
+        }
+      } catch { /* dir not yet present */ }
+      return null;
+    };
+
+    let stagingDir: string | null = null;
+    const stagingAppeared = await waitFor(async () => {
+      stagingDir = await findStaging();
+      return stagingDir !== null;
+    }, 5_000);
     expect(stagingAppeared).toBe(true);
+    expect(stagingDir).not.toBeNull();
+    void stagingPrefix;
 
     child.kill('SIGINT');
     const exitCode = await child.exited;
@@ -118,7 +137,7 @@ describe('SIGINT cleanup', () => {
     // delivery — the more important assertion is the cleanup below.
     expect([130, 128 + 2, null]).toContain(exitCode);
 
-    const stagingGone = await waitFor(async () => !(await pathExists(stagingDir)), 2_000);
+    const stagingGone = await waitFor(async () => !(await pathExists(stagingDir as string)), 2_000);
     expect(stagingGone).toBe(true);
 
     // Prior dist/ must still be intact — atomic emit promised this.

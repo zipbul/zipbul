@@ -380,15 +380,17 @@ async function runTsc(
 
   // Item 92 — when the project uses composite/references, tsc requires
   // `--build` mode. We probe the tsconfig for `composite` or `references`
-  // and switch invocation accordingly.
+  // and switch invocation accordingly. `--force` is appended only on the
+  // first invocation (no `.tsbuildinfo` yet) — subsequent runs preserve
+  // the incremental cache so re-builds don't pay full type-check cost.
   const buildMode = await tsconfigNeedsBuildMode(tsconfigPath);
+  const tsBuildInfoExists = await pathExists(tsBuildInfoFile);
+  const buildModeArgs = tsBuildInfoExists
+    ? ['--build', tsconfigPath]
+    : ['--build', tsconfigPath, '--force'];
   const args = buildMode
-    ? (tscBin === 'bunx'
-      ? ['tsc', '--build', tsconfigPath, '--force']
-      : ['--build', tsconfigPath, '--force'])
-    : (tscBin === 'bunx'
-      ? ['tsc', ...baseArgs]
-      : baseArgs);
+    ? (tscBin === 'bunx' ? ['tsc', ...buildModeArgs] : buildModeArgs)
+    : (tscBin === 'bunx' ? ['tsc', ...baseArgs] : baseArgs);
 
   await new Promise<void>((resolveFn, rejectFn) => {
     const child = spawn(tscBin, args, {
@@ -491,8 +493,21 @@ async function runTsc(
  * `references` array. We do a shallow JSON parse only; following `extends`
  * chains is left for a future slice.
  */
+/** Hard cap on tsconfig size — well-formed tsconfigs are tiny (<100KB
+ *  even for monorepos with many references). 5MB guards against malformed
+ *  inputs that would exhaust memory on `readFile` + regex strip. */
+const MAX_TSCONFIG_BYTES = 5 * 1024 * 1024;
+
 async function tsconfigNeedsBuildMode(tsconfigPath: string): Promise<boolean> {
   try {
+    const stats = await stat(tsconfigPath);
+    if (stats.size > MAX_TSCONFIG_BYTES) {
+      // Oversized tsconfig — refuse to read. The caller falls back to the
+      // non-`--build` invocation; if the project genuinely needs `--build`
+      // the operator must shrink the config. Returning `false` here is the
+      // safe choice (no `--force` cache invalidation, no OOM).
+      return false;
+    }
     const text = await readFile(tsconfigPath, 'utf8');
     // tsconfig allows comments + trailing commas; tolerate via stripped JSON.
     const stripped = text
