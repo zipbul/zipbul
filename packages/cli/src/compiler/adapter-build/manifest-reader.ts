@@ -122,7 +122,7 @@ async function loadSibling<T extends { readonly $schemaName: string }>(
   const relPath = indexed[spec.logicalName];
   if (relPath === undefined) return null;
 
-  if (isAbsolute(relPath) || relPath.split(/[/\\]/).some(seg => seg === '..')) {
+  if (isAbsolute(relPath) || relPath.split('/').some(seg => seg === '..')) {
     throw new DiagnosticError(buildDiagnostic({
       reason: `[CONTRACT] Manifest index entry \`${spec.logicalName}\` points outside dist (${relPath}).`,
     }));
@@ -131,7 +131,15 @@ async function loadSibling<T extends { readonly $schemaName: string }>(
   const full = join(distPath, relPath);
   if (!(await pathExists(full))) return null;
 
-  const value = await loadJson<T>(full);
+  const raw = await loadJson<unknown>(full);
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] ${full} must be a JSON object, got ${describeJsonShape(raw)}.`,
+      file: full,
+    }));
+  }
+
+  const value = raw as T & { readonly $schemaName: unknown };
   if (value.$schemaName !== spec.schemaName) {
     throw new DiagnosticError(buildDiagnostic({
       reason: `[CONTRACT] ${full} \`$schemaName\` is \`${String(value.$schemaName)}\`, expected \`${spec.schemaName}\`.`,
@@ -139,6 +147,12 @@ async function loadSibling<T extends { readonly $schemaName: string }>(
     }));
   }
   return value;
+}
+
+function describeJsonShape(value: unknown): string {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
 }
 
 async function pathExists(p: string): Promise<boolean> {

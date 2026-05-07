@@ -6,7 +6,7 @@
 
 **Last sync**: STATUS 문서 (`ADAPTER_COMPILER_STATUS.md`) 의 Last sync 단일 출처. 본 문서는 책임 명세 (Section A~N) 위주이며 commit-level 진척은 STATUS 문서 Section B 의 1:1 대조표 참조.
 
-**Branch**: `fix/cli-js-bundle-bin`. **Baseline 카운트**: STATUS 문서 Section A.1 단일 출처 (현 시점 1967 / 120 / 370 baseline).
+**Branch**: `fix/cli-js-bundle-bin`. **Baseline 카운트**: STATUS 문서 Section A.1 단일 출처.
 
 상태 표기 — 본 문서 전체에서 일관된 의미 (Section A~M 본문에서 사용):
 - 🟡 진행 중. 부분 완료 또는 결정 대기.

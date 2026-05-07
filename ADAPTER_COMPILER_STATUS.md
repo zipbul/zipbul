@@ -6,7 +6,7 @@
 >
 > **Last sync**: 2026-04-29, HEAD `5143811` (refactor — 잉여 기능 제거 + 범위 축소). Branch `fix/cli-js-bundle-bin`.
 >
-> **Baseline 측정값 (HEAD `5143811` 시점, 본 문서 작성 시 직접 측정)**: typecheck clean / unit `1967 pass` / integration `120 pass` / e2e `370 pass`.
+> **Baseline 측정값**: Section A.1 단일 출처.
 
 ---
 
@@ -46,7 +46,7 @@ zipbul 은 AOT (Ahead-of-Time) 컴파일러를 가진다 — 사용자 앱 빌�
 1. `git status` — 워킹 디렉토리 깨끗한지.
 2. `git log --oneline -1` — HEAD 가 본 문서 "Last sync" (`5143811`) 와 일치하는지. 다르면 본 문서 stale 가능, Section B 의 line 번호와 코드 인용을 grep 으로 재검증한 후 진행.
 3. `bunx tsc --noEmit` — 0 에러.
-4. `bun run test:unit && bun run test:integration && bun run test:e2e` — Section A.1 의 baseline (1967 / 120 / 370) 동일 확인.
+4. `bun run test:unit && bun run test:integration && bun run test:e2e` — Section A.1 의 baseline 동일 확인.
 5. `ADAPTER_COMPILER.md` 와 본 문서 동시 열어두기. 항목 번호 인용 시 본 문서가 ADAPTER_COMPILER.md 의 명세를 항상 우선.
 6. 본 Section 0 + Section A · B · C · D · E 처음부터 끝까지. 특히 Section C (잔여 작업 4 영역) 의 우선순위·의존성·결정 사항.
 
@@ -54,26 +54,24 @@ zipbul 은 AOT (Ahead-of-Time) 컴파일러를 가진다 — 사용자 앱 빌�
 
 ## A. 회귀 baseline + 검증 명령
 
-### A.1 측정된 baseline (HEAD `5143811`)
+### A.1 측정된 baseline (영역 1 완료 시점)
 
 다음 4 명령을 루트에서 실행한 직접 측정값:
 
 | 명령 | 결과 |
 |---|---|
 | `bunx tsc --noEmit` | exit 0, stderr 0 라인 |
-| `bun run test:unit` | `1967 pass` / 73 files / 3529 expect calls |
-| `bun run test:integration` | `120 pass` / 5 files / 263 expect calls |
+| `bun run test:unit` | `1955 pass` / 73 files / 3516 expect calls |
+| `bun run test:integration` | `130 pass` / 7 files / 289 expect calls |
 | `bun run test:e2e` | `370 pass` / 8 files / 1293 expect calls |
+| `bun run test:smoke` | `1 pass` / 1 file / 11 expect calls |
 
 각 영역 작업 종료 시 **세 카운트 모두 동일하거나 증가**. 카운트 감소는 회귀 또는 의도적 삭제. 후자라면 본 baseline 도 동시 갱신.
 
 ### A.2 영역별 예상 baseline 변동
 
-영역 1 종료 시점:
-- integration `120 + 5 (manifest-reader 테스트) + 2 (external-consumption 테스트) = 127` 예상.
-
 영역 2 종료 시점:
-- integration `127 + N (사용자 앱 빌드 통합 e2e — 최소 2 건: workspace dev 회귀 + 패킹·설치 e2e)` 예상.
+- integration `130 + N (사용자 앱 빌드 통합 e2e — 최소 2 건: workspace dev 회귀 + 패킹·설치 e2e)` 예상.
 - e2e `370 + M (examples 시나리오 회귀 + 패킹·설치 회귀)` 가능.
 
 영역 3 종료 시점:
@@ -484,7 +482,7 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 
 | 영역 | 인수 기준 | 검증 명령 |
 |---|---|---|
-| 1 | manifest-reader 5 건 + external-consumption 2 건 통과 / typecheck 0 에러 / integration baseline `120 → 127` | `bun test test/integration/manifest-reader.test.ts test/integration/external-consumption.test.ts && bunx tsc --noEmit` |
+| 1 | manifest-reader + external-consumption 통과 / typecheck 0 에러 / integration baseline 증가 | `bun test test/integration/manifest-reader.test.ts test/integration/external-consumption.test.ts && bunx tsc --noEmit` |
 | 2 | Section A.3 의 6 단계 (패킹·설치 e2e) 통과 + 워크스페이스 dev 회귀 통과 + 신규 통합 테스트 (합성기 + wiring) 통과 | Section A.3 절차 + `bun test test/integration/adapter-manifest-consumption.test.ts` |
 | 3 | augment 가지는 fixture 어댑터의 e2e 통과 (사용자 앱 build 가 어댑터 augment 적용된 Context 타입 받음) | 별도 e2e (fixture 어댑터 별 작성) |
 | 4 | `ADAPTER_COMPILER.md` 마크와 코드 실상 1:1 일치 / Last sync = HEAD / baseline 갱신 | `awk '/^## A\./,0' ADAPTER_COMPILER.md \| grep -oE "^[0-9]+[a-z]?\\. [✅🟡⬜🔵❌]"` 가 본 문서 Section B 와 1:1 |
@@ -507,4 +505,4 @@ Section B 표에서 ⬜ / 🟡 표기된 항목 중 영역 1·2·3 에 흡수되
 
 본 문서는 commit `5143811` 시점에서 어댑터 컴파일러 (Section 0.0 의 (B) 흐름) 가 절반만 작동하는 상태를 진단하고, 그 절반의 갭을 메우기 위한 4 영역의 작업을 우선순위 + 의존성 + 측정 가능한 인수 기준으로 풀어 쓴다. 영역 1 (read API 복원) 과 영역 2 (사용자 앱 빌드 wiring) 는 패킹·설치 시나리오 동작의 직접 경로이며, 영역 3 (augment 흡수) 는 augment 가지는 어댑터 작성 시점에 비로소 필요한 후속, 영역 4 는 영역 1·2·3 종료 후 단일 출처 (`ADAPTER_COMPILER.md`) 복귀를 위한 문서 정정.
 
-근거는 모두 commit `5143811` 시점 코드 직접 인용 (`adapter-build.command.ts` line 번호 검증 완료, `definition-resolver.ts` / `interfaces.ts` 의 `AdapterExtraction` shape 인용) 또는 직접 측정 (Section A.3 의 패킹·설치 e2e 실패 재현 + Section A.1 의 1967 / 120 / 370 baseline + Section E6 의 augment 0건 grep + 사용자 앱 빌드의 `dist/runtime.js.map` 544KB sourcemap emit 측정 + reflection 0건 + switch 기반 step dispatch + 20 route 인라인 측정 — AOT 인라인 동작 검증). 새 항목 도입은 zipbul 본체 코드 라인 인용 후 추가.
+근거는 모두 코드 직접 인용 (`adapter-build.command.ts` / `definition-resolver.ts` / `interfaces.ts` 의 `AdapterExtraction` shape) 또는 직접 측정 (Section A.3 의 패킹·설치 e2e 실패 재현 + Section A.1 baseline + Section E5 의 augment 0건 grep). 새 항목 도입은 zipbul 본체 코드 라인 인용 후 추가.
