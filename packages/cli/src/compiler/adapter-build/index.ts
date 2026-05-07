@@ -17,3 +17,4 @@ export type {
   ReadAdapterManifestResult,
   AdapterConflict,
 } from './manifest-reader';
+export { synthesizeAdapterExtraction } from './manifest-to-adapter-extraction';
