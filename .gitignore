@@ -22,3 +22,4 @@ examples/.zipbul/
 packages/common/src/**/*.d.ts
 .claude/
 A.md
+*.tgz
