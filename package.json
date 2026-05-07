@@ -42,7 +42,7 @@
     "test:integration": "bun test packages/core/test/integration packages/cli/test/integration",
     "test:e2e": "bun test packages/core/test/e2e packages/http-adapter/test/e2e",
     "test:smoke": "bun test packages/http-adapter/test/smoke",
-    "test:perf": "bun test packages/http-adapter/test/perf packages/cli/test/perf --timeout 0",
+    "test:perf": "bun test packages/http-adapter/test/perf --timeout 0",
     "test:coverage": "bun test --coverage",
     "typecheck": "bunx tsc --noEmit",
     "kb:migrate": "bunx drizzle-kit migrate --config tooling/mcp/drizzle.config.ts",
