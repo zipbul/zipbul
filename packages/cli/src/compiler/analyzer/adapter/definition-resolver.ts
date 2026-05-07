@@ -61,7 +61,13 @@ export class AdapterDefinitionResolver {
       if (visitedRoots.has(packageRoot)) continue;
       visitedRoots.add(packageRoot);
 
-      const kind = await readPackageKind(packageRoot);
+      let kind: string | null;
+      try {
+        kind = await readPackageKind(packageRoot);
+      } catch (cause) {
+        if (cause instanceof DiagnosticError) return err(cause.diagnostic);
+        throw cause;
+      }
       if (kind !== 'adapter') continue;
 
       const distPath = join(packageRoot, 'dist');
@@ -139,19 +145,41 @@ async function findPackageRoot(entryFile: string): Promise<string | null> {
 
 /**
  * Reads `<root>/package.json` and returns `zipbul.kind` if present. Returns
- * `null` when the manifest is unreadable or `kind` is missing — caller treats
- * `null` the same as "not an adapter".
+ * `null` when the file is missing or `kind` is absent — caller treats `null`
+ * the same as "not an adapter". Throws `DiagnosticError` on JSON parse
+ * failure: a corrupt `package.json` is unambiguous misconfiguration that
+ * silently masking would later cause "no adapter found" with no clue.
  */
 async function readPackageKind(root: string): Promise<string | null> {
   const pkgPath = join(root, 'package.json');
+  if (!(await pathExists(pkgPath))) return null;
+
+  let text: string;
   try {
-    const text = await Bun.file(pkgPath).text();
-    const parsed = JSON.parse(text) as { zipbul?: { kind?: unknown } };
-    const kind = parsed.zipbul?.kind;
-    return typeof kind === 'string' ? kind : null;
+    text = await Bun.file(pkgPath).text();
   } catch {
     return null;
   }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (cause) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[SYNTAX] ${pkgPath} is not valid JSON: ${(cause as Error).message ?? String(cause)}`,
+      file: pkgPath,
+    }));
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+
+  const zipbul = (parsed as { zipbul?: unknown }).zipbul;
+  if (typeof zipbul !== 'object' || zipbul === null) return null;
+
+  const kind = (zipbul as { kind?: unknown }).kind;
+  return typeof kind === 'string' ? kind : null;
 }
 
 async function pathExists(p: string): Promise<boolean> {

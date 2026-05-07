@@ -155,16 +155,6 @@ export interface AdapterExtraction {
   staticSchema: AdapterStaticSchema;
 }
 
-export interface AdapterExportResolution {
-  value: AnalyzerValue;
-  sourceFile: string;
-}
-
-export interface AdapterStaticSchemaResult {
-  adapterId: string;
-  staticSchema: AdapterStaticSchema;
-}
-
 export interface HandlerIndexEntry {
   id: string;
   adapterId: string;
