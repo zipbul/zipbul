@@ -11,7 +11,7 @@
  * @public
  */
 import { readFile, stat } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { compareCodePoint } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
@@ -49,6 +49,12 @@ const SIBLING_SCHEMAS = {
  * @public
  */
 export interface ReadAdapterManifestResult {
+  /**
+   * Adapter package's `name` field from `<dist>/../package.json`. Used as the
+   * `declare module '<packageName>'` specifier when the user-app build emits
+   * declaration merging for context augments (`context.d.ts`).
+   */
+  readonly packageName: string;
   readonly adapter: AdapterManifest;
   readonly pipeline: PipelineSchema | null;
   readonly decorators: DecoratorSchema | null;
@@ -99,7 +105,38 @@ export async function readAdapterManifest(
   const constructorSchema = await loadSibling<AdapterConstructorSchema>(distPath, indexed, SIBLING_SCHEMAS.constructorSchema);
   const builtins = await loadSibling<BuiltinsManifest>(distPath, indexed, SIBLING_SCHEMAS.builtins);
 
-  return { adapter, pipeline, decorators, peerContract, contextNamespaces, constructorSchema, builtins };
+  const packageName = await loadPackageName(distPath);
+
+  return { packageName, adapter, pipeline, decorators, peerContract, contextNamespaces, constructorSchema, builtins };
+}
+
+async function loadPackageName(distPath: string): Promise<string> {
+  const pkgPath = join(dirname(distPath), 'package.json');
+
+  if (!(await pathExists(pkgPath))) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] Adapter package.json missing at ${pkgPath}. Adapter manifest cannot be consumed without its package metadata.`,
+      file: pkgPath,
+    }));
+  }
+
+  const raw = await loadJson<unknown>(pkgPath);
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] ${pkgPath} must be a JSON object.`,
+      file: pkgPath,
+    }));
+  }
+
+  const name = (raw as { name?: unknown }).name;
+  if (typeof name !== 'string' || name.length === 0) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] ${pkgPath} has no \`name\` field — adapter package must declare its npm specifier.`,
+      file: pkgPath,
+    }));
+  }
+
+  return name;
 }
 
 async function loadJson<T>(absPath: string): Promise<T> {

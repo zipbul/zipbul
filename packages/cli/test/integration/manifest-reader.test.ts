@@ -54,6 +54,7 @@ describe('readAdapterManifest — Section M (Item 114·115)', () => {
 
     const result = await readAdapterManifest(join(pkgRoot, 'dist'));
 
+    expect(result.packageName).toBe('@example/x');
     expect(result.adapter.adapterId).toBe('A');
     expect(result.adapter.$schemaName).toBe('adapter.manifest');
     expect(result.pipeline).not.toBeNull();
@@ -64,6 +65,33 @@ describe('readAdapterManifest — Section M (Item 114·115)', () => {
     expect(result.contextNamespaces).not.toBeNull();
     expect(result.constructorSchema).not.toBeNull();
     expect(result.builtins).not.toBeNull();
+  });
+
+  it('throws when adapter package.json is missing (E5 — packageName required)', async () => {
+    await writeAdapter();
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    // Remove package.json after build.
+    await rm(join(pkgRoot, 'package.json'));
+
+    await expect(
+      readAdapterManifest(join(pkgRoot, 'dist')),
+    ).rejects.toBeInstanceOf(DiagnosticError);
+  });
+
+  it('throws when adapter package.json has no name field', async () => {
+    await writeAdapter();
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    // Overwrite package.json with no name field.
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({ version: '0.0.1', zipbul: { kind: 'adapter' } }),
+    );
+
+    await expect(
+      readAdapterManifest(join(pkgRoot, 'dist')),
+    ).rejects.toBeInstanceOf(DiagnosticError);
   });
 
   it('throws when dist/adapter.manifest.json is missing (Item 115 — hard error)', async () => {
@@ -152,6 +180,7 @@ describe('detectMultiAdapterConflicts — Item 119', () => {
 
 function manifestFixture(adapterId: string, opts: { decorators: readonly string[]; provides: readonly string[] }) {
   return {
+    packageName: `@example/${adapterId.toLowerCase()}`,
     adapter: {
       $schemaName: 'adapter.manifest' as const,
       adapterId,
