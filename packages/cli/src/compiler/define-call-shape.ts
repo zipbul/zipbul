@@ -185,6 +185,65 @@ export function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver 
     }
   }
 
+  // Catch indirection through local bindings:
+  //   const da = zb.defineAdapter
+  //   const { defineAdapter: da } = zb
+  // Without tracking these, the binding silently bypasses the resolver,
+  // which lets non-canonical call shapes slip past validateDefineCallShape
+  // and lets fileContainsDefineAdapterCall miss inline adapters expressed
+  // via destructuring. Done via direct AST property checks because gildash
+  // doesn't surface every binding-pattern node guard.
+  for (const stmt of file.parsed.program.body as readonly Node[]) {
+    const declNode = (is.ExportNamedDeclaration(stmt) && stmt.declaration ? stmt.declaration : stmt) as Node;
+    if (!is.VariableDeclaration(declNode)) continue;
+
+    for (const d of declNode.declarations) {
+      const init = d.init;
+      if (init === null || init === undefined) continue;
+
+      // Form (1): `const da = zb.defineAdapter`
+      if (
+        is.MemberExpression(init)
+        && !init.computed
+        && is.Identifier(init.object)
+        && is.Identifier(init.property)
+        && namespaces.has(init.object.name)
+        && REGULATED_DEFINE_CALLS.has(init.property.name)
+      ) {
+        const idNode = d.id as { type?: string; name?: string };
+        if (idNode.type === 'Identifier' && typeof idNode.name === 'string') {
+          named.set(idNode.name, init.property.name);
+        }
+        continue;
+      }
+
+      // Form (2): `const { defineAdapter, defineMiddleware: mw } = zb`
+      if (
+        is.Identifier(init)
+        && namespaces.has(init.name)
+      ) {
+        const idNode = d.id as { type?: string; properties?: ReadonlyArray<unknown> };
+        if (idNode.type !== 'ObjectPattern' || !Array.isArray(idNode.properties)) continue;
+
+        for (const propRaw of idNode.properties) {
+          const prop = propRaw as {
+            type?: string;
+            computed?: boolean;
+            key?: { type?: string; name?: string };
+            value?: { type?: string; name?: string };
+          };
+          if (prop.type !== 'Property') continue;
+          if (prop.computed === true) continue;
+          if (prop.key?.type !== 'Identifier' || typeof prop.key.name !== 'string') continue;
+          const original = prop.key.name;
+          if (!REGULATED_DEFINE_CALLS.has(original)) continue;
+          if (prop.value?.type !== 'Identifier' || typeof prop.value.name !== 'string') continue;
+          named.set(prop.value.name, original);
+        }
+      }
+    }
+  }
+
   return {
     named: localName => named.get(localName) ?? null,
     isRegulatedNamespace: objectName => namespaces.has(objectName),

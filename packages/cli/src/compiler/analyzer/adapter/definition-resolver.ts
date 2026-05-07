@@ -284,16 +284,23 @@ async function collectInlineAdapterExtractions(
     enforceAdapterPurity: false,
   });
 
-  // Build a synthetic `ReadAdapterManifestResult` so the existing
-  // `synthesizeAdapterExtraction` helper produces the same shape it would
-  // for an external manifest. `packageName` flows into the
-  // `ContextNamespaceMap.module` field which downstream emits as
-  // `declare module '<name>' {...}`. For inline adapters we use the
-  // user-app's own package.json#name (fallback `<inline>`); a monolithic
-  // app augments its own package, which is the standard TS pattern.
+  // `packageName` flows into the synthesized `ContextNamespaceMap.module`
+  // field which downstream emits as `declare module '<name>' {...}` in
+  // `.zipbul/context.d.ts` whenever a middleware defines context augments.
+  // For inline adapters we use the user-app's own `package.json#name` —
+  // a monolithic app augments its own package, the standard TS pattern.
+  // If the user-app has no `package.json#name`, hard-fail with a clear
+  // diagnostic: any sentinel fallback would emit syntactically invalid
+  // TypeScript (`declare module '<inline>'`) and silently break tsc
+  // downstream when augments are present.
   const userAppPackageName = await readUserAppPackageName(projectRoot);
+  if (userAppPackageName === null) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] Inline adapter requires the user-app to declare \`name\` in its \`package.json\`. The compiler emits \`declare module '<name>'\` in context.d.ts to wire middleware augments; without a stable name, the generated TypeScript is invalid. Add a \`name\` field to ${join(projectRoot, 'package.json')}.`,
+    }));
+  }
   const synthetic: ReadAdapterManifestResult = {
-    packageName: userAppPackageName ?? '<inline>',
+    packageName: userAppPackageName,
     adapter: compiled.adapterManifest,
     pipeline: compiled.pipelineSchema,
     decorators: compiled.decoratorSchema,

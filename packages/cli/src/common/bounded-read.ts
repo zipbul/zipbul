@@ -27,20 +27,31 @@ export async function readBoundedStream(
       if (done) break;
       if (truncated) continue;            // keep draining without storing
 
-      const chunk = decoder.decode(value, { stream: true });
       const chunkBytes = value.byteLength;
 
       if (bytes + chunkBytes <= maxBytes) {
-        collected += chunk;
+        // Whole chunk fits — decode normally.
+        collected += decoder.decode(value, { stream: true });
         bytes += chunkBytes;
         continue;
       }
 
-      // Partial chunk fits.
+      // Partial chunk fits — slice on a UTF-8 codepoint boundary so a
+      // multi-byte character is never split. Walk back from the requested
+      // byte count until we find a non-continuation byte (0x80-0xBF are
+      // continuation bytes; anything else starts a fresh codepoint).
       const remaining = maxBytes - bytes;
       if (remaining > 0) {
-        collected += chunk.slice(0, remaining);
-        bytes += remaining;
+        let cut = remaining;
+        // Scan back at most 3 bytes (UTF-8 max trailing continuation count).
+        while (cut > 0 && (value[cut] !== undefined && (value[cut]! & 0xc0) === 0x80) && (remaining - cut) < 4) {
+          cut--;
+        }
+        const head = value.subarray(0, cut);
+        // Use a fresh non-streaming decode — the head is now codepoint-
+        // aligned, so we don't need to retain decoder state.
+        collected += new TextDecoder().decode(head);
+        bytes += cut;
       }
       truncated = true;
     }

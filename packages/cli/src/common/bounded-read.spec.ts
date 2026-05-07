@@ -46,4 +46,20 @@ describe('readBoundedStream', () => {
     const stream = streamFromChunks([]);
     expect(await readBoundedStream(stream, 1024)).toBe('');
   });
+
+  it('truncates UTF-8 bytes safely without producing replacement characters mid-codepoint', async () => {
+    // 한 글자 = 3 bytes in UTF-8 (Korean Hangul syllables).
+    // 4 chars = 12 bytes. Cap at 7 bytes — splits inside the 3rd char.
+    const text = '한국어테스트';
+    const bytes = new TextEncoder().encode(text);
+    expect(bytes.byteLength).toBeGreaterThan(15);
+    const stream = streamFromChunks([bytes]);
+    const out = await readBoundedStream(stream, 7);
+    // First 2 chars (6 bytes) must decode cleanly. The split inside char 3
+    // (byte 7) must not surface as `�` (replacement) because we use
+    // a streaming decoder and slice on the byte boundary upstream.
+    expect(out.startsWith('한국')).toBe(true);
+    // No replacement character anywhere in the prefix.
+    expect(out.replace(/\.\.\.\[output truncated.*]$/, '')).not.toContain('�');
+  });
 });

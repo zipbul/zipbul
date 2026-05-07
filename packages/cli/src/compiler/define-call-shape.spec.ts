@@ -141,6 +141,46 @@ describe('validateDefineCallShape — defineX 호출은 top-level export const �
     expect(findDefineCallShapeViolations([file])).toEqual([]);
   });
 
+  it('namespace destructuring → 로컬 alias 가 regulated 로 추적됨', () => {
+    // import * as zb + 디스트럭처링으로 별칭 만든 후 비-export 호출 — 검출돼야 함.
+    const file = parse([
+      `import * as zb from '@zipbul/common';`,
+      `const { defineAdapter: da } = zb;`,
+      `const x = da({} as any);`,
+      `export { x };`,
+    ].join('\n'));
+    const v = findDefineCallShapeViolations([file]);
+    expect(v.length).toBe(1);
+    expect(v[0]!.callee).toBe('defineAdapter');
+    expect(v[0]!.reason).toBe('not-exported');
+  });
+
+  it('namespace member 직접 변수 할당 → alias 추적', () => {
+    // const da = zb.defineAdapter; 후 호출 — 검출돼야 함.
+    const file = parse([
+      `import * as zb from '@zipbul/common';`,
+      `const da = zb.defineAdapter;`,
+      `const x = da({} as any);`,
+      `export { x };`,
+    ].join('\n'));
+    const v = findDefineCallShapeViolations([file]);
+    expect(v.length).toBe(1);
+    expect(v[0]!.callee).toBe('defineAdapter');
+  });
+
+  it('shorthand 디스트럭처링 + alias 혼합', () => {
+    const file = parse([
+      `import * as zb from '@zipbul/common';`,
+      `const { defineAdapter, defineMiddleware: mw } = zb;`,
+      `function f() { return mw([], () => () => {}); }`,
+      `export const a = defineAdapter({} as any);`,
+    ].join('\n'));
+    const v = findDefineCallShapeViolations([file]);
+    expect(v.length).toBe(1);
+    expect(v[0]!.callee).toBe('defineMiddleware');
+    expect(v[0]!.reason).toBe('not-top-level');
+  });
+
   it('regulatedCallees 좁히기 — user-app context 는 defineModule 만 검사', () => {
     // user-app 에서 defineMiddleware 는 factory 함수 안에서 runtime options 받는
     // 패턴이 정상. defineModule 만 strict shape 강제.

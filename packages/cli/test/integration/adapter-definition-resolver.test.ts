@@ -261,6 +261,10 @@ describe('AdapterDefinitionResolver — inline (user-app) adapter', () => {
     // back to source-tree extraction and synthesize the same shape.
     const userSrc = join(workspaceRoot, 'src');
     await mkdir(userSrc, { recursive: true });
+    await writeFile(
+      join(workspaceRoot, 'package.json'),
+      JSON.stringify({ name: 'inline-app', version: '0.0.1' }),
+    );
 
     await writeFile(
       join(userSrc, 'my-adapter.ts'),
@@ -318,6 +322,10 @@ describe('AdapterDefinitionResolver — inline (user-app) adapter', () => {
     const userSrc = join(workspaceRoot, 'src');
     await mkdir(userSrc, { recursive: true });
     await writeFile(
+      join(workspaceRoot, 'package.json'),
+      JSON.stringify({ name: 'mixed-app', version: '0.0.1' }),
+    );
+    await writeFile(
       join(userSrc, 'inline-adapter.ts'),
       [
         `import { defineAdapter } from '@zipbul/common';`,
@@ -365,6 +373,47 @@ describe('AdapterDefinitionResolver — inline (user-app) adapter', () => {
     // Both extractions wired — external TestAdapter + inline InlineAdapter.
     const ids = Object.keys(result.adapterStaticSchemas).sort();
     expect(ids).toEqual(['InlineAdapter', 'TestAdapter']);
+  });
+
+  it('rejects inline adapter when user-app package.json has no `name` (would emit invalid declare module)', async () => {
+    const userSrc = join(workspaceRoot, 'src');
+    await mkdir(userSrc, { recursive: true });
+
+    // Note: NO package.json — readUserAppPackageName returns null.
+    await writeFile(
+      join(userSrc, 'inline-no-name.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { CoreStep } from '@zipbul/core';`,
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class A { readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] }; }`,
+        `export class Cx {}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const Ph = { OnRequest: 'OnRequest' } as const;`,
+        `export const St = {} as const;`,
+        `export const inlineDefn = defineAdapter({ adapter: A, context: Cx, phase: Ph, step: St, pipeline: [Ph.OnRequest, CoreStep.Handler] });`,
+      ].join('\n'),
+    );
+
+    const userFile = join(userSrc, 'inline-no-name.ts');
+    const fileMap = new Map<string, FileAnalysis>();
+    fileMap.set(userFile, {
+      filePath: userFile,
+      classes: [],
+      reExports: [],
+      exports: [],
+      importEntries: [],
+    });
+
+    const result = await new AdapterDefinitionResolver().resolve({
+      fileMap,
+      projectRoot: workspaceRoot,
+    });
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.data.why).toMatch(/Inline adapter requires the user-app to declare `name`/);
   });
 
   it('rejects multiple inline `defineAdapter(...)` calls', async () => {
