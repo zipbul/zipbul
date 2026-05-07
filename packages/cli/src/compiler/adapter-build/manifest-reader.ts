@@ -135,19 +135,7 @@ async function loadPackageName(distPath: string): Promise<string> {
   return name;
 }
 
-/** Hard cap on manifest file size — adapter manifests are tiny in practice
- * (well under 100KB). 5MB is a generous DoS guard against malformed packages
- * shipping multi-gigabyte JSON that would exhaust memory on parse. */
-const MAX_MANIFEST_BYTES = 5 * 1024 * 1024;
-
 async function loadJson<T>(absPath: string): Promise<T> {
-  const stats = await stat(absPath);
-  if (stats.size > MAX_MANIFEST_BYTES) {
-    throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] ${absPath} exceeds the manifest size limit (${String(stats.size)} > ${String(MAX_MANIFEST_BYTES)} bytes). Manifest files must be small canonical JSON.`,
-      file: absPath,
-    }));
-  }
   const text = await readFile(absPath, 'utf8');
   try {
     return JSON.parse(text) as T;

@@ -8,7 +8,7 @@ import type { BuildCommandDeps } from './interfaces';
 import { extractSymbols, parseSource } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 import { validateDefineCallShape } from '../../compiler/define-call-shape';
-import { withAtomicEmit, readBoundedStream, type CancellationScope } from '../../common';
+import { withAtomicEmit, type CancellationScope } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import {
   extractLibAugments,
@@ -228,11 +228,6 @@ export async function buildLib(
       // ── tsc .d.ts emission into the same staging dir ──
       const dtsSpinner = renderer.startSpinner('[4/4] Generating type declarations');
 
-      // 5 minute hard cap — matches adapter-build's TSC_TIMEOUT_MS. Hung tsc
-      // is the most common cause of stalled lib builds; failing fast lets
-      // CI surface the issue instead of consuming the whole job time budget.
-      const TSC_TIMEOUT_MS = 5 * 60 * 1000;
-
       const proc = Bun.spawn(
         ['bunx', 'tsc', '--declaration', '--emitDeclarationOnly', '--outDir', stagingDir],
         {
@@ -243,26 +238,13 @@ export async function buildLib(
         },
       );
 
-      const timeoutHandle = setTimeout(() => {
-        try { proc.kill('SIGTERM'); } catch { /* already dead */ }
-      }, TSC_TIMEOUT_MS);
-
-      let exitCode: number | null;
-      try {
-        exitCode = await proc.exited;
-      } finally {
-        clearTimeout(timeoutHandle);
-      }
+      const exitCode = await proc.exited;
 
       if (exitCode !== 0) {
         dtsSpinner.stop('[4/4] Generating type declarations');
-        // 4MB cap mirrors adapter-build's `runTsc` — a runaway tsc must not
-        // OOM the parent through unbounded `await new Response(s).text()`.
-        const stderrText = proc.stderr
-          ? await readBoundedStream(proc.stderr as ReadableStream<Uint8Array>, 4 * 1024 * 1024)
-          : '';
+        const stderrText = proc.stderr ? await new Response(proc.stderr).text() : '';
         const reason = exitCode === null
-          ? `tsc terminated by signal (likely timeout after ${String(TSC_TIMEOUT_MS / 1000)}s or external cancel).`
+          ? `tsc terminated by signal.`
           : `Type declaration generation failed (tsc exit code ${String(exitCode)}):\n${stderrText.trim().slice(0, 1000)}`;
         throw new DiagnosticError(buildDiagnostic({ reason }));
       }
@@ -298,16 +280,6 @@ async function resolveLibBuildConfig(projectRoot: string): Promise<LibBuildConfi
   if (!(await packageJsonFile.exists())) {
     throw new DiagnosticError(buildDiagnostic({
       reason: 'package.json not found. Run `zb build --lib` from the package root.',
-      file: packageJsonPath,
-    }));
-  }
-
-  // DoS guard: cap package.json at 5MB so a malformed input cannot exhaust
-  // memory on parse. Real package.json files are well under this limit.
-  const MAX_PACKAGE_JSON_BYTES = 5 * 1024 * 1024;
-  if (packageJsonFile.size > MAX_PACKAGE_JSON_BYTES) {
-    throw new DiagnosticError(buildDiagnostic({
-      reason: `package.json exceeds the size limit (${String(packageJsonFile.size)} > ${String(MAX_PACKAGE_JSON_BYTES)} bytes).`,
       file: packageJsonPath,
     }));
   }

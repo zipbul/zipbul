@@ -16,6 +16,5 @@ export { withAtomicEmit } from './atomic-emit';
 export type { AtomicEmitOptions } from './atomic-emit';
 export { installCancellation } from './cancellation';
 export type { CancellationScope, InstallCancellationOptions } from './cancellation';
-export { readBoundedStream } from './bounded-read';
 export { ensureTsconfigIncludesZipbul } from './tsconfig-patcher';
 

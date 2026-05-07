@@ -345,18 +345,6 @@ async function runCodegen(packageRoot: string, stagingDir: string, signal?: Abor
   }
 }
 
-/** tsc invocation timeout (ms). 5 minutes — large monorepo type checks fit in
- * this window; anything longer is almost certainly hung. Operators can lower
- * via `ZIPBUL_TSC_TIMEOUT_MS` for testing or aggressive CI budgets. */
-const TSC_TIMEOUT_MS_DEFAULT = 5 * 60 * 1000;
-
-function resolveTscTimeoutMs(): number {
-  const raw = process.env.ZIPBUL_TSC_TIMEOUT_MS;
-  if (raw === undefined) return TSC_TIMEOUT_MS_DEFAULT;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : TSC_TIMEOUT_MS_DEFAULT;
-}
-
 async function runTsc(
   packageRoot: string,
   tsconfigPath: string,
@@ -398,26 +386,9 @@ async function runTsc(
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    // Hard cap on stdout/stderr accumulation per stream — a runaway tsc that
-    // emits gigabytes of output would otherwise OOM the parent. 4MB is more
-    // than enough for any realistic diagnostic dump; beyond that we truncate
-    // and tag the buffer so the user sees "...truncated".
-    const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
     let stderr = '';
     let stdout = '';
-    let stderrTruncated = false;
-    let stdoutTruncated = false;
     let settled = false;
-    const appendBounded = (
-      current: string,
-      chunk: string,
-      truncated: boolean,
-    ): { value: string; truncated: boolean } => {
-      if (truncated) return { value: current, truncated };
-      const next = current + chunk;
-      if (next.length <= MAX_OUTPUT_BYTES) return { value: next, truncated: false };
-      return { value: `${next.slice(0, MAX_OUTPUT_BYTES)}\n...[output truncated at ${String(MAX_OUTPUT_BYTES)} bytes]`, truncated: true };
-    };
 
     const settle = (action: () => void): void => {
       if (settled) return;
@@ -441,33 +412,14 @@ async function runTsc(
       signal.addEventListener('abort', onAbort, { once: true });
     }
 
-    const timeoutMs = resolveTscTimeoutMs();
-    const timeoutHandle = setTimeout(() => {
-      try { child.kill('SIGTERM'); } catch { /* already dead */ }
-      settle(() => rejectFn(diag('IO', {
-        reason: `tsc timed out after ${String(timeoutMs)}ms for ${tsconfigPath}. The compilation appears hung; re-run after investigating type-check load.`,
-        file: tsconfigPath,
-      })));
-    }, timeoutMs);
-
-    child.stdout.on('data', chunk => {
-      const r = appendBounded(stdout, String(chunk), stdoutTruncated);
-      stdout = r.value;
-      stdoutTruncated = r.truncated;
-    });
-    child.stderr.on('data', chunk => {
-      const r = appendBounded(stderr, String(chunk), stderrTruncated);
-      stderr = r.value;
-      stderrTruncated = r.truncated;
-    });
+    child.stdout.on('data', chunk => { stdout += String(chunk); });
+    child.stderr.on('data', chunk => { stderr += String(chunk); });
 
     child.on('error', err => {
-      clearTimeout(timeoutHandle);
       if (signal !== undefined) signal.removeEventListener('abort', onAbort);
       settle(() => rejectFn(err));
     });
     child.on('close', code => {
-      clearTimeout(timeoutHandle);
       if (signal !== undefined) signal.removeEventListener('abort', onAbort);
 
       if (settled) return;
@@ -493,21 +445,8 @@ async function runTsc(
  * `references` array. We do a shallow JSON parse only; following `extends`
  * chains is left for a future slice.
  */
-/** Hard cap on tsconfig size — well-formed tsconfigs are tiny (<100KB
- *  even for monorepos with many references). 5MB guards against malformed
- *  inputs that would exhaust memory on `readFile` + regex strip. */
-const MAX_TSCONFIG_BYTES = 5 * 1024 * 1024;
-
 async function tsconfigNeedsBuildMode(tsconfigPath: string): Promise<boolean> {
   try {
-    const stats = await stat(tsconfigPath);
-    if (stats.size > MAX_TSCONFIG_BYTES) {
-      // Oversized tsconfig — refuse to read. The caller falls back to the
-      // non-`--build` invocation; if the project genuinely needs `--build`
-      // the operator must shrink the config. Returning `false` here is the
-      // safe choice (no `--force` cache invalidation, no OOM).
-      return false;
-    }
     const text = await readFile(tsconfigPath, 'utf8');
     // tsconfig allows comments + trailing commas; tolerate via stripped JSON.
     const stripped = text
@@ -587,26 +526,13 @@ interface AdapterPackageJson {
   readonly zipbul?: { readonly kind?: string };
 }
 
-/** Hard cap on package.json size — well-formed package manifests are
- * tiny (< 100KB even for large monorepos). 5MB guards against malformed
- * inputs that would exhaust memory on parse. */
-const MAX_PACKAGE_JSON_BYTES = 5 * 1024 * 1024;
-
 async function readPackageJson(packageRoot: string): Promise<AdapterPackageJson> {
   const pkgPath = join(packageRoot, 'package.json');
 
   try {
-    const stats = await stat(pkgPath);
-    if (stats.size > MAX_PACKAGE_JSON_BYTES) {
-      throw diag('IO', {
-        reason: `${pkgPath} exceeds the package.json size limit (${String(stats.size)} > ${String(MAX_PACKAGE_JSON_BYTES)} bytes).`,
-        file: pkgPath,
-      });
-    }
     const text = await readFile(pkgPath, 'utf8');
     return JSON.parse(text) as AdapterPackageJson;
   } catch (cause) {
-    if (cause instanceof DiagnosticError) throw cause;
     throw diag('IO', {
       reason: `Failed to read ${pkgPath}: ${(cause as Error).message ?? String(cause)}`,
       file: pkgPath,
