@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 
 import { isErr } from '@zipbul/result';
 import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
-import { validateDefineCallShape } from '../define-call-shape';
+import { validateDefineCallShape, buildCalleeResolver } from '../define-call-shape';
 import type { ParsedFile, ExtractedSymbol, ExpressionValue, ExpressionCall, CodeRelation } from '@zipbul/gildash';
 
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
@@ -606,7 +606,7 @@ function pickEntrySourceFile(tree: SourceTree, packageRoot: string): SourceFile 
   const matches: SourceFile[] = [];
 
   for (const file of tree) {
-    if (findDefineAdapterCall(file.symbols) !== null) {
+    if (findDefineAdapterCall(file.symbols, file) !== null) {
       matches.push(file);
     }
   }
@@ -631,7 +631,7 @@ function pickEntrySourceFile(tree: SourceTree, packageRoot: string): SourceFile 
 }
 
 function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDefinition {
-  const found = findDefineAdapterCall(entry.symbols);
+  const found = findDefineAdapterCall(entry.symbols, entry);
 
   if (found === null) {
     throw diag('MISSING_EXPORT', {
@@ -1100,17 +1100,19 @@ function extractAdapterConstructorSchema(
  * a CONTRACT diagnostic listing every offending export.
  */
 function validateNoBuiltinMiddleware(tree: SourceTree, packageRoot: string): void {
-  const FORBIDDEN = new Set(['defineMiddleware', 'defineGuard', 'defineExceptionFilter']);
-  const offenders: Array<{ exportName: string; sourceFile: string; callee: string }> = [];
+  const FORBIDDEN_ORIGINALS = new Set(['defineMiddleware', 'defineGuard', 'defineExceptionFilter']);
+  const offenders: Array<{ exportName: string; sourceFile: string; original: string; callee: string }> = [];
 
   for (const file of tree) {
     const sourceFile = relativeFromRoot(file.filePath, packageRoot);
+    const resolver = buildCalleeResolver({ filePath: sourceFile, parsed: file.parsed });
     for (const symbol of file.symbols) {
       if (symbol.kind !== 'variable' || !symbol.isExported) continue;
       const init = symbol.initializer;
       if (init === undefined || init.kind !== 'call') continue;
-      if (!FORBIDDEN.has(init.callee)) continue;
-      offenders.push({ exportName: symbol.name, sourceFile, callee: init.callee });
+      const original = resolver.resolveCalleeText(init.callee);
+      if (original === null || !FORBIDDEN_ORIGINALS.has(original)) continue;
+      offenders.push({ exportName: symbol.name, sourceFile, original, callee: init.callee });
     }
   }
 
@@ -1118,7 +1120,7 @@ function validateNoBuiltinMiddleware(tree: SourceTree, packageRoot: string): voi
 
   const formatted = offenders
     .sort((a, b) => a.sourceFile.localeCompare(b.sourceFile) || a.exportName.localeCompare(b.exportName))
-    .map(o => `  - ${o.sourceFile} :: ${o.exportName} = ${o.callee}(...)`)
+    .map(o => `  - ${o.sourceFile} :: ${o.exportName} = ${o.callee}(...)  // resolves to ${o.original}`)
     .join('\n');
 
   throw diag('CONTRACT', {
@@ -1307,13 +1309,17 @@ function ensureUnique(names: readonly string[], filePath: string): void {
   }
 }
 
-function findDefineAdapterCall(symbols: readonly ExtractedSymbol[]): { call: ExpressionCall; symbol: ExtractedSymbol } | null {
+function findDefineAdapterCall(
+  symbols: readonly ExtractedSymbol[],
+  entry: SourceFile,
+): { call: ExpressionCall; symbol: ExtractedSymbol } | null {
+  const resolver = buildCalleeResolver({ filePath: entry.filePath, parsed: entry.parsed });
   for (const symbol of symbols) {
     if (symbol.kind !== 'variable' || !symbol.isExported) continue;
     const init = symbol.initializer;
 
     if (init === undefined || init.kind !== 'call') continue;
-    if (init.callee !== 'defineAdapter') continue;
+    if (resolver.resolveCalleeText(init.callee) !== 'defineAdapter') continue;
 
     return { call: init, symbol };
   }

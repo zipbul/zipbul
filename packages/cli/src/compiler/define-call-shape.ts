@@ -114,15 +114,29 @@ function describeReason(reason: DefineCallShapeReason): string {
  *   - `import { defineMiddleware } from '@zipbul/common'`            → 'defineMiddleware'
  *   - `import { defineMiddleware as mw } from '@zipbul/common'`      → mw → 'defineMiddleware'
  *   - `import * as zb from '@zipbul/common'; zb.defineMiddleware(…)` → namespace lookup
+ *
+ * Shared with adapter-build extractors (`findDefineAdapterCall`,
+ * `validateNoBuiltinMiddleware`) so they can also resolve aliased calls.
+ *
+ * @public
  */
-interface CalleeResolver {
+export interface CalleeResolver {
   /** Resolves a local `Identifier(name)` to the `defineX` original name, or null. */
   named(localName: string): string | null;
   /** Returns true if `objectName` is an `import * as` namespace from a regulated source. */
   isRegulatedNamespace(objectName: string): boolean;
+  /**
+   * Convenience for `ExpressionCall.callee` consumers. The callee text comes
+   * either as a bare identifier (`'mw'`) or a `ns.method` member-expression
+   * string. Returns the original `defineX` name if regulated, else `null`.
+   */
+  resolveCalleeText(calleeText: string): string | null;
 }
 
-function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver {
+/**
+ * @public
+ */
+export function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver {
   const named = new Map<string, string>();           // localName → originalName
   const namespaces = new Set<string>();              // localName of `* as ns`
 
@@ -150,6 +164,14 @@ function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver {
   return {
     named: localName => named.get(localName) ?? null,
     isRegulatedNamespace: objectName => namespaces.has(objectName),
+    resolveCalleeText(calleeText) {
+      const dot = calleeText.indexOf('.');
+      if (dot === -1) return named.get(calleeText) ?? null;
+      const obj = calleeText.slice(0, dot);
+      const prop = calleeText.slice(dot + 1);
+      if (!namespaces.has(obj)) return null;
+      return REGULATED_DEFINE_CALLS.has(prop) ? prop : null;
+    },
   };
 }
 

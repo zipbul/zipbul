@@ -221,6 +221,77 @@ describe('zb build adapter — Slice 1', () => {
     expect((await readFile(join(pkgRoot, 'dist', 'adapter.manifest.json'), 'utf8')).length).toBeGreaterThan(0);
   });
 
+  it('builds successfully with aliased `defineAdapter as ...` import', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({ name: '@example/aliased-adapter', version: '0.0.1', zipbul: { kind: 'adapter' } }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-definition.ts'),
+      [
+        `import { defineAdapter as makeAdapter } from '@zipbul/common';`,
+        `import { CoreStep } from '@zipbul/core';`,
+        `import { A, Ctx, P, S } from './x';`,
+        `export const def = makeAdapter({`,
+        `  adapter: A, context: Ctx, phase: P, step: S,`,
+        `  pipeline: [P.X, CoreStep.Handler],`,
+        `});`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/x.ts'),
+      [
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class A { readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] }; }`,
+        `export class Ctx {}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const P = { X: 'X' } as const;`,
+        `export const S = {} as const;`,
+      ].join('\n'),
+    );
+
+    const result = await buildAdapter({ packageRoot: pkgRoot });
+    expect(result.adapterId).toBe('A');
+  });
+
+  it('hard error when adapter src has aliased `defineMiddleware as ...` (purity policy + alias)', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({ name: '@example/aliased-impure', version: '0.0.1', zipbul: { kind: 'adapter' } }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-definition.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { A, Ctx, P, S } from './x';`,
+        `export const d = defineAdapter({ adapter: A, context: Ctx, phase: P, step: S, pipeline: [P.X, CoreStep.Handler] });`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/x.ts'),
+      [
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class A { readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] }; }`,
+        `export class Ctx {}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const P = { X: 'X' } as const;`,
+        `export const S = {} as const;`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/forbidden.ts'),
+      [
+        `import { defineMiddleware as mw } from '@zipbul/common';`,
+        `import { A } from './x';`,
+        `export const cookieMiddleware = mw([A], () => (ctx: unknown) => { void ctx; });`,
+      ].join('\n'),
+    );
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toThrow(/pure protocol adapters/);
+  });
+
   it('hard error when defineX call is not at top-level export const (shape policy)', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),
