@@ -167,6 +167,63 @@ describe('AdapterDefinitionResolver — manifest-only wiring', () => {
     expect(result.data.why).toMatch(/SYNTAX.+is not valid JSON/);
   });
 
+  it('propagates DiagnosticError from readAdapterManifest (path-traversal in manifest index)', async () => {
+    const adapterRoot = await writeAndBuildAdapter('@example/test-adapter');
+    // Corrupt the root manifest's index to point outside dist/.
+    const topPath = join(adapterRoot, 'dist', 'adapter.manifest.json');
+    const top = JSON.parse(await Bun.file(topPath).text());
+    top.manifests['pipeline-schema'] = '../../etc/passwd';
+    await Bun.write(topPath, JSON.stringify(top));
+
+    const fileMap = fileMapWithImport(join(adapterRoot, 'src/index.ts'));
+    const result = await new AdapterDefinitionResolver().resolve({
+      fileMap,
+      projectRoot: workspaceRoot,
+    });
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.data.why).toMatch(/points outside dist/);
+  });
+
+  it('propagates DiagnosticError when sibling manifest has wrong $schemaName', async () => {
+    const adapterRoot = await writeAndBuildAdapter('@example/test-adapter');
+    // Corrupt one sibling manifest.
+    await Bun.write(
+      join(adapterRoot, 'dist', 'pipeline-schema.json'),
+      JSON.stringify({ $schemaName: 'adapter.decorator-schema' }),
+    );
+
+    const fileMap = fileMapWithImport(join(adapterRoot, 'src/index.ts'));
+    const result = await new AdapterDefinitionResolver().resolve({
+      fileMap,
+      projectRoot: workspaceRoot,
+    });
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.data.why).toMatch(/expected.+adapter\.pipeline-schema/);
+  });
+
+  it('propagates DiagnosticError when synthesizer hits null decorators', async () => {
+    const adapterRoot = await writeAndBuildAdapter('@example/test-adapter');
+    // Drop the index entry for decorator-schema.json so loadSibling returns null.
+    const topPath = join(adapterRoot, 'dist', 'adapter.manifest.json');
+    const top = JSON.parse(await Bun.file(topPath).text());
+    delete top.manifests['decorator-schema'];
+    await Bun.write(topPath, JSON.stringify(top));
+
+    const fileMap = fileMapWithImport(join(adapterRoot, 'src/index.ts'));
+    const result = await new AdapterDefinitionResolver().resolve({
+      fileMap,
+      projectRoot: workspaceRoot,
+    });
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.data.why).toMatch(/missing.+decorator-schema/);
+  });
+
   it('dedupes same package root reached via multiple entry files', async () => {
     const adapterRoot = await writeAndBuildAdapter('@example/test-adapter');
     const userFile = join(workspaceRoot, 'src/main.ts');

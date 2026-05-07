@@ -66,38 +66,30 @@ zipbul 은 AOT (Ahead-of-Time) 컴파일러를 가진다 — 사용자 앱 빌�
 
 ### A.2 패킹·설치 시나리오 재현 runbook (회귀 가드)
 
-manifest-only consumption 의 진짜 e2e. 통합 테스트는 트랜지티브 의존성 재설치 (`bun add tarball`) 자동화 가 lockfile/catalog 와 충돌해 미구현 — 본 manual runbook 이 회귀 가드. 미래 영역 3 진입 시 자동화 후보.
+manifest-only consumption 의 자동화된 e2e 는 `packages/cli/test/integration/external-consumption.test.ts` (2 케이스). 본 통합 테스트가 (i) `buildAdapter` → manifest emit, (ii) `readAdapterManifest` 의 `.ts` 부재 상태 소비, (iii) `detectMultiAdapterConflicts` 다중 어댑터 검증 모두 cover. 본 PR 의 `adapter-definition-resolver.test.ts` (8 케이스) 는 wiring 분기 cover.
+
+**진짜 패킹·설치 e2e (워크스페이스 외부) 가 자동화 안 된 이유**: zipbul 워크스페이스 패키지들의 `package.json` 이 `catalog:` / `workspace:*` 를 사용 — `bun pm pack` 산출물을 워크스페이스 *외부* 에 설치하면 `catalog:` 가 해상 불가 (catalog 정의가 루트 `package.json` 에만 존재). 본 issue 는 어댑터 컴파일러 로직 결함이 아니라 *publishing 단계* 의 concern (어댑터 작성자가 공개 publish 시 `bun publish --resolve-deps` 또는 동등 매커니즘으로 catalog 를 concrete 버전으로 평탄화 필요). 영역 외.
+
+**워크스페이스 dev 에서 manifest-only 흐름 회귀 가드** (실측 가능):
 
 ```bash
-# 1. 어댑터 컴파일
-cd /home/revil/projects/zipbul/zipbul/packages/http-adapter
-bun run build  # = bun ../../packages/cli/src/bin/zb.ts build adapter
-# → {"ok":true,"adapterId":"HttpAdapter","manifestPath":".../dist/adapter.manifest.json"}
+ROOT=/home/revil/projects/zipbul/zipbul
 
-# 2. 어댑터 패키징
-bun pm pack
-# → zipbul-http-adapter-X.Y.Z.tgz
+# 1. 어댑터 manifest 빌드
+cd "$ROOT/packages/http-adapter" && bun run build
+# → {"ok":true,"adapterId":"HttpAdapter",...}
 
-# 3. examples 의 심볼릭 링크를 패킹된 tarball 으로 교체 + 의존성 재설치
-cd /home/revil/projects/zipbul/zipbul/examples
-bun add ./node_modules/@zipbul/http-adapter/../../packages/http-adapter/zipbul-http-adapter-*.tgz
-# → http-adapter 가 node_modules 안에 .ts 부재 + dist/manifest 만 있는 상태로 설치됨
+# 2. examples 빌드 — 어댑터 dist 만 사용 (사용자 앱 빌드가 어댑터 .ts 분석 안 함을 본 PR 의 wiring 이 보장)
+cd "$ROOT/examples" && rm -rf .zipbul .zipbul-temp dist && bun run build
+# → "Ready to deploy"
 
-# 4. examples 빌드 (manifest-only 흐름)
-rm -rf .zipbul .zipbul-temp dist
-bun run build
-# → "Ready to deploy" 통과해야 함
-
-# 5. 빌드 산출물 실행
+# 3. 산출물 실행
 bun dist/entry.js &
+APP_PID=$!
 sleep 2
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5000/users
 # → 200
-
-# 6. 워크스페이스 심볼릭 복원
-rm -rf node_modules/@zipbul/http-adapter
-ln -s ../../../packages/http-adapter node_modules/@zipbul/http-adapter
-rm -f /home/revil/projects/zipbul/zipbul/packages/http-adapter/zipbul-http-adapter-*.tgz
+kill $APP_PID
 ```
 
 ---
@@ -109,8 +101,7 @@ rm -f /home/revil/projects/zipbul/zipbul/packages/http-adapter/zipbul-http-adapt
 **표기 규약**:
 - 🟡 부분 구현. 명세의 일부만 충족. 무엇이 빠졌는지 비고에 명시.
 - ⬜ 미구현. 명세는 있으나 코드 0 건.
-- ❌ 사용자 명시 거부로 제거. commit `5143811` 변경. 거부 사유 비고에 명시.
-- 🔁 인프라 잘못 삭제, 영역 1 에서 복원 대상.
+- ❌ 사용자 명시 거부로 제거. 거부 사유 비고에 명시.
 
 ### B.1 Section A — Front-end (소스 수집·파싱)
 
@@ -211,15 +202,10 @@ rm -f /home/revil/projects/zipbul/zipbul/packages/http-adapter/zipbul-http-adapt
 
 ### B.12 Section M — CLI Consumer Protocol (Item 114~119)
 
-**전체 영역의 현재 상태**: 사용자 앱 빌드 측 manifest 소비 진입점. read API (`manifest-reader.ts` 251 줄 + `detectMultiAdapterConflicts` + 통합 테스트 7 건) 는 commit `5143811` 에서 잘못 일괄 삭제. 또한 read API 가 존재하던 시점에도 사용자 앱 빌드 (`AdapterDefinitionResolver.resolve()`, `definition-resolver.ts:53`) wiring 부재 — read API 만 단위 검증되어 있었고 빌드 흐름 통합은 미완. 영역 1 (read API 복원) → 영역 2 (wiring) 두 단계로 매듭.
-
 | Item | 명세 요약 | 상태 | 근거 |
 |---|---|---|---|
-| 114 | 사용자 앱 빌드 시 `node_modules/<adapter>/dist/adapter.manifest.json` 우선 로드 | 🔁 | read API 삭제 + wiring 미연 |
-| 115 | manifest 부재 시 fallback 정책 | 🔁 | E1 결정 = hard error. 영역 2 wiring 시 적용 |
 | 117 | manifest 비결정 변경 캐시 무효화 | ❌ | `contentHash` 제거로 감지 수단 없음. **거부 사유**: 사용자 명시 거부 |
 | 118 | manifest hash 임베딩 (사용자 빌드 결정성) | ❌ | 동일 |
-| 119 | 다중 어댑터 manifest 병합 + 충돌 검출 | 🔁 | `detectMultiAdapterConflicts` 가 `manifest-reader.ts` 와 같이 삭제 |
 
 ---
 
