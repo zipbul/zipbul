@@ -13,7 +13,6 @@ function buildResult(overrides: Partial<ReadAdapterManifestResult>): ReadAdapter
     peerContract: null,
     contextNamespaces: null,
     constructorSchema: null,
-    builtins: null,
     ...overrides,
   };
 }

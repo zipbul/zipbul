@@ -99,7 +99,6 @@ describe('zb build adapter — Slice 1', () => {
         'peer-contract': 'peer-contract.json',
         'context-namespaces': 'context-namespaces.json',
         'adapter-constructor-schema': 'adapter-constructor-schema.json',
-        'builtins': 'builtins.json',
       },
     });
 
@@ -193,20 +192,14 @@ describe('zb build adapter — Slice 1', () => {
     expect(schema.optional).toBe(true);
   });
 
-  it('emits dist/builtins.json (empty when no defineMiddleware/Guard/ExceptionFilter calls)', async () => {
+  it('does not emit dist/builtins.json (adapter packages are pure, no built-in middleware)', async () => {
     await writeMinimalAdapter();
 
     await buildAdapter({ packageRoot: pkgRoot });
 
-    const text = await readFile(join(pkgRoot, 'dist', 'builtins.json'), 'utf8');
-    const builtins = JSON.parse(text);
-
-    expect(builtins).toEqual({
-      $schemaName: 'adapter.builtins',
-      middlewares: [],
-      guards: [],
-      exceptionFilters: [],
-    });
+    expect(await Bun.file(join(pkgRoot, 'dist', 'builtins.json')).exists()).toBe(false);
+    const indexJson = await Bun.file(join(pkgRoot, 'dist', 'adapter.manifest.json')).text();
+    expect(JSON.parse(indexJson).manifests).not.toHaveProperty('builtins');
   });
 
   it('emits dist/index.js via Bun.build alongside the manifests', async () => {
@@ -228,11 +221,11 @@ describe('zb build adapter — Slice 1', () => {
     expect((await readFile(join(pkgRoot, 'dist', 'adapter.manifest.json'), 'utf8')).length).toBeGreaterThan(0);
   });
 
-  it('builtins.json captures defineMiddleware / defineGuard / defineExceptionFilter calls', async () => {
+  it('hard error when adapter package contains defineMiddleware / defineGuard / defineExceptionFilter calls (purity policy)', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),
       JSON.stringify({
-        name: '@example/builtins-adapter',
+        name: '@example/impure-adapter',
         version: '0.0.1',
         zipbul: { kind: 'adapter' },
       }),
@@ -260,7 +253,7 @@ describe('zb build adapter — Slice 1', () => {
       ].join('\n'),
     );
     await Bun.write(
-      join(pkgRoot, 'src/builtins.ts'),
+      join(pkgRoot, 'src/forbidden.ts'),
       [
         `import { defineMiddleware, defineGuard, defineExceptionFilter } from '@zipbul/common';`,
         `import { A } from './x';`,
@@ -270,20 +263,7 @@ describe('zb build adapter — Slice 1', () => {
       ].join('\n'),
     );
 
-    await buildAdapter({ packageRoot: pkgRoot });
-
-    const text = await readFile(join(pkgRoot, 'dist', 'builtins.json'), 'utf8');
-    const builtins = JSON.parse(text);
-
-    expect(builtins.middlewares).toEqual([
-      { exportName: 'cookieMiddleware', sourceFile: 'src/builtins.ts', kind: 'middleware', adapters: ['A'] },
-    ]);
-    expect(builtins.guards).toEqual([
-      { exportName: 'authGuard', sourceFile: 'src/builtins.ts', kind: 'guard', adapters: [] },
-    ]);
-    expect(builtins.exceptionFilters).toEqual([
-      { exportName: 'httpFilter', sourceFile: 'src/builtins.ts', kind: 'exception-filter', adapters: [] },
-    ]);
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toThrow(/pure protocol adapters/);
   });
 
   it('peer-contract honors explicit ClusterStrategy.Exclusive on adapter class + provides field', async () => {

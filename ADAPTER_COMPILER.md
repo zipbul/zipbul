@@ -37,23 +37,25 @@
 - `bunx tsc --noEmit` 한 번 — 진입 baseline 이 깨끗한지 검증.
 - 본 문서의 헤더 baseline ↔ 실측 카운트 일치 확인. 다르면 본 문서 stale 가능 — Section A~M 의 마크 재검증.
 
-### 0.1 진행 중 / 잔여 작업
+### 0.1 정책 + 잔여 작업
+
+**핵심 정책 — 어댑터 순수성 (Adapter Purity)**:
+어댑터 패키지는 *순수 protocol 어댑터*. `defineMiddleware/Guard/ExceptionFilter` 호출을 어댑터 패키지 src 안에 두는 것 **금지** (Item 22·23·24·52·58·60·68 모두 ❌). 어댑터 src 트리에 발견 시 `validateNoBuiltinMiddleware` 가 CONTRACT 에러 throw. cross-cutting concern (Cookie / Body / Compression / Request ID / Trust proxy / ETag / Leader election 등) 은 모두 별개 미들웨어 라이브러리 패키지 (`zb build --lib`) 로 분리되며, 사용자 앱이 직접 import 해서 모듈에 등록.
+
+**근거**:
+- protocol 위반이 발생하지 않는 cross-cutting 동작은 어댑터 contract 의 일부가 아님 (예: Cookie 파싱은 HTTP wire format 이 아니라 convention).
+- protocol 위반이 발생하는 동작 (예: HTTP CORS preflight, WebSocket ping/pong, queue ack/nack) 은 어댑터 *본체 코드* 에서 hard-code (사용자 핸들러 chain 진입 *전후*), 미들웨어 형태 안 씀.
+- zipbul 은 `zb build --lib` 미들웨어 라이브러리 1급 시민 — augment / contextOps / declaration merging 모두 별개 패키지에서 emit. 어댑터 내장은 잉여.
+- 결과: 두 컴파일러 (`zb build adapter` / `zb build --lib`) 의 책임 단순화 — adapter = wire format, middleware = cross-cutting.
 
 **완료 영역**:
-- Step 1~9 — gildash 단일 진입점 마이그레이션 (cli 의 `from 'oxc-parser'` 0건, Section N).
+- Step 1~9 — gildash 단일 진입점 마이그레이션.
 - Step 10 — `zb build adapter` 본체 (Section A~L 의 ✅ 항목들).
-- 영역 1·2 — 사용자 앱 빌드 측 manifest 소비 (Section M Item 114·115·119, `AdapterDefinitionResolver` manifest-only wiring + `.ts` fallback 폐기).
+- 영역 1·2 — 사용자 앱 빌드 측 manifest 소비.
+- 영역 3·4 — augment 흡수 / STATUS 폐기 모두 완료.
 
-**잔여 작업 — 영역 3: 어댑터 내장 미들웨어 augment 흡수**:
-- 진입 조건: 어댑터 패키지 (예: `@zipbul/http-adapter`) 안에 `defineMiddleware/Guard/ExceptionFilter` 호출이 작성되는 시점. 현재 http-adapter 의 `src/` (spec 제외) 에 0건이라 진입 보류.
-- 작업 범위:
-  1. `extractBuiltins` 를 augment 추출까지 확장 — cli 측 `packages/cli/src/compiler/analyzer/parser/middleware-augment-extractor.ts` 의 `extractMiddlewareAugments` 흡수. 결과를 `BuiltinEntry.augments?: PropAugment[]` 필드로 직렬화 (`BuiltinsManifest` 인터페이스 확장).
-  2. `dist/context-augments.d.ts` emit (Item 58) — `declare module '<adapter-package>' { interface <ContextType> { ... } }` 템플릿. `runCodegen` 의 .d.ts emit 분기에서 추가.
-  3. `__augments` IR injection (Item 60) — 사전 변환 패턴: `Bun.build` 호출 *전* 에 `.ts` 소스를 임시 디렉토리에 변형 (defineMiddleware 호출 자리에 augments IR 인자 주입), 변형된 `.ts` 를 entrypoint 로 전달. 패턴 참조: `packages/cli/src/bin/build/lib-build.ts` + `lib-augment-injector.ts`.
-  4. 검증 어댑터 — http-adapter 가 augment 0건이면 fixture (`packages/cli/test/fixtures/augment-adapter/`) 신설 후 e2e.
-
-**남은 명세 미완 항목** (Section A~M 의 ⬜ / 🟡 표기):
-- Section A·B·C·D·E·G·H·I·J 곳곳에 있는 보강 항목들 (test-fixtures 제외 룰, 워크스페이스 심볼릭 정규화, BOM 검증, Adapter 메서드 시그니처, Decorator 인자 schema, re-export 체인, handler step 카운트, files 필드 검증, 타입 schema 변환 / 제네릭 / overload, sourcemap, sideEffects 자동, WARN/ERROR 분리, tsc 라인별 진단, exit code 2 등). 우선순위 낮음.
+**잔여 — 명세 미완 항목** (Section A~M 의 ⬜ / 🟡 표기):
+test-fixtures 제외 룰, 워크스페이스 심볼릭 정규화, BOM 검증, Adapter 메서드 시그니처, Decorator 인자 schema, re-export 체인, handler step 카운트, files 필드 검증, 타입 schema 변환 / 제네릭 / overload, sourcemap, sideEffects 자동, WARN/ERROR 분리, tsc 라인별 진단, exit code 2 — 모두 우선순위 낮음. 필요 시 개별 진입.
 
 ### 0.2 회귀 baseline + 검증 명령
 
@@ -117,9 +119,9 @@
 20. ✅ Decorator 분류: controller / handlers / options (어댑터 entry 한정 — param 은 provider 생성자 별도 경로).
 21. ⬜ Decorator 인자 schema (리터럴 / 식별자 참조 한정) — 데코레이터 이름만 추출, 인자 schema 미추출.
 21b. — Provider 생성자 파라미터 데코레이터 (`@Inject` 등) — 어댑터 컴파일러 책임 외 (사용자 앱 빌드 책임). 명세 분류 오류로 후속 정리 대상.
-22. ✅ 어댑터 패키지 내 `defineMiddleware` 호출 추출 — `extractBuiltins` (kind: 'middleware'). 호출 메타만.
-23. ⬜ 내장 미들웨어의 augments + contextOps 추출 — augment 흡수 영역 (영역 3, 어댑터 내장 미들웨어 작성 시점에 진입).
-24. ✅ 어댑터 내장 `defineGuard` / `defineExceptionFilter` 추출 — 동일 함수.
+22. ❌ 어댑터 패키지 내 `defineMiddleware` 호출 — **정책: 어댑터 = 순수 protocol 어댑터, 내장 미들웨어 금지**. 어댑터 src 트리에서 `defineMiddleware/Guard/ExceptionFilter` 호출 발견 시 `validateNoBuiltinMiddleware` 가 CONTRACT 에러 throw. cross-cutting concern (cookie / body / compression / request-id / leader election 등) 은 별개 미들웨어 라이브러리 패키지 (`zb build --lib`) 로 분리.
+23. ❌ 내장 미들웨어의 augments + contextOps 추출 — Item 22 정책으로 영역 자체 폐기.
+24. ❌ 어댑터 내장 `defineGuard` / `defineExceptionFilter` — Item 22 정책 동일.
 25. ❌ Public export 전수 (barrel 분석) — 사용자 명시 거부 (`PeerContract.publicExports` 제거). 어댑터 contract 와 무관.
 26. ✅ 어댑터 ID (어댑터 클래스 이름) 추출.
 27. ✅ `defineAdapter` named export 단 1개 — `findDefineAdapterCall` 단일 매칭 강제.
@@ -154,7 +156,7 @@
 49. 🟡 namespace property 타입 → JSON-friendly schema — `ContextNamespaceProperty.type: string \| null` 으로 raw 텍스트 보존만. JSON schema 변환 안 함.
 50. ⬜ 제네릭 타입 파라미터 보존 — raw 텍스트로 묻어가기는 함 (구조화 안 됨).
 51. ⬜ 메서드 overload 시그니처 모두 보존 — 단일 시그니처만.
-52. ⬜ Built-in 미들웨어 PropAugment 추출 — Item 23 과 동일 augment 영역 (영역 3).
+52. ❌ Built-in 미들웨어 PropAugment — Item 22·23 정책 (어댑터 순수성) 으로 폐기. 미들웨어 augment 는 별개 라이브러리 패키지의 `zb build --lib` 가 처리.
 53. ⬜ Type-only import 추적.
 54. ⬜ tsconfig `paths` alias 정규화.
 54b. ✅ `defineAdapter.provides` 추출 — `readProvidesField` → peer-contract 에 emit.
@@ -165,9 +167,9 @@
 55. ✅ TS → JS 컴파일 — `Bun.build` (target=bun, format=esm, packages=external, minify={ syntax, whitespace }).
 56. ✅ `dist/index.js` 생성.
 57. 🟡 `dist/index.d.ts` 생성 — `tsconfig.build.json` 존재 시에만. 부재 시 skip.
-58. ⬜ `dist/context-augments.d.ts` declaration merging — augment 영역 (영역 3).
+58. ❌ `dist/context-augments.d.ts` — Item 22·23·52 정책 동일. Context augment 는 별개 미들웨어 라이브러리 패키지가 declaration merging 으로 emit (`zb build --lib`).
 59. ⬜ Source map (`.js.map`) — `Bun.build` 의 sourcemap 옵션 부재.
-60. ⬜ JS 산출물 `__augments` / `__contextOps` IR injection — augment 영역 (영역 3, 사전 변환 패턴).
+60. ❌ JS 산출물 `__augments` / `__contextOps` IR injection — Item 22·23·52·58 정책 동일. 별개 미들웨어 라이브러리 (`zb build --lib`) 가 자체 처리 (`lib-augment-injector.ts`).
 61. 🟡 런타임 보존 — `minify: { identifiers: false }` 식별자 보존. self-test 가 검증했으나 ❌제거.
 62. ⬜ ESM `export *` named binding 안정성 미검증.
 63. ⬜ `sideEffects: false` 호환성 자동 산출 미처리.
@@ -180,7 +182,7 @@
 65. ✅ `dist/pipeline-schema.json` — phaseEnum/stepEnum + phaseMembers/stepMembers (선언 순서) + pipeline.
 66. ✅ `dist/context-namespaces.json` — Context type + methods + namespaces.
 67. ✅ `dist/decorator-schema.json` — controller / handlers / options.
-68. ✅ `dist/builtins.json` — 호출 메타 (augments 미포함, 영역 3 영역).
+68. ❌ `dist/builtins.json` — Item 22·23·24 정책 (어댑터 순수성) 으로 폐기. 어댑터 패키지에 내장 미들웨어 0건 보장 → 본 manifest 자체 emit 안 함.
 69. ✅ `dist/peer-contract.json` — clusterStrategy + provides + peerSymbols.
 70. ✅ JSON 키 순서 결정적 정렬 — `canonicalize` 재귀.
 71. ✅ 모든 manifest `$schemaName` 자기 식별.
@@ -266,6 +268,6 @@
 
 **구성**. 137 항목 = 128 원본 책임 (1~128) + 6 신규 (21b·48b·54b·54c·58보강·71b) + 4 메인테이너 협력 (129·130·131·132). Item 41 카디널리티 룰 정정 포함.
 
-**다음 에이전트의 진입점**: Section 0.1 의 잔여 작업 (영역 3 — 어댑터 내장 미들웨어 augment 흡수). 진입 조건 부재 시 (어댑터에 `defineMiddleware` 호출 0건) 보류.
+**다음 에이전트의 진입점**: Section 0.1 의 잔여 명세 미완 항목들 (낮은 우선순위, 사용자 요청 시 개별 진입).
 
 근거는 모두 zipbul 본체 contract 또는 컴파일러 표준 책임. 새 항목 도입은 zipbul 본체 코드 라인 인용 후 추가.

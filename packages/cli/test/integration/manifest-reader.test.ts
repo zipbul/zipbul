@@ -64,7 +64,6 @@ describe('readAdapterManifest — Section M (Item 114·115)', () => {
     expect(result.peerContract).not.toBeNull();
     expect(result.contextNamespaces).not.toBeNull();
     expect(result.constructorSchema).not.toBeNull();
-    expect(result.builtins).not.toBeNull();
   });
 
   it('throws when adapter package.json is missing (E5 — packageName required)', async () => {
@@ -201,6 +200,5 @@ function manifestFixture(adapterId: string, opts: { decorators: readonly string[
     },
     contextNamespaces: null,
     constructorSchema: null,
-    builtins: null,
   };
 }

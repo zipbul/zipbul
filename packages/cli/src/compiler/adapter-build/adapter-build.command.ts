@@ -47,8 +47,6 @@ import type {
   AdapterManifest,
   BuildAdapterOptions,
   BuildAdapterResult,
-  BuiltinEntry,
-  BuiltinsManifest,
   ContextMethodSignature,
   ContextNamespaceProperty,
   ContextNamespacesSchema,
@@ -120,14 +118,13 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     extracted.adapterId,
     packageRoot,
   );
-  const builtins = extractBuiltins(sourceTree, packageRoot);
+  validateNoBuiltinMiddleware(sourceTree, packageRoot);
 
   const pipelineSchemaRel = 'pipeline-schema.json';
   const decoratorSchemaRel = 'decorator-schema.json';
   const peerContractRel = 'peer-contract.json';
   const contextNamespacesRel = 'context-namespaces.json';
   const constructorSchemaRel = 'adapter-constructor-schema.json';
-  const builtinsRel = 'builtins.json';
 
   const phaseMembers = resolveEnumMembers(sourceTree, extracted.pipelineSchema.phaseEnum);
   const stepMembers = resolveEnumMembers(sourceTree, extracted.pipelineSchema.stepEnum);
@@ -143,7 +140,6 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     { relPath: peerContractRel, content: serializeJson(peerContract) },
     { relPath: contextNamespacesRel, content: serializeJson(contextNamespaces) },
     { relPath: constructorSchemaRel, content: serializeJson(constructorSchema) },
-    { relPath: builtinsRel, content: serializeJson(builtins) },
   ];
 
   const adapterManifest: AdapterManifest = {
@@ -155,7 +151,6 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
       'peer-contract': peerContractRel,
       'context-namespaces': contextNamespacesRel,
       'adapter-constructor-schema': constructorSchemaRel,
-      'builtins': builtinsRel,
     },
   };
 
@@ -1094,82 +1089,40 @@ function extractAdapterConstructorSchema(
 }
 
 /**
- * Walks the package source tree for `defineMiddleware()` / `defineGuard()` /
- * `defineExceptionFilter()` calls bound to top-level exported variables
- * (Item 22·23·24·68). For middleware, also captures the optional
- * `[AdapterClass, ...]` first argument.
+ * Adapter packages must be *pure protocol adapters* — they may not embed
+ * `defineMiddleware()` / `defineGuard()` / `defineExceptionFilter()` calls.
+ * Cross-cutting concerns (cookies / body parsing / compression / request id /
+ * leader election etc.) belong in separate middleware library packages
+ * compiled with `zb build --lib` and consumed via user-app module
+ * registration. This validator scans the adapter source tree and raises
+ * a CONTRACT diagnostic listing every offending export.
  */
-function extractBuiltins(tree: SourceTree, packageRoot: string): BuiltinsManifest {
-  const middlewares: BuiltinEntry[] = [];
-  const guards: BuiltinEntry[] = [];
-  const exceptionFilters: BuiltinEntry[] = [];
-
-  const KIND_MAP: Record<string, BuiltinEntry['kind']> = {
-    defineMiddleware: 'middleware',
-    defineGuard: 'guard',
-    defineExceptionFilter: 'exception-filter',
-  };
+function validateNoBuiltinMiddleware(tree: SourceTree, packageRoot: string): void {
+  const FORBIDDEN = new Set(['defineMiddleware', 'defineGuard', 'defineExceptionFilter']);
+  const offenders: Array<{ exportName: string; sourceFile: string; callee: string }> = [];
 
   for (const file of tree) {
     const sourceFile = relativeFromRoot(file.filePath, packageRoot);
-
     for (const symbol of file.symbols) {
       if (symbol.kind !== 'variable' || !symbol.isExported) continue;
-
       const init = symbol.initializer;
       if (init === undefined || init.kind !== 'call') continue;
-
-      const kind = KIND_MAP[init.callee];
-      if (kind === undefined) continue;
-
-      const adapters = kind === 'middleware'
-        ? readAdaptersArrayArg(init)
-        : [];
-
-      const entry: BuiltinEntry = {
-        exportName: symbol.name,
-        sourceFile,
-        kind,
-        adapters,
-      };
-
-      if (kind === 'middleware') middlewares.push(entry);
-      else if (kind === 'guard') guards.push(entry);
-      else exceptionFilters.push(entry);
+      if (!FORBIDDEN.has(init.callee)) continue;
+      offenders.push({ exportName: symbol.name, sourceFile, callee: init.callee });
     }
   }
 
-  // Stable sort for byte-identical output.
-  const byExport = (a: BuiltinEntry, b: BuiltinEntry): number =>
-    a.sourceFile.localeCompare(b.sourceFile) || a.exportName.localeCompare(b.exportName);
-  middlewares.sort(byExport);
-  guards.sort(byExport);
-  exceptionFilters.sort(byExport);
+  if (offenders.length === 0) return;
 
-  return {
-    $schemaName: 'adapter.builtins',
-    middlewares,
-    guards,
-    exceptionFilters,
-  };
-}
+  const formatted = offenders
+    .sort((a, b) => a.sourceFile.localeCompare(b.sourceFile) || a.exportName.localeCompare(b.exportName))
+    .map(o => `  - ${o.sourceFile} :: ${o.exportName} = ${o.callee}(...)`)
+    .join('\n');
 
-function readAdaptersArrayArg(call: ExpressionCall): readonly string[] {
-  // `defineMiddleware([HttpAdapter], factory)` — adapters list is the first arg
-  // and an array literal of identifiers. If the first arg is a function/object,
-  // there's no adapter list (factory-only or config-object overload).
-  const firstArg = call.arguments[0];
-  if (firstArg === undefined) return [];
-  if (firstArg.kind !== 'array') return [];
-
-  const out: string[] = [];
-
-  for (const element of firstArg.elements) {
-    if (element.kind !== 'identifier') continue;
-    out.push(element.name);
-  }
-
-  return out;
+  throw diag('CONTRACT', {
+    reason: `Adapter packages must be pure protocol adapters and may not embed middleware/guards/exception-filters. Move the following exports to a separate library package (compile with \`zb build --lib\`):\n${formatted}`,
+    file: packageRoot,
+  });
 }
 
 function relativeFromRoot(absPath: string, packageRoot: string): string {

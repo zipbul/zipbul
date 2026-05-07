@@ -141,39 +141,6 @@ export interface AdapterConstructorSchema {
 }
 
 /**
- * Single built-in middleware / guard / exception-filter declared inside the
- * adapter package via `defineMiddleware()` / `defineGuard()` /
- * `defineExceptionFilter()` (Item 22·23·24).
- *
- * @public
- */
-export interface BuiltinEntry {
-  /** Variable name the call is bound to (the export). */
-  readonly exportName: string;
-  /** Source file (relative to package root) where the call lives. */
-  readonly sourceFile: string;
-  /** `'middleware'` | `'guard'` | `'exception-filter'`. */
-  readonly kind: 'middleware' | 'guard' | 'exception-filter';
-  /** Optional adapters list — when `defineMiddleware([HttpAdapter, ...], factory)`. */
-  readonly adapters: readonly string[];
-}
-
-/**
- * `dist/builtins.json` — every `defineMiddleware/Guard/ExceptionFilter()`
- * call discovered in the adapter package source tree. User-app build joins
- * these with the runtime registration so the adapter's own middlewares run
- * even when the user app didn't import them explicitly.
- *
- * @public
- */
-export interface BuiltinsManifest {
-  readonly $schemaName: 'adapter.builtins';
-  readonly middlewares: readonly BuiltinEntry[];
-  readonly guards: readonly BuiltinEntry[];
-  readonly exceptionFilters: readonly BuiltinEntry[];
-}
-
-/**
  * `dist/peer-contract.json` — the adapter's contract with the framework runtime
  * and the user-app build (Item 69).
  *

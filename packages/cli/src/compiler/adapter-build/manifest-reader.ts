@@ -23,7 +23,6 @@ import type {
   PeerContract,
   ContextNamespacesSchema,
   AdapterConstructorSchema,
-  BuiltinsManifest,
 } from './interfaces';
 
 interface SiblingSchemaSpec<T> {
@@ -37,7 +36,6 @@ const SIBLING_SCHEMAS = {
   peerContract: { logicalName: 'peer-contract', schemaName: 'adapter.peer-contract' } as const,
   contextNamespaces: { logicalName: 'context-namespaces', schemaName: 'adapter.context-namespaces' } as const,
   constructorSchema: { logicalName: 'adapter-constructor-schema', schemaName: 'adapter.constructor-schema' } as const,
-  builtins: { logicalName: 'builtins', schemaName: 'adapter.builtins' } as const,
 } satisfies Record<string, SiblingSchemaSpec<string>>;
 
 /**
@@ -61,7 +59,6 @@ export interface ReadAdapterManifestResult {
   readonly peerContract: PeerContract | null;
   readonly contextNamespaces: ContextNamespacesSchema | null;
   readonly constructorSchema: AdapterConstructorSchema | null;
-  readonly builtins: BuiltinsManifest | null;
 }
 
 /**
@@ -103,11 +100,10 @@ export async function readAdapterManifest(
   const peerContract = await loadSibling<PeerContract>(distPath, indexed, SIBLING_SCHEMAS.peerContract);
   const contextNamespaces = await loadSibling<ContextNamespacesSchema>(distPath, indexed, SIBLING_SCHEMAS.contextNamespaces);
   const constructorSchema = await loadSibling<AdapterConstructorSchema>(distPath, indexed, SIBLING_SCHEMAS.constructorSchema);
-  const builtins = await loadSibling<BuiltinsManifest>(distPath, indexed, SIBLING_SCHEMAS.builtins);
 
   const packageName = await loadPackageName(distPath);
 
-  return { packageName, adapter, pipeline, decorators, peerContract, contextNamespaces, constructorSchema, builtins };
+  return { packageName, adapter, pipeline, decorators, peerContract, contextNamespaces, constructorSchema };
 }
 
 async function loadPackageName(distPath: string): Promise<string> {
