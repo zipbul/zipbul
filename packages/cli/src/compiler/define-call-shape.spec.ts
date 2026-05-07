@@ -141,6 +141,28 @@ describe('validateDefineCallShape — defineX 호출은 top-level export const �
     expect(findDefineCallShapeViolations([file])).toEqual([]);
   });
 
+  it('regulatedCallees 좁히기 — user-app context 는 defineModule 만 검사', () => {
+    // user-app 에서 defineMiddleware 는 factory 함수 안에서 runtime options 받는
+    // 패턴이 정상. defineModule 만 strict shape 강제.
+    const file = parse([
+      `import { defineMiddleware, defineModule } from '@zipbul/common';`,
+      `export function makeTimingMw(opts: { name: string }) {`,
+      `  return defineMiddleware([], () => () => {});`,
+      `}`,
+      `const m = defineModule();`,
+      `export { m };`,
+    ].join('\n'));
+
+    // 전체 set: defineMiddleware (in factory) + defineModule (not exported) 둘 다 위반
+    expect(findDefineCallShapeViolations([file]).length).toBe(2);
+
+    // user-app set: defineModule 위반만
+    const userAppViolations = findDefineCallShapeViolations([file], new Set(['defineModule']));
+    expect(userAppViolations.length).toBe(1);
+    expect(userAppViolations[0]!.callee).toBe('defineModule');
+    expect(userAppViolations[0]!.reason).toBe('not-exported');
+  });
+
   it('validateDefineCallShape 가 위반 시 단일 aggregated DiagnosticError throw', () => {
     const file = parse([
       `import { defineMiddleware } from '@zipbul/common';`,

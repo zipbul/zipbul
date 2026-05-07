@@ -1,4 +1,4 @@
-import { readFile, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
+import { readFile, mkdir, readdir, stat } from 'node:fs/promises';
 import { join, resolve, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
 
@@ -8,6 +8,8 @@ import { validateDefineCallShape, buildCalleeResolver } from '../define-call-sha
 import type { ParsedFile, ExtractedSymbol, ExpressionValue, ExpressionCall, CodeRelation } from '@zipbul/gildash';
 
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
+import { withAtomicEmit, installCancellation } from '../../common';
+import { CliRenderer } from '../../bin/cli-renderer';
 
 /**
  * Adapter-build diagnostic category (Item 80). Prefixed onto the diagnostic's
@@ -66,19 +68,74 @@ import type {
 export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<BuildAdapterResult> {
   const packageRoot = resolve(options.packageRoot ?? process.cwd());
   const outDir = resolve(packageRoot, 'dist');
-  const stagingDir = `${outDir}.staging`;
 
-  const pkgJson = await readPackageJson(packageRoot);
-  validateAdapterKind(pkgJson, packageRoot);
+  // Install SIGINT/SIGTERM handlers — staging dir is registered with the
+  // scope below so an interrupted build cleans up before exit, leaving any
+  // prior dist/ intact. Renderer is used only for the cancellation banner;
+  // adapter-build produces no other interactive output.
+  const cancel = installCancellation({ renderer: options.renderer ?? new CliRenderer() });
+  try {
+    return await runBuildAdapter(packageRoot, outDir, cancel);
+  } finally {
+    cancel.dispose();
+  }
+}
 
-  const sourceTree = await collectSourceTree(packageRoot);
-  validateDefineCallShape(sourceTree.map(f => ({ filePath: f.filePath, parsed: f.parsed })));
-  const entryFile = pickEntrySourceFile(sourceTree, packageRoot);
+/**
+ * Pure extraction phase — given a parsed source tree, produce all the
+ * adapter manifest objects in memory without any disk IO. Shared by:
+ *
+ * - `buildAdapter` (external adapter package path) — the result is then
+ *   serialized to `dist/<*.json>` and `runCodegen` runs.
+ * - `AdapterDefinitionResolver` (user-app inline path) — the result is
+ *   wrapped into a synthetic `ReadAdapterManifestResult` and passed to
+ *   `synthesizeAdapterExtraction` directly.
+ *
+ * The `enforceAdapterPurity` flag drives the `validateNoBuiltinMiddleware`
+ * check: external adapter packages must be pure (no factory-wrapped
+ * `defineMiddleware` / `defineGuard` / `defineExceptionFilter` in their
+ * source — those belong in middleware library packages); user-app inline
+ * adapters live in the same source tree as middleware factories, so the
+ * check would always fail there.
+ *
+ * @public
+ */
+export interface CompileAdapterInputs {
+  readonly sourceTree: SourceTree;
+  /** If undefined, the file containing `defineAdapter(...)` is auto-picked. */
+  readonly entry?: SourceFile;
+  /** Package root used for diagnostic file paths. */
+  readonly packageRoot: string;
+  /** Whether to enforce adapter purity (no inline middleware). */
+  readonly enforceAdapterPurity: boolean;
+}
+
+/**
+ * In-memory output of {@link compileAdapter}. Mirrors the on-disk manifest
+ * tree but without the relative-path indirection.
+ *
+ * @public
+ */
+export interface CompiledAdapter {
+  readonly adapterId: string;
+  readonly pipelineSchema: PipelineSchema;
+  readonly decoratorSchema: DecoratorSchema;
+  readonly peerContract: PeerContract;
+  readonly contextNamespaces: ContextNamespacesSchema;
+  readonly constructorSchema: AdapterConstructorSchema;
+  readonly adapterManifest: AdapterManifest;
+}
+
+/**
+ * Pure extractor: source tree → adapter manifest objects. No disk IO.
+ *
+ * @public
+ */
+export function compileAdapter(inputs: CompileAdapterInputs): CompiledAdapter {
+  const { sourceTree, packageRoot, enforceAdapterPurity } = inputs;
+  const entryFile = inputs.entry ?? pickEntrySourceFile(sourceTree, packageRoot);
   const extracted = extractAdapterDefinition(entryFile);
 
-  // Item 82 — collect validators' diagnostics rather than stopping at the
-  // first failure. Each validator either returns silently or throws a
-  // DiagnosticError; we aggregate before re-throwing.
   const collected: DiagnosticError[] = [];
   const collectFrom = (fn: () => void): void => {
     try { fn(); } catch (cause) {
@@ -89,19 +146,18 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
       }
     }
   };
-  collectFrom(() => validatePackageFields(pkgJson, packageRoot));
   collectFrom(() => validatePipeline(sourceTree, extracted, entryFile.filePath));
   collectFrom(() => validateClassExports(sourceTree, extracted, packageRoot));
 
   if (collected.length > 0) {
     if (collected.length === 1) throw collected[0]!;
-
     const lines = collected.map(e => `  - ${e.diagnostic.why}`).join('\n');
     throw diag('CONTRACT', {
       reason: `${collected.length} validation errors:\n${lines}`,
       file: packageRoot,
     });
   }
+
   const decoratorSchema = extractDecoratorSchema(sourceTree, extracted.adapterId, packageRoot);
   const peerContract = extractPeerContract(
     sourceTree,
@@ -120,13 +176,10 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     extracted.adapterId,
     packageRoot,
   );
-  validateNoBuiltinMiddleware(sourceTree, packageRoot);
 
-  const pipelineSchemaRel = 'pipeline-schema.json';
-  const decoratorSchemaRel = 'decorator-schema.json';
-  const peerContractRel = 'peer-contract.json';
-  const contextNamespacesRel = 'context-namespaces.json';
-  const constructorSchemaRel = 'adapter-constructor-schema.json';
+  if (enforceAdapterPurity) {
+    validateNoBuiltinMiddleware(sourceTree, packageRoot);
+  }
 
   const phaseMembers = resolveEnumMembers(sourceTree, extracted.pipelineSchema.phaseEnum);
   const stepMembers = resolveEnumMembers(sourceTree, extracted.pipelineSchema.stepEnum);
@@ -136,54 +189,90 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
     stepMembers: stepMembers === null ? [] : [...stepMembers],
   };
 
-  const childArtifacts: Array<{ readonly relPath: string; readonly content: string }> = [
-    { relPath: pipelineSchemaRel, content: serializeJson(pipelineSchema) },
-    { relPath: decoratorSchemaRel, content: serializeJson(decoratorSchema) },
-    { relPath: peerContractRel, content: serializeJson(peerContract) },
-    { relPath: contextNamespacesRel, content: serializeJson(contextNamespaces) },
-    { relPath: constructorSchemaRel, content: serializeJson(constructorSchema) },
-  ];
-
   const adapterManifest: AdapterManifest = {
     $schemaName: 'adapter.manifest',
     adapterId: extracted.adapterId,
     manifests: {
-      'pipeline-schema': pipelineSchemaRel,
-      'decorator-schema': decoratorSchemaRel,
-      'peer-contract': peerContractRel,
-      'context-namespaces': contextNamespacesRel,
-      'adapter-constructor-schema': constructorSchemaRel,
+      'pipeline-schema': 'pipeline-schema.json',
+      'decorator-schema': 'decorator-schema.json',
+      'peer-contract': 'peer-contract.json',
+      'context-namespaces': 'context-namespaces.json',
+      'adapter-constructor-schema': 'adapter-constructor-schema.json',
     },
   };
+
+  return {
+    adapterId: extracted.adapterId,
+    pipelineSchema,
+    decoratorSchema,
+    peerContract,
+    contextNamespaces,
+    constructorSchema,
+    adapterManifest,
+  };
+}
+
+async function runBuildAdapter(
+  packageRoot: string,
+  outDir: string,
+  cancel: ReturnType<typeof installCancellation>,
+): Promise<BuildAdapterResult> {
+  const pkgJson = await readPackageJson(packageRoot);
+  validateAdapterKind(pkgJson, packageRoot);
+
+  const sourceTree = await collectSourceTree(packageRoot);
+  validateDefineCallShape(sourceTree.map(f => ({ filePath: f.filePath, parsed: f.parsed })));
+
+  // Package-level validation runs separately because it needs `pkgJson`,
+  // which is irrelevant to the source-only extractor.
+  try {
+    validatePackageFields(pkgJson, packageRoot);
+  } catch (cause) {
+    if (cause instanceof DiagnosticError) throw cause;
+    throw cause;
+  }
+
+  const compiled = compileAdapter({
+    sourceTree,
+    packageRoot,
+    enforceAdapterPurity: true,
+  });
+
+  const childArtifacts: Array<{ readonly relPath: string; readonly content: string }> = [
+    { relPath: 'pipeline-schema.json', content: serializeJson(compiled.pipelineSchema) },
+    { relPath: 'decorator-schema.json', content: serializeJson(compiled.decoratorSchema) },
+    { relPath: 'peer-contract.json', content: serializeJson(compiled.peerContract) },
+    { relPath: 'context-namespaces.json', content: serializeJson(compiled.contextNamespaces) },
+    { relPath: 'adapter-constructor-schema.json', content: serializeJson(compiled.constructorSchema) },
+  ];
 
   const manifestPath = join(outDir, 'adapter.manifest.json');
 
   const artifacts: Array<{ readonly relPath: string; readonly content: string }> = [
     ...childArtifacts,
     // Top-level manifest written last (Item 75) — indexes the other paths.
-    { relPath: 'adapter.manifest.json', content: serializeJson(adapterManifest) },
+    { relPath: 'adapter.manifest.json', content: serializeJson(compiled.adapterManifest) },
   ];
 
-  // Atomic emit (Item 72·73·74): write to staging, then swap.
-  await rm(stagingDir, { recursive: true, force: true });
-  await mkdir(stagingDir, { recursive: true });
+  // Atomic emit (Item 72·73·74): write to staging, then swap. On failure
+  // staging is removed and prior dist/ is preserved. SIGINT/SIGTERM also
+  // cleans staging via the cancellation scope.
+  await withAtomicEmit(
+    {
+      finalDir: outDir,
+      stagingDir: `${outDir}.staging`,
+      registerCleanup: cancel.registerCleanup,
+    },
+    async (stagingDir) => {
+      for (const artifact of artifacts) {
+        await Bun.write(join(stagingDir, artifact.relPath), artifact.content);
+      }
 
-  try {
-    for (const artifact of artifacts) {
-      await Bun.write(join(stagingDir, artifact.relPath), artifact.content);
-    }
+      await runCodegen(packageRoot, stagingDir, cancel.signal);
+    },
+  );
 
-    await runCodegen(packageRoot, stagingDir);
-
-    await rm(outDir, { recursive: true, force: true });
-    await rename(stagingDir, outDir);
-  } catch (cause) {
-    // Item 74 — failure leaves prior dist/ intact; just clean up staging.
-    await rm(stagingDir, { recursive: true, force: true });
-    throw cause;
-  }
-
-  return { adapterId: extracted.adapterId, manifestPath };
+  return { adapterId: compiled.adapterId, manifestPath };
 }
 
 /**
@@ -198,7 +287,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
  * at the package root we invoke `tsc` against it with `--outDir <staging>`;
  * otherwise we skip and leave it to the package's own build pipeline.
  */
-async function runCodegen(packageRoot: string, stagingDir: string): Promise<void> {
+async function runCodegen(packageRoot: string, stagingDir: string, signal?: AbortSignal): Promise<void> {
   const entryCandidates = ['index.ts', 'src/index.ts'];
   let entryPath: string | null = null;
 
@@ -223,6 +312,10 @@ async function runCodegen(packageRoot: string, stagingDir: string): Promise<void
   // the in-tree adapter build scripts (`bun build ... --minify-syntax
   // --minify-whitespace`). `identifiers: false` keeps exported names readable
   // for runtime introspection — the manifest references identifiers by name.
+  if (signal?.aborted === true) {
+    throw diag('IO', { reason: 'Adapter codegen aborted before bundle (signal received).', file: entryPath });
+  }
+
   const buildResult = await Bun.build({
     entrypoints: [entryPath],
     outdir: stagingDir,
@@ -248,11 +341,28 @@ async function runCodegen(packageRoot: string, stagingDir: string): Promise<void
   const tsconfigBuildPath = join(packageRoot, 'tsconfig.build.json');
 
   if (await pathExists(tsconfigBuildPath)) {
-    await runTsc(packageRoot, tsconfigBuildPath, stagingDir);
+    await runTsc(packageRoot, tsconfigBuildPath, stagingDir, signal);
   }
 }
 
-async function runTsc(packageRoot: string, tsconfigPath: string, outDir: string): Promise<void> {
+/** tsc invocation timeout (ms). 5 minutes — large monorepo type checks fit in
+ * this window; anything longer is almost certainly hung. Operators can lower
+ * via `ZIPBUL_TSC_TIMEOUT_MS` for testing or aggressive CI budgets. */
+const TSC_TIMEOUT_MS_DEFAULT = 5 * 60 * 1000;
+
+function resolveTscTimeoutMs(): number {
+  const raw = process.env.ZIPBUL_TSC_TIMEOUT_MS;
+  if (raw === undefined) return TSC_TIMEOUT_MS_DEFAULT;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : TSC_TIMEOUT_MS_DEFAULT;
+}
+
+async function runTsc(
+  packageRoot: string,
+  tsconfigPath: string,
+  outDir: string,
+  signal?: AbortSignal,
+): Promise<void> {
   const tscBin = await resolveTscBin(packageRoot);
   // Item 93 — pin tsbuildinfo to .zipbul/cache/<package>.tsbuildinfo so
   // composite/incremental builds reuse a stable cache across invocations.
@@ -286,25 +396,91 @@ async function runTsc(packageRoot: string, tsconfigPath: string, outDir: string)
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
+    // Hard cap on stdout/stderr accumulation per stream — a runaway tsc that
+    // emits gigabytes of output would otherwise OOM the parent. 4MB is more
+    // than enough for any realistic diagnostic dump; beyond that we truncate
+    // and tag the buffer so the user sees "...truncated".
+    const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
     let stderr = '';
     let stdout = '';
+    let stderrTruncated = false;
+    let stdoutTruncated = false;
+    let settled = false;
+    const appendBounded = (
+      current: string,
+      chunk: string,
+      truncated: boolean,
+    ): { value: string; truncated: boolean } => {
+      if (truncated) return { value: current, truncated };
+      const next = current + chunk;
+      if (next.length <= MAX_OUTPUT_BYTES) return { value: next, truncated: false };
+      return { value: `${next.slice(0, MAX_OUTPUT_BYTES)}\n...[output truncated at ${String(MAX_OUTPUT_BYTES)} bytes]`, truncated: true };
+    };
 
-    child.stdout.on('data', chunk => { stdout += String(chunk); });
-    child.stderr.on('data', chunk => { stderr += String(chunk); });
+    const settle = (action: () => void): void => {
+      if (settled) return;
+      settled = true;
+      action();
+    };
 
-    child.on('error', rejectFn);
+    const onAbort = (): void => {
+      try { child.kill('SIGTERM'); } catch { /* already dead */ }
+      settle(() => rejectFn(diag('IO', {
+        reason: `tsc invocation aborted (signal received) for ${tsconfigPath}.`,
+        file: tsconfigPath,
+      })));
+    };
+
+    if (signal !== undefined) {
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    const timeoutMs = resolveTscTimeoutMs();
+    const timeoutHandle = setTimeout(() => {
+      try { child.kill('SIGTERM'); } catch { /* already dead */ }
+      settle(() => rejectFn(diag('IO', {
+        reason: `tsc timed out after ${String(timeoutMs)}ms for ${tsconfigPath}. The compilation appears hung; re-run after investigating type-check load.`,
+        file: tsconfigPath,
+      })));
+    }, timeoutMs);
+
+    child.stdout.on('data', chunk => {
+      const r = appendBounded(stdout, String(chunk), stdoutTruncated);
+      stdout = r.value;
+      stdoutTruncated = r.truncated;
+    });
+    child.stderr.on('data', chunk => {
+      const r = appendBounded(stderr, String(chunk), stderrTruncated);
+      stderr = r.value;
+      stderrTruncated = r.truncated;
+    });
+
+    child.on('error', err => {
+      clearTimeout(timeoutHandle);
+      if (signal !== undefined) signal.removeEventListener('abort', onAbort);
+      settle(() => rejectFn(err));
+    });
     child.on('close', code => {
+      clearTimeout(timeoutHandle);
+      if (signal !== undefined) signal.removeEventListener('abort', onAbort);
+
+      if (settled) return;
+
       if (code === 0) {
-        resolveFn();
+        settle(resolveFn);
         return;
       }
 
       const message = stderr.trim() !== '' ? stderr.trim() : stdout.trim();
 
-      rejectFn(diag('IO', {
+      settle(() => rejectFn(diag('IO', {
         reason: `tsc exited with code ${code} for ${tsconfigPath}:\n${message}`,
         file: tsconfigPath,
-      }));
+      })));
     });
   });
 }
@@ -375,13 +551,13 @@ interface ExtractedAdapterDefinition {
  * source tree is parsed once and reused by all extractors that need to look
  * up classes/exports across files.
  */
-interface SourceFile {
+export interface SourceFile {
   readonly filePath: string;
   readonly parsed: ParsedFile;
   readonly symbols: readonly ExtractedSymbol[];
 }
 
-type SourceTree = readonly SourceFile[];
+export type SourceTree = readonly SourceFile[];
 
 interface AdapterPackageJson {
   readonly name?: string;
@@ -396,13 +572,26 @@ interface AdapterPackageJson {
   readonly zipbul?: { readonly kind?: string };
 }
 
+/** Hard cap on package.json size — well-formed package manifests are
+ * tiny (< 100KB even for large monorepos). 5MB guards against malformed
+ * inputs that would exhaust memory on parse. */
+const MAX_PACKAGE_JSON_BYTES = 5 * 1024 * 1024;
+
 async function readPackageJson(packageRoot: string): Promise<AdapterPackageJson> {
   const pkgPath = join(packageRoot, 'package.json');
 
   try {
+    const stats = await stat(pkgPath);
+    if (stats.size > MAX_PACKAGE_JSON_BYTES) {
+      throw diag('IO', {
+        reason: `${pkgPath} exceeds the package.json size limit (${String(stats.size)} > ${String(MAX_PACKAGE_JSON_BYTES)} bytes).`,
+        file: pkgPath,
+      });
+    }
     const text = await readFile(pkgPath, 'utf8');
     return JSON.parse(text) as AdapterPackageJson;
   } catch (cause) {
+    if (cause instanceof DiagnosticError) throw cause;
     throw diag('IO', {
       reason: `Failed to read ${pkgPath}: ${(cause as Error).message ?? String(cause)}`,
       file: pkgPath,

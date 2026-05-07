@@ -6,7 +6,7 @@ import type { CommandOptions } from '../interfaces';
 import { AdapterDefinitionResolver, AstParser, type FileAnalysis } from '../../compiler/analyzer';
 import { validateCreateApplication } from '../../compiler/analyzer/validation';
 import { ConfigLoader } from '../../config';
-import { outputDirPath, scanGlobSorted, ensureTsconfigIncludesZipbul } from '../../common';
+import { outputDirPath, scanGlobSorted, ensureTsconfigIncludesZipbul, installCancellation } from '../../common';
 import { isErr } from '@zipbul/result';
 import { DiagnosticError } from '../../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
@@ -226,26 +226,17 @@ export function createDevCommand(deps: DevCommandDeps) {
         });
       });
 
-      // Signal handling
-      let shuttingDown = false;
-
-      const shutdown = async (signal: string): Promise<void> => {
-        if (shuttingDown) {
-          return;
-        }
-        shuttingDown = true;
-
-        renderer.cancelled(`${signal} received. Stopped`);
+      // Signal handling — share the same primitive used by build commands.
+      // Note: dev exits 0 on signal (clean shutdown of watcher), unlike
+      // build commands which use 130 to signal interrupted work.
+      const cancel = installCancellation({ renderer, signalExitCode: 0 });
+      cancel.registerCleanup(async () => {
         await processManager.stop();
         unsubscribe();
         unsubscribeError();
         unsubscribeRole();
         try { await ledger.close(); } catch { /* cleanup failure -- ignore */ }
-        process.exit(0);
-      };
-
-      process.on('SIGINT', () => { void shutdown('SIGINT'); });
-      process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+      });
     } catch (error) {
       await processManager.stop();
       unsubscribeError();
@@ -264,7 +255,10 @@ export const __testing__ = { createDevCommand };
  * @param commandOptions - CLI options (profile, verbose, etc.)
  * @public
  */
-export async function dev(commandOptions?: CommandOptions): Promise<void> {
+export async function dev(
+  commandOptions?: CommandOptions,
+  renderer?: import('../interfaces').CliRendererLike,
+): Promise<void> {
   const impl = createDevCommand({
     loadConfig: async () => {
       const result = await ConfigLoader.load();
@@ -275,7 +269,7 @@ export async function dev(commandOptions?: CommandOptions): Promise<void> {
     createManifestGenerator: () => new ManifestGenerator(),
     createEntryGenerator: () => new EntryGenerator(),
     scanFiles: ({ glob, baseDir }) => scanGlobSorted({ glob, baseDir }),
-    renderer: new CliRenderer(),
+    renderer: renderer ?? new CliRenderer(),
   });
   await impl(commandOptions);
 }

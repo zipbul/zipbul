@@ -8,6 +8,7 @@ import type { BuildCommandDeps } from './interfaces';
 import { extractSymbols, parseSource } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 import { validateDefineCallShape } from '../../compiler/define-call-shape';
+import { withAtomicEmit, readBoundedStream, type CancellationScope } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import {
   extractLibAugments,
@@ -61,6 +62,7 @@ export async function buildLib(
   deps: BuildCommandDeps,
   renderer: CliRendererLike,
   buildStartedAt: number,
+  cancel?: CancellationScope,
 ): Promise<void> {
   const projectRoot = process.cwd();
 
@@ -168,75 +170,106 @@ export async function buildLib(
     renderer.warn('No defineMiddleware() exports with context augments found. If this is a middleware library, verify your factory uses ctx.to() and assigns to context properties.');
   }
 
-  // ── 4. Compile to JS via Bun.build ─────────────────────────
+  // ── 4·5. Atomic emit: Bun.build (JS) + tsc (.d.ts) → staging → swap ──
+  // Both stages write into a staging dir; on success, staging atomically
+  // replaces config.outDir. On any failure the prior dist/ is preserved.
   const compileSpinner = renderer.startSpinner('[3/4] Compiling to JavaScript');
-
-  await mkdir(config.outDir, { recursive: true });
-
-  // Write transformed source to a temp directory for compilation
-  const tempSrcDir = join(config.outDir, '.lib-build-tmp');
   const { rm } = await import('fs/promises');
 
-  await mkdir(tempSrcDir, { recursive: true });
+  await withAtomicEmit(
+    {
+      finalDir: config.outDir,
+      stagingDir: `${config.outDir}.staging`,
+      ...(cancel !== undefined ? { registerCleanup: cancel.registerCleanup } : {}),
+    },
+    async (stagingDir) => {
+      // Transformed source goes into a temp dir alongside staging (siblings,
+      // not nested) so tempSrc removal cannot affect staging contents.
+      const tempSrcDir = `${config.outDir}.lib-build-tmp`;
+      await rm(tempSrcDir, { recursive: true, force: true });
+      await mkdir(tempSrcDir, { recursive: true });
 
-  try {
-    for (const [file, content] of transformedFiles) {
-      const outPath = join(tempSrcDir, file);
+      try {
+        for (const [file, content] of transformedFiles) {
+          const outPath = join(tempSrcDir, file);
+          await mkdir(dirname(outPath), { recursive: true });
+          await Bun.write(outPath, content);
+        }
 
-      await mkdir(dirname(outPath), { recursive: true });
-      await Bun.write(outPath, content);
-    }
+        const entrypoints = resolveEntrypoints(tsFiles, tempSrcDir);
 
-    const entrypoints = resolveEntrypoints(tsFiles, tempSrcDir);
+        const buildResult = await deps.buildBundle({
+          entrypoints,
+          outdir: stagingDir,
+          root: tempSrcDir,
+          target: 'bun',
+          format: 'esm',
+          packages: 'external',
+          minify: { whitespace: true, syntax: true },
+          splitting: true,
+        });
 
-    const buildResult = await deps.buildBundle({
-      entrypoints,
-      outdir: config.outDir,
-      root: tempSrcDir,
-      target: 'bun',
-      format: 'esm',
-      packages: 'external',
-      minify: { whitespace: true, syntax: true },
-      splitting: true,
-    });
+        if (!buildResult.success) {
+          compileSpinner.stop('[3/4] Compiling to JavaScript');
+          const errors = buildResult.logs
+            .filter(log => log.level === 'error')
+            .map(log => log.message)
+            .join('\n');
+          throw new DiagnosticError(buildDiagnostic({
+            reason: `JavaScript compilation failed:\n${errors}`,
+          }));
+        }
 
-    if (!buildResult.success) {
-      compileSpinner.stop('[3/4] Compiling to JavaScript');
+        compileSpinner.stop(`[3/4] Compiled ${String(buildResult.outputs.length)} files`);
+      } finally {
+        await rm(tempSrcDir, { recursive: true, force: true }).catch(() => {});
+      }
 
-      const errors = buildResult.logs
-        .filter(log => log.level === 'error')
-        .map(log => log.message)
-        .join('\n');
+      // ── tsc .d.ts emission into the same staging dir ──
+      const dtsSpinner = renderer.startSpinner('[4/4] Generating type declarations');
 
-      throw new DiagnosticError(buildDiagnostic({
-        reason: `JavaScript compilation failed:\n${errors}`,
-      }));
-    }
+      // 5 minute hard cap — matches adapter-build's TSC_TIMEOUT_MS. Hung tsc
+      // is the most common cause of stalled lib builds; failing fast lets
+      // CI surface the issue instead of consuming the whole job time budget.
+      const TSC_TIMEOUT_MS = 5 * 60 * 1000;
 
-    compileSpinner.stop(`[3/4] Compiled ${String(buildResult.outputs.length)} files`);
-  } finally {
-    await rm(tempSrcDir, { recursive: true, force: true }).catch(() => {});
-  }
+      const proc = Bun.spawn(
+        ['bunx', 'tsc', '--declaration', '--emitDeclarationOnly', '--outDir', stagingDir],
+        {
+          cwd: projectRoot,
+          stderr: 'pipe',
+          stdout: 'pipe',
+          ...(cancel !== undefined ? { signal: cancel.signal } : {}),
+        },
+      );
 
-  // ── 5. Generate .d.ts via tsc ──────────────────────────────
-  const dtsSpinner = renderer.startSpinner('[4/4] Generating type declarations');
+      const timeoutHandle = setTimeout(() => {
+        try { proc.kill('SIGTERM'); } catch { /* already dead */ }
+      }, TSC_TIMEOUT_MS);
 
-  const tscResult = Bun.spawnSync(
-    ['bunx', 'tsc', '--declaration', '--emitDeclarationOnly', '--outDir', config.outDir],
-    { cwd: projectRoot, stderr: 'pipe', stdout: 'pipe' },
+      let exitCode: number | null;
+      try {
+        exitCode = await proc.exited;
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+
+      if (exitCode !== 0) {
+        dtsSpinner.stop('[4/4] Generating type declarations');
+        // 4MB cap mirrors adapter-build's `runTsc` — a runaway tsc must not
+        // OOM the parent through unbounded `await new Response(s).text()`.
+        const stderrText = proc.stderr
+          ? await readBoundedStream(proc.stderr as ReadableStream<Uint8Array>, 4 * 1024 * 1024)
+          : '';
+        const reason = exitCode === null
+          ? `tsc terminated by signal (likely timeout after ${String(TSC_TIMEOUT_MS / 1000)}s or external cancel).`
+          : `Type declaration generation failed (tsc exit code ${String(exitCode)}):\n${stderrText.trim().slice(0, 1000)}`;
+        throw new DiagnosticError(buildDiagnostic({ reason }));
+      }
+
+      dtsSpinner.stop('[4/4] Type declarations generated');
+    },
   );
-
-  if (tscResult.exitCode !== 0) {
-    dtsSpinner.stop('[4/4] Generating type declarations');
-
-    const stderr = tscResult.stderr.toString().trim();
-
-    throw new DiagnosticError(buildDiagnostic({
-      reason: `Type declaration generation failed (tsc exit code ${String(tscResult.exitCode)}):\n${stderr.slice(0, 1000)}`,
-    }));
-  }
-
-  dtsSpinner.stop('[4/4] Type declarations generated');
 
   // ── Summary ────────────────────────────────────────────────
   if (totalAugments > 0) {
@@ -265,6 +298,16 @@ async function resolveLibBuildConfig(projectRoot: string): Promise<LibBuildConfi
   if (!(await packageJsonFile.exists())) {
     throw new DiagnosticError(buildDiagnostic({
       reason: 'package.json not found. Run `zb build --lib` from the package root.',
+      file: packageJsonPath,
+    }));
+  }
+
+  // DoS guard: cap package.json at 5MB so a malformed input cannot exhaust
+  // memory on parse. Real package.json files are well under this limit.
+  const MAX_PACKAGE_JSON_BYTES = 5 * 1024 * 1024;
+  if (packageJsonFile.size > MAX_PACKAGE_JSON_BYTES) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `package.json exceeds the size limit (${String(packageJsonFile.size)} > ${String(MAX_PACKAGE_JSON_BYTES)} bytes).`,
       file: packageJsonPath,
     }));
   }

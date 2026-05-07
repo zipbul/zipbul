@@ -7,8 +7,17 @@
  *
  * @public
  */
-export { buildAdapter } from './adapter-build.command';
-export type { BuildAdapterOptions, BuildAdapterResult } from './interfaces';
+export { buildAdapter, compileAdapter } from './adapter-build.command';
+export type {
+  BuildAdapterOptions,
+  BuildAdapterResult,
+} from './interfaces';
+export type {
+  CompileAdapterInputs,
+  CompiledAdapter,
+  SourceFile,
+  SourceTree,
+} from './adapter-build.command';
 export {
   readAdapterManifest,
   detectMultiAdapterConflicts,

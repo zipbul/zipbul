@@ -12,5 +12,10 @@ export {
 } from './paths';
 export { PathResolver, distToSourceCandidates } from './path-resolver';
 export { writeIfChanged } from './write-if-changed';
+export { withAtomicEmit } from './atomic-emit';
+export type { AtomicEmitOptions } from './atomic-emit';
+export { installCancellation } from './cancellation';
+export type { CancellationScope, InstallCancellationOptions } from './cancellation';
+export { readBoundedStream } from './bounded-read';
 export { ensureTsconfigIncludesZipbul } from './tsconfig-patcher';
 

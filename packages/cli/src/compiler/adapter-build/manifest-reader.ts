@@ -10,7 +10,7 @@
  *
  * @public
  */
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { compareCodePoint } from '../../common';
@@ -135,7 +135,19 @@ async function loadPackageName(distPath: string): Promise<string> {
   return name;
 }
 
+/** Hard cap on manifest file size — adapter manifests are tiny in practice
+ * (well under 100KB). 5MB is a generous DoS guard against malformed packages
+ * shipping multi-gigabyte JSON that would exhaust memory on parse. */
+const MAX_MANIFEST_BYTES = 5 * 1024 * 1024;
+
 async function loadJson<T>(absPath: string): Promise<T> {
+  const stats = await stat(absPath);
+  if (stats.size > MAX_MANIFEST_BYTES) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] ${absPath} exceeds the manifest size limit (${String(stats.size)} > ${String(MAX_MANIFEST_BYTES)} bytes). Manifest files must be small canonical JSON.`,
+      file: absPath,
+    }));
+  }
   const text = await readFile(absPath, 'utf8');
   try {
     return JSON.parse(text) as T;
@@ -155,6 +167,16 @@ async function loadSibling<T extends { readonly $schemaName: string }>(
   const relPath = indexed[spec.logicalName];
   if (relPath === undefined) return null;
 
+  // Type narrowing — `manifests` is typed as `Record<string, string>` but a
+  // malformed manifest can carry a number/bool/object/null. `path.join` and
+  // `String.split` would throw uncaught TypeError; surface a clean
+  // DiagnosticError instead.
+  if (typeof relPath !== 'string' || relPath.length === 0) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] Manifest index entry \`${spec.logicalName}\` must be a non-empty string, got ${describeJsonShape(relPath)}.`,
+    }));
+  }
+
   if (isAbsolute(relPath) || relPath.split('/').some(seg => seg === '..')) {
     throw new DiagnosticError(buildDiagnostic({
       reason: `[CONTRACT] Manifest index entry \`${spec.logicalName}\` points outside dist (${relPath}).`,
@@ -163,6 +185,22 @@ async function loadSibling<T extends { readonly $schemaName: string }>(
 
   const full = join(distPath, relPath);
   if (!(await pathExists(full))) return null;
+
+  // Symlink defense — reject any path whose `realpath()` escapes the dist
+  // root. A malicious adapter package shipping a symlink could otherwise
+  // silently leak arbitrary host files into the consumer's build manifest.
+  const resolvedDist = await realpath(distPath);
+  let resolvedFull: string;
+  try {
+    resolvedFull = await realpath(full);
+  } catch {
+    return null;
+  }
+  if (!isInsideDir(resolvedFull, resolvedDist)) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] Manifest index entry \`${spec.logicalName}\` resolves (via symlink) outside the adapter dist root (${resolvedFull} ⊄ ${resolvedDist}).`,
+    }));
+  }
 
   const raw = await loadJson<unknown>(full);
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -195,6 +233,17 @@ async function pathExists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Returns true when `child` (already realpath-resolved) is `parent` itself
+ * or a descendant of it. Uses path-segment comparison rather than string
+ * `startsWith` so `/a/bc` is not considered inside `/a/b`.
+ */
+function isInsideDir(child: string, parent: string): boolean {
+  if (child === parent) return true;
+  const sep = parent.endsWith('/') ? '' : '/';
+  return child.startsWith(parent + sep);
 }
 
 /**

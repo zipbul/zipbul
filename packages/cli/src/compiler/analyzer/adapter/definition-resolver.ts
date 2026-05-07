@@ -1,5 +1,5 @@
 import { join, dirname } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { stat, readFile } from 'node:fs/promises';
 
 import type { AdapterResolveParams } from '../graph/interfaces';
 import type {
@@ -10,11 +10,17 @@ import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../../../diagnostics';
 
 import { err, isErr } from '@zipbul/result';
+import { parseSource, extractSymbols, walk, is } from '@zipbul/gildash';
+import type { Node, ParsedFile } from '@zipbul/gildash';
 import { buildDiagnostic, DiagnosticError } from '../../../diagnostics';
 import {
   readAdapterManifest,
   synthesizeAdapterExtraction,
+  compileAdapter,
+  type SourceFile,
+  type ReadAdapterManifestResult,
 } from '../../adapter-build';
+import { buildCalleeResolver } from '../../define-call-shape';
 import { collectPackageEntryFiles } from './config-extractor';
 import {
   buildHandlerIndex,
@@ -91,9 +97,23 @@ export class AdapterDefinitionResolver {
       adapterExtractions.push(extraction);
     }
 
+    // Inline-adapter scan: always run. User-app source-tree `defineAdapter`
+    // calls are compiled in-memory via the same extractor used by
+    // `zb build adapter` and appended to whatever external adapter packages
+    // contributed. A multi-adapter app can mix external + inline freely
+    // (e.g. external HTTP + inline custom transport), since each adapter
+    // owns its own decorator + controller scope.
+    try {
+      const inlineExtractions = await collectInlineAdapterExtractions(fileMap, projectRoot);
+      adapterExtractions.push(...inlineExtractions);
+    } catch (cause) {
+      if (cause instanceof DiagnosticError) return err(cause.diagnostic);
+      throw cause;
+    }
+
     if (adapterExtractions.length === 0) {
       return err(buildDiagnostic({
-        reason: 'No adapter package found. The user-app build expects at least one imported package whose `package.json#zipbul.kind` is `"adapter"` and which ships a compiled `dist/adapter.manifest.json`.',
+        reason: 'No adapter found. The user-app build expects either (a) an imported package whose `package.json#zipbul.kind` is `"adapter"` shipping `dist/adapter.manifest.json`, or (b) a top-level `export const X = defineAdapter(...)` call in the user-app source tree.',
       }));
     }
 
@@ -189,4 +209,138 @@ async function pathExists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Scans user-app source files (everything inside `projectRoot` not under
+ * `node_modules/`) for `defineAdapter(...)` calls and compiles each into an
+ * `AdapterExtraction`. Empty array when no inline adapter exists.
+ *
+ * The inline path skips `validateNoBuiltinMiddleware` because user-app
+ * sources legitimately contain factory-wrapped middleware consumers; the
+ * adapter purity rule only applies to dedicated adapter packages.
+ *
+ * @internal
+ */
+async function collectInlineAdapterExtractions(
+  fileMap: Map<string, { /* opaque to us */ }>,
+  projectRoot: string,
+): Promise<AdapterExtraction[]> {
+  const userAppFiles: string[] = [];
+  for (const filePath of fileMap.keys()) {
+    if (filePath.includes(`${'/node_modules/'}`)) continue;
+    if (!filePath.startsWith(projectRoot)) continue;
+    if (!filePath.endsWith('.ts')) continue;
+    if (filePath.endsWith('.d.ts') || filePath.endsWith('.spec.ts') || filePath.endsWith('.test.ts')) continue;
+    userAppFiles.push(filePath);
+  }
+
+  const sourceTree: SourceFile[] = [];
+  const filesContainingDefineAdapter: SourceFile[] = [];
+
+  for (const filePath of userAppFiles) {
+    if (!(await pathExists(filePath))) continue;     // synthetic test fixtures
+    let text: string;
+    try {
+      text = await readFile(filePath, 'utf8');
+    } catch {
+      continue;
+    }
+    const parsed = parseSource(filePath, text);
+    if (isErr(parsed)) continue;     // syntax errors surfaced elsewhere
+
+    const symbols = extractSymbols(parsed);
+    const file: SourceFile = { filePath, parsed: parsed as ParsedFile, symbols };
+    sourceTree.push(file);
+
+    if (fileContainsDefineAdapterCall(file)) {
+      filesContainingDefineAdapter.push(file);
+    }
+  }
+
+  if (filesContainingDefineAdapter.length === 0) return [];
+
+  if (filesContainingDefineAdapter.length > 1) {
+    const list = filesContainingDefineAdapter.map(f => f.filePath).join('\n  - ');
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `[CONTRACT] Multiple inline \`defineAdapter(...)\` calls in user-app source. Only one inline adapter is allowed per project; for multi-adapter setups use external adapter packages.\n  - ${list}`,
+    }));
+  }
+
+  const entry = filesContainingDefineAdapter[0]!;
+  // `enforceAdapterPurity: false` for inline — rationale: the
+  // `validateNoBuiltinMiddleware` purity check exists to keep external
+  // adapter PACKAGES single-purpose (no factory-wrapped middleware mixed in
+  // with adapter wiring), which matters because consumers depend on a thin
+  // protocol surface. User-app source legitimately contains both the
+  // inline adapter AND middleware factories that consume it (this is the
+  // whole point of inline — single-package monolith). Enforcing purity
+  // here would block the documented user-app middleware-factory pattern
+  // (see `define-call-shape.ts` regulated-set rationale).
+  const compiled = compileAdapter({
+    sourceTree,
+    entry,
+    packageRoot: projectRoot,
+    enforceAdapterPurity: false,
+  });
+
+  // Build a synthetic `ReadAdapterManifestResult` so the existing
+  // `synthesizeAdapterExtraction` helper produces the same shape it would
+  // for an external manifest. `packageName` flows into the
+  // `ContextNamespaceMap.module` field which downstream emits as
+  // `declare module '<name>' {...}`. For inline adapters we use the
+  // user-app's own package.json#name (fallback `<inline>`); a monolithic
+  // app augments its own package, which is the standard TS pattern.
+  const userAppPackageName = await readUserAppPackageName(projectRoot);
+  const synthetic: ReadAdapterManifestResult = {
+    packageName: userAppPackageName ?? '<inline>',
+    adapter: compiled.adapterManifest,
+    pipeline: compiled.pipelineSchema,
+    decorators: compiled.decoratorSchema,
+    peerContract: compiled.peerContract,
+    contextNamespaces: compiled.contextNamespaces,
+    constructorSchema: compiled.constructorSchema,
+  };
+
+  return [synthesizeAdapterExtraction(synthetic)];
+}
+
+async function readUserAppPackageName(projectRoot: string): Promise<string | null> {
+  const pkgPath = join(projectRoot, 'package.json');
+  if (!(await pathExists(pkgPath))) return null;
+  try {
+    const raw = await readFile(pkgPath, 'utf8');
+    const parsed = JSON.parse(raw) as { name?: unknown };
+    return typeof parsed.name === 'string' && parsed.name.length > 0 ? parsed.name : null;
+  } catch {
+    return null;
+  }
+}
+
+function fileContainsDefineAdapterCall(file: SourceFile): boolean {
+  const resolver = buildCalleeResolver(file);
+  let found = false;
+  walk(file.parsed.program, {
+    enter(node: Node) {
+      if (found) return;
+      if (!is.CallExpression(node)) return;
+      const callee = node.callee;
+      let calleeText: string | null = null;
+      if (is.Identifier(callee)) {
+        calleeText = callee.name;
+      } else if (
+        is.MemberExpression(callee)
+        && !callee.computed
+        && is.Identifier(callee.property)
+        && is.Identifier(callee.object)
+      ) {
+        calleeText = `${callee.object.name}.${callee.property.name}`;
+      }
+      if (calleeText === null) return;
+      if (resolver.resolveCalleeText(calleeText) === 'defineAdapter') {
+        found = true;
+      }
+    },
+  });
+  return found;
 }

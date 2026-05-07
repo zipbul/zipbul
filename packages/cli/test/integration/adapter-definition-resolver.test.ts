@@ -147,7 +147,8 @@ describe('AdapterDefinitionResolver — manifest-only wiring', () => {
 
     expect(isErr(result)).toBe(true);
     if (!isErr(result)) return;
-    expect(result.data.why).toMatch(/No adapter package found/);
+    // After inline-adapter support: error mentions both external and inline forms.
+    expect(result.data.why).toMatch(/No adapter found/);
   });
 
   it('hard error when adapter package.json is corrupt JSON', async () => {
@@ -250,5 +251,155 @@ describe('AdapterDefinitionResolver — manifest-only wiring', () => {
     // Even though two entry paths point at the same package, the resolver
     // visits the package root once → one extraction.
     expect(Object.keys(result.adapterStaticSchemas).length).toBe(1);
+  });
+});
+
+describe('AdapterDefinitionResolver — inline (user-app) adapter', () => {
+  it('compiles inline `defineAdapter(...)` from user-app source when no external adapter package exists', async () => {
+    // Lay out a user-app project with an inline adapter — no external
+    // adapter package, no compiled manifest. The resolver should fall
+    // back to source-tree extraction and synthesize the same shape.
+    const userSrc = join(workspaceRoot, 'src');
+    await mkdir(userSrc, { recursive: true });
+
+    await writeFile(
+      join(userSrc, 'my-adapter.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { CoreStep } from '@zipbul/core';`,
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        ``,
+        `export class MyAdapter {`,
+        `  readonly decorators: AdapterEntryDecorators = { controller: MyController, handlers: [MyGet] };`,
+        `}`,
+        `export class MyContext {}`,
+        `export const MyController = () => () => {};`,
+        `export const MyGet = () => () => {};`,
+        `export const MyPhase = { OnRequest: 'OnRequest' } as const;`,
+        `export const MyStep = {} as const;`,
+        ``,
+        `export const adapterDefinition = defineAdapter({`,
+        `  adapter: MyAdapter,`,
+        `  context: MyContext,`,
+        `  phase: MyPhase,`,
+        `  step: MyStep,`,
+        `  pipeline: [MyPhase.OnRequest, CoreStep.Handler],`,
+        `});`,
+      ].join('\n'),
+    );
+
+    // No external adapter package — `importEntries` is empty so
+    // `collectPackageEntryFiles` yields nothing.
+    const userFile = join(userSrc, 'my-adapter.ts');
+    const fileMap = new Map<string, FileAnalysis>();
+    fileMap.set(userFile, {
+      filePath: userFile,
+      classes: [],
+      reExports: [],
+      exports: [],
+      importEntries: [],
+    });
+
+    const result = await new AdapterDefinitionResolver().resolve({
+      fileMap,
+      projectRoot: workspaceRoot,
+    });
+
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+    expect(Object.keys(result.adapterStaticSchemas)).toContain('MyAdapter');
+  });
+
+  it('coexists with an external adapter package — both extractions appear', async () => {
+    // External adapter package — built to dist/ via the real `buildAdapter`.
+    const adapterRoot = await writeAndBuildAdapter('@example/test-adapter');
+
+    // Plus an inline adapter in user-app source.
+    const userSrc = join(workspaceRoot, 'src');
+    await mkdir(userSrc, { recursive: true });
+    await writeFile(
+      join(userSrc, 'inline-adapter.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { CoreStep } from '@zipbul/core';`,
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class InlineAdapter { readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] }; }`,
+        `export class InlineCtx {}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const InlinePhase = { OnTick: 'OnTick' } as const;`,
+        `export const InlineStep = {} as const;`,
+        `export const inlineDefn = defineAdapter({ adapter: InlineAdapter, context: InlineCtx, phase: InlinePhase, step: InlineStep, pipeline: [InlinePhase.OnTick, CoreStep.Handler] });`,
+      ].join('\n'),
+    );
+
+    const userFile = join(userSrc, 'main.ts');
+    await writeFile(userFile, '// user app entry');
+    const fileMap = new Map<string, FileAnalysis>();
+    fileMap.set(userFile, {
+      filePath: userFile,
+      classes: [],
+      reExports: [],
+      exports: [],
+      importEntries: [
+        { source: '@example/test-adapter', resolvedSource: join(adapterRoot, 'src/index.ts'), isRelative: false },
+      ],
+    });
+    const inlineFile = join(userSrc, 'inline-adapter.ts');
+    fileMap.set(inlineFile, {
+      filePath: inlineFile,
+      classes: [],
+      reExports: [],
+      exports: [],
+      importEntries: [],
+    });
+
+    const result = await new AdapterDefinitionResolver().resolve({
+      fileMap,
+      projectRoot: workspaceRoot,
+    });
+
+    expect(isErr(result)).toBe(false);
+    if (isErr(result)) return;
+
+    // Both extractions wired — external TestAdapter + inline InlineAdapter.
+    const ids = Object.keys(result.adapterStaticSchemas).sort();
+    expect(ids).toEqual(['InlineAdapter', 'TestAdapter']);
+  });
+
+  it('rejects multiple inline `defineAdapter(...)` calls', async () => {
+    const userSrc = join(workspaceRoot, 'src');
+    await mkdir(userSrc, { recursive: true });
+
+    const inlineSource = (name: string) => [
+      `import { defineAdapter } from '@zipbul/common';`,
+      `import { CoreStep } from '@zipbul/core';`,
+      `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+      `export class ${name} { readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] }; }`,
+      `export class Ctx {}`,
+      `export const C = () => () => {};`,
+      `export const H = () => () => {};`,
+      `export const Ph = { OnRequest: 'OnRequest' } as const;`,
+      `export const St = {} as const;`,
+      `export const def_${name} = defineAdapter({ adapter: ${name}, context: Ctx, phase: Ph, step: St, pipeline: [Ph.OnRequest, CoreStep.Handler] });`,
+    ].join('\n');
+
+    await writeFile(join(userSrc, 'a.ts'), inlineSource('AdapterA'));
+    await writeFile(join(userSrc, 'b.ts'), inlineSource('AdapterB'));
+
+    const fileMap = new Map<string, FileAnalysis>();
+    for (const f of ['a.ts', 'b.ts']) {
+      const fp = join(userSrc, f);
+      fileMap.set(fp, { filePath: fp, classes: [], reExports: [], exports: [], importEntries: [] });
+    }
+
+    const result = await new AdapterDefinitionResolver().resolve({
+      fileMap,
+      projectRoot: workspaceRoot,
+    });
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) return;
+    expect(result.data.why).toMatch(/Multiple inline `defineAdapter/);
   });
 });

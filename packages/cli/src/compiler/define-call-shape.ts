@@ -1,13 +1,26 @@
 /**
- * Shared validator — `defineMiddleware / defineGuard / defineExceptionFilter /
- * defineAdapter / defineModule` calls MUST appear as the *direct initializer*
- * of a *top-level exported `const`* declaration. Every other position is a
- * CONTRACT error.
+ * Shared validator — regulated `defineX` calls MUST appear as the *direct
+ * initializer* of a *top-level exported `const`* declaration. Every other
+ * position is a CONTRACT error.
  *
- * Single normative rule, enforced uniformly by `zb build adapter`,
- * `zb build --lib`, and the user-app build (`zb build`). With this rule in
- * place, downstream extractors only need to scan top-level exported variable
- * initializers — every other shape is rejected at the gate.
+ * The shape rule itself is uniform, but the **set of regulated callees**
+ * differs per build context:
+ *
+ * - `zb build adapter`: enforces ALL of `defineAdapter`, `defineMiddleware`,
+ *   `defineGuard`, `defineExceptionFilter`, `defineModule` (adapter source
+ *   must be a pure protocol adapter — no factory-wrapped middleware).
+ * - `zb build --lib`: enforces all five (library packages publish defineX
+ *   exports for static augment extraction; factory wrapping defeats the
+ *   build-time analyzer).
+ * - `zb build` (user-app): enforces `defineModule` only. Middleware/guard/
+ *   exception-filter factories in user-app code are *consumers* of library
+ *   packages and legitimately need runtime options, so factory-wrapped
+ *   `defineMiddleware(...)` etc. are allowed at use sites. `defineModule`
+ *   is still strict because the analyzer needs to find the marker by
+ *   exported binding.
+ *
+ * Callers pick the regulated set via the second parameter of
+ * {@link validateDefineCallShape} / {@link findDefineCallShapeViolations}.
  *
  * @public
  */
@@ -62,15 +75,23 @@ export interface DefineCallShapeViolation {
  * Walks every parsed file and returns all violations of the
  * `export const NAME = defineX(...)` shape rule. Empty array on success.
  *
+ * @param files - Parsed source files to scan
+ * @param regulatedCallees - Subset of {@link REGULATED_DEFINE_CALLS} to enforce.
+ *   Defaults to all five. Callers narrow this when a context legitimately
+ *   allows a defineX call to appear inside a factory function — for example
+ *   `zb build` (user-app) only enforces `defineModule` because consumed
+ *   middleware/guard/exception-filter factories are runtime-parametric.
+ *
  * @public
  */
 export function findDefineCallShapeViolations(
   files: readonly DefineCallShapeInput[],
+  regulatedCallees: ReadonlySet<string> = REGULATED_DEFINE_CALLS,
 ): readonly DefineCallShapeViolation[] {
   const violations: DefineCallShapeViolation[] = [];
 
   for (const file of files) {
-    classifyFile(file, violations);
+    classifyFile(file, violations, regulatedCallees);
   }
 
   return violations;
@@ -83,8 +104,11 @@ export function findDefineCallShapeViolations(
  *
  * @public
  */
-export function validateDefineCallShape(files: readonly DefineCallShapeInput[]): void {
-  const violations = findDefineCallShapeViolations(files);
+export function validateDefineCallShape(
+  files: readonly DefineCallShapeInput[],
+  regulatedCallees: ReadonlySet<string> = REGULATED_DEFINE_CALLS,
+): void {
+  const violations = findDefineCallShapeViolations(files, regulatedCallees);
   if (violations.length === 0) return;
 
   const formatted = violations
@@ -175,7 +199,11 @@ export function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver 
   };
 }
 
-function classifyFile(file: DefineCallShapeInput, out: DefineCallShapeViolation[]): void {
+function classifyFile(
+  file: DefineCallShapeInput,
+  out: DefineCallShapeViolation[],
+  regulatedCallees: ReadonlySet<string>,
+): void {
   const resolver = buildCalleeResolver(file);
 
   // Step 1 — collect the *legal* set: every CallExpression that sits in the
@@ -194,6 +222,7 @@ function classifyFile(file: DefineCallShapeInput, out: DefineCallShapeViolation[
       if (!is.CallExpression(node)) return;
       const calleeName = resolveRegulatedCallee(node, resolver);
       if (calleeName === null) return;
+      if (!regulatedCallees.has(calleeName)) return;
       if (allowed.has(node)) return;
 
       const { line, column } = getLineColumn(lineOffsets, node.start);

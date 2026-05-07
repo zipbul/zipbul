@@ -8,8 +8,8 @@ import { build } from './build';
 import { buildAdapter } from '../compiler/adapter-build';
 import { DiagnosticError } from '../diagnostics';
 import { CliRenderer } from './cli-renderer';
-
-const renderer = new CliRenderer();
+import { JsonRenderer } from './json-renderer';
+import type { CliRendererLike } from './interfaces';
 
 const { positionals, values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -26,8 +26,23 @@ const { positionals, values } = parseArgs({
     lib: {
       type: 'boolean',
     },
+    json: {
+      type: 'boolean',
+    },
   },
 });
+
+const jsonMode = values.json === true;
+const commandLabel = (() => {
+  if (positionals[0] === 'build') {
+    if (positionals[1] === 'adapter') return 'build adapter';
+    if (values.lib === true) return 'build --lib';
+    return 'build';
+  }
+  return positionals[0] ?? 'unknown';
+})();
+
+const renderer: CliRendererLike = jsonMode ? new JsonRenderer(commandLabel) : new CliRenderer();
 const command = positionals[0];
 const verbose = values.verbose === true;
 
@@ -55,6 +70,7 @@ const USAGE_TEXT = [
   '  --profile <minimal|standard|full>',
   '  --lib            Build as library (inject __augments metadata for npm packages)',
   '  --verbose, -v    Show detailed build information',
+  '  --json           Emit NDJSON log events (one JSON object per line) for ingestion',
 ].join('\n');
 
 const printUsage = (): void => {
@@ -91,31 +107,44 @@ const commandOptions = createCommandOptions();
 try {
   switch (command) {
     case 'dev':
-      await dev(commandOptions);
+      await dev(commandOptions, renderer);
       break;
     case 'build': {
       const subCommand = positionals[1];
 
       if (subCommand === 'adapter') {
         try {
-          const result = await buildAdapter();
+          const result = await buildAdapter({ renderer });
 
-          process.stdout.write(`${JSON.stringify({
-            ok: true,
-            adapterId: result.adapterId,
-            manifestPath: result.manifestPath,
-          })}\n`);
+          if (jsonMode) {
+            renderer.success(`adapter ${result.adapterId} -> ${result.manifestPath}`);
+          } else {
+            // Preserve legacy non-JSON output contract — single-line ok blob.
+            process.stdout.write(`${JSON.stringify({
+              ok: true,
+              adapterId: result.adapterId,
+              manifestPath: result.manifestPath,
+            })}\n`);
+          }
         } catch (error) {
-          const why = error instanceof DiagnosticError ? error.diagnostic.why : (error instanceof Error ? error.message : String(error));
-          const where = error instanceof DiagnosticError ? error.diagnostic.where : undefined;
-          process.stderr.write(`${JSON.stringify({ ok: false, why, where: where ?? null })}\n`);
+          if (jsonMode) {
+            if (error instanceof DiagnosticError) {
+              renderer.diagnostic(error.diagnostic);
+            } else {
+              renderer.error(error instanceof Error ? error.message : String(error));
+            }
+          } else {
+            const why = error instanceof DiagnosticError ? error.diagnostic.why : (error instanceof Error ? error.message : String(error));
+            const where = error instanceof DiagnosticError ? error.diagnostic.where : undefined;
+            process.stderr.write(`${JSON.stringify({ ok: false, why, where: where ?? null })}\n`);
+          }
           process.exitCode = 1;
         }
 
         break;
       }
 
-      await build(commandOptions);
+      await build(commandOptions, renderer);
       break;
     }
     case undefined:

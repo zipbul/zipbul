@@ -1,11 +1,12 @@
 import { mkdir } from 'fs/promises';
+import { Glob } from 'bun';
 import { join, resolve, relative } from 'path';
 
 import type { CommandOptions } from '../interfaces';
 import type { BuildCommandDeps } from './interfaces';
 
 import { isErr } from '@zipbul/result';
-import { Gildash, GildashError, type GildashOptions } from '@zipbul/gildash';
+import { Gildash, GildashError, type GildashOptions, parseSource } from '@zipbul/gildash';
 import { AstParser, AdapterDefinitionResolver, ModuleGraph } from '../../compiler/analyzer';
 import { validateCreateApplication } from '../../compiler/analyzer/validation';
 import {
@@ -13,9 +14,12 @@ import {
   tempDirPath,
   scanGlobSorted,
   writeIfChanged,
+  withAtomicEmit,
+  installCancellation,
 } from '../../common';
 import { ConfigLoader } from '../../config';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
+import { validateDefineCallShape } from '../../compiler/define-call-shape';
 import { EntryGenerator, ManifestGenerator, ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
 import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
@@ -39,9 +43,11 @@ export function createBuildCommand(deps: BuildCommandDeps) {
     renderer.intro(isLibMode ? 'build --lib' : 'build');
     const buildStartedAt = performance.now();
 
+    const cancel = installCancellation({ renderer });
+
     try {
       if (isLibMode) {
-        await buildLib(deps, renderer, buildStartedAt);
+        await buildLib(deps, renderer, buildStartedAt, cancel);
         return;
       }
 
@@ -66,6 +72,12 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const userMain = resolve(projectRoot, config.entry);
 
       const scanSpinner = renderer.startSpinner('[1/4] \u{1F50D} Scanning source files');
+
+      // Single normative shape rule — every regulated `defineX` call in
+      // user-app source MUST appear as `export const NAME = defineX(...)`.
+      // Runs BEFORE traversal so violations fail fast and downstream extractors
+      // can assume the well-formed shape.
+      await validateUserAppShape({ srcDir, projectRoot, scanFiles: deps.scanFiles });
 
       const scanResult = await scanAndParseFiles({
         projectRoot,
@@ -149,6 +161,16 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         const manifestSpinner = renderer.startSpinner('[3/4] \u{1F4CB} Generating manifests');
 
+        // Atomicity note: `.zipbul/` files are written via `writeIfChanged`
+        // (single-call `Bun.write` per file). Each file replacement is
+        // atomic at the FS level, but cross-file consistency is NOT
+        // guaranteed — if the process crashes between two files, one is
+        // updated and another remains stale. This is acceptable because
+        // `.zipbul/` is intermediate AOT cache: the next `zb build` reads
+        // it for incremental work and reproduces missing pieces; the
+        // shipped artifact is `dist/` (which IS swapped atomically via
+        // `withAtomicEmit`). Wrapping `.zipbul/` in atomic-emit would
+        // defeat `writeIfChanged`'s incremental-rebuild advantage.
         await mkdir(zipbulDir, { recursive: true });
 
         const manifestFile = join(zipbulDir, 'manifest.json');
@@ -294,21 +316,32 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         const bundleSpinner = renderer.startSpinner('[4/4] \u{1F4E6} Bundling application');
 
-        const buildResult = await deps.buildBundle({
-          entrypoints: [entryPointFile, runtimeFile, workerFile, runtimeMasterFile],
-          outdir: outDir,
-          target: 'bun',
-          splitting: true,
-          minify: false,
-          sourcemap: 'external',
-          naming: '[name].js',
-        });
+        // Atomic emit: bundle into staging, then swap into dist/. On any
+        // failure (Bun.build error or interruption) the prior dist/ remains
+        // intact; staging is cleaned up.
+        await withAtomicEmit(
+          {
+            finalDir: outDir,
+            stagingDir: `${outDir}.staging`,
+            registerCleanup: cancel.registerCleanup,
+          },
+          async (stagingDir) => {
+            const buildResult = await deps.buildBundle({
+              entrypoints: [entryPointFile, runtimeFile, workerFile, runtimeMasterFile],
+              outdir: stagingDir,
+              target: 'bun',
+              splitting: true,
+              minify: false,
+              sourcemap: 'external',
+              naming: '[name].js',
+            });
 
-        if (!buildResult.success) {
-          const logMessages = buildResult.logs.map(log => `[${log.level}] ${log.message}`).join('\n');
-
-          throw new Error(logMessages.length > 0 ? `Bundle failed:\n${logMessages}` : 'Bundle failed');
-        }
+            if (!buildResult.success) {
+              const logMessages = buildResult.logs.map(log => `[${log.level}] ${log.message}`).join('\n');
+              throw new Error(logMessages.length > 0 ? `Bundle failed:\n${logMessages}` : 'Bundle failed');
+            }
+          },
+        );
 
         bundleSpinner.stop('[4/4] \u{1F4E6} Application bundled');
 
@@ -363,8 +396,48 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         buildDiagnostic({ reason: error instanceof Error ? error.message : 'Unknown build error.' }),
         { cause: error },
       );
+    } finally {
+      cancel.dispose();
     }
   };
+}
+
+/**
+ * Runs `validateDefineCallShape` over every `.ts` file inside `srcDir`. Scoped
+ * to source files (excludes `.d.ts`, `.spec.ts`, `.test.ts`) so external
+ * packages reached via import traversal are not validated here — those are
+ * the responsibility of their own publishing pipeline (`zb build --lib` /
+ * `zb build adapter`).
+ */
+async function validateUserAppShape(params: {
+  srcDir: string;
+  projectRoot: string;
+  scanFiles: BuildCommandDeps['scanFiles'];
+}): Promise<void> {
+  const { srcDir, projectRoot, scanFiles } = params;
+  const glob = new Glob('**/*.ts');
+  const allFiles = await scanFiles({ glob, baseDir: srcDir });
+  const tsFiles = allFiles.filter(
+    f => !f.endsWith('.d.ts') && !f.endsWith('.spec.ts') && !f.endsWith('.test.ts'),
+  );
+
+  const shapeInputs = await Promise.all(tsFiles.map(async file => {
+    const fullPath = join(srcDir, file);
+    const sourceText = await Bun.file(fullPath).text();
+    const parsed = parseSource(fullPath, sourceText);
+    if (isErr(parsed)) {
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `Failed to parse ${fullPath} for shape validation: ${JSON.stringify(parsed.data)}`,
+        file: fullPath,
+      }));
+    }
+    return { filePath: relative(projectRoot, fullPath) || fullPath, parsed };
+  }));
+
+  // user-app context: defineModule + defineAdapter strict. defineMiddleware /
+  // defineGuard / defineExceptionFilter remain factory-allowed (they are
+  // consumers in user-app code, see define-call-shape.ts).
+  validateDefineCallShape(shapeInputs, new Set(['defineModule', 'defineAdapter']));
 }
 
 export const __testing__ = { createBuildCommand };
@@ -373,7 +446,10 @@ export const __testing__ = { createBuildCommand };
 // Default export -- maintains backward compatibility
 // ---------------------------------------------------------------------------
 
-export async function build(commandOptions?: CommandOptions): Promise<void> {
+export async function build(
+  commandOptions?: CommandOptions,
+  renderer?: import('../interfaces').CliRendererLike,
+): Promise<void> {
   const impl = createBuildCommand({
     loadConfig: async () => {
       const result = await ConfigLoader.load();
@@ -386,7 +462,7 @@ export async function build(commandOptions?: CommandOptions): Promise<void> {
     scanFiles: ({ glob, baseDir }) => scanGlobSorted({ glob, baseDir }),
     resolveImport: (specifier, fromDir) => Bun.resolveSync(specifier, fromDir),
     buildBundle: (...args) => Bun.build(...args),
-    renderer: new CliRenderer(),
+    renderer: renderer ?? new CliRenderer(),
   });
 
   await impl(commandOptions);

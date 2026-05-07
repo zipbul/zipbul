@@ -13,6 +13,7 @@
     "@zipbul/common": "workspace:*",
     "@zipbul/core": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
+    "@zipbul/example-stamp-middleware": "workspace:*",
     "@zipbul/logger": "workspace:*",
     "@zipbul/result": "catalog:"
   },

@@ -144,6 +144,59 @@ describe('readAdapterManifest — Section M (Item 114·115)', () => {
       readAdapterManifest(join(pkgRoot, 'dist')),
     ).rejects.toBeInstanceOf(DiagnosticError);
   });
+
+  it('rejects manifest index entry that is not a string (defensive type guard)', async () => {
+    await writeAdapter();
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const topPath = join(pkgRoot, 'dist', 'adapter.manifest.json');
+    const top = JSON.parse(await Bun.file(topPath).text()) as { manifests: Record<string, unknown> };
+    // Numeric value — typed as `string` in `AdapterManifest['manifests']`
+    // but a malformed JSON could deliver any shape. The reader must surface
+    // a clean DiagnosticError rather than letting `path.join` throw.
+    top.manifests['pipeline-schema'] = 12345 as unknown as string;
+    await Bun.write(topPath, JSON.stringify(top));
+
+    await expect(
+      readAdapterManifest(join(pkgRoot, 'dist')),
+    ).rejects.toThrow(/must be a non-empty string/);
+  });
+
+  it('rejects manifest index entry whose target is a symlink escaping dist (path-traversal defense)', async () => {
+    await writeAdapter();
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    // Create a sibling dir with a sensitive file, then point a symlink in
+    // dist/ at it. The reader must refuse to follow.
+    const secretDir = join(pkgRoot, '..', `${pkgRoot.split('/').pop() ?? 'pkg'}-secret`);
+    await mkdir(secretDir, { recursive: true });
+    await Bun.write(
+      join(secretDir, 'leak.json'),
+      JSON.stringify({
+        $schemaName: 'adapter.pipeline-schema',
+        phaseEnum: 'Leaked',
+        stepEnum: 'Leaked',
+        pipeline: [],
+        phaseMembers: [],
+        stepMembers: [],
+      }),
+    );
+    const { symlink } = await import('node:fs/promises');
+    await symlink(join(secretDir, 'leak.json'), join(pkgRoot, 'dist', 'leak-link.json'));
+
+    const topPath = join(pkgRoot, 'dist', 'adapter.manifest.json');
+    const top = JSON.parse(await Bun.file(topPath).text());
+    top.manifests['pipeline-schema'] = 'leak-link.json';
+    await Bun.write(topPath, JSON.stringify(top));
+
+    try {
+      await expect(
+        readAdapterManifest(join(pkgRoot, 'dist')),
+      ).rejects.toThrow(/resolves \(via symlink\) outside the adapter dist root/);
+    } finally {
+      await rm(secretDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('detectMultiAdapterConflicts — Item 119', () => {
