@@ -221,6 +221,44 @@ describe('zb build adapter — Slice 1', () => {
     expect((await readFile(join(pkgRoot, 'dist', 'adapter.manifest.json'), 'utf8')).length).toBeGreaterThan(0);
   });
 
+  it('hard error when defineX call is not at top-level export const (shape policy)', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({
+        name: '@example/bad-shape',
+        version: '0.0.1',
+        zipbul: { kind: 'adapter' },
+      }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/adapter-definition.ts'),
+      [
+        `import { defineAdapter } from '@zipbul/common';`,
+        `import { A, Ctx, P, S } from './x';`,
+        // Not exported — shape violation: top-level const but no export
+        `const adapterDefinition = defineAdapter({`,
+        `  adapter: A, context: Ctx, phase: P, step: S,`,
+        `  pipeline: [P.X, CoreStep.Handler],`,
+        `});`,
+        `export { adapterDefinition };`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/x.ts'),
+      [
+        `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `export class A { readonly decorators: AdapterEntryDecorators = { controller: C, handlers: [H] }; }`,
+        `export class Ctx {}`,
+        `export const C = () => () => {};`,
+        `export const H = () => () => {};`,
+        `export const P = { X: 'X' } as const;`,
+        `export const S = {} as const;`,
+      ].join('\n'),
+    );
+
+    await expect(buildAdapter({ packageRoot: pkgRoot })).rejects.toThrow(/top-level exported `const`/);
+  });
+
   it('hard error when adapter package contains defineMiddleware / defineGuard / defineExceptionFilter calls (purity policy)', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),

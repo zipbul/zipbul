@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 
 import { isErr } from '@zipbul/result';
 import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
+import { validateDefineCallShape } from '../define-call-shape';
 import type { ParsedFile, ExtractedSymbol, ExpressionValue, ExpressionCall, CodeRelation } from '@zipbul/gildash';
 
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
@@ -71,6 +72,7 @@ export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<B
   validateAdapterKind(pkgJson, packageRoot);
 
   const sourceTree = await collectSourceTree(packageRoot);
+  validateDefineCallShape(sourceTree.map(f => ({ filePath: f.filePath, parsed: f.parsed })));
   const entryFile = pickEntrySourceFile(sourceTree, packageRoot);
   const extracted = extractAdapterDefinition(entryFile);
 

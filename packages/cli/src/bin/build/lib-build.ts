@@ -7,6 +7,7 @@ import type { BuildCommandDeps } from './interfaces';
 
 import { extractSymbols, parseSource } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
+import { validateDefineCallShape } from '../../compiler/define-call-shape';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import {
   extractLibAugments,
@@ -89,6 +90,24 @@ export async function buildLib(
   }
 
   scanSpinner.stop(`[1/4] Scanned ${String(tsFiles.length)} source files`);
+
+  // Validate that every `defineX` call in the package follows the
+  // `export const X = defineX(...)` shape — single normative rule, no other
+  // call site is allowed. Runs before augment extraction so the extractor can
+  // assume the well-formed shape.
+  const shapeInputs = await Promise.all(tsFiles.map(async file => {
+    const fullPath = join(config.srcDir, file);
+    const sourceText = await Bun.file(fullPath).text();
+    const parsed = parseSource(fullPath, sourceText);
+    if (isErr(parsed)) {
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `Failed to parse ${fullPath} for shape validation: ${JSON.stringify(parsed.data)}`,
+        file: fullPath,
+      }));
+    }
+    return { filePath: relative(projectRoot, fullPath) || fullPath, parsed };
+  }));
+  validateDefineCallShape(shapeInputs);
 
   // ── 3. Extract augments and inject ──────────────────────────
   const augmentSpinner = renderer.startSpinner('[2/4] Extracting middleware augments');
@@ -270,11 +289,33 @@ async function resolveLibBuildConfig(projectRoot: string): Promise<LibBuildConfi
     }));
   }
 
+  validateMiddlewareKind(packageJson, packageJsonPath);
+
   // Resolve source directory: package.json "source" field > "src/" > root
   const srcDir = await resolveSourceDir(projectRoot, packageJson);
   const outDir = resolve(projectRoot, 'dist');
 
   return { packageName, srcDir, outDir, projectRoot };
+}
+
+/**
+ * `zb build --lib` only operates on packages that explicitly declare
+ * `zipbul.kind === 'middleware'`. This makes the two compilers mutually
+ * exclusive: an adapter package (`kind === 'adapter'`) cannot be compiled as
+ * a middleware library, and vice-versa.
+ */
+function validateMiddlewareKind(packageJson: Record<string, unknown>, packageJsonPath: string): void {
+  const zipbul = packageJson.zipbul;
+  const kind = (zipbul !== null && typeof zipbul === 'object' && !Array.isArray(zipbul))
+    ? (zipbul as { kind?: unknown }).kind
+    : undefined;
+
+  if (kind === 'middleware') return;
+
+  throw new DiagnosticError(buildDiagnostic({
+    reason: `[CONTRACT] \`zb build --lib\` only compiles middleware library packages. ${packageJsonPath} must declare \`"zipbul": { "kind": "middleware" }\`. Found: ${JSON.stringify(zipbul ?? null)}.`,
+    file: packageJsonPath,
+  }));
 }
 
 /**
