@@ -4,7 +4,6 @@
   "description": "AOT compiler CLI with dev watch and build commands for Zipbul",
   "license": "MIT",
   "type": "module",
-  "module": "index.ts",
   "bin": {
     "zb": "dist/zb.js"
   },

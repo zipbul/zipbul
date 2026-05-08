@@ -80,8 +80,9 @@ export class AdapterDefinitionResolver {
       const manifestPath = join(distPath, 'adapter.manifest.json');
       if (!(await pathExists(manifestPath))) {
         return err(buildDiagnostic({
-          reason: `[CONTRACT] Adapter package at ${packageRoot} declares \`zipbul.kind=adapter\` but no compiled manifest exists at ${manifestPath}. Run \`zb build adapter\` in the adapter package first.`,
+          reason: `[CONTRACT] Adapter package at ${packageRoot} declares \`zipbul.kind=adapter\` but no compiled manifest exists at ${manifestPath}.`,
           file: packageRoot,
+          how: `Run \`zb build adapter\` inside ${packageRoot}, or upgrade the dependency to a version that ships a built \`dist/\`.`,
         }));
       }
 
@@ -113,7 +114,8 @@ export class AdapterDefinitionResolver {
 
     if (adapterExtractions.length === 0) {
       return err(buildDiagnostic({
-        reason: 'No adapter found. The user-app build expects either (a) an imported package whose `package.json#zipbul.kind` is `"adapter"` shipping `dist/adapter.manifest.json`, or (b) a top-level `export const X = defineAdapter(...)` call in the user-app source tree.',
+        reason: 'No adapter found.',
+        how: 'Either install an adapter package (e.g. `bun add @zipbul/http-adapter`) whose `package.json#zipbul.kind` is `"adapter"` and ships `dist/adapter.manifest.json`, or add a top-level `export const X = defineAdapter(...)` call in your user-app source tree.',
       }));
     }
 

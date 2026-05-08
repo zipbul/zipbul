@@ -1,13 +1,11 @@
 import type { ExpressionValue, ExpressionCall, ExpressionIdentifier, CodeRelation } from '@zipbul/gildash';
 
 import type { DecoratorMetadata } from './interfaces';
-import type { AnalyzerValue, AnalyzerValueRecord } from './types';
+import type { AnalyzerValue } from './types';
 import type { InjectCall } from './parser-models';
 
 import {
-  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
-  ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY,
-  ZIPBUL_COMPUTED_VALUE, ZIPBUL_UNRESOLVABLE, ZIPBUL_LAZY_REF, ZIPBUL_SPREAD,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE,
 } from '@zipbul/common';
 
 // Pure ExpressionValue → IR conversion lives in expression-value-to-zipbul-ir.ts
@@ -15,8 +13,9 @@ import {
 // inject-call collection / type-annotation parsing on top.
 import {
   convertExpression as adapterConvertExpression,
-  convertFunctionExpression,
+  convertExpressionWithHooks,
   extractLazyRefName,
+  type ExpressionConvertHooks,
 } from './expression-value-to-zipbul-ir';
 
 export const convertExpression: (expr: ExpressionValue) => AnalyzerValue = adapterConvertExpression;
@@ -267,7 +266,8 @@ export interface ConversionResult {
  *
  * Walks the entire ExpressionValue tree recursively. Any `ExpressionCall`
  * matching the `inject()` pattern from `@zipbul/common` is collected into
- * `injectCalls` and converted to the `__zipbul_inject` sentinel format.
+ * `injectCalls`. The call itself converts to the standard `ZIPBUL_CALL`
+ * shape — downstream consumers read `injectCalls` (not the IR shape).
  *
  * @param expr - Root expression to convert
  * @param filePath - Current file path for inject call context
@@ -295,155 +295,35 @@ export function convertExpressionDeep(expr: ExpressionValue, filePath: string, m
   const importMap = isOptions(mapOrOptions) ? mapOrOptions.importMap : mapOrOptions;
   const resolveImportSource = isOptions(mapOrOptions) ? mapOrOptions.resolveImportSource : undefined;
 
-  const resolveSource = (raw: string | undefined): string | undefined => {
-    if (raw === undefined) {
-      return undefined;
-    }
-
-    if (resolveImportSource !== undefined) {
-      return resolveImportSource(raw);
-    }
-
-    return raw;
+  // Build hooks once and delegate the entire tree walk to the shared
+  // `convertExpressionWithHooks` in expression-value-to-zipbul-ir.ts. This
+  // is the single source of truth for case dispatch — no parallel switch
+  // statement lives here.
+  const hooks: ExpressionConvertHooks = {
+    resolveSource: (raw) => raw === undefined ? undefined : resolveImportSource?.(raw) ?? raw,
+    resolveObjectSource: (objectText) => {
+      if (importMap === undefined) return undefined;
+      const rootIdent = objectText.split('.')[0];
+      if (rootIdent === undefined) return undefined;
+      const raw = importMap.get(rootIdent)?.importSource;
+      return raw === undefined ? undefined : resolveImportSource?.(raw) ?? raw;
+    },
+    onCall: (node) => {
+      const inject = detectInjectCall(node, filePath);
+      if (inject !== null) {
+        injectCalls.push(inject);
+      }
+    },
+    transformLazyRefName: (refName) => {
+      const resolved = importMap?.get(refName);
+      return resolved?.originalName ?? refName;
+    },
+    onFunction: (node) => {
+      factoryRefs.push({ sourceText: node.sourceText, path: [] });
+    },
   };
 
-  const resolveObjectImportSource = (objectText: string): string | undefined => {
-    if (importMap === undefined) {
-      return undefined;
-    }
-
-    const rootIdent = objectText.split('.')[0];
-
-    if (rootIdent === undefined) {
-      return undefined;
-    }
-
-    const raw = importMap.get(rootIdent)?.importSource;
-
-    return resolveSource(raw);
-  };
-
-  const convert = (node: ExpressionValue): AnalyzerValue => {
-    switch (node.kind) {
-      case 'string':
-      case 'number':
-      case 'boolean':
-      case 'null':
-        return node.value;
-
-      case 'undefined':
-        return undefined;
-
-      case 'identifier':
-        return {
-          [ZIPBUL_REF]: node.originalName ?? node.name,
-          [ZIPBUL_IMPORT_SOURCE]: resolveSource(node.importSource),
-        };
-
-      case 'member':
-        return {
-          [ZIPBUL_REF]: `${node.object}.${node.property}`,
-          [ZIPBUL_IMPORT_SOURCE]: resolveSource(node.importSource) ?? resolveObjectImportSource(node.object),
-        };
-
-      case 'call': {
-        const inject = detectInjectCall(node, filePath);
-
-        if (inject !== null) {
-          injectCalls.push(inject);
-
-          return {
-            __zipbul_inject: true,
-            tokenKind: inject.tokenKind,
-            token: inject.token,
-          };
-        }
-
-        if (node.callee === 'lazy' && node.arguments.length > 0) {
-          const firstArg = node.arguments[0];
-
-          if (firstArg !== undefined && firstArg.kind === 'function') {
-            const refName = extractLazyRefName(firstArg.sourceText);
-
-            if (refName !== null) {
-              const resolved = importMap?.get(refName);
-              const originalName = resolved?.originalName ?? refName;
-
-              return { [ZIPBUL_LAZY_REF]: originalName };
-            }
-          }
-        }
-
-        return {
-          [ZIPBUL_CALL]: node.callee,
-          [ZIPBUL_IMPORT_SOURCE]: resolveSource(node.importSource),
-          args: node.arguments.map(convert),
-        };
-      }
-
-      case 'new':
-        return {
-          [ZIPBUL_NEW]: node.callee,
-          args: node.arguments.map(convert),
-        };
-
-      case 'object': {
-        const result: AnalyzerValueRecord = {};
-        let computedIndex = 0;
-        let spreadIndex = 0;
-
-        for (const entry of node.properties) {
-          if (entry.kind === 'spread') {
-            result[`${ZIPBUL_COMPUTED_PREFIX}spread${spreadIndex}`] = { [ZIPBUL_SPREAD]: convert(entry.argument) };
-            spreadIndex++;
-
-            continue;
-          }
-
-          const k = entry.key;
-          const isComputed = k.kind !== 'string' && k.kind !== 'number' && k.kind !== 'boolean' && k.kind !== 'null' && k.kind !== 'undefined';
-
-          if (isComputed) {
-            result[`${ZIPBUL_COMPUTED_PREFIX}${computedIndex}`] = {
-              [ZIPBUL_COMPUTED_KEY]: convert(k),
-              [ZIPBUL_COMPUTED_VALUE]: convert(entry.value),
-            };
-            computedIndex++;
-
-            continue;
-          }
-
-          const staticKey = k.kind === 'string' || k.kind === 'number' || k.kind === 'boolean'
-            ? String(k.value)
-            : k.kind === 'null'
-              ? 'null'
-              : 'undefined';
-
-          result[staticKey] = convert(entry.value);
-        }
-
-        return result;
-      }
-
-      case 'array':
-        return node.elements.map(convert);
-
-      case 'spread':
-        return { [ZIPBUL_SPREAD]: convert(node.argument) };
-
-      case 'function': {
-        factoryRefs.push({ sourceText: node.sourceText, path: [] });
-
-        return convertFunctionExpression(node);
-      }
-
-      case 'template':
-      case 'unresolvable':
-        return { [ZIPBUL_UNRESOLVABLE]: true, sourceText: node.sourceText };
-    }
-  };
-
-  return { value: convert(expr), injectCalls, factoryRefs };
+  return { value: convertExpressionWithHooks(expr, hooks), injectCalls, factoryRefs };
 }
 
 /**

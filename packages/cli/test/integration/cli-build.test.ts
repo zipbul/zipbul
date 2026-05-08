@@ -263,33 +263,6 @@ describe('createBuildCommand', () => {
     await expect(build()).resolves.toBeUndefined();
   });
 
-  it('should not throw when buildProfile is full', async () => {
-    // Arrange
-    const deps = makeDeps();
-    const build = createBuildCommand(deps);
-
-    // Act & Assert
-    await expect(build({ profile: 'full' })).resolves.toBeUndefined();
-  });
-
-  it('should not throw when buildProfile is standard', async () => {
-    // Arrange
-    const deps = makeDeps();
-    const build = createBuildCommand(deps);
-
-    // Act & Assert
-    await expect(build({ profile: 'standard' })).resolves.toBeUndefined();
-  });
-
-  it('should not throw when buildProfile is minimal', async () => {
-    // Arrange
-    const deps = makeDeps();
-    const build = createBuildCommand(deps);
-
-    // Act & Assert
-    await expect(build({ profile: 'minimal' })).resolves.toBeUndefined();
-  });
-
   // -- Negative / Error --
 
   it('should report BUILD_FAILED with sourcePath when loadConfig throws ConfigLoadError with sourcePath', async () => {
@@ -350,15 +323,6 @@ describe('createBuildCommand', () => {
 
     // Act & Assert
     await expect(build()).rejects.toThrow('not deterministic');
-  });
-
-  it('should throw when buildProfile is invalid value', async () => {
-    // Arrange
-    const deps = makeDeps();
-    const build = createBuildCommand(deps);
-
-    // Act & Assert
-    await expect(build({ profile: 'ultra' as any })).rejects.toThrow();
   });
 
   it('should throw and report PARSE_FAILED when parser.parse() returns Err during BFS', async () => {

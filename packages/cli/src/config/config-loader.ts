@@ -24,10 +24,11 @@ export class ConfigLoader {
       : { path: jsoncPath, format: 'jsonc' as const };
 
     try {
-      // NOTE: Avoid emitting non-JSON noise to stderr. Some CLI commands (e.g. `zp mcp verify`)
-      // print structured diagnostics to stderr that tests parse as JSON.
       if (process.env.ZIPBUL_DEBUG_CONFIG === '1') {
-        console.info(`🔧 Loading config from ${candidate.path}`);
+        // Debug-only diagnostic. stderr keeps stdout pristine for `--json` mode
+        // (NDJSON consumers parse stdout). The `[zipbul-config]` prefix marks
+        // it as non-JSON so stderr-parsing tests can filter it out.
+        process.stderr.write(`[zipbul-config] Loading config from ${candidate.path}\n`);
       }
 
       const resolved = await ConfigLoader.loadJsonConfig(candidate.path, cwd, candidate.format);

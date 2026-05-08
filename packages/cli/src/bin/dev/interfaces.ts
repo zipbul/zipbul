@@ -47,7 +47,6 @@ export interface RebuildContext {
   projectRoot: string;
   config: ResolvedConfig;
   configSource: ConfigSource;
-  buildProfile: string;
   semanticAvailable: boolean;
   ledger: Gildash;
 }

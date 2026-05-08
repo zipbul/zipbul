@@ -172,11 +172,101 @@ describe('zb build adapter — Slice 1', () => {
 
     expect(schema.$schemaName).toBe('adapter.context-namespaces');
     expect(schema.contextType).toBe('TestContext');
-    // private `internal` excluded; sorted by name; getters/setters/constructor excluded
+    // private `internal` excluded; sorted by name; constructor excluded
     expect(schema.methods.map((m: { name: string }) => m.name)).toEqual(['acquire', 'release']);
     const acquire = schema.methods.find((m: { name: string }) => m.name === 'acquire');
     expect(acquire.params).toEqual([{ name: 'id', type: 'string' }]);
     expect(acquire.returnType).toBe('void');
+  });
+
+  /**
+   * The middleware-augment contract requires the adapter manifest to carry
+   * every getter / setter / public-property as a namespace entry — so a
+   * middleware lib's `dist/context-augments.d.ts` can target the right
+   * interface (e.g. `request → HttpRequest`). Compound types (`A | B`,
+   * `A[]`, generics) are recorded with `type: null` because TS declaration
+   * merging requires a single identifier on the LHS of `interface X { ... }`.
+   * Static / private / protected members are excluded.
+   */
+  it('emits namespaces for getters, setters and field properties (single-identifier types only)', async () => {
+    await Bun.write(
+      join(pkgRoot, 'package.json'),
+      JSON.stringify({
+        name: '@example/ns-adapter',
+        type: 'module',
+        zipbul: { kind: 'adapter' },
+        peerDependencies: { '@zipbul/core': '*', '@zipbul/common': '*' },
+      }),
+    );
+    await Bun.write(
+      join(pkgRoot, 'src/test-adapter.ts'),
+      [
+        `import { defineAdapter, ClusterStrategy } from '@zipbul/common';`,
+        `import { CoreStep } from '@zipbul/core';`,
+        `export class FooReq {}`,
+        `export class FooRes {}`,
+        `export class TestAdapter {`,
+        `  clusterStrategy = ClusterStrategy.Shared;`,
+        `  decorators = { controller: TestController, handlers: [TestGet] };`,
+        `  constructor(options: { x?: number } = {}) { void options; }`,
+        `}`,
+        `export class TestContext {`,
+        `  // public field with single-identifier type → namespace entry`,
+        `  public meta!: FooReq;`,
+        `  // public field with union type → namespace entry but type: null`,
+        `  public optional!: FooReq | undefined;`,
+        `  // getter with single-identifier return type → namespace entry`,
+        `  get request(): FooReq { return new FooReq(); }`,
+        `  // setter without paired getter → namespace entry from param type`,
+        `  set logger(value: FooRes) { void value; }`,
+        `  // getter with compound return type → namespace entry but type: null`,
+        `  get pipelineError(): FooReq | undefined { return undefined; }`,
+        `  // static property → excluded entirely`,
+        `  static readonly version = '1.0';`,
+        `  // private → excluded`,
+        `  private internal = 1;`,
+        `  // method → goes to methods, not namespaces`,
+        `  doStuff(): void {}`,
+        `}`,
+        `export const TestController = () => () => {};`,
+        `export const TestGet = () => () => {};`,
+        `export const adapterDefinition = defineAdapter({`,
+        `  adapter: TestAdapter, context: TestContext, step: TestStep, phase: TestPhase,`,
+        `  pipeline: [TestStep.Boot, CoreStep.Handler],`,
+        `});`,
+        `export const TestStep = { Boot: 'Boot' } as const;`,
+        `export const TestPhase = {} as const;`,
+      ].join('\n'),
+    );
+    await Bun.write(
+      join(pkgRoot, 'index.ts'),
+      `export { TestAdapter, TestContext } from './src/test-adapter';\n`,
+    );
+
+    await buildAdapter({ packageRoot: pkgRoot });
+
+    const schema = JSON.parse(await readFile(join(pkgRoot, 'dist', 'context-namespaces.json'), 'utf8'));
+    const namespaceByName = new Map<string, string | null>(
+      schema.namespaces.map((n: { name: string; type: string | null }) => [n.name, n.type] as const),
+    );
+
+    // Field with single-identifier type → preserved.
+    expect(namespaceByName.get('meta')).toBe('FooReq');
+    // Getter with single-identifier return type → preserved.
+    expect(namespaceByName.get('request')).toBe('FooReq');
+    // Setter without paired getter → preserved from param type.
+    expect(namespaceByName.get('logger')).toBe('FooRes');
+    // Compound types (union/optional) → namespace entry exists but type=null.
+    expect(namespaceByName.has('optional')).toBe(true);
+    expect(namespaceByName.get('optional')).toBeNull();
+    expect(namespaceByName.has('pipelineError')).toBe(true);
+    expect(namespaceByName.get('pipelineError')).toBeNull();
+    // Static / private excluded.
+    expect(namespaceByName.has('version')).toBe(false);
+    expect(namespaceByName.has('internal')).toBe(false);
+    // Methods do not appear in namespaces.
+    expect(namespaceByName.has('doStuff')).toBe(false);
+    expect(schema.methods.map((m: { name: string }) => m.name)).toContain('doStuff');
   });
 
   it('emits dist/adapter-constructor-schema.json with options param type', async () => {

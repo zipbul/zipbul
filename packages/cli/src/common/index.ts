@@ -16,5 +16,6 @@ export { withAtomicEmit } from './atomic-emit';
 export type { AtomicEmitOptions } from './atomic-emit';
 export { installCancellation } from './cancellation';
 export type { CancellationScope, InstallCancellationOptions } from './cancellation';
-export { ensureTsconfigIncludesZipbul } from './tsconfig-patcher';
+export { openGildashWithFallback } from './gildash-open';
+export type { OpenGildashWithFallbackParams, OpenGildashWithFallbackResult } from './gildash-open';
 

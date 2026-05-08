@@ -7,15 +7,13 @@ import { isErr } from '@zipbul/result';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { writeIfChanged } from '../../common';
 import { buildFileAnalysis } from '../build/build-analysis';
-import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from '../build/build-artifact-writer';
+import { writeInterfaceCatalog, writeRuntimeReport } from '../build/build-artifact-writer';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
 import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
 import {
   validateContextDependencies,
   formatViolationMessage,
 } from '../../compiler/analyzer/adapter/context-dependency-validator';
-import { ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
-
 import type { CliRendererLike, CollectedClass } from '../interfaces';
 import type { RebuildContext, RebuildOptions, RebuildResult } from './interfaces';
 
@@ -121,9 +119,9 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
     projectRoot,
     config,
     configSource,
-    buildProfile,
     semanticAvailable,
     ledger,
+    renderer,
   } = context;
 
   // File-level import cycle detection (treated as build error, watcher stays alive)
@@ -141,7 +139,8 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
       if (cycleError instanceof DiagnosticError) {
         throw cycleError;
       }
-      /* Gildash cycle detection failure — ignore */
+      const reason = cycleError instanceof Error ? cycleError.message : 'unknown';
+      renderer.warn(`Cycle detection unavailable this rebuild (${reason}); circular imports may not be reported.`);
     }
   }
 
@@ -221,18 +220,13 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
 
   await writeIfChanged(join(outDir, 'runtime.ts'), runtimeResult);
 
-  // Generate context.d.ts — AOT declaration merging for middleware augments
+  // Collect middleware augments for build-time validation only.
+  // The .d.ts emission is the responsibility of `zb build --lib`
+  // (each middleware library ships its own `dist/context-augments.d.ts`).
   const augmentCollector = new MiddlewareAugmentCollector();
   const augmentResult = await augmentCollector.collect(fileMap, adapterResolution.adapterStaticSchemas);
 
   if (augmentResult.augments.length > 0) {
-    const contextTypesGen = new ContextTypesGenerator();
-    const contextRegistry = new ImportRegistry(outDir);
-    const contextDts = contextTypesGen.generate(augmentResult.augments, contextRegistry, augmentResult.adapterMap);
-
-    await writeIfChanged(join(outDir, 'context.d.ts'), contextDts);
-
-    // Validate handler context usages against registered middleware augments
     const usageWarnings = validateHandlerContextUsages(
       adapterResolution.handlerIndex,
       adapterResolution.handlerContextUsages,
@@ -270,30 +264,17 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
 
   await writeIfChanged(join(outDir, 'entry.ts'), entryContent);
 
-  if (!['minimal', 'standard', 'full'].includes(buildProfile)) {
-    throw new Error(`Invalid build profile: ${buildProfile}`);
-  }
-
   const interfaceCatalogPath = join(outDir, 'interface-catalog.json');
   const runtimeReportPath = join(outDir, 'runtime-report.json');
 
-  if (buildProfile === 'standard' || buildProfile === 'full') {
-    await writeInterfaceCatalog({
-      modules: graph.modules,
-      ledger,
-      semanticAvailable,
-      projectRoot,
-      catalogFilePath: interfaceCatalogPath,
-    });
-  } else {
-    await removeInterfaceCatalog(interfaceCatalogPath);
-  }
-
-  if (buildProfile === 'full') {
-    await writeRuntimeReport(runtimeReportPath);
-  } else {
-    await removeRuntimeReport(runtimeReportPath);
-  }
+  await writeInterfaceCatalog({
+    modules: graph.modules,
+    ledger,
+    semanticAvailable,
+    projectRoot,
+    catalogFilePath: interfaceCatalogPath,
+  });
+  await writeRuntimeReport(runtimeReportPath);
 
   return { graph, handlerIndex: adapterResolution.handlerIndex };
 }

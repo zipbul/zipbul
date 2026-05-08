@@ -6,7 +6,7 @@ import type { CommandOptions } from '../interfaces';
 import type { BuildCommandDeps } from './interfaces';
 
 import { isErr } from '@zipbul/result';
-import { Gildash, GildashError, type GildashOptions, parseSource } from '@zipbul/gildash';
+import { parseSource } from '@zipbul/gildash';
 import { AstParser, AdapterDefinitionResolver, ModuleGraph } from '../../compiler/analyzer';
 import { validateCreateApplication } from '../../compiler/analyzer/validation';
 import {
@@ -16,11 +16,12 @@ import {
   writeIfChanged,
   withAtomicEmit,
   installCancellation,
+  openGildashWithFallback,
 } from '../../common';
 import { ConfigLoader } from '../../config';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { validateDefineCallShape } from '../../compiler/define-call-shape';
-import { EntryGenerator, ManifestGenerator, ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
+import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
 import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
 import {
@@ -29,7 +30,7 @@ import {
 } from '../../compiler/analyzer/adapter/context-dependency-validator';
 import { buildLib } from './lib-build';
 import { CliRenderer } from '../cli-renderer';
-import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from './build-artifact-writer';
+import { writeInterfaceCatalog, writeRuntimeReport } from './build-artifact-writer';
 import { formatCount, buildModuleTree } from '../module-tree-renderer';
 import { scanAndParseFiles } from './build-file-scanner';
 import { reportOutputSizes, reportCouplingMetrics, reportComplexFiles, reportProjectStats } from './build-metrics-reporter';
@@ -54,7 +55,6 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const configResult = await deps.loadConfig();
       const config = configResult.config;
       const moduleFileName = config.module.fileName;
-      const buildProfile = commandOptions?.profile ?? 'full';
       const verbose = commandOptions?.verbose === true;
       const projectRoot = process.cwd();
       const srcDir = resolve(projectRoot, config.sourceDir);
@@ -102,22 +102,12 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const graphSpinner = renderer.startSpinner('[2/4] \u{1F9E9} Building module graph');
 
       // gildash file-level cycle detection + semantic DI validation
-      const openGildash = deps.createGildash ?? ((opts: GildashOptions) => Gildash.open(opts));
       const ignorePatterns = ['dist', '.zipbul', '.gildash'];
-      let ledger: Gildash;
-      let semanticAvailable = true;
-
-      try {
-        ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true, watchMode: false });
-      } catch (e) {
-        if (e instanceof GildashError && e.type === 'semantic') {
-          semanticAvailable = false;
-          renderer.warn(`Semantic mode unavailable, falling back: ${e.message}`);
-          ledger = await openGildash({ projectRoot, ignorePatterns, watchMode: false });
-        } else {
-          throw e;
-        }
-      }
+      const { ledger, semanticAvailable } = await openGildashWithFallback({
+        options: { projectRoot, ignorePatterns, watchMode: false },
+        renderer,
+        ...(deps.createGildash !== undefined ? { open: deps.createGildash } : {}),
+      });
 
       const unsubscribeError = ledger.onError((error) => {
         renderer.warn(`Gildash: ${error.message}`);
@@ -209,17 +199,15 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         await writeIfChanged(runtimeFile, runtimeResult);
 
-        // Generate context.d.ts — AOT declaration merging for middleware augments
+        // Collect middleware augments (from registered middleware factories)
+        // for build-time validation. The .d.ts emission is the responsibility
+        // of `zb build --lib` (each middleware library ships its own
+        // `dist/context-augments.d.ts` with `declare module` augmentation),
+        // so the user-app build no longer writes `.zipbul/context.d.ts`.
         const augmentCollector = new MiddlewareAugmentCollector();
         const augmentResult = await augmentCollector.collect(fileMap, adapterResolution.adapterStaticSchemas);
 
         if (augmentResult.augments.length > 0) {
-          const contextTypesGen = new ContextTypesGenerator();
-          const contextRegistry = new ImportRegistry(zipbulDir);
-          const contextDts = contextTypesGen.generate(augmentResult.augments, contextRegistry, augmentResult.adapterMap);
-
-          await writeIfChanged(join(zipbulDir, 'context.d.ts'), contextDts);
-
           // Validate handler context usages against registered middleware augments
           const usageWarnings = validateHandlerContextUsages(
             adapterResolution.handlerIndex,
@@ -251,9 +239,10 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           const summary = dependencyViolations
             .map((v) => `[Zipbul AOT] ${formatViolationMessage(v)}`)
             .join('\n\n');
-          throw new Error(
-            `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,
-          );
+          throw new DiagnosticError(buildDiagnostic({
+            reason: `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,
+            how: 'Each violation lists the consumer and the missing producer middleware. Add the missing middleware to the relevant pipeline phase, or remove the dependency from the consumer.',
+          }));
         }
 
         const entryPointFile = join(buildTempDir, 'entry.ts');
@@ -284,33 +273,23 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         });
 
         if (manifestJsonGuard !== manifestJson) {
-          throw new Error('Manifest output is not deterministic for the current build inputs.');
-        }
-
-        if (!['minimal', 'standard', 'full'].includes(buildProfile)) {
-          throw new Error(`Invalid build profile: ${buildProfile}`);
+          throw new DiagnosticError(buildDiagnostic({
+            reason: 'Manifest output is not deterministic for the current build inputs.',
+            how: 'This indicates a compiler bug. Please report it with a minimal reproduction at https://github.com/zipbul/zipbul/issues.',
+          }));
         }
 
         const interfaceCatalogFile = join(zipbulDir, 'interface-catalog.json');
         const runtimeReportFile = join(zipbulDir, 'runtime-report.json');
 
-        if (buildProfile === 'standard' || buildProfile === 'full') {
-          await writeInterfaceCatalog({
-            modules: graph.modules,
-            ledger,
-            semanticAvailable,
-            projectRoot,
-            catalogFilePath: interfaceCatalogFile,
-          });
-        } else {
-          await removeInterfaceCatalog(interfaceCatalogFile);
-        }
-
-        if (buildProfile === 'full') {
-          await writeRuntimeReport(runtimeReportFile);
-        } else {
-          await removeRuntimeReport(runtimeReportFile);
-        }
+        await writeInterfaceCatalog({
+          modules: graph.modules,
+          ledger,
+          semanticAvailable,
+          projectRoot,
+          catalogFilePath: interfaceCatalogFile,
+        });
+        await writeRuntimeReport(runtimeReportFile);
 
         manifestSpinner.stop('[3/4] \u{1F4CB} Manifests generated');
 
@@ -338,7 +317,10 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
             if (!buildResult.success) {
               const logMessages = buildResult.logs.map(log => `[${log.level}] ${log.message}`).join('\n');
-              throw new Error(logMessages.length > 0 ? `Bundle failed:\n${logMessages}` : 'Bundle failed');
+              throw new DiagnosticError(buildDiagnostic({
+                reason: logMessages.length > 0 ? `Bundle failed:\n${logMessages}` : 'Bundle failed.',
+                how: 'Resolve the bundler-reported errors above. If they reference missing modules, verify your imports and that all dependencies are installed.',
+              }));
             }
           },
         );
@@ -360,11 +342,9 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         renderer.success(`Build complete in ${buildDuration}s`);
 
-        if (buildProfile === 'full') {
-          await reportCouplingMetrics(fileMap, ledger, projectRoot, renderer);
-          reportComplexFiles(fileMap, ledger, projectRoot, renderer);
-          reportProjectStats(ledger, renderer);
-        }
+        await reportCouplingMetrics(fileMap, ledger, projectRoot, renderer);
+        reportComplexFiles(fileMap, ledger, projectRoot, renderer);
+        reportProjectStats(ledger, renderer);
 
         await reportOutputSizes(
           { entryOutputFile, runtimeOutputFile, manifestFile, manifestJson, projectRoot },
@@ -378,7 +358,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         }
 
         const outroSuffix = warningCount > 0 ? ` with ${String(warningCount)} warning${warningCount === 1 ? '' : 's'}` : '';
-        renderer.outro(`Ready to deploy (profile: ${buildProfile})${outroSuffix}`);
+        renderer.outro(`Ready to deploy${outroSuffix}`);
       } finally {
         unsubscribeError();
         try {

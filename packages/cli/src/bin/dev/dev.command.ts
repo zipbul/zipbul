@@ -6,11 +6,10 @@ import type { CommandOptions } from '../interfaces';
 import { AdapterDefinitionResolver, AstParser, type FileAnalysis } from '../../compiler/analyzer';
 import { validateCreateApplication } from '../../compiler/analyzer/validation';
 import { ConfigLoader } from '../../config';
-import { outputDirPath, scanGlobSorted, ensureTsconfigIncludesZipbul, installCancellation } from '../../common';
+import { outputDirPath, scanGlobSorted, installCancellation, openGildashWithFallback } from '../../common';
 import { isErr } from '@zipbul/result';
 import { DiagnosticError } from '../../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
-import { Gildash, GildashError, type GildashOptions } from '@zipbul/gildash';
 import type { IndexResult } from '@zipbul/gildash';
 
 import { formatCount, buildModuleTree } from '../module-tree-renderer';
@@ -34,10 +33,10 @@ export function createDevCommand(deps: DevCommandDeps) {
   return async function dev(commandOptions?: CommandOptions): Promise<void> {
     renderer.intro('dev');
 
+    const verbose = commandOptions?.verbose === true;
     const configResult = await deps.loadConfig();
     const config = configResult.config;
     const moduleFileName = config.module.fileName;
-    const buildProfile = commandOptions?.profile ?? 'full';
     const projectRoot = process.cwd();
     const srcDir = resolve(projectRoot, config.sourceDir);
     const outDir = outputDirPath(projectRoot);
@@ -94,20 +93,11 @@ export function createDevCommand(deps: DevCommandDeps) {
     // -- 2. Gildash init --
     const gildashSpinner = renderer.startSpinner('Initializing code intelligence');
     const ignorePatterns = ['dist', '.zipbul', '.gildash'];
-    const openGildash = deps.createGildash ?? ((opts: GildashOptions) => Gildash.open(opts));
-    let ledger: Gildash;
-    let semanticAvailable = true;
-    try {
-      ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true });
-    } catch (e) {
-      if (e instanceof GildashError && e.type === 'semantic') {
-        semanticAvailable = false;
-        renderer.warn(`Semantic mode unavailable, falling back: ${e.message}`);
-        ledger = await openGildash({ projectRoot, ignorePatterns });
-      } else {
-        throw e;
-      }
-    }
+    const { ledger, semanticAvailable } = await openGildashWithFallback({
+      options: { projectRoot, ignorePatterns },
+      renderer,
+      ...(deps.createGildash !== undefined ? { open: deps.createGildash } : {}),
+    });
     gildashSpinner.stop('Code intelligence ready');
 
     const unsubscribeError = ledger.onError((error) => {
@@ -141,7 +131,6 @@ export function createDevCommand(deps: DevCommandDeps) {
       projectRoot,
       config,
       configSource: configResult.source,
-      buildProfile,
       semanticAvailable,
       ledger,
     };
@@ -166,11 +155,6 @@ export function createDevCommand(deps: DevCommandDeps) {
 
     buildSpinner.stop(`\u{1f9e9} AOT artifacts generated in ${bootDuration}s (${fmt(graph.modules.size)} modules, ${fmt(providerCount)} providers)`);
 
-    // Ensure tsconfig.json includes .zipbul/**/*.d.ts for IDE support
-    if (await ensureTsconfigIncludesZipbul(projectRoot)) {
-      renderer.info('Patched tsconfig.json — added .zipbul/**/*.d.ts to include');
-    }
-
     if (graph.warnings.length > 0) {
       for (const warning of graph.warnings) {
         renderer.warn(warning);
@@ -178,7 +162,7 @@ export function createDevCommand(deps: DevCommandDeps) {
     }
 
     // -- Application tree --
-    const moduleTreeResult = buildModuleTree({ modules: graph.modules, handlerIndex });
+    const moduleTreeResult = buildModuleTree({ modules: graph.modules, handlerIndex }, { verbose });
 
     renderer.outputPaths('\u{1f9f1} Application', moduleTreeResult.treeLines);
 
@@ -235,13 +219,21 @@ export function createDevCommand(deps: DevCommandDeps) {
         unsubscribe();
         unsubscribeError();
         unsubscribeRole();
-        try { await ledger.close(); } catch { /* cleanup failure -- ignore */ }
+        try {
+          await ledger.close();
+        } catch (e) {
+          renderer.warn(e instanceof Error ? e.message : 'Failed to close gildash.');
+        }
       });
     } catch (error) {
       await processManager.stop();
       unsubscribeError();
       unsubscribeRole();
-      try { await ledger.close(); } catch { /* cleanup failure -- ignore */ }
+      try {
+        await ledger.close();
+      } catch (e) {
+        renderer.warn(e instanceof Error ? e.message : 'Failed to close gildash.');
+      }
       throw error;
     }
   };

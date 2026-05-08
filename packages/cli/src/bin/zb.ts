@@ -1,5 +1,7 @@
 import { parseArgs } from 'util';
 
+import pkgJson from '../../package.json' with { type: 'json' };
+
 import type { CommandOptions } from './interfaces';
 
 import { Logger } from '@zipbul/logger';
@@ -16,9 +18,6 @@ const { positionals, values } = parseArgs({
   allowPositionals: true,
   strict: false,
   options: {
-    profile: {
-      type: 'string',
-    },
     verbose: {
       type: 'boolean',
       short: 'v',
@@ -29,8 +28,21 @@ const { positionals, values } = parseArgs({
     json: {
       type: 'boolean',
     },
+    help: {
+      type: 'boolean',
+      short: 'h',
+    },
+    version: {
+      type: 'boolean',
+    },
   },
 });
+
+if (values.version === true) {
+  const version = typeof pkgJson.version === 'string' ? pkgJson.version : '0.0.0';
+  process.stdout.write(`zb ${version}\n`);
+  process.exit(0);
+}
 
 const jsonMode = values.json === true;
 const commandLabel = (() => {
@@ -67,11 +79,17 @@ const USAGE_TEXT = [
   '  build adapter    Compile an adapter package (zipbul.kind === "adapter")',
   '',
   'Common options:',
-  '  --profile <minimal|standard|full>',
   '  --lib            Build as library (inject __augments metadata for npm packages)',
   '  --verbose, -v    Show detailed build information',
   '  --json           Emit NDJSON log events (one JSON object per line) for ingestion',
+  '  --help, -h       Show this help',
+  '  --version        Print zb version',
 ].join('\n');
+
+if (values.help === true) {
+  process.stdout.write(USAGE_TEXT + '\n');
+  process.exit(0);
+}
 
 const printUsage = (): void => {
   renderer.info(USAGE_TEXT);
@@ -83,13 +101,8 @@ const reportInvalidCommand = (value: string | undefined): void => {
 };
 
 const createCommandOptions = (): CommandOptions => {
-  const profile = typeof values.profile === 'string' ? values.profile : undefined;
   const verbose = values.verbose === true;
   const options: CommandOptions = {};
-
-  if (profile !== undefined) {
-    options.profile = profile;
-  }
 
   if (verbose) {
     options.verbose = true;
@@ -114,7 +127,10 @@ try {
 
       if (subCommand === 'adapter') {
         try {
-          const result = await buildAdapter({ renderer });
+          const result = await buildAdapter({
+            renderer,
+            ...(commandOptions.verbose === true ? { verbose: true } : {}),
+          });
 
           if (jsonMode) {
             renderer.success(`adapter ${result.adapterId} -> ${result.manifestPath}`);

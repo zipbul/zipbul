@@ -26,6 +26,66 @@ import {
  * @public
  */
 export function convertExpression(expr: ExpressionValue): AnalyzerValue {
+  return convertExpressionWithHooks(expr, undefined);
+}
+
+/**
+ * Per-node hooks for {@link convertExpressionWithHooks} — enable the deep
+ * converter (`expression-converter.ts:convertExpressionDeep`) to layer
+ * inject-call collection, factory-ref tracking, import-source path
+ * resolution, and lazy-thunk alias resolution on top of the same single
+ * tree-walk used by the pure converter. With `hooks === undefined` the
+ * walker behaves identically to the pure {@link convertExpression}.
+ *
+ * @public
+ */
+export interface ExpressionConvertHooks {
+  /**
+   * Transform a raw `importSource` string. Used by the deep converter to
+   * resolve relative paths (`'./foo'`) to absolute paths via the project's
+   * import resolver. Default = identity (returns input unchanged).
+   */
+  readonly resolveSource?: (raw: string | undefined) => string | undefined;
+  /**
+   * Fallback `importSource` lookup for `member` expressions whose own
+   * `importSource` is `undefined`. Receives the root identifier of the
+   * member chain (e.g. `'a'` in `a.b.c`) and returns the resolved source.
+   * Default = no fallback.
+   */
+  readonly resolveObjectSource?: (rootIdent: string) => string | undefined;
+  /**
+   * Notification hook fired once per `call` node. Used by the deep
+   * converter to collect `inject(...)` calls into a side channel without
+   * affecting the converted IR shape.
+   */
+  readonly onCall?: (expr: ExpressionCall) => void;
+  /**
+   * Override for the lazy-thunk identifier resolver. Receives the bare
+   * identifier captured from `lazy(() => Foo)`, returns the canonical
+   * (alias-resolved) name. Default = identity.
+   */
+  readonly transformLazyRefName?: (refName: string) => string;
+  /**
+   * Notification hook fired once per `function` node. Used by the deep
+   * converter to track factory references for downstream enrichment.
+   */
+  readonly onFunction?: (expr: ExpressionFunction) => void;
+}
+
+/**
+ * Single tree-walking converter shared by the pure {@link convertExpression}
+ * and the enriched `convertExpressionDeep`. Hooks are optional; when
+ * `hooks === undefined` the walker emits the canonical IR with no side
+ * effects and no path/alias resolution — identical to the pure converter.
+ *
+ * @public
+ */
+export function convertExpressionWithHooks(
+  expr: ExpressionValue,
+  hooks: ExpressionConvertHooks | undefined,
+): AnalyzerValue {
+  const recurse = (child: ExpressionValue): AnalyzerValue => convertExpressionWithHooks(child, hooks);
+
   switch (expr.kind) {
     case 'string':
     case 'number':
@@ -36,34 +96,74 @@ export function convertExpression(expr: ExpressionValue): AnalyzerValue {
     case 'undefined':
       return undefined;
 
-    case 'identifier':
-      return identifierToRef(expr);
+    case 'identifier': {
+      const importSource = hooks?.resolveSource !== undefined
+        ? hooks.resolveSource(expr.importSource)
+        : expr.importSource;
+      return {
+        [ZIPBUL_REF]: expr.originalName ?? expr.name,
+        [ZIPBUL_IMPORT_SOURCE]: importSource,
+      };
+    }
 
-    case 'member':
+    case 'member': {
+      const ownSource = hooks?.resolveSource !== undefined
+        ? hooks.resolveSource(expr.importSource)
+        : expr.importSource;
+      const fallbackSource = ownSource === undefined && hooks?.resolveObjectSource !== undefined
+        ? hooks.resolveObjectSource(expr.object)
+        : undefined;
       return {
         [ZIPBUL_REF]: `${expr.object}.${expr.property}`,
-        [ZIPBUL_IMPORT_SOURCE]: expr.importSource,
+        [ZIPBUL_IMPORT_SOURCE]: ownSource ?? fallbackSource,
       };
+    }
 
-    case 'call':
-      return convertCallExpression(expr);
+    case 'call': {
+      hooks?.onCall?.(expr);
+
+      // `lazy(() => Foo)` collapse — same logic as `convertCallExpression`,
+      // optionally aliased through `hooks.transformLazyRefName`.
+      if (expr.callee === 'lazy' && expr.arguments.length > 0) {
+        const firstArg = expr.arguments[0];
+        if (firstArg !== undefined && firstArg.kind === 'function') {
+          const refName = extractLazyRefName(firstArg.sourceText);
+          if (refName !== null) {
+            const resolvedName = hooks?.transformLazyRefName !== undefined
+              ? hooks.transformLazyRefName(refName)
+              : refName;
+            return { [ZIPBUL_LAZY_REF]: resolvedName };
+          }
+        }
+      }
+
+      const importSource = hooks?.resolveSource !== undefined
+        ? hooks.resolveSource(expr.importSource)
+        : expr.importSource;
+      return {
+        [ZIPBUL_CALL]: expr.callee,
+        [ZIPBUL_IMPORT_SOURCE]: importSource,
+        args: expr.arguments.map(recurse),
+      };
+    }
 
     case 'new':
       return {
         [ZIPBUL_NEW]: expr.callee,
-        args: expr.arguments.map(convertExpression),
+        args: expr.arguments.map(recurse),
       };
 
     case 'object':
-      return convertObjectExpression(expr);
+      return convertObjectExpressionWith(expr, recurse);
 
     case 'array':
-      return expr.elements.map(convertExpression);
+      return expr.elements.map(recurse);
 
     case 'spread':
-      return { [ZIPBUL_SPREAD]: convertExpression(expr.argument) };
+      return { [ZIPBUL_SPREAD]: recurse(expr.argument) };
 
     case 'function':
+      hooks?.onFunction?.(expr);
       return convertFunctionExpression(expr);
 
     case 'template':
@@ -171,6 +271,19 @@ function isComputedKey(key: KeyExpression): boolean {
  * @public
  */
 export function convertObjectExpression(expr: ExpressionObject): AnalyzerValueRecord {
+  return convertObjectExpressionWith(expr, convertExpression);
+}
+
+/**
+ * Variant of {@link convertObjectExpression} that delegates child conversion
+ * to a caller-supplied recursor. Used by {@link convertExpressionWithHooks}
+ * so that nested expressions inside an object pick up the same hooks
+ * (inject collection, source resolution, etc.) as the parent walk.
+ */
+function convertObjectExpressionWith(
+  expr: ExpressionObject,
+  recurse: (child: ExpressionValue) => AnalyzerValue,
+): AnalyzerValueRecord {
   const result: AnalyzerValueRecord = {};
   let computedIndex = 0;
   let spreadIndex = 0;
@@ -178,7 +291,7 @@ export function convertObjectExpression(expr: ExpressionObject): AnalyzerValueRe
   for (const entry of expr.properties) {
     if (entry.kind === 'spread') {
       // Spread inside an object literal — encode as a synthetic computed slot.
-      result[`${ZIPBUL_COMPUTED_PREFIX}spread${spreadIndex}`] = { [ZIPBUL_SPREAD]: convertExpression(entry.argument) };
+      result[`${ZIPBUL_COMPUTED_PREFIX}spread${spreadIndex}`] = { [ZIPBUL_SPREAD]: recurse(entry.argument) };
       spreadIndex++;
 
       continue;
@@ -187,8 +300,8 @@ export function convertObjectExpression(expr: ExpressionObject): AnalyzerValueRe
     const key = entry.key;
 
     if (isComputedKey(key)) {
-      const keyExpr = convertExpression(key);
-      const valExpr = convertExpression(entry.value);
+      const keyExpr = recurse(key);
+      const valExpr = recurse(entry.value);
 
       result[`${ZIPBUL_COMPUTED_PREFIX}${computedIndex}`] = {
         [ZIPBUL_COMPUTED_KEY]: keyExpr,
@@ -207,7 +320,7 @@ export function convertObjectExpression(expr: ExpressionObject): AnalyzerValueRe
         ? 'null'
         : 'undefined';
 
-    result[staticKey] = convertExpression(entry.value);
+    result[staticKey] = recurse(entry.value);
   }
 
   return result;

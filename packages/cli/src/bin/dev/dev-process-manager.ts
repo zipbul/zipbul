@@ -104,8 +104,7 @@ export class DevProcessManager {
       return;
     }
 
-    const readable = stream as ReadableStream<Uint8Array>;
-    const reader = readable.getReader();
+    const reader = stream.getReader();
     const decoder = new TextDecoder();
 
     const pump = async (): Promise<void> => {

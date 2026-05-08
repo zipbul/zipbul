@@ -1,11 +1,12 @@
-import { mkdir } from 'fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'fs/promises';
 import { Glob } from 'bun';
 import { dirname, join, resolve, relative } from 'path';
 
 import type { CliRendererLike } from '../interfaces';
 import type { BuildCommandDeps } from './interfaces';
 
-import { extractSymbols, parseSource } from '@zipbul/gildash';
+import { extractSymbols, parseSource, is } from '@zipbul/gildash';
+import type { Node as AstNode } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 import { validateDefineCallShape } from '../../compiler/define-call-shape';
 import { withAtomicEmit, type CancellationScope } from '../../common';
@@ -15,6 +16,10 @@ import {
   injectAugmentsIntoSource,
   type LibAugmentEntry,
 } from '../../compiler/generator/lib-augment-injector';
+import { extractMiddlewareAugments } from '../../compiler/analyzer/parser/middleware-augment-extractor';
+import type { MiddlewareContextAugment } from '../../compiler/analyzer/adapter/middleware-context-types';
+import { ContextTypesGenerator, type ContextAdapterMap } from '../../compiler/generator/context-types-generator';
+import { ImportRegistry } from '../../compiler/generator/import-registry';
 
 /**
  * Per-file augment extraction result for reporting.
@@ -170,6 +175,21 @@ export async function buildLib(
     renderer.warn('No defineMiddleware() exports with context augments found. If this is a middleware library, verify your factory uses ctx.to() and assigns to context properties.');
   }
 
+  // ── 3·5. Pre-tsc: emit context-augments.d.ts inside `srcDir` so tsc picks
+  // it up via the existing include scope. Without this, the middleware's
+  // own runtime assignment (`http.request.cookie = new CookieJar(...)`)
+  // fails type-checking because tsc sees the unaugmented `HttpRequest`.
+  // The file is moved to the staging dir after tsc and removed from src.
+  const augmentsInSrc = totalAugments > 0
+    ? await prepareContextAugmentsForTsc({
+      projectRoot,
+      tsFiles,
+      srcDir: config.srcDir,
+      cancel,
+      renderer,
+    })
+    : null;
+
   // ── 4·5. Atomic emit: Bun.build (JS) + tsc (.d.ts) → staging → swap ──
   // Both stages write into a staging dir; on success, staging atomically
   // replaces config.outDir. On any failure the prior dist/ is preserved.
@@ -217,6 +237,7 @@ export async function buildLib(
             .join('\n');
           throw new DiagnosticError(buildDiagnostic({
             reason: `JavaScript compilation failed:\n${errors}`,
+            how: 'Resolve the bundler errors above. Common causes: unresolved imports, syntax errors, or missing peer dependencies.',
           }));
         }
 
@@ -246,12 +267,35 @@ export async function buildLib(
         const reason = exitCode === null
           ? `tsc terminated by signal.`
           : `Type declaration generation failed (tsc exit code ${String(exitCode)}):\n${stderrText.trim().slice(0, 1000)}`;
-        throw new DiagnosticError(buildDiagnostic({ reason }));
+        throw new DiagnosticError(buildDiagnostic({
+          reason,
+          how: 'Run `bunx tsc --noEmit` directly to see the full type errors and fix them, then retry `zb build --lib`.',
+        }));
       }
 
       dtsSpinner.stop('[4/4] Type declarations generated');
+
+      // ── Context augmentation .d.ts (declaration merging) ──
+      // Move the pre-emitted augments file from `srcDir` to staging as
+      // `context-augments.d.ts` and prepend `/// <reference path>` to every
+      // `.d.ts` file tsc just emitted. Consumers importing the middleware
+      // pick up the augmentation automatically — no consumer tsconfig
+      // modification.
+      if (augmentsInSrc !== null) {
+        await finalizeContextAugmentsDts({
+          stagingDir,
+          augmentsInSrcPath: augmentsInSrc.path,
+        });
+      }
     },
   );
+
+  if (augmentsInSrc !== null) {
+    // Cleanup: remove src copy whether or not staging promotion succeeded.
+    // (When promotion succeeds, finalize already removed it; this is a
+    // best-effort safety net for the failure path.)
+    await augmentsInSrc.cleanup();
+  }
 
   // ── Summary ────────────────────────────────────────────────
   if (totalAugments > 0) {
@@ -284,16 +328,27 @@ async function resolveLibBuildConfig(projectRoot: string): Promise<LibBuildConfi
     }));
   }
 
-  let packageJson: Record<string, unknown>;
+  let parsed: unknown;
 
   try {
-    packageJson = await packageJsonFile.json() as Record<string, unknown>;
+    parsed = await packageJsonFile.json();
   } catch {
     throw new DiagnosticError(buildDiagnostic({
       reason: 'Failed to parse package.json.',
       file: packageJsonPath,
+      how: 'Validate the file with `bun -e "console.log(await Bun.file(\'package.json\').json())"` or any JSON linter and fix the syntax error reported.',
     }));
   }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: 'package.json must contain a JSON object at the top level.',
+      file: packageJsonPath,
+      how: 'Replace the top-level value with a `{ ... }` object containing at minimum "name" and "zipbul.kind" fields.',
+    }));
+  }
+
+  const packageJson = parsed as Record<string, unknown>;
 
   const packageName = packageJson.name;
 
@@ -301,6 +356,7 @@ async function resolveLibBuildConfig(projectRoot: string): Promise<LibBuildConfi
     throw new DiagnosticError(buildDiagnostic({
       reason: 'package.json must have a "name" field.',
       file: packageJsonPath,
+      how: 'Add a non-empty `"name"` string (e.g. `"@scope/middleware-name"`) to package.json.',
     }));
   }
 
@@ -330,6 +386,7 @@ function validateMiddlewareKind(packageJson: Record<string, unknown>, packageJso
   throw new DiagnosticError(buildDiagnostic({
     reason: `[CONTRACT] \`zb build --lib\` only compiles middleware library packages. ${packageJsonPath} must declare \`"zipbul": { "kind": "middleware" }\`. Found: ${JSON.stringify(zipbul ?? null)}.`,
     file: packageJsonPath,
+    how: 'For an adapter package use `zb build adapter` instead. For a middleware library, add `"zipbul": { "kind": "middleware" }` to package.json.',
   }));
 }
 
@@ -357,6 +414,7 @@ async function resolveSourceDir(
 
     throw new DiagnosticError(buildDiagnostic({
       reason: `package.json "source" field points to "${sourceField}" which does not exist.`,
+      how: 'Update the "source" field to a real entry file path (relative to the package root) or remove it to fall back to `src/`.',
     }));
   }
 
@@ -371,7 +429,8 @@ async function resolveSourceDir(
   if (await dirExists(libDir)) return libDir;
 
   throw new DiagnosticError(buildDiagnostic({
-    reason: 'Cannot determine source directory. Add a "source" field to package.json (e.g., "source": "src/index.ts") or create a src/ directory.',
+    reason: 'Cannot determine source directory.',
+    how: 'Add a `"source"` field to package.json (e.g. `"source": "src/index.ts"`), or create a `src/` (or `lib/`) directory at the package root.',
   }));
 }
 
@@ -429,4 +488,329 @@ function extractAndDetectSkipped(
  */
 function resolveEntrypoints(tsFiles: readonly string[], srcDir: string): string[] {
   return tsFiles.map(file => join(srcDir, file));
+}
+
+/**
+ * Collects locally declared class names from a file's top-level statements
+ * (handles both `class Foo {}` and `export class Foo {}`). Used so that
+ * `new Foo(...)` augments where `Foo` is defined in the same file resolve
+ * to a sibling-file import in the emitted `dist/context-augments.d.ts`.
+ */
+function collectLocalClassDeclarations(programBody: readonly AstNode[]): Set<string> {
+  const names = new Set<string>();
+  for (const stmt of programBody) {
+    if (is.ClassDeclaration(stmt)) {
+      if (stmt.id && is.Identifier(stmt.id)) names.add(stmt.id.name);
+      continue;
+    }
+    if (is.ExportNamedDeclaration(stmt)) {
+      const decl = stmt.declaration;
+      if (decl && is.ClassDeclaration(decl) && decl.id && is.Identifier(decl.id)) {
+        names.add(decl.id.name);
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * Builds an import map from a parsed file's import declarations:
+ * `localBindingName → moduleSpecifier`. Skips type-only imports.
+ */
+function buildSourceImportMap(programBody: readonly AstNode[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const stmt of programBody) {
+    if (!is.ImportDeclaration(stmt)) continue;
+    const source = stmt.source.value;
+    if (typeof source !== 'string') continue;
+    if (stmt.specifiers === undefined) continue;
+    for (const spec of stmt.specifiers) {
+      if (is.ImportSpecifier(spec) && is.Identifier(spec.local)) {
+        map.set(spec.local.name, source);
+      } else if (is.ImportDefaultSpecifier(spec) && is.Identifier(spec.local)) {
+        map.set(spec.local.name, source);
+      } else if (is.ImportNamespaceSpecifier(spec) && is.Identifier(spec.local)) {
+        map.set(spec.local.name, source);
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * Finds the named export's defineMiddleware factory function node.
+ */
+function findFactoryByName(programBody: readonly AstNode[], name: string): AstNode | null {
+  for (const stmt of programBody) {
+    let varDecl: AstNode | null = null;
+    if (is.ExportNamedDeclaration(stmt) && stmt.declaration && is.VariableDeclaration(stmt.declaration)) {
+      varDecl = stmt.declaration;
+    } else if (is.VariableDeclaration(stmt)) {
+      varDecl = stmt;
+    }
+    if (varDecl === null || !is.VariableDeclaration(varDecl)) continue;
+    for (const decl of varDecl.declarations) {
+      if (!is.Identifier(decl.id) || decl.id.name !== name) continue;
+      if (decl.init === null || decl.init === undefined || !is.CallExpression(decl.init)) continue;
+      const args = decl.init.arguments;
+      if (args.length === 0) continue;
+      const first = args[0]!;
+      if (is.ArrowFunctionExpression(first) || is.FunctionExpression(first)) return first;
+      if (args.length >= 2) {
+        const second = args[1]!;
+        if (is.ArrowFunctionExpression(second) || is.FunctionExpression(second)) return second;
+      }
+      if (is.ObjectExpression(first)) {
+        for (const prop of first.properties) {
+          if (!is.Property(prop) || !is.Identifier(prop.key) || prop.key.name !== 'factory') continue;
+          if (is.ArrowFunctionExpression(prop.value) || is.FunctionExpression(prop.value)) return prop.value;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Reads the adapter's `dist/context-namespaces.json` from `node_modules` to
+ * map `path[0]` segments (e.g. `'request'`) to TypeScript interface names
+ * (e.g. `'HttpRequest'`).
+ */
+async function loadAdapterNamespaces(
+  projectRoot: string,
+  packageSpecifier: string,
+): Promise<{ contextType: string; namespaces: Readonly<Record<string, string>> } | null> {
+  const candidatePaths = [
+    join(projectRoot, 'node_modules', packageSpecifier, 'dist', 'context-namespaces.json'),
+  ];
+  for (const candidate of candidatePaths) {
+    const file = Bun.file(candidate);
+    if (!(await file.exists())) continue;
+    try {
+      const json = await file.json() as { contextType?: unknown; namespaces?: readonly { name?: unknown; type?: unknown }[] };
+      if (typeof json.contextType !== 'string') continue;
+      const namespaceMap: Record<string, string> = {};
+      if (Array.isArray(json.namespaces)) {
+        for (const entry of json.namespaces) {
+          if (typeof entry?.name === 'string' && typeof entry?.type === 'string') {
+            namespaceMap[entry.name] = entry.type;
+          }
+        }
+      }
+      return { contextType: json.contextType, namespaces: namespaceMap };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/** File name for the in-src augment placeholder. Avoid colliding with
+ *  user-authored files by using a deeply-prefixed name. */
+const ZIPBUL_AUGMENTS_FILE = '__zipbul_context_augments__.d.ts';
+
+/**
+ * Builds `context-augments.d.ts` content from this package's middleware
+ * augments and writes it to `<srcDir>/__zipbul_context_augments__.d.ts` so
+ * tsc sees the `declare module` declarations during compilation. Returns a
+ * handle with `path` (where it was written) and `cleanup` (idempotent
+ * removal). Returns `null` when there are no augments to emit.
+ */
+async function prepareContextAugmentsForTsc(params: {
+  projectRoot: string;
+  tsFiles: readonly string[];
+  srcDir: string;
+  cancel: CancellationScope | undefined;
+  renderer: CliRendererLike;
+}): Promise<{ path: string; cleanup: () => Promise<void> } | null> {
+  const { projectRoot, tsFiles, srcDir, cancel, renderer } = params;
+  const dtsContent = await buildContextAugmentsDtsContent({ projectRoot, tsFiles, srcDir, renderer });
+  if (dtsContent === null) return null;
+
+  const augmentsPath = join(srcDir, ZIPBUL_AUGMENTS_FILE);
+  await writeFile(augmentsPath, dtsContent, 'utf-8');
+
+  let removed = false;
+  const cleanup = async (): Promise<void> => {
+    if (removed) return;
+    removed = true;
+    const { rm } = await import('fs/promises');
+    await rm(augmentsPath, { force: true }).catch(() => {});
+  };
+
+  // SIGINT/SIGTERM cleanup — leaving the file inside src/ on cancel would
+  // poison the next build (tsc + extractLibAugments would re-pick it up).
+  if (cancel !== undefined) {
+    cancel.registerCleanup(cleanup);
+  }
+
+  return { path: augmentsPath, cleanup };
+}
+
+/**
+ * Moves the pre-emitted augments file from `srcDir` to `<stagingDir>/context-augments.d.ts`,
+ * removes the src copy, and prepends `/// <reference path>` to every
+ * tsc-emitted `.d.ts` file in staging.
+ */
+async function finalizeContextAugmentsDts(params: {
+  stagingDir: string;
+  augmentsInSrcPath: string;
+}): Promise<void> {
+  const { stagingDir, augmentsInSrcPath } = params;
+  const stagingAugmentsPath = join(stagingDir, 'context-augments.d.ts');
+  const dtsContent = await readFile(augmentsInSrcPath, 'utf-8');
+  await writeFile(stagingAugmentsPath, dtsContent, 'utf-8');
+
+  // tsc may have copied the augments .d.ts into staging under its src-relative
+  // path (e.g. `dist/__zipbul_context_augments__.d.ts`). Remove that — the
+  // canonical augment file is `dist/context-augments.d.ts`.
+  await prependReferenceToAllDts(stagingDir);
+
+  const { rm } = await import('fs/promises');
+  await rm(augmentsInSrcPath, { force: true }).catch(() => {});
+  // Remove any stray copy tsc emitted inside staging.
+  await rm(join(stagingDir, ZIPBUL_AUGMENTS_FILE), { force: true }).catch(() => {});
+}
+
+/**
+ * Constructs the `context-augments.d.ts` source string by extracting augments
+ * from each `.ts` file under `srcDir` and resolving the target adapter's
+ * namespace map from the published manifest in node_modules. Returns `null`
+ * when there is nothing to emit (no augments OR adapter manifest unresolvable
+ * for every contextType).
+ */
+async function buildContextAugmentsDtsContent(params: {
+  projectRoot: string;
+  tsFiles: readonly string[];
+  srcDir: string;
+  renderer: CliRendererLike;
+}): Promise<string | null> {
+  const { projectRoot, tsFiles, srcDir, renderer } = params;
+
+  const allAugments: MiddlewareContextAugment[] = [];
+  const adapterMap: ContextAdapterMap = {};
+  const unresolvedAdapters = new Set<string>();
+
+  for (const file of tsFiles) {
+    const fullPath = join(srcDir, file);
+    const sourceText = await readFile(fullPath, 'utf-8');
+    const parseResult = parseSource(fullPath, sourceText);
+    if (isErr(parseResult)) continue;
+    const importMap = buildSourceImportMap(parseResult.program.body);
+    const localClasses = collectLocalClassDeclarations(parseResult.program.body);
+
+    const entries = extractLibAugments(fullPath, sourceText);
+    for (const entry of entries) {
+      if (entry.contextType === null || entry.augments.length === 0) continue;
+
+      const factory = findFactoryByName(parseResult.program.body, entry.name);
+      if (factory === null) continue;
+      const augResult = extractMiddlewareAugments(factory);
+      if (augResult === null || augResult.augments.length === 0) continue;
+
+      const contextModule = importMap.get(entry.contextType);
+      if (contextModule === undefined) continue;
+
+      // Resolve the adapter's contextNamespaces (interface mapping)
+      // once per (contextType, contextModule) pair.
+      if (adapterMap[entry.contextType] === undefined) {
+        const ns = await loadAdapterNamespaces(projectRoot, contextModule);
+        if (ns === null) {
+          unresolvedAdapters.add(contextModule);
+          continue;
+        }
+        const targets: Record<string, { interface: string; module: string }> = {};
+        for (const [getter, ifaceName] of Object.entries(ns.namespaces)) {
+          targets[getter] = { interface: ifaceName, module: contextModule };
+        }
+        (adapterMap as Record<string, typeof targets>)[entry.contextType] = targets;
+      }
+
+      // Resolve `new X(...)` augment classes:
+      // 1. imported from another module → use the import specifier
+      // 2. declared in the same .ts file → reference via `./<file>` so the
+      //    emitted `dist/context-augments.d.ts` can `import type` from the
+      //    sibling `.d.ts` tsc emits for that same file.
+      const classImports = new Map<string, string>();
+      for (const aug of augResult.augments) {
+        if (aug.rhs.kind === 'class') {
+          const importPath = importMap.get(aug.rhs.identifier);
+          if (importPath !== undefined) {
+            classImports.set(aug.rhs.identifier, importPath);
+          } else if (localClasses.has(aug.rhs.identifier)) {
+            classImports.set(aug.rhs.identifier, fullPath);
+          }
+        }
+      }
+
+      allAugments.push({
+        middlewareName: entry.name,
+        contextType: entry.contextType,
+        sourceFilePath: fullPath,
+        augments: augResult.augments,
+        classImports,
+      });
+    }
+  }
+
+  for (const pkg of unresolvedAdapters) {
+    renderer.warn(
+      `Adapter manifest not found for "${pkg}" — augments targeting its context will not be emitted. Install the adapter package or upgrade it to a version that ships dist/context-namespaces.json.`,
+    );
+  }
+
+  if (allAugments.length === 0 || Object.keys(adapterMap).length === 0) {
+    return null;
+  }
+
+  const generator = new ContextTypesGenerator();
+  // Registry's outputDir is just used to compute relative paths for class
+  // imports inside the augmentation. The class import paths are external
+  // module specifiers (e.g. './cookie-jar' relative to src/index.ts), so the
+  // exact outputDir value here does not affect the final import statements
+  // emitted by `getImportStatements()` — they pass through as-is.
+  const registry = new ImportRegistry(srcDir);
+  return generator.generate(allAugments, registry, adapterMap);
+}
+
+/**
+ * Prepends `/// <reference path="./context-augments.d.ts" />` (with a relative
+ * path) to every `.d.ts` file under `stagingDir` except `context-augments.d.ts`
+ * itself. Idempotent — detects any prior triple-slash reference targeting
+ * `context-augments.d.ts` (regardless of how the relative path was spelled)
+ * via regex match anywhere in the file, so re-running the lib build never
+ * stacks duplicate directives. Per-file relative paths are recomputed because
+ * nested .d.ts files at deeper subdirectories need different `../` prefixes.
+ */
+async function prependReferenceToAllDts(stagingDir: string): Promise<void> {
+  const augmentFileName = 'context-augments.d.ts';
+  // Matches `/// <reference path="...context-augments.d.ts" />` with any
+  // relative-path spelling (`./`, `../../`) and any whitespace shape.
+  const existingRefRegex = /\/\/\/\s*<\s*reference\s+path\s*=\s*["'][^"']*context-augments\.d\.ts["']\s*\/\s*>/;
+
+  async function walk(dir: string): Promise<string[]> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    const out: string[] = [];
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        out.push(...await walk(full));
+      } else if (entry.isFile() && entry.name.endsWith('.d.ts') && entry.name !== augmentFileName) {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  const dtsFiles = await walk(stagingDir);
+  for (const dts of dtsFiles) {
+    const content = await readFile(dts, 'utf-8');
+    if (existingRefRegex.test(content)) continue;
+
+    const augmentsAbs = join(stagingDir, augmentFileName);
+    const relPath = relative(dirname(dts), augmentsAbs).split('\\').join('/');
+    const normalized = relPath.startsWith('.') ? relPath : `./${relPath}`;
+    const directive = `/// <reference path="${normalized}" />`;
+    await writeFile(dts, `${directive}\n${content}`, 'utf-8');
+  }
 }
