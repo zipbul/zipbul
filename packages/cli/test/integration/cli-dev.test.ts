@@ -25,14 +25,12 @@ function makeIndexResult(overrides: Partial<IndexResult> & { changedFiles: strin
 }
 
 import type { DevCommandDeps } from '../../src/bin/dev';
-import { __testing__ } from '../../src/bin/dev';
+import { createDevCommand } from '../../src/bin/dev';
 import type { AstParser, AdapterDefinitionResolver } from '../../src/compiler/analyzer';
 import type { ResolvedConfig } from '../../src/config';
 import { ConfigLoadError } from '../../src/config';
 import type { ManifestGenerator } from '../../src/compiler/generator/manifest-generator';
 import type { EntryGenerator } from '../../src/compiler/generator/entry-generator';
-
-const { createDevCommand } = __testing__;
 
 // ---------------------------------------------------------------------------
 // Minimal valid FileAnalysis factory for mock parser
@@ -543,6 +541,57 @@ describe('createDevCommand', () => {
 
     // Assert: process restarted (stop old + start new = 2 total spawns)
     expect(spawnFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('emits "dev/rebuild: ok" trigger line on successful rebuild', async () => {
+    // Monitor-tool friendly trigger contract — agents tail stdout for this
+    // exact prefix to know a rebuild settled. Guard the format so a refactor
+    // that drops/renames the line breaks this test instead of silently
+    // breaking every consumer's wait condition.
+    const subprocess = mockSubprocess();
+    const spawnFn = mock(() => subprocess);
+    const changedFile = join(tmpDir, 'src', 'main.ts');
+
+    let onIndexedCallback: ((result: IndexResult) => void) | null = null;
+    const ledgerMock = {
+      ...makeGildashLedgerMock(),
+      onIndexed: mock((cb: (result: IndexResult) => void) => {
+        onIndexedCallback = cb;
+        return mock(() => {});
+      }),
+    } as unknown as Gildash;
+
+    const logCalls: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => {
+      const first = args[0];
+      if (typeof first === 'string') logCalls.push(first);
+    };
+
+    try {
+      const deps = makeDeps({
+        createGildash: mock(async () => ledgerMock),
+        spawnProcess: spawnFn,
+      });
+
+      const dev = createDevCommand(deps);
+      await dev();
+
+      // deletedFiles forces needsRebuild=true so the rebuild branch runs and
+      // the trigger line is emitted. (Pure "modified" events with no
+      // fingerprint shift exit via the fast-path early.)
+      onIndexedCallback!(makeIndexResult({
+        changedFiles: [changedFile],
+        deletedFiles: ['/tmp/nonexistent-deleted.ts'],
+        removedFiles: 1,
+      }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const triggerLine = logCalls.find(s => s.startsWith('dev/rebuild: ok'));
+      expect(triggerLine).toBeDefined();
+    } finally {
+      console.log = originalLog;
+    }
   });
 
   it('should NOT restart process when rebuild fails', async () => {

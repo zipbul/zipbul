@@ -7,12 +7,10 @@ import { err } from '@zipbul/result';
 import { GildashError, type Gildash, type GildashOptions } from '@zipbul/gildash';
 
 import type { BuildCommandDeps } from '../../src/bin/build';
-import { __testing__ } from '../../src/bin/build';
+import { createBuildCommand } from '../../src/bin/build';
 import type { AstParser, AdapterDefinitionResolver } from '../../src/compiler/analyzer';
 import type { ResolvedConfig } from '../../src/config';
 import { ConfigLoadError } from '../../src/config';
-
-const { createBuildCommand } = __testing__;
 
 // ---------------------------------------------------------------------------
 // Minimal valid FileAnalysis factory for mock parser

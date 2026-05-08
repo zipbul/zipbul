@@ -105,6 +105,20 @@ describe('SIGINT cleanup', () => {
       stdout: 'pipe',
     });
 
+    // Capture stderr so we can verify the cancellation line is emitted.
+    const stderrChunks: string[] = [];
+    void (async () => {
+      const reader = (child.stderr as ReadableStream<Uint8Array>).getReader();
+      const decoder = new TextDecoder();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          stderrChunks.push(decoder.decode(value, { stream: true }));
+        }
+      } catch { /* stream closed */ }
+    })();
+
     // Staging path now carries `-<pid>-<rand>` to prevent collisions
     // between concurrent builds. Match by glob/prefix instead of hardcoded.
     const stagingPrefix = `${join(packageRoot, 'dist')}.staging-`;
@@ -143,5 +157,11 @@ describe('SIGINT cleanup', () => {
     // Prior dist/ must still be intact — atomic emit promised this.
     const priorContent = await readFile(join(packageRoot, 'dist', 'PRIOR.txt'), 'utf8');
     expect(priorContent).toBe('PRIOR');
+
+    // Cancellation line must hit stderr in the agent-line format. Allow a
+    // brief drain window for the stream reader to catch up after exit.
+    await Bun.sleep(50);
+    const stderrText = stderrChunks.join('');
+    expect(stderrText).toMatch(/cancelled: SIGINT received/);
   }, 15_000);
 });

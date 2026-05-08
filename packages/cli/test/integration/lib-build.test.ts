@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { format } from 'node:util';
 
 
 import { buildLib } from '../../src/bin/build/lib-build';
@@ -447,10 +448,8 @@ describe('zb build --lib — context augments .d.ts emission', () => {
 
     const warnings: string[] = [];
     const originalConsoleError = console.error;
-    const originalFormat = require('node:util').format;
     console.error = (...args: unknown[]) => {
-      const formatted = originalFormat(...args);
-      warnings.push(formatted);
+      warnings.push(format(...(args as Parameters<typeof format>)));
     };
 
     const restore = realRun(pkgRoot);

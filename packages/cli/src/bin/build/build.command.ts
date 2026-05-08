@@ -271,14 +271,10 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         reportProjectStats(ledger);
 
         if (verbose) {
-          const moduleRows = Array.from(graph.modules.values()).map(m => ({
-            module: m.name,
-            controllers: m.controllers.size,
-            providers: m.providers.size,
-          }));
-          console.group('modules');
-          console.table(moduleRows);
-          console.groupEnd();
+          for (const m of graph.modules.values()) {
+            console.log('module: %s controllers=%d providers=%d',
+              m.name, m.controllers.size, m.providers.size);
+          }
         }
 
         for (const warning of graph.warnings) {
@@ -338,8 +334,6 @@ async function validateUserAppShape(params: {
 
   validateDefineCallShape(shapeInputs, new Set(['defineModule', 'defineAdapter']));
 }
-
-export const __testing__ = { createBuildCommand };
 
 export async function build(commandOptions?: CommandOptions): Promise<void> {
   const impl = createBuildCommand({

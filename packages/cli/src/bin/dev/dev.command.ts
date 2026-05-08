@@ -128,8 +128,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         pruneError instanceof Error ? pruneError.message : 'unknown');
     }
 
-    const { graph, handlerIndex } = initialResult;
-    void handlerIndex;
+    const { graph } = initialResult;
 
     let providerCount = 0;
     for (const mod of graph.modules.values()) providerCount += mod.providers.size;
@@ -142,14 +141,10 @@ export function createDevCommand(deps: DevCommandDeps) {
     }
 
     if (verbose) {
-      const moduleRows = Array.from(graph.modules.values()).map(m => ({
-        module: m.name,
-        controllers: m.controllers.size,
-        providers: m.providers.size,
-      }));
-      console.group('modules');
-      console.table(moduleRows);
-      console.groupEnd();
+      for (const m of graph.modules.values()) {
+        console.log('module: %s controllers=%d providers=%d',
+          m.name, m.controllers.size, m.providers.size);
+      }
     }
 
     console.log('dev: artifacts manifest=%s runtime=%s entry=%s',
@@ -224,8 +219,6 @@ export function createDevCommand(deps: DevCommandDeps) {
     }
   };
 }
-
-export const __testing__ = { createDevCommand };
 
 /**
  * Production entry point for the `zb dev` command.

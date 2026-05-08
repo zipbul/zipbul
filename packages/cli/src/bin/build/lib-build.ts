@@ -293,16 +293,11 @@ export async function buildLib(
   }
 
   // ── Summary ────────────────────────────────────────────────
-  if (totalAugments > 0) {
-    const rows: Array<{ middleware: string; contextType: string | null; augments: number }> = [];
-    for (const report of reports) {
-      for (const mw of report.middlewares) {
-        rows.push({ middleware: mw.name, contextType: mw.contextType, augments: mw.augmentCount });
-      }
+  for (const report of reports) {
+    for (const mw of report.middlewares) {
+      console.log('augment: %s contextType=%s augments=%d',
+        mw.name, mw.contextType ?? '(none)', mw.augmentCount);
     }
-    console.group('augments');
-    console.table(rows);
-    console.groupEnd();
   }
 }
 

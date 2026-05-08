@@ -41,9 +41,9 @@ export async function reportOutputSizes(params: {
     },
   ];
 
-  console.group('output');
-  console.table(rows);
-  console.groupEnd();
+  for (const row of rows) {
+    console.log('artifact: %s size=%d gzip=%d', row.file, row.size, row.gzip);
+  }
 }
 
 /**
@@ -75,13 +75,9 @@ export async function reportCouplingMetrics(
 
   if (highCoupling.length === 0) return;
 
-  console.group('coupling');
-  console.table(highCoupling.map(m => ({
-    file: relative(projectRoot, m.filePath),
-    fanIn: m.fanIn,
-    fanOut: m.fanOut,
-  })));
-  console.groupEnd();
+  for (const m of highCoupling) {
+    console.log('coupling: %s fanIn=%d fanOut=%d', relative(projectRoot, m.filePath), m.fanIn, m.fanOut);
+  }
 }
 
 /**
@@ -110,14 +106,13 @@ export function reportComplexFiles(
 
   if (complexFiles.length === 0) return;
 
-  console.group('complex');
-  console.table(complexFiles.map(f => ({
-    file: relative(projectRoot, f.filePath),
-    symbols: f.stats.symbolCount,
-    lines: f.stats.lineCount,
-    exports: f.stats.exportedSymbolCount,
-  })));
-  console.groupEnd();
+  for (const f of complexFiles) {
+    console.log('complex: %s symbols=%d lines=%d exports=%d',
+      relative(projectRoot, f.filePath),
+      f.stats.symbolCount,
+      f.stats.lineCount,
+      f.stats.exportedSymbolCount);
+  }
 }
 
 /**
