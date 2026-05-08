@@ -19,12 +19,10 @@
     "build": "bun build ./src/bin/zb.ts --outdir dist --target bun --format esm --packages external --minify-syntax --minify-whitespace --banner='#!/usr/bin/env bun'"
   },
   "dependencies": {
-    "@clack/prompts": "catalog:",
     "@zipbul/common": "workspace:*",
     "@zipbul/gildash": "catalog:",
     "@zipbul/logger": "workspace:*",
-    "@zipbul/result": "catalog:",
-    "picocolors": "catalog:"
+    "@zipbul/result": "catalog:"
   },
   "devDependencies": {
     "@types/bun": "catalog:",

@@ -8,7 +8,6 @@ import { GildashError, type Gildash, type GildashOptions } from '@zipbul/gildash
 
 import type { BuildCommandDeps } from '../../src/bin/build';
 import { __testing__ } from '../../src/bin/build';
-import type { CliRendererLike } from '../../src/bin/interfaces';
 import type { AstParser, AdapterDefinitionResolver } from '../../src/compiler/analyzer';
 import type { ResolvedConfig } from '../../src/config';
 import { ConfigLoadError } from '../../src/config';
@@ -102,22 +101,6 @@ const makeGildashLedgerMock = () => ({
 
 const makeGildashMock = () => mock(async (_opts: GildashOptions) => makeGildashLedgerMock());
 
-const makeRendererMock = (): CliRendererLike => ({
-  intro: mock(() => {}),
-  outro: mock(() => {}),
-  cancelled: mock(() => {}),
-  step: mock(() => {}),
-  info: mock(() => {}),
-  success: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {}),
-  startSpinner: mock(() => ({ stop: mock(() => {}) })),
-  outputPaths: mock(() => {}),
-  outputFiles: mock(() => {}),
-  diagnostic: mock(() => {}),
-  separator: mock(() => {}),
-});
-
 const makeParserMock = () => ({
   parse: mock((filePath: string, _content: string) => makeParseResult(filePath)),
 }) as unknown as AstParser;
@@ -138,7 +121,6 @@ const makeDeps = (overrides?: Partial<BuildCommandDeps>): BuildCommandDeps => ({
     return { success: true as const, outputs: [], logs: [] };
   }) as unknown as BuildCommandDeps['buildBundle'],
   createGildash: makeGildashMock(),
-  renderer: makeRendererMock(),
   ...overrides,
 });
 
@@ -419,7 +401,6 @@ describe('createBuildCommand', () => {
 
     // Assert — createGildash was called twice (semantic failed, non-semantic succeeded)
     expect(callCount).toBe(2);
-    expect(deps.renderer.warn).toHaveBeenCalled();
   });
 
   it('should re-throw non-semantic GildashError instead of falling back', async () => {

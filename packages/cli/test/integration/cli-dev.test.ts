@@ -26,7 +26,6 @@ function makeIndexResult(overrides: Partial<IndexResult> & { changedFiles: strin
 
 import type { DevCommandDeps } from '../../src/bin/dev';
 import { __testing__ } from '../../src/bin/dev';
-import type { CliRendererLike } from '../../src/bin/interfaces';
 import type { AstParser, AdapterDefinitionResolver } from '../../src/compiler/analyzer';
 import type { ResolvedConfig } from '../../src/config';
 import { ConfigLoadError } from '../../src/config';
@@ -137,22 +136,6 @@ const makeGildashLedgerMock = () => ({
 
 const makeGildashMock = () => mock(async (_opts: GildashOptions) => makeGildashLedgerMock());
 
-const makeRendererMock = (): CliRendererLike => ({
-  intro: mock(() => {}),
-  outro: mock(() => {}),
-  cancelled: mock(() => {}),
-  step: mock(() => {}),
-  info: mock(() => {}),
-  success: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {}),
-  startSpinner: mock(() => ({ stop: mock(() => {}) })),
-  outputPaths: mock(() => {}),
-  outputFiles: mock(() => {}),
-  diagnostic: mock(() => {}),
-  separator: mock(() => {}),
-});
-
 const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
   loadConfig: mock(async () => ({ config: testConfig, source: makeSource() })),
   createParser: mock(() => makeParserMock()),
@@ -162,7 +145,6 @@ const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
   scanFiles: mock(async () => ['module.ts', 'main.ts']),
   createGildash: makeGildashMock(),
   spawnProcess: mock(() => mockSubprocess()),
-  renderer: makeRendererMock(),
   ...overrides,
 });
 
@@ -645,35 +627,40 @@ describe('createDevCommand', () => {
       }),
     } as unknown as Gildash;
 
-    const renderer = makeRendererMock();
-    const deps = makeDeps({
-      createManifestGenerator: mock(() => manifestGenMock),
-      createGildash: mock(async () => ledgerMock),
-      spawnProcess: spawnFn,
-      renderer,
-    });
+    const logCalls: unknown[][] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => { logCalls.push(args); };
 
-    const dev = createDevCommand(deps);
-    await dev();
+    try {
+      const deps = makeDeps({
+        createManifestGenerator: mock(() => manifestGenMock),
+        createGildash: mock(async () => ledgerMock),
+        spawnProcess: spawnFn,
+      });
 
-    const indexEvent = makeIndexResult({
-      changedFiles: [changedFile],
-      deletedFiles: ['/tmp/nonexistent-deleted.ts'],
-      removedFiles: 1,
-    });
+      const dev = createDevCommand(deps);
+      await dev();
 
-    // 1st watch event: rebuild fails (rebuildCount=2, throws)
-    onIndexedCallback!(indexEvent);
-    await new Promise(resolve => setTimeout(resolve, 50));
+      const indexEvent = makeIndexResult({
+        changedFiles: [changedFile],
+        deletedFiles: ['/tmp/nonexistent-deleted.ts'],
+        removedFiles: 1,
+      });
 
-    // 2nd watch event: rebuild succeeds (rebuildCount=3, no throw) → should log recovery
-    onIndexedCallback!(indexEvent);
-    await new Promise(resolve => setTimeout(resolve, 50));
+      // 1st watch event: rebuild fails (rebuildCount=2, throws)
+      onIndexedCallback!(indexEvent);
+      await new Promise(resolve => setTimeout(resolve, 50));
 
-    // Assert
-    const successCalls = (renderer.success as ReturnType<typeof mock>).mock.calls;
-    const recoveryCall = successCalls.find((call: unknown[]) => call[0] === 'Build recovered');
-    expect(recoveryCall).toBeDefined();
+      // 2nd watch event: rebuild succeeds → should log recovery
+      onIndexedCallback!(indexEvent);
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const recoveryCall = logCalls.find((call: unknown[]) =>
+        typeof call[0] === 'string' && call[0].includes('build recovered'));
+      expect(recoveryCall).toBeDefined();
+    } finally {
+      console.log = originalLog;
+    }
   });
 
   // -- 시그널 핸들링 --

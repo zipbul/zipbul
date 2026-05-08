@@ -8,61 +8,31 @@ import { Logger } from '@zipbul/logger';
 import { dev } from './dev';
 import { build } from './build';
 import { buildAdapter } from '../compiler/adapter-build';
-import { DiagnosticError } from '../diagnostics';
-import { CliRenderer } from './cli-renderer';
-import { JsonRenderer } from './json-renderer';
-import type { CliRendererLike } from './interfaces';
+import { reportDiagnosticError } from './report-diagnostic';
 
 const { positionals, values } = parseArgs({
   args: Bun.argv.slice(2),
   allowPositionals: true,
   strict: false,
   options: {
-    verbose: {
-      type: 'boolean',
-      short: 'v',
-    },
-    lib: {
-      type: 'boolean',
-    },
-    json: {
-      type: 'boolean',
-    },
-    help: {
-      type: 'boolean',
-      short: 'h',
-    },
-    version: {
-      type: 'boolean',
-    },
+    verbose: { type: 'boolean', short: 'v' },
+    lib: { type: 'boolean' },
+    help: { type: 'boolean', short: 'h' },
+    version: { type: 'boolean' },
   },
 });
 
 if (values.version === true) {
   const version = typeof pkgJson.version === 'string' ? pkgJson.version : '0.0.0';
-  process.stdout.write(`zb ${version}\n`);
+  console.log('zb %s', version);
   process.exit(0);
 }
 
-const jsonMode = values.json === true;
-const commandLabel = (() => {
-  if (positionals[0] === 'build') {
-    if (positionals[1] === 'adapter') return 'build adapter';
-    if (values.lib === true) return 'build --lib';
-    return 'build';
-  }
-  return positionals[0] ?? 'unknown';
-})();
-
-const renderer: CliRendererLike = jsonMode ? new JsonRenderer(commandLabel) : new CliRenderer();
 const command = positionals[0];
 const verbose = values.verbose === true;
 
 const resolveLogLevel = (): 'trace' | 'debug' | 'info' => {
-  if (verbose) {
-    return 'trace';
-  }
-
+  if (verbose) return 'trace';
   return command === 'dev' ? 'debug' : 'info';
 };
 
@@ -74,44 +44,31 @@ const USAGE_TEXT = [
   'Usage: zb <command>',
   '',
   'Commands:',
-  '  dev              Generate AOT artifacts and watch',
+  '  dev              Generate AOT artifacts and watch for changes',
   '  build            Generate build output',
   '  build adapter    Compile an adapter package (zipbul.kind === "adapter")',
   '',
   'Common options:',
   '  --lib            Build as library (inject __augments metadata for npm packages)',
   '  --verbose, -v    Show detailed build information',
-  '  --json           Emit NDJSON log events (one JSON object per line) for ingestion',
   '  --help, -h       Show this help',
   '  --version        Print zb version',
 ].join('\n');
 
 if (values.help === true) {
-  process.stdout.write(USAGE_TEXT + '\n');
+  console.log(USAGE_TEXT);
   process.exit(0);
 }
 
-const printUsage = (): void => {
-  renderer.info(USAGE_TEXT);
-};
-
 const reportInvalidCommand = (value: string | undefined): void => {
-  const commandValue = value ?? '(missing)';
-  renderer.error(`Unsupported command: ${commandValue}.`);
+  console.error('error: unsupported command: %s', value ?? '(missing)');
+  console.log(USAGE_TEXT);
 };
 
 const createCommandOptions = (): CommandOptions => {
-  const verbose = values.verbose === true;
   const options: CommandOptions = {};
-
-  if (verbose) {
-    options.verbose = true;
-  }
-
-  if (values.lib === true) {
-    options.lib = true;
-  }
-
+  if (verbose) options.verbose = true;
+  if (values.lib === true) options.lib = true;
   return options;
 };
 
@@ -120,7 +77,7 @@ const commandOptions = createCommandOptions();
 try {
   switch (command) {
     case 'dev':
-      await dev(commandOptions, renderer);
+      await dev(commandOptions);
       break;
     case 'build': {
       const subCommand = positionals[1];
@@ -128,57 +85,28 @@ try {
       if (subCommand === 'adapter') {
         try {
           const result = await buildAdapter({
-            renderer,
             ...(commandOptions.verbose === true ? { verbose: true } : {}),
           });
-
-          if (jsonMode) {
-            renderer.success(`adapter ${result.adapterId} -> ${result.manifestPath}`);
-          } else {
-            // Preserve legacy non-JSON output contract — single-line ok blob.
-            process.stdout.write(`${JSON.stringify({
-              ok: true,
-              adapterId: result.adapterId,
-              manifestPath: result.manifestPath,
-            })}\n`);
-          }
+          console.log('adapter: %s manifest=%s', result.adapterId, result.manifestPath);
         } catch (error) {
-          if (jsonMode) {
-            if (error instanceof DiagnosticError) {
-              renderer.diagnostic(error.diagnostic);
-            } else {
-              renderer.error(error instanceof Error ? error.message : String(error));
-            }
-          } else {
-            const why = error instanceof DiagnosticError ? error.diagnostic.why : (error instanceof Error ? error.message : String(error));
-            const where = error instanceof DiagnosticError ? error.diagnostic.where : undefined;
-            process.stderr.write(`${JSON.stringify({ ok: false, why, where: where ?? null })}\n`);
-          }
+          reportDiagnosticError(error);
           process.exitCode = 1;
         }
-
         break;
       }
 
-      await build(commandOptions, renderer);
+      await build(commandOptions);
       break;
     }
     case undefined:
       reportInvalidCommand(command);
-      printUsage();
       process.exitCode = 1;
       break;
     default:
       reportInvalidCommand(command);
-      printUsage();
       process.exitCode = 1;
   }
 } catch (error) {
-  if (error instanceof DiagnosticError) {
-    renderer.diagnostic(error.diagnostic);
-  } else {
-    renderer.error(error instanceof Error ? error.message : 'Unknown error.');
-  }
-
+  reportDiagnosticError(error);
   process.exitCode = 1;
 }

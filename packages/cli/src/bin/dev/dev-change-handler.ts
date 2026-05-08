@@ -1,7 +1,6 @@
 import type { IndexResult } from '@zipbul/gildash';
 import type { Gildash } from '@zipbul/gildash';
 
-import type { CliRendererLike } from '../interfaces';
 import type { RebuildContext } from './interfaces';
 import { shouldAnalyzeFile, analyzeFile, rebuild } from './dev-rebuild-engine';
 import { buildDevIncrementalImpactLog } from './dev-incremental-impact';
@@ -9,7 +8,6 @@ import type { DevProcessManager } from './dev-process-manager';
 
 interface ChangeHandlerContext {
   rebuildContext: RebuildContext;
-  renderer: CliRendererLike;
   toProjectRelativePath: (filePath: string) => string;
   ledger: Gildash;
   processManager: DevProcessManager;
@@ -25,8 +23,9 @@ interface ChangeHandlerState {
  * by Gildash. Handles: deleted file cleanup, symbol change logging, fast-path
  * skip, fingerprint comparison, affected file analysis, and conditional rebuild.
  *
- * @param context - Shared handler context with caches, renderer, and process manager
- * @returns An object with the `handleIndexResult` callback and mutable `state`
+ * Output uses `dev:` prefix for status lines and `dev/rebuild:` for rebuild
+ * trigger lines that monitor tools can match against.
+ *
  * @public
  */
 export function createChangeHandler(context: ChangeHandlerContext): {
@@ -35,7 +34,6 @@ export function createChangeHandler(context: ChangeHandlerContext): {
 } {
   const {
     rebuildContext,
-    renderer,
     toProjectRelativePath,
     ledger,
     processManager,
@@ -47,8 +45,6 @@ export function createChangeHandler(context: ChangeHandlerContext): {
   const state: ChangeHandlerState = { lastRebuildFailed: false };
 
   async function handleIndexResult(result: IndexResult): Promise<void> {
-    renderer.separator();
-
     // 1. Remove deleted files
     for (const file of result.deletedFiles) {
       fileCache.delete(file);
@@ -56,52 +52,54 @@ export function createChangeHandler(context: ChangeHandlerContext): {
     }
 
     if (result.deletedFiles.length > 0) {
-      renderer.info(`Deleted: ${result.deletedFiles.map(toProjectRelativePath).join(', ')}`);
+      console.log('dev: deleted %s', result.deletedFiles.map(toProjectRelativePath).join(', '));
     }
 
     // 2. Log parse-failed files
     for (const file of result.failedFiles) {
-      renderer.warn(`File could not be indexed: ${toProjectRelativePath(file)}`);
+      console.error('warn: file could not be indexed: %s', toProjectRelativePath(file));
     }
 
-    // 3. Analyze symbol-level changes (changedSymbols)
+    // 3. Symbol-level changes
     const { added, modified, removed } = result.changedSymbols;
 
     if (removed.length > 0) {
       const grouped = Map.groupBy(removed, (s) => s.filePath);
       for (const [file, symbols] of grouped) {
-        renderer.warn(`Removed: ${symbols.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
+        console.error('warn: removed %s in %s', symbols.map(s => s.name).join(', '), toProjectRelativePath(file));
       }
     }
     if (modified.length > 0) {
       const grouped = Map.groupBy(modified, (s) => s.filePath);
       for (const [file, symbols] of grouped) {
-        renderer.info(`Modified: ${symbols.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
+        console.log('dev: modified %s in %s', symbols.map(s => s.name).join(', '), toProjectRelativePath(file));
       }
     }
     if (added.length > 0) {
       const grouped = Map.groupBy(added, (s) => s.filePath);
       for (const [file, symbols] of grouped) {
-        renderer.info(`Added: ${symbols.map(s => s.name).join(', ')} in ${toProjectRelativePath(file)}`);
+        console.log('dev: added %s in %s', symbols.map(s => s.name).join(', '), toProjectRelativePath(file));
       }
     }
 
     if (result.renamedSymbols.length > 0) {
       for (const renamed of result.renamedSymbols) {
-        renderer.info(`Renamed: ${renamed.oldName} → ${renamed.newName} in ${toProjectRelativePath(renamed.filePath)}`);
+        console.log('dev: renamed %s -> %s in %s', renamed.oldName, renamed.newName, toProjectRelativePath(renamed.filePath));
       }
     }
 
     if (result.movedSymbols.length > 0) {
       for (const moved of result.movedSymbols) {
-        renderer.info(`Moved: ${moved.name} from ${toProjectRelativePath(moved.oldFilePath)} → ${toProjectRelativePath(moved.newFilePath)}`);
+        console.log('dev: moved %s from %s -> %s', moved.name,
+          toProjectRelativePath(moved.oldFilePath),
+          toProjectRelativePath(moved.newFilePath));
       }
     }
 
     // 4. Skip if only non-app files changed
     const hasAppChanges = result.changedFiles.some(shouldAnalyzeFile);
     if (!hasAppChanges && result.deletedFiles.length === 0) {
-      renderer.info('No app files changed, skipping restart');
+      console.log('dev: no app files changed, skipping restart');
       return;
     }
 
@@ -120,7 +118,7 @@ export function createChangeHandler(context: ChangeHandlerContext): {
         }
       }
 
-      renderer.info('No exported changes, skipping rebuild');
+      console.log('dev: no exported changes, skipping rebuild');
       await processManager.restart();
       return;
     }
@@ -136,14 +134,12 @@ export function createChangeHandler(context: ChangeHandlerContext): {
       }
     }
 
-    // 6. Re-analyze changed files themselves (getAffected excludes changed files)
     for (const file of result.changedFiles) {
       if (shouldAnalyzeFile(file)) {
         await analyzeFile(file, rebuildContext);
       }
     }
 
-    // 7. Compute affected files (file-level)
     let affectedFiles: string[];
     try {
       affectedFiles = await ledger.getAffected(result.changedFiles);
@@ -151,7 +147,6 @@ export function createChangeHandler(context: ChangeHandlerContext): {
       affectedFiles = [];
     }
 
-    // 8. Save fingerprints + re-analyze affected files
     for (const file of affectedFiles) {
       if (shouldAnalyzeFile(file)) {
         const existing = fingerprintCache.get(file);
@@ -162,7 +157,6 @@ export function createChangeHandler(context: ChangeHandlerContext): {
       }
     }
 
-    // 9. Determine if structural change occurred
     let needsRebuild = result.deletedFiles.length > 0;
 
     if (!needsRebuild) {
@@ -175,7 +169,6 @@ export function createChangeHandler(context: ChangeHandlerContext): {
       }
     }
 
-    // Newly added files (no previous fingerprint) → rebuild required
     if (!needsRebuild) {
       for (const file of result.changedFiles) {
         if (shouldAnalyzeFile(file) && !oldFingerprints.has(file) && fingerprintCache.has(file)) {
@@ -185,14 +178,13 @@ export function createChangeHandler(context: ChangeHandlerContext): {
       }
     }
 
-    // 10. Conditional rebuild
     if (needsRebuild) {
       const importRelationTypes = new Set(['imports', 're-exports', 'type-references']);
       const importsChanged = result.changedRelations.added.some(r => importRelationTypes.has(r.type))
         || result.changedRelations.removed.some(r => importRelationTypes.has(r.type))
         || result.deletedFiles.length > 0;
 
-      const rebuildStartedAt = performance.now();
+      console.time('dev/rebuild');
       const allAffected = [...result.changedFiles, ...affectedFiles];
       const impactLog = buildDevIncrementalImpactLog({
         affectedFiles: allAffected,
@@ -203,26 +195,23 @@ export function createChangeHandler(context: ChangeHandlerContext): {
 
       const rebuildResult = await rebuild(rebuildContext, { skipCycleCheck: !importsChanged });
 
-      if (rebuildResult.graph.warnings.length > 0) {
-        for (const warning of rebuildResult.graph.warnings) {
-          renderer.warn(warning);
-        }
+      for (const warning of rebuildResult.graph.warnings) {
+        console.error('warn: %s', warning);
       }
-
-      const rebuildDuration = ((performance.now() - rebuildStartedAt) / 1000).toFixed(1);
 
       const moduleNames = Array.from(impactLog.affectedModules)
         .map(toProjectRelativePath)
         .map(p => p.replace(/\/module\.ts$/, '').replace(/\/__module__\.ts$/, ''))
         .sort();
       const moduleSummary = moduleNames.length > 0 ? moduleNames.join(', ') : '(none)';
-      renderer.step(`🧭 ${moduleSummary} → rebuilt (${rebuildDuration}s)`);
+      console.log('dev/rebuild: ok modules=%s', moduleSummary);
+      console.timeEnd('dev/rebuild');
     } else {
-      renderer.info('No structural changes, skipping rebuild');
+      console.log('dev: no structural changes, skipping rebuild');
     }
 
     if (state.lastRebuildFailed) {
-      renderer.success('Build recovered');
+      console.log('dev: build recovered');
       state.lastRebuildFailed = false;
     }
 

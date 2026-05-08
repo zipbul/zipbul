@@ -1,7 +1,5 @@
 import type { Subprocess } from 'bun';
 
-import type { CliRendererLike } from '../interfaces';
-
 import type { AdapterDefinitionResolver, AstParser, FileAnalysis } from '../../compiler/analyzer';
 import type { ModuleGraph } from '../../compiler/analyzer/graph/module-graph';
 import type { ResolvedConfig } from '../../config';
@@ -20,7 +18,6 @@ export interface DevCommandDeps {
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
   createGildash?: (opts: GildashOptions) => Promise<Gildash>;
   spawnProcess?: (command: string[], cwd: string) => Subprocess;
-  renderer: CliRendererLike;
 }
 
 export interface RebuildResult {
@@ -40,7 +37,6 @@ export interface RebuildContext {
   fileCache: Map<string, FileAnalysis>;
   fingerprintCache: Map<string, string>;
   previousSignatures: Map<string, string> | undefined;
-  renderer: CliRendererLike;
   moduleFileName: string;
   srcDir: string;
   outDir: string;

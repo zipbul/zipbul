@@ -2,7 +2,6 @@ import { mkdir, readdir, readFile, writeFile } from 'fs/promises';
 import { Glob } from 'bun';
 import { dirname, join, resolve, relative } from 'path';
 
-import type { CliRendererLike } from '../interfaces';
 import type { BuildCommandDeps } from './interfaces';
 
 import { extractSymbols, parseSource, is } from '@zipbul/gildash';
@@ -65,8 +64,6 @@ interface LibBuildConfig {
  */
 export async function buildLib(
   deps: BuildCommandDeps,
-  renderer: CliRendererLike,
-  buildStartedAt: number,
   cancel?: CancellationScope,
 ): Promise<void> {
   const projectRoot = process.cwd();
@@ -74,14 +71,13 @@ export async function buildLib(
   // ── 1. Read package.json ────────────────────────────────────
   const config = await resolveLibBuildConfig(projectRoot);
 
-  renderer.outputPaths('\u{1F4E6} Library build', [
-    { label: 'Package', value: config.packageName },
-    { label: 'Source', value: relative(projectRoot, config.srcDir) || '.' },
-    { label: 'Output', value: relative(projectRoot, config.outDir) || '.' },
-  ]);
+  console.log('build/lib: package=%s source=%s output=%s',
+    config.packageName,
+    relative(projectRoot, config.srcDir) || '.',
+    relative(projectRoot, config.outDir) || '.');
 
   // ── 2. Scan source files ────────────────────────────────────
-  const scanSpinner = renderer.startSpinner('[1/4] Scanning source files');
+  console.time('build/lib/scan');
 
   const glob = new Glob('**/*.ts');
   const allFiles = await deps.scanFiles({ glob, baseDir: config.srcDir });
@@ -90,13 +86,13 @@ export async function buildLib(
   );
 
   if (tsFiles.length === 0) {
-    scanSpinner.stop('[1/4] Scanning source files');
     throw new DiagnosticError(buildDiagnostic({
       reason: `No TypeScript source files found in ${relative(projectRoot, config.srcDir) || '.'}. Verify the source directory.`,
     }));
   }
 
-  scanSpinner.stop(`[1/4] Scanned ${String(tsFiles.length)} source files`);
+  console.log('build/lib: scanned %d source files', tsFiles.length);
+  console.timeEnd('build/lib/scan');
 
   // Validate that every `defineX` call in the package follows the
   // `export const X = defineX(...)` shape — single normative rule, no other
@@ -117,7 +113,7 @@ export async function buildLib(
   validateDefineCallShape(shapeInputs);
 
   // ── 3. Extract augments and inject ──────────────────────────
-  const augmentSpinner = renderer.startSpinner('[2/4] Extracting middleware augments');
+  console.time('build/lib/extract');
 
   const reports: FileAugmentReport[] = [];
   const transformedFiles = new Map<string, string>();
@@ -151,7 +147,6 @@ export async function buildLib(
       const parseCheck = parseSource(fullPath, transformed);
 
       if (isErr(parseCheck)) {
-        augmentSpinner.stop('[2/4] Extracting middleware augments');
         throw new DiagnosticError(buildDiagnostic({
           reason: `Augment injection produced invalid syntax in ${file}. This is a Zipbul compiler bug — please report it.`,
           file: fullPath,
@@ -162,17 +157,18 @@ export async function buildLib(
     transformedFiles.set(file, transformed);
   }
 
-  augmentSpinner.stop(`[2/4] Extracted augments from ${String(totalAugments)} middleware exports`);
+  console.log('build/lib: extracted augments from %d middleware export(s)', totalAugments);
+  console.timeEnd('build/lib/extract');
 
   // Report skipped middlewares
   for (const report of reports) {
     for (const skip of report.skipped) {
-      renderer.warn(`${report.file}: ${skip.name} — ${skip.reason}`);
+      console.error('warn: %s: %s — %s', report.file, skip.name, skip.reason);
     }
   }
 
   if (totalAugments === 0 && totalSkipped === 0) {
-    renderer.warn('No defineMiddleware() exports with context augments found. If this is a middleware library, verify your factory uses ctx.to() and assigns to context properties.');
+    console.error('warn: no defineMiddleware() exports with context augments found; if this is a middleware library, verify your factory uses ctx.to() and assigns to context properties');
   }
 
   // ── 3·5. Pre-tsc: emit context-augments.d.ts inside `srcDir` so tsc picks
@@ -186,14 +182,13 @@ export async function buildLib(
       tsFiles,
       srcDir: config.srcDir,
       cancel,
-      renderer,
     })
     : null;
 
   // ── 4·5. Atomic emit: Bun.build (JS) + tsc (.d.ts) → staging → swap ──
   // Both stages write into a staging dir; on success, staging atomically
   // replaces config.outDir. On any failure the prior dist/ is preserved.
-  const compileSpinner = renderer.startSpinner('[3/4] Compiling to JavaScript');
+  console.time('build/lib/compile');
   const { rm } = await import('fs/promises');
 
   await withAtomicEmit(
@@ -230,7 +225,6 @@ export async function buildLib(
         });
 
         if (!buildResult.success) {
-          compileSpinner.stop('[3/4] Compiling to JavaScript');
           const errors = buildResult.logs
             .filter(log => log.level === 'error')
             .map(log => log.message)
@@ -241,13 +235,14 @@ export async function buildLib(
           }));
         }
 
-        compileSpinner.stop(`[3/4] Compiled ${String(buildResult.outputs.length)} files`);
+        console.log('build/lib: compiled %d file(s)', buildResult.outputs.length);
+        console.timeEnd('build/lib/compile');
       } finally {
         await rm(tempSrcDir, { recursive: true, force: true }).catch(() => {});
       }
 
       // ── tsc .d.ts emission into the same staging dir ──
-      const dtsSpinner = renderer.startSpinner('[4/4] Generating type declarations');
+      console.time('build/lib/dts');
 
       const proc = Bun.spawn(
         ['bunx', 'tsc', '--declaration', '--emitDeclarationOnly', '--outDir', stagingDir],
@@ -262,7 +257,6 @@ export async function buildLib(
       const exitCode = await proc.exited;
 
       if (exitCode !== 0) {
-        dtsSpinner.stop('[4/4] Generating type declarations');
         const stderrText = proc.stderr ? await new Response(proc.stderr).text() : '';
         const reason = exitCode === null
           ? `tsc terminated by signal.`
@@ -273,7 +267,8 @@ export async function buildLib(
         }));
       }
 
-      dtsSpinner.stop('[4/4] Type declarations generated');
+      console.log('build/lib: type declarations generated');
+      console.timeEnd('build/lib/dts');
 
       // ── Context augmentation .d.ts (declaration merging) ──
       // Move the pre-emitted augments file from `srcDir` to staging as
@@ -299,18 +294,16 @@ export async function buildLib(
 
   // ── Summary ────────────────────────────────────────────────
   if (totalAugments > 0) {
-    renderer.separator();
-
+    const rows: Array<{ middleware: string; contextType: string | null; augments: number }> = [];
     for (const report of reports) {
       for (const mw of report.middlewares) {
-        renderer.step(`${mw.name} (${mw.contextType}) — ${String(mw.augmentCount)} augment(s)`);
+        rows.push({ middleware: mw.name, contextType: mw.contextType, augments: mw.augmentCount });
       }
     }
+    console.group('augments');
+    console.table(rows);
+    console.groupEnd();
   }
-
-  const elapsed = ((performance.now() - buildStartedAt) / 1000).toFixed(2);
-
-  renderer.outro(`Library built in ${elapsed}s`);
 }
 
 /**
@@ -621,10 +614,9 @@ async function prepareContextAugmentsForTsc(params: {
   tsFiles: readonly string[];
   srcDir: string;
   cancel: CancellationScope | undefined;
-  renderer: CliRendererLike;
 }): Promise<{ path: string; cleanup: () => Promise<void> } | null> {
-  const { projectRoot, tsFiles, srcDir, cancel, renderer } = params;
-  const dtsContent = await buildContextAugmentsDtsContent({ projectRoot, tsFiles, srcDir, renderer });
+  const { projectRoot, tsFiles, srcDir, cancel } = params;
+  const dtsContent = await buildContextAugmentsDtsContent({ projectRoot, tsFiles, srcDir });
   if (dtsContent === null) return null;
 
   const augmentsPath = join(srcDir, ZIPBUL_AUGMENTS_FILE);
@@ -683,9 +675,8 @@ async function buildContextAugmentsDtsContent(params: {
   projectRoot: string;
   tsFiles: readonly string[];
   srcDir: string;
-  renderer: CliRendererLike;
 }): Promise<string | null> {
-  const { projectRoot, tsFiles, srcDir, renderer } = params;
+  const { projectRoot, tsFiles, srcDir } = params;
 
   const allAugments: MiddlewareContextAugment[] = [];
   const adapterMap: ContextAdapterMap = {};
@@ -754,8 +745,9 @@ async function buildContextAugmentsDtsContent(params: {
   }
 
   for (const pkg of unresolvedAdapters) {
-    renderer.warn(
-      `Adapter manifest not found for "${pkg}" — augments targeting its context will not be emitted. Install the adapter package or upgrade it to a version that ships dist/context-namespaces.json.`,
+    console.error(
+      'warn: adapter manifest not found for "%s" — augments targeting its context will not be emitted. Install the adapter package or upgrade it to a version that ships dist/context-namespaces.json.',
+      pkg,
     );
   }
 

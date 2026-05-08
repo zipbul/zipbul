@@ -2,7 +2,6 @@ import { join, resolve } from 'node:path';
 
 import { DiagnosticError } from '../../diagnostics';
 import { withAtomicEmit, installCancellation } from '../../common';
-import { CliRenderer } from '../../bin/cli-renderer';
 import { validateDefineCallShape } from '../define-call-shape';
 
 import type {
@@ -88,16 +87,14 @@ export interface CompiledAdapter {
 export async function buildAdapter(options: BuildAdapterOptions = {}): Promise<BuildAdapterResult> {
   const packageRoot = resolve(options.packageRoot ?? process.cwd());
   const outDir = resolve(packageRoot, 'dist');
-  const renderer = options.renderer ?? new CliRenderer();
   const verbose = options.verbose === true;
 
   // Install SIGINT/SIGTERM handlers — staging dir is registered with the
   // scope below so an interrupted build cleans up before exit, leaving any
-  // prior dist/ intact. Renderer is used only for the cancellation banner;
-  // adapter-build produces no other interactive output.
-  const cancel = installCancellation({ renderer });
+  // prior dist/ intact.
+  const cancel = installCancellation();
   try {
-    return await runBuildAdapter(packageRoot, outDir, cancel, renderer, verbose);
+    return await runBuildAdapter(packageRoot, outDir, cancel, verbose);
   } finally {
     cancel.dispose();
   }
@@ -192,19 +189,18 @@ async function runBuildAdapter(
   packageRoot: string,
   outDir: string,
   cancel: ReturnType<typeof installCancellation>,
-  renderer: import('../../bin/interfaces').CliRendererLike,
   verbose: boolean,
 ): Promise<BuildAdapterResult> {
   const pkgJson = await readPackageJson(packageRoot);
   validateAdapterKind(pkgJson, packageRoot);
   if (verbose) {
-    renderer.info(`adapter package: ${pkgJson.name ?? '(unnamed)'} @ ${packageRoot}`);
+    console.log('adapter: package=%s root=%s', pkgJson.name ?? '(unnamed)', packageRoot);
   }
 
   const sourceTree = await collectSourceTree(packageRoot);
   validateDefineCallShape(sourceTree.map(f => ({ filePath: f.filePath, parsed: f.parsed })));
   if (verbose) {
-    renderer.info(`source tree: ${String(sourceTree.length)} .ts file(s)`);
+    console.log('adapter: source tree %d file(s)', sourceTree.length);
   }
 
   validatePackageFields(pkgJson, packageRoot);
@@ -244,7 +240,7 @@ async function runBuildAdapter(
       for (const artifact of artifacts) {
         await Bun.write(join(stagingDir, artifact.relPath), artifact.content);
         if (verbose) {
-          renderer.step(`emit ${artifact.relPath} (${String(artifact.content.length)} bytes)`);
+          console.log('adapter: emit %s (%d bytes)', artifact.relPath, artifact.content.length);
         }
       }
 
@@ -253,7 +249,7 @@ async function runBuildAdapter(
   );
 
   if (verbose) {
-    renderer.info(`adapterId=${compiled.adapterId} manifest=${manifestPath}`);
+    console.log('adapter: id=%s manifest=%s', compiled.adapterId, manifestPath);
   }
 
   return { adapterId: compiled.adapterId, manifestPath };

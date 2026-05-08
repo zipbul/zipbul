@@ -10,31 +10,23 @@
  * cleanup list — e.g. `try { ... } finally { ... }` blocks running in
  * other async branches — is **not awaited**: `process.exit` terminates
  * synchronously and skips pending finally handlers. This is intentional:
- * a signal asks the program to stop *now*; waiting indefinitely on
- * unrelated async would defeat the purpose. Code that owns resources
+ * a signal asks the program to stop *now*. Code that owns resources
  * needing graceful release MUST register a cleanup callback (or listen
  * to the {@link CancellationScope.signal} `'abort'` event) — relying on
  * a `finally` block alone is unsafe under cancellation.
  *
  * Orthodox lifecycle:
- *   const cancel = installCancellation({ renderer });
+ *   const cancel = installCancellation();
  *   try {
  *     // pass cancel.signal to long-running ops
  *     // cancel.registerCleanup(() => rm(stagingDir, ...))
  *   } finally {
- *     await cancel.dispose();   // unregister handlers
+ *     cancel.dispose();   // unregister handlers
  *   }
  *
  * @public
  */
 
-import type { CliRendererLike } from '../bin/interfaces';
-
-/**
- * Cancellation scope returned by {@link installCancellation}.
- *
- * @public
- */
 export interface CancellationScope {
   /** Aborted when SIGINT/SIGTERM arrives. Pass to `Bun.build`, `Bun.spawn`, etc. */
   readonly signal: AbortSignal;
@@ -45,8 +37,7 @@ export interface CancellationScope {
 }
 
 export interface InstallCancellationOptions {
-  readonly renderer: CliRendererLike;
-  /** Exit code to use on signal. Default 130 (SIGINT convention). */
+  /** Exit code to use on signal. Default 130 (SIGINT convention). Use 0 for watcher commands that exit cleanly on signal. */
   readonly signalExitCode?: number;
 }
 
@@ -57,8 +48,8 @@ export interface InstallCancellationOptions {
  *
  * @public
  */
-export function installCancellation(options: InstallCancellationOptions): CancellationScope {
-  const { renderer, signalExitCode = 130 } = options;
+export function installCancellation(options: InstallCancellationOptions = {}): CancellationScope {
+  const { signalExitCode = 130 } = options;
   const controller = new AbortController();
   const cleanups: Array<() => Promise<void> | void> = [];
   let firing = false;
@@ -68,7 +59,7 @@ export function installCancellation(options: InstallCancellationOptions): Cancel
     firing = true;
 
     controller.abort(new Error(`Received ${sig}`));
-    try { renderer.cancelled(`${sig} received. Cleaning up.`); } catch { /* renderer may be torn down */ }
+    console.error('cancelled: %s received, cleaning up', sig);
 
     for (const fn of cleanups) {
       try { await fn(); } catch { /* best-effort cleanup */ }

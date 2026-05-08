@@ -1,7 +1,7 @@
 import { Glob } from 'bun';
 import { join, resolve, dirname } from 'path';
 
-import type { CollectedClass, CliRendererLike } from '../interfaces';
+import type { CollectedClass } from '../interfaces';
 
 import { isErr } from '@zipbul/result';
 import type { AstParser, FileAnalysis } from '../../compiler/analyzer';
@@ -51,7 +51,6 @@ export interface ScanParams {
   parser: AstParser;
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
   resolveImport: (specifier: string, fromDir: string) => string;
-  renderer: CliRendererLike;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +74,6 @@ export async function scanAndParseFiles(params: ScanParams): Promise<ScanResult>
     parser,
     scanFiles,
     resolveImport,
-    renderer,
   } = params;
 
   const fileMap = new Map<string, FileAnalysis>();
@@ -120,7 +118,7 @@ export async function scanAndParseFiles(params: ScanParams): Promise<ScanResult>
           resolvedPath = resolveImport(resolvedPath, dirname(fromFilePath));
         } catch {
           if (rawImportPath.startsWith('.') || rawImportPath.startsWith('/')) {
-            renderer.warn(`Could not resolve import '${rawImportPath}' in '${fromFilePath}'`);
+            console.error(`warn: could not resolve import '%s' in '%s'`, rawImportPath, fromFilePath);
           }
 
           continue;

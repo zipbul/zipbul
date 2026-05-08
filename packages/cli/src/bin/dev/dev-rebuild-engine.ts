@@ -14,7 +14,8 @@ import {
   validateContextDependencies,
   formatViolationMessage,
 } from '../../compiler/analyzer/adapter/context-dependency-validator';
-import type { CliRendererLike, CollectedClass } from '../interfaces';
+import type { CollectedClass } from '../interfaces';
+import { reportDiagnostic } from '../report-diagnostic';
 import type { RebuildContext, RebuildOptions, RebuildResult } from './interfaces';
 
 /**
@@ -59,15 +60,14 @@ export function shouldAnalyzeFile(filePath: string): boolean {
  * @public
  */
 export async function analyzeFile(filePath: string, context: AnalyzeFileContext): Promise<boolean> {
-  const { parser, fileCache, fingerprintCache, renderer } = context;
+  const { parser, fileCache, fingerprintCache } = context;
 
   try {
     const fileContent = await Bun.file(filePath).text();
     const parseResult = await parser.parse(filePath, fileContent);
 
     if (isErr(parseResult)) {
-      renderer.diagnostic(parseResult.data);
-
+      reportDiagnostic(parseResult.data);
       return false;
     }
 
@@ -79,14 +79,7 @@ export async function analyzeFile(filePath: string, context: AnalyzeFileContext)
     return true;
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown parse error.';
-    const diagnostic = buildDiagnostic({
-      reason,
-      file: filePath,
-      cause: error,
-    });
-
-    renderer.diagnostic(diagnostic);
-
+    reportDiagnostic(buildDiagnostic({ reason, file: filePath, cause: error }));
     return false;
   }
 }
@@ -95,7 +88,6 @@ interface AnalyzeFileContext {
   parser: RebuildContext['parser'];
   fileCache: Map<string, FileAnalysis>;
   fingerprintCache: Map<string, string>;
-  renderer: CliRendererLike;
 }
 
 /**
@@ -121,7 +113,6 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
     configSource,
     semanticAvailable,
     ledger,
-    renderer,
   } = context;
 
   // File-level import cycle detection (treated as build error, watcher stays alive)
@@ -140,7 +131,7 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
         throw cycleError;
       }
       const reason = cycleError instanceof Error ? cycleError.message : 'unknown';
-      renderer.warn(`Cycle detection unavailable this rebuild (${reason}); circular imports may not be reported.`);
+      console.error('warn: cycle detection unavailable this rebuild (%s); circular imports may not be reported', reason);
     }
   }
 
@@ -253,9 +244,10 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
     const summary = dependencyViolations
       .map((v) => `[Zipbul AOT] ${formatViolationMessage(v)}`)
       .join('\n\n');
-    throw new Error(
-      `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,
-    );
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,
+      how: 'Each violation lists the consumer and the missing producer middleware. Add the missing middleware to the relevant pipeline phase, or remove the dependency from the consumer.',
+    }));
   }
 
   // Generate entry.ts

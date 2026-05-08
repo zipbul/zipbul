@@ -6,8 +6,6 @@
 export interface BuildAdapterOptions {
   /** Adapter package root. Defaults to `process.cwd()`. */
   readonly packageRoot?: string;
-  /** Optional renderer for cancellation/log output. Defaults to a fresh `CliRenderer`. */
-  readonly renderer?: import('../../bin/interfaces').CliRendererLike;
   /** Emit additional diagnostics (source tree size, manifest paths). */
   readonly verbose?: boolean;
 }

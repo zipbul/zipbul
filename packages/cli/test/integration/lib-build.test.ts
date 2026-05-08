@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { CliRenderer } from '../../src/bin/cli-renderer';
+
 import { buildLib } from '../../src/bin/build/lib-build';
 import { Glob } from 'bun';
 import { scanGlobSorted } from '../../src/common';
@@ -45,7 +45,7 @@ afterEach(async () => {
   await rm(pkgRoot, { recursive: true, force: true });
 });
 
-const silentRenderer: CliRenderer = new CliRenderer();
+
 
 const deps = {
   scanFiles: ({ glob, baseDir }: { glob: Glob; baseDir: string }) => scanGlobSorted({ glob, baseDir }),
@@ -68,7 +68,7 @@ describe('zb build --lib — kind 강제', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await expect(buildLib(deps, silentRenderer, performance.now())).rejects.toThrow(/zipbul.+kind.+middleware/);
+      await expect(buildLib(deps)).rejects.toThrow(/zipbul.+kind.+middleware/);
     } finally {
       restore();
     }
@@ -83,7 +83,7 @@ describe('zb build --lib — kind 강제', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await expect(buildLib(deps, silentRenderer, performance.now())).rejects.toThrow(/zipbul.+kind.+middleware/);
+      await expect(buildLib(deps)).rejects.toThrow(/zipbul.+kind.+middleware/);
     } finally {
       restore();
     }
@@ -111,7 +111,7 @@ describe('zb build --lib — defineX shape 강제', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await expect(buildLib(deps, silentRenderer, performance.now())).rejects.toThrow(/top-level exported `const`/);
+      await expect(buildLib(deps)).rejects.toThrow(/top-level exported `const`/);
     } finally {
       restore();
     }
@@ -137,7 +137,7 @@ describe('zb build --lib — defineX shape 강제', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await expect(buildLib(deps, silentRenderer, performance.now())).rejects.toThrow(/top-level exported `const`/);
+      await expect(buildLib(deps)).rejects.toThrow(/top-level exported `const`/);
     } finally {
       restore();
     }
@@ -202,7 +202,7 @@ describe('zb build --lib — context augments .d.ts emission', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await buildLib(deps, silentRenderer, performance.now());
+      await buildLib(deps);
     } finally {
       restore();
     }
@@ -282,8 +282,8 @@ describe('zb build --lib — context augments .d.ts emission', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await buildLib(deps, silentRenderer, performance.now());
-      await buildLib(deps, silentRenderer, performance.now());
+      await buildLib(deps);
+      await buildLib(deps);
     } finally {
       restore();
     }
@@ -384,7 +384,7 @@ describe('zb build --lib — context augments .d.ts emission', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await buildLib(deps, silentRenderer, performance.now());
+      await buildLib(deps);
     } finally {
       restore();
     }
@@ -446,8 +446,12 @@ describe('zb build --lib — context augments .d.ts emission', () => {
     );
 
     const warnings: string[] = [];
-    const capturingRenderer: CliRenderer = new CliRenderer();
-    capturingRenderer.warn = (m: string) => { warnings.push(m); };
+    const originalConsoleError = console.error;
+    const originalFormat = require('node:util').format;
+    console.error = (...args: unknown[]) => {
+      const formatted = originalFormat(...args);
+      warnings.push(formatted);
+    };
 
     const restore = realRun(pkgRoot);
     // Without the augment file, tsc will reject the property assignment
@@ -456,10 +460,11 @@ describe('zb build --lib — context augments .d.ts emission', () => {
     // catch it so the assertion below can still run.
     try {
       try {
-        await buildLib(deps, capturingRenderer, performance.now());
+        await buildLib(deps);
       } catch { /* tsc-side failure expected when augment file is suppressed */ }
     } finally {
       restore();
+      console.error = originalConsoleError;
     }
 
     expect(warnings.some(w => w.includes('@zipbul/http-adapter') && /manifest not found/i.test(w))).toBe(true);
@@ -489,7 +494,7 @@ describe('zb build --lib — context augments .d.ts emission', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await buildLib(deps, silentRenderer, performance.now());
+      await buildLib(deps);
     } finally {
       restore();
     }

@@ -12,8 +12,7 @@ import { DiagnosticError } from '../../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
 import type { IndexResult } from '@zipbul/gildash';
 
-import { formatCount, buildModuleTree } from '../module-tree-renderer';
-import { CliRenderer } from '../cli-renderer';
+import { reportDiagnostic, reportDiagnosticError } from '../report-diagnostic';
 
 import type { DevCommandDeps, RebuildContext } from './interfaces';
 import { shouldAnalyzeFile, analyzeFile, rebuild } from './dev-rebuild-engine';
@@ -23,16 +22,17 @@ import { DevProcessManager } from './dev-process-manager';
 /**
  * Creates the `dev` command with injected dependencies.
  *
+ * Output uses `dev:` prefix for status, `dev/rebuild:` for rebuild trigger
+ * lines that monitor tools can match against. App subprocess output is
+ * tagged with `app:` so agents can filter dev watcher events from app
+ * events.
+ *
  * @param deps - Factory-style dependencies for testability
  * @returns An async function that runs the dev watcher loop
  * @public
  */
 export function createDevCommand(deps: DevCommandDeps) {
-  const { renderer } = deps;
-
   return async function dev(commandOptions?: CommandOptions): Promise<void> {
-    renderer.intro('dev');
-
     const verbose = commandOptions?.verbose === true;
     const configResult = await deps.loadConfig();
     const config = configResult.config;
@@ -47,75 +47,59 @@ export function createDevCommand(deps: DevCommandDeps) {
     const fileCache = new Map<string, FileAnalysis>();
     const fingerprintCache = new Map<string, string>();
 
-    const toProjectRelativePath = (filePath: string): string => {
-      return relative(projectRoot, filePath) || '.';
-    };
+    const toProjectRelativePath = (filePath: string): string => relative(projectRoot, filePath) || '.';
 
-    const fmt = formatCount;
-
-    renderer.outputPaths('\u{1f4c2} Project', [
-      { label: 'Root', value: projectRoot },
-      { label: 'Source', value: relative(projectRoot, srcDir) || '.' },
-      { label: 'Output', value: relative(projectRoot, outDir) || '.' },
-    ]);
+    console.log('dev: project=%s source=%s output=%s',
+      projectRoot,
+      relative(projectRoot, srcDir) || '.',
+      relative(projectRoot, outDir) || '.');
 
     // -- 1. Scan --
-    const scanSpinner = renderer.startSpinner('\u{1f50d} Scanning source files');
-
+    console.time('dev/scan');
     const glob = new Glob('**/*.ts');
     const srcFiles = await deps.scanFiles({ glob, baseDir: srcDir });
     let classCount = 0;
 
-    const analyzeContext = { parser, fileCache, fingerprintCache, renderer };
+    const analyzeContext = { parser, fileCache, fingerprintCache };
 
     for (const file of srcFiles) {
       const fullPath = join(srcDir, file);
-
-      if (!shouldAnalyzeFile(fullPath)) {
-        continue;
-      }
-
+      if (!shouldAnalyzeFile(fullPath)) continue;
       await analyzeFile(fullPath, analyzeContext);
     }
 
-    for (const analysis of fileCache.values()) {
-      classCount += analysis.classes.length;
-    }
+    for (const analysis of fileCache.values()) classCount += analysis.classes.length;
 
-    scanSpinner.stop(`\u{1f50d} Scanned ${fmt(fileCache.size)} files (${fmt(classCount)} classes)`);
+    console.log('dev: scanned %d files (%d classes)', fileCache.size, classCount);
+    console.timeEnd('dev/scan');
 
     const appEntry = validateCreateApplication(fileCache);
-
-    if (isErr(appEntry)) {
-      throw new DiagnosticError(appEntry.data);
-    }
+    if (isErr(appEntry)) throw new DiagnosticError(appEntry.data);
 
     // -- 2. Gildash init --
-    const gildashSpinner = renderer.startSpinner('Initializing code intelligence');
+    console.time('dev/gildash');
     const ignorePatterns = ['dist', '.zipbul', '.gildash'];
     const { ledger, semanticAvailable } = await openGildashWithFallback({
       options: { projectRoot, ignorePatterns },
-      renderer,
       ...(deps.createGildash !== undefined ? { open: deps.createGildash } : {}),
     });
-    gildashSpinner.stop('Code intelligence ready');
+    console.log('dev: gildash ready (semantic=%s)', String(semanticAvailable));
+    console.timeEnd('dev/gildash');
 
     const unsubscribeError = ledger.onError((error) => {
-      renderer.warn(`Gildash: ${error.message}`);
+      console.error('warn: gildash: %s', error.message);
     });
 
     const unsubscribeRole = ledger.onRoleChanged((newRole) => {
       if (newRole === 'reader') {
-        renderer.warn('Another instance took watcher ownership. File change detection delegated.');
+        console.error('warn: another instance took watcher ownership; file change detection delegated');
       } else {
-        renderer.info('Reacquired watcher ownership.');
+        console.log('dev: reacquired watcher ownership');
       }
     });
 
-    // -- 3. Build + Generate --
-    const buildSpinner = renderer.startSpinner('\u{1f9e9} Building AOT artifacts');
-    const bootStartedAt = performance.now();
-
+    // -- 3. Initial build --
+    console.time('dev/boot');
     const rebuildContext: RebuildContext = {
       parser,
       adapterDefinitionResolver,
@@ -124,7 +108,6 @@ export function createDevCommand(deps: DevCommandDeps) {
       fileCache,
       fingerprintCache,
       previousSignatures: undefined,
-      renderer,
       moduleFileName,
       srcDir,
       outDir,
@@ -139,54 +122,55 @@ export function createDevCommand(deps: DevCommandDeps) {
 
     try {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
       ledger.pruneChangelog(oneDayAgo);
     } catch (pruneError) {
-      renderer.warn(`Changelog pruning failed: ${pruneError instanceof Error ? pruneError.message : 'unknown'}`);
+      console.error('warn: changelog pruning failed: %s',
+        pruneError instanceof Error ? pruneError.message : 'unknown');
     }
 
-    const bootDuration = ((performance.now() - bootStartedAt) / 1000).toFixed(1);
     const { graph, handlerIndex } = initialResult;
+    void handlerIndex;
 
     let providerCount = 0;
-    for (const mod of graph.modules.values()) {
-      providerCount += mod.providers.size;
+    for (const mod of graph.modules.values()) providerCount += mod.providers.size;
+
+    console.log('dev: %d modules, %d providers', graph.modules.size, providerCount);
+    console.timeEnd('dev/boot');
+
+    for (const warning of graph.warnings) {
+      console.error('warn: %s', warning);
     }
 
-    buildSpinner.stop(`\u{1f9e9} AOT artifacts generated in ${bootDuration}s (${fmt(graph.modules.size)} modules, ${fmt(providerCount)} providers)`);
-
-    if (graph.warnings.length > 0) {
-      for (const warning of graph.warnings) {
-        renderer.warn(warning);
-      }
+    if (verbose) {
+      const moduleRows = Array.from(graph.modules.values()).map(m => ({
+        module: m.name,
+        controllers: m.controllers.size,
+        providers: m.providers.size,
+      }));
+      console.group('modules');
+      console.table(moduleRows);
+      console.groupEnd();
     }
 
-    // -- Application tree --
-    const moduleTreeResult = buildModuleTree({ modules: graph.modules, handlerIndex }, { verbose });
-
-    renderer.outputPaths('\u{1f9f1} Application', moduleTreeResult.treeLines);
-
-    renderer.outputPaths('\u{1f4cb} Artifacts', [
-      { label: 'Manifest', value: toProjectRelativePath(join(outDir, 'manifest.json')) },
-      { label: 'Runtime', value: toProjectRelativePath(join(outDir, 'runtime.ts')) },
-      { label: 'Entry', value: toProjectRelativePath(join(outDir, 'entry.ts')) },
-    ]);
+    console.log('dev: artifacts manifest=%s runtime=%s entry=%s',
+      toProjectRelativePath(join(outDir, 'manifest.json')),
+      toProjectRelativePath(join(outDir, 'runtime.ts')),
+      toProjectRelativePath(join(outDir, 'entry.ts')));
 
     // Start app process
     const processManager = new DevProcessManager({
       entryPath: join(outDir, 'entry.ts'),
       cwd: projectRoot,
-      renderer,
-      spawnProcess: deps.spawnProcess ?? ((command, cwd) => Bun.spawn(command, { cwd, stdout: 'pipe', stderr: 'pipe', env: { ...process.env } })),
+      spawnProcess: deps.spawnProcess ?? ((command, cwd) =>
+        Bun.spawn(command, { cwd, stdout: 'pipe', stderr: 'pipe', env: { ...process.env } })),
     });
     processManager.start();
 
-    renderer.step('Watching for changes...');
+    console.log('dev: watching for changes');
 
     try {
       const { handleIndexResult, state: changeHandlerState } = createChangeHandler({
         rebuildContext,
-        renderer,
         toProjectRelativePath,
         ledger,
         processManager,
@@ -201,19 +185,19 @@ export function createDevCommand(deps: DevCommandDeps) {
           changeHandlerState.lastRebuildFailed = true;
 
           if (error instanceof DiagnosticError) {
-            renderer.diagnostic(error.diagnostic);
+            reportDiagnostic(error.diagnostic);
           } else {
-            renderer.error(error instanceof Error ? error.message : 'Unknown index callback error.');
+            reportDiagnosticError(error);
           }
 
-          renderer.warn('Rebuild failed. Keeping previous process running.');
+          console.error('warn: dev/rebuild failed; keeping previous process running');
         });
       });
 
       // Signal handling — share the same primitive used by build commands.
       // Note: dev exits 0 on signal (clean shutdown of watcher), unlike
       // build commands which use 130 to signal interrupted work.
-      const cancel = installCancellation({ renderer, signalExitCode: 0 });
+      const cancel = installCancellation({ signalExitCode: 0 });
       cancel.registerCleanup(async () => {
         await processManager.stop();
         unsubscribe();
@@ -222,7 +206,8 @@ export function createDevCommand(deps: DevCommandDeps) {
         try {
           await ledger.close();
         } catch (e) {
-          renderer.warn(e instanceof Error ? e.message : 'Failed to close gildash.');
+          console.error('warn: failed to close gildash: %s',
+            e instanceof Error ? e.message : 'unknown');
         }
       });
     } catch (error) {
@@ -232,7 +217,8 @@ export function createDevCommand(deps: DevCommandDeps) {
       try {
         await ledger.close();
       } catch (e) {
-        renderer.warn(e instanceof Error ? e.message : 'Failed to close gildash.');
+        console.error('warn: failed to close gildash: %s',
+          e instanceof Error ? e.message : 'unknown');
       }
       throw error;
     }
@@ -244,13 +230,10 @@ export const __testing__ = { createDevCommand };
 /**
  * Production entry point for the `zb dev` command.
  *
- * @param commandOptions - CLI options (profile, verbose, etc.)
+ * @param commandOptions - CLI options (verbose, etc.)
  * @public
  */
-export async function dev(
-  commandOptions?: CommandOptions,
-  renderer?: import('../interfaces').CliRendererLike,
-): Promise<void> {
+export async function dev(commandOptions?: CommandOptions): Promise<void> {
   const impl = createDevCommand({
     loadConfig: async () => {
       const result = await ConfigLoader.load();
@@ -261,7 +244,6 @@ export async function dev(
     createManifestGenerator: () => new ManifestGenerator(),
     createEntryGenerator: () => new EntryGenerator(),
     scanFiles: ({ glob, baseDir }) => scanGlobSorted({ glob, baseDir }),
-    renderer: renderer ?? new CliRenderer(),
   });
   await impl(commandOptions);
 }
