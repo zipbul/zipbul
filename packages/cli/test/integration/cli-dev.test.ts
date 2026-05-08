@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import type { Gildash, GildashOptions, IndexResult } from '@zipbul/gildash';
+import { Logger, TestTransport } from '@zipbul/logger';
 
 function makeIndexResult(overrides: Partial<IndexResult> & { changedFiles: string[] }): IndexResult {
   return {
@@ -561,37 +562,33 @@ describe('createDevCommand', () => {
       }),
     } as unknown as Gildash;
 
-    const logCalls: string[] = [];
-    const originalLog = console.log;
-    console.log = (...args: unknown[]) => {
-      const first = args[0];
-      if (typeof first === 'string') logCalls.push(first);
-    };
+    const transport = new TestTransport();
+    Logger.configure({ level: 'trace', transports: [transport] });
 
-    try {
-      const deps = makeDeps({
-        createGildash: mock(async () => ledgerMock),
-        spawnProcess: spawnFn,
-      });
+    const deps = makeDeps({
+      createGildash: mock(async () => ledgerMock),
+      spawnProcess: spawnFn,
+    });
 
-      const dev = createDevCommand(deps);
-      await dev();
+    const dev = createDevCommand(deps);
+    await dev();
 
-      // deletedFiles forces needsRebuild=true so the rebuild branch runs and
-      // the trigger line is emitted. (Pure "modified" events with no
-      // fingerprint shift exit via the fast-path early.)
-      onIndexedCallback!(makeIndexResult({
-        changedFiles: [changedFile],
-        deletedFiles: ['/tmp/nonexistent-deleted.ts'],
-        removedFiles: 1,
-      }));
-      await new Promise(resolve => setTimeout(resolve, 50));
+    // deletedFiles forces needsRebuild=true so the rebuild branch runs and
+    // the trigger line is emitted. (Pure "modified" events with no
+    // fingerprint shift exit via the fast-path early.)
+    onIndexedCallback!(makeIndexResult({
+      changedFiles: [changedFile],
+      deletedFiles: ['/tmp/nonexistent-deleted.ts'],
+      removedFiles: 1,
+    }));
+    await new Promise(resolve => setTimeout(resolve, 50));
 
-      const triggerLine = logCalls.find(s => s.startsWith('dev/rebuild: ok'));
-      expect(triggerLine).toBeDefined();
-    } finally {
-      console.log = originalLog;
-    }
+    const triggerEvent = transport.messages.find((m: { level: string; context?: string; msg: string }) =>
+      m.level === 'info'
+      && m.context === 'dev/rebuild'
+      && typeof m.msg === 'string'
+      && m.msg.startsWith('ok'));
+    expect(triggerEvent).toBeDefined();
   });
 
   it('should NOT restart process when rebuild fails', async () => {
@@ -676,40 +673,35 @@ describe('createDevCommand', () => {
       }),
     } as unknown as Gildash;
 
-    const logCalls: unknown[][] = [];
-    const originalLog = console.log;
-    console.log = (...args: unknown[]) => { logCalls.push(args); };
+    const transport = new TestTransport();
+    Logger.configure({ level: 'trace', transports: [transport] });
 
-    try {
-      const deps = makeDeps({
-        createManifestGenerator: mock(() => manifestGenMock),
-        createGildash: mock(async () => ledgerMock),
-        spawnProcess: spawnFn,
-      });
+    const deps = makeDeps({
+      createManifestGenerator: mock(() => manifestGenMock),
+      createGildash: mock(async () => ledgerMock),
+      spawnProcess: spawnFn,
+    });
 
-      const dev = createDevCommand(deps);
-      await dev();
+    const dev = createDevCommand(deps);
+    await dev();
 
-      const indexEvent = makeIndexResult({
-        changedFiles: [changedFile],
-        deletedFiles: ['/tmp/nonexistent-deleted.ts'],
-        removedFiles: 1,
-      });
+    const indexEvent = makeIndexResult({
+      changedFiles: [changedFile],
+      deletedFiles: ['/tmp/nonexistent-deleted.ts'],
+      removedFiles: 1,
+    });
 
-      // 1st watch event: rebuild fails (rebuildCount=2, throws)
-      onIndexedCallback!(indexEvent);
-      await new Promise(resolve => setTimeout(resolve, 50));
+    // 1st watch event: rebuild fails (rebuildCount=2, throws)
+    onIndexedCallback!(indexEvent);
+    await new Promise(resolve => setTimeout(resolve, 50));
 
-      // 2nd watch event: rebuild succeeds → should log recovery
-      onIndexedCallback!(indexEvent);
-      await new Promise(resolve => setTimeout(resolve, 50));
+    // 2nd watch event: rebuild succeeds → should log recovery
+    onIndexedCallback!(indexEvent);
+    await new Promise(resolve => setTimeout(resolve, 50));
 
-      const recoveryCall = logCalls.find((call: unknown[]) =>
-        typeof call[0] === 'string' && call[0].includes('build recovered'));
-      expect(recoveryCall).toBeDefined();
-    } finally {
-      console.log = originalLog;
-    }
+    const recoveryEvent = transport.messages.find((m: { level: string; context?: string; msg: string }) =>
+      m.level === 'info' && m.context === 'dev' && m.msg.includes('build recovered'));
+    expect(recoveryEvent).toBeDefined();
   });
 
   // -- 시그널 핸들링 --

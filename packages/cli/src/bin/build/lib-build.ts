@@ -7,6 +7,7 @@ import type { BuildCommandDeps } from './interfaces';
 import { extractSymbols, parseSource, is } from '@zipbul/gildash';
 import type { Node as AstNode } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
+import { Logger } from '@zipbul/logger';
 import { validateDefineCallShape } from '../../compiler/define-call-shape';
 import { withAtomicEmit, type CancellationScope } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
@@ -66,18 +67,19 @@ export async function buildLib(
   deps: BuildCommandDeps,
   cancel?: CancellationScope,
 ): Promise<void> {
+  const log = new Logger('build/lib');
   const projectRoot = process.cwd();
 
   // ── 1. Read package.json ────────────────────────────────────
   const config = await resolveLibBuildConfig(projectRoot);
 
-  console.log('build/lib: package=%s source=%s output=%s',
+  log.info('package=%s source=%s output=%s',
     config.packageName,
     relative(projectRoot, config.srcDir) || '.',
     relative(projectRoot, config.outDir) || '.');
 
   // ── 2. Scan source files ────────────────────────────────────
-  console.time('build/lib/scan');
+  log.time('scan');
 
   const glob = new Glob('**/*.ts');
   const allFiles = await deps.scanFiles({ glob, baseDir: config.srcDir });
@@ -91,8 +93,8 @@ export async function buildLib(
     }));
   }
 
-  console.log('build/lib: scanned %d source files', tsFiles.length);
-  console.timeEnd('build/lib/scan');
+  log.info('scanned %d source files', tsFiles.length);
+  log.timeEnd('scan');
 
   // Validate that every `defineX` call in the package follows the
   // `export const X = defineX(...)` shape — single normative rule, no other
@@ -113,7 +115,7 @@ export async function buildLib(
   validateDefineCallShape(shapeInputs);
 
   // ── 3. Extract augments and inject ──────────────────────────
-  console.time('build/lib/extract');
+  log.time('extract');
 
   const reports: FileAugmentReport[] = [];
   const transformedFiles = new Map<string, string>();
@@ -157,18 +159,18 @@ export async function buildLib(
     transformedFiles.set(file, transformed);
   }
 
-  console.log('build/lib: extracted augments from %d middleware export(s)', totalAugments);
-  console.timeEnd('build/lib/extract');
+  log.info('extracted augments from %d middleware export(s)', totalAugments);
+  log.timeEnd('extract');
 
   // Report skipped middlewares
   for (const report of reports) {
     for (const skip of report.skipped) {
-      console.error('warn: %s: %s — %s', report.file, skip.name, skip.reason);
+      log.warn('%s: %s — %s', report.file, skip.name, skip.reason);
     }
   }
 
   if (totalAugments === 0 && totalSkipped === 0) {
-    console.error('warn: no defineMiddleware() exports with context augments found; if this is a middleware library, verify your factory uses ctx.to() and assigns to context properties');
+    log.warn('no defineMiddleware() exports with context augments found; if this is a middleware library, verify your factory uses ctx.to() and assigns to context properties');
   }
 
   // ── 3·5. Pre-tsc: emit context-augments.d.ts inside `srcDir` so tsc picks
@@ -188,7 +190,7 @@ export async function buildLib(
   // ── 4·5. Atomic emit: Bun.build (JS) + tsc (.d.ts) → staging → swap ──
   // Both stages write into a staging dir; on success, staging atomically
   // replaces config.outDir. On any failure the prior dist/ is preserved.
-  console.time('build/lib/compile');
+  log.time('compile');
   const { rm } = await import('fs/promises');
 
   await withAtomicEmit(
@@ -226,8 +228,8 @@ export async function buildLib(
 
         if (!buildResult.success) {
           const errors = buildResult.logs
-            .filter(log => log.level === 'error')
-            .map(log => log.message)
+            .filter(l => l.level === 'error')
+            .map(l => l.message)
             .join('\n');
           throw new DiagnosticError(buildDiagnostic({
             reason: `JavaScript compilation failed:\n${errors}`,
@@ -235,14 +237,14 @@ export async function buildLib(
           }));
         }
 
-        console.log('build/lib: compiled %d file(s)', buildResult.outputs.length);
-        console.timeEnd('build/lib/compile');
+        log.info('compiled %d file(s)', buildResult.outputs.length);
+        log.timeEnd('compile');
       } finally {
         await rm(tempSrcDir, { recursive: true, force: true }).catch(() => {});
       }
 
       // ── tsc .d.ts emission into the same staging dir ──
-      console.time('build/lib/dts');
+      log.time('dts');
 
       const proc = Bun.spawn(
         ['bunx', 'tsc', '--declaration', '--emitDeclarationOnly', '--outDir', stagingDir],
@@ -267,8 +269,8 @@ export async function buildLib(
         }));
       }
 
-      console.log('build/lib: type declarations generated');
-      console.timeEnd('build/lib/dts');
+      log.info('type declarations generated');
+      log.timeEnd('dts');
 
       // ── Context augmentation .d.ts (declaration merging) ──
       // Move the pre-emitted augments file from `srcDir` to staging as
@@ -295,7 +297,7 @@ export async function buildLib(
   // ── Summary ────────────────────────────────────────────────
   for (const report of reports) {
     for (const mw of report.middlewares) {
-      console.log('augment: %s contextType=%s augments=%d',
+      log.info('augment %s contextType=%s augments=%d',
         mw.name, mw.contextType ?? '(none)', mw.augmentCount);
     }
   }
@@ -739,11 +741,14 @@ async function buildContextAugmentsDtsContent(params: {
     }
   }
 
-  for (const pkg of unresolvedAdapters) {
-    console.error(
-      'warn: adapter manifest not found for "%s" — augments targeting its context will not be emitted. Install the adapter package or upgrade it to a version that ships dist/context-namespaces.json.',
-      pkg,
-    );
+  if (unresolvedAdapters.size > 0) {
+    const log = new Logger('build/lib');
+    for (const pkg of unresolvedAdapters) {
+      log.warn(
+        'adapter manifest not found for "%s" — augments targeting its context will not be emitted. Install the adapter package or upgrade it to a version that ships dist/context-namespaces.json.',
+        pkg,
+      );
+    }
   }
 
   if (allAugments.length === 0 || Object.keys(adapterMap).length === 0) {

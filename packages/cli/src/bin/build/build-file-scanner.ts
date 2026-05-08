@@ -4,7 +4,10 @@ import { join, resolve, dirname } from 'path';
 import type { CollectedClass } from '../interfaces';
 
 import { isErr } from '@zipbul/result';
+import { Logger } from '@zipbul/logger';
 import type { AstParser, FileAnalysis } from '../../compiler/analyzer';
+
+const log = new Logger('build/scan');
 import { compareCodePoint, distToSourceCandidates } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { buildFileAnalysis } from './build-analysis';
@@ -118,7 +121,7 @@ export async function scanAndParseFiles(params: ScanParams): Promise<ScanResult>
           resolvedPath = resolveImport(resolvedPath, dirname(fromFilePath));
         } catch {
           if (rawImportPath.startsWith('.') || rawImportPath.startsWith('/')) {
-            console.error(`warn: could not resolve import '%s' in '%s'`, rawImportPath, fromFilePath);
+            log.warn(`could not resolve import '%s' in '%s'`, rawImportPath, fromFilePath);
           }
 
           continue;

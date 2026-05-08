@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { format } from 'node:util';
 
 import type {
   LogArgument,
@@ -20,6 +21,7 @@ declare global {
 }
 
 const LOG_LEVELS: readonly string[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
+const FORMAT_SPECIFIER = /%[sdifjoO]/;
 
 const resolveEnvLogLevel = (): LogLevel | undefined => {
   const envLevel = Bun.env.LOG_LEVEL;
@@ -34,7 +36,7 @@ const resolveEnvLogLevel = (): LogLevel | undefined => {
 export class Logger {
   private static globalOptions: LoggerOptions = {
     level: resolveEnvLogLevel() ?? 'info',
-    ...(Bun.env.NODE_ENV === 'production' ? { format: 'json' } : {}),
+    ...(Bun.env.NODE_ENV === 'production' ? { format: 'json' as const } : {}),
   };
   private static transports: Transport[] = [new ConsoleTransport(Logger.globalOptions)];
   private static scopeStore = new AsyncLocalStorage<Logger>();
@@ -42,6 +44,9 @@ export class Logger {
   private readonly context?: string;
 
   private readonly metadata: LogMetadataRecord;
+
+  /** Per-instance timers started via `time(label)`, settled by `timeEnd(label)`. */
+  private readonly timers = new Map<string, number>();
 
   constructor(context?: string | LogContextTarget | object, metadata?: LogMetadataRecord) {
     this.metadata = metadata ?? {};
@@ -63,18 +68,6 @@ export class Logger {
    * Executes `fn` within an ALS scope that makes `logger` available
    * to any code that calls `Logger.inherit()` during the callback.
    *
-   * @param logger - The Logger instance to propagate.
-   * @param fn - The callback to execute within the scope.
-   * @returns The return value of `fn`.
-   *
-   * @example
-   * ```ts
-   * const adapterLogger = new Logger('HttpAdapter');
-   * await Logger.runScoped(adapterLogger, async () => {
-   *   const server = new HttpServer(); // can call Logger.inherit() internally
-   * });
-   * ```
-   *
    * @public
    */
   static runScoped<T>(logger: Logger, fn: () => T): T {
@@ -82,13 +75,8 @@ export class Logger {
   }
 
   /**
-   * Returns the Logger instance from the current ALS scope.
-   *
-   * Must be called inside a `Logger.runScoped()` callback.
-   * Throws if no scope is active — use `new Logger('scope')` for
-   * standalone usage instead.
-   *
-   * @returns The scoped Logger instance.
+   * Returns the Logger instance from the current ALS scope. Throws if no
+   * scope is active — use `new Logger('scope')` for standalone usage.
    *
    * @public
    */
@@ -113,7 +101,8 @@ export class Logger {
   }
 
   child(metadata: LogMetadataRecord): Logger {
-    return new Logger(this.context, { ...this.metadata, ...metadata });
+    const cloned = new Logger(this.context, { ...this.metadata, ...metadata });
+    return cloned;
   }
 
   trace(msg: string, ...args: ReadonlyArray<LogArgument>) {
@@ -140,14 +129,72 @@ export class Logger {
     this.log('fatal', msg, ...args);
   }
 
+  /**
+   * Starts a timer keyed by `label`. Use {@link Logger.timeEnd} to log the
+   * elapsed milliseconds. Timers are per-instance, so a child or sibling
+   * Logger does not see them.
+   *
+   * Re-calling `time()` with the same label resets the start time (matches
+   * `console.time` semantics).
+   */
+  time(label: string): void {
+    this.timers.set(label, performance.now());
+  }
+
+  /**
+   * Logs `<label>: <ms>ms` at info level and clears the timer. Logs a
+   * warning and returns silently if the label was never started.
+   */
+  timeEnd(label: string): void {
+    const started = this.timers.get(label);
+    if (started === undefined) {
+      this.warn('timer "%s" never started', label);
+      return;
+    }
+    this.timers.delete(label);
+    const ms = performance.now() - started;
+    // 3 decimal places matches `console.timeEnd`'s precision.
+    this.info('%s: %dms', label, Math.round(ms * 1000) / 1000);
+  }
+
   private log(level: LogLevel, msg: string, ...args: ReadonlyArray<LogArgument>) {
     if (!this.isLevelEnabled(level)) {
       return;
     }
 
+    // Separate primitives (interpolated into msg via util.format) from
+    // structured arguments (Error / Loggable / plain object → metadata).
+    const primitives: unknown[] = [];
+    const structured: LogArgument[] = [];
+
+    for (const arg of args) {
+      if (arg === null || arg === undefined) {
+        primitives.push(arg);
+        continue;
+      }
+      if (arg instanceof Error) {
+        structured.push(arg);
+        continue;
+      }
+      if (this.isLoggable(arg)) {
+        structured.push(arg);
+        continue;
+      }
+      if (typeof arg === 'object') {
+        structured.push(arg);
+        continue;
+      }
+      // string | number | boolean
+      primitives.push(arg);
+    }
+
+    const finalMsg = primitives.length > 0 && FORMAT_SPECIFIER.test(msg)
+      ? format(msg, ...primitives)
+      : msg;
+
     const logMessage: LogMessage = {
       level,
-      msg,
+      msg: finalMsg,
       time: Date.now(),
     };
 
@@ -171,8 +218,8 @@ export class Logger {
       logMessage.workerId = workerId;
     }
 
-    // 3. Per-call args (highest priority)
-    for (const arg of args) {
+    // 3. Per-call structured args (highest priority)
+    for (const arg of structured) {
       if (arg instanceof Error) {
         logMessage.err = arg;
       } else if (this.isLoggable(arg)) {

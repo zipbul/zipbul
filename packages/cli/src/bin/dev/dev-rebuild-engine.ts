@@ -14,9 +14,13 @@ import {
   validateContextDependencies,
   formatViolationMessage,
 } from '../../compiler/analyzer/adapter/context-dependency-validator';
+import { Logger } from '@zipbul/logger';
+
 import type { CollectedClass } from '../interfaces';
 import { reportDiagnostic } from '../report-diagnostic';
 import type { RebuildContext, RebuildOptions, RebuildResult } from './interfaces';
+
+const log = new Logger('dev/rebuild');
 
 /**
  * Computes a structural fingerprint for a file analysis result.
@@ -67,7 +71,7 @@ export async function analyzeFile(filePath: string, context: AnalyzeFileContext)
     const parseResult = await parser.parse(filePath, fileContent);
 
     if (isErr(parseResult)) {
-      reportDiagnostic(parseResult.data);
+      reportDiagnostic(parseResult.data, 'dev/parse');
       return false;
     }
 
@@ -79,7 +83,7 @@ export async function analyzeFile(filePath: string, context: AnalyzeFileContext)
     return true;
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown parse error.';
-    reportDiagnostic(buildDiagnostic({ reason, file: filePath, cause: error }));
+    reportDiagnostic(buildDiagnostic({ reason, file: filePath, cause: error }), 'dev/parse');
     return false;
   }
 }
@@ -131,7 +135,7 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
         throw cycleError;
       }
       const reason = cycleError instanceof Error ? cycleError.message : 'unknown';
-      console.error('warn: cycle detection unavailable this rebuild (%s); circular imports may not be reported', reason);
+      log.warn('cycle detection unavailable this rebuild (%s); circular imports may not be reported', reason);
     }
   }
 

@@ -24,7 +24,9 @@ const { positionals, values } = parseArgs({
 
 if (values.version === true) {
   const version = typeof pkgJson.version === 'string' ? pkgJson.version : '0.0.0';
-  console.log('zb %s', version);
+  // Direct stdout — `--version` is program output, not a log event, so it
+  // bypasses LOG_LEVEL filtering and the `info: [zb]` prefix.
+  process.stdout.write(`zb ${version}\n`);
   process.exit(0);
 }
 
@@ -56,13 +58,15 @@ const USAGE_TEXT = [
 ].join('\n');
 
 if (values.help === true) {
-  console.log(USAGE_TEXT);
+  process.stdout.write(USAGE_TEXT + '\n');
   process.exit(0);
 }
 
+const log = new Logger('zb');
+
 const reportInvalidCommand = (value: string | undefined): void => {
-  console.error('error: unsupported command: %s', value ?? '(missing)');
-  console.log(USAGE_TEXT);
+  log.error('unsupported command: %s', value ?? '(missing)');
+  process.stdout.write(USAGE_TEXT + '\n');
 };
 
 const createCommandOptions = (): CommandOptions => {
@@ -87,9 +91,9 @@ try {
           const result = await buildAdapter({
             ...(commandOptions.verbose === true ? { verbose: true } : {}),
           });
-          console.log('adapter: %s manifest=%s', result.adapterId, result.manifestPath);
+          new Logger('adapter').info('built %s manifest=%s', result.adapterId, result.manifestPath);
         } catch (error) {
-          reportDiagnosticError(error);
+          reportDiagnosticError(error, 'adapter');
           process.exitCode = 1;
         }
         break;
@@ -107,6 +111,6 @@ try {
       process.exitCode = 1;
   }
 } catch (error) {
-  reportDiagnosticError(error);
+  reportDiagnosticError(error, 'zb');
   process.exitCode = 1;
 }

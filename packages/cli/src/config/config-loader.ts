@@ -1,5 +1,7 @@
 import { basename, join, relative, resolve, sep } from 'path';
 
+import { Logger } from '@zipbul/logger';
+
 import type { ConfigLoadResult, JsonRecord, JsonValue, ResolvedConfig } from './interfaces';
 
 import { ConfigLoadError } from './errors';
@@ -25,10 +27,9 @@ export class ConfigLoader {
 
     try {
       if (process.env.ZIPBUL_DEBUG_CONFIG === '1') {
-        // Debug-only diagnostic. stderr keeps stdout pristine for `--json` mode
-        // (NDJSON consumers parse stdout). The `[zipbul-config]` prefix marks
-        // it as non-JSON so stderr-parsing tests can filter it out.
-        process.stderr.write(`[zipbul-config] Loading config from ${candidate.path}\n`);
+        // Debug-only diagnostic — flows through Logger so it joins the same
+        // agent-line stream as the rest of CLI output (no separate format).
+        new Logger('zb/config').debug('loading from %s', candidate.path);
       }
 
       const resolved = await ConfigLoader.loadJsonConfig(candidate.path, cwd, candidate.format);

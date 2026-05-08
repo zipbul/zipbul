@@ -162,6 +162,6 @@ describe('SIGINT cleanup', () => {
     // brief drain window for the stream reader to catch up after exit.
     await Bun.sleep(50);
     const stderrText = stderrChunks.join('');
-    expect(stderrText).toMatch(/cancelled: SIGINT received/);
+    expect(stderrText).toMatch(/warn: \[zb\/cancel\] SIGINT received/);
   }, 15_000);
 });

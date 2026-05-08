@@ -1,5 +1,7 @@
 import { join, resolve } from 'node:path';
 
+import { Logger } from '@zipbul/logger';
+
 import { DiagnosticError } from '../../diagnostics';
 import { withAtomicEmit, installCancellation } from '../../common';
 import { validateDefineCallShape } from '../define-call-shape';
@@ -191,16 +193,17 @@ async function runBuildAdapter(
   cancel: ReturnType<typeof installCancellation>,
   verbose: boolean,
 ): Promise<BuildAdapterResult> {
+  const log = new Logger('adapter');
   const pkgJson = await readPackageJson(packageRoot);
   validateAdapterKind(pkgJson, packageRoot);
   if (verbose) {
-    console.log('adapter: package=%s root=%s', pkgJson.name ?? '(unnamed)', packageRoot);
+    log.info('package=%s root=%s', pkgJson.name ?? '(unnamed)', packageRoot);
   }
 
   const sourceTree = await collectSourceTree(packageRoot);
   validateDefineCallShape(sourceTree.map(f => ({ filePath: f.filePath, parsed: f.parsed })));
   if (verbose) {
-    console.log('adapter: source tree %d file(s)', sourceTree.length);
+    log.info('source tree %d file(s)', sourceTree.length);
   }
 
   validatePackageFields(pkgJson, packageRoot);
@@ -240,7 +243,7 @@ async function runBuildAdapter(
       for (const artifact of artifacts) {
         await Bun.write(join(stagingDir, artifact.relPath), artifact.content);
         if (verbose) {
-          console.log('adapter: emit %s (%d bytes)', artifact.relPath, artifact.content.length);
+          log.info('emit %s bytes=%d', artifact.relPath, artifact.content.length);
         }
       }
 
@@ -249,7 +252,7 @@ async function runBuildAdapter(
   );
 
   if (verbose) {
-    console.log('adapter: id=%s manifest=%s', compiled.adapterId, manifestPath);
+    log.info('id=%s manifest=%s', compiled.adapterId, manifestPath);
   }
 
   return { adapterId: compiled.adapterId, manifestPath };

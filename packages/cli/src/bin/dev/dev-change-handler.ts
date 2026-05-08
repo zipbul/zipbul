@@ -1,10 +1,15 @@
 import type { IndexResult } from '@zipbul/gildash';
 import type { Gildash } from '@zipbul/gildash';
 
+import { Logger } from '@zipbul/logger';
+
 import type { RebuildContext } from './interfaces';
 import { shouldAnalyzeFile, analyzeFile, rebuild } from './dev-rebuild-engine';
 import { buildDevIncrementalImpactLog } from './dev-incremental-impact';
 import type { DevProcessManager } from './dev-process-manager';
+
+const log = new Logger('dev');
+const rebuildLog = new Logger('dev/rebuild');
 
 interface ChangeHandlerContext {
   rebuildContext: RebuildContext;
@@ -52,12 +57,12 @@ export function createChangeHandler(context: ChangeHandlerContext): {
     }
 
     if (result.deletedFiles.length > 0) {
-      console.log('dev: deleted %s', result.deletedFiles.map(toProjectRelativePath).join(', '));
+      log.info('deleted %s', result.deletedFiles.map(toProjectRelativePath).join(', '));
     }
 
     // 2. Log parse-failed files
     for (const file of result.failedFiles) {
-      console.error('warn: file could not be indexed: %s', toProjectRelativePath(file));
+      log.warn('file could not be indexed: %s', toProjectRelativePath(file));
     }
 
     // 3. Symbol-level changes
@@ -66,31 +71,31 @@ export function createChangeHandler(context: ChangeHandlerContext): {
     if (removed.length > 0) {
       const grouped = Map.groupBy(removed, (s) => s.filePath);
       for (const [file, symbols] of grouped) {
-        console.error('warn: removed %s in %s', symbols.map(s => s.name).join(', '), toProjectRelativePath(file));
+        log.warn('removed %s in %s', symbols.map(s => s.name).join(', '), toProjectRelativePath(file));
       }
     }
     if (modified.length > 0) {
       const grouped = Map.groupBy(modified, (s) => s.filePath);
       for (const [file, symbols] of grouped) {
-        console.log('dev: modified %s in %s', symbols.map(s => s.name).join(', '), toProjectRelativePath(file));
+        log.info('modified %s in %s', symbols.map(s => s.name).join(', '), toProjectRelativePath(file));
       }
     }
     if (added.length > 0) {
       const grouped = Map.groupBy(added, (s) => s.filePath);
       for (const [file, symbols] of grouped) {
-        console.log('dev: added %s in %s', symbols.map(s => s.name).join(', '), toProjectRelativePath(file));
+        log.info('added %s in %s', symbols.map(s => s.name).join(', '), toProjectRelativePath(file));
       }
     }
 
     if (result.renamedSymbols.length > 0) {
       for (const renamed of result.renamedSymbols) {
-        console.log('dev: renamed %s -> %s in %s', renamed.oldName, renamed.newName, toProjectRelativePath(renamed.filePath));
+        log.info('renamed %s -> %s in %s', renamed.oldName, renamed.newName, toProjectRelativePath(renamed.filePath));
       }
     }
 
     if (result.movedSymbols.length > 0) {
       for (const moved of result.movedSymbols) {
-        console.log('dev: moved %s from %s -> %s', moved.name,
+        log.info('moved %s from %s -> %s', moved.name,
           toProjectRelativePath(moved.oldFilePath),
           toProjectRelativePath(moved.newFilePath));
       }
@@ -99,7 +104,7 @@ export function createChangeHandler(context: ChangeHandlerContext): {
     // 4. Skip if only non-app files changed
     const hasAppChanges = result.changedFiles.some(shouldAnalyzeFile);
     if (!hasAppChanges && result.deletedFiles.length === 0) {
-      console.log('dev: no app files changed, skipping restart');
+      log.info('no app files changed, skipping restart');
       return;
     }
 
@@ -118,7 +123,7 @@ export function createChangeHandler(context: ChangeHandlerContext): {
         }
       }
 
-      console.log('dev: no exported changes, skipping rebuild');
+      log.info('no exported changes, skipping rebuild');
       await processManager.restart();
       return;
     }
@@ -184,7 +189,7 @@ export function createChangeHandler(context: ChangeHandlerContext): {
         || result.changedRelations.removed.some(r => importRelationTypes.has(r.type))
         || result.deletedFiles.length > 0;
 
-      console.time('dev/rebuild');
+      rebuildLog.time('elapsed');
       const allAffected = [...result.changedFiles, ...affectedFiles];
       const impactLog = buildDevIncrementalImpactLog({
         affectedFiles: allAffected,
@@ -196,7 +201,7 @@ export function createChangeHandler(context: ChangeHandlerContext): {
       const rebuildResult = await rebuild(rebuildContext, { skipCycleCheck: !importsChanged });
 
       for (const warning of rebuildResult.graph.warnings) {
-        console.error('warn: %s', warning);
+        rebuildLog.warn('%s', warning);
       }
 
       const moduleNames = Array.from(impactLog.affectedModules)
@@ -204,14 +209,14 @@ export function createChangeHandler(context: ChangeHandlerContext): {
         .map(p => p.replace(/\/module\.ts$/, '').replace(/\/__module__\.ts$/, ''))
         .sort();
       const moduleSummary = moduleNames.length > 0 ? moduleNames.join(', ') : '(none)';
-      console.log('dev/rebuild: ok modules=%s', moduleSummary);
-      console.timeEnd('dev/rebuild');
+      rebuildLog.info('ok modules=%s', moduleSummary);
+      rebuildLog.timeEnd('elapsed');
     } else {
-      console.log('dev: no structural changes, skipping rebuild');
+      log.info('no structural changes, skipping rebuild');
     }
 
     if (state.lastRebuildFailed) {
-      console.log('dev: build recovered');
+      log.info('build recovered');
       state.lastRebuildFailed = false;
     }
 

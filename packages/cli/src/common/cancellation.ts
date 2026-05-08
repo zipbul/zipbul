@@ -36,6 +36,8 @@ export interface CancellationScope {
   dispose(): void;
 }
 
+import { Logger } from '@zipbul/logger';
+
 export interface InstallCancellationOptions {
   /** Exit code to use on signal. Default 130 (SIGINT convention). Use 0 for watcher commands that exit cleanly on signal. */
   readonly signalExitCode?: number;
@@ -53,13 +55,14 @@ export function installCancellation(options: InstallCancellationOptions = {}): C
   const controller = new AbortController();
   const cleanups: Array<() => Promise<void> | void> = [];
   let firing = false;
+  const log = new Logger('zb/cancel');
 
   const onSignal = async (sig: NodeJS.Signals): Promise<void> => {
     if (firing) return;
     firing = true;
 
     controller.abort(new Error(`Received ${sig}`));
-    console.error('cancelled: %s received, cleaning up', sig);
+    log.warn('%s received, cleaning up', sig);
 
     for (const fn of cleanups) {
       try { await fn(); } catch { /* best-effort cleanup */ }

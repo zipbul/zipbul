@@ -8,6 +8,7 @@ import { validateCreateApplication } from '../../compiler/analyzer/validation';
 import { ConfigLoader } from '../../config';
 import { outputDirPath, scanGlobSorted, installCancellation, openGildashWithFallback } from '../../common';
 import { isErr } from '@zipbul/result';
+import { Logger } from '@zipbul/logger';
 import { DiagnosticError } from '../../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
 import type { IndexResult } from '@zipbul/gildash';
@@ -33,6 +34,7 @@ import { DevProcessManager } from './dev-process-manager';
  */
 export function createDevCommand(deps: DevCommandDeps) {
   return async function dev(commandOptions?: CommandOptions): Promise<void> {
+    const log = new Logger('dev');
     const verbose = commandOptions?.verbose === true;
     const configResult = await deps.loadConfig();
     const config = configResult.config;
@@ -49,13 +51,13 @@ export function createDevCommand(deps: DevCommandDeps) {
 
     const toProjectRelativePath = (filePath: string): string => relative(projectRoot, filePath) || '.';
 
-    console.log('dev: project=%s source=%s output=%s',
+    log.info('project=%s source=%s output=%s',
       projectRoot,
       relative(projectRoot, srcDir) || '.',
       relative(projectRoot, outDir) || '.');
 
     // -- 1. Scan --
-    console.time('dev/scan');
+    log.time('scan');
     const glob = new Glob('**/*.ts');
     const srcFiles = await deps.scanFiles({ glob, baseDir: srcDir });
     let classCount = 0;
@@ -70,36 +72,36 @@ export function createDevCommand(deps: DevCommandDeps) {
 
     for (const analysis of fileCache.values()) classCount += analysis.classes.length;
 
-    console.log('dev: scanned %d files (%d classes)', fileCache.size, classCount);
-    console.timeEnd('dev/scan');
+    log.info('scanned %d files (%d classes)', fileCache.size, classCount);
+    log.timeEnd('scan');
 
     const appEntry = validateCreateApplication(fileCache);
     if (isErr(appEntry)) throw new DiagnosticError(appEntry.data);
 
     // -- 2. Gildash init --
-    console.time('dev/gildash');
+    log.time('gildash');
     const ignorePatterns = ['dist', '.zipbul', '.gildash'];
     const { ledger, semanticAvailable } = await openGildashWithFallback({
       options: { projectRoot, ignorePatterns },
       ...(deps.createGildash !== undefined ? { open: deps.createGildash } : {}),
     });
-    console.log('dev: gildash ready (semantic=%s)', String(semanticAvailable));
-    console.timeEnd('dev/gildash');
+    log.info('gildash ready semantic=%s', String(semanticAvailable));
+    log.timeEnd('gildash');
 
     const unsubscribeError = ledger.onError((error) => {
-      console.error('warn: gildash: %s', error.message);
+      log.warn('gildash: %s', error.message);
     });
 
     const unsubscribeRole = ledger.onRoleChanged((newRole) => {
       if (newRole === 'reader') {
-        console.error('warn: another instance took watcher ownership; file change detection delegated');
+        log.warn('another instance took watcher ownership; file change detection delegated');
       } else {
-        console.log('dev: reacquired watcher ownership');
+        log.info('reacquired watcher ownership');
       }
     });
 
     // -- 3. Initial build --
-    console.time('dev/boot');
+    log.time('boot');
     const rebuildContext: RebuildContext = {
       parser,
       adapterDefinitionResolver,
@@ -124,7 +126,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       ledger.pruneChangelog(oneDayAgo);
     } catch (pruneError) {
-      console.error('warn: changelog pruning failed: %s',
+      log.warn('changelog pruning failed: %s',
         pruneError instanceof Error ? pruneError.message : 'unknown');
     }
 
@@ -133,21 +135,21 @@ export function createDevCommand(deps: DevCommandDeps) {
     let providerCount = 0;
     for (const mod of graph.modules.values()) providerCount += mod.providers.size;
 
-    console.log('dev: %d modules, %d providers', graph.modules.size, providerCount);
-    console.timeEnd('dev/boot');
+    log.info('%d modules, %d providers', graph.modules.size, providerCount);
+    log.timeEnd('boot');
 
     for (const warning of graph.warnings) {
-      console.error('warn: %s', warning);
+      log.warn('%s', warning);
     }
 
     if (verbose) {
       for (const m of graph.modules.values()) {
-        console.log('module: %s controllers=%d providers=%d',
+        log.info('module %s controllers=%d providers=%d',
           m.name, m.controllers.size, m.providers.size);
       }
     }
 
-    console.log('dev: artifacts manifest=%s runtime=%s entry=%s',
+    log.info('artifacts manifest=%s runtime=%s entry=%s',
       toProjectRelativePath(join(outDir, 'manifest.json')),
       toProjectRelativePath(join(outDir, 'runtime.ts')),
       toProjectRelativePath(join(outDir, 'entry.ts')));
@@ -161,7 +163,7 @@ export function createDevCommand(deps: DevCommandDeps) {
     });
     processManager.start();
 
-    console.log('dev: watching for changes');
+    log.info('watching for changes');
 
     try {
       const { handleIndexResult, state: changeHandlerState } = createChangeHandler({
@@ -180,12 +182,12 @@ export function createDevCommand(deps: DevCommandDeps) {
           changeHandlerState.lastRebuildFailed = true;
 
           if (error instanceof DiagnosticError) {
-            reportDiagnostic(error.diagnostic);
+            reportDiagnostic(error.diagnostic, 'dev/rebuild');
           } else {
-            reportDiagnosticError(error);
+            reportDiagnosticError(error, 'dev/rebuild');
           }
 
-          console.error('warn: dev/rebuild failed; keeping previous process running');
+          log.warn('rebuild failed; keeping previous process running');
         });
       });
 
@@ -201,7 +203,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         try {
           await ledger.close();
         } catch (e) {
-          console.error('warn: failed to close gildash: %s',
+          log.warn('failed to close gildash: %s',
             e instanceof Error ? e.message : 'unknown');
         }
       });
@@ -212,7 +214,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       try {
         await ledger.close();
       } catch (e) {
-        console.error('warn: failed to close gildash: %s',
+        log.warn('failed to close gildash: %s',
           e instanceof Error ? e.message : 'unknown');
       }
       throw error;

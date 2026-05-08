@@ -1,4 +1,7 @@
 import { Gildash, GildashError, type GildashOptions } from '@zipbul/gildash';
+import { Logger } from '@zipbul/logger';
+
+const log = new Logger('zb/gildash');
 
 export interface OpenGildashWithFallbackParams {
   readonly options: GildashOptions;
@@ -26,7 +29,7 @@ export async function openGildashWithFallback(
     return { ledger, semanticAvailable: true };
   } catch (e) {
     if (e instanceof GildashError && e.type === 'semantic') {
-      console.error('warn: semantic mode unavailable, falling back: %s', e.message);
+      log.warn('semantic mode unavailable, falling back: %s', e.message);
       const ledger = await open({ ...params.options, semantic: false });
       return { ledger, semanticAvailable: false };
     }

@@ -1,12 +1,13 @@
 import { relative } from 'path';
 import { gzipSync } from 'node:zlib';
 
+import type { Logger } from '@zipbul/logger';
 import type { Gildash } from '@zipbul/gildash';
 import type { FileAnalysis } from '../../compiler/analyzer';
 
 /**
  * Reads bundled output files and the manifest, computes raw + gzip sizes,
- * and emits a console.table row per artifact + a totals line.
+ * and emits one info line per artifact through the caller's Logger.
  */
 export async function reportOutputSizes(params: {
   entryOutputFile: string;
@@ -14,7 +15,7 @@ export async function reportOutputSizes(params: {
   manifestFile: string;
   manifestJson: string;
   projectRoot: string;
-}): Promise<void> {
+}, log: Logger): Promise<void> {
   const { entryOutputFile, runtimeOutputFile, manifestFile, manifestJson, projectRoot } = params;
 
   const [entryBuffer, runtimeBuffer] = await Promise.all([
@@ -42,7 +43,7 @@ export async function reportOutputSizes(params: {
   ];
 
   for (const row of rows) {
-    console.log('artifact: %s size=%d gzip=%d', row.file, row.size, row.gzip);
+    log.info('artifact %s size=%d gzip=%d', row.file, row.size, row.gzip);
   }
 }
 
@@ -54,6 +55,7 @@ export async function reportCouplingMetrics(
   fileMap: ReadonlyMap<string, FileAnalysis>,
   ledger: Gildash,
   projectRoot: string,
+  log: Logger,
 ): Promise<void> {
   const filePaths = Array.from(fileMap.keys());
   const metricsResults = await Promise.all(
@@ -73,10 +75,8 @@ export async function reportCouplingMetrics(
     .sort((a, b) => (b.fanIn + b.fanOut) - (a.fanIn + a.fanOut))
     .slice(0, 5);
 
-  if (highCoupling.length === 0) return;
-
   for (const m of highCoupling) {
-    console.log('coupling: %s fanIn=%d fanOut=%d', relative(projectRoot, m.filePath), m.fanIn, m.fanOut);
+    log.info('coupling %s fanIn=%d fanOut=%d', relative(projectRoot, m.filePath), m.fanIn, m.fanOut);
   }
 }
 
@@ -88,6 +88,7 @@ export function reportComplexFiles(
   fileMap: ReadonlyMap<string, FileAnalysis>,
   ledger: Gildash,
   projectRoot: string,
+  log: Logger,
 ): void {
   const filePaths = Array.from(fileMap.keys());
 
@@ -104,10 +105,8 @@ export function reportComplexFiles(
     .sort((a, b) => b.stats.symbolCount - a.stats.symbolCount)
     .slice(0, 5);
 
-  if (complexFiles.length === 0) return;
-
   for (const f of complexFiles) {
-    console.log('complex: %s symbols=%d lines=%d exports=%d',
+    log.info('complex %s symbols=%d lines=%d exports=%d',
       relative(projectRoot, f.filePath),
       f.stats.symbolCount,
       f.stats.lineCount,
@@ -118,9 +117,9 @@ export function reportComplexFiles(
 /**
  * Reports overall project statistics (file count, symbol count).
  */
-export function reportProjectStats(ledger: Gildash): void {
+export function reportProjectStats(ledger: Gildash, log: Logger): void {
   try {
     const stats = ledger.getStats();
-    console.log('project: %d files, %d symbols', stats.fileCount, stats.symbolCount);
+    log.info('project files=%d symbols=%d', stats.fileCount, stats.symbolCount);
   } catch { /* stats failure ignored */ }
 }

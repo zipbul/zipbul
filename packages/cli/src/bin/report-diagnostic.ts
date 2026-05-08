@@ -1,40 +1,40 @@
+import { Logger } from '@zipbul/logger';
+
 import type { Diagnostic } from '../diagnostics';
 import { DiagnosticError } from '../diagnostics';
 
 /**
- * Emits a structured diagnostic to stderr in the agent-line format:
+ * Emits a structured diagnostic via Logger at error level. The Logger plain
+ * transport renders this as:
  *
- *   error: <where.file>[:<where.symbol>] — <why>
- *     how: <how>
+ *   error: [<context>] <where.file>[/<symbol>] — <why>
+ *   error: [<context>] how: <how>
  *
  * `how` is omitted when the diagnostic doesn't carry a remediation. Plain
- * (non-Diagnostic) errors fall through with just `error: <message>`.
+ * (non-Diagnostic) errors fall through with the raw message.
  */
-export function reportDiagnostic(diagnostic: Diagnostic): void {
+export function reportDiagnostic(diagnostic: Diagnostic, context: string): void {
+  const log = new Logger(context);
   const where = diagnostic.where;
   const location = where !== undefined
-    ? (where.symbol !== undefined ? `${where.file}:${where.symbol}` : where.file)
+    ? (where.symbol !== undefined ? `${where.file}/${where.symbol}` : where.file)
     : null;
 
   if (location !== null) {
-    console.error('error: %s — %s', location, diagnostic.why);
+    log.error('%s — %s', location, diagnostic.why);
   } else {
-    console.error('error: %s', diagnostic.why);
+    log.error('%s', diagnostic.why);
   }
 
   if (diagnostic.how !== undefined) {
-    console.error('  how: %s', diagnostic.how);
+    log.error('how: %s', diagnostic.how);
   }
 }
 
-/**
- * Reports any thrown value. DiagnosticError unwraps to the structured form;
- * other Error / non-Error values surface as `error: <message>`.
- */
-export function reportDiagnosticError(error: unknown): void {
+export function reportDiagnosticError(error: unknown, context: string): void {
   if (error instanceof DiagnosticError) {
-    reportDiagnostic(error.diagnostic);
+    reportDiagnostic(error.diagnostic, context);
     return;
   }
-  console.error('error: %s', error instanceof Error ? error.message : String(error));
+  new Logger(context).error('%s', error instanceof Error ? error.message : String(error));
 }

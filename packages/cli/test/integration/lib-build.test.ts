@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { format } from 'node:util';
+
+import { Logger, TestTransport } from '@zipbul/logger';
 
 
 import { buildLib } from '../../src/bin/build/lib-build';
@@ -446,11 +447,8 @@ describe('zb build --lib — context augments .d.ts emission', () => {
       ].join('\n'),
     );
 
-    const warnings: string[] = [];
-    const originalConsoleError = console.error;
-    console.error = (...args: unknown[]) => {
-      warnings.push(format(...(args as Parameters<typeof format>)));
-    };
+    const transport = new TestTransport();
+    Logger.configure({ level: 'trace', transports: [transport] });
 
     const restore = realRun(pkgRoot);
     // Without the augment file, tsc will reject the property assignment
@@ -463,10 +461,14 @@ describe('zb build --lib — context augments .d.ts emission', () => {
       } catch { /* tsc-side failure expected when augment file is suppressed */ }
     } finally {
       restore();
-      console.error = originalConsoleError;
     }
 
-    expect(warnings.some(w => w.includes('@zipbul/http-adapter') && /manifest not found/i.test(w))).toBe(true);
+    const warnMatch = transport.messages.find((m) =>
+      m.level === 'warn'
+      && typeof m.msg === 'string'
+      && m.msg.includes('@zipbul/http-adapter')
+      && /manifest not found/i.test(m.msg));
+    expect(warnMatch).toBeDefined();
   });
 
   it('does not emit context-augments.d.ts when middleware has no augments', async () => {

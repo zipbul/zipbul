@@ -1,8 +1,9 @@
 import type { Subprocess } from 'bun';
 import { relative } from 'path';
 
+import { Logger } from '@zipbul/logger';
+
 const STOP_TIMEOUT_MS = 5000;
-const LINE_PREFIX = 'app: ';
 
 interface DevProcessManagerParams {
   entryPath: string;
@@ -13,8 +14,10 @@ interface DevProcessManagerParams {
 /**
  * Manages the lifecycle of the child application process spawned by `zb dev`.
  *
- * Subprocess stdout/stderr lines are prefixed with `app:` so they remain
- * grep-able alongside the dev watcher's own `dev:` and `build:` lines.
+ * Status messages flow through `[dev/app]` Logger context. Subprocess
+ * stdout/stderr lines are captured and echoed verbatim (no Logger wrapping)
+ * so the running app's own structured output stays intact for downstream
+ * consumers — Logger framing is reserved for the dev watcher's own events.
  *
  * @public
  */
@@ -23,6 +26,7 @@ export class DevProcessManager {
   private readonly entryPath: string;
   private readonly cwd: string;
   private readonly spawnProcess: DevProcessManagerParams['spawnProcess'];
+  private readonly log = new Logger('dev/app');
 
   constructor(params: DevProcessManagerParams) {
     this.entryPath = params.entryPath;
@@ -38,7 +42,7 @@ export class DevProcessManager {
    */
   start(label: string = 'start'): void {
     const displayPath = relative(this.cwd, this.entryPath) || this.entryPath;
-    console.log('dev: %s app bun %s', label, displayPath);
+    this.log.info('%s bun %s', label, displayPath);
     this.process = this.spawnProcess(['bun', this.entryPath], this.cwd);
 
     this.pipeStream(this.process.stdout, false);
@@ -46,7 +50,7 @@ export class DevProcessManager {
 
     this.process.exited.then((exitCode) => {
       if (exitCode !== null && exitCode !== 0 && this.process !== null) {
-        console.error('warn: app process exited with code %d', exitCode);
+        this.log.warn('process exited with code %d', exitCode);
       }
     }).catch(() => {
       /* exited promise rejection is non-actionable */
@@ -88,10 +92,10 @@ export class DevProcessManager {
   }
 
   /**
-   * Reads a piped subprocess stream line-by-line and writes each line
-   * with the `app:` prefix. stderr lines go to process.stderr; stdout lines
-   * go to process.stdout. No interpretation — agents see the raw app output
-   * tagged so they can filter dev watcher events from app events.
+   * Pipes the subprocess stream to stdout/stderr verbatim. The app already
+   * has its own log format (most likely `@zipbul/logger` since the user app
+   * was built by `zb`), so re-wrapping each line through Logger here would
+   * double-frame and break the agent's grep contract.
    */
   private pipeStream(stream: ReadableStream<Uint8Array> | null | number | undefined, isStderr: boolean): void {
     if (stream === null || stream === undefined || typeof stream === 'number') {
@@ -99,31 +103,14 @@ export class DevProcessManager {
     }
 
     const reader = stream.getReader();
-    const decoder = new TextDecoder();
     const sink = isStderr ? process.stderr : process.stdout;
 
     const pump = async (): Promise<void> => {
-      let buffer = '';
-
       try {
         for (;;) {
           const { done, value } = await reader.read();
-
-          if (done) {
-            break;
-          }
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-
-          for (const line of lines) {
-            sink.write(`${LINE_PREFIX}${line}\n`);
-          }
-        }
-
-        if (buffer.length > 0) {
-          sink.write(`${LINE_PREFIX}${buffer}\n`);
+          if (done) break;
+          sink.write(value);
         }
       } catch {
         /* stream closed on process kill */

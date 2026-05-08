@@ -6,6 +6,7 @@ import type { CommandOptions } from '../interfaces';
 import type { BuildCommandDeps } from './interfaces';
 
 import { isErr } from '@zipbul/result';
+import { Logger } from '@zipbul/logger';
 import { parseSource } from '@zipbul/gildash';
 import { AstParser, AdapterDefinitionResolver, ModuleGraph } from '../../compiler/analyzer';
 import { validateCreateApplication } from '../../compiler/analyzer/validation';
@@ -37,14 +38,15 @@ export function createBuildCommand(deps: BuildCommandDeps) {
   return async function build(commandOptions?: CommandOptions): Promise<void> {
     const isLibMode = commandOptions?.lib === true;
     const verbose = commandOptions?.verbose === true;
+    const log = new Logger(isLibMode ? 'build/lib' : 'build');
 
-    console.time(isLibMode ? 'build/lib' : 'build');
+    log.time('total');
     const cancel = installCancellation();
 
     try {
       if (isLibMode) {
         await buildLib(deps, cancel);
-        console.timeEnd('build/lib');
+        log.timeEnd('total');
         return;
       }
 
@@ -57,7 +59,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const zipbulDir = outputDirPath(projectRoot);
       const buildTempDir = tempDirPath(projectRoot);
 
-      console.log('build: project=%s source=%s output=%s',
+      log.info('project=%s source=%s output=%s',
         projectRoot,
         relative(projectRoot, srcDir) || '.',
         relative(projectRoot, outDir) || '.');
@@ -66,7 +68,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       const userMain = resolve(projectRoot, config.entry);
 
       // -- 1. Scan + parse --
-      console.time('build/scan');
+      log.time('scan');
       await validateUserAppShape({ srcDir, projectRoot, scanFiles: deps.scanFiles });
       const scanResult = await scanAndParseFiles({
         projectRoot,
@@ -77,14 +79,14 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         resolveImport: deps.resolveImport,
       });
       const { fileMap, allClasses } = scanResult;
-      console.log('build: scanned %d files, %d classes', fileMap.size, allClasses.length);
-      console.timeEnd('build/scan');
+      log.info('scanned %d files, %d classes', fileMap.size, allClasses.length);
+      log.timeEnd('scan');
 
       const appEntry = validateCreateApplication(fileMap);
       if (isErr(appEntry)) throw new DiagnosticError(appEntry.data);
 
       // -- 2. Module graph --
-      console.time('build/graph');
+      log.time('graph');
       const ignorePatterns = ['dist', '.zipbul', '.gildash'];
       const { ledger, semanticAvailable } = await openGildashWithFallback({
         options: { projectRoot, ignorePatterns, watchMode: false },
@@ -92,7 +94,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
       });
 
       const unsubscribeError = ledger.onError((error) => {
-        console.error('warn: gildash: %s', error.message);
+        log.warn('gildash: %s', error.message);
       });
 
       try {
@@ -121,11 +123,11 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         let providerCount = 0;
         for (const mod of graph.modules.values()) providerCount += mod.providers.size;
 
-        console.log('build: %d modules, %d providers', graph.modules.size, providerCount);
-        console.timeEnd('build/graph');
+        log.info('%d modules, %d providers', graph.modules.size, providerCount);
+        log.timeEnd('graph');
 
         // -- 3. Generate manifests + entry/runtime/worker --
-        console.time('build/manifest');
+        log.time('manifest');
         await mkdir(zipbulDir, { recursive: true });
 
         const manifestFile = join(zipbulDir, 'manifest.json');
@@ -227,10 +229,10 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           catalogFilePath: interfaceCatalogFile,
         });
         await writeRuntimeReport(runtimeReportFile);
-        console.timeEnd('build/manifest');
+        log.timeEnd('manifest');
 
         // -- 4. Bundle --
-        console.time('build/bundle');
+        log.time('bundle');
         await withAtomicEmit(
           {
             finalDir: outDir,
@@ -249,7 +251,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
             });
 
             if (!buildResult.success) {
-              const logMessages = buildResult.logs.map(log => `[${log.level}] ${log.message}`).join('\n');
+              const logMessages = buildResult.logs.map(l => `[${l.level}] ${l.message}`).join('\n');
               throw new DiagnosticError(buildDiagnostic({
                 reason: logMessages.length > 0 ? `Bundle failed:\n${logMessages}` : 'Bundle failed.',
                 how: 'Resolve the bundler-reported errors above. If they reference missing modules, verify your imports and that all dependencies are installed.',
@@ -257,7 +259,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
             }
           },
         );
-        console.timeEnd('build/bundle');
+        log.timeEnd('bundle');
 
         // -- Reports --
         const entryOutputFile = join(outDir, 'entry.js');
@@ -265,33 +267,33 @@ export function createBuildCommand(deps: BuildCommandDeps) {
 
         await reportOutputSizes({
           entryOutputFile, runtimeOutputFile, manifestFile, manifestJson, projectRoot,
-        });
-        await reportCouplingMetrics(fileMap, ledger, projectRoot);
-        reportComplexFiles(fileMap, ledger, projectRoot);
-        reportProjectStats(ledger);
+        }, log);
+        await reportCouplingMetrics(fileMap, ledger, projectRoot, log);
+        reportComplexFiles(fileMap, ledger, projectRoot, log);
+        reportProjectStats(ledger, log);
 
         if (verbose) {
           for (const m of graph.modules.values()) {
-            console.log('module: %s controllers=%d providers=%d',
+            log.info('module: %s controllers=%d providers=%d',
               m.name, m.controllers.size, m.providers.size);
           }
         }
 
         for (const warning of graph.warnings) {
-          console.error('warn: %s', warning);
+          log.warn('%s', warning);
         }
 
-        console.log('build: %d warning(s)', graph.warnings.length);
+        log.info('%d warning(s)', graph.warnings.length);
       } finally {
         unsubscribeError();
         try {
           await ledger.close();
         } catch (e) {
-          console.error('warn: failed to close gildash: %s', e instanceof Error ? e.message : 'unknown');
+          log.warn('failed to close gildash: %s', e instanceof Error ? e.message : 'unknown');
         }
       }
 
-      console.timeEnd('build');
+      log.timeEnd('total');
     } catch (error) {
       if (error instanceof DiagnosticError) throw error;
       throw new DiagnosticError(
