@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { extractLibAugments, injectAugmentsIntoSource } from './lib-augment-injector';
+import { extractMiddlewareAugmentEntries, injectAugmentsIntoSource } from './middleware-augment-injector';
 
-describe('extractLibAugments', () => {
+describe('extractMiddlewareAugmentEntries', () => {
   test('extracts class augments from factory-only overload', () => {
     const source = `
 import { defineMiddleware } from '@zipbul/common';
@@ -16,7 +16,7 @@ export const cookieMiddleware = defineMiddleware(() => (ctx) => {
 });
 `;
 
-    const entries = extractLibAugments('cookie.ts', source);
+    const entries = extractMiddlewareAugmentEntries('cookie.ts', source);
 
     expect(entries).toHaveLength(1);
     expect(entries[0]!.name).toBe('cookieMiddleware');
@@ -49,7 +49,7 @@ export const queryMiddleware = defineMiddleware(() => (ctx) => {
 });
 `;
 
-    const entries = extractLibAugments('query.ts', source);
+    const entries = extractMiddlewareAugmentEntries('query.ts', source);
 
     expect(entries).toHaveLength(1);
     expect(entries[0]!.augments[0]).toEqual({
@@ -74,7 +74,7 @@ export const sessionMiddleware = defineMiddleware({
 });
 `;
 
-    const entries = extractLibAugments('session.ts', source);
+    const entries = extractMiddlewareAugmentEntries('session.ts', source);
 
     expect(entries).toHaveLength(1);
     expect(entries[0]!.configText).not.toBeNull();
@@ -99,7 +99,7 @@ export const cookieMiddleware = defineMiddleware([HttpAdapter], () => (ctx) => {
 });
 `;
 
-    const entries = extractLibAugments('cookie.ts', source);
+    const entries = extractMiddlewareAugmentEntries('cookie.ts', source);
 
     expect(entries).toHaveLength(1);
     expect(entries[0]!.adaptersText).not.toBeNull();
@@ -116,7 +116,7 @@ export const noopMiddleware = defineMiddleware(() => (ctx) => {
 });
 `;
 
-    const entries = extractLibAugments('noop.ts', source);
+    const entries = extractMiddlewareAugmentEntries('noop.ts', source);
 
     expect(entries).toHaveLength(0);
   });
@@ -138,7 +138,7 @@ export const queryMiddleware = defineMiddleware(() => (ctx) => {
 });
 `;
 
-    const entries = extractLibAugments('multi.ts', source);
+    const entries = extractMiddlewareAugmentEntries('multi.ts', source);
 
     expect(entries).toHaveLength(2);
     expect(entries[0]!.name).toBe('cookieMiddleware');
@@ -158,7 +158,7 @@ export const cookieMiddleware = defineMiddleware(() => (ctx) => {
 });
 `;
 
-    const entries = extractLibAugments('test.ts', source);
+    const entries = extractMiddlewareAugmentEntries('test.ts', source);
     const result = injectAugmentsIntoSource(source, entries);
 
     expect(result).toContain('__augments');
@@ -181,7 +181,7 @@ export const sessionMiddleware = defineMiddleware({
 });
 `;
 
-    const entries = extractLibAugments('test.ts', source);
+    const entries = extractMiddlewareAugmentEntries('test.ts', source);
     const result = injectAugmentsIntoSource(source, entries);
 
     expect(result).toContain('__augments');
@@ -201,7 +201,7 @@ export const cookieMiddleware = defineMiddleware([HttpAdapter], () => (ctx) => {
 });
 `;
 
-    const entries = extractLibAugments('test.ts', source);
+    const entries = extractMiddlewareAugmentEntries('test.ts', source);
     const result = injectAugmentsIntoSource(source, entries);
 
     // Should produce config object with adapters + factory + __augments
@@ -216,7 +216,7 @@ export const cookieMiddleware = defineMiddleware([HttpAdapter], () => (ctx) => {
 
   test('returns unchanged source when no augments found', () => {
     const source = `export const x = 1;`;
-    const entries = extractLibAugments('test.ts', source);
+    const entries = extractMiddlewareAugmentEntries('test.ts', source);
     const result = injectAugmentsIntoSource(source, entries);
 
     expect(result).toBe(source);

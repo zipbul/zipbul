@@ -1,8 +1,8 @@
 /**
  * IR round-trip 통합 테스트.
  *
- * 라이브러리 사이드 (`zb build --lib`):
- *   소스 → extractLibAugments → SerializedContextOp[] → injectAugmentsIntoSource
+ * 라이브러리 사이드 (`zb build middleware`):
+ *   소스 → extractMiddlewareAugmentEntries → SerializedContextOp[] → injectAugmentsIntoSource
  *
  * 소비자 사이드 (consumer build):
  *   IR 필드 → extractFromIR → MiddlewareProducerInfo
@@ -10,7 +10,7 @@
  * 두 단계의 데이터 형태 호환성을 검증한다.
  */
 import { describe, expect, test } from 'bun:test';
-import { extractLibAugments, injectAugmentsIntoSource } from '../../generator/lib-augment-injector';
+import { extractMiddlewareAugmentEntries, injectAugmentsIntoSource } from '../../generator/middleware-augment-injector';
 
 const SOURCE_OPS_ONLY = `
 import { defineMiddleware } from '@zipbul/common';
@@ -43,8 +43,8 @@ export const cookieMw = defineMiddleware(() => (ctx) => {
 `;
 
 describe('Lib build emits IR with __contextOps', () => {
-  test('extractLibAugments captures ctx.set/use ops as SerializedContextOp[]', () => {
-    const entries = extractLibAugments('/tmp/session.ts', SOURCE_OPS_ONLY);
+  test('extractMiddlewareAugmentEntries captures ctx.set/use ops as SerializedContextOp[]', () => {
+    const entries = extractMiddlewareAugmentEntries('/tmp/session.ts', SOURCE_OPS_ONLY);
 
     expect(entries.length).toBe(1);
     expect(entries[0]?.name).toBe('sessionMw');
@@ -54,8 +54,8 @@ describe('Lib build emits IR with __contextOps', () => {
     expect(entries[0]?.contextOps[1]).toEqual({ kind: 'use', keyIdentifier: 'LoggerKey' });
   });
 
-  test('extractLibAugments captures BOTH augments and contextOps', () => {
-    const entries = extractLibAugments('/tmp/both.ts', SOURCE_BOTH);
+  test('extractMiddlewareAugmentEntries captures BOTH augments and contextOps', () => {
+    const entries = extractMiddlewareAugmentEntries('/tmp/both.ts', SOURCE_BOTH);
 
     expect(entries.length).toBe(1);
     expect(entries[0]?.augments.length).toBe(1);
@@ -64,8 +64,8 @@ describe('Lib build emits IR with __contextOps', () => {
     expect(entries[0]?.contextOps[0]).toEqual({ kind: 'set', keyIdentifier: 'SessionKey' });
   });
 
-  test('extractLibAugments captures augments-only middleware (legacy compat)', () => {
-    const entries = extractLibAugments('/tmp/cookie.ts', SOURCE_AUGMENT_ONLY);
+  test('extractMiddlewareAugmentEntries captures augments-only middleware (legacy compat)', () => {
+    const entries = extractMiddlewareAugmentEntries('/tmp/cookie.ts', SOURCE_AUGMENT_ONLY);
 
     expect(entries.length).toBe(1);
     expect(entries[0]?.augments.length).toBe(1);
@@ -73,7 +73,7 @@ describe('Lib build emits IR with __contextOps', () => {
   });
 
   test('injectAugmentsIntoSource emits __contextOps when ops present', () => {
-    const entries = extractLibAugments('/tmp/session.ts', SOURCE_OPS_ONLY);
+    const entries = extractMiddlewareAugmentEntries('/tmp/session.ts', SOURCE_OPS_ONLY);
     const injected = injectAugmentsIntoSource(SOURCE_OPS_ONLY, entries);
 
     expect(injected).toContain('__contextOps');
@@ -84,7 +84,7 @@ describe('Lib build emits IR with __contextOps', () => {
   });
 
   test('injectAugmentsIntoSource omits __contextOps when no ops', () => {
-    const entries = extractLibAugments('/tmp/cookie.ts', SOURCE_AUGMENT_ONLY);
+    const entries = extractMiddlewareAugmentEntries('/tmp/cookie.ts', SOURCE_AUGMENT_ONLY);
     const injected = injectAugmentsIntoSource(SOURCE_AUGMENT_ONLY, entries);
 
     expect(injected).toContain('__augments');
@@ -92,7 +92,7 @@ describe('Lib build emits IR with __contextOps', () => {
   });
 
   test('injected source preserves defineMiddleware call shape', () => {
-    const entries = extractLibAugments('/tmp/session.ts', SOURCE_OPS_ONLY);
+    const entries = extractMiddlewareAugmentEntries('/tmp/session.ts', SOURCE_OPS_ONLY);
     const injected = injectAugmentsIntoSource(SOURCE_OPS_ONLY, entries);
 
     // defineMiddleware(<single-arg>) call: opens with `({ factory:` and
@@ -142,7 +142,7 @@ describe('Consumer build extracts producer info from IR', () => {
     //
     // The intent of this test is "does the IR shape we emit get parsed back
     // into ContextOperation[]?" — to keep boundaries clean, we test
-    // extractLibAugments → injectAugmentsIntoSource (the emit shape) and
+    // extractMiddlewareAugmentEntries → injectAugmentsIntoSource (the emit shape) and
     // trust that extractContextOpsRecord (which mirrors emit) reads back the
     // same shape. Add an emit-shape assertion explicitly here.
 

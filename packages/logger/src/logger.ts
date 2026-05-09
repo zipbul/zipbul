@@ -165,7 +165,7 @@ export class Logger {
     // Separate primitives (interpolated into msg via util.format) from
     // structured arguments (Error / Loggable / plain object → metadata).
     const primitives: unknown[] = [];
-    const structured: LogArgument[] = [];
+    const structured: unknown[] = [];
 
     for (const arg of args) {
       if (arg === null || arg === undefined) {
@@ -176,7 +176,7 @@ export class Logger {
         structured.push(arg);
         continue;
       }
-      if (this.isLoggable(arg)) {
+      if (this.isLoggable(arg as LogMetadataValue)) {
         structured.push(arg);
         continue;
       }
@@ -222,10 +222,10 @@ export class Logger {
     for (const arg of structured) {
       if (arg instanceof Error) {
         logMessage.err = arg;
-      } else if (this.isLoggable(arg)) {
-        Object.assign(logMessage, arg.toLog());
+      } else if (this.isLoggable(arg as LogMetadataValue)) {
+        Object.assign(logMessage, (arg as Loggable).toLog());
       } else if (typeof arg === 'object' && arg !== null) {
-        Object.assign(logMessage, arg);
+        Object.assign(logMessage, arg as Record<string, unknown>);
       }
     }
 

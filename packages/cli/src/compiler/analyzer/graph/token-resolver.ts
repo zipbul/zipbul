@@ -320,7 +320,7 @@ export function collectReferencedTokens(
       referenced.add(dep);
     }
 
-    const record = toRecord(provider.metadata ?? undefined);
+    const record = toRecord(provider.metadata);
 
     if (record !== null) {
       if (typeof record.useExisting === 'string') {

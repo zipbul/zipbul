@@ -15,7 +15,7 @@ import { extractMiddlewareContextOps } from '../analyzer/parser/context-operatio
  *
  * @public
  */
-export interface LibAugmentEntry {
+export interface MiddlewareAugmentEntry {
   /** Export variable name. */
   readonly name: string;
   /** Byte offset of the defineMiddleware() call's opening paren in the source. */
@@ -72,16 +72,16 @@ export interface SerializedAugment {
  *
  * @public
  */
-export function extractLibAugments(
+export function extractMiddlewareAugmentEntries(
   filePath: string,
   sourceText: string,
-): LibAugmentEntry[] {
+): MiddlewareAugmentEntry[] {
   const parseResult = parseSource(filePath, sourceText);
 
   if (isErr(parseResult)) return [];
 
   const parsed: ParsedFile = parseResult;
-  const entries: LibAugmentEntry[] = [];
+  const entries: MiddlewareAugmentEntry[] = [];
 
   for (const stmt of parsed.program.body) {
     let varDecl: AstNode | null = null;
@@ -128,7 +128,7 @@ export function extractLibAugments(
  */
 export function injectAugmentsIntoSource(
   sourceText: string,
-  entries: readonly LibAugmentEntry[],
+  entries: readonly MiddlewareAugmentEntry[],
 ): string {
   if (entries.length === 0) return sourceText;
 
@@ -171,7 +171,7 @@ function processDefineMiddlewareCall(
   name: string,
   call: AstNode,
   sourceText: string,
-): LibAugmentEntry | null {
+): MiddlewareAugmentEntry | null {
   if (!is.CallExpression(call)) return null;
 
   const args = call.arguments;

@@ -270,7 +270,7 @@ export function normalizeProvider(
 
   let token = 'UNKNOWN';
   const record = toRecord(p);
-  const options = parseInjectableOptions(record ?? undefined, modulePath, moduleName, moduleFileSet, moduleNameByPath, moduleMarkerExports);
+  const options = parseInjectableOptions(record, modulePath, moduleName, moduleFileSet, moduleNameByPath, moduleMarkerExports);
 
   if (record?.provide !== undefined) {
     token = extractTokenName(record.provide, gildash, warnings);
@@ -294,7 +294,7 @@ export function normalizeProvider(
     throw new Error(`[Zipbul AOT] Cannot determine provider token in module '${moduleName}' (${modulePath}). Ensure the provider is a class reference or a valid provider object.`);
   }
 
-  const metadata = isClassMetadata(p) ? p : (record ?? undefined);
+  const metadata = isClassMetadata(p) ? p : record;
 
   const ref: ProviderRef = {
     token,

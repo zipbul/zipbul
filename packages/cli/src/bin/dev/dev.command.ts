@@ -13,7 +13,7 @@ import { DiagnosticError } from '../../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
 import type { IndexResult } from '@zipbul/gildash';
 
-import { reportDiagnostic, reportDiagnosticError } from '../report-diagnostic';
+import { reportDiagnostic, reportError } from '../report-diagnostic';
 
 import type { DevCommandDeps, RebuildContext } from './interfaces';
 import { shouldAnalyzeFile, analyzeFile, rebuild } from './dev-rebuild-engine';
@@ -126,8 +126,7 @@ export function createDevCommand(deps: DevCommandDeps) {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       ledger.pruneChangelog(oneDayAgo);
     } catch (pruneError) {
-      log.warn('changelog pruning failed: %s',
-        pruneError instanceof Error ? pruneError.message : 'unknown');
+      log.warn('changelog pruning failed: %s', pruneError);
     }
 
     const { graph } = initialResult;
@@ -184,7 +183,7 @@ export function createDevCommand(deps: DevCommandDeps) {
           if (error instanceof DiagnosticError) {
             reportDiagnostic(error.diagnostic, 'dev/rebuild');
           } else {
-            reportDiagnosticError(error, 'dev/rebuild');
+            reportError(error, 'dev/rebuild');
           }
 
           log.warn('rebuild failed; keeping previous process running');
@@ -203,8 +202,7 @@ export function createDevCommand(deps: DevCommandDeps) {
         try {
           await ledger.close();
         } catch (e) {
-          log.warn('failed to close gildash: %s',
-            e instanceof Error ? e.message : 'unknown');
+          log.warn('failed to close gildash: %s', e);
         }
       });
     } catch (error) {

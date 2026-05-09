@@ -554,7 +554,7 @@ export class ModuleGraph {
   }
 
   private extractProviderTarget(ref: ProviderRef): string {
-    const record = toRecord(ref.metadata ?? undefined);
+    const record = toRecord(ref.metadata);
 
     if (record === null) {
       return '';
@@ -584,7 +584,7 @@ export class ModuleGraph {
   }
 
   private extractFactoryCode(ref: ProviderRef): string {
-    const record = toRecord(ref.metadata ?? undefined);
+    const record = toRecord(ref.metadata);
 
     if (record === null) {
       return '';

@@ -20,7 +20,7 @@ export class EntryGenerator {
     return `
 import { Logger } from '@zipbul/logger';
 
-const logger = new Logger('Entry');
+const logger = new Logger('compiler/entry-gen');
 
 await bootstrap();
 

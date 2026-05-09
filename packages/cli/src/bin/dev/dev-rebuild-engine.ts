@@ -134,8 +134,7 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
       if (cycleError instanceof DiagnosticError) {
         throw cycleError;
       }
-      const reason = cycleError instanceof Error ? cycleError.message : 'unknown';
-      log.warn('cycle detection unavailable this rebuild (%s); circular imports may not be reported', reason);
+      log.warn('cycle detection unavailable this rebuild (%s); circular imports may not be reported', cycleError);
     }
   }
 
@@ -216,7 +215,7 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
   await writeIfChanged(join(outDir, 'runtime.ts'), runtimeResult);
 
   // Collect middleware augments for build-time validation only.
-  // The .d.ts emission is the responsibility of `zb build --lib`
+  // The .d.ts emission is the responsibility of `zb build middleware`
   // (each middleware library ships its own `dist/context-augments.d.ts`).
   const augmentCollector = new MiddlewareAugmentCollector();
   const augmentResult = await augmentCollector.collect(fileMap, adapterResolution.adapterStaticSchemas);

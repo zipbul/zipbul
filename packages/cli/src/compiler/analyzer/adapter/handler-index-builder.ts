@@ -33,7 +33,7 @@ import {
   extractHandlerParams,
 } from './decorator-extractor';
 
-const logger = new Logger('AdapterDefinitionResolver');
+const logger = new Logger('compiler/handler-index');
 
 /**
  * Interns immutable arrays/objects so that structurally identical values

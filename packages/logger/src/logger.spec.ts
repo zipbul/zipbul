@@ -337,4 +337,80 @@ describe('Logger', () => {
     expect(msg.extra).toBe('val');
     expect(msg.context).toBe('test');
   });
+
+  // ── Format specifier interpolation ──
+  it('interpolates %s/%d format specifiers from primitive args', () => {
+    setup();
+    const logger = new Logger('test');
+    logger.info('scanned %d files in %d ms (%s)', 42, 1234, 'fast');
+    expect(transport.messages[0]!.msg).toBe('scanned 42 files in 1234 ms (fast)');
+  });
+
+  it('leaves message unchanged when format specifier absent', () => {
+    setup();
+    const logger = new Logger('test');
+    logger.info('static text', 99, 'ignored');
+    expect(transport.messages[0]!.msg).toBe('static text');
+  });
+
+  it('separates primitives (interpolated) from objects (metadata) in same call', () => {
+    setup();
+    const logger = new Logger('test');
+    logger.info('handler %s', 'getUser', { route: '/users/:id', method: 'GET' });
+    expect(transport.messages[0]!.msg).toBe('handler getUser');
+    expect(transport.messages[0]!.route).toBe('/users/:id');
+    expect(transport.messages[0]!.method).toBe('GET');
+  });
+
+  it('forwards unknown-typed args through util.format without crash', () => {
+    setup();
+    const logger = new Logger('test');
+    const value: unknown = 7;
+    logger.info('value=%d', value);
+    expect(transport.messages[0]!.msg).toBe('value=7');
+  });
+
+  // ── time() / timeEnd() ──
+  it('time/timeEnd emits "<label>: <ms>ms" at info level', () => {
+    setup();
+    const logger = new Logger('test');
+    logger.time('phase');
+    logger.timeEnd('phase');
+    const msg = transport.messages[0]!;
+    expect(msg.level).toBe('info');
+    expect(msg.context).toBe('test');
+    expect(msg.msg).toMatch(/^phase: \d+(\.\d+)?ms$/);
+  });
+
+  it('timeEnd warns and returns silently when label was never started', () => {
+    setup();
+    const logger = new Logger('test');
+    logger.timeEnd('never-started');
+    const msg = transport.messages[0]!;
+    expect(msg.level).toBe('warn');
+    expect(msg.msg).toContain('never-started');
+  });
+
+  it('timeEnd is reusable — same label can be timed again after end', () => {
+    setup();
+    const logger = new Logger('test');
+    logger.time('reused');
+    logger.timeEnd('reused');
+    logger.time('reused');
+    logger.timeEnd('reused');
+    expect(transport.messages.filter(m => m.level === 'info').length).toBe(2);
+    expect(transport.messages.filter(m => m.level === 'warn').length).toBe(0);
+  });
+
+  it('timers are isolated per Logger instance', () => {
+    setup();
+    const a = new Logger('a');
+    const b = new Logger('b');
+    a.time('shared');
+    // b never started 'shared' — timeEnd should warn
+    b.timeEnd('shared');
+    const msg = transport.messages[0]!;
+    expect(msg.level).toBe('warn');
+    expect(msg.context).toBe('b');
+  });
 });

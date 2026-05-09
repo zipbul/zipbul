@@ -6,9 +6,9 @@ import type { CommandOptions } from './interfaces';
 
 import { Logger } from '@zipbul/logger';
 import { dev } from './dev';
-import { build } from './build';
+import { build, buildMiddleware } from './build';
 import { buildAdapter } from '../compiler/adapter-build';
-import { reportDiagnosticError } from './report-diagnostic';
+import { reportError } from './report-diagnostic';
 
 const { positionals, values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -16,7 +16,6 @@ const { positionals, values } = parseArgs({
   strict: false,
   options: {
     verbose: { type: 'boolean', short: 'v' },
-    lib: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' },
     version: { type: 'boolean' },
   },
@@ -46,15 +45,15 @@ const USAGE_TEXT = [
   'Usage: zb <command>',
   '',
   'Commands:',
-  '  dev              Generate AOT artifacts and watch for changes',
-  '  build            Generate build output',
-  '  build adapter    Compile an adapter package (zipbul.kind === "adapter")',
+  '  dev                Generate AOT artifacts and watch for changes',
+  '  build              Build the user app (default — produces dist/entry.js + runtime)',
+  '  build adapter      Compile an adapter package (package.json#zipbul.kind === "adapter")',
+  '  build middleware   Compile a middleware library package (package.json#zipbul.kind === "middleware")',
   '',
   'Common options:',
-  '  --lib            Build as library (inject __augments metadata for npm packages)',
-  '  --verbose, -v    Show detailed build information',
-  '  --help, -h       Show this help',
-  '  --version        Print zb version',
+  '  --verbose, -v      Show detailed build information',
+  '  --help, -h         Show this help',
+  '  --version          Print zb version',
 ].join('\n');
 
 if (values.help === true) {
@@ -72,7 +71,6 @@ const reportInvalidCommand = (value: string | undefined): void => {
 const createCommandOptions = (): CommandOptions => {
   const options: CommandOptions = {};
   if (verbose) options.verbose = true;
-  if (values.lib === true) options.lib = true;
   return options;
 };
 
@@ -93,9 +91,26 @@ try {
           });
           new Logger('adapter').info('built %s manifest=%s', result.adapterId, result.manifestPath);
         } catch (error) {
-          reportDiagnosticError(error, 'adapter');
+          reportError(error, 'adapter');
           process.exitCode = 1;
         }
+        break;
+      }
+
+      if (subCommand === 'middleware') {
+        try {
+          await buildMiddleware();
+        } catch (error) {
+          reportError(error, 'build/middleware');
+          process.exitCode = 1;
+        }
+        break;
+      }
+
+      if (subCommand !== undefined) {
+        log.error('unsupported subcommand: build %s', subCommand);
+        process.stdout.write(USAGE_TEXT + '\n');
+        process.exitCode = 1;
         break;
       }
 
@@ -111,6 +126,6 @@ try {
       process.exitCode = 1;
   }
 } catch (error) {
-  reportDiagnosticError(error, 'zb');
+  reportError(error, 'zb');
   process.exitCode = 1;
 }

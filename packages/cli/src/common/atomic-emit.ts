@@ -5,7 +5,7 @@ import { mkdir, rename, rm, stat } from 'node:fs/promises';
  * then promote it to the final location through a backup-then-rename swap so
  * the prior good build is never destroyed before the new one is in place.
  *
- * Used uniformly by `zb build adapter`, `zb build --lib`, and `zb build`
+ * Used uniformly by `zb build adapter`, `zb build middleware`, and `zb build`
  * (user-app `dist/`) so that partial output never replaces a prior good build.
  *
  * **Filesystem requirement**: `stagingDir`, `finalDir`, and the temporary

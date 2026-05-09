@@ -162,6 +162,9 @@ describe('createDevCommand', () => {
   afterEach(() => {
     cwdSpy.mockRestore();
     processOnSpy.mockRestore();
+    // Restore Logger to a clean default — individual tests configure custom
+    // TestTransports and we don't want them leaking into the next test.
+    Logger.configure({ level: 'info' });
   });
 
   // -- Happy Path --

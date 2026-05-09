@@ -198,7 +198,11 @@ export async function scanAndParseFiles(params: ScanParams): Promise<ScanResult>
       const reason = error instanceof Error ? error.message : 'Unknown parse error.';
 
       throw new DiagnosticError(
-        buildDiagnostic({ reason, file: filePath }),
+        buildDiagnostic({
+          reason,
+          file: filePath,
+          how: 'Fix the TypeScript syntax error in the file shown above. `bunx tsc --noEmit` gives the same error with full type-context if helpful.',
+        }),
         { cause: error },
       );
     }

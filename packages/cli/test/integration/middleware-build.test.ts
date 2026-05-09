@@ -1,6 +1,6 @@
 /**
- * `zb build --lib` 통합 테스트 — kind 강제 + defineX shape + mutual exclusion.
- * lib-build 자체의 augment 추출 흐름은 lib-augment-injector.spec.ts 가 cover.
+ * `zb build middleware` 통합 테스트 — kind 강제 + defineX shape + mutual exclusion.
+ * middleware-build 자체의 augment 추출 흐름은 middleware-augment-injector.spec.ts 가 cover.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { Logger, TestTransport } from '@zipbul/logger';
 
 
-import { buildLib } from '../../src/bin/build/lib-build';
+import { runMiddlewareBuild } from '../../src/bin/build/middleware-build';
 import { Glob } from 'bun';
 import { scanGlobSorted } from '../../src/common';
 
@@ -39,12 +39,15 @@ void dirname; // Keep import side-effect free if helper grows later.
 let pkgRoot: string;
 
 beforeEach(async () => {
-  pkgRoot = await mkdtemp(join(tmpdir(), 'zb-lib-build-'));
+  pkgRoot = await mkdtemp(join(tmpdir(), 'zb-middleware-build-'));
   await mkdir(join(pkgRoot, 'src'), { recursive: true });
 });
 
 afterEach(async () => {
   await rm(pkgRoot, { recursive: true, force: true });
+  // Restore Logger to a clean default — individual tests install custom
+  // TestTransports and we don't want them leaking into the next test.
+  Logger.configure({ level: 'info' });
 });
 
 
@@ -52,7 +55,7 @@ afterEach(async () => {
 const deps = {
   scanFiles: ({ glob, baseDir }: { glob: Glob; baseDir: string }) => scanGlobSorted({ glob, baseDir }),
   buildBundle: (...args: Parameters<typeof Bun.build>) => Bun.build(...args),
-} as Parameters<typeof buildLib>[0];
+} as Parameters<typeof runMiddlewareBuild>[0];
 
 const realRun = (cwd: string) => {
   const originalCwd = process.cwd();
@@ -60,7 +63,7 @@ const realRun = (cwd: string) => {
   return () => process.chdir(originalCwd);
 };
 
-describe('zb build --lib — kind 강제', () => {
+describe('zb build middleware — kind 강제', () => {
   it('rejects when zipbul.kind is missing', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),
@@ -70,7 +73,7 @@ describe('zb build --lib — kind 강제', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await expect(buildLib(deps)).rejects.toThrow(/zipbul.+kind.+middleware/);
+      await expect(runMiddlewareBuild(deps)).rejects.toThrow(/zipbul.+kind.+middleware/);
     } finally {
       restore();
     }
@@ -85,14 +88,14 @@ describe('zb build --lib — kind 강제', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await expect(buildLib(deps)).rejects.toThrow(/zipbul.+kind.+middleware/);
+      await expect(runMiddlewareBuild(deps)).rejects.toThrow(/zipbul.+kind.+middleware/);
     } finally {
       restore();
     }
   });
 });
 
-describe('zb build --lib — defineX shape 강제', () => {
+describe('zb build middleware — defineX shape 강제', () => {
   it('rejects when defineMiddleware is not at top-level export const', async () => {
     await Bun.write(
       join(pkgRoot, 'package.json'),
@@ -113,7 +116,7 @@ describe('zb build --lib — defineX shape 강제', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await expect(buildLib(deps)).rejects.toThrow(/top-level exported `const`/);
+      await expect(runMiddlewareBuild(deps)).rejects.toThrow(/top-level exported `const`/);
     } finally {
       restore();
     }
@@ -139,14 +142,14 @@ describe('zb build --lib — defineX shape 강제', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await expect(buildLib(deps)).rejects.toThrow(/top-level exported `const`/);
+      await expect(runMiddlewareBuild(deps)).rejects.toThrow(/top-level exported `const`/);
     } finally {
       restore();
     }
   });
 });
 
-describe('zb build --lib — context augments .d.ts emission', () => {
+describe('zb build middleware — context augments .d.ts emission', () => {
   /**
    * End-to-end check: a middleware library with `ctx.to(<Type>)` augments
    * must produce `dist/context-augments.d.ts` containing `declare module`
@@ -204,7 +207,7 @@ describe('zb build --lib — context augments .d.ts emission', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await buildLib(deps);
+      await runMiddlewareBuild(deps);
     } finally {
       restore();
     }
@@ -233,7 +236,7 @@ describe('zb build --lib — context augments .d.ts emission', () => {
    * preserves the standard tsc-only output for non-augmenting middlewares.
    */
   /**
-   * Idempotency: running `buildLib` twice over the same source must produce
+   * Idempotency: running `runMiddlewareBuild` twice over the same source must produce
    * exactly one `/// <reference path>` directive per `.d.ts`. The
    * `existingRefRegex` in `prependReferenceToAllDts` is the only thing
    * keeping us from stacking duplicates on every rebuild — guard it.
@@ -284,8 +287,8 @@ describe('zb build --lib — context augments .d.ts emission', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await buildLib(deps);
-      await buildLib(deps);
+      await runMiddlewareBuild(deps);
+      await runMiddlewareBuild(deps);
     } finally {
       restore();
     }
@@ -386,7 +389,7 @@ describe('zb build --lib — context augments .d.ts emission', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await buildLib(deps);
+      await runMiddlewareBuild(deps);
     } finally {
       restore();
     }
@@ -457,7 +460,7 @@ describe('zb build --lib — context augments .d.ts emission', () => {
     // catch it so the assertion below can still run.
     try {
       try {
-        await buildLib(deps);
+        await runMiddlewareBuild(deps);
       } catch { /* tsc-side failure expected when augment file is suppressed */ }
     } finally {
       restore();
@@ -495,7 +498,7 @@ describe('zb build --lib — context augments .d.ts emission', () => {
 
     const restore = realRun(pkgRoot);
     try {
-      await buildLib(deps);
+      await runMiddlewareBuild(deps);
     } finally {
       restore();
     }

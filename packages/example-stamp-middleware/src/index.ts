@@ -6,7 +6,7 @@ import { Logger } from '@zipbul/logger';
  * Per-request marker installed by {@link stampMiddleware} onto the HTTP
  * context. Demonstrates the published-augment contract: this class is
  * exported by the middleware library and merged into `HttpRequest` via the
- * `dist/context-augments.d.ts` that `zb build --lib` emits, so consumers
+ * `dist/context-augments.d.ts` that `zb build middleware` emits, so consumers
  * who `import { stampMiddleware }` get `ctx.request.stamp` typed without
  * touching their own `tsconfig.json`.
  */

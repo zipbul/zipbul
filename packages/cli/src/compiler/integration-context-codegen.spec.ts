@@ -14,7 +14,7 @@ import {
 } from './generator/context-types-generator';
 import type { MiddlewareContextAugment } from './analyzer/adapter/middleware-context-types';
 import { ImportRegistry } from './generator/import-registry';
-import { extractLibAugments, injectAugmentsIntoSource } from './generator/lib-augment-injector';
+import { extractMiddlewareAugmentEntries, injectAugmentsIntoSource } from './generator/middleware-augment-injector';
 import { AstParser } from './analyzer/parser';
 import { toRecord, isAnalyzerValueArray } from './analyzer/type-guards';
 import { ZIPBUL_CALL } from '@zipbul/common';
@@ -254,7 +254,7 @@ describe('integration: middleware factory → context.d.ts', () => {
     expect(output).toContain('cookie: CookieJar;');
   });
 
-  test('e2e: zb build --lib output → consumer IR → context.d.ts', async () => {
+  test('e2e: zb build middleware output → consumer IR → context.d.ts', async () => {
     // Step 1: Package author writes middleware source
     const packageSource = `
 import { defineMiddleware } from '@zipbul/common';
@@ -269,8 +269,8 @@ export const cookieMiddleware = defineMiddleware(() => (ctx) => {
 });
 `;
 
-    // Step 2: zb build --lib extracts and injects __augments
-    const augmentEntries = extractLibAugments('cookie/src/index.ts', packageSource);
+    // Step 2: zb build middleware extracts and injects __augments
+    const augmentEntries = extractMiddlewareAugmentEntries('cookie/src/index.ts', packageSource);
 
     expect(augmentEntries).toHaveLength(1);
 

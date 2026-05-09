@@ -13,7 +13,7 @@ import { extractTokenName, collectReferencedTokens } from './token-resolver';
 import { assertVisibility, checkHeritageScopes } from './scope-visibility-resolver';
 import { extractDeps } from './provider-resolver';
 
-const logger = new Logger('ModuleValidation');
+const logger = new Logger('compiler/module-validation');
 
 /**
  * Validates visibility and scope rules across all modules.

@@ -7,5 +7,4 @@ export interface CollectedClass {
 
 export interface CommandOptions {
   verbose?: boolean;
-  lib?: boolean;
 }

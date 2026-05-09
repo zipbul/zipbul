@@ -4,14 +4,19 @@ import type { Diagnostic } from '../diagnostics';
 import { DiagnosticError } from '../diagnostics';
 
 /**
- * Emits a structured diagnostic via Logger at error level. The Logger plain
- * transport renders this as:
+ * Emits a structured diagnostic via Logger at error level.
+ *
+ * Output shape (plain transport):
  *
  *   error: [<context>] <where.file>[/<symbol>] — <why>
  *   error: [<context>] how: <how>
  *
- * `how` is omitted when the diagnostic doesn't carry a remediation. Plain
- * (non-Diagnostic) errors fall through with the raw message.
+ * `<context>` is the caller-supplied tag (e.g. `'build'`, `'dev/rebuild'`,
+ * `'adapter'`). `how:` is omitted when the diagnostic carries no
+ * remediation. Plain (non-Diagnostic) errors fall through with the raw
+ * message — no field extraction.
+ *
+ * @public
  */
 export function reportDiagnostic(diagnostic: Diagnostic, context: string): void {
   const log = new Logger(context);
@@ -31,10 +36,18 @@ export function reportDiagnostic(diagnostic: Diagnostic, context: string): void 
   }
 }
 
-export function reportDiagnosticError(error: unknown, context: string): void {
+/**
+ * Logs an arbitrary thrown value at error level. {@link DiagnosticError}
+ * unwraps to the structured form via {@link reportDiagnostic}; everything
+ * else is stringified through Logger's `%s` format specifier (which delegates
+ * to `util.format` and handles `Error` / object / primitive uniformly).
+ *
+ * @public
+ */
+export function reportError(error: unknown, context: string): void {
   if (error instanceof DiagnosticError) {
     reportDiagnostic(error.diagnostic, context);
     return;
   }
-  new Logger(context).error('%s', error instanceof Error ? error.message : String(error));
+  new Logger(context).error('%s', error);
 }

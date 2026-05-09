@@ -12,10 +12,10 @@ import { validateDefineCallShape } from '../../compiler/define-call-shape';
 import { withAtomicEmit, type CancellationScope } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import {
-  extractLibAugments,
+  extractMiddlewareAugmentEntries,
   injectAugmentsIntoSource,
-  type LibAugmentEntry,
-} from '../../compiler/generator/lib-augment-injector';
+  type MiddlewareAugmentEntry,
+} from '../../compiler/generator/middleware-augment-injector';
 import { extractMiddlewareAugments } from '../../compiler/analyzer/parser/middleware-augment-extractor';
 import type { MiddlewareContextAugment } from '../../compiler/analyzer/adapter/middleware-context-types';
 import { ContextTypesGenerator, type ContextAdapterMap } from '../../compiler/generator/context-types-generator';
@@ -42,36 +42,38 @@ interface SkippedMiddlewareReport {
 }
 
 /**
- * Resolved library build configuration from package.json.
+ * Resolved middleware-library build configuration from package.json.
  */
-interface LibBuildConfig {
+interface MiddlewareBuildConfig {
   readonly packageName: string;
   readonly srcDir: string;
   readonly outDir: string;
   readonly projectRoot: string;
 }
 
+const log = new Logger('build/middleware');
+
 /**
- * Library build mode (`zb build --lib`).
+ * Internal runner for `zb build middleware`. The public entry
+ * (`buildMiddleware()` in `./middleware-entry.ts`) wires production deps
+ * and a cancellation scope, then delegates here.
  *
  * Scans TypeScript source files for `defineMiddleware()` calls,
- * extracts augment metadata from factory bodies, and injects
- * `__augments` fields into the compiled JS output.
- *
- * Consumers of the published npm package can then read augment
- * metadata from the IR without needing TypeScript source access.
+ * extracts augment metadata from factory bodies, injects `__augments`
+ * fields into the compiled JS output, and emits `dist/context-augments.d.ts`
+ * so consumers of the published npm package gain typed context
+ * augmentation without modifying their own tsconfig.
  *
  * @public
  */
-export async function buildLib(
+export async function runMiddlewareBuild(
   deps: BuildCommandDeps,
   cancel?: CancellationScope,
 ): Promise<void> {
-  const log = new Logger('build/lib');
   const projectRoot = process.cwd();
 
   // ── 1. Read package.json ────────────────────────────────────
-  const config = await resolveLibBuildConfig(projectRoot);
+  const config = await resolveMiddlewareBuildConfig(projectRoot);
 
   log.info('package=%s source=%s output=%s',
     config.packageName,
@@ -89,7 +91,8 @@ export async function buildLib(
 
   if (tsFiles.length === 0) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `No TypeScript source files found in ${relative(projectRoot, config.srcDir) || '.'}. Verify the source directory.`,
+      reason: `No TypeScript source files found in ${relative(projectRoot, config.srcDir) || '.'}.`,
+      how: 'Ensure your middleware package has `.ts` files under `src/` (or set `package.json#source` to point at the entry). Spec/test files (`*.spec.ts`, `*.test.ts`, `*.d.ts`) are excluded by the scanner.',
     }));
   }
 
@@ -108,6 +111,7 @@ export async function buildLib(
       throw new DiagnosticError(buildDiagnostic({
         reason: `Failed to parse ${fullPath} for shape validation: ${JSON.stringify(parsed.data)}`,
         file: fullPath,
+        how: 'Fix the TypeScript syntax error reported above. Run `bunx tsc --noEmit` for the full type-checker output.',
       }));
     }
     return { filePath: relative(projectRoot, fullPath) || fullPath, parsed };
@@ -202,7 +206,7 @@ export async function buildLib(
     async (stagingDir) => {
       // Transformed source goes into a temp dir alongside staging (siblings,
       // not nested) so tempSrc removal cannot affect staging contents.
-      const tempSrcDir = `${config.outDir}.lib-build-tmp`;
+      const tempSrcDir = `${config.outDir}.middleware-build-tmp`;
       await rm(tempSrcDir, { recursive: true, force: true });
       await mkdir(tempSrcDir, { recursive: true });
 
@@ -265,7 +269,7 @@ export async function buildLib(
           : `Type declaration generation failed (tsc exit code ${String(exitCode)}):\n${stderrText.trim().slice(0, 1000)}`;
         throw new DiagnosticError(buildDiagnostic({
           reason,
-          how: 'Run `bunx tsc --noEmit` directly to see the full type errors and fix them, then retry `zb build --lib`.',
+          how: 'Run `bunx tsc --noEmit` directly to see the full type errors and fix them, then retry `zb build middleware`.',
         }));
       }
 
@@ -307,14 +311,15 @@ export async function buildLib(
  * Reads package.json and resolves library build configuration.
  * No zipbul.json required — library builds use package.json only.
  */
-async function resolveLibBuildConfig(projectRoot: string): Promise<LibBuildConfig> {
+async function resolveMiddlewareBuildConfig(projectRoot: string): Promise<MiddlewareBuildConfig> {
   const packageJsonPath = join(projectRoot, 'package.json');
   const packageJsonFile = Bun.file(packageJsonPath);
 
   if (!(await packageJsonFile.exists())) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: 'package.json not found. Run `zb build --lib` from the package root.',
+      reason: 'package.json not found.',
       file: packageJsonPath,
+      how: 'Run `zb build middleware` from the directory containing the package\'s `package.json`.',
     }));
   }
 
@@ -360,7 +365,7 @@ async function resolveLibBuildConfig(projectRoot: string): Promise<LibBuildConfi
 }
 
 /**
- * `zb build --lib` only operates on packages that explicitly declare
+ * `zb build middleware` only operates on packages that explicitly declare
  * `zipbul.kind === 'middleware'`. This makes the two compilers mutually
  * exclusive: an adapter package (`kind === 'adapter'`) cannot be compiled as
  * a middleware library, and vice-versa.
@@ -374,7 +379,7 @@ function validateMiddlewareKind(packageJson: Record<string, unknown>, packageJso
   if (kind === 'middleware') return;
 
   throw new DiagnosticError(buildDiagnostic({
-    reason: `[CONTRACT] \`zb build --lib\` only compiles middleware library packages. ${packageJsonPath} must declare \`"zipbul": { "kind": "middleware" }\`. Found: ${JSON.stringify(zipbul ?? null)}.`,
+    reason: `[CONTRACT] \`zb build middleware\` only compiles middleware library packages. ${packageJsonPath} must declare \`"zipbul": { "kind": "middleware" }\`. Found: ${JSON.stringify(zipbul ?? null)}.`,
     file: packageJsonPath,
     how: 'For an adapter package use `zb build adapter` instead. For a middleware library, add `"zipbul": { "kind": "middleware" }` to package.json.',
   }));
@@ -438,18 +443,18 @@ async function dirExists(path: string): Promise<boolean> {
 /**
  * Extracts augments and detects skipped middlewares in a single parse pass.
  *
- * Uses `extractLibAugments` for augment extraction, then scans the same
+ * Uses `extractMiddlewareAugmentEntries` for augment extraction, then scans the same
  * parsed AST for `defineMiddleware` calls that produced no augments.
  */
 function extractAndDetectSkipped(
   filePath: string,
   sourceText: string,
-): { entries: LibAugmentEntry[]; skipped: SkippedMiddlewareReport[] } {
-  const entries = extractLibAugments(filePath, sourceText);
+): { entries: MiddlewareAugmentEntry[]; skipped: SkippedMiddlewareReport[] } {
+  const entries = extractMiddlewareAugmentEntries(filePath, sourceText);
   const successNames = new Set(entries.map(e => e.name));
   const skipped: SkippedMiddlewareReport[] = [];
 
-  // Re-use the already-parsed AST via parseSource (extractLibAugments already parsed it;
+  // Re-use the already-parsed AST via parseSource (extractMiddlewareAugmentEntries already parsed it;
   // parseSource caches by content, and this second call is essentially free for same input)
   const parseResult = parseSource(filePath, sourceText);
 
@@ -628,7 +633,7 @@ async function prepareContextAugmentsForTsc(params: {
   };
 
   // SIGINT/SIGTERM cleanup — leaving the file inside src/ on cancel would
-  // poison the next build (tsc + extractLibAugments would re-pick it up).
+  // poison the next build (tsc + extractMiddlewareAugmentEntries would re-pick it up).
   if (cancel !== undefined) {
     cancel.registerCleanup(cleanup);
   }
@@ -687,7 +692,7 @@ async function buildContextAugmentsDtsContent(params: {
     const importMap = buildSourceImportMap(parseResult.program.body);
     const localClasses = collectLocalClassDeclarations(parseResult.program.body);
 
-    const entries = extractLibAugments(fullPath, sourceText);
+    const entries = extractMiddlewareAugmentEntries(fullPath, sourceText);
     for (const entry of entries) {
       if (entry.contextType === null || entry.augments.length === 0) continue;
 
@@ -741,14 +746,11 @@ async function buildContextAugmentsDtsContent(params: {
     }
   }
 
-  if (unresolvedAdapters.size > 0) {
-    const log = new Logger('build/lib');
-    for (const pkg of unresolvedAdapters) {
-      log.warn(
-        'adapter manifest not found for "%s" — augments targeting its context will not be emitted. Install the adapter package or upgrade it to a version that ships dist/context-namespaces.json.',
-        pkg,
-      );
-    }
+  for (const pkg of unresolvedAdapters) {
+    log.warn(
+      'adapter manifest not found for "%s" — augments targeting its context will not be emitted. Install the adapter package or upgrade it to a version that ships dist/context-namespaces.json.',
+      pkg,
+    );
   }
 
   if (allAugments.length === 0 || Object.keys(adapterMap).length === 0) {
@@ -770,7 +772,7 @@ async function buildContextAugmentsDtsContent(params: {
  * path) to every `.d.ts` file under `stagingDir` except `context-augments.d.ts`
  * itself. Idempotent — detects any prior triple-slash reference targeting
  * `context-augments.d.ts` (regardless of how the relative path was spelled)
- * via regex match anywhere in the file, so re-running the lib build never
+ * via regex match anywhere in the file, so re-running the middleware build never
  * stacks duplicate directives. Per-file relative paths are recomputed because
  * nested .d.ts files at deeper subdirectories need different `../` prefixes.
  */

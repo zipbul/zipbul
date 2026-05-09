@@ -27,7 +27,7 @@ import {
 } from './config-extractor';
 import { Logger } from '@zipbul/logger';
 
-const logger = new Logger('MiddlewareAugmentCollector');
+const logger = new Logger('compiler/middleware-collector');
 
 /**
  * Result of middleware augment collection across the project.
@@ -87,7 +87,7 @@ export class MiddlewareAugmentCollector {
     const allExports = [...localExports, ...packageExports];
 
     for (const ref of allExports) {
-      // Priority 1: IR fields (from zb build --lib output) — both augments and contextOps.
+      // Priority 1: IR fields (from zb build middleware output) — both augments and contextOps.
       const irExtraction = extractFromIR(ref);
 
       if (irExtraction !== null) {
@@ -305,14 +305,14 @@ function isDefineMiddlewareCall(rec: AnalyzerValueRecord): boolean {
   return false;
 }
 
-/** Well-known IR property names injected by `zb build --lib`. */
+/** Well-known IR property names injected by `zb build middleware`. */
 const AUGMENTS_IR_KEY = '__augments';
 const CONTEXT_OPS_IR_KEY = '__contextOps';
 
 /**
  * Extracts both augment and producer-info from `__augments` / `__contextOps` IR
  * fields of a defineMiddleware call. These fields are injected by
- * `zb build --lib` during library compilation so the consumer compiler doesn't
+ * `zb build middleware` during library compilation so the consumer compiler doesn't
  * need to parse the factory body.
  *
  * Returns `null` if neither field is present.

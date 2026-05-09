@@ -179,12 +179,16 @@ async function tsconfigNeedsBuildMode(tsconfigPath: string): Promise<boolean> {
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|\s)\/\/[^\n]*/g, '$1')
       .replace(/,(\s*[}\]])/g, '$1');
-    const parsed = JSON.parse(stripped) as {
-      compilerOptions?: { composite?: boolean };
-      references?: readonly unknown[];
-    };
-    if (parsed.compilerOptions?.composite === true) return true;
-    if (Array.isArray(parsed.references) && parsed.references.length > 0) return true;
+    const parsed: unknown = JSON.parse(stripped);
+    if (typeof parsed !== 'object' || parsed === null) return false;
+    const obj = parsed as { compilerOptions?: unknown; references?: unknown };
+    const compilerOptions = obj.compilerOptions;
+    if (typeof compilerOptions === 'object'
+        && compilerOptions !== null
+        && (compilerOptions as { composite?: unknown }).composite === true) {
+      return true;
+    }
+    if (Array.isArray(obj.references) && obj.references.length > 0) return true;
     return false;
   } catch {
     return false;

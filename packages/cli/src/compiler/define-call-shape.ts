@@ -9,7 +9,7 @@
  * - `zb build adapter`: enforces ALL of `defineAdapter`, `defineMiddleware`,
  *   `defineGuard`, `defineExceptionFilter`, `defineModule` (adapter source
  *   must be a pure protocol adapter — no factory-wrapped middleware).
- * - `zb build --lib`: enforces all five (library packages publish defineX
+ * - `zb build middleware`: enforces all five (library packages publish defineX
  *   exports for static augment extraction; factory wrapping defeats the
  *   build-time analyzer).
  * - `zb build` (user-app): enforces `defineModule` only. Middleware/guard/

@@ -536,7 +536,7 @@ export function extractAdapterConstructorSchema(
  * `defineMiddleware()` / `defineGuard()` / `defineExceptionFilter()` calls.
  * Cross-cutting concerns (cookies / body parsing / compression / request id /
  * leader election etc.) belong in separate middleware library packages
- * compiled with `zb build --lib`.
+ * compiled with `zb build middleware`.
  */
 export function validateNoBuiltinMiddleware(tree: SourceTree, packageRoot: string): void {
   const FORBIDDEN_ORIGINALS = new Set(['defineMiddleware', 'defineGuard', 'defineExceptionFilter']);
@@ -563,9 +563,9 @@ export function validateNoBuiltinMiddleware(tree: SourceTree, packageRoot: strin
     .join('\n');
 
   throw diag('CONTRACT', {
-    reason: `Adapter packages must be pure protocol adapters and may not embed middleware/guards/exception-filters. Move the following exports to a separate library package (compile with \`zb build --lib\`):\n${formatted}`,
+    reason: `Adapter packages must be pure protocol adapters and may not embed middleware/guards/exception-filters. Move the following exports to a separate library package (compile with \`zb build middleware\`):\n${formatted}`,
     file: packageRoot,
-    how: 'Create a new package with `"zipbul": { "kind": "middleware" }` in package.json, move the offending exports there, then build it with `zb build --lib` and depend on it from the user app.',
+    how: 'Create a new package with `"zipbul": { "kind": "middleware" }` in package.json, move the offending exports there, then build it with `zb build middleware` and depend on it from the user app.',
   });
 }
 

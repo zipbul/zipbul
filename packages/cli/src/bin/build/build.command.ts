@@ -29,27 +29,19 @@ import {
   validateContextDependencies,
   formatViolationMessage,
 } from '../../compiler/analyzer/adapter/context-dependency-validator';
-import { buildLib } from './lib-build';
 import { writeInterfaceCatalog, writeRuntimeReport } from './build-artifact-writer';
 import { scanAndParseFiles } from './build-file-scanner';
 import { reportOutputSizes, reportCouplingMetrics, reportComplexFiles, reportProjectStats } from './build-metrics-reporter';
 
 export function createBuildCommand(deps: BuildCommandDeps) {
   return async function build(commandOptions?: CommandOptions): Promise<void> {
-    const isLibMode = commandOptions?.lib === true;
     const verbose = commandOptions?.verbose === true;
-    const log = new Logger(isLibMode ? 'build/lib' : 'build');
+    const log = new Logger('build');
 
     log.time('total');
     const cancel = installCancellation();
 
     try {
-      if (isLibMode) {
-        await buildLib(deps, cancel);
-        log.timeEnd('total');
-        return;
-      }
-
       const configResult = await deps.loadConfig();
       const config = configResult.config;
       const moduleFileName = config.module.fileName;
@@ -104,6 +96,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           const summary = cyclePaths.map(c => c.join(' -> ')).join('\n');
           throw new DiagnosticError(buildDiagnostic({
             reason: `Circular import chain detected:\n${summary}`,
+            how: 'Break the cycle by extracting shared symbols into a third file, or by switching one side to `import type` if the dependency is types-only.',
           }));
         }
 
@@ -289,7 +282,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         try {
           await ledger.close();
         } catch (e) {
-          log.warn('failed to close gildash: %s', e instanceof Error ? e.message : 'unknown');
+          log.warn('failed to close gildash: %s', e);
         }
       }
 
@@ -297,7 +290,11 @@ export function createBuildCommand(deps: BuildCommandDeps) {
     } catch (error) {
       if (error instanceof DiagnosticError) throw error;
       throw new DiagnosticError(
-        buildDiagnostic({ reason: error instanceof Error ? error.message : 'Unknown build error.' }),
+        buildDiagnostic({
+          reason: error instanceof Error ? error.message : 'Unknown build error.',
+          how: 'This error is unwrapped — likely a compiler bug. Re-run with `--verbose` for stack context and report at https://github.com/zipbul/zipbul/issues with the build inputs.',
+          cause: error,
+        }),
         { cause: error },
       );
     } finally {
