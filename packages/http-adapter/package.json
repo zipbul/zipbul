@@ -1,6 +1,6 @@
 {
   "name": "@zipbul/http-adapter",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "HTTP server adapter with routing and middleware for Zipbul",
   "license": "MIT",
   "type": "module",
