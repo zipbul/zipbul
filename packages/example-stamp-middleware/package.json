@@ -1,6 +1,6 @@
 {
   "name": "@zipbul/example-stamp-middleware",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "module": "src/index.ts",
   "main": "dist/index.js",
@@ -11,9 +11,13 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "private": true,
-  "zipbul": { "kind": "middleware" },
+  "zipbul": {
+    "kind": "middleware"
+  },
   "dependencies": {
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
