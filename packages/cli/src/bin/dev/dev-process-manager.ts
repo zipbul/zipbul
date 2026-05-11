@@ -114,6 +114,11 @@ export class DevProcessManager {
         }
       } catch {
         /* stream closed on process kill */
+      } finally {
+        // Release the lock so the underlying ReadableStream can be GC'd.
+        // Without this, killing the subprocess leaves a dangling reader
+        // lock that prevents stream finalization.
+        try { reader.releaseLock(); } catch { /* already released */ }
       }
     };
 

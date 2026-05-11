@@ -62,7 +62,7 @@ describe('extractExceptionFiltersFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addErrorFilters([GlobalFilter]); } }',
       );
-      const result = extractExceptionFiltersFromConfigure(funcNode);
+      const result = extractExceptionFiltersFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([{ name: 'GlobalFilter', index: 0 }]);
@@ -72,7 +72,7 @@ describe('extractExceptionFiltersFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addErrorFilters([FilterA, FilterB, FilterC]); } }',
       );
-      const result = extractExceptionFiltersFromConfigure(funcNode);
+      const result = extractExceptionFiltersFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([
@@ -86,7 +86,7 @@ describe('extractExceptionFiltersFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(lifecycle, [Mw]); } }',
       );
-      const result = extractExceptionFiltersFromConfigure(funcNode);
+      const result = extractExceptionFiltersFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([]);
@@ -103,7 +103,7 @@ describe('extractExceptionFiltersFromConfigure', () => {
 
       mutable.body = null;
 
-      const result = extractExceptionFiltersFromConfigure(funcNode);
+      const result = extractExceptionFiltersFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([]);
@@ -117,7 +117,7 @@ describe('extractExceptionFiltersFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addErrorFilters([]); } }',
       );
-      const result = extractExceptionFiltersFromConfigure(funcNode);
+      const result = extractExceptionFiltersFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([]);
@@ -129,7 +129,7 @@ describe('extractExceptionFiltersFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addErrorFilters(SomeFilter); } }',
       );
-      const result = extractExceptionFiltersFromConfigure(funcNode);
+      const result = extractExceptionFiltersFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(true);
 
@@ -142,7 +142,7 @@ describe('extractExceptionFiltersFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addErrorFilters([...filters]); } }',
       );
-      const result = extractExceptionFiltersFromConfigure(funcNode);
+      const result = extractExceptionFiltersFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(true);
 
@@ -155,7 +155,7 @@ describe('extractExceptionFiltersFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addErrorFilters([new Filter()]); } }',
       );
-      const result = extractExceptionFiltersFromConfigure(funcNode);
+      const result = extractExceptionFiltersFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(true);
 
@@ -168,7 +168,7 @@ describe('extractExceptionFiltersFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addErrorFilters(); } }',
       );
-      const result = extractExceptionFiltersFromConfigure(funcNode);
+      const result = extractExceptionFiltersFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(true);
 
@@ -185,7 +185,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [AuthMiddleware]); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([
@@ -197,7 +197,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [MwA, MwB, MwC]); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([
@@ -211,7 +211,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [LogMiddleware.withOptions({ level: "debug" })]); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([
@@ -223,7 +223,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [AuthMw, LogMw.withOptions({})]); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([
@@ -236,7 +236,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addErrorFilters([F]); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([]);
@@ -248,7 +248,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares("beforeHandle", [AuthMw]); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
 
@@ -263,7 +263,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares("phase", [LogMw.withOptions({})]); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
 
@@ -283,7 +283,7 @@ describe('extractMiddlewaresFromConfigure', () => {
 
       (funcNode as unknown as { body: unknown }).body = null;
 
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([]);
@@ -295,7 +295,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(beforeHandle, []); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(false);
       expect(result).toEqual([]);
@@ -307,7 +307,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(beforeHandle, SomeMw); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(true);
 
@@ -320,7 +320,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [...mws]); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(true);
 
@@ -333,7 +333,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [new Mw()]); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(true);
 
@@ -346,7 +346,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(beforeHandle); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(true);
 
@@ -359,7 +359,7 @@ describe('extractMiddlewaresFromConfigure', () => {
       const funcNode = parseMethodFunction(
         'class Ctrl { configure() { this.addMiddlewares(beforeHandle, [Mw.otherMethod()]); } }',
       );
-      const result = extractMiddlewaresFromConfigure(funcNode);
+      const result = extractMiddlewaresFromConfigure(funcNode, 'test.ts');
 
       expect(isErr(result)).toBe(true);
 

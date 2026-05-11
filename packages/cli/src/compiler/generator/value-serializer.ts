@@ -244,7 +244,7 @@ export const resolveConstructorDeps = (meta: ClassMetadata, node: ModuleNode, gr
     let token: AnalyzerValue = param.type;
 
     if (isUnresolvable(token)) {
-      throw new Error(`[Zipbul AOT] Constructor parameter '${param.name}' of '${meta.className}': dependency type must be a statically resolvable class reference. Found: ${token.nodeType ?? token.sourceText ?? 'unknown'} expression.`);
+      throw new Error(`Constructor parameter '${param.name}' of '${meta.className}': dependency type must be a statically resolvable class reference. Found: ${token.nodeType ?? token.sourceText ?? 'unknown'} expression.`);
     }
 
     const refName = getRefName(token);
@@ -257,7 +257,7 @@ export const resolveConstructorDeps = (meta: ClassMetadata, node: ModuleNode, gr
     }
 
     if (typeof token !== 'string') {
-      throw new Error(`[Zipbul AOT] Constructor parameter '${param.name}' of '${meta.className}': dependency type cannot be statically determined. Ensure the parameter has an explicit class type annotation.`);
+      throw new Error(`Constructor parameter '${param.name}' of '${meta.className}': dependency type cannot be statically determined. Ensure the parameter has an explicit class type annotation.`);
     }
 
     const resolvedToken = graph.resolveToken(node.name, token);
@@ -265,7 +265,7 @@ export const resolveConstructorDeps = (meta: ClassMetadata, node: ModuleNode, gr
     if (isNonEmptyString(resolvedToken)) {
       // A-1/H-2: Validate constructor dep token exists (class-based tokens only)
       if (graph.classDefinitions.has(token) && !allKeys.has(resolvedToken)) {
-        throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
+        throw new Error(`inject() token '${token}' in '${meta.className}' is not registered in any module.`);
       }
 
       return `c.get('${resolvedToken}')`;
@@ -278,7 +278,7 @@ export const resolveConstructorDeps = (meta: ClassMetadata, node: ModuleNode, gr
 
       // A-1/H-2: Validate constructor dep token exists (class-based tokens only)
       if (graph.classDefinitions.has(token) && !allKeys.has(scopedKey)) {
-        throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
+        throw new Error(`inject() token '${token}' in '${meta.className}' is not registered in any module.`);
       }
 
       return `c.get('${scopedKey}')`;
@@ -286,7 +286,7 @@ export const resolveConstructorDeps = (meta: ClassMetadata, node: ModuleNode, gr
 
     // A-1/H-2: Validate bare token if it's a known class reference
     if (graph.classDefinitions.has(token) && !allKeys.has(token)) {
-      throw new Error(`[Zipbul AOT] inject() token '${token}' in '${meta.className}' is not registered in any module.`);
+      throw new Error(`inject() token '${token}' in '${meta.className}' is not registered in any module.`);
     }
 
     return `c.get('${token}')`;

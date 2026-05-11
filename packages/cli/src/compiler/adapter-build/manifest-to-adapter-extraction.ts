@@ -31,7 +31,7 @@ import type { ReadAdapterManifestResult } from './manifest-reader';
 export function synthesizeAdapterExtraction(result: ReadAdapterManifestResult): AdapterExtraction {
   if (result.decorators === null) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Adapter manifest for ${result.packageName} is missing \`decorator-schema.json\` — entryDecorators is mandatory.`,
+      reason: `Adapter manifest for ${result.packageName} is missing \`decorator-schema.json\` — entryDecorators is mandatory.`,
     }));
   }
 

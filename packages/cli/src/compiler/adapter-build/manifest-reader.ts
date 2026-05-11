@@ -10,10 +10,10 @@
  *
  * @public
  */
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
-import { compareCodePoint } from '../../common';
+import { compareCodePoint, pathExists } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 
 import type {
@@ -79,20 +79,34 @@ export async function readAdapterManifest(
 
   if (!(await pathExists(topPath))) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Adapter manifest missing at ${topPath}. Run \`zb build adapter\` in the adapter package first.`,
+      reason: `Adapter manifest missing at ${topPath}. Run \`zb build adapter\` in the adapter package first.`,
       file: topPath,
     }));
   }
 
-  const adapter = await loadJson<AdapterManifest>(topPath);
+  const adapterRaw = await loadJson(topPath);
 
-  if (adapter.$schemaName !== 'adapter.manifest') {
+  if (typeof adapterRaw !== 'object' || adapterRaw === null || Array.isArray(adapterRaw)) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] ${topPath} \`$schemaName\` is \`${String(adapter.$schemaName)}\`, expected \`adapter.manifest\`.`,
+      reason: `${topPath} must be a JSON object, got ${describeJsonShape(adapterRaw)}.`,
       file: topPath,
     }));
   }
+  const adapterShape = adapterRaw as { $schemaName?: unknown; manifests?: unknown };
 
+  if (adapterShape.$schemaName !== 'adapter.manifest') {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `${topPath} \`$schemaName\` is \`${String(adapterShape.$schemaName)}\`, expected \`adapter.manifest\`.`,
+      file: topPath,
+    }));
+  }
+  if (typeof adapterShape.manifests !== 'object' || adapterShape.manifests === null || Array.isArray(adapterShape.manifests)) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `${topPath} \`manifests\` must be an object indexing sibling JSON files.`,
+      file: topPath,
+    }));
+  }
+  const adapter = adapterRaw as AdapterManifest;
   const indexed = adapter.manifests;
 
   const pipeline = await loadSibling<PipelineSchema>(distPath, indexed, SIBLING_SCHEMAS.pipeline);
@@ -111,15 +125,15 @@ async function loadPackageName(distPath: string): Promise<string> {
 
   if (!(await pathExists(pkgPath))) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Adapter package.json missing at ${pkgPath}. Adapter manifest cannot be consumed without its package metadata.`,
+      reason: `Adapter package.json missing at ${pkgPath}. Adapter manifest cannot be consumed without its package metadata.`,
       file: pkgPath,
     }));
   }
 
-  const raw = await loadJson<unknown>(pkgPath);
+  const raw = await loadJson(pkgPath);
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] ${pkgPath} must be a JSON object.`,
+      reason: `${pkgPath} must be a JSON object.`,
       file: pkgPath,
     }));
   }
@@ -127,7 +141,7 @@ async function loadPackageName(distPath: string): Promise<string> {
   const name = (raw as { name?: unknown }).name;
   if (typeof name !== 'string' || name.length === 0) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] ${pkgPath} has no \`name\` field — adapter package must declare its npm specifier.`,
+      reason: `${pkgPath} has no \`name\` field — adapter package must declare its npm specifier.`,
       file: pkgPath,
     }));
   }
@@ -135,13 +149,19 @@ async function loadPackageName(distPath: string): Promise<string> {
   return name;
 }
 
-async function loadJson<T>(absPath: string): Promise<T> {
+/**
+ * Reads + parses a JSON file. Returns the parsed value typed as `unknown`
+ * so call sites are forced to validate the shape before consuming fields —
+ * this file's other helpers (`adapter.$schemaName` check, manifest tree
+ * navigation) supply the shape guards they need.
+ */
+async function loadJson(absPath: string): Promise<unknown> {
   const text = await readFile(absPath, 'utf8');
   try {
-    return JSON.parse(text) as T;
+    return JSON.parse(text);
   } catch (cause) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[SYNTAX] ${absPath} is not valid JSON: ${(cause as Error).message ?? String(cause)}`,
+      reason: `${absPath} is not valid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
       file: absPath,
     }));
   }
@@ -161,13 +181,13 @@ async function loadSibling<T extends { readonly $schemaName: string }>(
   // DiagnosticError instead.
   if (typeof relPath !== 'string' || relPath.length === 0) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Manifest index entry \`${spec.logicalName}\` must be a non-empty string, got ${describeJsonShape(relPath)}.`,
+      reason: `Manifest index entry \`${spec.logicalName}\` must be a non-empty string, got ${describeJsonShape(relPath)}.`,
     }));
   }
 
   if (isAbsolute(relPath) || relPath.split('/').some(seg => seg === '..')) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Manifest index entry \`${spec.logicalName}\` points outside dist (${relPath}).`,
+      reason: `Manifest index entry \`${spec.logicalName}\` points outside dist (${relPath}).`,
     }));
   }
 
@@ -186,14 +206,14 @@ async function loadSibling<T extends { readonly $schemaName: string }>(
   }
   if (!isInsideDir(resolvedFull, resolvedDist)) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Manifest index entry \`${spec.logicalName}\` resolves (via symlink) outside the adapter dist root (${resolvedFull} ⊄ ${resolvedDist}).`,
+      reason: `Manifest index entry \`${spec.logicalName}\` resolves (via symlink) outside the adapter dist root (${resolvedFull} ⊄ ${resolvedDist}).`,
     }));
   }
 
-  const raw = await loadJson<unknown>(full);
+  const raw = await loadJson(full);
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] ${full} must be a JSON object, got ${describeJsonShape(raw)}.`,
+      reason: `${full} must be a JSON object, got ${describeJsonShape(raw)}.`,
       file: full,
     }));
   }
@@ -201,7 +221,7 @@ async function loadSibling<T extends { readonly $schemaName: string }>(
   const value = raw as T & { readonly $schemaName: unknown };
   if (value.$schemaName !== spec.schemaName) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] ${full} \`$schemaName\` is \`${String(value.$schemaName)}\`, expected \`${spec.schemaName}\`.`,
+      reason: `${full} \`$schemaName\` is \`${String(value.$schemaName)}\`, expected \`${spec.schemaName}\`.`,
       file: full,
     }));
   }
@@ -212,15 +232,6 @@ function describeJsonShape(value: unknown): string {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'array';
   return typeof value;
-}
-
-async function pathExists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**

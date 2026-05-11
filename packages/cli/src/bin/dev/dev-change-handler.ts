@@ -128,16 +128,22 @@ export function createChangeHandler(context: ChangeHandlerContext): {
       return;
     }
 
-    // 5. Save fingerprints before re-analyzing changed files
+    // 5. Save fingerprints before re-analyzing changed files. The same
+    // snapshot+analyze pass runs against changedFiles first, then against
+    // any files reachable via getAffected — both sets contribute to the
+    // fingerprint comparison below that decides whether a rebuild is needed.
     const oldFingerprints = new Map<string, string>();
-    for (const file of result.changedFiles) {
-      if (shouldAnalyzeFile(file)) {
+    const snapshotFingerprints = (files: readonly string[]): void => {
+      for (const file of files) {
+        if (!shouldAnalyzeFile(file)) continue;
         const existing = fingerprintCache.get(file);
         if (existing !== undefined) {
           oldFingerprints.set(file, existing);
         }
       }
-    }
+    };
+
+    snapshotFingerprints(result.changedFiles);
 
     for (const file of result.changedFiles) {
       if (shouldAnalyzeFile(file)) {
@@ -152,12 +158,10 @@ export function createChangeHandler(context: ChangeHandlerContext): {
       affectedFiles = [];
     }
 
+    snapshotFingerprints(affectedFiles);
+
     for (const file of affectedFiles) {
       if (shouldAnalyzeFile(file)) {
-        const existing = fingerprintCache.get(file);
-        if (existing !== undefined) {
-          oldFingerprints.set(file, existing);
-        }
         await analyzeFile(file, rebuildContext);
       }
     }

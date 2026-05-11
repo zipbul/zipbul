@@ -6,7 +6,6 @@ import {
   ZIPBUL_TEMP_DIRNAME,
   outputDirPath,
   cacheDirPath,
-  cacheFilePath,
   tempDirPath,
 } from './paths';
 
@@ -21,14 +20,8 @@ describe('zipbul-paths', () => {
     const projectRoot = '/repo';
     const outDir = '/repo/dist';
 
-    const zipbulDir = outputDirPath(projectRoot);
-    const cacheDir = cacheDirPath(projectRoot);
-    const signalPath = cacheFilePath(projectRoot, 'reindex.signal');
-    const tempDir = tempDirPath(outDir);
-
-    expect(zipbulDir).toBe('/repo/.zipbul');
-    expect(cacheDir).toBe('/repo/.zipbul/cache');
-    expect(signalPath).toBe('/repo/.zipbul/cache/reindex.signal');
-    expect(tempDir).toBe('/repo/dist/.zipbul-temp');
+    expect(outputDirPath(projectRoot)).toBe('/repo/.zipbul');
+    expect(cacheDirPath(projectRoot)).toBe('/repo/.zipbul/cache');
+    expect(tempDirPath(outDir)).toBe('/repo/dist/.zipbul-temp');
   });
 });

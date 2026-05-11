@@ -128,7 +128,7 @@ export function compileAdapter(inputs: CompileAdapterInputs): CompiledAdapter {
   if (collected.length > 0) {
     if (collected.length === 1) throw collected[0]!;
     const lines = collected.map(e => `  - ${e.diagnostic.why}`).join('\n');
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `${collected.length} validation errors:\n${lines}`,
       file: packageRoot,
     });

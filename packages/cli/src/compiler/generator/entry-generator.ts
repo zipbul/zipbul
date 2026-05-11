@@ -13,7 +13,7 @@ export class EntryGenerator {
 
     if (!exists) {
       throw new Error(
-        `[Zipbul AOT] Entry file '${userMainImportPath}' does not exist. Check the 'entry' path in your configuration.`,
+        `Entry file '${userMainImportPath}' does not exist. Check the 'entry' path in your configuration.`,
       );
     }
 

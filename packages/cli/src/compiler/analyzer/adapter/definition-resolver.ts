@@ -1,6 +1,7 @@
 import { join, dirname } from 'node:path';
-import { stat, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 
+import { pathExists } from '../../../common';
 import type { AdapterResolveParams } from '../graph/interfaces';
 import type {
   AdapterExtraction,
@@ -80,7 +81,7 @@ export class AdapterDefinitionResolver {
       const manifestPath = join(distPath, 'adapter.manifest.json');
       if (!(await pathExists(manifestPath))) {
         return err(buildDiagnostic({
-          reason: `[CONTRACT] Adapter package at ${packageRoot} declares \`zipbul.kind=adapter\` but no compiled manifest exists at ${manifestPath}.`,
+          reason: `Adapter package at ${packageRoot} declares \`zipbul.kind=adapter\` but no compiled manifest exists at ${manifestPath}.`,
           file: packageRoot,
           how: `Run \`zb build adapter\` inside ${packageRoot}, or upgrade the dependency to a version that ships a built \`dist/\`.`,
         }));
@@ -188,7 +189,7 @@ async function readPackageKind(root: string): Promise<string | null> {
     parsed = JSON.parse(text);
   } catch (cause) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[SYNTAX] ${pkgPath} is not valid JSON: ${(cause as Error).message ?? String(cause)}`,
+      reason: `${pkgPath} is not valid JSON: ${(cause as Error).message ?? String(cause)}`,
       file: pkgPath,
     }));
   }
@@ -204,14 +205,6 @@ async function readPackageKind(root: string): Promise<string | null> {
   return typeof kind === 'string' ? kind : null;
 }
 
-async function pathExists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Scans user-app source files (everything inside `projectRoot` not under
@@ -245,8 +238,15 @@ async function collectInlineAdapterExtractions(
     let text: string;
     try {
       text = await readFile(filePath, 'utf8');
-    } catch {
-      continue;
+    } catch (cause) {
+      // Surface read failures (permission denied, mid-rebuild deletion, etc.)
+      // instead of silently dropping the file — a missing inline adapter
+      // would otherwise manifest as the unhelpful "no adapter found" error.
+      throw new DiagnosticError(buildDiagnostic({
+        reason: `Failed to read user-app source ${filePath}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        file: filePath,
+        how: 'Check file permissions and that the file was not deleted between the watcher event and the rebuild. Re-running `zb dev` clears stale state.',
+      }));
     }
     const parsed = parseSource(filePath, text);
     if (isErr(parsed)) continue;     // syntax errors surfaced elsewhere
@@ -265,7 +265,7 @@ async function collectInlineAdapterExtractions(
   if (filesContainingDefineAdapter.length > 1) {
     const list = filesContainingDefineAdapter.map(f => f.filePath).join('\n  - ');
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Multiple inline \`defineAdapter(...)\` calls in user-app source. Only one inline adapter is allowed per project; for multi-adapter setups use external adapter packages.\n  - ${list}`,
+      reason: `Multiple inline \`defineAdapter(...)\` calls in user-app source. Only one inline adapter is allowed per project; for multi-adapter setups use external adapter packages.\n  - ${list}`,
     }));
   }
 
@@ -298,7 +298,7 @@ async function collectInlineAdapterExtractions(
   const userAppPackageName = await readUserAppPackageName(projectRoot);
   if (userAppPackageName === null) {
     throw new DiagnosticError(buildDiagnostic({
-      reason: `[CONTRACT] Inline adapter requires the user-app to declare \`name\` in its \`package.json\`. The compiler emits \`declare module '<name>'\` in context.d.ts to wire middleware augments; without a stable name, the generated TypeScript is invalid. Add a \`name\` field to ${join(projectRoot, 'package.json')}.`,
+      reason: `Inline adapter requires the user-app to declare \`name\` in its \`package.json\`. The compiler emits \`declare module '<name>'\` in context.d.ts to wire middleware augments; without a stable name, the generated TypeScript is invalid. Add a \`name\` field to ${join(projectRoot, 'package.json')}.`,
     }));
   }
   const synthetic: ReadAdapterManifestResult = {

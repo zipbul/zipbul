@@ -165,7 +165,7 @@ describe('AdapterDefinitionResolver — manifest-only wiring', () => {
 
     expect(isErr(result)).toBe(true);
     if (!isErr(result)) return;
-    expect(result.data.why).toMatch(/SYNTAX.+is not valid JSON/);
+    expect(result.data.why).toMatch(/is not valid JSON/);
   });
 
   it('propagates DiagnosticError from readAdapterManifest (path-traversal in manifest index)', async () => {

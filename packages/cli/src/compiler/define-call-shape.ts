@@ -116,7 +116,7 @@ export function validateDefineCallShape(
     .join('\n');
 
   throw new DiagnosticError(buildDiagnostic({
-    reason: `[CONTRACT] \`defineMiddleware / defineGuard / defineExceptionFilter / defineAdapter / defineModule\` calls must appear as the direct initializer of a top-level exported \`const\` declaration. Found ${violations.length} violation(s):\n${formatted}\n\nFix shape: \`export const myThing = defineMiddleware(...)\`.`,
+    reason: `\`defineMiddleware / defineGuard / defineExceptionFilter / defineAdapter / defineModule\` calls must appear as the direct initializer of a top-level exported \`const\` declaration. Found ${violations.length} violation(s):\n${formatted}\n\nFix shape: \`export const myThing = defineMiddleware(...)\`.`,
   }));
 }
 

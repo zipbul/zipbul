@@ -70,9 +70,11 @@ export class AstParser {
     const parseResult = parseSource(filename, code);
 
     if (isErr(parseResult)) {
+      const detail = parseResult.data.message ?? JSON.stringify(parseResult.data);
       return err(buildDiagnostic({
-        reason: `Parse error in ${filename}: ${JSON.stringify(parseResult.data)}`,
+        reason: `Failed to parse ${filename}: ${detail}`,
         file: filename,
+        how: 'Fix the TypeScript syntax error reported above. Running `bunx tsc --noEmit` against the same file shows the same error with full type-checker context.',
       }));
     }
 

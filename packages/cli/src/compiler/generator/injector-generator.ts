@@ -156,13 +156,13 @@ export class InjectorGenerator {
               const className = getRefName(clsItem);
 
               if (className === null || className.length === 0) {
-                throw new Error(`[Zipbul AOT] useClass reference in provider '${token}' of module '${node.name}' could not be resolved. Ensure the class is a valid class reference.`);
+                throw new Error(`useClass reference in provider '${token}' of module '${node.name}' could not be resolved. Ensure the class is a valid class reference.`);
               }
 
               const clsDef = graph.classDefinitions.get(className);
 
               if (clsDef === undefined) {
-                throw new Error(`[Zipbul AOT] useClass '${className}' in provider '${token}' of module '${node.name}' is not found in any module. Ensure the class exists and belongs to a module.`);
+                throw new Error(`useClass '${className}' in provider '${token}' of module '${node.name}' is not found in any module. Ensure the class exists and belongs to a module.`);
               }
 
               const alias = getAlias(clsDef.metadata.className, clsDef.filePath);
@@ -190,7 +190,7 @@ export class InjectorGenerator {
                 : existingRefName;
 
               if (!allKeys.has(existingScopedKey)) {
-                throw new Error(`[Zipbul AOT] useExisting target '${existingRefName}' in provider '${token}' of module '${node.name}' is not registered in any module.`);
+                throw new Error(`useExisting target '${existingRefName}' in provider '${token}' of module '${node.name}' is not registered in any module.`);
               }
             }
 
@@ -208,7 +208,7 @@ export class InjectorGenerator {
                 : [];
 
             if (factoryFn.length === 0) {
-              throw new Error(`[Zipbul AOT] useFactory code for provider '${token}' in module '${node.name}' could not be extracted. Ensure the factory is a statically analyzable function expression.`);
+              throw new Error(`useFactory code for provider '${token}' in module '${node.name}' could not be extracted. Ensure the factory is a statically analyzable function expression.`);
             }
 
             const replacements: Replacement[] = [];
@@ -317,7 +317,7 @@ export class InjectorGenerator {
 
               // A-5: Validate factory inject() token exists (class-based tokens only)
               if (graph.classDefinitions.has(tokenName) && !allKeys.has(resolvedKey)) {
-                throw new Error(`[Zipbul AOT] inject() token '${tokenName}' in useFactory of provider '${token}' in module '${node.name}' is not registered in any module.`);
+                throw new Error(`inject() token '${tokenName}' in useFactory of provider '${token}' in module '${node.name}' is not registered in any module.`);
               }
 
               replacements.push({ start, end, content: `c.get('${resolvedKey}')` });
@@ -338,7 +338,7 @@ export class InjectorGenerator {
               const tokenName = getRefName(injectItem);
 
               if (tokenName === null || tokenName.length === 0) {
-                throw new Error(`[Zipbul AOT] inject token in useFactory 'inject' list for provider '${token}' of module '${node.name}' could not be resolved. Ensure all inject tokens are valid class references or string tokens.`);
+                throw new Error(`inject token in useFactory 'inject' list for provider '${token}' of module '${node.name}' could not be resolved. Ensure all inject tokens are valid class references or string tokens.`);
               }
 
               const resolved = graph.resolveToken(node.name, tokenName) ?? tokenName;
@@ -351,7 +351,7 @@ export class InjectorGenerator {
                   : tokenName;
 
                 if (!allKeys.has(scopedKey) && !allKeys.has(resolved)) {
-                  throw new Error(`[Zipbul AOT] inject() token '${tokenName}' in useFactory 'inject' list of provider '${token}' in module '${node.name}' is not registered in any module.`);
+                  throw new Error(`inject() token '${tokenName}' in useFactory 'inject' list of provider '${token}' in module '${node.name}' is not registered in any module.`);
                 }
               }
 

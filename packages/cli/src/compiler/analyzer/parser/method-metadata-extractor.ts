@@ -21,7 +21,7 @@ import { getCalleeMethodName } from './ast-node-locator';
  * @param funcNode - The `configure()` method's function AST node.
  * @returns Array of exception filter metadata, or a diagnostic on invalid syntax.
  */
-export function extractExceptionFiltersFromConfigure(funcNode: AstNode): Result<ClassMetadata['exceptionFilters'], Diagnostic> {
+export function extractExceptionFiltersFromConfigure(funcNode: AstNode, filePath: string): Result<ClassMetadata['exceptionFilters'], Diagnostic> {
   const exceptionFilters: ClassMetadata['exceptionFilters'] = [];
 
   const body = getFunctionBody(funcNode);
@@ -31,7 +31,7 @@ export function extractExceptionFiltersFromConfigure(funcNode: AstNode): Result<
   }
 
   const error = (): never => {
-    throw new Error('[Zipbul AOT] addErrorFilters only supports literal arrays and Identifiers.');
+    throw new Error('addErrorFilters only supports literal arrays and Identifiers.');
   };
 
   try {
@@ -76,6 +76,8 @@ export function extractExceptionFiltersFromConfigure(funcNode: AstNode): Result<
   } catch {
     return err(buildDiagnostic({
       reason: 'addErrorFilters only supports literal arrays and Identifiers.',
+      file: filePath,
+      how: 'Pass identifiers directly: `cfg.addErrorFilters([MyFilter, OtherFilter])`. Spreads, calls, and inline expressions are not supported.',
     }));
   }
 
@@ -92,7 +94,7 @@ export function extractExceptionFiltersFromConfigure(funcNode: AstNode): Result<
  * @param funcNode - The `configure()` method's function AST node.
  * @returns Array of middleware metadata, or a diagnostic on invalid syntax.
  */
-export function extractMiddlewaresFromConfigure(funcNode: AstNode): Result<ClassMetadata['middlewares'], Diagnostic> {
+export function extractMiddlewaresFromConfigure(funcNode: AstNode, filePath: string): Result<ClassMetadata['middlewares'], Diagnostic> {
   const middlewares: ClassMetadata['middlewares'] = [];
 
   const body = getFunctionBody(funcNode);
@@ -102,7 +104,7 @@ export function extractMiddlewaresFromConfigure(funcNode: AstNode): Result<Class
   }
 
   const error = (): never => {
-    throw new Error('[Zipbul AOT] addMiddlewares only supports literal arrays and Identifier/withOptions.');
+    throw new Error('addMiddlewares only supports literal arrays and Identifier/withOptions.');
   };
 
   try {
@@ -177,6 +179,8 @@ export function extractMiddlewaresFromConfigure(funcNode: AstNode): Result<Class
   } catch {
     return err(buildDiagnostic({
       reason: 'addMiddlewares only supports literal arrays and Identifier/withOptions.',
+      file: filePath,
+      how: 'Use one of the supported forms: `cfg.addMiddlewares(LIFECYCLE, [Mw1, Mw2])` or `cfg.addMiddlewares(LIFECYCLE, [Mw1.withOptions({...})])`. Spreads, calls, and inline expressions are not supported.',
     }));
   }
 

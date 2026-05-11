@@ -38,7 +38,7 @@ export function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDef
   const found = findDefineAdapterCall(entry.symbols, entry);
 
   if (found === null) {
-    throw diag('MISSING_EXPORT', {
+    throw diag({
       reason: `No \`defineAdapter()\` export found in ${entry.filePath}.`,
       file: entry.filePath,
     });
@@ -53,7 +53,7 @@ export function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDef
   const adapterId = readIdentifierField(adapterCall, 'adapter');
 
   if (adapterId === null) {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `defineAdapter() must receive a config object whose \`adapter\` field is a class identifier reference.`,
       file: entry.filePath,
       ...posCtx,
@@ -65,7 +65,7 @@ export function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDef
   const contextType = readIdentifierField(adapterCall, 'context');
 
   if (phaseEnum === null || stepEnum === null) {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `defineAdapter() must declare \`phase\` and \`step\` fields as enum identifier references.`,
       file: entry.filePath,
       ...posCtx,
@@ -73,7 +73,7 @@ export function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDef
   }
 
   if (contextType === null) {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `defineAdapter() must declare \`context\` field as a Context class identifier reference.`,
       file: entry.filePath,
       ...posCtx,
@@ -83,14 +83,14 @@ export function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDef
   const pipeline = readPipelineField(adapterCall);
 
   if (pipeline === null) {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `defineAdapter() must declare a non-empty \`pipeline\` array of qualified enum members (e.g. \`HttpPhase.OnRequest\`, \`HttpStep.ResolveRoute\`, \`CoreStep.Handler\`).`,
       file: entry.filePath,
       ...posCtx,
     });
   }
 
-  const providesIdents = readProvidesField(adapterCall);
+  const providesIdents = readProvidesField(adapterCall, entry.filePath);
 
   return {
     adapterId,
@@ -105,7 +105,7 @@ export function extractAdapterDefinition(entry: SourceFile): ExtractedAdapterDef
   };
 }
 
-function readProvidesField(call: import('@zipbul/gildash').ExpressionCall): readonly string[] {
+function readProvidesField(call: import('@zipbul/gildash').ExpressionCall, filePath: string): readonly string[] {
   const firstArg = call.arguments[0];
   if (firstArg === undefined || firstArg.kind !== 'object') return [];
 
@@ -113,12 +113,24 @@ function readProvidesField(call: import('@zipbul/gildash').ExpressionCall): read
     if (prop.kind === 'spread') continue;
     if (prop.key.kind !== 'string' || prop.key.value !== 'provides') continue;
 
-    if (prop.value.kind !== 'array') return [];
+    if (prop.value.kind !== 'array') {
+      throw diag({
+        reason: `defineAdapter({ provides }) must be an array literal of identifier references when present.`,
+        file: filePath,
+      });
+    }
 
     const out: string[] = [];
 
-    for (const element of prop.value.elements) {
-      if (element.kind !== 'identifier') continue;
+    for (let i = 0; i < prop.value.elements.length; i += 1) {
+      const element = prop.value.elements[i]!;
+      if (element.kind !== 'identifier') {
+        throw diag({
+          reason: `defineAdapter({ provides }) element [${i}] must be an identifier reference (e.g. a ContextKey class), got ${element.kind}.`,
+          file: filePath,
+          how: 'Pass identifiers directly: `provides: [SomeContextKey, AnotherKey]`. Spreads, calls, and literals are not supported.',
+        });
+      }
       out.push(element.name);
     }
 
@@ -155,28 +167,28 @@ export function validateClassExports(tree: SourceTree, extracted: ExtractedAdapt
   }
 
   if (adapterFound.count === 0) {
-    throw diag('MISSING_EXPORT', {
+    throw diag({
       reason: `Adapter class \`${adapterId}\` not declared anywhere under ${packageRoot}/src/.`,
       file: packageRoot,
     });
   }
 
   if (adapterFound.count > 1) {
-    throw diag('DUPLICATE', {
+    throw diag({
       reason: `Adapter class \`${adapterId}\` declared ${adapterFound.count} times under ${packageRoot}/src/. Only one declaration is allowed.`,
       file: packageRoot,
     });
   }
 
   if (!adapterFound.exported) {
-    throw diag('MISSING_EXPORT', {
+    throw diag({
       reason: `Adapter class \`${adapterId}\` must be exported from the adapter package so user apps can instantiate it.`,
       file: packageRoot,
     });
   }
 
   if (!contextFound.exported) {
-    throw diag('MISSING_EXPORT', {
+    throw diag({
       reason: `Context class \`${contextType}\` must be exported from the adapter package so declaration-merging consumers can reference it.`,
       file: packageRoot,
     });
@@ -211,7 +223,7 @@ export function validatePipeline(tree: SourceTree, extracted: ExtractedAdapterDe
 
     if (ref.qualifier === phaseEnum) {
       if (phaseMembers !== null && !phaseMembers.has(ref.name)) {
-        throw diag('CONTRACT', {
+        throw diag({
           reason: `pipeline[${index}] = \`${ref.qualifier}.${ref.name}\` — \`${ref.name}\` is not a member of \`${phaseEnum}\`. Members: [${[...phaseMembers].sort().join(', ')}].`,
           file: entryFilePath,
         });
@@ -221,7 +233,7 @@ export function validatePipeline(tree: SourceTree, extracted: ExtractedAdapterDe
 
     if (ref.qualifier === stepEnum) {
       if (stepMembers !== null && !stepMembers.has(ref.name)) {
-        throw diag('CONTRACT', {
+        throw diag({
           reason: `pipeline[${index}] = \`${ref.qualifier}.${ref.name}\` — \`${ref.name}\` is not a member of \`${stepEnum}\`. Members: [${[...stepMembers].sort().join(', ')}].`,
           file: entryFilePath,
         });
@@ -235,14 +247,14 @@ export function validatePipeline(tree: SourceTree, extracted: ExtractedAdapterDe
       continue;
     }
 
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `pipeline[${index}] = \`${ref.qualifier}.${ref.name}\` — qualifier \`${ref.qualifier}\` is not the configured \`phase\` (\`${phaseEnum}\`) or \`step\` (\`${stepEnum}\`) enum, nor \`CoreStep\`.`,
       file: entryFilePath,
     });
   }
 
   if (handlerCount !== 1) {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `pipeline must contain exactly one consumer-rank step (\`CoreStep.Handler\`) — found ${handlerCount}.`,
       file: entryFilePath,
     });
@@ -273,7 +285,7 @@ export function resolveEnumMembers(tree: SourceTree, enumName: string): Readonly
           }
         }
         if (dupes.size > 0) {
-          throw diag('DUPLICATE', {
+          throw diag({
             reason: `enum \`${enumName}\` has duplicate member name(s): [${[...dupes].join(', ')}].`,
             file: file.filePath,
           });
@@ -292,7 +304,7 @@ export function resolveEnumMembers(tree: SourceTree, enumName: string): Readonly
           }
         }
         if (dupes.size > 0) {
-          throw diag('DUPLICATE', {
+          throw diag({
             reason: `const enum-object \`${enumName}\` has duplicate key(s): [${[...dupes].join(', ')}].`,
             file: file.filePath,
           });
@@ -357,14 +369,14 @@ function readClusterStrategy(
         return init.value;
       }
 
-      throw diag('CONTRACT', {
+      throw diag({
         reason: `\`${adapterId}.clusterStrategy\` in ${file.filePath} must be \`ClusterStrategy.Shared\` or \`ClusterStrategy.Exclusive\` (or the equivalent string literal).`,
         file: file.filePath,
       });
     }
   }
 
-  throw diag('MISSING_EXPORT', {
+  throw diag({
     reason: `Adapter class \`${adapterId}\` not found while resolving clusterStrategy under ${packageRoot}/src/.`,
     file: packageRoot,
   });
@@ -472,7 +484,7 @@ export function extractContextNamespaces(
     }
   }
 
-  throw diag('MISSING_EXPORT', {
+  throw diag({
     reason: `Context class \`${contextType}\` not found anywhere under ${packageRoot}/src/.`,
     file: packageRoot,
   });
@@ -511,7 +523,7 @@ export function extractAdapterConstructorSchema(
       }
 
       if (params.length > 1) {
-        throw diag('CONTRACT', {
+        throw diag({
           reason: `Adapter class \`${adapterId}\` (in ${file.filePath}) constructor must accept at most one options parameter. Found ${params.length}.`,
           file: file.filePath,
         });
@@ -525,7 +537,7 @@ export function extractAdapterConstructorSchema(
     }
   }
 
-  throw diag('MISSING_EXPORT', {
+  throw diag({
     reason: `Adapter class \`${adapterId}\` not found while resolving constructor schema under ${packageRoot}/src/.`,
     file: packageRoot,
   });
@@ -562,7 +574,7 @@ export function validateNoBuiltinMiddleware(tree: SourceTree, packageRoot: strin
     .map(o => `  - ${o.sourceFile} :: ${o.exportName} = ${o.callee}(...)  // resolves to ${o.original}`)
     .join('\n');
 
-  throw diag('CONTRACT', {
+  throw diag({
     reason: `Adapter packages must be pure protocol adapters and may not embed middleware/guards/exception-filters. Move the following exports to a separate library package (compile with \`zb build middleware\`):\n${formatted}`,
     file: packageRoot,
     how: 'Create a new package with `"zipbul": { "kind": "middleware" }` in package.json, move the offending exports there, then build it with `zb build middleware` and depend on it from the user app.',
@@ -618,7 +630,7 @@ export function extractDecoratorSchema(
       );
 
       if (decoratorsMember === undefined || decoratorsMember.initializer === undefined) {
-        throw diag('CONTRACT', {
+        throw diag({
           reason: `Adapter class \`${adapterId}\` in ${file.filePath} must declare a \`decorators\` instance property of shape \`{ controller, handlers, options? }\`.`,
           file: file.filePath,
         });
@@ -628,7 +640,7 @@ export function extractDecoratorSchema(
     }
   }
 
-  throw diag('MISSING_EXPORT', {
+  throw diag({
     reason: `Adapter class \`${adapterId}\` not found anywhere under ${packageRoot}/src/.`,
     file: packageRoot,
   });
@@ -640,7 +652,7 @@ function readAdapterEntryDecorators(
   adapterId: string,
 ): DecoratorSchema {
   if (init.kind !== 'object') {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `Adapter class \`${adapterId}\` (in ${filePath}) decorators property must be an object literal.`,
       file: filePath,
     });
@@ -658,7 +670,7 @@ function readAdapterEntryDecorators(
 
     if (fieldName === 'controller') {
       if (prop.value.kind !== 'identifier') {
-        throw diag('CONTRACT', {
+        throw diag({
           reason: `decorators.controller in ${filePath} must be a single identifier reference (exactly 1).`,
           file: filePath,
         });
@@ -668,7 +680,7 @@ function readAdapterEntryDecorators(
       handlers = readIdentifierArray(prop.value, 'decorators.handlers', filePath);
 
       if (handlers.length === 0) {
-        throw diag('CONTRACT', {
+        throw diag({
           reason: `decorators.handlers in ${filePath} must contain at least one identifier reference.`,
           file: filePath,
         });
@@ -679,14 +691,14 @@ function readAdapterEntryDecorators(
   }
 
   if (controller === null) {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `decorators.controller missing in ${filePath}.`,
       file: filePath,
     });
   }
 
   if (handlers === null) {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `decorators.handlers missing in ${filePath}.`,
       file: filePath,
     });

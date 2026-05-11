@@ -379,7 +379,7 @@ function validateMiddlewareKind(packageJson: Record<string, unknown>, packageJso
   if (kind === 'middleware') return;
 
   throw new DiagnosticError(buildDiagnostic({
-    reason: `[CONTRACT] \`zb build middleware\` only compiles middleware library packages. ${packageJsonPath} must declare \`"zipbul": { "kind": "middleware" }\`. Found: ${JSON.stringify(zipbul ?? null)}.`,
+    reason: `\`zb build middleware\` only compiles middleware library packages. ${packageJsonPath} must declare \`"zipbul": { "kind": "middleware" }\`. Found: ${JSON.stringify(zipbul ?? null)}.`,
     file: packageJsonPath,
     how: 'For an adapter package use `zb build adapter` instead. For a middleware library, add `"zipbul": { "kind": "middleware" }` to package.json.',
   }));

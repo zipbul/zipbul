@@ -481,7 +481,7 @@ export function extractDecoratorRefKeys(
 
     for (const arg of decorator.arguments) {
       if (isUnresolvable(arg)) {
-        throw new Error(`[Zipbul AOT] @${decoratorName} on '${cls.className}': decorator argument must be a statically resolvable identifier. Found: ${arg.nodeType ?? arg.sourceText ?? 'unknown'} expression.`);
+        throw new Error(`@${decoratorName} on '${cls.className}': decorator argument must be a statically resolvable identifier. Found: ${arg.nodeType ?? arg.sourceText ?? 'unknown'} expression.`);
       }
 
       const enriched = enrichRefWithImportSource(arg, cls.imports);
@@ -507,7 +507,7 @@ export function extractDecoratorRefKeys(
 
     for (const arg of decorator.arguments) {
       if (isUnresolvable(arg)) {
-        throw new Error(`[Zipbul AOT] @${decoratorName} on '${cls.className}': decorator argument must be a statically resolvable identifier. Found: ${arg.nodeType ?? arg.sourceText ?? 'unknown'} expression.`);
+        throw new Error(`@${decoratorName} on '${cls.className}': decorator argument must be a statically resolvable identifier. Found: ${arg.nodeType ?? arg.sourceText ?? 'unknown'} expression.`);
       }
 
       const enriched = enrichRefWithImportSource(arg, cls.imports);

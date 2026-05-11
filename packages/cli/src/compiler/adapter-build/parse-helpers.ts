@@ -49,7 +49,7 @@ export function readPipelineField(call: ExpressionCall): readonly PipelineRef[] 
 
 export function readIdentifierArray(value: ExpressionValue, label: string, filePath: string): readonly string[] {
   if (value.kind !== 'array') {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `${label} in ${filePath} must be an array literal of identifier references.`,
       file: filePath,
     });
@@ -59,7 +59,7 @@ export function readIdentifierArray(value: ExpressionValue, label: string, fileP
 
   for (const element of value.elements) {
     if (element.kind !== 'identifier') {
-      throw diag('CONTRACT', {
+      throw diag({
         reason: `${label} in ${filePath} must contain only identifier references (no spreads, calls, or literals).`,
         file: filePath,
       });
@@ -80,7 +80,7 @@ export function ensureUnique(names: readonly string[], filePath: string): void {
   }
 
   if (dupes.size > 0) {
-    throw diag('DUPLICATE', {
+    throw diag({
       reason: `Duplicate decorator name(s) [${[...dupes].join(', ')}] in ${filePath}.`,
       file: filePath,
     });

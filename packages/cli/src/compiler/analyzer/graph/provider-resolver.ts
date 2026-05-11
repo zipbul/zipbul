@@ -24,7 +24,7 @@ import { parseInjectableOptions } from './scope-visibility-resolver';
 export function mergeProviderRef(node: ModuleNode, ref: ProviderRef, moduleName: string): void {
   if (node.providers.has(ref.token) && !isImplicit(node.providers.get(ref.token))) {
     throw new Error(
-      `[Zipbul AOT] Ambiguous provider '${ref.token}' in module '${moduleName}' (${node.filePath}). Duplicate explicit definition.`,
+      `Ambiguous provider '${ref.token}' in module '${moduleName}' (${node.filePath}). Duplicate explicit definition.`,
     );
   }
 
@@ -265,7 +265,7 @@ export function normalizeProvider(
   moduleMarkerExports: ReadonlyMap<string, Set<string>>,
 ): ProviderRef {
   if (isUnresolvable(p)) {
-    throw new Error(`[Zipbul AOT] Module '${moduleName}' (${modulePath}): provider must be a class reference or provider object. Found: ${p.nodeType ?? p.sourceText ?? 'unknown'} expression.`);
+    throw new Error(`Module '${moduleName}' (${modulePath}): provider must be a class reference or provider object. Found: ${p.nodeType ?? p.sourceText ?? 'unknown'} expression.`);
   }
 
   let token = 'UNKNOWN';
@@ -284,14 +284,14 @@ export function normalizeProvider(
         if (!resolved.circular) token = resolved.originalName;
       } catch {
         warnings.push(
-          `[Zipbul AOT] Symbol resolution failed for '${record[ZIPBUL_REF]}'. Using raw reference name.`,
+          `Symbol resolution failed for '${record[ZIPBUL_REF]}'. Using raw reference name.`,
         );
       }
     }
   }
 
   if (token === 'UNKNOWN') {
-    throw new Error(`[Zipbul AOT] Cannot determine provider token in module '${moduleName}' (${modulePath}). Ensure the provider is a class reference or a valid provider object.`);
+    throw new Error(`Cannot determine provider token in module '${moduleName}' (${modulePath}). Ensure the provider is a class reference or a valid provider object.`);
   }
 
   const metadata = isClassMetadata(p) ? p : record;
@@ -396,7 +396,7 @@ function findFileAnalysis(filePath: string, fileMap: ReadonlyMap<string, FileAna
 }
 
 function buildSpreadError(moduleName: string, modulePath: string, expression: string, reason: string, solution?: string): Error {
-  let message = `[Zipbul AOT] Module '${moduleName}' (${modulePath}):\n  스프레드 표현식 '${expression}' 를 정적으로 해석할 수 없습니다.\n  원인: ${reason}`;
+  let message = `Module '${moduleName}' (${modulePath}):\n  스프레드 표현식 '${expression}' 를 정적으로 해석할 수 없습니다.\n  원인: ${reason}`;
 
   if (solution !== undefined) {
     message += `\n  해결: ${solution}`;

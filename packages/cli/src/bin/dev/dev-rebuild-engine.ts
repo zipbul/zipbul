@@ -126,9 +126,10 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
       if (hasCycle) {
         const cyclePaths = await ledger.getCyclePaths(undefined, { maxCycles: 3 });
         const summary = cyclePaths.map(c => c.join(' → ')).join('\n');
-        throw new DiagnosticError(
-          buildDiagnostic({ reason: `Circular import chain detected:\n${summary}` }),
-        );
+        throw new DiagnosticError(buildDiagnostic({
+          reason: `Circular import chain detected:\n${summary}`,
+          how: 'Break the cycle by extracting shared symbols into a third file or by switching one side to `import type` if the dependency is types-only. The watcher stays alive — fix the imports and save to retry.',
+        }));
       }
     } catch (cycleError) {
       if (cycleError instanceof DiagnosticError) {
@@ -147,7 +148,10 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
     await graph.validateInheritedScopes();
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Scope validation failed.';
-    throw new DiagnosticError(buildDiagnostic({ reason }));
+    throw new DiagnosticError(buildDiagnostic({
+      reason,
+      how: 'Check the offending @Injectable() / module visibility settings. A scope is inherited only if every parent module in the import chain permits it.',
+    }));
   }
 
   const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot, graph });
@@ -229,7 +233,7 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
 
     for (const warning of usageWarnings) {
       graph.warnings.push(
-        `[Zipbul AOT] Handler '${warning.handlerId}' accesses '${warning.usagePath.join('.')}' which is provided by middleware '${warning.providedByMiddleware}', but that middleware is not registered for this handler.`,
+        `Handler '${warning.handlerId}' accesses '${warning.usagePath.join('.')}' which is provided by middleware '${warning.providedByMiddleware}', but that middleware is not registered for this handler.`,
       );
     }
   }
@@ -245,7 +249,7 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
 
   if (dependencyViolations.length > 0) {
     const summary = dependencyViolations
-      .map((v) => `[Zipbul AOT] ${formatViolationMessage(v)}`)
+      .map((v) => `${formatViolationMessage(v)}`)
       .join('\n\n');
     throw new DiagnosticError(buildDiagnostic({
       reason: `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,

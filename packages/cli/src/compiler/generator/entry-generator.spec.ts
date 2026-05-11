@@ -25,7 +25,7 @@ describe('EntryGenerator', () => {
 
     // Act & Assert
     await expect(gen.generate(nonExistentFile, false)).rejects.toThrow(
-      "[Zipbul AOT] Entry file '/non/existent/main.ts' does not exist.",
+      "Entry file '/non/existent/main.ts' does not exist.",
     );
   });
 });

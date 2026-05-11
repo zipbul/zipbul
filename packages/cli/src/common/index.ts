@@ -7,10 +7,10 @@ export {
   ZIPBUL_TEMP_DIRNAME,
   outputDirPath,
   cacheDirPath,
-  cacheFilePath,
   tempDirPath,
 } from './paths';
 export { PathResolver, distToSourceCandidates } from './path-resolver';
+export { pathExists } from './path-exists';
 export { writeIfChanged } from './write-if-changed';
 export { withAtomicEmit } from './atomic-emit';
 export type { AtomicEmitOptions } from './atomic-emit';

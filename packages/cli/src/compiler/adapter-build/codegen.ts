@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
 
 import { diag } from './diag';
-import { pathExists } from './source-tree';
+import { pathExists } from '../../common';
 import { readPackageJson } from './package-validation';
 
 /**
@@ -37,7 +37,7 @@ export async function runCodegen(packageRoot: string, stagingDir: string, signal
   }
 
   if (signal?.aborted === true) {
-    throw diag('IO', { reason: 'Adapter codegen aborted before bundle (signal received).', file: entryPath });
+    throw diag({ reason: 'Adapter codegen aborted before bundle (signal received).', file: entryPath });
   }
 
   // `minify: { syntax, whitespace }` matches the existing convention shared
@@ -59,7 +59,7 @@ export async function runCodegen(packageRoot: string, stagingDir: string, signal
 
   if (!buildResult.success) {
     const messages = buildResult.logs.map(l => l.message).join('\n  ');
-    throw diag('IO', {
+    throw diag({
       reason: `Bun.build failed for ${entryPath}:\n  ${messages}`,
       file: entryPath,
     });
@@ -124,7 +124,7 @@ async function runTsc(
 
     const onAbort = (): void => {
       try { child.kill('SIGTERM'); } catch { /* already dead */ }
-      settle(() => rejectFn(diag('IO', {
+      settle(() => rejectFn(diag({
         reason: `tsc invocation aborted (signal received) for ${tsconfigPath}.`,
         file: tsconfigPath,
       })));
@@ -157,7 +157,7 @@ async function runTsc(
 
       const message = stderr.trim() !== '' ? stderr.trim() : stdout.trim();
 
-      settle(() => rejectFn(diag('IO', {
+      settle(() => rejectFn(diag({
         reason: `tsc exited with code ${code} for ${tsconfigPath}:\n${message}`,
         file: tsconfigPath,
       })));

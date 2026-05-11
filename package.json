@@ -36,7 +36,8 @@
   "private": true,
   "scripts": {
     "knip": "knip",
-    "prepare": "husky",
+    "prepare": "husky && bun run build:logger",
+    "build:logger": "cd packages/logger && bun run build",
     "test": "bun run test:unit && bun run test:integration && bun run test:e2e && bun run test:smoke",
     "test:unit": "bun test packages/common/src packages/core/src packages/http-adapter/src packages/cli/src packages/logger/src examples/src",
     "test:integration": "bun test packages/core/test/integration packages/cli/test/integration",
@@ -44,7 +45,7 @@
     "test:smoke": "bun test packages/http-adapter/test/smoke",
     "test:perf": "bun test packages/http-adapter/test/perf --timeout 0",
     "test:coverage": "bun test --coverage",
-    "typecheck": "bunx tsc --noEmit",
+    "typecheck": "bun run build:logger && bunx tsc --noEmit",
     "kb:migrate": "bunx drizzle-kit migrate --config tooling/mcp/drizzle.config.ts",
     "kb:http": "bun tooling/mcp/src/http-server.ts",
     "kb:http:verify": "bun --env-file=.env tooling/mcp/test/integration/tools/_http-verify-all.ts"

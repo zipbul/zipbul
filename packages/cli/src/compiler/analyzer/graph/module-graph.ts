@@ -80,7 +80,7 @@ export class ModuleGraph {
       const sortedOrphans = Array.from(orphans.values()).sort(compareCodePoint);
       const summary = sortedOrphans.join('\n');
 
-      throw new Error(`[Zipbul AOT] Orphan files detected:\n${summary}`);
+      throw new Error(`Orphan files detected:\n${summary}`);
     }
 
     const moduleEntries = Array.from(moduleMap.entries()).sort(([a], [b]) => compareCodePoint(a, b));
@@ -96,22 +96,22 @@ export class ModuleGraph {
         const defineModuleCalls = moduleFile.defineModuleCalls ?? [];
 
         if (defineModuleCalls.length === 0) {
-          throw new Error(`[Zipbul AOT] Missing defineModule call in module file (${modulePath}).`);
+          throw new Error(`Missing defineModule call in module file (${modulePath}).`);
         }
 
         if (defineModuleCalls.length > 1) {
-          throw new Error(`[Zipbul AOT] Multiple defineModule calls in module file (${modulePath}).`);
+          throw new Error(`Multiple defineModule calls in module file (${modulePath}).`);
         }
 
         const exportedCall = defineModuleCalls.find(call => typeof call.exportedName === 'string');
 
         if (!exportedCall) {
-          throw new Error(`[Zipbul AOT] Module marker must be exported from module file (${modulePath}).`);
+          throw new Error(`Module marker must be exported from module file (${modulePath}).`);
         }
       }
 
       if (rawDef?.nameDeclared === true && !isNonEmptyString(rawDef.name)) {
-        throw new Error(`[Zipbul AOT] Module name must be a statically determinable string literal (${modulePath}).`);
+        throw new Error(`Module name must be a statically determinable string literal (${modulePath}).`);
       }
 
       if (!moduleFile) {
@@ -246,7 +246,7 @@ export class ModuleGraph {
     if (cycles.length > 0) {
       const summary = cycles.map(c => c.path.join(' -> ')).join('\n');
 
-      throw new Error(`[Zipbul AOT] Circular dependency detected:\n${summary}`);
+      throw new Error(`Circular dependency detected:\n${summary}`);
     }
   }
 

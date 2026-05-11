@@ -161,7 +161,7 @@ export function buildHandlerIndex(
 
           if (matchingDecorators.length > 1) {
             return err(buildDiagnostic({
-              reason: `[Zipbul AOT] Handler '${cls.className}.${method.name}' has multiple route decorators (${matchingDecorators.map(dec => '@' + dec.name).join(', ')}). Only one is allowed.`,
+              reason: `Handler '${cls.className}.${method.name}' has multiple route decorators (${matchingDecorators.map(dec => '@' + dec.name).join(', ')}). Only one is allowed.`,
               file: analysis.filePath,
               symbol: `${cls.className}.${method.name}`,
             }));
@@ -291,7 +291,7 @@ export function buildHandlerIndex(
     );
 
     if (!hasHandler) {
-      logger.warn(`[Zipbul AOT] Controller '${controllerName}' for adapter '${adapterId}' has no handler methods. Did you forget to add route decorators?`);
+      logger.warn(`Controller '${controllerName}' for adapter '${adapterId}' has no handler methods. Did you forget to add route decorators?`);
     }
   }
 
@@ -358,7 +358,7 @@ function detectRouteConflicts(
 
     if (existing !== undefined) {
       return err(buildDiagnostic({
-        reason: `[Zipbul AOT] Route conflict: @${entry.handlerDecorator}('${fullPath}') is defined on both '${existing.className}.${existing.methodName}' and '${entry.className}.${entry.methodName}'.`,
+        reason: `Route conflict: @${entry.handlerDecorator}('${fullPath}') is defined on both '${existing.className}.${existing.methodName}' and '${entry.className}.${entry.methodName}'.`,
       }));
     }
 

@@ -265,7 +265,7 @@ registerBootstrapState({
           : refName;
 
         if (!allKeys.has(refScopedKey)) {
-          throw new Error(`[Zipbul AOT] Class '${refName}' used in pipeline decorator is not registered as a provider. Add it to the module's providers array or decorate it with @Injectable().`);
+          throw new Error(`Class '${refName}' used in pipeline decorator is not registered as a provider. Add it to the module's providers array or decorate it with @Injectable().`);
         }
       }
 

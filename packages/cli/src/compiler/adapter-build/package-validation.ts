@@ -24,14 +24,14 @@ export async function readPackageJson(packageRoot: string): Promise<AdapterPacka
     const text = await readFile(pkgPath, 'utf8');
     parsed = JSON.parse(text);
   } catch (cause) {
-    throw diag('IO', {
+    throw diag({
       reason: `Failed to read ${pkgPath}: ${cause instanceof Error ? cause.message : String(cause)}`,
       file: pkgPath,
     });
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw diag('SYNTAX', {
+    throw diag({
       reason: `${pkgPath} must contain a JSON object at the top level.`,
       file: pkgPath,
       how: 'Replace the top-level value with `{ ... }` containing at least "name" and "zipbul" fields.',
@@ -43,7 +43,7 @@ export async function readPackageJson(packageRoot: string): Promise<AdapterPacka
 
 export function validateAdapterKind(pkg: AdapterPackageJson, packageRoot: string): void {
   if (pkg.zipbul?.kind !== 'adapter') {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `package.json at ${packageRoot} must declare "zipbul": { "kind": "adapter" }. Found: ${JSON.stringify(pkg.zipbul ?? null)}.`,
       file: join(packageRoot, 'package.json'),
       how: 'Add `"zipbul": { "kind": "adapter" }` to package.json. For middleware libraries use `zb build middleware` instead.',
@@ -116,10 +116,10 @@ export function validatePackageFields(pkg: AdapterPackageJson, packageRoot: stri
   }
 
   if (errors.length === 1) {
-    throw diag('CONTRACT', { reason: errors[0]!, file: pkgPath });
+    throw diag({ reason: errors[0]!, file: pkgPath });
   }
   if (errors.length > 1) {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `${errors.length} package.json issues:\n${errors.map(e => `  - ${e}`).join('\n')}`,
       file: pkgPath,
     });

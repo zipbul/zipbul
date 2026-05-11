@@ -40,9 +40,9 @@ export interface AstNodeLocatorCallbacks {
  */
 export interface MethodMetadataCallbacks {
   /** Extracts middleware usages from a `configure` method body. */
-  extractMiddlewaresFromConfigure(funcNode: Node): Result<ClassMetadata['middlewares'], Diagnostic>;
+  extractMiddlewaresFromConfigure(funcNode: Node, filePath: string): Result<ClassMetadata['middlewares'], Diagnostic>;
   /** Extracts exception filter usages from a `configure` method body. */
-  extractExceptionFiltersFromConfigure(funcNode: Node): Result<ClassMetadata['exceptionFilters'], Diagnostic>;
+  extractExceptionFiltersFromConfigure(funcNode: Node, filePath: string): Result<ClassMetadata['exceptionFilters'], Diagnostic>;
   /** Extracts context member-access chains from a handler method body. */
   extractHandlerContextUsages(funcNode: Node): ClassMetadata['methods'][number]['contextUsages'];
   /** Extracts producer/consumer ops (`ctx.set/use/get`) from a handler method body. */
@@ -230,7 +230,7 @@ export function convertClassSymbol(
           const funcNode = astLocators.findMethodBodyAstNode(rawClassNode, 'configure');
 
           if (funcNode !== null) {
-            const mwResult = methodCallbacks.extractMiddlewaresFromConfigure(funcNode);
+            const mwResult = methodCallbacks.extractMiddlewaresFromConfigure(funcNode, context.currentFilePath);
 
             if (isErr(mwResult)) {
               return mwResult;
@@ -238,7 +238,7 @@ export function convertClassSymbol(
 
             middlewares = mwResult;
 
-            const efResult = methodCallbacks.extractExceptionFiltersFromConfigure(funcNode);
+            const efResult = methodCallbacks.extractExceptionFiltersFromConfigure(funcNode, context.currentFilePath);
 
             if (isErr(efResult)) {
               return efResult;

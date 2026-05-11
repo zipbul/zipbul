@@ -5,6 +5,7 @@ import { isErr } from '@zipbul/result';
 import { extractSymbols, parseSource } from '@zipbul/gildash';
 import type { ExpressionCall, ExtractedSymbol, ParsedFile } from '@zipbul/gildash';
 
+import { pathExists } from '../../common';
 import { buildCalleeResolver } from '../define-call-shape';
 
 import { diag } from './diag';
@@ -20,15 +21,6 @@ export interface SourceFile {
 }
 
 export type SourceTree = readonly SourceFile[];
-
-export async function pathExists(p: string): Promise<boolean> {
-  try {
-    await stat(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Recursively collects every `.ts` file under `<packageRoot>/src/` (plus any
@@ -50,7 +42,7 @@ export async function collectSourceTree(packageRoot: string): Promise<SourceTree
   }
 
   if (tree.length === 0) {
-    throw diag('CONTRACT', {
+    throw diag({
       reason: `No TypeScript source files found in ${packageRoot}/src/ or ${packageRoot}/index.ts.`,
       file: packageRoot,
       how: 'Create your adapter source under `src/` (e.g. `src/index.ts`) or place an `index.ts` at the package root.',
@@ -87,7 +79,7 @@ async function pushSourceFile(filePath: string, out: SourceFile[]): Promise<void
   const parseResult = parseSource(filePath, text);
 
   if (isErr(parseResult)) {
-    throw diag('SYNTAX', {
+    throw diag({
       reason: `Failed to parse ${filePath}: ${parseResult.data.message}`,
       file: filePath,
     });
@@ -110,7 +102,7 @@ export function pickEntrySourceFile(tree: SourceTree, packageRoot: string): Sour
   }
 
   if (matches.length === 0) {
-    throw diag('MISSING_EXPORT', {
+    throw diag({
       reason: `No file under ${packageRoot}/src/ exports a \`defineAdapter()\` call. The adapter package must export the result of \`defineAdapter({...})\`.`,
       file: packageRoot,
       how: 'Create exactly one `export const adapterDefinition = defineAdapter({...})` in your adapter source tree.',
@@ -119,7 +111,7 @@ export function pickEntrySourceFile(tree: SourceTree, packageRoot: string): Sour
 
   if (matches.length > 1) {
     const list = matches.map(m => m.filePath).join(', ');
-    throw diag('DUPLICATE', {
+    throw diag({
       reason: `Multiple \`defineAdapter()\` calls found in adapter package (${list}). Exactly one is required.`,
       file: packageRoot,
       how: 'Consolidate the adapter definition into a single `defineAdapter({...})` call exported from one source file.',

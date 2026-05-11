@@ -12,10 +12,6 @@ export function cacheDirPath(projectRoot: string): string {
   return join(projectRoot, ZIPBUL_DIRNAME, ZIPBUL_CACHE_DIRNAME);
 }
 
-export function cacheFilePath(projectRoot: string, fileName: string): string {
-  return join(projectRoot, ZIPBUL_DIRNAME, ZIPBUL_CACHE_DIRNAME, fileName);
-}
-
 export function tempDirPath(outDir: string): string {
   return join(outDir, ZIPBUL_TEMP_DIRNAME);
 }

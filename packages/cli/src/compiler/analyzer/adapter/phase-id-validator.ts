@@ -36,7 +36,8 @@ export function validateMiddlewarePhaseInputs(
 
     if (validPhases === undefined) {
       return err(buildDiagnostic({
-        reason: `Adapter '${extraction.adapterId}' does not declare validPhases. All adapters must declare static readonly validPhases: ReadonlySet<string>.`,
+        reason: `Adapter '${extraction.adapterId}' does not declare validPhases.`,
+        how: 'Add `static readonly validPhases: ReadonlySet<string> = new Set([HttpPhase.OnRequest, HttpPhase.PreHandler, ...])` to the adapter class. The set lists every phase identifier the adapter accepts in @UseMiddlewares decorators.',
       }));
     }
 
@@ -233,6 +234,7 @@ function extractPhaseIdsFromDecorator(decorator: DecoratorArguments, adapterId: 
     if (!isNonEmptyString(phaseId)) {
       return err(buildDiagnostic({
         reason: `@UseMiddlewares phaseId must be a string literal for '${adapterId}'.`,
+        how: `Pass the phase identifier as a member access on the adapter's phase enum, e.g. \`@UseMiddlewares(HttpPhase.OnRequest, [...])\`. Variables, expressions, and computed values are not supported.`,
       }));
     }
 

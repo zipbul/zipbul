@@ -165,7 +165,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
           );
           for (const w of usageWarnings) {
             graph.warnings.push(
-              `[Zipbul AOT] Handler '${w.handlerId}' accesses '${w.usagePath.join('.')}' which is provided by middleware '${w.providedByMiddleware}', but that middleware is not registered for this handler.`,
+              `Handler '${w.handlerId}' accesses '${w.usagePath.join('.')}' which is provided by middleware '${w.providedByMiddleware}', but that middleware is not registered for this handler.`,
             );
           }
         }
@@ -179,7 +179,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         );
         if (dependencyViolations.length > 0) {
           const summary = dependencyViolations
-            .map((v) => `[Zipbul AOT] ${formatViolationMessage(v)}`)
+            .map((v) => `${formatViolationMessage(v)}`)
             .join('\n\n');
           throw new DiagnosticError(buildDiagnostic({
             reason: `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,

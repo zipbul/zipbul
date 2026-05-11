@@ -44,7 +44,7 @@ export function extractTokenName(
         if (!resolved.circular) return resolved.originalName;
       } catch {
         warnings.push(
-          `[Zipbul AOT] Symbol resolution failed for '${record[ZIPBUL_REF]}'. Using raw reference name.`,
+          `Symbol resolution failed for '${record[ZIPBUL_REF]}'. Using raw reference name.`,
         );
       }
     }
@@ -272,17 +272,17 @@ export function collectInjectDeps(
 
   for (const call of injectCalls) {
     if (call.tokenKind === 'invalid') {
-      throw new Error('[Zipbul AOT] inject() token is not statically determinable.');
+      throw new Error('inject() token is not statically determinable.');
     }
 
     if (call.token === null) {
-      throw new Error('[Zipbul AOT] inject() token is not statically determinable.');
+      throw new Error('inject() token is not statically determinable.');
     }
 
     const tokenName = extractTokenName(call.token, gildash, warnings);
 
     if (!tokenName || tokenName === 'UNKNOWN') {
-      throw new Error('[Zipbul AOT] inject() token is not statically determinable.');
+      throw new Error('inject() token is not statically determinable.');
     }
 
     deps.push(tokenName);
