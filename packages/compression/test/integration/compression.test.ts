@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
 import { isErr } from '@zipbul/result';
+import type { Result } from '@zipbul/result';
+import type { AdapterContext, ClassToken, ContextKey, MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
+import { HttpContext } from '@zipbul/http-adapter';
 import {
   compressionMiddleware,
   Encoding,
@@ -55,16 +58,29 @@ function mockHttpResponse(opts: {
   return self;
 }
 
+/** Minimal mock for `AdapterContext`. `to()` only accepts the `HttpContext`
+ *  token (the only token the compression middleware uses) and throws otherwise
+ *  — mirrors the production `HttpContext.to()` impl in http-adapter, which also
+ *  ends in a single `as unknown as T` after the runtime token check. */
 function mockContext(
-  request: { headers: MockHeaders; httpMethod?: string },
+  request: { headers: MockHeaders; method?: string },
   response: MockResponse,
-) {
-  const req = { httpMethod: 'GET', ...request };
-  return {
+): AdapterContext {
+  const req = { method: 'GET', ...request };
+  const http = { request: req, response };
+  const ctx: AdapterContext = {
     getType: () => 'http',
-    get: () => undefined,
-    to: () => ({ request: req, response }),
-  } as any;
+    get: <T>(_key: ContextKey<T>) => undefined,
+    set: <T>(_key: ContextKey<T>, _value: T) => undefined,
+    use: <T>(_key: ContextKey<T>): T => { throw new Error('not implemented in mock'); },
+    to: <TContext>(ctor: ClassToken<TContext>): TContext => {
+      if (ctor !== HttpContext) {
+        throw new Error(`mockContext.to: unsupported token ${ctor.name}; only HttpContext is mocked`);
+      }
+      return http as unknown as TContext;
+    },
+  };
+  return ctx;
 }
 
 function makeRequestHeaders(acceptEncoding?: string): MockHeaders {
@@ -79,12 +95,15 @@ function largeBody(sizeBytes: number): string {
   return 'a'.repeat(sizeBytes);
 }
 
-/** Unwrap a successful Result — fails the test if it's an Err. */
-function unwrap<T>(result: T) {
+/** Unwrap a successful middleware Result and expose its handler.
+ *  Fails the test if the Result is an Err. */
+function unwrap<E extends { message?: string }>(
+  result: Result<MiddlewareDefinition, E>,
+): { handler: MiddlewareHandlerFn } {
   if (isErr(result)) {
-    throw new Error(`unexpected Err: ${result.data.message}`);
+    throw new Error(`unexpected Err: ${String(result.data.message)}`);
   }
-  return result;
+  return { handler: result.factory() };
 }
 
 const LARGE_JSON = JSON.stringify({ data: largeBody(2048) });
@@ -633,8 +652,8 @@ describe('compressionMiddleware', () => {
 
       const body = response.getBody() as Uint8Array;
       expect(body).toBeInstanceOf(Uint8Array);
-      expect(body[3] & 0x04).toBe(0x04);
-      const decompressed = Bun.gunzipSync(body);
+      expect((body[3] ?? 0) & 0x04).toBe(0x04);
+      const decompressed = Bun.gunzipSync(new Uint8Array(body));
       expect(JSON.parse(Buffer.from(decompressed).toString())).toEqual(LARGE_BODY_OBJ);
     });
 
@@ -665,7 +684,7 @@ describe('compressionMiddleware', () => {
       m.handler(ctx);
 
       const body = response.getBody() as Uint8Array;
-      expect(body[3] & 0x04).toBe(0);
+      expect((body[3] ?? 0) & 0x04).toBe(0);
     });
 
     it('should apply zstd skippable frame padding when breach enabled', () => {
@@ -761,21 +780,21 @@ describe('compressionMiddleware', () => {
   describe('RFC 9110 HEAD request handling', () => {
     it('should skip compression for HEAD requests', () => {
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
-      const ctx = mockContext({ headers: makeRequestHeaders('gzip'), httpMethod: 'HEAD' }, response);
+      const ctx = mockContext({ headers: makeRequestHeaders('gzip'), method: 'HEAD' }, response);
       middleware.handler(ctx);
       expect(response.getHeader('content-encoding')).toBeNull();
     });
 
     it('should compress for GET requests', () => {
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
-      const ctx = mockContext({ headers: makeRequestHeaders('gzip'), httpMethod: 'GET' }, response);
+      const ctx = mockContext({ headers: makeRequestHeaders('gzip'), method: 'GET' }, response);
       middleware.handler(ctx);
       expect(response.getHeader('content-encoding')).toBe('gzip');
     });
 
     it('should compress for POST requests', () => {
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
-      const ctx = mockContext({ headers: makeRequestHeaders('gzip'), httpMethod: 'POST' }, response);
+      const ctx = mockContext({ headers: makeRequestHeaders('gzip'), method: 'POST' }, response);
       middleware.handler(ctx);
       expect(response.getHeader('content-encoding')).toBe('gzip');
     });

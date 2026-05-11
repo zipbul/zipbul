@@ -4,7 +4,6 @@ import { compressionMiddleware, Encoding } from '../../index.ts';
 import {
   HttpRequest,
   HttpResponse,
-  HttpContextAdapter,
   HttpContext,
 } from '@zipbul/http-adapter';
 import type { HttpMethod } from '@zipbul/http-adapter';
@@ -18,9 +17,28 @@ const result = compressionMiddleware({
   encodings: [Encoding.Brotli, Encoding.Gzip],
 });
 if (isErr(result)) throw new Error(`setup failed: ${result.data.message}`);
-const middleware = result;
+const middlewareHandler = result.factory();
 
-let server: Server;
+let server: Server<unknown>;
+
+function buildHttpRequest(req: Request): HttpRequest {
+  const url = new URL(req.url);
+  const method = req.method as HttpMethod;
+  return new HttpRequest({
+    originalMethod: method,
+    originalUrl: req.url,
+    method,
+    url: req.url,
+    path: url.pathname,
+    headers: req.headers,
+    origin: { urlProtocol: url.protocol.replace(':', ''), urlHost: url.host },
+    contentLength: null,
+    ip: null,
+    ips: [],
+    isTrustedProxy: false,
+    signal: new AbortController().signal,
+  });
+}
 
 beforeAll(() => {
   server = Bun.serve({
@@ -28,11 +46,7 @@ beforeAll(() => {
     fetch(req) {
       const url = new URL(req.url);
 
-      const httpReq = new HttpRequest({
-        url: req.url,
-        httpMethod: req.method as HttpMethod,
-        headers: req.headers,
-      });
+      const httpReq = buildHttpRequest(req);
       const httpRes = new HttpResponse(httpReq, new Headers());
 
       if (url.pathname === '/json') {
@@ -45,9 +59,8 @@ beforeAll(() => {
         return new Response('not found', { status: 404 });
       }
 
-      const adapter = new HttpContextAdapter(httpReq, httpRes);
-      const ctx = new HttpContext(adapter);
-      middleware.handler(ctx);
+      const ctx = new HttpContext(httpReq, httpRes);
+      middlewareHandler(ctx);
 
       // Build response directly from HttpResponse state to preserve binary body
       const body = httpRes.getBody();
@@ -61,7 +74,20 @@ beforeAll(() => {
       const vary = httpRes.getHeader('vary');
       if (vary) headers.set('vary', vary);
 
-      return new Response(body as BodyInit | null, { headers });
+      // body is `string | number | boolean | Uint8Array | ArrayBuffer | object | null | undefined`
+      // — narrow to the subset acceptable to `Response`.
+      let responseBody: string | Uint8Array | ArrayBuffer | null;
+      if (body === null || body === undefined) {
+        responseBody = null;
+      } else if (typeof body === 'string') {
+        responseBody = body;
+      } else if (body instanceof Uint8Array || body instanceof ArrayBuffer) {
+        responseBody = body;
+      } else {
+        responseBody = JSON.stringify(body);
+      }
+
+      return new Response(responseBody, { headers });
     },
   });
   BASE = `http://localhost:${server.port}`;
@@ -92,7 +118,7 @@ describe('Compression E2E with Bun.serve', () => {
     expect(text).toBe(LARGE_DATA);
   });
 
-  it('should roundtrip gzip (compress → auto-decompress → original)', async () => {
+  it('should roundtrip gzip (compress -> auto-decompress -> original)', async () => {
     const resp = await fetch(`${BASE}/json`, {
       headers: { 'accept-encoding': 'gzip' },
     });
@@ -102,7 +128,7 @@ describe('Compression E2E with Bun.serve', () => {
     expect(JSON.parse(text)).toEqual({ data: 'x'.repeat(2048) });
   });
 
-  it('should roundtrip brotli (compress → auto-decompress → original)', async () => {
+  it('should roundtrip brotli (compress -> auto-decompress -> original)', async () => {
     const resp = await fetch(`${BASE}/json`, {
       headers: { 'accept-encoding': 'br' },
     });

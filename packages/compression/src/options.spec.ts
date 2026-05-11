@@ -162,7 +162,7 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
 
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.EmptyEncodings);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.EmptyEncodings);
   });
 
   it('should return InvalidEncodings when unknown encoding provided', () => {
@@ -170,7 +170,7 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
 
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidEncodings);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidEncodings);
   });
 
   it('should return InvalidThreshold when threshold is negative', () => {
@@ -178,7 +178,7 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
 
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidThreshold);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidThreshold);
   });
 
   it('should return InvalidThreshold when threshold is NaN', () => {
@@ -186,7 +186,7 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
 
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidThreshold);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidThreshold);
   });
 
   it('should return InvalidLevel when level exceeds max', () => {
@@ -194,7 +194,7 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
 
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidLevel);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
   });
 
   it('should return InvalidLevel when level is below min', () => {
@@ -202,7 +202,7 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
 
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidLevel);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
   });
 
   it('should return InvalidLevel when level is fractional', () => {
@@ -210,7 +210,7 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
 
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidLevel);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
   });
 
   it('should accept threshold=0 as valid when threshold is exactly 0', () => {
@@ -241,7 +241,7 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
 
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.EmptyEncodings);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.EmptyEncodings);
   });
 
   it('should check invalid threshold before levels when both are invalid', () => {
@@ -252,7 +252,7 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
 
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidThreshold);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidThreshold);
   });
 
   it('should validate level for all Encoding enum values regardless of encodings array', () => {
@@ -263,7 +263,7 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
 
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidLevel);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
   });
 
   // --- Breach validation ---
@@ -278,42 +278,42 @@ describe('validateCompressionOptions', () => {
     const resolved = makeResolved({ encodings: [Encoding.Gzip] });
     const result = validateCompressionOptions(resolved, { maxPadding: 0 });
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidBreach);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidBreach);
   });
 
   it('should return InvalidBreach when maxPadding is negative', () => {
     const resolved = makeResolved({ encodings: [Encoding.Gzip] });
     const result = validateCompressionOptions(resolved, { maxPadding: -1 });
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidBreach);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidBreach);
   });
 
   it('should return InvalidBreach when maxPadding is fractional', () => {
     const resolved = makeResolved({ encodings: [Encoding.Gzip] });
     const result = validateCompressionOptions(resolved, { maxPadding: 1.5 });
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidBreach);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidBreach);
   });
 
   it('should return InvalidBreach when maxPadding exceeds 4096', () => {
     const resolved = makeResolved({ encodings: [Encoding.Gzip] });
     const result = validateCompressionOptions(resolved, { maxPadding: 5000 });
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidBreach);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidBreach);
   });
 
   it('should return InvalidBreach when maxPadding is NaN', () => {
     const resolved = makeResolved({ encodings: [Encoding.Gzip] });
     const result = validateCompressionOptions(resolved, { maxPadding: NaN });
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidBreach);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidBreach);
   });
 
   it('should return InvalidBreach when no BREACH-safe encoding available', () => {
     const resolved = makeResolved({ encodings: [Encoding.Brotli] });
     const result = validateCompressionOptions(resolved, { maxPadding: 32 });
     expect(isErr(result)).toBe(true);
-    expect(result!.data.reason).toBe(CompressionErrorReason.InvalidBreach);
+    if (!isErr(result)) throw new Error("expected Err"); expect(result.data.reason).toBe(CompressionErrorReason.InvalidBreach);
   });
 
   it('should accept breach when at least one BREACH-safe encoding exists', () => {

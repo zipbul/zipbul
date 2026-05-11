@@ -20,7 +20,8 @@ export function parseAcceptEncoding(header: string): EncodingPreference[] {
     if (trimmed === '') continue;
 
     const [encoding, ...params] = trimmed.split(';');
-    let name = encoding!.trim().toLowerCase();
+    if (encoding === undefined) continue;
+    let name = encoding.trim().toLowerCase();
     if (name === '') continue;
 
     // RFC 9110 §8.4.1: x-gzip is equivalent to gzip, x-compress to compress

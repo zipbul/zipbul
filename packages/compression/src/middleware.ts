@@ -47,7 +47,7 @@ export function compressionMiddleware(
     ? resolved.encodings.filter((e) => BREACH_SAFE_ENCODINGS.has(e))
     : resolved.encodings;
 
-  return defineMiddleware([HttpAdapter], (ctx) => {
+  return defineMiddleware([HttpAdapter], () => (ctx) => {
     const http = ctx.to(HttpContext);
     const { request, response } = http;
 
@@ -61,7 +61,7 @@ export function compressionMiddleware(
     ) return;
 
     // RFC 9110 §9.3.2: HEAD responses MUST NOT have content
-    if (request.httpMethod === 'HEAD') return;
+    if (request.method === 'HEAD') return;
 
     const body = response.getBody();
     if (body === undefined || body === null) return;

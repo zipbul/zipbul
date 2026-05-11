@@ -134,9 +134,9 @@ describe('parseAcceptEncoding', () => {
   it('should maintain stable order when quality values are equal', () => {
     const header = 'gzip, deflate, br';
     const result = parseAcceptEncoding(header);
-    expect(result[0].encoding).toBe('gzip');
-    expect(result[1].encoding).toBe('deflate');
-    expect(result[2].encoding).toBe('br');
+    expect(result[0]?.encoding).toBe('gzip');
+    expect(result[1]?.encoding).toBe('deflate');
+    expect(result[2]?.encoding).toBe('br');
   });
 
   // RFC 9110 §8.4.1: encoding alias normalization

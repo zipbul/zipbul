@@ -46,7 +46,7 @@ describe('BUFFER_COMPRESSORS', () => {
 
   it('should call Bun.zstdCompressSync with data and level when compressing with zstd', () => {
     const data = new Uint8Array([1, 2, 3]);
-    const fakeResult = new Uint8Array([7, 8, 9]);
+    const fakeResult = Buffer.from([7, 8, 9]);
     const spy = spyOn(Bun, 'zstdCompressSync').mockReturnValue(fakeResult);
 
     const result = BUFFER_COMPRESSORS[Encoding.Zstd](data, 6);
