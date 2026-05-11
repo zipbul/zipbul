@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { Cookie } from 'bun';
 import { isErr } from '@zipbul/result';
 
-import { CookieParser, CookieJar, CookieError, CookieErrorReason } from '../../index';
+import { CookieParser, CookieJar } from '../../index';
 
 describe('CookieParser Integration', () => {
   const SECRETS = ['td3qCKaEjHcSFiD6qbiC5HxGf0HsATsAzh3GKQN1l_w', 'CsstQ4zof6e0zBASss4tkPquUbhzIhA-Nl6OG1EyOxk'];

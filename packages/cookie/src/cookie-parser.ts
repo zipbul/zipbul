@@ -108,7 +108,7 @@ export class CookieParser {
       throw this.wrapBunError(e);
     }
 
-    this.meta.set(cookie, { explicit, priority });
+    this.meta.set(cookie, priority !== undefined ? { explicit, priority } : { explicit });
     return cookie;
   }
 
@@ -455,14 +455,19 @@ export class CookieParser {
       return cookie;
     }
 
+    const domain = applyDomain ? defaults.domain! : cookie.domain;
+    const path = cookie.path;
+    const sameSite = cookie.sameSite;
+    const maxAge = applyMaxAge ? defaults.maxAge! : cookie.maxAge;
+    const expires = applyExpires ? defaults.expires! : cookie.expires;
     return new Cookie(cookie.name, cookie.value, {
-      domain: applyDomain ? defaults.domain! : (cookie.domain ?? undefined),
-      path: cookie.path ?? undefined,
+      ...(domain != null && { domain }),
+      ...(path != null && { path }),
       secure: applySecure ? resolvedSecure! : cookie.secure,
       httpOnly: cookie.httpOnly,
-      sameSite: cookie.sameSite ?? undefined,
-      maxAge: applyMaxAge ? defaults.maxAge! : (cookie.maxAge ?? undefined),
-      expires: applyExpires ? defaults.expires! : (cookie.expires ?? undefined),
+      ...(sameSite != null && { sameSite }),
+      ...(maxAge != null && { maxAge }),
+      ...(expires != null && { expires }),
       partitioned: cookie.partitioned,
     });
   }
@@ -617,14 +622,19 @@ export class CookieParser {
 
   private cloneWithValue(source: Cookie, newValue: string): Cookie {
     const { defaults } = this.options;
+    const domain = source.domain ?? defaults.domain;
+    const path = source.path;
+    const sameSite = source.sameSite;
+    const maxAge = source.maxAge ?? defaults.maxAge;
+    const expires = source.expires ?? defaults.expires;
     const cloned = new Cookie(source.name, newValue, {
-      domain: source.domain ?? defaults.domain ?? undefined,
-      path: source.path ?? undefined,
+      ...(domain != null && { domain }),
+      ...(path != null && { path }),
       secure: source.secure,
       httpOnly: source.httpOnly,
-      sameSite: source.sameSite ?? undefined,
-      maxAge: source.maxAge ?? defaults.maxAge ?? undefined,
-      expires: source.expires ?? defaults.expires ?? undefined,
+      ...(sameSite != null && { sameSite }),
+      ...(maxAge != null && { maxAge }),
+      ...(expires != null && { expires }),
       partitioned: source.partitioned,
     });
     const sourceMeta = this.meta.get(source);
