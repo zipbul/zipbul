@@ -29,4 +29,7 @@ jobs:
         run: bun run test
 
       - name: Lint
-        run: bunx oxlint@1.48.0
+        run: bun run lint
+
+      - name: Knip
+        run: bun run knip

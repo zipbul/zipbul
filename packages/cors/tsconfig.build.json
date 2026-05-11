@@ -4,9 +4,15 @@
     "noEmit": false,
     "declaration": true,
     "emitDeclarationOnly": true,
-    "verbatimModuleSyntax": false,
     "outDir": "dist"
   },
-  "include": ["index.ts", "src/**/*.ts"],
-  "exclude": ["**/*.spec.ts", "**/*.test.ts", "test"]
+  "include": [
+    "index.ts",
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "test"
+  ]
 }
