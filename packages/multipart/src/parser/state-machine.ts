@@ -242,9 +242,13 @@ export async function parseMultipart(
               );
             }
 
+            if (currentHeaders.filename === undefined) {
+              throw new Error('invariant: isCurrentPartFile implies filename is defined');
+            }
+
             fileWriter = callbacks.onFileStart(
               currentHeaders.name,
-              currentHeaders.filename!,
+              currentHeaders.filename,
               currentHeaders.contentType,
             );
           }
@@ -484,9 +488,19 @@ function checkAllowedMimeType(
     return;
   }
 
-  const lower = contentType.split(';', 1)[0]!.trim().toLowerCase();
+  const ctHead = contentType.split(';', 1)[0];
+  if (ctHead === undefined) {
+    throw new Error('invariant: String.split with limit 1 always returns at least one element');
+  }
+  const lower = ctHead.trim().toLowerCase();
 
-  if (!allowedTypes.some((t) => lower === t.split(';', 1)[0]!.trim().toLowerCase())) {
+  if (!allowedTypes.some((t) => {
+    const head = t.split(';', 1)[0];
+    if (head === undefined) {
+      throw new Error('invariant: String.split with limit 1 always returns at least one element');
+    }
+    return lower === head.trim().toLowerCase();
+  })) {
     throw new MultipartError(
       {
         reason: MultipartErrorReason.MimeTypeNotAllowed,

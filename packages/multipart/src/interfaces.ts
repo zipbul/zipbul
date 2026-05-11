@@ -38,7 +38,7 @@ export class MultipartError extends Error {
     super(data.message, options);
     this.name = 'MultipartError';
     this.reason = data.reason;
-    this.context = options?.context;
+    if (options?.context !== undefined) this.context = options.context;
   }
 }
 

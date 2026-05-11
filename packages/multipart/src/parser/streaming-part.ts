@@ -61,7 +61,13 @@ export class MultipartFileImpl implements MultipartFile {
     }
 
     if (chunks.length === 0) return new Uint8Array(0);
-    if (chunks.length === 1) return chunks[0]!;
+    if (chunks.length === 1) {
+      const only = chunks[0];
+      if (only === undefined) {
+        throw new Error('invariant: chunks[0] missing despite length 1');
+      }
+      return only;
+    }
 
     const result = new Uint8Array(totalLen);
     let offset = 0;

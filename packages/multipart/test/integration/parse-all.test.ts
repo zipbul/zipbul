@@ -4,6 +4,17 @@ import { Multipart } from '../../src/multipart';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+function at<T>(arr: ReadonlyArray<T>, i: number): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected index ${i} of length ${arr.length}`);
+  return v;
+}
+
+function req<T>(v: T | undefined, msg: string): T {
+  if (v === undefined) throw new Error(msg);
+  return v;
+}
+
 function createRequest(boundary: string, body: string | Uint8Array): Request {
   return new Request('http://localhost/upload', {
     method: 'POST',
@@ -49,11 +60,11 @@ describe('Multipart.parseAll — integration', () => {
     expect(fields.get('username')).toEqual(['alice']);
     expect(fields.get('bio')).toEqual(['Hello there']);
 
-    const avatarFiles = files.get('avatar')!;
+    const avatarFiles = req(files.get('avatar'), 'avatar missing');
 
     expect(avatarFiles).toHaveLength(1);
-    expect(avatarFiles[0]!.filename).toBe('pic.png');
-    expect(await avatarFiles[0]!.text()).toBe('PNG_DATA');
+    expect(at(avatarFiles, 0).filename).toBe('pic.png');
+    expect(await at(avatarFiles, 0).text()).toBe('PNG_DATA');
   });
 
   test('returns empty maps when no parts', async () => {
@@ -104,10 +115,10 @@ describe('Multipart.parseAll — integration', () => {
     expect(fields.size).toBe(0);
     expect(files.size).toBe(2);
 
-    expect(files.get('doc1')![0]!.filename).toBe('a.pdf');
-    expect(await files.get('doc1')![0]!.text()).toBe('pdf content a');
-    expect(files.get('doc2')![0]!.filename).toBe('b.pdf');
-    expect(await files.get('doc2')![0]!.text()).toBe('pdf content b');
+    expect(at(req(files.get('doc1'), 'doc1 missing'), 0).filename).toBe('a.pdf');
+    expect(await at(req(files.get('doc1'), 'doc1 missing'), 0).text()).toBe('pdf content a');
+    expect(at(req(files.get('doc2'), 'doc2 missing'), 0).filename).toBe('b.pdf');
+    expect(await at(req(files.get('doc2'), 'doc2 missing'), 0).text()).toBe('pdf content b');
   });
 
   test('duplicate field names produce arrays', async () => {
@@ -123,7 +134,7 @@ describe('Multipart.parseAll — integration', () => {
     expect(fields.size).toBe(1);
     expect(files.size).toBe(0);
 
-    const tags = fields.get('tag')!;
+    const tags = req(fields.get('tag'), 'tag missing');
 
     expect(tags).toHaveLength(3);
     expect(tags).toEqual(['javascript', 'typescript', 'bun']);
@@ -154,15 +165,15 @@ describe('Multipart.parseAll — integration', () => {
     expect(fields.size).toBe(0);
     expect(files.size).toBe(1);
 
-    const photos = files.get('photos')!;
+    const photos = req(files.get('photos'), 'photos missing');
 
     expect(photos).toHaveLength(3);
-    expect(photos[0]!.filename).toBe('img1.jpg');
-    expect(photos[1]!.filename).toBe('img2.jpg');
-    expect(photos[2]!.filename).toBe('img3.jpg');
-    expect(await photos[0]!.text()).toBe('jpeg1');
-    expect(await photos[1]!.text()).toBe('jpeg2');
-    expect(await photos[2]!.text()).toBe('jpeg3');
+    expect(at(photos, 0).filename).toBe('img1.jpg');
+    expect(at(photos, 1).filename).toBe('img2.jpg');
+    expect(at(photos, 2).filename).toBe('img3.jpg');
+    expect(await at(photos, 0).text()).toBe('jpeg1');
+    expect(await at(photos, 1).text()).toBe('jpeg2');
+    expect(await at(photos, 2).text()).toBe('jpeg3');
   });
 
   test('mixed single and duplicate names', async () => {
@@ -197,8 +208,8 @@ describe('Multipart.parseAll — integration', () => {
     expect(files.size).toBe(2);
     expect(files.get('cover')).toHaveLength(1);
     expect(files.get('photos')).toHaveLength(2);
-    expect(files.get('photos')![0]!.filename).toBe('p1.jpg');
-    expect(files.get('photos')![1]!.filename).toBe('p2.jpg');
+    expect(at(req(files.get('photos'), 'photos missing'), 0).filename).toBe('p1.jpg');
+    expect(at(req(files.get('photos'), 'photos missing'), 1).filename).toBe('p2.jpg');
   });
 
   test('large number of parts (20 fields + 5 files)', async () => {
@@ -230,11 +241,11 @@ describe('Multipart.parseAll — integration', () => {
     }
 
     for (let i = 0; i < 5; i++) {
-      const fileArr = files.get(`file_${i}`)!;
+      const fileArr = req(files.get(`file_${i}`), `file_${i} missing`);
 
       expect(fileArr).toHaveLength(1);
-      expect(fileArr[0]!.filename).toBe(`f${i}.txt`);
-      expect(await fileArr[0]!.text()).toBe(`file content ${i}`);
+      expect(at(fileArr, 0).filename).toBe(`f${i}.txt`);
+      expect(await at(fileArr, 0).text()).toBe(`file content ${i}`);
     }
   });
 });

@@ -6,6 +6,17 @@ import type { MultipartPart } from './interfaces';
 import { MultipartErrorReason } from './enums';
 import { BufferedMultipartFile } from './parser/streaming-part';
 
+function at<T>(arr: ReadonlyArray<T>, i: number): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected index ${i} of length ${arr.length}`);
+  return v;
+}
+
+function req<T>(v: T | undefined, msg: string): T {
+  if (v === undefined) throw new Error(msg);
+  return v;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function createMultipartRequest(
@@ -135,8 +146,8 @@ describe('Multipart.parse', () => {
     const parts = await collectParts(mp.parse(request));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe('field1');
-    expect(await partText(parts[0]!)).toBe('value1');
+    expect(at(parts, 0).name).toBe('field1');
+    expect(await partText(at(parts, 0))).toBe('value1');
   });
 
   test('parses multiple fields', async () => {
@@ -151,9 +162,9 @@ describe('Multipart.parse', () => {
     const parts = await collectParts(mp.parse(request));
 
     expect(parts).toHaveLength(3);
-    expect(await partText(parts[0]!)).toBe('1');
-    expect(await partText(parts[1]!)).toBe('2');
-    expect(await partText(parts[2]!)).toBe('3');
+    expect(await partText(at(parts, 0))).toBe('1');
+    expect(await partText(at(parts, 1))).toBe('2');
+    expect(await partText(at(parts, 2))).toBe('3');
   });
 
   test('parses file with filename and content-type', async () => {
@@ -169,11 +180,11 @@ describe('Multipart.parse', () => {
     const parts = await collectParts(mp.parse(request));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe('doc');
-    expect(parts[0]!.filename).toBe('report.pdf');
-    expect(parts[0]!.isFile).toBe(true);
-    expect(parts[0]!.contentType).toBe('application/pdf');
-    expect(await partText(parts[0]!)).toBe('PDF_BYTES');
+    expect(at(parts, 0).name).toBe('doc');
+    expect(at(parts, 0).filename).toBe('report.pdf');
+    expect(at(parts, 0).isFile).toBe(true);
+    expect(at(parts, 0).contentType).toBe('application/pdf');
+    expect(await partText(at(parts, 0))).toBe('PDF_BYTES');
   });
 
   test('throws on missing Content-Type', async () => {
@@ -263,7 +274,7 @@ describe('Multipart.parseAll', () => {
     expect(fields.get('name')).toEqual(['John']);
     expect(fields.get('age')).toEqual(['30']);
     expect(files.size).toBe(1);
-    expect(files.get('avatar')![0]!.filename).toBe('face.png');
+    expect(at(req(files.get('avatar'), 'avatar files missing'), 0).filename).toBe('face.png');
   });
 
   test('returns empty maps for empty form', async () => {
@@ -311,10 +322,10 @@ describe('Multipart.parseAll', () => {
 
     const { files } = await mp.parseAll(request);
     expect(files.size).toBe(1);
-    const docs = files.get('docs')!;
+    const docs = req(files.get('docs'), 'docs files missing');
     expect(docs).toHaveLength(2);
-    expect(docs[0]!.filename).toBe('a.txt');
-    expect(docs[1]!.filename).toBe('b.txt');
+    expect(at(docs, 0).filename).toBe('a.txt');
+    expect(at(docs, 1).filename).toBe('b.txt');
   });
 
   test('instance can be reused for multiple requests', async () => {

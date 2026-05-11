@@ -6,6 +6,12 @@ import { BufferedMultipartFile } from '../../src/parser/streaming-part';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+function at<T>(arr: ReadonlyArray<T>, i: number): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected index ${i} of length ${arr.length}`);
+  return v;
+}
+
 function createRequest(boundary: string, body: string | Uint8Array): Request {
   return new Request('http://localhost/upload', {
     method: 'POST',
@@ -69,10 +75,10 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe('greeting');
-    expect(await partText(parts[0]!)).toBe('hello world');
-    expect(parts[0]!.isFile).toBe(false);
-    expect(parts[0]!.contentType).toBe('text/plain');
+    expect(at(parts, 0).name).toBe('greeting');
+    expect(await partText(at(parts, 0))).toBe('hello world');
+    expect(at(parts, 0).isFile).toBe(false);
+    expect(at(parts, 0).contentType).toBe('text/plain');
   });
 
   test('parses a single file upload from a Request', async () => {
@@ -89,11 +95,11 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe('script');
-    expect(parts[0]!.filename).toBe('app.js');
-    expect(parts[0]!.isFile).toBe(true);
-    expect(parts[0]!.contentType).toBe('application/javascript');
-    expect(await partText(parts[0]!)).toBe(fileContent);
+    expect(at(parts, 0).name).toBe('script');
+    expect(at(parts, 0).filename).toBe('app.js');
+    expect(at(parts, 0).isFile).toBe(true);
+    expect(at(parts, 0).contentType).toBe('application/javascript');
+    expect(await partText(at(parts, 0))).toBe(fileContent);
   });
 
   test('parses mixed fields and files (4+ parts)', async () => {
@@ -117,18 +123,18 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(5);
-    expect(parts[0]!.name).toBe('username');
-    expect(await partText(parts[0]!)).toBe('alice');
-    expect(parts[0]!.isFile).toBe(false);
-    expect(parts[1]!.name).toBe('email');
-    expect(await partText(parts[1]!)).toBe('alice@example.com');
-    expect(parts[2]!.name).toBe('photo');
-    expect(parts[2]!.isFile).toBe(true);
-    expect(parts[2]!.filename).toBe('avatar.jpg');
-    expect(parts[3]!.name).toBe('bio');
-    expect(parts[3]!.isFile).toBe(false);
-    expect(parts[4]!.name).toBe('resume');
-    expect(parts[4]!.isFile).toBe(true);
+    expect(at(parts, 0).name).toBe('username');
+    expect(await partText(at(parts, 0))).toBe('alice');
+    expect(at(parts, 0).isFile).toBe(false);
+    expect(at(parts, 1).name).toBe('email');
+    expect(await partText(at(parts, 1))).toBe('alice@example.com');
+    expect(at(parts, 2).name).toBe('photo');
+    expect(at(parts, 2).isFile).toBe(true);
+    expect(at(parts, 2).filename).toBe('avatar.jpg');
+    expect(at(parts, 3).name).toBe('bio');
+    expect(at(parts, 3).isFile).toBe(false);
+    expect(at(parts, 4).name).toBe('resume');
+    expect(at(parts, 4).isFile).toBe(true);
   });
 
   test('handles binary content in file parts', async () => {
@@ -147,9 +153,9 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, fullBody)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.isFile).toBe(true);
+    expect(at(parts, 0).isFile).toBe(true);
 
-    const resultBytes = await partBytes(parts[0]!);
+    const resultBytes = await partBytes(at(parts, 0));
 
     expect(resultBytes.length).toBe(binaryBytes.length);
 
@@ -169,9 +175,9 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(3);
-    expect(await partText(parts[0]!)).toBe('한국어 테스트');
-    expect(await partText(parts[1]!)).toBe('🎉🚀💻🌍');
-    expect(await partText(parts[2]!)).toBe('中文测试内容');
+    expect(await partText(at(parts, 0))).toBe('한국어 테스트');
+    expect(await partText(at(parts, 1))).toBe('🎉🚀💻🌍');
+    expect(await partText(at(parts, 2))).toBe('中文测试内容');
   });
 
   test('handles empty filename', async () => {
@@ -187,9 +193,9 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.filename).toBe('');
-    expect(parts[0]!.isFile).toBe(true);
-    expect((await partBytes(parts[0]!)).length).toBe(0);
+    expect(at(parts, 0).filename).toBe('');
+    expect(at(parts, 0).isFile).toBe(true);
+    expect((await partBytes(at(parts, 0))).length).toBe(0);
   });
 
   test('handles multiple files with same field name', async () => {
@@ -215,12 +221,12 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(3);
-    expect(parts[0]!.filename).toBe('a.txt');
-    expect(await partText(parts[0]!)).toBe('file a content');
-    expect(parts[1]!.filename).toBe('b.txt');
-    expect(await partText(parts[1]!)).toBe('file b content');
-    expect(parts[2]!.filename).toBe('c.txt');
-    expect(await partText(parts[2]!)).toBe('file c content');
+    expect(at(parts, 0).filename).toBe('a.txt');
+    expect(await partText(at(parts, 0))).toBe('file a content');
+    expect(at(parts, 1).filename).toBe('b.txt');
+    expect(await partText(at(parts, 1))).toBe('file b content');
+    expect(at(parts, 2).filename).toBe('c.txt');
+    expect(await partText(at(parts, 2))).toBe('file c content');
   });
 
   test('empty body (just final boundary) yields 0 parts', async () => {
@@ -243,8 +249,8 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe('field');
-    expect(await partText(parts[0]!)).toBe('value');
+    expect(at(parts, 0).name).toBe('field');
+    expect(await partText(at(parts, 0))).toBe('value');
   });
 
   test('instance reuse: parse two different requests sequentially', async () => {
@@ -262,13 +268,13 @@ describe('Multipart.parse — integration', () => {
     const parts1 = await collectParts(mp.parse(createRequest(boundary1, body1)));
 
     expect(parts1).toHaveLength(1);
-    expect(await partText(parts1[0]!)).toBe('first');
+    expect(await partText(at(parts1, 0))).toBe('first');
 
     const parts2 = await collectParts(mp.parse(createRequest(boundary2, body2)));
 
     expect(parts2).toHaveLength(2);
-    expect(await partText(parts2[0]!)).toBe('second');
-    expect(await partText(parts2[1]!)).toBe('third');
+    expect(await partText(at(parts2, 0))).toBe('second');
+    expect(await partText(at(parts2, 1))).toBe('third');
   });
 
   test('early break after first part does not error or hang', async () => {
@@ -287,8 +293,9 @@ describe('Multipart.parse — integration', () => {
     }
 
     expect(firstPart).toBeDefined();
-    expect(firstPart!.name).toBe('first');
-    expect(await partText(firstPart!)).toBe('one');
+    if (firstPart === undefined) throw new Error('firstPart undefined');
+    expect(firstPart.name).toBe('first');
+    expect(await partText(firstPart)).toBe('one');
   });
 
   test('bare \\n headers (instead of \\r\\n between header lines) still parse', async () => {
@@ -304,10 +311,10 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, raw)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe('doc');
-    expect(parts[0]!.filename).toBe('readme.md');
-    expect(parts[0]!.contentType).toBe('text/markdown');
-    expect(await partText(parts[0]!)).toBe('# Hello');
+    expect(at(parts, 0).name).toBe('doc');
+    expect(at(parts, 0).filename).toBe('readme.md');
+    expect(at(parts, 0).contentType).toBe('text/markdown');
+    expect(await partText(at(parts, 0))).toBe('# Hello');
   });
 
   test('field value containing CRLF line breaks', async () => {
@@ -322,7 +329,7 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(await partText(parts[0]!)).toBe('line1\r\nline2\r\nline3\r\n');
+    expect(await partText(at(parts, 0))).toBe('line1\r\nline2\r\nline3\r\n');
   });
 
   test('very long field name (200 chars)', async () => {
@@ -335,9 +342,9 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe(longName);
-    expect(parts[0]!.name.length).toBe(200);
-    expect(await partText(parts[0]!)).toBe('val');
+    expect(at(parts, 0).name).toBe(longName);
+    expect(at(parts, 0).name.length).toBe(200);
+    expect(await partText(at(parts, 0))).toBe('val');
   });
 
   test('part with Content-Transfer-Encoding header is ignored, body preserved as-is', async () => {
@@ -354,8 +361,8 @@ describe('Multipart.parse — integration', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, raw)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe('encoded');
-    expect(await partText(parts[0]!)).toBe('SGVsbG8gV29ybGQ=');
+    expect(at(parts, 0).name).toBe('encoded');
+    expect(await partText(at(parts, 0))).toBe('SGVsbG8gV29ybGQ=');
   });
 
   test('unconsumed file stream does not deadlock (auto-drain)', async () => {
@@ -503,6 +510,7 @@ describe('Multipart.parse — integration', () => {
     let count = 0;
 
     for await (const part of mp.parse(createRequest(boundary, body))) {
+      void part;
       count++;
       // Don't consume the file, just break
       break;

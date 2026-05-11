@@ -12,6 +12,17 @@ import type { ParseAllResult } from '../types';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+function at<T>(arr: ReadonlyArray<T>, i: number): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected index ${i} of length ${arr.length}`);
+  return v;
+}
+
+function req<T>(v: T | undefined, msg: string): T {
+  if (v === undefined) throw new Error(msg);
+  return v;
+}
+
 function toStream(data: string | Uint8Array): ReadableStream<Uint8Array> {
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
 
@@ -154,11 +165,11 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('field1');
-      expect(await partText(parts[0]!)).toBe('hello');
-      expect(parts[0]!.isFile).toBe(false);
-      expect(parts[0]!.filename).toBeUndefined();
-      expect(parts[0]!.contentType).toBe('text/plain');
+      expect(at(parts, 0).name).toBe('field1');
+      expect(await partText(at(parts, 0))).toBe('hello');
+      expect(at(parts, 0).isFile).toBe(false);
+      expect(at(parts, 0).filename).toBeUndefined();
+      expect(at(parts, 0).contentType).toBe('text/plain');
     });
 
     test('2. multiple fields', async () => {
@@ -170,12 +181,12 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, opts);
       expect(parts).toHaveLength(3);
-      expect(parts[0]!.name).toBe('a');
-      expect(await partText(parts[0]!)).toBe('1');
-      expect(parts[1]!.name).toBe('b');
-      expect(await partText(parts[1]!)).toBe('2');
-      expect(parts[2]!.name).toBe('c');
-      expect(await partText(parts[2]!)).toBe('3');
+      expect(at(parts, 0).name).toBe('a');
+      expect(await partText(at(parts, 0))).toBe('1');
+      expect(at(parts, 1).name).toBe('b');
+      expect(await partText(at(parts, 1))).toBe('2');
+      expect(at(parts, 2).name).toBe('c');
+      expect(await partText(at(parts, 2))).toBe('3');
     });
 
     test('3. file part (with filename + content-type)', async () => {
@@ -189,11 +200,11 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('upload');
-      expect(parts[0]!.filename).toBe('test.txt');
-      expect(parts[0]!.isFile).toBe(true);
-      expect(parts[0]!.contentType).toBe('text/plain');
-      expect(await partText(parts[0]!)).toBe('file contents here');
+      expect(at(parts, 0).name).toBe('upload');
+      expect(at(parts, 0).filename).toBe('test.txt');
+      expect(at(parts, 0).isFile).toBe(true);
+      expect(at(parts, 0).contentType).toBe('text/plain');
+      expect(await partText(at(parts, 0))).toBe('file contents here');
     });
 
     test('4. mixed fields and files', async () => {
@@ -209,15 +220,15 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, opts);
       expect(parts).toHaveLength(3);
-      expect(parts[0]!.isFile).toBe(false);
-      expect(parts[0]!.name).toBe('username');
-      expect(await partText(parts[0]!)).toBe('John');
-      expect(parts[1]!.isFile).toBe(true);
-      expect(parts[1]!.name).toBe('avatar');
-      expect(parts[1]!.filename).toBe('face.png');
-      expect(parts[1]!.contentType).toBe('image/png');
-      expect(parts[2]!.isFile).toBe(false);
-      expect(parts[2]!.name).toBe('bio');
+      expect(at(parts, 0).isFile).toBe(false);
+      expect(at(parts, 0).name).toBe('username');
+      expect(await partText(at(parts, 0))).toBe('John');
+      expect(at(parts, 1).isFile).toBe(true);
+      expect(at(parts, 1).name).toBe('avatar');
+      expect(at(parts, 1).filename).toBe('face.png');
+      expect(at(parts, 1).contentType).toBe('image/png');
+      expect(at(parts, 2).isFile).toBe(false);
+      expect(at(parts, 2).name).toBe('bio');
     });
 
     test('5. empty body part (zero-length body)', async () => {
@@ -227,8 +238,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(await partText(parts[0]!)).toBe('');
-      expect((await partBytes(parts[0]!)).length).toBe(0);
+      expect(await partText(at(parts, 0))).toBe('');
+      expect((await partBytes(at(parts, 0))).length).toBe(0);
     });
 
     test('6. bytes() returns Uint8Array', async () => {
@@ -237,7 +248,7 @@ describe('parseMultipart', () => {
       ]);
 
       const parts = await collectParts(toStream(body), boundary, opts);
-      const raw = await partBytes(parts[0]!);
+      const raw = await partBytes(at(parts, 0));
       expect(raw).toBeInstanceOf(Uint8Array);
       expect(raw.length).toBe(6);
       // Verify the bytes match 'binary'
@@ -253,8 +264,8 @@ describe('parseMultipart', () => {
       ]);
 
       const parts = await collectParts(toStream(body), boundary, opts);
-      expect(parts[0]!.isFile).toBe(true);
-      expect(await partText(parts[0]!)).toBe('streamed content');
+      expect(at(parts, 0).isFile).toBe(true);
+      expect(await partText(at(parts, 0))).toBe('streamed content');
     });
   });
 
@@ -268,8 +279,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toChunkedStream(body, 5), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('field');
-      expect(await partText(parts[0]!)).toBe('value');
+      expect(at(parts, 0).name).toBe('field');
+      expect(await partText(at(parts, 0))).toBe('value');
     });
 
     test('9. single-byte chunks — extreme splitting', async () => {
@@ -279,8 +290,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toChunkedStream(body, 1), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('x');
-      expect(await partText(parts[0]!)).toBe('y');
+      expect(at(parts, 0).name).toBe('x');
+      expect(await partText(at(parts, 0))).toBe('y');
     });
 
     test('10. boundary split at EVERY possible byte position', async () => {
@@ -292,8 +303,8 @@ describe('parseMultipart', () => {
         const stream = toTwoChunkStream(body, splitAt);
         const parts = await collectParts(stream, boundary, opts);
         expect(parts).toHaveLength(1);
-        expect(parts[0]!.name).toBe('k');
-        expect(await partText(parts[0]!)).toBe('val');
+        expect(at(parts, 0).name).toBe('k');
+        expect(await partText(at(parts, 0))).toBe('val');
       }
     });
 
@@ -304,7 +315,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(await partText(parts[0]!)).toBe('all at once');
+      expect(await partText(at(parts, 0))).toBe('all at once');
     });
   });
 
@@ -321,8 +332,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(raw), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('field');
-      expect(await partText(parts[0]!)).toBe('value');
+      expect(at(parts, 0).name).toBe('field');
+      expect(await partText(at(parts, 0))).toBe('value');
     });
 
     test('13. long preamble (1KB of text) is ignored', async () => {
@@ -336,8 +347,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(raw), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('after_preamble');
-      expect(await partText(parts[0]!)).toBe('data');
+      expect(at(parts, 0).name).toBe('after_preamble');
+      expect(await partText(at(parts, 0))).toBe('data');
     });
   });
 
@@ -420,8 +431,8 @@ describe('parseMultipart', () => {
         expect((e as MultipartError).reason).toBe(MultipartErrorReason.UnexpectedEnd);
         // First part was yielded before the error on the second
         expect(collectedBeforeError).toHaveLength(1);
-        expect(collectedBeforeError[0]!.name).toBe('a');
-        expect(await partText(collectedBeforeError[0]!)).toBe('ok');
+        expect(at(collectedBeforeError, 0).name).toBe('a');
+        expect(await partText(at(collectedBeforeError, 0))).toBe('ok');
       }
     });
   });
@@ -623,8 +634,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(raw), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('padded');
-      expect(await partText(parts[0]!)).toBe('padded_value');
+      expect(at(parts, 0).name).toBe('padded');
+      expect(await partText(at(parts, 0))).toBe('padded_value');
     });
   });
 
@@ -658,8 +669,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, opts);
       expect(parts).toHaveLength(2);
-      expect(await partText(parts[0]!)).toBe('before');
-      expect(await partText(parts[1]!)).toBe('after');
+      expect(await partText(at(parts, 0))).toBe('before');
+      expect(await partText(at(parts, 1))).toBe('after');
     });
 
     test('32. body containing --boundary without preceding \\r\\n → NOT a delimiter, preserved in body', async () => {
@@ -671,7 +682,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(raw), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(await partText(parts[0]!)).toBe(`text with --${boundary} in the middle`);
+      expect(await partText(at(parts, 0))).toBe(`text with --${boundary} in the middle`);
     });
 
     test('33. CRLF within field values (multiline text)', async () => {
@@ -682,7 +693,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(await partText(parts[0]!)).toBe(multilineValue);
+      expect(await partText(at(parts, 0))).toBe(multilineValue);
     });
 
     test('34. very large body (1MB) in reasonable chunks', async () => {
@@ -697,8 +708,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toChunkedStream(body, 64 * 1024), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(await partText(parts[0]!)).toBe(largePart);
-      expect((await partBytes(parts[0]!)).length).toBe(1024 * 1024);
+      expect(await partText(at(parts, 0))).toBe(largePart);
+      expect((await partBytes(at(parts, 0))).length).toBe(1024 * 1024);
     });
   });
 
@@ -715,9 +726,9 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(raw), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('field');
-      expect(parts[0]!.contentType).toBe('text/html');
-      expect(await partText(parts[0]!)).toBe('<b>bold</b>');
+      expect(at(parts, 0).name).toBe('field');
+      expect(at(parts, 0).contentType).toBe('text/html');
+      expect(await partText(at(parts, 0))).toBe('<b>bold</b>');
     });
   });
 
@@ -762,8 +773,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(raw), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('padded128');
-      expect(await partText(parts[0]!)).toBe('ok');
+      expect(at(parts, 0).name).toBe('padded128');
+      expect(await partText(at(parts, 0))).toBe('ok');
     });
 
     test('39. AfterBoundary with exactly 129 bytes of padding → MalformedHeader', async () => {
@@ -815,7 +826,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, limitOpts);
       expect(parts).toHaveLength(1);
-      expect(await partText(parts[0]!)).toBe(fieldValue);
+      expect(await partText(at(parts, 0))).toBe(fieldValue);
     });
 
     test('42. maxFieldSize: field 1 byte over limit fails with FieldTooLarge', async () => {
@@ -843,7 +854,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, limitOpts);
       expect(parts).toHaveLength(1);
-      expect(await partText(parts[0]!)).toBe('hello');
+      expect(await partText(at(parts, 0))).toBe('hello');
     });
 
     test('44. maxTotalSize: body 1 byte over limit fails', async () => {
@@ -909,7 +920,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, limitOpts);
       expect(parts).toHaveLength(1);
-      expect(await partText(parts[0]!)).toBe('value');
+      expect(await partText(at(parts, 0))).toBe('value');
     });
 
     test('47. maxHeaderSize: headers 1 byte over limit fails', async () => {
@@ -947,8 +958,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toChunkedStream(body, 3), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('tiny');
-      expect(await partText(parts[0]!)).toBe('the quick brown fox');
+      expect(at(parts, 0).name).toBe('tiny');
+      expect(await partText(at(parts, 0))).toBe('the quick brown fox');
     });
 
     test('49. body state with 2-byte chunks — safeLen deeply negative, data preserved', async () => {
@@ -958,8 +969,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toChunkedStream(body, 2), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('mini');
-      expect(await partText(parts[0]!)).toBe('abcdefghijklmnopqrstuvwxyz');
+      expect(at(parts, 0).name).toBe('mini');
+      expect(await partText(at(parts, 0))).toBe('abcdefghijklmnopqrstuvwxyz');
     });
   });
 
@@ -978,8 +989,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toChunkedStream(body, 30), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(await partText(parts[0]!)).toBe(largeValue);
-      expect((await partBytes(parts[0]!)).length).toBe(500);
+      expect(await partText(at(parts, 0))).toBe(largeValue);
+      expect((await partBytes(at(parts, 0))).length).toBe(500);
     });
   });
 
@@ -1033,8 +1044,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(raw), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('field');
-      expect(await partText(parts[0]!)).toBe('value');
+      expect(at(parts, 0).name).toBe('field');
+      expect(await partText(at(parts, 0))).toBe('value');
     });
 
     test('54. final boundary without trailing CRLF — still parsed correctly', async () => {
@@ -1046,8 +1057,8 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(raw), boundary, opts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.name).toBe('field');
-      expect(await partText(parts[0]!)).toBe('value');
+      expect(at(parts, 0).name).toBe('field');
+      expect(await partText(at(parts, 0))).toBe('value');
     });
   });
 
@@ -1115,11 +1126,11 @@ describe('parseMultipart', () => {
       expect(result.fields.size).toBe(0);
       expect(result.files.has('upload')).toBe(true);
 
-      const fileList = result.files.get('upload')!;
+      const fileList = req(result.files.get('upload'), 'upload missing');
       expect(fileList).toHaveLength(1);
-      expect(fileList[0]!.filename).toBe('test.txt');
-      expect(fileList[0]!.contentType).toBe('text/plain');
-      expect(await fileList[0]!.text()).toBe('file contents here');
+      expect(at(fileList, 0).filename).toBe('test.txt');
+      expect(at(fileList, 0).contentType).toBe('text/plain');
+      expect(await at(fileList, 0).text()).toBe('file contents here');
     });
 
     test('59. mixed fields and files collected correctly', async () => {
@@ -1137,10 +1148,10 @@ describe('parseMultipart', () => {
       expect(result.fields.get('username')).toEqual(['John']);
       expect(result.fields.get('bio')).toEqual(['Hello world']);
 
-      const avatarFiles = result.files.get('avatar')!;
+      const avatarFiles = req(result.files.get('avatar'), 'avatar missing');
       expect(avatarFiles).toHaveLength(1);
-      expect(avatarFiles[0]!.filename).toBe('face.png');
-      expect(await avatarFiles[0]!.text()).toBe('PNG_DATA');
+      expect(at(avatarFiles, 0).filename).toBe('face.png');
+      expect(await at(avatarFiles, 0).text()).toBe('PNG_DATA');
     });
 
     test('60. empty form → empty maps', async () => {
@@ -1176,8 +1187,8 @@ describe('parseMultipart', () => {
       const result = await collectPartsBuffered(toChunkedStream(body, 7), boundary, opts);
       expect(result.fields.get('chunked')).toEqual(['chunk test value']);
 
-      const fileList = result.files.get('f')!;
-      expect(await fileList[0]!.text()).toBe('chunked file data');
+      const fileList = req(result.files.get('f'), 'f missing');
+      expect(await at(fileList, 0).text()).toBe('chunked file data');
     });
 
     test('63. multiple files with same name', async () => {
@@ -1195,12 +1206,12 @@ describe('parseMultipart', () => {
       ]);
 
       const result = await collectPartsBuffered(toStream(body), boundary, opts);
-      const docs = result.files.get('docs')!;
+      const docs = req(result.files.get('docs'), 'docs missing');
       expect(docs).toHaveLength(2);
-      expect(docs[0]!.filename).toBe('a.txt');
-      expect(await docs[0]!.text()).toBe('file A');
-      expect(docs[1]!.filename).toBe('b.txt');
-      expect(await docs[1]!.text()).toBe('file B');
+      expect(at(docs, 0).filename).toBe('a.txt');
+      expect(await at(docs, 0).text()).toBe('file A');
+      expect(at(docs, 1).filename).toBe('b.txt');
+      expect(await at(docs, 1).text()).toBe('file B');
     });
 
     // ── Limit errors (buffering path) ────────────────────────────────
@@ -1468,7 +1479,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, limitOpts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.isFile).toBe(true);
+      expect(at(parts, 0).isFile).toBe(true);
     });
 
     test('79. field without allowedMimeTypes restriction is not affected', async () => {
@@ -1486,7 +1497,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, limitOpts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.isFile).toBe(true);
+      expect(at(parts, 0).isFile).toBe(true);
     });
 
     test('83. Content-Type with parameters matches allowlist without parameters', async () => {
@@ -1504,7 +1515,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, limitOpts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.isFile).toBe(true);
+      expect(at(parts, 0).isFile).toBe(true);
     });
 
     test('84. allowlist with parameters matches Content-Type without parameters', async () => {
@@ -1522,7 +1533,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, limitOpts);
       expect(parts).toHaveLength(1);
-      expect(parts[0]!.isFile).toBe(true);
+      expect(at(parts, 0).isFile).toBe(true);
     });
 
     test('85. Content-Type with parameters rejected when media type differs', async () => {
@@ -1581,7 +1592,7 @@ describe('parseMultipart', () => {
 
       const parts = await collectParts(toStream(body), boundary, limitOpts);
       expect(parts).toHaveLength(1);
-      expect((await partBytes(parts[0]!)).length).toBe(50);
+      expect((await partBytes(at(parts, 0))).length).toBe(50);
     });
 
     test('81. maxFileSize: file 1 byte over limit fails with FileTooLarge', async () => {
@@ -1616,8 +1627,8 @@ describe('parseMultipart', () => {
       ]);
 
       const result = await collectPartsBuffered(toStream(body), boundary, limitOpts);
-      const files = result.files.get('f')!;
-      expect((await files[0]!.bytes()).length).toBe(50);
+      const files = req(result.files.get('f'), 'f missing');
+      expect((await at(files, 0).bytes()).length).toBe(50);
 
       // 1 byte over
       const overBody = createBody(boundary, [

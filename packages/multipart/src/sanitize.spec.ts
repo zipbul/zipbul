@@ -2,6 +2,11 @@ import { describe, expect, test } from 'bun:test';
 
 import { sanitizeFilename } from './sanitize';
 
+function req<T>(v: T | undefined, msg: string): T {
+  if (v === undefined) throw new Error(msg);
+  return v;
+}
+
 describe('sanitizeFilename', () => {
   // ── Basic sanitization ──────────────────────────────────────────────
 
@@ -137,7 +142,7 @@ describe('sanitizeFilename', () => {
 
   test('truncates to maxLength preserving extension', () => {
     const longName = 'a'.repeat(300) + '.txt';
-    const result = sanitizeFilename(longName)!;
+    const result = req(sanitizeFilename(longName), 'sanitizeFilename returned undefined');
 
     expect(result.length).toBe(255);
     expect(result.endsWith('.txt')).toBe(true);
@@ -145,7 +150,7 @@ describe('sanitizeFilename', () => {
 
   test('truncates to custom maxLength', () => {
     const longName = 'a'.repeat(50) + '.jpg';
-    const result = sanitizeFilename(longName, { maxLength: 20 })!;
+    const result = req(sanitizeFilename(longName, { maxLength: 20 }), 'sanitizeFilename returned undefined');
 
     expect(result.length).toBe(20);
     expect(result.endsWith('.jpg')).toBe(true);
@@ -157,7 +162,7 @@ describe('sanitizeFilename', () => {
 
   test('truncates without extension preservation if extension is too long', () => {
     const longName = 'a'.repeat(10) + '.' + 'x'.repeat(30);
-    const result = sanitizeFilename(longName, { maxLength: 20 })!;
+    const result = req(sanitizeFilename(longName, { maxLength: 20 }), 'sanitizeFilename returned undefined');
 
     expect(result.length).toBe(20);
   });

@@ -4,7 +4,13 @@ import { BufferedMultipartFile, MultipartFileImpl } from './streaming-part';
 
 const encoder = new TextEncoder();
 
-function makeStream(data: Uint8Array): {
+function at<T>(arr: ReadonlyArray<T>, i: number): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected index ${i} of length ${arr.length}`);
+  return v;
+}
+
+function makeStream(): {
   readable: ReadableStream<Uint8Array>;
   writer: WritableStreamDefaultWriter<Uint8Array>;
 } {
@@ -19,7 +25,7 @@ function makeStream(data: Uint8Array): {
 describe('MultipartFileImpl', () => {
   test('stream() returns readable and can be consumed', async () => {
     const data = encoder.encode('hello streaming');
-    const { readable, writer } = makeStream(data);
+    const { readable, writer } = makeStream();
 
     void writer.write(data).then(() => writer.close());
 
@@ -44,7 +50,7 @@ describe('MultipartFileImpl', () => {
   });
 
   test('stream() throws on second call', async () => {
-    const { readable, writer } = makeStream(new Uint8Array(0));
+    const { readable, writer } = makeStream();
 
     void writer.close();
 
@@ -57,7 +63,7 @@ describe('MultipartFileImpl', () => {
 
   test('bytes() reads entire stream', async () => {
     const data = encoder.encode('bytes test');
-    const { readable, writer } = makeStream(data);
+    const { readable, writer } = makeStream();
 
     void writer.write(data).then(() => writer.close());
 
@@ -69,7 +75,7 @@ describe('MultipartFileImpl', () => {
 
   test('text() decodes UTF-8', async () => {
     const data = encoder.encode('한국어 테스트');
-    const { readable, writer } = makeStream(data);
+    const { readable, writer } = makeStream();
 
     void writer.write(data).then(() => writer.close());
 
@@ -80,7 +86,7 @@ describe('MultipartFileImpl', () => {
 
   test('arrayBuffer() returns correct buffer', async () => {
     const data = encoder.encode('buffer');
-    const { readable, writer } = makeStream(data);
+    const { readable, writer } = makeStream();
 
     void writer.write(data).then(() => writer.close());
 
@@ -91,7 +97,7 @@ describe('MultipartFileImpl', () => {
   });
 
   test('bytes() after stream() throws', async () => {
-    const { readable, writer } = makeStream(new Uint8Array(0));
+    const { readable, writer } = makeStream();
 
     void writer.close();
 
@@ -108,7 +114,7 @@ describe('MultipartFileImpl', () => {
   });
 
   test('empty file produces empty bytes', async () => {
-    const { readable, writer } = makeStream(new Uint8Array(0));
+    const { readable, writer } = makeStream();
 
     void writer.close();
 
@@ -120,7 +126,7 @@ describe('MultipartFileImpl', () => {
 
   test('saveTo() writes file to disk', async () => {
     const data = encoder.encode('save-to-test');
-    const { readable, writer } = makeStream(data);
+    const { readable, writer } = makeStream();
 
     void writer.write(data).then(() => writer.close());
 
@@ -138,7 +144,7 @@ describe('MultipartFileImpl', () => {
   });
 
   test('properties are set correctly', () => {
-    const { readable } = makeStream(new Uint8Array(0));
+    const { readable } = makeStream();
     const file = new MultipartFileImpl('myfile', 'photo.jpg', 'image/jpeg', readable);
 
     expect(file.name).toBe('myfile');
@@ -148,7 +154,7 @@ describe('MultipartFileImpl', () => {
   });
 
   test('drainIfUnconsumed() discards data and unblocks writer', async () => {
-    const { readable, writer } = makeStream(new Uint8Array(0));
+    const { readable, writer } = makeStream();
 
     const file = new MultipartFileImpl('f', 'f.bin', 'application/octet-stream', readable);
 
@@ -167,7 +173,7 @@ describe('MultipartFileImpl', () => {
   });
 
   test('drainIfUnconsumed() is no-op after stream() was called', async () => {
-    const { readable, writer } = makeStream(new Uint8Array(0));
+    const { readable, writer } = makeStream();
 
     void writer.close();
 
@@ -178,7 +184,7 @@ describe('MultipartFileImpl', () => {
   });
 
   test('drainIfUnconsumed() is no-op after bytes() was called', async () => {
-    const { readable, writer } = makeStream(new Uint8Array(0));
+    const { readable, writer } = makeStream();
 
     void writer.write(encoder.encode('data')).then(() => writer.close());
 
@@ -189,7 +195,7 @@ describe('MultipartFileImpl', () => {
   });
 
   test('multi-chunk stream is assembled correctly', async () => {
-    const { readable, writer } = makeStream(new Uint8Array(0));
+    const { readable, writer } = makeStream();
 
     void (async () => {
       await writer.write(encoder.encode('chunk1'));
@@ -237,8 +243,8 @@ describe('BufferedMultipartFile', () => {
 
     for await (const c of stream2) chunks2.push(c);
 
-    expect(new TextDecoder().decode(chunks1[0]!)).toBe('repeat');
-    expect(new TextDecoder().decode(chunks2[0]!)).toBe('repeat');
+    expect(new TextDecoder().decode(at(chunks1, 0))).toBe('repeat');
+    expect(new TextDecoder().decode(at(chunks2, 0))).toBe('repeat');
   });
 
   test('arrayBuffer() returns correct buffer', async () => {

@@ -7,6 +7,17 @@ import type { MultipartPart } from '../../src/interfaces';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+function at<T>(arr: ReadonlyArray<T>, i: number): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected index ${i} of length ${arr.length}`);
+  return v;
+}
+
+function req<T>(v: T | undefined, msg: string): T {
+  if (v === undefined) throw new Error(msg);
+  return v;
+}
+
 function createRequest(boundary: string, body: string | Uint8Array): Request {
   return new Request('http://localhost/upload', {
     method: 'POST',
@@ -224,7 +235,7 @@ describe('Multipart — security limits', () => {
 
     const { fields } = await mp.parseAll(createRequest(boundary, body));
 
-    expect(fields.get('big')![0]!.length).toBe(100_000);
+    expect(at(req(fields.get('big'), 'big missing'), 0).length).toBe(100_000);
   });
 
   test('chunked limit enforcement: oversized file caught during streaming', async () => {
@@ -326,7 +337,7 @@ describe('Multipart — security limits', () => {
 
     const { files } = await mp.parseAll(createRequest(boundary, body));
 
-    expect((await files.get('file')![0]!.bytes()).length).toBe(limit);
+    expect((await at(req(files.get('file'), 'file missing'), 0).bytes()).length).toBe(limit);
   });
 
   test('maxFileSize boundary: file 1 byte over limit is rejected', async () => {

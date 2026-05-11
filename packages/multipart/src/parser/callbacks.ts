@@ -68,7 +68,11 @@ class BufferingFileWriter implements FileWriter {
     if (this.chunks.length === 0) {
       data = new Uint8Array(0);
     } else if (this.chunks.length === 1) {
-      data = this.chunks[0]!;
+      const only = this.chunks[0];
+      if (only === undefined) {
+        throw new Error('invariant: chunks[0] missing despite length 1');
+      }
+      data = only;
     } else {
       data = Buffer.concat(this.chunks);
     }

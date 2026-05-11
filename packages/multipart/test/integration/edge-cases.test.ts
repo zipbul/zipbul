@@ -8,6 +8,12 @@ import { BufferedMultipartFile } from '../../src/parser/streaming-part';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+function at<T>(arr: ReadonlyArray<T>, i: number): T {
+  const v = arr[i];
+  if (v === undefined) throw new Error(`expected index ${i} of length ${arr.length}`);
+  return v;
+}
+
 function createRequest(boundary: string, body: string | Uint8Array): Request {
   return new Request('http://localhost/upload', {
     method: 'POST',
@@ -58,11 +64,6 @@ async function partText(part: MultipartPart): Promise<string> {
   return part.text();
 }
 
-async function partBytes(part: MultipartPart): Promise<Uint8Array> {
-  if (part.isFile) return part.bytes();
-  return part.bytes();
-}
-
 // ── Tests ───────────────────────────────────────────────────────────
 
 describe('Multipart — edge cases', () => {
@@ -77,7 +78,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(await partText(parts[0]!)).toBe('ok');
+    expect(await partText(at(parts, 0))).toBe('ok');
   });
 
   test('handles empty form (just final boundary)', async () => {
@@ -98,7 +99,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(await partText(parts[0]!)).toBe('   \n\t  ');
+    expect(await partText(at(parts, 0))).toBe('   \n\t  ');
   });
 
   test('boundary-like string in body with CRLF prefix is a delimiter, without is not', async () => {
@@ -110,7 +111,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(await partText(parts[0]!)).toBe('some --tricky-- text');
+    expect(await partText(at(parts, 0))).toBe('some --tricky-- text');
   });
 
   test('handles quoted boundary in Content-Type', async () => {
@@ -128,7 +129,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(request));
 
     expect(parts).toHaveLength(1);
-    expect(await partText(parts[0]!)).toBe('val');
+    expect(await partText(at(parts, 0))).toBe('val');
   });
 
   test('throws MissingBody for null body', async () => {
@@ -188,8 +189,8 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe(longName);
-    expect(parts[0]!.name.length).toBe(200);
+    expect(at(parts, 0).name).toBe(longName);
+    expect(at(parts, 0).name.length).toBe(200);
   });
 
   test('handles CRLF within field values', async () => {
@@ -204,7 +205,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(await partText(parts[0]!)).toBe('line1\r\nline2\r\nline3');
+    expect(await partText(at(parts, 0))).toBe('line1\r\nline2\r\nline3');
   });
 
   test('throws UnexpectedEnd on truncated stream', async () => {
@@ -239,7 +240,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, raw)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.filename).toBe('file"name.txt');
+    expect(at(parts, 0).filename).toBe('file"name.txt');
   });
 
   test('null bytes in filename are stripped', async () => {
@@ -255,7 +256,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, raw)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.filename).toBe('evil.php.jpg');
+    expect(at(parts, 0).filename).toBe('evil.php.jpg');
   });
 
   test('empty name in Content-Disposition throws MalformedHeader', async () => {
@@ -307,7 +308,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.filename).toBe('../../etc/passwd');
+    expect(at(parts, 0).filename).toBe('../../etc/passwd');
   });
 
   test('boundary at max length (70 chars) works', async () => {
@@ -319,7 +320,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(await partText(parts[0]!)).toBe('ok');
+    expect(await partText(at(parts, 0))).toBe('ok');
   });
 
   test('boundary too long (71 chars) throws error', async () => {
@@ -391,7 +392,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, body)));
 
     expect(parts).toHaveLength(1);
-    expect(await partText(parts[0]!)).toBe('before\r\nafter');
+    expect(await partText(at(parts, 0))).toBe('before\r\nafter');
   });
 
   test('concurrent parse calls on same instance both succeed independently', async () => {
@@ -429,7 +430,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, raw)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.filename).toBe('safe.png');
+    expect(at(parts, 0).filename).toBe('safe.png');
   });
 
   test('duplicate name= parameter: first-wins via regex', async () => {
@@ -444,7 +445,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, raw)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe('first');
+    expect(at(parts, 0).name).toBe('first');
   });
 
   test('duplicate Content-Disposition headers: first-wins', async () => {
@@ -461,8 +462,8 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, raw)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe('first');
-    expect(parts[0]!.filename).toBe('one.txt');
+    expect(at(parts, 0).name).toBe('first');
+    expect(at(parts, 0).filename).toBe('one.txt');
   });
 
   test('duplicate Content-Type headers: first-wins', async () => {
@@ -479,7 +480,7 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, raw)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.contentType).toBe('text/plain');
+    expect(at(parts, 0).contentType).toBe('text/plain');
   });
 
   test('stream with data but no boundary throws UnexpectedEnd', async () => {
@@ -526,8 +527,8 @@ describe('Multipart — edge cases', () => {
     const parts = await collectParts(mp.parse(createRequest(boundary, raw)));
 
     expect(parts).toHaveLength(1);
-    expect(parts[0]!.name).toBe('field');
-    expect(await partText(parts[0]!)).toBe('value');
+    expect(at(parts, 0).name).toBe('field');
+    expect(await partText(at(parts, 0))).toBe('value');
   });
 
   test('stream ending in AfterBoundary state throws UnexpectedEnd', async () => {
