@@ -133,22 +133,31 @@ function asInt(v: unknown): number | undefined {
 }
 
 function normalizeLegacy(parsed: unknown): CspReportNormalized {
-  const safe = Object.create(null) as CspReportNormalized;
-  safe.source = 'legacy';
+  const safe: CspReportNormalized = Object.assign(Object.create(null), { source: 'legacy' as const });
   if (typeof parsed !== 'object' || parsed === null) return safe;
   const wrapper = parsed as Record<string, unknown>;
   const body = (pick(wrapper, 'csp-report') as Record<string, unknown> | undefined) ?? wrapper;
-  safe.blockedUri = asString(pick(body, 'blocked-uri'));
-  safe.documentUri = asString(pick(body, 'document-uri'));
-  safe.effectiveDirective = asString(pick(body, 'effective-directive'));
-  safe.violatedDirective = asString(pick(body, 'violated-directive'));
+  const blockedUri = asString(pick(body, 'blocked-uri'));
+  const documentUri = asString(pick(body, 'document-uri'));
+  const effectiveDirective = asString(pick(body, 'effective-directive'));
+  const violatedDirective = asString(pick(body, 'violated-directive'));
+  const originalPolicy = asString(pick(body, 'original-policy'));
+  const referrer = asString(pick(body, 'referrer'));
+  const statusCode = asInt(pick(body, 'status-code'));
+  const sourceFile = asString(pick(body, 'source-file'));
+  const lineNumber = asInt(pick(body, 'line-number'));
+  const columnNumber = asInt(pick(body, 'column-number'));
+  if (blockedUri !== undefined) safe.blockedUri = blockedUri;
+  if (documentUri !== undefined) safe.documentUri = documentUri;
+  if (effectiveDirective !== undefined) safe.effectiveDirective = effectiveDirective;
+  if (violatedDirective !== undefined) safe.violatedDirective = violatedDirective;
   safe.disposition = pick(body, 'disposition') === 'report' ? 'report' : 'enforce';
-  safe.originalPolicy = asString(pick(body, 'original-policy'));
-  safe.referrer = asString(pick(body, 'referrer'));
-  safe.statusCode = asInt(pick(body, 'status-code'));
-  safe.sourceFile = asString(pick(body, 'source-file'));
-  safe.lineNumber = asInt(pick(body, 'line-number'));
-  safe.columnNumber = asInt(pick(body, 'column-number'));
+  if (originalPolicy !== undefined) safe.originalPolicy = originalPolicy;
+  if (referrer !== undefined) safe.referrer = referrer;
+  if (statusCode !== undefined) safe.statusCode = statusCode;
+  if (sourceFile !== undefined) safe.sourceFile = sourceFile;
+  if (lineNumber !== undefined) safe.lineNumber = lineNumber;
+  if (columnNumber !== undefined) safe.columnNumber = columnNumber;
   return safe;
 }
 
@@ -160,19 +169,28 @@ function normalizeReportingApi(parsed: unknown): CspReportNormalized[] {
     if (typeof item !== 'object' || item === null) continue;
     const body = (item as Record<string, unknown>).body as Record<string, unknown> | undefined;
     if (body === undefined) continue;
-    const safe = Object.create(null) as CspReportNormalized;
-    safe.source = 'reporting-api';
-    safe.blockedUri = asString(pick(body, 'blockedURL'));
-    safe.documentUri = asString(pick(body, 'documentURL'));
-    safe.effectiveDirective = asString(pick(body, 'effectiveDirective'));
+    const safe: CspReportNormalized = Object.assign(Object.create(null), { source: 'reporting-api' as const });
+    const blockedUri = asString(pick(body, 'blockedURL'));
+    const documentUri = asString(pick(body, 'documentURL'));
+    const effectiveDirective = asString(pick(body, 'effectiveDirective'));
+    const originalPolicy = asString(pick(body, 'originalPolicy'));
+    const referrer = asString(pick(body, 'referrer'));
+    const sample = asString(pick(body, 'sample'));
+    const statusCode = asInt(pick(body, 'statusCode'));
+    const sourceFile = asString(pick(body, 'sourceFile'));
+    const lineNumber = asInt(pick(body, 'lineNumber'));
+    const columnNumber = asInt(pick(body, 'columnNumber'));
+    if (blockedUri !== undefined) safe.blockedUri = blockedUri;
+    if (documentUri !== undefined) safe.documentUri = documentUri;
+    if (effectiveDirective !== undefined) safe.effectiveDirective = effectiveDirective;
     safe.disposition = pick(body, 'disposition') === 'report' ? 'report' : 'enforce';
-    safe.originalPolicy = asString(pick(body, 'originalPolicy'));
-    safe.referrer = asString(pick(body, 'referrer'));
-    safe.sample = asString(pick(body, 'sample'));
-    safe.statusCode = asInt(pick(body, 'statusCode'));
-    safe.sourceFile = asString(pick(body, 'sourceFile'));
-    safe.lineNumber = asInt(pick(body, 'lineNumber'));
-    safe.columnNumber = asInt(pick(body, 'columnNumber'));
+    if (originalPolicy !== undefined) safe.originalPolicy = originalPolicy;
+    if (referrer !== undefined) safe.referrer = referrer;
+    if (sample !== undefined) safe.sample = sample;
+    if (statusCode !== undefined) safe.statusCode = statusCode;
+    if (sourceFile !== undefined) safe.sourceFile = sourceFile;
+    if (lineNumber !== undefined) safe.lineNumber = lineNumber;
+    if (columnNumber !== undefined) safe.columnNumber = columnNumber;
     out.push(safe);
   }
   return out;

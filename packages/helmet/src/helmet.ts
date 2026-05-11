@@ -144,17 +144,17 @@ export class Helmet {
   // Each returns a single [name, value] tuple after a one-shot validate.
 
   public static csp(input?: HelmetOptions['contentSecurityPolicy']): HeaderEntry {
-    return Helmet.create({ contentSecurityPolicy: input })
+    return Helmet.create(input !== undefined ? { contentSecurityPolicy: input } : undefined)
       .__entriesByName(HttpHeader.ContentSecurityPolicy)!;
   }
 
   public static hsts(input?: HelmetOptions['strictTransportSecurity']): HeaderEntry {
-    return Helmet.create({ strictTransportSecurity: input })
+    return Helmet.create(input !== undefined ? { strictTransportSecurity: input } : undefined)
       .__entriesByName(HttpHeader.StrictTransportSecurity)!;
   }
 
   public static permissionsPolicy(input?: HelmetOptions['permissionsPolicy']): HeaderEntry {
-    const helmet = Helmet.create({ permissionsPolicy: input });
+    const helmet = Helmet.create(input !== undefined ? { permissionsPolicy: input } : undefined);
     const entry = helmet.__entriesByName(HttpHeader.PermissionsPolicy);
     if (entry === undefined) {
       throw new HelmetError([
@@ -169,12 +169,12 @@ export class Helmet {
   }
 
   public static referrerPolicy(input?: HelmetOptions['referrerPolicy']): HeaderEntry {
-    return Helmet.create({ referrerPolicy: input })
+    return Helmet.create(input !== undefined ? { referrerPolicy: input } : undefined)
       .__entriesByName(HttpHeader.ReferrerPolicy)!;
   }
 
   public static xFrameOptions(input?: HelmetOptions['xFrameOptions']): HeaderEntry {
-    return Helmet.create({ xFrameOptions: input })
+    return Helmet.create(input !== undefined ? { xFrameOptions: input } : undefined)
       .__entriesByName(HttpHeader.XFrameOptions)!;
   }
 
@@ -183,22 +183,22 @@ export class Helmet {
   }
 
   public static crossOriginOpenerPolicy(input?: HelmetOptions['crossOriginOpenerPolicy']): HeaderEntry {
-    return Helmet.create({ crossOriginOpenerPolicy: input })
+    return Helmet.create(input !== undefined ? { crossOriginOpenerPolicy: input } : undefined)
       .__entriesByName(HttpHeader.CrossOriginOpenerPolicy)!;
   }
 
   public static crossOriginResourcePolicy(input?: HelmetOptions['crossOriginResourcePolicy']): HeaderEntry {
-    return Helmet.create({ crossOriginResourcePolicy: input })
+    return Helmet.create(input !== undefined ? { crossOriginResourcePolicy: input } : undefined)
       .__entriesByName(HttpHeader.CrossOriginResourcePolicy)!;
   }
 
   public static crossOriginEmbedderPolicy(input?: HelmetOptions['crossOriginEmbedderPolicy']): HeaderEntry {
-    const helmet = Helmet.create({ crossOriginEmbedderPolicy: input });
+    const helmet = Helmet.create(input !== undefined ? { crossOriginEmbedderPolicy: input } : undefined);
     return helmet.__entriesByName(HttpHeader.CrossOriginEmbedderPolicy)!;
   }
 
   public static originAgentCluster(input?: HelmetOptions['originAgentCluster']): HeaderEntry {
-    return Helmet.create({ originAgentCluster: input })
+    return Helmet.create(input !== undefined ? { originAgentCluster: input } : undefined)
       .__entriesByName(HttpHeader.OriginAgentCluster)!;
   }
 
@@ -579,9 +579,13 @@ function rebuildOptions(r: ResolvedHelmetOptions): HelmetOptions {
     };
   }
   opts.crossOriginOpenerPolicy = r.crossOriginOpenerPolicy === false ? false : r.crossOriginOpenerPolicy;
-  opts.crossOriginOpenerPolicyReportOnly = r.crossOriginOpenerPolicyReportOnly;
+  if (r.crossOriginOpenerPolicyReportOnly !== undefined) {
+    opts.crossOriginOpenerPolicyReportOnly = r.crossOriginOpenerPolicyReportOnly;
+  }
   opts.crossOriginEmbedderPolicy = r.crossOriginEmbedderPolicy === false ? false : r.crossOriginEmbedderPolicy;
-  opts.crossOriginEmbedderPolicyReportOnly = r.crossOriginEmbedderPolicyReportOnly;
+  if (r.crossOriginEmbedderPolicyReportOnly !== undefined) {
+    opts.crossOriginEmbedderPolicyReportOnly = r.crossOriginEmbedderPolicyReportOnly;
+  }
   opts.crossOriginResourcePolicy = r.crossOriginResourcePolicy === false ? false : r.crossOriginResourcePolicy;
   opts.originAgentCluster = r.originAgentCluster;
   if (r.permissionsPolicy !== false) {
@@ -634,7 +638,14 @@ function rebuildOptions(r: ResolvedHelmetOptions): HelmetOptions {
   if (r.cacheControl !== false && r.cacheControl !== undefined) {
     opts.cacheControl = { ...r.cacheControl };
   }
-  if (r.nel !== undefined) opts.nel = { ...r.nel };
+  if (r.nel !== undefined) {
+    const { successFraction, failureFraction, ...rest } = r.nel;
+    opts.nel = {
+      ...rest,
+      ...(successFraction !== undefined && { successFraction }),
+      ...(failureFraction !== undefined && { failureFraction }),
+    };
+  }
   if (r.timingAllowOrigin !== undefined) opts.timingAllowOrigin = [...r.timingAllowOrigin];
   if (r.xRobotsTag !== false && r.xRobotsTag !== undefined) {
     opts.xRobotsTag = { directives: [...r.xRobotsTag.directives] };
