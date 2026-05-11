@@ -30,7 +30,6 @@
     "@zipbul/core": "workspace:*",
     "@zipbul/logger": "workspace:*",
     "@zipbul/result": "workspace:*",
-    "@zipbul/router": "workspace:*",
     "@zipbul/shared": "workspace:*",
     "http-status-codes": "catalog:"
   },
