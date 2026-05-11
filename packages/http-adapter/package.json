@@ -16,7 +16,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun ../../packages/cli/src/bin/zb.ts build adapter"
+    "build": "bun ../../packages/cli/src/bin/zb.ts build adapter",
+    "test": "bun test",
+    "coverage": "bun test --coverage"
   },
   "repository": {
     "type": "git",
@@ -27,9 +29,9 @@
     "@zipbul/common": "workspace:*",
     "@zipbul/core": "workspace:*",
     "@zipbul/logger": "workspace:*",
-    "@zipbul/result": "catalog:",
-    "@zipbul/router": "catalog:",
-    "@zipbul/shared": "catalog:",
+    "@zipbul/result": "workspace:*",
+    "@zipbul/router": "workspace:*",
+    "@zipbul/shared": "workspace:*",
     "http-status-codes": "catalog:"
   },
   "devDependencies": {
@@ -52,5 +54,29 @@
   },
   "zipbul": {
     "kind": "adapter"
-  }
+  },
+  "sideEffects": false,
+  "author": "Junhyung Park (https://github.com/parkrevil)",
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "bugs": {
+    "url": "https://github.com/zipbul/zipbul/issues"
+  },
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/http-adapter#readme",
+  "keywords": [
+    "http",
+    "server",
+    "adapter",
+    "router",
+    "middleware",
+    "fetch",
+    "web-api",
+    "bun",
+    "typescript",
+    "zipbul"
+  ]
 }

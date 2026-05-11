@@ -31,32 +31,15 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - name: Build common
-        run: bun run build
-        working-directory: packages/common
-
-      - name: Build logger
-        run: bun run build
-        working-directory: packages/logger
-
-      - name: Build core
-        run: bun run build
-        working-directory: packages/core
-
-      - name: Build http-adapter
-        run: bun run build
-        working-directory: packages/http-adapter
-
-      - name: Build cli
-        run: bun run build
-        working-directory: packages/cli
+      - name: Build all publishable packages
+        run: bun run --filter '@zipbul/*' build
 
       - name: Create Release PR or Publish
         id: changesets
         uses: changesets/action@v1
         with:
-          publish: bun run scripts/publish.ts
           version: bunx changeset version
+          publish: bun run release:publish
           title: "chore: version packages"
           commit: "chore: version packages"
         env:

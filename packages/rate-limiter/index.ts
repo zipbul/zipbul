@@ -1,0 +1,17 @@
+import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
+
+export { RateLimiter } from './src/rate-limiter';
+export { RateLimiterError } from './src/interfaces';
+export type { RateLimiterErrorData, RateLimiterOptions, RateLimitRule, ConsumeOptions, RateLimiterHooks } from './src/interfaces';
+export type { RateLimitAllowResult, RateLimitDenyResult } from './src/interfaces';
+export type { RateLimiterStore, StoreEntry } from './src/interfaces';
+export { RateLimitAction, RateLimiterErrorReason, Algorithm } from './src/enums';
+export type { RateLimitResult } from './src/types';
+export { MemoryStore } from './src/stores/memory';
+export type { MemoryStoreOptions } from './src/stores/memory';
+export { RedisStore } from './src/stores/redis';
+export type { RedisClient, RedisStoreOptions } from './src/stores/redis';
+export { withFallback, WithFallbackStore } from './src/stores/with-fallback';
+export type { WithFallbackOptions } from './src/stores/with-fallback';
+
+export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;

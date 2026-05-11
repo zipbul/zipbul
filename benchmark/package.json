@@ -11,8 +11,8 @@
     "@zipbul/core": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
     "@zipbul/logger": "workspace:*",
-    "@zipbul/router": "catalog:",
-    "@zipbul/shared": "catalog:",
+    "@zipbul/router": "workspace:*",
+    "@zipbul/shared": "workspace:*",
     "http-status-codes": "catalog:"
   },
   "devDependencies": {

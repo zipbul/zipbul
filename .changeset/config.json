@@ -7,5 +7,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["zipbul-examples"]
+  "ignore": ["zipbul-examples", "zipbul-benchmark", "@zipbul/example-stamp-middleware"]
 }

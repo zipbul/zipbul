@@ -1,3 +1,5 @@
+import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
+
 export { createApplication, Application, type AdapterEntry, type AdapterOptions, type AttachOptions } from './src/application';
 export { defineModule, type DefineModuleOptions } from './src/module';
 export { getBootstrapState, registerBootstrapState } from './src/runtime/bootstrap-state';
@@ -16,3 +18,5 @@ export { handlerResultKey } from './src/adapter/adapter';
 export { CoreStep } from './src/adapter/enums';
 export { inject, lazy, runInInjectionContext } from './src/injection-context';
 export { getAdapterContext, runInAdapterContext } from './src/adapter-context';
+
+export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;

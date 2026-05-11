@@ -15,7 +15,7 @@
     "@zipbul/http-adapter": "workspace:*",
     "@zipbul/example-stamp-middleware": "workspace:*",
     "@zipbul/logger": "workspace:*",
-    "@zipbul/result": "catalog:"
+    "@zipbul/result": "workspace:*"
   },
   "devDependencies": {
     "@zipbul/cli": "workspace:*",

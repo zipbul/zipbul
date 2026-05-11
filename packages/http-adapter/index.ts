@@ -1,3 +1,5 @@
+import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
+
 export { HttpAdapter } from './src/http-adapter';
 export { adapterDefinition } from './src/adapter-definition';
 
@@ -36,3 +38,5 @@ export type { ServerSentEventOptions } from './src/server-sent-event';
 export { RestController, Controller } from './src/decorators/class.decorator';
 export { Delete, Get, Head, Method, Options, Patch, Post, Put } from './src/decorators/method.decorator';
 export { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './src/decorators/method-option.decorator';
+
+export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;

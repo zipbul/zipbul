@@ -1,5 +1,5 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
     "declaration": true,
@@ -7,6 +7,11 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["index.ts", "src"],
-  "exclude": ["src/**/*.spec.ts"]
+  "include": [
+    "index.ts",
+    "src"
+  ],
+  "exclude": [
+    "src/**/*.spec.ts"
+  ]
 }

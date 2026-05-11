@@ -1,3 +1,5 @@
+import { name as __pkgName, version as __pkgVersion } from '../package.json' with { type: 'json' };
+
 export { contextKey } from './context-key';
 export type { ContextKey } from './context-key';
 
@@ -120,3 +122,5 @@ export {
   VISIBILITY_ALL, VISIBILITY_MODULE, VISIBILITY_ALLOWLIST,
   SCOPE_SINGLETON, SCOPE_REQUEST, SCOPE_TRANSIENT,
 } from './constants';
+
+export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;

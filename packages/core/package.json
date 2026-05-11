@@ -20,7 +20,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build index.ts src/cluster/application-worker.ts --outdir dist --target bun --format esm --packages external --minify-syntax --minify-whitespace && tsc -p tsconfig.build.json"
+    "build": "bun build index.ts src/cluster/application-worker.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "test": "bun test",
+    "coverage": "bun test --coverage"
   },
   "repository": {
     "type": "git",
@@ -31,11 +33,33 @@
     "@zipbul/baker": "catalog:",
     "@zipbul/common": "workspace:*",
     "@zipbul/logger": "workspace:*",
-    "@zipbul/result": "catalog:",
-    "exponential-backoff": "catalog:"
+    "@zipbul/result": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
     "typescript": "catalog:"
-  }
+  },
+  "sideEffects": false,
+  "author": "Junhyung Park (https://github.com/parkrevil)",
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "bugs": {
+    "url": "https://github.com/zipbul/zipbul/issues"
+  },
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/core#readme",
+  "keywords": [
+    "di",
+    "dependency-injection",
+    "container",
+    "application",
+    "module",
+    "framework",
+    "bun",
+    "typescript",
+    "zipbul"
+  ]
 }
