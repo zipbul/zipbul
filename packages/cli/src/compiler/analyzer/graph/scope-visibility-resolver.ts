@@ -50,7 +50,7 @@ export function assertVisibility(
 
   if (targetProvider.visibility === VISIBILITY_MODULE) {
     throw new Error(
-      `[Zipbul AOT] Visibility Violation: '${sourceLabel}' in module '${node.name}' tries to inject '${depToken}' from '${targetModule.name}', but it is module-only.`,
+      `Visibility Violation: '${sourceLabel}' in module '${node.name}' tries to inject '${depToken}' from '${targetModule.name}', but it is module-only.`,
     );
   }
 
@@ -58,7 +58,7 @@ export function assertVisibility(
 
   if (!allowlist.includes(node.name)) {
     throw new Error(
-      `[Zipbul AOT] Visibility Violation: '${sourceLabel}' in module '${node.name}' tries to inject '${depToken}' from '${targetModule.name}', but it is not allowlisted.`,
+      `Visibility Violation: '${sourceLabel}' in module '${node.name}' tries to inject '${depToken}' from '${targetModule.name}', but it is not allowlisted.`,
     );
   }
 }
@@ -96,17 +96,17 @@ export function resolveVisibility(
       return { kind: 'module' };
     }
 
-    throw new Error(`[Zipbul AOT] Invalid Injectable visibleTo value: '${visibleTo}'.`);
+    throw new Error(`Invalid Injectable visibleTo value: '${visibleTo}'.`);
   }
 
   const arrayValue = isAnalyzerValueArray(visibleTo) ? visibleTo : null;
 
   if (arrayValue === null) {
-    throw new Error('[Zipbul AOT] Injectable visibleTo must be "all", "module", or ModuleMarkerList.');
+    throw new Error('Injectable visibleTo must be "all", "module", or ModuleMarkerList.');
   }
 
   if (arrayValue.length === 0) {
-    throw new Error('[Zipbul AOT] Injectable visibleTo allowlist must not be empty.');
+    throw new Error('Injectable visibleTo allowlist must not be empty.');
   }
 
   const resolved = arrayValue
@@ -114,7 +114,7 @@ export function resolveVisibility(
     .filter((value): value is string => typeof value === 'string');
 
   if (resolved.length !== arrayValue.length) {
-    throw new Error('[Zipbul AOT] Injectable visibleTo contains non-determinable module markers.');
+    throw new Error('Injectable visibleTo contains non-determinable module markers.');
   }
 
   const unique = Array.from(new Set(resolved)).sort(compareCodePoint);
@@ -148,7 +148,7 @@ export function resolveScope(
     return SCOPE_REQUEST;
   }
 
-  throw new Error(`[Zipbul AOT] Invalid provider scope '${raw}'.`);
+  throw new Error(`Invalid provider scope '${raw}'.`);
 }
 
 /**
@@ -214,7 +214,7 @@ export function checkHeritageScopes(
     const parentScope = parentProvider.scope ?? SCOPE_SINGLETON;
     if (sourceScope === SCOPE_SINGLETON && parentScope === SCOPE_REQUEST) {
       throw new Error(
-        `[Zipbul AOT] Scope Violation: Singleton '${providerToken}' inherits Request-Scoped dependency through '${child.symbolName}'.`,
+        `Scope Violation: Singleton '${providerToken}' inherits Request-Scoped dependency through '${child.symbolName}'.`,
       );
     }
 

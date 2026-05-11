@@ -1,75 +1,20 @@
-import { visitorKeys } from '@zipbul/gildash';
-import type { ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
-import type {
-  Node as AstNode, Directive, Statement, Expression,
-  Class, PropertyDefinition,
-  VariableDeclaration,
-  CallExpression,
-  Function as OxcFunction,
-} from 'oxc-parser';
+import { is } from '@zipbul/gildash';
+import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 
 /**
- * Checks whether a value is an oxc-parser AST node.
- *
- * @param value - The value to test
- * @returns `true` if the value is an object with a string `type` property
- */
-export function isAstNode(value: unknown): value is AstNode {
-  return typeof value === 'object' && value !== null && 'type' in value
-    && typeof (value as Record<string, unknown>).type === 'string';
-}
-
-/**
- * Walks child AST nodes of a parent node using oxc-parser's `visitorKeys`.
- *
- * Unlike manual `Object.keys()` enumeration, this only traverses keys that
- * are known to contain AST children -- avoiding structural fields like `type`,
- * `start`, `end`, and `parent`.
- *
- * @param node - The parent AST node whose children should be visited
- * @param visitor - Callback invoked for each child AST node
- */
-export function walkChildren(node: AstNode, visitor: (child: AstNode) => void): void {
-  const keys = visitorKeys[node.type];
-
-  if (!keys) {
-    return;
-  }
-
-  for (const key of keys) {
-    const child = (node as unknown as Record<string, unknown>)[key];
-
-    if (Array.isArray(child)) {
-      for (const item of child) {
-        if (isAstNode(item)) {
-          visitor(item);
-        }
-      }
-    } else if (isAstNode(child)) {
-      visitor(child);
-    }
-  }
-}
-
-/**
- * Extracts the string key name from a class member key AST node.
- *
+ * Extracts the string key name from a class member key node.
  * Handles `Identifier`, `PrivateIdentifier`, and string `Literal` keys.
- * Returns `null` for computed or non-string keys.
- *
- * @param key - The property key AST node
- * @returns The resolved key name, or `null` if unresolvable
  */
-function getPropertyKeyName(key: AstNode): string | null {
-  if (key.type === 'Identifier') {
+function getPropertyKeyName(key: Node): string | null {
+  if (is.Identifier(key)) {
     return key.name;
   }
 
-  if (key.type === 'PrivateIdentifier') {
+  if (is.PrivateIdentifier(key)) {
     return key.name;
   }
 
-  if (key.type === 'Literal' && typeof key.value === 'string') {
+  if (is.Literal(key) && typeof key.value === 'string') {
     return key.value;
   }
 
@@ -80,14 +25,24 @@ function getPropertyKeyName(key: AstNode): string | null {
  * Extracts the method name from a `CallExpression` callee that is a
  * static `MemberExpression` (e.g., `this.addMiddlewares(...)`).
  *
- * @param node - The call expression AST node
- * @returns The property name string, or `null` if not a static member call
+ * Returns `null` if `node` is not a `CallExpression` or its callee is not
+ * a static member expression.
  */
-export function getCalleeMethodName(node: CallExpression): string | null {
+export function getCalleeMethodName(node: Node): string | null {
+  if (!is.CallExpression(node)) {
+    return null;
+  }
+
   const callee = node.callee;
 
-  if (callee.type === 'MemberExpression' && !callee.computed) {
-    return callee.property.name;
+  if (is.MemberExpression(callee) && !callee.computed) {
+    if (is.Identifier(callee.property)) {
+      return callee.property.name;
+    }
+
+    if (is.PrivateIdentifier(callee.property)) {
+      return callee.property.name;
+    }
   }
 
   return null;
@@ -95,19 +50,17 @@ export function getCalleeMethodName(node: CallExpression): string | null {
 
 /**
  * Extracts a `VariableDeclaration` from a statement, unwrapping export wrappers.
- *
- * @param stmt - A top-level statement or directive
- * @returns The `VariableDeclaration` node, or `null` if the statement is not one
+ * Returns the variable declaration node, or `null` if the statement is not one.
  */
-function extractVariableDeclaration(stmt: Directive | Statement): VariableDeclaration | null {
-  if (stmt.type === 'VariableDeclaration') {
+function extractVariableDeclaration(stmt: Node): Node | null {
+  if (is.VariableDeclaration(stmt)) {
     return stmt;
   }
 
-  if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+  if (is.ExportNamedDeclaration(stmt) || is.ExportDefaultDeclaration(stmt)) {
     const decl = stmt.declaration;
 
-    if (decl?.type === 'VariableDeclaration') {
+    if (decl && is.VariableDeclaration(decl)) {
       return decl;
     }
   }
@@ -116,20 +69,18 @@ function extractVariableDeclaration(stmt: Directive | Statement): VariableDeclar
 }
 
 /**
- * Extracts a `FunctionDeclaration` from a statement, unwrapping export wrappers.
- *
- * @param stmt - A top-level statement or directive
- * @returns The function AST node, or `null` if the statement is not a function declaration
+ * Extracts a function declaration node from a statement, unwrapping export wrappers.
+ * Returns the function node (FunctionDeclaration), or `null`.
  */
-function extractFunctionDeclaration(stmt: Directive | Statement): OxcFunction | null {
-  if (stmt.type === 'FunctionDeclaration') {
+function extractFunctionDeclaration(stmt: Node): Node | null {
+  if (is.FunctionDeclaration(stmt)) {
     return stmt;
   }
 
-  if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+  if (is.ExportNamedDeclaration(stmt) || is.ExportDefaultDeclaration(stmt)) {
     const decl = stmt.declaration;
 
-    if (decl?.type === 'FunctionDeclaration') {
+    if (decl && is.FunctionDeclaration(decl)) {
       return decl;
     }
   }
@@ -138,25 +89,39 @@ function extractFunctionDeclaration(stmt: Directive | Statement): OxcFunction | 
 }
 
 /**
- * Extracts a `Class` node from a statement, unwrapping export wrappers.
- *
- * @param stmt - A top-level statement or directive
- * @returns The class AST node, or `null` if the statement is not a class declaration
+ * Extracts a class declaration node from a statement, unwrapping export wrappers.
+ * Returns the class node, or `null`.
  */
-function extractClassFromStatement(stmt: Directive | Statement): Class | null {
-  if (stmt.type === 'ClassDeclaration') {
+function extractClassFromStatement(stmt: Node): Node | null {
+  if (is.ClassDeclaration(stmt)) {
     return stmt;
   }
 
-  if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+  if (is.ExportNamedDeclaration(stmt) || is.ExportDefaultDeclaration(stmt)) {
     const decl = stmt.declaration;
 
-    if (decl?.type === 'ClassDeclaration') {
+    if (decl && is.ClassDeclaration(decl)) {
       return decl;
     }
   }
 
   return null;
+}
+
+/**
+ * Iterates declarators of a `VariableDeclaration` node.
+ */
+function* iterDeclarators(varDecl: Node): IterableIterator<{ name: string | null; init: Node | null }> {
+  if (!is.VariableDeclaration(varDecl)) {
+    return;
+  }
+
+  for (const decl of varDecl.declarations) {
+    const declName = is.Identifier(decl.id) ? decl.id.name : null;
+    const init = decl.init ?? null;
+
+    yield { name: declName, init };
+  }
 }
 
 /**
@@ -164,24 +129,18 @@ function extractClassFromStatement(stmt: Directive | Statement): Class | null {
  *
  * Iterates all top-level statements, unwrapping export declarations, and returns
  * the `init` expression for the first variable declarator matching `variableName`.
- *
- * @param parsed - The parsed file AST
- * @param variableName - Name of the variable to locate
- * @returns The init AST node or `null`
  */
-export function findVariableInitAstNode(parsed: ParsedFile, variableName: string): Expression | null {
-  for (const stmt of parsed.program.body) {
+export function findVariableInitAstNode(parsed: ParsedFile, variableName: string): Node | null {
+  for (const stmt of parsed.program.body as readonly Node[]) {
     const varDecl = extractVariableDeclaration(stmt);
 
     if (varDecl === null) {
       continue;
     }
 
-    for (const decl of varDecl.declarations) {
-      const declName = decl.id.type === 'Identifier' ? decl.id.name : null;
-
-      if (declName === variableName && decl.init !== null) {
-        return decl.init;
+    for (const { name, init } of iterDeclarators(varDecl)) {
+      if (name === variableName && init !== null) {
+        return init;
       }
     }
   }
@@ -190,40 +149,28 @@ export function findVariableInitAstNode(parsed: ParsedFile, variableName: string
 }
 
 /**
- * Extracts the source text of a function declaration by name from the raw AST.
- *
- * Used for gildash `kind: 'function'` symbols that don't have an initializer
- * (standalone function declarations vs arrow function variables).
- *
- * @param parsed - Parsed file AST
- * @param functionName - Name of the function
- * @param code - The full source code string used for slicing
- * @returns Source text of the function body, or empty string
+ * Extracts the source text of a function declaration (or arrow function variable)
+ * by name from the raw AST.
  */
 export function extractFunctionSourceText(parsed: ParsedFile, functionName: string, code: string): string {
-  for (const stmt of parsed.program.body) {
+  for (const stmt of parsed.program.body as readonly Node[]) {
     const funcDecl = extractFunctionDeclaration(stmt);
 
     if (funcDecl !== null) {
-      if (funcDecl.id?.name === functionName) {
+      if (is.FunctionDeclaration(funcDecl) && funcDecl.id?.name === functionName) {
         return code.slice(funcDecl.start, funcDecl.end);
       }
 
       continue;
     }
 
-    // Arrow function assigned to variable: const name = () => ...
     const varDecl = extractVariableDeclaration(stmt);
 
     if (varDecl !== null) {
-      for (const decl of varDecl.declarations) {
-        const declName = decl.id.type === 'Identifier' ? decl.id.name : null;
-
-        if (declName === functionName && decl.init !== null) {
-          const initNode = decl.init;
-
-          if (initNode.type === 'ArrowFunctionExpression' || initNode.type === 'FunctionExpression') {
-            return code.slice(initNode.start, initNode.end);
+      for (const { name, init } of iterDeclarators(varDecl)) {
+        if (name === functionName && init !== null) {
+          if (is.ArrowFunctionExpression(init) || is.FunctionExpression(init)) {
+            return code.slice(init.start, init.end);
           }
         }
       }
@@ -235,20 +182,16 @@ export function extractFunctionSourceText(parsed: ParsedFile, functionName: stri
 
 /**
  * Checks whether a parsed file contains an anonymous class declaration.
- *
- * @param parsed - The parsed file AST
- * @param _symbol - The extracted symbol (reserved for future use)
- * @returns `true` if any top-level class declaration has no identifier
  */
 export function isAnonymousClassSymbol(parsed: ParsedFile, _symbol: ExtractedSymbol): boolean {
-  for (const stmt of parsed.program.body) {
+  for (const stmt of parsed.program.body as readonly Node[]) {
     const classNode = extractClassFromStatement(stmt);
 
     if (classNode === null) {
       continue;
     }
 
-    if (classNode.id === null) {
+    if (is.ClassDeclaration(classNode) && classNode.id === null) {
       return true;
     }
   }
@@ -257,26 +200,22 @@ export function isAnonymousClassSymbol(parsed: ParsedFile, _symbol: ExtractedSym
 }
 
 /**
- * Finds the raw `Class` AST node for a given class name in a parsed file.
+ * Finds the raw class declaration node for a given class name in a parsed file.
  *
  * Searches top-level statements including those wrapped in export declarations.
- *
- * @param parsed - The parsed file AST
- * @param className - Name of the class to find
- * @returns The `Class` AST node, or `null` if not found
  */
-export function findClassAstNode(parsed: ParsedFile, className: string): Class | null {
-  for (const stmt of parsed.program.body) {
-    if (stmt.type === 'ClassDeclaration') {
+export function findClassAstNode(parsed: ParsedFile, className: string): Node | null {
+  for (const stmt of parsed.program.body as readonly Node[]) {
+    if (is.ClassDeclaration(stmt)) {
       if (stmt.id?.name === className) {
         return stmt;
       }
     }
 
-    if (stmt.type === 'ExportNamedDeclaration' || stmt.type === 'ExportDefaultDeclaration') {
+    if (is.ExportNamedDeclaration(stmt) || is.ExportDefaultDeclaration(stmt)) {
       const declaration = stmt.declaration;
 
-      if (declaration?.type === 'ClassDeclaration' && declaration.id?.name === className) {
+      if (declaration && is.ClassDeclaration(declaration) && declaration.id?.name === className) {
         return declaration;
       }
     }
@@ -286,15 +225,18 @@ export function findClassAstNode(parsed: ParsedFile, className: string): Class |
 }
 
 /**
- * Finds the function body AST node for a named method in a class.
+ * Finds the function-value node for a named method in a class node.
  *
- * @param classNode - The `Class` AST node to search within
- * @param methodName - Name of the method
- * @returns The method's function value node (containing body), or `null`
+ * `classNode` must be a `ClassDeclaration` or `ClassExpression`. Returns the
+ * method's `value` (a `FunctionExpression`-like node), or `null`.
  */
-export function findMethodBodyAstNode(classNode: Class, methodName: string): OxcFunction | null {
-  for (const member of classNode.body.body) {
-    if (member.type !== 'MethodDefinition') {
+export function findMethodBodyAstNode(classNode: Node, methodName: string): Node | null {
+  if (!is.ClassDeclaration(classNode) && !is.ClassExpression(classNode)) {
+    return null;
+  }
+
+  for (const member of classNode.body.body as readonly Node[]) {
+    if (!is.MethodDefinition(member)) {
       continue;
     }
 
@@ -313,15 +255,15 @@ export function findMethodBodyAstNode(classNode: Class, methodName: string): Oxc
 }
 
 /**
- * Finds a `PropertyDefinition` AST node for a named property in a class.
- *
- * @param classNode - The `Class` AST node to search within
- * @param propName - Name of the property
- * @returns The `PropertyDefinition` node, or `null`
+ * Finds a `PropertyDefinition` node for a named property in a class node.
  */
-export function findPropertyAstNode(classNode: Class, propName: string): PropertyDefinition | null {
-  for (const member of classNode.body.body) {
-    if (member.type !== 'PropertyDefinition') {
+export function findPropertyAstNode(classNode: Node, propName: string): Node | null {
+  if (!is.ClassDeclaration(classNode) && !is.ClassExpression(classNode)) {
+    return null;
+  }
+
+  for (const member of classNode.body.body as readonly Node[]) {
+    if (!is.PropertyDefinition(member)) {
       continue;
     }
 
@@ -329,52 +271,6 @@ export function findPropertyAstNode(classNode: Class, propName: string): Propert
 
     if (name === propName) {
       return member;
-    }
-  }
-
-  return null;
-}
-
-/** Return type for {@link getMethodAstMeta}. */
-interface MethodAstMeta {
-  readonly isComputed: boolean;
-  readonly isPrivateName: boolean;
-  readonly start: number;
-}
-
-/**
- * Gets computed/private/static metadata for a method from the raw AST.
- *
- * @param classNode - The `Class` AST node to search within
- * @param methodName - Method name to look up
- * @returns Object with `isComputed`, `isPrivateName`, and `start`, or `null` if not found
- */
-export function getMethodAstMeta(
-  classNode: Class,
-  methodName: string,
-): MethodAstMeta | null {
-  for (const member of classNode.body.body) {
-    if (member.type !== 'MethodDefinition') {
-      continue;
-    }
-
-    if (member.kind !== 'method') {
-      continue;
-    }
-
-    const isComputed = member.computed;
-    const isPrivateName = member.key.type === 'PrivateIdentifier';
-    const name = getPropertyKeyName(member.key);
-
-    if (name === methodName) {
-      return { isComputed, isPrivateName, start: member.start };
-    }
-
-    // gildash gives "unknown" for computed methods -- match by checking
-    // if this is a computed/unresolvable method and the requested name
-    // is also "unknown"
-    if (methodName === 'unknown' && name === null && (isComputed || isPrivateName)) {
-      return { isComputed, isPrivateName, start: member.start };
     }
   }
 

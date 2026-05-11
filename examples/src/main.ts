@@ -1,9 +1,12 @@
 import { createApplication } from '@zipbul/core';
 import { HttpAdapter, HttpPhase } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
+import { stampMiddleware } from '@zipbul/example-stamp-middleware';
 
 import { requestTimingMiddleware } from './middleware/request-timing.middleware';
 import { appModule } from './module';
+import { TickAdapter, TickPhase } from './tick/tick';
+import { tickAuditMiddleware } from './tick/tick.middleware';
 import { UsersService } from './users/users.service';
 
 const logger = new Logger('App');
@@ -11,7 +14,14 @@ const logger = new Logger('App');
 const app = createApplication(appModule);
 
 const httpAdapter = app.attach(HttpAdapter, { port: 5000 });
-httpAdapter.addMiddlewares(HttpPhase.OnRequest, [requestTimingMiddleware()]);
+httpAdapter.addMiddlewares(HttpPhase.OnRequest, [requestTimingMiddleware(), stampMiddleware]);
+
+// Inline custom adapter — defined inside `src/tick/`, compiled by `zb build`
+// alongside the external HttpAdapter. Real periodic transport: a setInterval
+// drives tick rounds at the configured cadence; OnTick middleware fires
+// before each handler invocation; `app.stop()` halts the timer and drains.
+const tickAdapter = app.attach(TickAdapter, { intervalMs: 1500 });
+tickAdapter.addMiddlewares(TickPhase.OnTick, [tickAuditMiddleware]);
 
 await app.start();
 

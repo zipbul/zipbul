@@ -265,7 +265,7 @@ registerBootstrapState({
           : refName;
 
         if (!allKeys.has(refScopedKey)) {
-          throw new Error(`[Zipbul AOT] Class '${refName}' used in pipeline decorator is not registered as a provider. Add it to the module's providers array or decorate it with @Injectable().`);
+          throw new Error(`Class '${refName}' used in pipeline decorator is not registered as a provider. Add it to the module's providers array or decorate it with @Injectable().`);
         }
       }
 
@@ -432,7 +432,6 @@ registerBootstrapState({
     const sortedHandlerIndex = [...handlerIndex].sort((a, b) => compareCodePoint(a.id, b.id));
 
     return {
-      schemaVersion: '5',
       config: {
         sourcePath: PathResolver.normalize(source.path),
         sourceFormat: source.format,

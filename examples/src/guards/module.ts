@@ -1,5 +1,3 @@
 import { defineModule } from '@zipbul/core';
 
-const guardsModule = defineModule();
-
-export { guardsModule };
+export const guardsModule = defineModule();

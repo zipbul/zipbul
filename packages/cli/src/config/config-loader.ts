@@ -1,5 +1,7 @@
 import { basename, join, relative, resolve, sep } from 'path';
 
+import { Logger } from '@zipbul/logger';
+
 import type { ConfigLoadResult, JsonRecord, JsonValue, ResolvedConfig } from './interfaces';
 
 import { ConfigLoadError } from './errors';
@@ -24,10 +26,10 @@ export class ConfigLoader {
       : { path: jsoncPath, format: 'jsonc' as const };
 
     try {
-      // NOTE: Avoid emitting non-JSON noise to stderr. Some CLI commands (e.g. `zp mcp verify`)
-      // print structured diagnostics to stderr that tests parse as JSON.
       if (process.env.ZIPBUL_DEBUG_CONFIG === '1') {
-        console.info(`🔧 Loading config from ${candidate.path}`);
+        // Debug-only diagnostic — flows through Logger so it joins the same
+        // agent-line stream as the rest of CLI output (no separate format).
+        new Logger('zb/config').debug('loading from %s', candidate.path);
       }
 
       const resolved = await ConfigLoader.loadJsonConfig(candidate.path, cwd, candidate.format);

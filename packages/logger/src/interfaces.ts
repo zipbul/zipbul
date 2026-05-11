@@ -1,6 +1,6 @@
-import type { Color, LogLevel, LogMessage, LogMetadataRecord, LogMetadataValue } from './types';
+import type { LogLevel, LogMessage, LogMetadataRecord, LogMetadataValue } from './types';
 
-export type { Color, LogArgument, LogLevel, LogMessage, LogMetadataRecord, LogMetadataValue } from './types';
+export type { LogArgument, LogLevel, LogMessage, LogMetadataRecord, LogMetadataValue } from './types';
 
 export interface BaseLogMessage {
   level: LogLevel;
@@ -35,16 +35,16 @@ export type LogContextTarget = {
   readonly constructor?: LogContextConstructor;
 };
 
-export interface LoggerPrettyOptions {
-  colors?: Record<LogLevel, Color>;
-  columns?: Array<keyof LogMessage>;
-}
-
 export interface LoggerOptions {
   level?: LogLevel;
-
-  format?: 'pretty' | 'json';
-  prettyOptions?: LoggerPrettyOptions;
+  /**
+   * Output format.
+   *
+   * - `'plain'` (default in non-production): single-line agent-friendly
+   *   output, `<level>: [<context>[/<fn>]] <msg> [<key>=<val> ...]`.
+   * - `'json'` (default in production): NDJSON for log aggregation.
+   */
+  format?: 'plain' | 'json';
   transports?: Transport[];
 }
 

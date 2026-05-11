@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { parseSource, type ParsedFile } from '@zipbul/gildash';
+import { parseSource, type ParsedFile, type Node } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 
-import type { Function as OxcFunction, ArrowFunctionExpression, CallExpression } from 'oxc-parser';
 import { extractMiddlewareAugments } from './middleware-augment-extractor';
 
-function findDefineMiddlewareFactory(code: string): OxcFunction | ArrowFunctionExpression {
+function findDefineMiddlewareFactory(code: string): Node {
   const parseResult = parseSource('test.ts', code);
 
   if (isErr(parseResult)) throw new Error('parse failed');
@@ -17,11 +16,10 @@ function findDefineMiddlewareFactory(code: string): OxcFunction | ArrowFunctionE
     if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'VariableDeclaration') {
       for (const decl of stmt.declaration.declarations) {
         if (decl.init?.type === 'CallExpression') {
-          const call = decl.init as CallExpression;
-          const arg = call.arguments[0];
+          const arg = decl.init.arguments[0];
 
           if (arg && (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression')) {
-            return arg as ArrowFunctionExpression | OxcFunction;
+            return arg;
           }
         }
       }

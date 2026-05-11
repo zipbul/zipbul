@@ -4,8 +4,8 @@
   "type": "module",
   "module": "src/main.ts",
   "scripts": {
-    "build": "zb build",
-    "dev": "zb dev",
+    "build": "(cd ../packages/http-adapter && bun run build) && bun ../packages/cli/src/bin/zb.ts build",
+    "dev": "(cd ../packages/http-adapter && bun run build) && bun ../packages/cli/src/bin/zb.ts dev",
     "start": "bun dist/entry.js"
   },
   "dependencies": {
@@ -13,6 +13,7 @@
     "@zipbul/common": "workspace:*",
     "@zipbul/core": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
+    "@zipbul/example-stamp-middleware": "workspace:*",
     "@zipbul/logger": "workspace:*",
     "@zipbul/result": "catalog:"
   },

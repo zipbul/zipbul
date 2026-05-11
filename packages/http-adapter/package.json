@@ -16,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --minify-syntax --minify-whitespace && tsc -p tsconfig.build.json"
+    "build": "bun ../../packages/cli/src/bin/zb.ts build adapter"
   },
   "repository": {
     "type": "git",
@@ -49,5 +49,8 @@
   },
   "peerDependencies": {
     "@zipbul/baker": "catalog:"
+  },
+  "zipbul": {
+    "kind": "adapter"
   }
 }

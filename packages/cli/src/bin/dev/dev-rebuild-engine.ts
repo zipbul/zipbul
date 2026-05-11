@@ -7,17 +7,20 @@ import { isErr } from '@zipbul/result';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { writeIfChanged } from '../../common';
 import { buildFileAnalysis } from '../build/build-analysis';
-import { writeInterfaceCatalog, removeInterfaceCatalog, writeRuntimeReport, removeRuntimeReport } from '../build/build-artifact-writer';
+import { writeInterfaceCatalog, writeRuntimeReport } from '../build/build-artifact-writer';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
 import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
 import {
   validateContextDependencies,
   formatViolationMessage,
 } from '../../compiler/analyzer/adapter/context-dependency-validator';
-import { ContextTypesGenerator, ImportRegistry } from '../../compiler/generator';
+import { Logger } from '@zipbul/logger';
 
-import type { CliRendererLike, CollectedClass } from '../interfaces';
+import type { CollectedClass } from '../interfaces';
+import { reportDiagnostic } from '../report-diagnostic';
 import type { RebuildContext, RebuildOptions, RebuildResult } from './interfaces';
+
+const log = new Logger('dev/rebuild');
 
 /**
  * Computes a structural fingerprint for a file analysis result.
@@ -61,15 +64,14 @@ export function shouldAnalyzeFile(filePath: string): boolean {
  * @public
  */
 export async function analyzeFile(filePath: string, context: AnalyzeFileContext): Promise<boolean> {
-  const { parser, fileCache, fingerprintCache, renderer } = context;
+  const { parser, fileCache, fingerprintCache } = context;
 
   try {
     const fileContent = await Bun.file(filePath).text();
     const parseResult = await parser.parse(filePath, fileContent);
 
     if (isErr(parseResult)) {
-      renderer.diagnostic(parseResult.data);
-
+      reportDiagnostic(parseResult.data, 'dev/parse');
       return false;
     }
 
@@ -81,14 +83,7 @@ export async function analyzeFile(filePath: string, context: AnalyzeFileContext)
     return true;
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown parse error.';
-    const diagnostic = buildDiagnostic({
-      reason,
-      file: filePath,
-      cause: error,
-    });
-
-    renderer.diagnostic(diagnostic);
-
+    reportDiagnostic(buildDiagnostic({ reason, file: filePath, cause: error }), 'dev/parse');
     return false;
   }
 }
@@ -97,7 +92,6 @@ interface AnalyzeFileContext {
   parser: RebuildContext['parser'];
   fileCache: Map<string, FileAnalysis>;
   fingerprintCache: Map<string, string>;
-  renderer: CliRendererLike;
 }
 
 /**
@@ -121,7 +115,6 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
     projectRoot,
     config,
     configSource,
-    buildProfile,
     semanticAvailable,
     ledger,
   } = context;
@@ -133,15 +126,16 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
       if (hasCycle) {
         const cyclePaths = await ledger.getCyclePaths(undefined, { maxCycles: 3 });
         const summary = cyclePaths.map(c => c.join(' → ')).join('\n');
-        throw new DiagnosticError(
-          buildDiagnostic({ reason: `Circular import chain detected:\n${summary}` }),
-        );
+        throw new DiagnosticError(buildDiagnostic({
+          reason: `Circular import chain detected:\n${summary}`,
+          how: 'Break the cycle by extracting shared symbols into a third file or by switching one side to `import type` if the dependency is types-only. The watcher stays alive — fix the imports and save to retry.',
+        }));
       }
     } catch (cycleError) {
       if (cycleError instanceof DiagnosticError) {
         throw cycleError;
       }
-      /* Gildash cycle detection failure — ignore */
+      log.warn('cycle detection unavailable this rebuild (%s); circular imports may not be reported', cycleError);
     }
   }
 
@@ -154,7 +148,10 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
     await graph.validateInheritedScopes();
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Scope validation failed.';
-    throw new DiagnosticError(buildDiagnostic({ reason }));
+    throw new DiagnosticError(buildDiagnostic({
+      reason,
+      how: 'Check the offending @Injectable() / module visibility settings. A scope is inherited only if every parent module in the import chain permits it.',
+    }));
   }
 
   const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot, graph });
@@ -221,18 +218,13 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
 
   await writeIfChanged(join(outDir, 'runtime.ts'), runtimeResult);
 
-  // Generate context.d.ts — AOT declaration merging for middleware augments
+  // Collect middleware augments for build-time validation only.
+  // The .d.ts emission is the responsibility of `zb build middleware`
+  // (each middleware library ships its own `dist/context-augments.d.ts`).
   const augmentCollector = new MiddlewareAugmentCollector();
   const augmentResult = await augmentCollector.collect(fileMap, adapterResolution.adapterStaticSchemas);
 
   if (augmentResult.augments.length > 0) {
-    const contextTypesGen = new ContextTypesGenerator();
-    const contextRegistry = new ImportRegistry(outDir);
-    const contextDts = contextTypesGen.generate(augmentResult.augments, contextRegistry, augmentResult.adapterMap);
-
-    await writeIfChanged(join(outDir, 'context.d.ts'), contextDts);
-
-    // Validate handler context usages against registered middleware augments
     const usageWarnings = validateHandlerContextUsages(
       adapterResolution.handlerIndex,
       adapterResolution.handlerContextUsages,
@@ -241,7 +233,7 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
 
     for (const warning of usageWarnings) {
       graph.warnings.push(
-        `[Zipbul AOT] Handler '${warning.handlerId}' accesses '${warning.usagePath.join('.')}' which is provided by middleware '${warning.providedByMiddleware}', but that middleware is not registered for this handler.`,
+        `Handler '${warning.handlerId}' accesses '${warning.usagePath.join('.')}' which is provided by middleware '${warning.providedByMiddleware}', but that middleware is not registered for this handler.`,
       );
     }
   }
@@ -257,11 +249,12 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
 
   if (dependencyViolations.length > 0) {
     const summary = dependencyViolations
-      .map((v) => `[Zipbul AOT] ${formatViolationMessage(v)}`)
+      .map((v) => `${formatViolationMessage(v)}`)
       .join('\n\n');
-    throw new Error(
-      `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,
-    );
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `${dependencyViolations.length} context dependency violation(s):\n\n${summary}`,
+      how: 'Each violation lists the consumer and the missing producer middleware. Add the missing middleware to the relevant pipeline phase, or remove the dependency from the consumer.',
+    }));
   }
 
   // Generate entry.ts
@@ -270,30 +263,17 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
 
   await writeIfChanged(join(outDir, 'entry.ts'), entryContent);
 
-  if (!['minimal', 'standard', 'full'].includes(buildProfile)) {
-    throw new Error(`Invalid build profile: ${buildProfile}`);
-  }
-
   const interfaceCatalogPath = join(outDir, 'interface-catalog.json');
   const runtimeReportPath = join(outDir, 'runtime-report.json');
 
-  if (buildProfile === 'standard' || buildProfile === 'full') {
-    await writeInterfaceCatalog({
-      modules: graph.modules,
-      ledger,
-      semanticAvailable,
-      projectRoot,
-      catalogFilePath: interfaceCatalogPath,
-    });
-  } else {
-    await removeInterfaceCatalog(interfaceCatalogPath);
-  }
-
-  if (buildProfile === 'full') {
-    await writeRuntimeReport(runtimeReportPath);
-  } else {
-    await removeRuntimeReport(runtimeReportPath);
-  }
+  await writeInterfaceCatalog({
+    modules: graph.modules,
+    ledger,
+    semanticAvailable,
+    projectRoot,
+    catalogFilePath: interfaceCatalogPath,
+  });
+  await writeRuntimeReport(runtimeReportPath);
 
   return { graph, handlerIndex: adapterResolution.handlerIndex };
 }

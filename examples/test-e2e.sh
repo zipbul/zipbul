@@ -40,7 +40,9 @@ fi
 
 # --- Start app ---
 echo "[setup] Starting app..."
-bun dist/entry.js &
+APP_LOG=/tmp/zipbul-examples-e2e.log
+: > "$APP_LOG"
+bun dist/entry.js >"$APP_LOG" 2>&1 &
 APP_PID=$!
 sleep 3
 
@@ -183,6 +185,47 @@ assert_status "POST /billing/charge validation" "400" POST "/billing/charge" '{"
 # ═══════════════════════════════════════════════════════
 echo "[TODO 10] Same-named AuditService across modules"
 assert_status "Billing charge with AuditService" "200" POST "/billing/charge" '{"amount":100}'
+
+# ═══════════════════════════════════════════════════════
+# Inline TickAdapter — must coexist with HttpAdapter
+# ═══════════════════════════════════════════════════════
+echo "[Inline adapter] TickAdapter handler firing"
+# main.ts schedules tick handlers every 1500ms; wait for at least 2 rounds
+# so the assertion is not racing the first interval fire.
+sleep 2.0
+
+if grep -q "TickAdapter.*Scheduling 1 handlers every 1500ms" "$APP_LOG"; then
+  echo "  [PASS] TickAdapter scheduler started"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] TickAdapter scheduler did not start (log: $APP_LOG)"
+  FAIL=$((FAIL + 1))
+fi
+
+ROUND_COUNT=$(grep -c "Heartbeat.*round=" "$APP_LOG" || true)
+if [ "${ROUND_COUNT:-0}" -ge 1 ]; then
+  echo "  [PASS] Tick handler fired ($ROUND_COUNT rounds)"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] Tick handler never fired"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "TickMiddleware.*audit fired" "$APP_LOG"; then
+  echo "  [PASS] OnTick middleware fires before handler"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] OnTick middleware did not fire"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "ambient.round=.*same=true" "$APP_LOG"; then
+  echo "  [PASS] getAdapterContext() returns the dispatching ctx (runInAdapterContext wrap)"
+  PASS=$((PASS + 1))
+else
+  echo "  [FAIL] ambient context mismatch — runInAdapterContext wrap broken"
+  FAIL=$((FAIL + 1))
+fi
 
 # ═══════════════════════════════════════════════════════
 # TODO 3: Graceful shutdown

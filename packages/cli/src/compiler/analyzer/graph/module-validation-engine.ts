@@ -13,7 +13,7 @@ import { extractTokenName, collectReferencedTokens } from './token-resolver';
 import { assertVisibility, checkHeritageScopes } from './scope-visibility-resolver';
 import { extractDeps } from './provider-resolver';
 
-const logger = new Logger('ModuleValidation');
+const logger = new Logger('compiler/module-validation');
 
 /**
  * Validates visibility and scope rules across all modules.
@@ -66,7 +66,7 @@ export function validateVisibilityAndScope(
 
         if (sourceScope === SCOPE_SINGLETON && targetScope === SCOPE_REQUEST) {
           throw new Error(
-            `[Zipbul AOT] Scope Violation: Singleton '${provider.token}' cannot inject Request-Scoped '${depToken}'.`,
+            `Scope Violation: Singleton '${provider.token}' cannot inject Request-Scoped '${depToken}'.`,
           );
         }
       }
@@ -132,13 +132,13 @@ export function validateProviderImplementations(
 
           if (!implNames.has(cls)) {
             warnings.push(
-              `[Zipbul AOT] Provider '${cls}' in module '${node.name}' is registered for interface '${provider.token}' but does not implement it.`,
+              `Provider '${cls}' in module '${node.name}' is registered for interface '${provider.token}' but does not implement it.`,
             );
           }
         }
       } catch {
         warnings.push(
-          `[Zipbul AOT] Could not validate provider implementation for '${provider.token}' in module '${node.name}'. Symbol resolution failed.`,
+          `Could not validate provider implementation for '${provider.token}' in module '${node.name}'. Symbol resolution failed.`,
         );
       }
     }
@@ -202,7 +202,7 @@ export function validateProviderTypeCompatibility(
 
         if (compatible === false) {
           warnings.push(
-            `[Zipbul AOT] Provider '${implToken}' in module '${node.name}' is not assignable to '${token}'.`,
+            `Provider '${implToken}' in module '${node.name}' is not assignable to '${token}'.`,
           );
         }
       } catch {
@@ -281,7 +281,7 @@ export function validateFactoryParamTypes(
 
           if (compatible === false) {
             warnings.push(
-              `[Zipbul AOT] useFactory of '${token}' in module '${node.name}': inject[${String(paramIndex)}] '${injectTokenName}' is not assignable to parameter type '${paramTypeName}'.`,
+              `useFactory of '${token}' in module '${node.name}': inject[${String(paramIndex)}] '${injectTokenName}' is not assignable to parameter type '${paramTypeName}'.`,
             );
           }
         } catch {
@@ -305,7 +305,7 @@ export function validateModuleNameUniqueness(modules: ReadonlyMap<string, Module
 
     if (existing !== undefined) {
       throw new Error(
-        `[Zipbul AOT] Duplicate module name '${node.name}' found in '${filePath}' and '${existing}'. Module names must be unique.`,
+        `Duplicate module name '${node.name}' found in '${filePath}' and '${existing}'. Module names must be unique.`,
       );
     }
 
@@ -346,7 +346,7 @@ export function validateFactoryInjectTokens(modules: ReadonlyMap<string, ModuleN
 
         if (injectRecord.tokenKind === 'invalid' || injectRecord.token === null) {
           throw new Error(
-            `[Zipbul AOT] inject() token in useFactory of provider '${token}' in module '${node.name}' (${node.filePath}) is not statically determinable.`,
+            `inject() token in useFactory of provider '${token}' in module '${node.name}' (${node.filePath}) is not statically determinable.`,
           );
         }
       }
@@ -379,7 +379,7 @@ export async function validateInheritedScopes(
         checkHeritageScopes(chain, provider.token, sourceScope, classMap);
       } catch {
         warnings.push(
-          `[Zipbul AOT] Could not validate inheritance scope for '${provider.token}' in '${classDef.filePath}'. Heritage chain resolution failed.`,
+          `Could not validate inheritance scope for '${provider.token}' in '${classDef.filePath}'. Heritage chain resolution failed.`,
         );
       }
     }
@@ -409,7 +409,7 @@ export function validateUnusedProviders(
 
       if (!referencedTokens.has(token)) {
         warnings.push(
-          `[Zipbul AOT] Provider '${token}' in module '${node.name}' is registered but never referenced.`,
+          `Provider '${token}' in module '${node.name}' is registered but never referenced.`,
         );
       }
     }

@@ -6,15 +6,14 @@ import type { CommandOptions } from '../interfaces';
 import { AdapterDefinitionResolver, AstParser, type FileAnalysis } from '../../compiler/analyzer';
 import { validateCreateApplication } from '../../compiler/analyzer/validation';
 import { ConfigLoader } from '../../config';
-import { outputDirPath, scanGlobSorted, ensureTsconfigIncludesZipbul } from '../../common';
+import { outputDirPath, scanGlobSorted, installCancellation, openGildashWithFallback } from '../../common';
 import { isErr } from '@zipbul/result';
+import { Logger } from '@zipbul/logger';
 import { DiagnosticError } from '../../diagnostics';
 import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
-import { Gildash, GildashError, type GildashOptions } from '@zipbul/gildash';
 import type { IndexResult } from '@zipbul/gildash';
 
-import { formatCount, buildModuleTree } from '../module-tree-renderer';
-import { CliRenderer } from '../cli-renderer';
+import { reportDiagnostic, reportError } from '../report-diagnostic';
 
 import type { DevCommandDeps, RebuildContext } from './interfaces';
 import { shouldAnalyzeFile, analyzeFile, rebuild } from './dev-rebuild-engine';
@@ -24,20 +23,22 @@ import { DevProcessManager } from './dev-process-manager';
 /**
  * Creates the `dev` command with injected dependencies.
  *
+ * Output uses `dev:` prefix for status, `dev/rebuild:` for rebuild trigger
+ * lines that monitor tools can match against. App subprocess output is
+ * tagged with `app:` so agents can filter dev watcher events from app
+ * events.
+ *
  * @param deps - Factory-style dependencies for testability
  * @returns An async function that runs the dev watcher loop
  * @public
  */
 export function createDevCommand(deps: DevCommandDeps) {
-  const { renderer } = deps;
-
   return async function dev(commandOptions?: CommandOptions): Promise<void> {
-    renderer.intro('dev');
-
+    const log = new Logger('dev');
+    const verbose = commandOptions?.verbose === true;
     const configResult = await deps.loadConfig();
     const config = configResult.config;
     const moduleFileName = config.module.fileName;
-    const buildProfile = commandOptions?.profile ?? 'full';
     const projectRoot = process.cwd();
     const srcDir = resolve(projectRoot, config.sourceDir);
     const outDir = outputDirPath(projectRoot);
@@ -48,84 +49,59 @@ export function createDevCommand(deps: DevCommandDeps) {
     const fileCache = new Map<string, FileAnalysis>();
     const fingerprintCache = new Map<string, string>();
 
-    const toProjectRelativePath = (filePath: string): string => {
-      return relative(projectRoot, filePath) || '.';
-    };
+    const toProjectRelativePath = (filePath: string): string => relative(projectRoot, filePath) || '.';
 
-    const fmt = formatCount;
-
-    renderer.outputPaths('\u{1f4c2} Project', [
-      { label: 'Root', value: projectRoot },
-      { label: 'Source', value: relative(projectRoot, srcDir) || '.' },
-      { label: 'Output', value: relative(projectRoot, outDir) || '.' },
-    ]);
+    log.info('project=%s source=%s output=%s',
+      projectRoot,
+      relative(projectRoot, srcDir) || '.',
+      relative(projectRoot, outDir) || '.');
 
     // -- 1. Scan --
-    const scanSpinner = renderer.startSpinner('\u{1f50d} Scanning source files');
-
+    log.time('scan');
     const glob = new Glob('**/*.ts');
     const srcFiles = await deps.scanFiles({ glob, baseDir: srcDir });
     let classCount = 0;
 
-    const analyzeContext = { parser, fileCache, fingerprintCache, renderer };
+    const analyzeContext = { parser, fileCache, fingerprintCache };
 
     for (const file of srcFiles) {
       const fullPath = join(srcDir, file);
-
-      if (!shouldAnalyzeFile(fullPath)) {
-        continue;
-      }
-
+      if (!shouldAnalyzeFile(fullPath)) continue;
       await analyzeFile(fullPath, analyzeContext);
     }
 
-    for (const analysis of fileCache.values()) {
-      classCount += analysis.classes.length;
-    }
+    for (const analysis of fileCache.values()) classCount += analysis.classes.length;
 
-    scanSpinner.stop(`\u{1f50d} Scanned ${fmt(fileCache.size)} files (${fmt(classCount)} classes)`);
+    log.info('scanned %d files (%d classes)', fileCache.size, classCount);
+    log.timeEnd('scan');
 
     const appEntry = validateCreateApplication(fileCache);
-
-    if (isErr(appEntry)) {
-      throw new DiagnosticError(appEntry.data);
-    }
+    if (isErr(appEntry)) throw new DiagnosticError(appEntry.data);
 
     // -- 2. Gildash init --
-    const gildashSpinner = renderer.startSpinner('Initializing code intelligence');
+    log.time('gildash');
     const ignorePatterns = ['dist', '.zipbul', '.gildash'];
-    const openGildash = deps.createGildash ?? ((opts: GildashOptions) => Gildash.open(opts));
-    let ledger: Gildash;
-    let semanticAvailable = true;
-    try {
-      ledger = await openGildash({ projectRoot, ignorePatterns, semantic: true });
-    } catch (e) {
-      if (e instanceof GildashError && e.type === 'semantic') {
-        semanticAvailable = false;
-        renderer.warn(`Semantic mode unavailable, falling back: ${e.message}`);
-        ledger = await openGildash({ projectRoot, ignorePatterns });
-      } else {
-        throw e;
-      }
-    }
-    gildashSpinner.stop('Code intelligence ready');
+    const { ledger, semanticAvailable } = await openGildashWithFallback({
+      options: { projectRoot, ignorePatterns },
+      ...(deps.createGildash !== undefined ? { open: deps.createGildash } : {}),
+    });
+    log.info('gildash ready semantic=%s', String(semanticAvailable));
+    log.timeEnd('gildash');
 
     const unsubscribeError = ledger.onError((error) => {
-      renderer.warn(`Gildash: ${error.message}`);
+      log.warn('gildash: %s', error.message);
     });
 
     const unsubscribeRole = ledger.onRoleChanged((newRole) => {
       if (newRole === 'reader') {
-        renderer.warn('Another instance took watcher ownership. File change detection delegated.');
+        log.warn('another instance took watcher ownership; file change detection delegated');
       } else {
-        renderer.info('Reacquired watcher ownership.');
+        log.info('reacquired watcher ownership');
       }
     });
 
-    // -- 3. Build + Generate --
-    const buildSpinner = renderer.startSpinner('\u{1f9e9} Building AOT artifacts');
-    const bootStartedAt = performance.now();
-
+    // -- 3. Initial build --
+    log.time('boot');
     const rebuildContext: RebuildContext = {
       parser,
       adapterDefinitionResolver,
@@ -134,14 +110,12 @@ export function createDevCommand(deps: DevCommandDeps) {
       fileCache,
       fingerprintCache,
       previousSignatures: undefined,
-      renderer,
       moduleFileName,
       srcDir,
       outDir,
       projectRoot,
       config,
       configSource: configResult.source,
-      buildProfile,
       semanticAvailable,
       ledger,
     };
@@ -150,59 +124,49 @@ export function createDevCommand(deps: DevCommandDeps) {
 
     try {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
       ledger.pruneChangelog(oneDayAgo);
     } catch (pruneError) {
-      renderer.warn(`Changelog pruning failed: ${pruneError instanceof Error ? pruneError.message : 'unknown'}`);
+      log.warn('changelog pruning failed: %s', pruneError);
     }
 
-    const bootDuration = ((performance.now() - bootStartedAt) / 1000).toFixed(1);
-    const { graph, handlerIndex } = initialResult;
+    const { graph } = initialResult;
 
     let providerCount = 0;
-    for (const mod of graph.modules.values()) {
-      providerCount += mod.providers.size;
+    for (const mod of graph.modules.values()) providerCount += mod.providers.size;
+
+    log.info('%d modules, %d providers', graph.modules.size, providerCount);
+    log.timeEnd('boot');
+
+    for (const warning of graph.warnings) {
+      log.warn('%s', warning);
     }
 
-    buildSpinner.stop(`\u{1f9e9} AOT artifacts generated in ${bootDuration}s (${fmt(graph.modules.size)} modules, ${fmt(providerCount)} providers)`);
-
-    // Ensure tsconfig.json includes .zipbul/**/*.d.ts for IDE support
-    if (await ensureTsconfigIncludesZipbul(projectRoot)) {
-      renderer.info('Patched tsconfig.json — added .zipbul/**/*.d.ts to include');
-    }
-
-    if (graph.warnings.length > 0) {
-      for (const warning of graph.warnings) {
-        renderer.warn(warning);
+    if (verbose) {
+      for (const m of graph.modules.values()) {
+        log.info('module %s controllers=%d providers=%d',
+          m.name, m.controllers.size, m.providers.size);
       }
     }
 
-    // -- Application tree --
-    const moduleTreeResult = buildModuleTree({ modules: graph.modules, handlerIndex });
-
-    renderer.outputPaths('\u{1f9f1} Application', moduleTreeResult.treeLines);
-
-    renderer.outputPaths('\u{1f4cb} Artifacts', [
-      { label: 'Manifest', value: toProjectRelativePath(join(outDir, 'manifest.json')) },
-      { label: 'Runtime', value: toProjectRelativePath(join(outDir, 'runtime.ts')) },
-      { label: 'Entry', value: toProjectRelativePath(join(outDir, 'entry.ts')) },
-    ]);
+    log.info('artifacts manifest=%s runtime=%s entry=%s',
+      toProjectRelativePath(join(outDir, 'manifest.json')),
+      toProjectRelativePath(join(outDir, 'runtime.ts')),
+      toProjectRelativePath(join(outDir, 'entry.ts')));
 
     // Start app process
     const processManager = new DevProcessManager({
       entryPath: join(outDir, 'entry.ts'),
       cwd: projectRoot,
-      renderer,
-      spawnProcess: deps.spawnProcess ?? ((command, cwd) => Bun.spawn(command, { cwd, stdout: 'pipe', stderr: 'pipe', env: { ...process.env } })),
+      spawnProcess: deps.spawnProcess ?? ((command, cwd) =>
+        Bun.spawn(command, { cwd, stdout: 'pipe', stderr: 'pipe', env: { ...process.env } })),
     });
     processManager.start();
 
-    renderer.step('Watching for changes...');
+    log.info('watching for changes');
 
     try {
       const { handleIndexResult, state: changeHandlerState } = createChangeHandler({
         rebuildContext,
-        renderer,
         toProjectRelativePath,
         ledger,
         processManager,
@@ -217,51 +181,49 @@ export function createDevCommand(deps: DevCommandDeps) {
           changeHandlerState.lastRebuildFailed = true;
 
           if (error instanceof DiagnosticError) {
-            renderer.diagnostic(error.diagnostic);
+            reportDiagnostic(error.diagnostic, 'dev/rebuild');
           } else {
-            renderer.error(error instanceof Error ? error.message : 'Unknown index callback error.');
+            reportError(error, 'dev/rebuild');
           }
 
-          renderer.warn('Rebuild failed. Keeping previous process running.');
+          log.warn('rebuild failed; keeping previous process running');
         });
       });
 
-      // Signal handling
-      let shuttingDown = false;
-
-      const shutdown = async (signal: string): Promise<void> => {
-        if (shuttingDown) {
-          return;
-        }
-        shuttingDown = true;
-
-        renderer.cancelled(`${signal} received. Stopped`);
+      // Signal handling — share the same primitive used by build commands.
+      // Note: dev exits 0 on signal (clean shutdown of watcher), unlike
+      // build commands which use 130 to signal interrupted work.
+      const cancel = installCancellation({ signalExitCode: 0 });
+      cancel.registerCleanup(async () => {
         await processManager.stop();
         unsubscribe();
         unsubscribeError();
         unsubscribeRole();
-        try { await ledger.close(); } catch { /* cleanup failure -- ignore */ }
-        process.exit(0);
-      };
-
-      process.on('SIGINT', () => { void shutdown('SIGINT'); });
-      process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+        try {
+          await ledger.close();
+        } catch (e) {
+          log.warn('failed to close gildash: %s', e);
+        }
+      });
     } catch (error) {
       await processManager.stop();
       unsubscribeError();
       unsubscribeRole();
-      try { await ledger.close(); } catch { /* cleanup failure -- ignore */ }
+      try {
+        await ledger.close();
+      } catch (e) {
+        log.warn('failed to close gildash: %s',
+          e instanceof Error ? e.message : 'unknown');
+      }
       throw error;
     }
   };
 }
 
-export const __testing__ = { createDevCommand };
-
 /**
  * Production entry point for the `zb dev` command.
  *
- * @param commandOptions - CLI options (profile, verbose, etc.)
+ * @param commandOptions - CLI options (verbose, etc.)
  * @public
  */
 export async function dev(commandOptions?: CommandOptions): Promise<void> {
@@ -275,7 +237,6 @@ export async function dev(commandOptions?: CommandOptions): Promise<void> {
     createManifestGenerator: () => new ManifestGenerator(),
     createEntryGenerator: () => new EntryGenerator(),
     scanFiles: ({ glob, baseDir }) => scanGlobSorted({ glob, baseDir }),
-    renderer: new CliRenderer(),
   });
   await impl(commandOptions);
 }

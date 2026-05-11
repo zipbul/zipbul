@@ -16,8 +16,7 @@ export interface ApplicationEntry {
 // MUST: MUST-2
 export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): Result<ApplicationEntry, Diagnostic> {
   const callEntries = Array.from(fileMap.values())
-    .flatMap(file => (file.createApplicationCalls ?? []).map(call => ({ call, filePath: file.filePath })))
-    .filter(entry => entry.call !== undefined);
+    .flatMap(file => (file.createApplicationCalls ?? []).map(call => ({ call, filePath: file.filePath })));
 
   if (callEntries.length === 0) {
     return err(
@@ -35,16 +34,7 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
     );
   }
 
-  const entry = callEntries[0];
-
-  if (entry === undefined) {
-    return err(
-      buildDiagnostic({
-        reason: 'createApplication call not found in recognized files.',
-      }),
-    );
-  }
-
+  const entry = callEntries[0]!;
   const args = entry.call.args ?? [];
 
   if (args.length !== 1) {
@@ -58,25 +48,17 @@ export function validateCreateApplication(fileMap: Map<string, FileAnalysis>): R
 
   const entryArg = args[0];
 
-  if (!isRecordValue(entryArg)) {
+  if (!isRecordValue(entryArg) || typeof entryArg[ZIPBUL_REF] !== 'string' || (entryArg[ZIPBUL_REF] as string).length === 0) {
     return err(
       buildDiagnostic({
         reason: 'createApplication entry module must be a statically resolvable identifier.',
         file: entry.filePath,
+        how: 'Pass an imported module class directly (e.g. `createApplication(AppModule)`). Computed expressions, dynamic imports, and re-exports are not supported.',
       }),
     );
   }
 
-  const entryRef = entryArg[ZIPBUL_REF];
-
-  if (typeof entryRef !== 'string' || entryRef.length === 0) {
-    return err(
-      buildDiagnostic({
-        reason: 'createApplication entry module must be a statically resolvable identifier.',
-        file: entry.filePath,
-      }),
-    );
-  }
+  const entryRef = entryArg[ZIPBUL_REF] as string;
 
   return { filePath: entry.filePath, entryRef };
 }

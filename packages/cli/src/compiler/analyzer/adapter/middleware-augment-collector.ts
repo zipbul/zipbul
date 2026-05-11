@@ -1,15 +1,8 @@
-import { parseSource, type ParsedFile } from '@zipbul/gildash';
+import { parseSource, type ParsedFile, is, isFunctionNode } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 import { ZIPBUL_CALL } from '@zipbul/common';
 
-import type {
-  Node as AstNode,
-  CallExpression,
-  ArrowFunctionExpression,
-  Function as OxcFunction,
-  ImportDeclaration,
-  VariableDeclaration,
-} from 'oxc-parser';
+import type { Node as AstNode } from '@zipbul/gildash';
 
 import type { FileAnalysis } from '../graph/interfaces';
 import type { AdapterStaticSchema } from '../interfaces';
@@ -34,7 +27,7 @@ import {
 } from './config-extractor';
 import { Logger } from '@zipbul/logger';
 
-const logger = new Logger('MiddlewareAugmentCollector');
+const logger = new Logger('compiler/middleware-collector');
 
 /**
  * Result of middleware augment collection across the project.
@@ -94,7 +87,7 @@ export class MiddlewareAugmentCollector {
     const allExports = [...localExports, ...packageExports];
 
     for (const ref of allExports) {
-      // Priority 1: IR fields (from zb build --lib output) — both augments and contextOps.
+      // Priority 1: IR fields (from zb build middleware output) — both augments and contextOps.
       const irExtraction = extractFromIR(ref);
 
       if (irExtraction !== null) {
@@ -312,14 +305,14 @@ function isDefineMiddlewareCall(rec: AnalyzerValueRecord): boolean {
   return false;
 }
 
-/** Well-known IR property names injected by `zb build --lib`. */
+/** Well-known IR property names injected by `zb build middleware`. */
 const AUGMENTS_IR_KEY = '__augments';
 const CONTEXT_OPS_IR_KEY = '__contextOps';
 
 /**
  * Extracts both augment and producer-info from `__augments` / `__contextOps` IR
  * fields of a defineMiddleware call. These fields are injected by
- * `zb build --lib` during library compilation so the consumer compiler doesn't
+ * `zb build middleware` during library compilation so the consumer compiler doesn't
  * need to parse the factory body.
  *
  * Returns `null` if neither field is present.
@@ -603,25 +596,23 @@ function buildContextAugment(
 function findDefineMiddlewareFactory(
   programBody: readonly AstNode[],
   name: string,
-): OxcFunction | ArrowFunctionExpression | null {
+): AstNode | null {
   for (const stmt of programBody) {
-    let varDecl: VariableDeclaration | null = null;
+    let varDecl: AstNode | null = null;
 
-    if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'VariableDeclaration') {
+    if (is.ExportNamedDeclaration(stmt) && stmt.declaration && is.VariableDeclaration(stmt.declaration)) {
       varDecl = stmt.declaration;
-    } else if (stmt.type === 'VariableDeclaration') {
+    } else if (is.VariableDeclaration(stmt)) {
       varDecl = stmt;
     }
 
-    if (varDecl === null) continue;
+    if (varDecl === null || !is.VariableDeclaration(varDecl)) continue;
 
     for (const decl of varDecl.declarations) {
-      if (decl.id.type !== 'Identifier' || decl.id.name !== name) continue;
-      if (decl.init === null || decl.init === undefined || decl.init.type !== 'CallExpression') continue;
+      if (!is.Identifier(decl.id) || decl.id.name !== name) continue;
+      if (decl.init === null || decl.init === undefined || !is.CallExpression(decl.init)) continue;
 
-      const call = decl.init as CallExpression;
-
-      return extractFactoryFromCallArgs(call);
+      return extractFactoryFromCallArgs(decl.init);
     }
   }
 
@@ -637,45 +628,40 @@ function findDefineMiddlewareFactory(
  * 3. `defineMiddleware({ factory: () => ... })` — config object
  */
 function extractFactoryFromCallArgs(
-  call: CallExpression,
-): OxcFunction | ArrowFunctionExpression | null {
+  call: AstNode,
+): AstNode | null {
+  if (!is.CallExpression(call)) return null;
+
   const args = call.arguments;
 
   if (args.length === 0) return null;
 
-  // Overload 1: factory-only — first arg is function
   const firstArg = args[0]!;
 
   if (isFunctionNode(firstArg)) {
-    return firstArg as ArrowFunctionExpression | OxcFunction;
+    return firstArg;
   }
 
-  // Overload 2: adapters + factory — second arg is function
   if (args.length >= 2) {
     const secondArg = args[1]!;
 
     if (isFunctionNode(secondArg)) {
-      return secondArg as ArrowFunctionExpression | OxcFunction;
+      return secondArg;
     }
   }
 
-  // Overload 3: config object — { factory: () => ... }
-  if (firstArg.type === 'ObjectExpression') {
+  if (is.ObjectExpression(firstArg)) {
     for (const prop of firstArg.properties) {
-      if (prop.type !== 'Property') continue;
-      if (prop.key.type !== 'Identifier' || prop.key.name !== 'factory') continue;
+      if (!is.Property(prop)) continue;
+      if (!is.Identifier(prop.key) || prop.key.name !== 'factory') continue;
 
       if (isFunctionNode(prop.value)) {
-        return prop.value as ArrowFunctionExpression | OxcFunction;
+        return prop.value;
       }
     }
   }
 
   return null;
-}
-
-function isFunctionNode(node: AstNode): boolean {
-  return node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression';
 }
 
 /**
@@ -690,22 +676,20 @@ function buildFileImportMap(
   const sourceDir = sourceFilePath.replace(/\/[^/]+$/, '');
 
   for (const stmt of programBody) {
-    if (stmt.type !== 'ImportDeclaration') continue;
+    if (!is.ImportDeclaration(stmt)) continue;
 
-    const imp = stmt as ImportDeclaration;
-    const source = imp.source.value;
+    const source = stmt.source.value;
 
     if (typeof source !== 'string') continue;
 
-    // Resolve relative imports against the source file's directory
     const resolved = source.startsWith('.')
       ? resolveRelativeImport(sourceDir, source)
       : source;
 
-    if (imp.specifiers === undefined) continue;
+    if (stmt.specifiers === undefined) continue;
 
-    for (const spec of imp.specifiers) {
-      if (spec.type === 'ImportSpecifier' && spec.local.type === 'Identifier') {
+    for (const spec of stmt.specifiers) {
+      if (is.ImportSpecifier(spec) && is.Identifier(spec.local)) {
         map.set(spec.local.name, resolved);
       }
     }
@@ -722,21 +706,15 @@ function collectLocalClassDeclarations(programBody: readonly AstNode[]): Set<str
   const names = new Set<string>();
 
   for (const stmt of programBody) {
-    if (stmt.type === 'ClassDeclaration') {
-      const id = (stmt as AstNode & { id?: AstNode }).id;
-
-      if (id !== undefined && id.type === 'Identifier') {
-        names.add((id as AstNode & { name: string }).name);
+    if (is.ClassDeclaration(stmt)) {
+      if (stmt.id && is.Identifier(stmt.id)) {
+        names.add(stmt.id.name);
       }
-    } else if (stmt.type === 'ExportNamedDeclaration') {
-      const decl = (stmt as AstNode & { declaration?: AstNode }).declaration;
+    } else if (is.ExportNamedDeclaration(stmt)) {
+      const decl = stmt.declaration;
 
-      if (decl !== undefined && decl.type === 'ClassDeclaration') {
-        const id = (decl as AstNode & { id?: AstNode }).id;
-
-        if (id !== undefined && id.type === 'Identifier') {
-          names.add((id as AstNode & { name: string }).name);
-        }
+      if (decl && is.ClassDeclaration(decl) && decl.id && is.Identifier(decl.id)) {
+        names.add(decl.id.name);
       }
     }
   }

@@ -1,7 +1,5 @@
 import type { Glob } from 'bun';
 
-import type { CliRendererLike } from '../interfaces';
-
 import type { GildashOptions, Gildash } from '@zipbul/gildash';
 import type { AstParser, AdapterDefinitionResolver } from '../../compiler/analyzer';
 import type { ResolvedConfig } from '../../config';
@@ -18,5 +16,4 @@ export interface BuildCommandDeps {
   resolveImport: (specifier: string, fromDir: string) => string;
   buildBundle: typeof Bun.build;
   createGildash?: (opts: GildashOptions) => Promise<Gildash>;
-  renderer: CliRendererLike;
 }

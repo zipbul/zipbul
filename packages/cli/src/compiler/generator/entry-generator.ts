@@ -13,14 +13,14 @@ export class EntryGenerator {
 
     if (!exists) {
       throw new Error(
-        `[Zipbul AOT] Entry file '${userMainImportPath}' does not exist. Check the 'entry' path in your configuration.`,
+        `Entry file '${userMainImportPath}' does not exist. Check the 'entry' path in your configuration.`,
       );
     }
 
     return `
 import { Logger } from '@zipbul/logger';
 
-const logger = new Logger('Entry');
+const logger = new Logger('compiler/entry-gen');
 
 await bootstrap();
 

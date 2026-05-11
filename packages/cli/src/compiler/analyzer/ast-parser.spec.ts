@@ -139,6 +139,21 @@ describe('AstParser', () => {
     expect(result.reExports).toHaveLength(2);
   });
 
+  it('should record side-effect imports (no bindings) in importEntries', async () => {
+    const source = [
+      "import 'reflect-metadata';",
+      "import './side-effect-only';",
+      "import { Inject } from '@zipbul/common';",
+    ].join('\n');
+    const parser = new AstParser();
+    const result = await parseOrFail(parser, '/app/src/index.ts', source);
+
+    const sources = (result.importEntries ?? []).map(e => e.source).sort();
+    expect(sources).toContain('reflect-metadata');
+    expect(sources).toContain('./side-effect-only');
+    expect(sources).toContain('@zipbul/common');
+  });
+
   it('should resolve aliased decorator to original export name', async () => {
     const source = [
       "import { Injectable as Inj } from '@zipbul/common';",

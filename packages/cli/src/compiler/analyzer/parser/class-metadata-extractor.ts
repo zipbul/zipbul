@@ -1,8 +1,5 @@
-import type { ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
-import type {
-  Node as AstNode, Class, PropertyDefinition,
-  Function as OxcFunction,
-} from 'oxc-parser';
+import { is } from '@zipbul/gildash';
+import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import type { Result } from '@zipbul/result';
 import { err, isErr } from '@zipbul/result';
 import { ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, TS_UTILITY_TYPES } from '@zipbul/common';
@@ -27,17 +24,12 @@ const UNKNOWN_TYPE_NAME = 'Unknown';
  * to locate raw AST nodes within a parsed class.
  */
 export interface AstNodeLocatorCallbacks {
-  /** Finds the raw Class AST node for the given class name. */
-  findClassAstNode(parsed: ParsedFile, className: string): Class | null;
-  /** Finds the Function AST node for a method body within a class. */
-  findMethodBodyAstNode(classNode: Class, methodName: string): OxcFunction | null;
-  /** Finds the PropertyDefinition AST node for a named property within a class. */
-  findPropertyAstNode(classNode: Class, propName: string): PropertyDefinition | null;
-  /** Returns computed/private metadata for a method within a class. */
-  getMethodAstMeta(
-    classNode: Class,
-    methodName: string,
-  ): { isComputed: boolean; isPrivateName: boolean; start: number } | null;
+  /** Finds the raw class declaration node for the given class name. */
+  findClassAstNode(parsed: ParsedFile, className: string): Node | null;
+  /** Finds the function-value node for a method body within a class. */
+  findMethodBodyAstNode(classNode: Node, methodName: string): Node | null;
+  /** Finds the property-definition node for a named property within a class. */
+  findPropertyAstNode(classNode: Node, propName: string): Node | null;
 }
 
 /**
@@ -48,13 +40,13 @@ export interface AstNodeLocatorCallbacks {
  */
 export interface MethodMetadataCallbacks {
   /** Extracts middleware usages from a `configure` method body. */
-  extractMiddlewaresFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['middlewares'], Diagnostic>;
+  extractMiddlewaresFromConfigure(funcNode: Node, filePath: string): Result<ClassMetadata['middlewares'], Diagnostic>;
   /** Extracts exception filter usages from a `configure` method body. */
-  extractExceptionFiltersFromConfigure(funcNode: OxcFunction): Result<ClassMetadata['exceptionFilters'], Diagnostic>;
+  extractExceptionFiltersFromConfigure(funcNode: Node, filePath: string): Result<ClassMetadata['exceptionFilters'], Diagnostic>;
   /** Extracts context member-access chains from a handler method body. */
-  extractHandlerContextUsages(funcNode: OxcFunction): ClassMetadata['methods'][number]['contextUsages'];
+  extractHandlerContextUsages(funcNode: Node): ClassMetadata['methods'][number]['contextUsages'];
   /** Extracts producer/consumer ops (`ctx.set/use/get`) from a handler method body. */
-  extractHandlerContextOps(funcNode: OxcFunction): ClassMetadata['methods'][number]['contextOps'];
+  extractHandlerContextOps(funcNode: Node): ClassMetadata['methods'][number]['contextOps'];
 }
 
 /**
@@ -167,16 +159,21 @@ export function convertClassSymbol(
         const isStatic = member.modifiers.includes('static');
         const memberName = member.name;
 
-        // Check raw AST for computed/private
-        const astMeta = rawClassNode !== null
-          ? astLocators.getMethodAstMeta(rawClassNode, memberName)
-          : null;
-        const isComputed = astMeta?.isComputed ?? false;
-        const isPrivateName = astMeta?.isPrivateName ?? false;
-
-        // gildash gives "unknown" for computed/private methods — treat as unnamed
-        const isUnresolvableName = memberName === 'unknown' && (isComputed || isPrivateName);
-        let methodName = isUnresolvableName ? '' : memberName;
+        // gildash 0.26+ key: SymbolKey = { kind: 'private' } | KeyExpression | undefined.
+        // - undefined: plain identifier key — name carries the identifier
+        // - { kind: 'private' }: `#name` private member — name carries '#name' (full source form)
+        // - { kind: 'string' | 'number' | 'boolean' | 'null' }: string/numeric literal key
+        //   (e.g. `'my-method'() {}`) — name carries the literal value, NOT computed
+        // - any other ExpressionValue kind: computed `[expr]` — name carries source text
+        const memberKey = member.key;
+        const isPrivateName = memberKey !== undefined && memberKey.kind === 'private';
+        const isComputed = memberKey !== undefined
+          && memberKey.kind !== 'private'
+          && memberKey.kind !== 'string'
+          && memberKey.kind !== 'number'
+          && memberKey.kind !== 'boolean'
+          && memberKey.kind !== 'null'
+          && memberKey.kind !== 'undefined';
 
         const methodDecorators = (member.decorators ?? []).map(decorator => {
           const converted = convertDecorator(decorator);
@@ -184,9 +181,12 @@ export function convertClassSymbol(
           return { ...converted, name: resolveOriginalName(converted.name, context.currentOriginalNames) };
         });
 
-        if (!isNonEmptyString(methodName)) {
-          if (isComputed && methodDecorators.length > 0) {
-            methodName = `__computed_${astMeta?.start ?? 0}__`;
+        let methodName = memberName;
+
+        if (isComputed) {
+          if (methodDecorators.length > 0) {
+            const lineHint = member.span?.start?.line ?? 0;
+            methodName = `__computed_${lineHint}__`;
           } else {
             continue;
           }
@@ -230,7 +230,7 @@ export function convertClassSymbol(
           const funcNode = astLocators.findMethodBodyAstNode(rawClassNode, 'configure');
 
           if (funcNode !== null) {
-            const mwResult = methodCallbacks.extractMiddlewaresFromConfigure(funcNode);
+            const mwResult = methodCallbacks.extractMiddlewaresFromConfigure(funcNode, context.currentFilePath);
 
             if (isErr(mwResult)) {
               return mwResult;
@@ -238,7 +238,7 @@ export function convertClassSymbol(
 
             middlewares = mwResult;
 
-            const efResult = methodCallbacks.extractExceptionFiltersFromConfigure(funcNode);
+            const efResult = methodCallbacks.extractExceptionFiltersFromConfigure(funcNode, context.currentFilePath);
 
             if (isErr(efResult)) {
               return efResult;
@@ -300,7 +300,10 @@ export function convertClassSymbol(
           const rawProperty = rawClassNode !== null
             ? astLocators.findPropertyAstNode(rawClassNode, propName)
             : null;
-          const isOptionalRaw = rawProperty !== null ? Boolean(rawProperty.optional) : false;
+          const isOptionalRaw = rawProperty !== null
+            && is.PropertyDefinition(rawProperty)
+            ? Boolean(rawProperty.optional)
+            : false;
           const optional = isOptionalRaw || isProtected;
 
           properties.push({
@@ -445,11 +448,15 @@ function extractTypeArgs(typeText: string | undefined): string[] | undefined {
  * @returns Array of type argument name strings
  */
 function extractHeritageTypeArgs(
-  classNode: Class | null,
+  classNode: Node | null,
   clauseKind: 'extends' | 'implements',
   typeName: string,
 ): string[] {
   if (classNode === null) {
+    return [];
+  }
+
+  if (!is.ClassDeclaration(classNode) && !is.ClassExpression(classNode)) {
     return [];
   }
 
@@ -464,12 +471,12 @@ function extractHeritageTypeArgs(
 
     let baseName: string | null = null;
 
-    if (superClass.type === 'Identifier') {
+    if (is.Identifier(superClass)) {
       baseName = superClass.name;
     }
 
-    if (superClass.type === 'TSInstantiationExpression') {
-      baseName = superClass.expression.type === 'Identifier'
+    if (is.TSInstantiationExpression(superClass)) {
+      baseName = is.Identifier(superClass.expression)
         ? superClass.expression.name
         : null;
 
@@ -482,7 +489,6 @@ function extractHeritageTypeArgs(
       }
     }
 
-    // Check superTypeArguments (oxc-parser puts them separately)
     const superTypeArgs = classNode.superTypeArguments;
 
     if (superTypeArgs !== null && superTypeArgs !== undefined && baseName === typeName) {
@@ -494,12 +500,11 @@ function extractHeritageTypeArgs(
     return typeArgs;
   }
 
-  // implements
   const implementsList = classNode.implements ?? [];
 
   for (const impl of implementsList) {
     const expression = impl.expression;
-    const expressionName = expression.type === 'Identifier' ? expression.name : null;
+    const expressionName = is.Identifier(expression) ? expression.name : null;
 
     if (expressionName !== typeName) {
       continue;
@@ -528,11 +533,11 @@ function extractHeritageTypeArgs(
  * @param typeNode - AST node for a type parameter
  * @returns The resolved type name string
  */
-export function resolveTypeArgName(typeNode: AstNode): string {
-  if (typeNode.type === 'TSTypeReference') {
+export function resolveTypeArgName(typeNode: Node): string {
+  if (is.TSTypeReference(typeNode)) {
     const typeName = typeNode.typeName;
 
-    if (typeName.type === 'Identifier') {
+    if (is.Identifier(typeName)) {
       return typeName.name;
     }
   }

@@ -2,14 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { parseSource, type ParsedFile } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 
-import type {
-  Node as AstNode,
-  CallExpression,
-  ArrowFunctionExpression,
-  Function as OxcFunction,
-  VariableDeclaration,
-  ImportDeclaration,
-} from 'oxc-parser';
+import type { Node as AstNode } from '@zipbul/gildash';
 
 import {
   extractMiddlewareAugments,
@@ -21,7 +14,7 @@ import {
 } from './generator/context-types-generator';
 import type { MiddlewareContextAugment } from './analyzer/adapter/middleware-context-types';
 import { ImportRegistry } from './generator/import-registry';
-import { extractLibAugments, injectAugmentsIntoSource } from './generator/lib-augment-injector';
+import { extractMiddlewareAugmentEntries, injectAugmentsIntoSource } from './generator/middleware-augment-injector';
 import { AstParser } from './analyzer/parser';
 import { toRecord, isAnalyzerValueArray } from './analyzer/type-guards';
 import { ZIPBUL_CALL } from '@zipbul/common';
@@ -33,9 +26,9 @@ const HTTP_ADAPTER_MAP: ContextAdapterMap = {
   },
 };
 
-function findDefineMiddlewareFactory(programBody: readonly AstNode[], name: string): OxcFunction | ArrowFunctionExpression | null {
+function findDefineMiddlewareFactory(programBody: readonly AstNode[], name: string): AstNode | null {
   for (const stmt of programBody) {
-    let varDecl: VariableDeclaration | null = null;
+    let varDecl: AstNode | null = null;
 
     if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'VariableDeclaration') {
       varDecl = stmt.declaration;
@@ -43,19 +36,18 @@ function findDefineMiddlewareFactory(programBody: readonly AstNode[], name: stri
       varDecl = stmt;
     }
 
-    if (!varDecl) continue;
+    if (!varDecl || varDecl.type !== 'VariableDeclaration') continue;
 
     for (const decl of varDecl.declarations) {
       if (decl.id.type !== 'Identifier' || decl.id.name !== name) continue;
       if (!decl.init || decl.init.type !== 'CallExpression') continue;
 
-      const call = decl.init as CallExpression;
-      const arg = call.arguments[0];
+      const arg = decl.init.arguments[0];
 
       if (!arg) return null;
 
       if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
-        return arg as ArrowFunctionExpression | OxcFunction;
+        return arg;
       }
     }
   }
@@ -69,14 +61,13 @@ function buildImportMap(programBody: readonly AstNode[], baseDir: string): Map<s
   for (const stmt of programBody) {
     if (stmt.type !== 'ImportDeclaration') continue;
 
-    const imp = stmt as ImportDeclaration;
-    const source = imp.source.value;
+    const source = stmt.source.value;
 
     if (typeof source !== 'string') continue;
 
     const resolved = source.startsWith('.') ? `${baseDir}/${source}.ts` : source;
 
-    for (const spec of imp.specifiers) {
+    for (const spec of stmt.specifiers) {
       if (spec.type === 'ImportSpecifier' && spec.local.type === 'Identifier') {
         map.set(spec.local.name, resolved);
       }
@@ -263,7 +254,7 @@ describe('integration: middleware factory → context.d.ts', () => {
     expect(output).toContain('cookie: CookieJar;');
   });
 
-  test('e2e: zb build --lib output → consumer IR → context.d.ts', async () => {
+  test('e2e: zb build middleware output → consumer IR → context.d.ts', async () => {
     // Step 1: Package author writes middleware source
     const packageSource = `
 import { defineMiddleware } from '@zipbul/common';
@@ -278,8 +269,8 @@ export const cookieMiddleware = defineMiddleware(() => (ctx) => {
 });
 `;
 
-    // Step 2: zb build --lib extracts and injects __augments
-    const augmentEntries = extractLibAugments('cookie/src/index.ts', packageSource);
+    // Step 2: zb build middleware extracts and injects __augments
+    const augmentEntries = extractMiddlewareAugmentEntries('cookie/src/index.ts', packageSource);
 
     expect(augmentEntries).toHaveLength(1);
 

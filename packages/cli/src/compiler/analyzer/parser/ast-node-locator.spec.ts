@@ -1,19 +1,15 @@
 import { describe, expect, it } from 'bun:test';
 import { parseSource, extractSymbols } from '@zipbul/gildash';
-import type { ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
+import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
-import type { Class, CallExpression } from 'oxc-parser';
 
 import {
-  isAstNode,
-  walkChildren,
   findVariableInitAstNode,
   extractFunctionSourceText,
   isAnonymousClassSymbol,
   findClassAstNode,
   findMethodBodyAstNode,
   findPropertyAstNode,
-  getMethodAstMeta,
   getCalleeMethodName,
 } from './ast-node-locator';
 
@@ -27,7 +23,7 @@ function parse(code: string, filePath = 'test.ts'): ParsedFile {
   return result;
 }
 
-function parseAndFindClass(code: string, className: string): Class {
+function parseAndFindClass(code: string, className: string): Node {
   const parsed = parse(code);
   const classNode = findClassAstNode(parsed, className);
 
@@ -43,93 +39,6 @@ function makeSymbol(name: string): ExtractedSymbol {
 
   return extractSymbols(parsed)[0]!;
 }
-
-describe('isAstNode', () => {
-  it('should return true for a valid AST node', () => {
-    const parsed = parse('const x = 1;');
-    const firstStmt = parsed.program.body[0]!;
-
-    expect(isAstNode(firstStmt)).toBe(true);
-  });
-
-  it('should return false for null', () => {
-    expect(isAstNode(null)).toBe(false);
-  });
-
-  it('should return false for undefined', () => {
-    expect(isAstNode(undefined)).toBe(false);
-  });
-
-  it('should return false for a plain string', () => {
-    expect(isAstNode('hello')).toBe(false);
-  });
-
-  it('should return false for a number', () => {
-    expect(isAstNode(42)).toBe(false);
-  });
-
-  it('should return false for an object without type property', () => {
-    expect(isAstNode({ name: 'foo' })).toBe(false);
-  });
-
-  it('should return false for an object with non-string type property', () => {
-    expect(isAstNode({ type: 123 })).toBe(false);
-  });
-
-  it('should return true for a plain object with string type property', () => {
-    expect(isAstNode({ type: 'Identifier' })).toBe(true);
-  });
-});
-
-describe('walkChildren', () => {
-  it('should visit child nodes of a variable declaration', () => {
-    const parsed = parse('const x = 1;');
-    const stmt = parsed.program.body[0]!;
-    const visited: string[] = [];
-
-    walkChildren(stmt, (child) => {
-      visited.push(child.type);
-    });
-
-    expect(visited.length).toBeGreaterThan(0);
-    expect(visited).toContain('VariableDeclarator');
-  });
-
-  it('should visit children of a function declaration body', () => {
-    const parsed = parse('function foo() { return 1; }');
-    const stmt = parsed.program.body[0]!;
-    const visited: string[] = [];
-
-    walkChildren(stmt, (child) => {
-      visited.push(child.type);
-    });
-
-    expect(visited.length).toBeGreaterThan(0);
-  });
-
-  it('should not call visitor when node has no visitor keys', () => {
-    const fakeNode = { type: 'NonExistentNodeType', start: 0, end: 0 } as never;
-    const visited: string[] = [];
-
-    walkChildren(fakeNode, (child) => {
-      visited.push(child.type);
-    });
-
-    expect(visited).toHaveLength(0);
-  });
-
-  it('should visit array children (e.g. body statements)', () => {
-    const parsed = parse('{ const a = 1; const b = 2; }');
-    const block = parsed.program.body[0]!;
-    const visited: string[] = [];
-
-    walkChildren(block, (child) => {
-      visited.push(child.type);
-    });
-
-    expect(visited.filter((nodeType) => nodeType === 'VariableDeclaration')).toHaveLength(2);
-  });
-});
 
 describe('findVariableInitAstNode', () => {
   it('should find variable initializer for a simple const declaration', () => {
@@ -487,88 +396,9 @@ describe('findPropertyAstNode', () => {
   });
 });
 
-describe('getMethodAstMeta', () => {
-  it('should return metadata for a regular method', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { handle() {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'handle');
-
-    expect(meta).not.toBeNull();
-    expect(meta!.isComputed).toBe(false);
-    expect(meta!.isPrivateName).toBe(false);
-    expect(typeof meta!.start).toBe('number');
-  });
-
-  it('should return null for non-existent method', () => {
-    const classNode = parseAndFindClass('class Svc { handle() {} }', 'Svc');
-    const meta = getMethodAstMeta(classNode, 'missing');
-
-    expect(meta).toBeNull();
-  });
-
-  it('should return null for empty class', () => {
-    const classNode = parseAndFindClass('class Empty {}', 'Empty');
-    const meta = getMethodAstMeta(classNode, 'anything');
-
-    expect(meta).toBeNull();
-  });
-
-  it('should detect private method names', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { #secret() {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'secret');
-
-    expect(meta).not.toBeNull();
-    expect(meta!.isPrivateName).toBe(true);
-    expect(meta!.isComputed).toBe(false);
-  });
-
-  it('should detect computed method with "unknown" name', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { [Symbol.iterator]() {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'unknown');
-
-    expect(meta).not.toBeNull();
-    expect(meta!.isComputed).toBe(true);
-  });
-
-  it('should not match constructor', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { constructor() {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'constructor');
-
-    expect(meta).toBeNull();
-  });
-
-  it('should not match getter or setter', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { get val() { return 1; } set val(v: number) {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'val');
-
-    expect(meta).toBeNull();
-  });
-
-  it('should find method with string literal key', () => {
-    const classNode = parseAndFindClass(
-      'class Svc { "my-method"() {} }',
-      'Svc',
-    );
-    const meta = getMethodAstMeta(classNode, 'my-method');
-
-    expect(meta).not.toBeNull();
-    expect(meta!.isComputed).toBe(false);
-  });
-});
+// getMethodAstMeta 는 gildash 0.25 의 ExtractedSymbol.keyKind 도입 이후
+// dead code 가 되어 제거됨. computed/private 메서드 감지는
+// class-metadata-extractor 가 ExtractedSymbol.keyKind 를 직접 사용한다.
 
 describe('getCalleeMethodName', () => {
   it('should extract method name from this.method() call', () => {
@@ -576,11 +406,9 @@ describe('getCalleeMethodName', () => {
     const parsed = parse(code);
     const classNode = findClassAstNode(parsed, 'Svc')!;
     const methodBody = findMethodBodyAstNode(classNode, 'run')!;
-    const block = methodBody.body!;
-    const exprStmt = block.body[0]!;
-
-    // exprStmt is ExpressionStatement with expression being CallExpression
-    const callExpr = (exprStmt as unknown as Record<string, unknown>).expression as CallExpression;
+    const block = (methodBody as unknown as Record<string, unknown>).body as Record<string, unknown>;
+    const exprStmt = (block.body as Array<Record<string, unknown>>)[0]!;
+    const callExpr = exprStmt.expression as Node;
 
     expect(getCalleeMethodName(callExpr)).toBe('execute');
   });
@@ -589,10 +417,10 @@ describe('getCalleeMethodName', () => {
     const code = 'function test() { doSomething(); }';
     const parsed = parse(code);
     const funcDecl = parsed.program.body[0] as unknown as Record<string, unknown>;
-    const body = (funcDecl as Record<string, unknown>).body as Record<string, unknown>;
-    const bodyStatements = (body as Record<string, unknown>).body as Array<Record<string, unknown>>;
+    const body = funcDecl.body as Record<string, unknown>;
+    const bodyStatements = body.body as Array<Record<string, unknown>>;
     const exprStmt = bodyStatements[0]!;
-    const callExpr = exprStmt.expression as CallExpression;
+    const callExpr = exprStmt.expression as Node;
 
     expect(getCalleeMethodName(callExpr)).toBeNull();
   });
@@ -602,9 +430,9 @@ describe('getCalleeMethodName', () => {
     const parsed = parse(code);
     const classNode = findClassAstNode(parsed, 'Svc')!;
     const methodBody = findMethodBodyAstNode(classNode, 'run')!;
-    const block = methodBody.body!;
-    const exprStmt = block.body[0]!;
-    const callExpr = (exprStmt as unknown as Record<string, unknown>).expression as CallExpression;
+    const block = (methodBody as unknown as Record<string, unknown>).body as Record<string, unknown>;
+    const exprStmt = (block.body as Array<Record<string, unknown>>)[0]!;
+    const callExpr = exprStmt.expression as Node;
 
     expect(getCalleeMethodName(callExpr)).toBeNull();
   });

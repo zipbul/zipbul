@@ -1,41 +1,39 @@
-#!/usr/bin/env bun
 import { parseArgs } from 'util';
+
+import pkgJson from '../../package.json' with { type: 'json' };
 
 import type { CommandOptions } from './interfaces';
 
 import { Logger } from '@zipbul/logger';
 import { dev } from './dev';
-import { build } from './build';
-import { DiagnosticError } from '../diagnostics';
-import { CliRenderer } from './cli-renderer';
-
-const renderer = new CliRenderer();
+import { build, buildMiddleware } from './build';
+import { buildAdapter } from '../compiler/adapter-build';
+import { reportError } from './report-diagnostic';
 
 const { positionals, values } = parseArgs({
   args: Bun.argv.slice(2),
   allowPositionals: true,
   strict: false,
   options: {
-    profile: {
-      type: 'string',
-    },
-    verbose: {
-      type: 'boolean',
-      short: 'v',
-    },
-    lib: {
-      type: 'boolean',
-    },
+    verbose: { type: 'boolean', short: 'v' },
+    help: { type: 'boolean', short: 'h' },
+    version: { type: 'boolean' },
   },
 });
+
+if (values.version === true) {
+  const version = typeof pkgJson.version === 'string' ? pkgJson.version : '0.0.0';
+  // Direct stdout — `--version` is program output, not a log event, so it
+  // bypasses LOG_LEVEL filtering and the `info: [zb]` prefix.
+  process.stdout.write(`zb ${version}\n`);
+  process.exit(0);
+}
+
 const command = positionals[0];
 const verbose = values.verbose === true;
 
 const resolveLogLevel = (): 'trace' | 'debug' | 'info' => {
-  if (verbose) {
-    return 'trace';
-  }
-
+  if (verbose) return 'trace';
   return command === 'dev' ? 'debug' : 'info';
 };
 
@@ -47,41 +45,32 @@ const USAGE_TEXT = [
   'Usage: zb <command>',
   '',
   'Commands:',
-  '  dev    Generate AOT artifacts and watch',
-  '  build  Generate build output',
+  '  dev                Generate AOT artifacts and watch for changes',
+  '  build              Build the user app (default — produces dist/entry.js + runtime)',
+  '  build adapter      Compile an adapter package (package.json#zipbul.kind === "adapter")',
+  '  build middleware   Compile a middleware library package (package.json#zipbul.kind === "middleware")',
   '',
-  'Options:',
-  '  --profile <minimal|standard|full>',
-  '  --lib     Build as library (inject __augments metadata for npm packages)',
-  '  --verbose, -v  Show detailed build information',
+  'Common options:',
+  '  --verbose, -v      Show detailed build information',
+  '  --help, -h         Show this help',
+  '  --version          Print zb version',
 ].join('\n');
 
-const printUsage = (): void => {
-  renderer.info(USAGE_TEXT);
-};
+if (values.help === true) {
+  process.stdout.write(USAGE_TEXT + '\n');
+  process.exit(0);
+}
+
+const log = new Logger('zb');
 
 const reportInvalidCommand = (value: string | undefined): void => {
-  const commandValue = value ?? '(missing)';
-  renderer.error(`Unsupported command: ${commandValue}.`);
+  log.error('unsupported command: %s', value ?? '(missing)');
+  process.stdout.write(USAGE_TEXT + '\n');
 };
 
 const createCommandOptions = (): CommandOptions => {
-  const profile = typeof values.profile === 'string' ? values.profile : undefined;
-  const verbose = values.verbose === true;
   const options: CommandOptions = {};
-
-  if (profile !== undefined) {
-    options.profile = profile;
-  }
-
-  if (verbose) {
-    options.verbose = true;
-  }
-
-  if (values.lib === true) {
-    options.lib = true;
-  }
-
+  if (verbose) options.verbose = true;
   return options;
 };
 
@@ -92,25 +81,51 @@ try {
     case 'dev':
       await dev(commandOptions);
       break;
-    case 'build':
+    case 'build': {
+      const subCommand = positionals[1];
+
+      if (subCommand === 'adapter') {
+        try {
+          const result = await buildAdapter({
+            ...(commandOptions.verbose === true ? { verbose: true } : {}),
+          });
+          new Logger('adapter').info('built %s manifest=%s', result.adapterId, result.manifestPath);
+        } catch (error) {
+          reportError(error, 'adapter');
+          process.exitCode = 1;
+        }
+        break;
+      }
+
+      if (subCommand === 'middleware') {
+        try {
+          await buildMiddleware();
+        } catch (error) {
+          reportError(error, 'build/middleware');
+          process.exitCode = 1;
+        }
+        break;
+      }
+
+      if (subCommand !== undefined) {
+        log.error('unsupported subcommand: build %s', subCommand);
+        process.stdout.write(USAGE_TEXT + '\n');
+        process.exitCode = 1;
+        break;
+      }
+
       await build(commandOptions);
       break;
+    }
     case undefined:
       reportInvalidCommand(command);
-      printUsage();
       process.exitCode = 1;
       break;
     default:
       reportInvalidCommand(command);
-      printUsage();
       process.exitCode = 1;
   }
 } catch (error) {
-  if (error instanceof DiagnosticError) {
-    renderer.diagnostic(error.diagnostic);
-  } else {
-    renderer.error(error instanceof Error ? error.message : 'Unknown error.');
-  }
-
+  reportError(error, 'zb');
   process.exitCode = 1;
 }

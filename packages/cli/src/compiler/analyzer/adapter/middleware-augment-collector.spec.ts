@@ -312,7 +312,7 @@ describe('MiddlewareAugmentCollector', () => {
     });
   });
 
-  test('extracts augments from __augments IR field (zb build --lib output)', async () => {
+  test('extracts augments from __augments IR field (zb build middleware output)', async () => {
     // Simulate a compiled npm package with __augments in the IR
     const filePath = '/fake/node_modules/@zipbul/cookie/dist/index.js';
     const fileMap = new Map<string, FileAnalysis>([

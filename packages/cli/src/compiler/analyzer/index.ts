@@ -16,8 +16,6 @@ export type {
   AdapterEntryDecoratorsSchema,
   AdapterStaticSchema,
   AdapterExtraction,
-  AdapterExportResolution,
-  AdapterStaticSchemaResult,
   HandlerIndexEntry,
   HandlerParamEntry,
   RouteRegistration,

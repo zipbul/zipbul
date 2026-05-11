@@ -2,7 +2,9 @@ import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'path';
 
-import { parseSource, extractSymbols, patternSearch, buildLineOffsets } from '@zipbul/gildash';
+import { distToSourceCandidates } from '../../../common';
+
+import { parseSource, extractSymbols, extractRelations, patternSearch, buildLineOffsets, is } from '@zipbul/gildash';
 import type { ParsedFile, PatternMatch } from '@zipbul/gildash';
 import type { ImportEntry } from '../interfaces';
 import type { ClassMetadata } from '../interfaces';
@@ -36,7 +38,7 @@ import { resolveInjectCallee, findImportSourceForCallee, buildInjectCallFromCapt
 import { extractExceptionFiltersFromConfigure, extractMiddlewaresFromConfigure } from './method-metadata-extractor';
 import { extractHandlerContextUsages } from './handler-context-usage-extractor';
 import { extractHandlerContextOps } from './context-operation-extractor';
-import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, getMethodAstMeta, isAnonymousClassSymbol, extractFunctionSourceText } from './ast-node-locator';
+import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, isAnonymousClassSymbol, extractFunctionSourceText } from './ast-node-locator';
 
 
 /**
@@ -68,9 +70,11 @@ export class AstParser {
     const parseResult = parseSource(filename, code);
 
     if (isErr(parseResult)) {
+      const detail = parseResult.data.message ?? JSON.stringify(parseResult.data);
       return err(buildDiagnostic({
-        reason: `Parse error in ${filename}: ${JSON.stringify(parseResult.data)}`,
+        reason: `Failed to parse ${filename}: ${detail}`,
         file: filename,
+        how: 'Fix the TypeScript syntax error reported above. Running `bunx tsc --noEmit` against the same file shows the same error with full type-checker context.',
       }));
     }
 
@@ -99,7 +103,9 @@ export class AstParser {
     let moduleDefinition: ModuleDefinition | undefined;
     let parseError: ReturnType<typeof err<Diagnostic>> | null = null;
 
-    // 2. buildImportState from staticImports
+    // 2. extractRelations once — feeds both import and export state builders
+    const relations = extractRelations(parsed.program, filename);
+
     const tracking: ImportTrackingState = {
       currentImports: this.currentImports,
       currentImportSources: this.currentImportSources,
@@ -107,7 +113,7 @@ export class AstParser {
     };
 
     buildImportState(
-      parsed.module.staticImports,
+      relations,
       filename,
       imports,
       importEntries,
@@ -119,9 +125,27 @@ export class AstParser {
       tracking,
     );
 
-    // 3. buildExportState from staticExports
+    // 2b. Side-effect imports (`import './x'`) produce no relations in
+    // gildash's extractRelations output. Walk parsed.module.staticImports
+    // directly to recover importEntry rows for them — required by
+    // config-extractor when scanning external adapter packages.
+    for (const imp of parsed.module.staticImports) {
+      if (imp.entries.length > 0) {
+        continue;
+      }
+
+      const sourceValue = imp.moduleRequest.value;
+      const resolvedSource = this.resolvePath(filename, sourceValue);
+      const isRelative = sourceValue.startsWith('.');
+
+      if (!importEntries.some(e => e.source === sourceValue)) {
+        importEntries.push({ source: sourceValue, resolvedSource, isRelative });
+      }
+    }
+
+    // 3. buildExportState — re-exports come through extractRelations too
     buildExportState(
-      parsed.module.staticExports,
+      relations,
       filename,
       reExports,
       (sourcePath, importPath) => this.resolvePath(sourcePath, importPath),
@@ -130,8 +154,8 @@ export class AstParser {
     // 4. extractSymbols
     const symbols = extractSymbols(parsed);
 
-    // 5. buildImportMap for type resolution
-    const importMap = buildImportMap(parsed.module.staticImports);
+    // 5. buildImportMap for type resolution (consumes the relations from step 2)
+    const importMap = buildImportMap(relations);
 
     // 5b. Run patternSearch for inject() detection
     // Collect all inject aliases and namespace prefixes
@@ -252,13 +276,13 @@ export class AstParser {
         break;
       }
 
-      if (stmt.type === 'ExportNamedDeclaration') {
+      if (is.ExportNamedDeclaration(stmt)) {
         collectExportNames(stmt, localExports, exportMappings, defineModuleCalls);
 
         continue;
       }
 
-      if (stmt.type === 'ExportDefaultDeclaration') {
+      if (is.ExportDefaultDeclaration(stmt)) {
         resolveExportDefaultForDefineModuleInline(stmt, defineModuleCalls);
       }
     }
@@ -280,7 +304,6 @@ export class AstParser {
       findClassAstNode,
       findMethodBodyAstNode,
       findPropertyAstNode,
-      getMethodAstMeta,
     };
 
     const methodCallbacks: MethodMetadataCallbacks = {
@@ -565,40 +588,16 @@ export class AstParser {
   }
 
   /**
-   * Maps a dist/ build output path back to the original TypeScript source.
-   *
-   * When a package.json `exports` field points to `./dist/index.js`,
-   * `Bun.resolveSync` returns the dist path. The AOT compiler needs
-   * the TypeScript source, so we check the package root and `src/`
-   * for a matching `.ts` file.
-   *
-   * @param resolvedPath - Absolute path returned by Bun.resolveSync
-   * @returns The source `.ts` path if found, or `null`
+   * Maps a dist/ build output path back to the original TypeScript source —
+   * sync wrapper that probes filesystem via existsSync.
    */
   private resolveDistToSource(resolvedPath: string): string | null {
-    if (resolvedPath.endsWith('.ts') || resolvedPath.endsWith('.d.ts')) {
-      return null;
-    }
+    const candidates = distToSourceCandidates(resolvedPath);
 
-    const distSegmentIndex = resolvedPath.lastIndexOf('/dist/');
+    if (candidates === null) return null;
 
-    if (distSegmentIndex === -1) {
-      return null;
-    }
-
-    const packageRoot = resolvedPath.slice(0, distSegmentIndex);
-    const relative = resolvedPath.slice(distSegmentIndex + 6).replace(/\.js$/, '.ts');
-
-    const rootCandidate = join(packageRoot, relative);
-
-    if (existsSync(rootCandidate)) {
-      return rootCandidate;
-    }
-
-    const srcCandidate = join(packageRoot, 'src', relative);
-
-    if (existsSync(srcCandidate)) {
-      return srcCandidate;
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate;
     }
 
     return null;

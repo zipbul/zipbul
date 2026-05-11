@@ -340,7 +340,7 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        { key: 'name', value: { kind: 'string', value: 'AppModule' } },
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'AppModule' } },
       ],
     };
 
@@ -354,7 +354,7 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        { key: 'name', value: { kind: 'number', value: 42 } },
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'number', value: 42 } },
       ],
     };
 
@@ -368,9 +368,7 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        {
-          key: 'providers',
-          value: {
+        { kind: 'property', key: { kind: 'string', value: 'providers' }, value: {
             kind: 'array',
             elements: [
               { kind: 'identifier', name: 'ServiceA' },
@@ -386,13 +384,40 @@ describe('convertModuleDefinition', () => {
     expect(result.providers).toHaveLength(2);
   });
 
+  it('should silently skip spread entries (not statically analyzable)', () => {
+    const expr: ExpressionObject = {
+      kind: 'object',
+      properties: [
+        { kind: 'spread', argument: { kind: 'identifier', name: 'baseConfig' } },
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'AppModule' } },
+      ],
+    };
+
+    const result = convertModuleDefinition(expr, new Map(), {});
+
+    expect(result.name).toBe('AppModule');
+    expect(result.nameDeclared).toBe(true);
+  });
+
+  it('should silently skip computed property keys (not supported in module config)', () => {
+    const expr: ExpressionObject = {
+      kind: 'object',
+      properties: [
+        { kind: 'property', key: { kind: 'identifier', name: 'computedKey' }, value: { kind: 'string', value: 'ignored' } },
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'AppModule' } },
+      ],
+    };
+
+    const result = convertModuleDefinition(expr, new Map(), {});
+
+    expect(result.name).toBe('AppModule');
+  });
+
   it('should extract adapters value', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        {
-          key: 'adapters',
-          value: { kind: 'identifier', name: 'HttpAdapter' },
+        { kind: 'property', key: { kind: 'string', value: 'adapters' }, value: { kind: 'identifier', name: 'HttpAdapter' },
         },
       ],
     };
@@ -444,9 +469,7 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        {
-          key: 'providers',
-          value: { kind: 'identifier', name: 'someRef' },
+        { kind: 'property', key: { kind: 'string', value: 'providers' }, value: { kind: 'identifier', name: 'someRef' },
         },
       ],
     };
@@ -460,17 +483,13 @@ describe('convertModuleDefinition', () => {
     const expr: ExpressionObject = {
       kind: 'object',
       properties: [
-        { key: 'name', value: { kind: 'string', value: 'TestModule' } },
-        {
-          key: 'providers',
-          value: {
+        { kind: 'property', key: { kind: 'string', value: 'name' }, value: { kind: 'string', value: 'TestModule' } },
+        { kind: 'property', key: { kind: 'string', value: 'providers' }, value: {
             kind: 'array',
             elements: [{ kind: 'string', value: 'token' }],
           },
         },
-        {
-          key: 'adapters',
-          value: { kind: 'identifier', name: 'Adapter' },
+        { kind: 'property', key: { kind: 'string', value: 'adapters' }, value: { kind: 'identifier', name: 'Adapter' },
         },
       ],
     };

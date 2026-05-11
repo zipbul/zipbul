@@ -52,7 +52,6 @@ export interface ManifestDiGraph {
 }
 
 export interface ManifestJsonModel {
-  schemaVersion: string;
   config: ManifestConfig;
   modules: ManifestModuleDescriptor[];
   adapterStaticSchemas: Record<string, AdapterStaticSchema>;

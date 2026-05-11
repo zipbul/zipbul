@@ -71,7 +71,7 @@ export async function writeInterfaceCatalog(params: InterfaceCatalogParams): Pro
   }
 
   const catalogJson = JSON.stringify(
-    { schemaVersion: '3', entries: catalogEntries },
+    { entries: catalogEntries },
     null,
     2,
   );
@@ -102,7 +102,7 @@ export async function removeInterfaceCatalog(catalogFilePath: string): Promise<v
  * @public
  */
 export async function writeRuntimeReport(reportFilePath: string): Promise<void> {
-  const reportJson = JSON.stringify({ schemaVersion: '1', adapters: [] }, null, 2);
+  const reportJson = JSON.stringify({ adapters: [] }, null, 2);
   await writeIfChanged(reportFilePath, reportJson);
 }
 

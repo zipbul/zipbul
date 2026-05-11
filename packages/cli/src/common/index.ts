@@ -7,10 +7,15 @@ export {
   ZIPBUL_TEMP_DIRNAME,
   outputDirPath,
   cacheDirPath,
-  cacheFilePath,
   tempDirPath,
 } from './paths';
-export { PathResolver } from './path-resolver';
+export { PathResolver, distToSourceCandidates } from './path-resolver';
+export { pathExists } from './path-exists';
 export { writeIfChanged } from './write-if-changed';
-export { ensureTsconfigIncludesZipbul } from './tsconfig-patcher';
+export { withAtomicEmit } from './atomic-emit';
+export type { AtomicEmitOptions } from './atomic-emit';
+export { installCancellation } from './cancellation';
+export type { CancellationScope, InstallCancellationOptions } from './cancellation';
+export { openGildashWithFallback } from './gildash-open';
+export type { OpenGildashWithFallbackParams, OpenGildashWithFallbackResult } from './gildash-open';
 

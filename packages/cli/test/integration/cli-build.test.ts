@@ -7,13 +7,10 @@ import { err } from '@zipbul/result';
 import { GildashError, type Gildash, type GildashOptions } from '@zipbul/gildash';
 
 import type { BuildCommandDeps } from '../../src/bin/build';
-import { __testing__ } from '../../src/bin/build';
-import type { CliRendererLike } from '../../src/bin/interfaces';
+import { createBuildCommand } from '../../src/bin/build';
 import type { AstParser, AdapterDefinitionResolver } from '../../src/compiler/analyzer';
 import type { ResolvedConfig } from '../../src/config';
 import { ConfigLoadError } from '../../src/config';
-
-const { createBuildCommand } = __testing__;
 
 // ---------------------------------------------------------------------------
 // Minimal valid FileAnalysis factory for mock parser
@@ -72,7 +69,7 @@ const makeSource = () => ({ path: 'zipbul.jsonc', format: 'jsonc' as const });
 // Shared mock dep factories
 // ---------------------------------------------------------------------------
 const makeManifestGenMock = () => ({
-  generateJson: mock(() => '{"schemaVersion":"1"}'),
+  generateJson: mock(() => '{}'),
   generate: mock(() => 'const r={};'),
 });
 
@@ -102,22 +99,6 @@ const makeGildashLedgerMock = () => ({
 
 const makeGildashMock = () => mock(async (_opts: GildashOptions) => makeGildashLedgerMock());
 
-const makeRendererMock = (): CliRendererLike => ({
-  intro: mock(() => {}),
-  outro: mock(() => {}),
-  cancelled: mock(() => {}),
-  step: mock(() => {}),
-  info: mock(() => {}),
-  success: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {}),
-  startSpinner: mock(() => ({ stop: mock(() => {}) })),
-  outputPaths: mock(() => {}),
-  outputFiles: mock(() => {}),
-  diagnostic: mock(() => {}),
-  separator: mock(() => {}),
-});
-
 const makeParserMock = () => ({
   parse: mock((filePath: string, _content: string) => makeParseResult(filePath)),
 }) as unknown as AstParser;
@@ -138,7 +119,6 @@ const makeDeps = (overrides?: Partial<BuildCommandDeps>): BuildCommandDeps => ({
     return { success: true as const, outputs: [], logs: [] };
   }) as unknown as BuildCommandDeps['buildBundle'],
   createGildash: makeGildashMock(),
-  renderer: makeRendererMock(),
   ...overrides,
 });
 
@@ -228,9 +208,12 @@ describe('createBuildCommand', () => {
     await build();
 
     // Assert
-    expect(deps.scanFiles).toHaveBeenCalledTimes(1);
-    const callArg = (deps.scanFiles as ReturnType<typeof mock>).mock.calls[0]?.[0] as { glob: unknown; baseDir: string };
-    expect(callArg?.baseDir).toContain('src');
+    // scanFiles is called twice: once for shape validation, once for traversal
+    expect(deps.scanFiles).toHaveBeenCalledTimes(2);
+    const calls = (deps.scanFiles as ReturnType<typeof mock>).mock.calls as Array<[{ glob: unknown; baseDir: string }]>;
+    for (const call of calls) {
+      expect(call[0]?.baseDir).toContain('src');
+    }
   });
 
   it('should call buildBundle with generated runtime and entry entrypoints when build() succeeds', async () => {
@@ -258,33 +241,6 @@ describe('createBuildCommand', () => {
 
     // Act & Assert
     await expect(build()).resolves.toBeUndefined();
-  });
-
-  it('should not throw when buildProfile is full', async () => {
-    // Arrange
-    const deps = makeDeps();
-    const build = createBuildCommand(deps);
-
-    // Act & Assert
-    await expect(build({ profile: 'full' })).resolves.toBeUndefined();
-  });
-
-  it('should not throw when buildProfile is standard', async () => {
-    // Arrange
-    const deps = makeDeps();
-    const build = createBuildCommand(deps);
-
-    // Act & Assert
-    await expect(build({ profile: 'standard' })).resolves.toBeUndefined();
-  });
-
-  it('should not throw when buildProfile is minimal', async () => {
-    // Arrange
-    const deps = makeDeps();
-    const build = createBuildCommand(deps);
-
-    // Act & Assert
-    await expect(build({ profile: 'minimal' })).resolves.toBeUndefined();
   });
 
   // -- Negative / Error --
@@ -347,15 +303,6 @@ describe('createBuildCommand', () => {
 
     // Act & Assert
     await expect(build()).rejects.toThrow('not deterministic');
-  });
-
-  it('should throw when buildProfile is invalid value', async () => {
-    // Arrange
-    const deps = makeDeps();
-    const build = createBuildCommand(deps);
-
-    // Act & Assert
-    await expect(build({ profile: 'ultra' as any })).rejects.toThrow();
   });
 
   it('should throw and report PARSE_FAILED when parser.parse() returns Err during BFS', async () => {
@@ -452,7 +399,6 @@ describe('createBuildCommand', () => {
 
     // Assert — createGildash was called twice (semantic failed, non-semantic succeeded)
     expect(callCount).toBe(2);
-    expect(deps.renderer.warn).toHaveBeenCalled();
   });
 
   it('should re-throw non-semantic GildashError instead of falling back', async () => {
@@ -488,5 +434,66 @@ describe('createBuildCommand', () => {
 
     // Act & Assert — generic errors should not trigger semantic fallback
     await expect(build()).rejects.toThrow('unexpected filesystem error');
+  });
+});
+
+describe('createBuildCommand — defineX shape policy (user-app context)', () => {
+  let shapeTmpDir: string;
+  let shapeCwdSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(async () => {
+    shapeTmpDir = await mkdtemp(join(tmpdir(), 'cli-build-shape-'));
+    await mkdir(join(shapeTmpDir, 'src'), { recursive: true });
+    await Bun.write(join(shapeTmpDir, 'src', 'main.ts'), '// main');
+    shapeCwdSpy = spyOn(process, 'cwd').mockReturnValue(shapeTmpDir);
+  });
+
+  afterEach(async () => {
+    shapeCwdSpy.mockRestore();
+    await rm(shapeTmpDir, { recursive: true, force: true });
+  });
+
+  const makeShapeDeps = (filename: string) => makeDeps({
+    scanFiles: mock(async () => [filename]),
+  });
+
+  it('rejects defineModule that is not a top-level export const', async () => {
+    await Bun.write(
+      join(shapeTmpDir, 'src', 'module.ts'),
+      [
+        `import { defineModule } from '@zipbul/core';`,
+        `const m = defineModule();`,
+        `export { m };`,
+      ].join('\n'),
+    );
+
+    const deps = makeShapeDeps('module.ts');
+    const build = createBuildCommand(deps);
+
+    await expect(build()).rejects.toThrow(/defineModule.*not exported|top-level exported `const`/);
+  });
+
+  it('allows defineMiddleware inside a factory function (user-app consumer)', async () => {
+    // user-app context: defineMiddleware/defineGuard/defineExceptionFilter may
+    // legitimately appear inside factory functions to receive runtime options.
+    // Only defineModule shape is enforced.
+    await Bun.write(
+      join(shapeTmpDir, 'src', 'module.ts'),
+      [
+        `import { defineMiddleware } from '@zipbul/common';`,
+        `import { defineModule } from '@zipbul/core';`,
+        `export function makeMw(_opts: { name: string }) {`,
+        `  return defineMiddleware([], () => () => {});`,
+        `}`,
+        `export const m = defineModule();`,
+      ].join('\n'),
+    );
+
+    const deps = makeShapeDeps('module.ts');
+    const build = createBuildCommand(deps);
+
+    // Shape pass succeeds; downstream graph build may still fail on mock
+    // setup, but the shape gate must not be the cause.
+    await expect(build()).resolves.toBeUndefined();
   });
 });

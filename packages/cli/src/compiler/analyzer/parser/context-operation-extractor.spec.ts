@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { parseSource, type ParsedFile } from '@zipbul/gildash';
+import { parseSource, type ParsedFile, type Node } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 
-import type { Function as OxcFunction, ArrowFunctionExpression, CallExpression, MethodDefinition } from 'oxc-parser';
 import { extractContextOperations, findContextBindings } from './context-operation-extractor';
 
-function findHandlerInner(code: string): OxcFunction | ArrowFunctionExpression {
+function findHandlerInner(code: string): Node {
   const parseResult = parseSource('test.ts', code);
   if (isErr(parseResult)) throw new Error('parse failed');
   const parsed: ParsedFile = parseResult;
@@ -14,23 +13,20 @@ function findHandlerInner(code: string): OxcFunction | ArrowFunctionExpression {
     if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'VariableDeclaration') {
       for (const decl of stmt.declaration.declarations) {
         if (decl.init?.type === 'CallExpression') {
-          const call = decl.init as CallExpression;
-          const factory = call.arguments[0];
+          const factory = decl.init.arguments[0];
           if (factory && (factory.type === 'ArrowFunctionExpression' || factory.type === 'FunctionExpression')) {
-            // factory body is `(ctx) => { ... }` (concise) or `() => (ctx) => { ... }`
-            const body = (factory as ArrowFunctionExpression).body;
+            const body = factory.body;
             if (body && (body.type === 'ArrowFunctionExpression' || body.type === 'FunctionExpression')) {
-              return body as ArrowFunctionExpression;
+              return body;
             }
-            // Block body: find return
             if (body && body.type === 'BlockStatement') {
               for (const s of body.body) {
                 if (s.type === 'ReturnStatement' && s.argument && (s.argument.type === 'ArrowFunctionExpression' || s.argument.type === 'FunctionExpression')) {
-                  return s.argument as ArrowFunctionExpression;
+                  return s.argument;
                 }
               }
             }
-            return factory as ArrowFunctionExpression;
+            return factory;
           }
         }
       }
@@ -39,23 +35,25 @@ function findHandlerInner(code: string): OxcFunction | ArrowFunctionExpression {
   throw new Error('handler not found');
 }
 
-function findClassMethod(code: string, methodName: string): OxcFunction {
+function findClassMethod(code: string, methodName: string): Node {
   const parseResult = parseSource('test.ts', code);
   if (isErr(parseResult)) throw new Error('parse failed');
   const parsed: ParsedFile = parseResult;
 
   for (const stmt of parsed.program.body) {
-    let classNode: { body: { body: readonly MethodDefinition[] } } | null = null;
+    let classBody: { body: readonly Node[] } | null = null;
     if (stmt.type === 'ClassDeclaration') {
-      classNode = stmt as unknown as { body: { body: readonly MethodDefinition[] } };
+      classBody = stmt.body as unknown as { body: readonly Node[] };
     } else if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.type === 'ClassDeclaration') {
-      classNode = stmt.declaration as unknown as { body: { body: readonly MethodDefinition[] } };
+      classBody = stmt.declaration.body as unknown as { body: readonly Node[] };
     }
-    if (!classNode) continue;
+    if (!classBody) continue;
 
-    for (const member of classNode.body.body) {
-      if (member.type === 'MethodDefinition' && member.key.type === 'Identifier' && member.key.name === methodName) {
-        return member.value as unknown as OxcFunction;
+    for (const member of classBody.body) {
+      if (member.type === 'MethodDefinition'
+        && (member as unknown as { key: Node }).key.type === 'Identifier'
+        && (member as unknown as { key: { name: string } }).key.name === methodName) {
+        return (member as unknown as { value: Node }).value;
       }
     }
   }
@@ -121,7 +119,7 @@ describe('extractContextOperations', () => {
       }
     `;
     const method = findClassMethod(code, 'm');
-    const bindings = findContextBindings(method.body!, 'ctx');
+    const bindings = findContextBindings((method as unknown as { body: Node }).body, 'ctx');
     const roots = new Set(['ctx', ...bindings]);
     const ops = extractContextOperations(method, roots);
 
@@ -191,7 +189,7 @@ describe('findContextBindings', () => {
       }
     `;
     const method = findClassMethod(code, 'm');
-    const bindings = findContextBindings(method.body!, 'ctx');
+    const bindings = findContextBindings((method as unknown as { body: Node }).body, 'ctx');
     expect(bindings).toEqual(['http']);
   });
 
@@ -205,7 +203,7 @@ describe('findContextBindings', () => {
       }
     `;
     const method = findClassMethod(code, 'm');
-    const bindings = findContextBindings(method.body!, 'ctx');
+    const bindings = findContextBindings((method as unknown as { body: Node }).body, 'ctx');
     expect(bindings).toEqual(['a', 'b']);
   });
 
@@ -219,7 +217,7 @@ describe('findContextBindings', () => {
       }
     `;
     const method = findClassMethod(code, 'm');
-    const bindings = findContextBindings(method.body!, 'ctx');
+    const bindings = findContextBindings((method as unknown as { body: Node }).body, 'ctx');
     expect(bindings).toEqual([]);
   });
 });

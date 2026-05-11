@@ -1,11 +1,14 @@
 import { Glob } from 'bun';
 import { join, resolve, dirname } from 'path';
 
-import type { CollectedClass, CliRendererLike } from '../interfaces';
+import type { CollectedClass } from '../interfaces';
 
 import { isErr } from '@zipbul/result';
+import { Logger } from '@zipbul/logger';
 import type { AstParser, FileAnalysis } from '../../compiler/analyzer';
-import { compareCodePoint } from '../../common';
+
+const log = new Logger('build/scan');
+import { compareCodePoint, distToSourceCandidates } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { buildFileAnalysis } from './build-analysis';
 
@@ -14,33 +17,18 @@ import { buildFileAnalysis } from './build-analysis';
 // ---------------------------------------------------------------------------
 
 /**
- * Maps a dist/ build output path back to the original TypeScript source.
- *
- * When a package.json `exports` field points to `./dist/index.js`,
- * `Bun.resolveSync` returns the dist path. The AOT compiler needs
- * the TypeScript source, so we check the package root and `src/`
- * for a matching `.ts` file.
+ * Maps a dist/ build output path back to the original TypeScript source —
+ * async wrapper that probes filesystem via Bun.file.
  */
 async function resolveDistToSource(resolvedPath: string): Promise<string | null> {
-  const distSegmentIndex = resolvedPath.lastIndexOf('/dist/');
+  const candidates = distToSourceCandidates(resolvedPath);
 
-  if (distSegmentIndex === -1) {
-    return null;
-  }
+  if (candidates === null) return null;
 
-  const packageRoot = resolvedPath.slice(0, distSegmentIndex);
-  const relative = resolvedPath.slice(distSegmentIndex + 6).replace(/\.js$/, '.ts');
-
-  const rootCandidate = join(packageRoot, relative);
-
-  if (await Bun.file(rootCandidate).exists()) {
-    return rootCandidate;
-  }
-
-  const srcCandidate = join(packageRoot, 'src', relative);
-
-  if (await Bun.file(srcCandidate).exists()) {
-    return srcCandidate;
+  for (const candidate of candidates) {
+    if (await Bun.file(candidate).exists()) {
+      return candidate;
+    }
   }
 
   return null;
@@ -66,7 +54,6 @@ export interface ScanParams {
   parser: AstParser;
   scanFiles: (options: { glob: Glob; baseDir: string }) => Promise<string[]>;
   resolveImport: (specifier: string, fromDir: string) => string;
-  renderer: CliRendererLike;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +77,6 @@ export async function scanAndParseFiles(params: ScanParams): Promise<ScanResult>
     parser,
     scanFiles,
     resolveImport,
-    renderer,
   } = params;
 
   const fileMap = new Map<string, FileAnalysis>();
@@ -135,7 +121,7 @@ export async function scanAndParseFiles(params: ScanParams): Promise<ScanResult>
           resolvedPath = resolveImport(resolvedPath, dirname(fromFilePath));
         } catch {
           if (rawImportPath.startsWith('.') || rawImportPath.startsWith('/')) {
-            renderer.warn(`Could not resolve import '${rawImportPath}' in '${fromFilePath}'`);
+            log.warn(`could not resolve import '%s' in '%s'`, rawImportPath, fromFilePath);
           }
 
           continue;
@@ -212,7 +198,11 @@ export async function scanAndParseFiles(params: ScanParams): Promise<ScanResult>
       const reason = error instanceof Error ? error.message : 'Unknown parse error.';
 
       throw new DiagnosticError(
-        buildDiagnostic({ reason, file: filePath }),
+        buildDiagnostic({
+          reason,
+          file: filePath,
+          how: 'Fix the TypeScript syntax error in the file shown above. `bunx tsc --noEmit` gives the same error with full type-context if helpful.',
+        }),
         { cause: error },
       );
     }

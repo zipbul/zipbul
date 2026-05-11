@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import type { Gildash, GildashOptions, IndexResult } from '@zipbul/gildash';
+import { Logger, TestTransport } from '@zipbul/logger';
 
 function makeIndexResult(overrides: Partial<IndexResult> & { changedFiles: string[] }): IndexResult {
   return {
@@ -25,15 +26,12 @@ function makeIndexResult(overrides: Partial<IndexResult> & { changedFiles: strin
 }
 
 import type { DevCommandDeps } from '../../src/bin/dev';
-import { __testing__ } from '../../src/bin/dev';
-import type { CliRendererLike } from '../../src/bin/interfaces';
+import { createDevCommand } from '../../src/bin/dev';
 import type { AstParser, AdapterDefinitionResolver } from '../../src/compiler/analyzer';
 import type { ResolvedConfig } from '../../src/config';
 import { ConfigLoadError } from '../../src/config';
 import type { ManifestGenerator } from '../../src/compiler/generator/manifest-generator';
 import type { EntryGenerator } from '../../src/compiler/generator/entry-generator';
-
-const { createDevCommand } = __testing__;
 
 // ---------------------------------------------------------------------------
 // Minimal valid FileAnalysis factory for mock parser
@@ -137,22 +135,6 @@ const makeGildashLedgerMock = () => ({
 
 const makeGildashMock = () => mock(async (_opts: GildashOptions) => makeGildashLedgerMock());
 
-const makeRendererMock = (): CliRendererLike => ({
-  intro: mock(() => {}),
-  outro: mock(() => {}),
-  cancelled: mock(() => {}),
-  step: mock(() => {}),
-  info: mock(() => {}),
-  success: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {}),
-  startSpinner: mock(() => ({ stop: mock(() => {}) })),
-  outputPaths: mock(() => {}),
-  outputFiles: mock(() => {}),
-  diagnostic: mock(() => {}),
-  separator: mock(() => {}),
-});
-
 const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
   loadConfig: mock(async () => ({ config: testConfig, source: makeSource() })),
   createParser: mock(() => makeParserMock()),
@@ -162,7 +144,6 @@ const makeDeps = (overrides?: Partial<DevCommandDeps>): DevCommandDeps => ({
   scanFiles: mock(async () => ['module.ts', 'main.ts']),
   createGildash: makeGildashMock(),
   spawnProcess: mock(() => mockSubprocess()),
-  renderer: makeRendererMock(),
   ...overrides,
 });
 
@@ -181,6 +162,9 @@ describe('createDevCommand', () => {
   afterEach(() => {
     cwdSpy.mockRestore();
     processOnSpy.mockRestore();
+    // Restore Logger to a clean default — individual tests configure custom
+    // TestTransports and we don't want them leaking into the next test.
+    Logger.configure({ level: 'info' });
   });
 
   // -- Happy Path --
@@ -563,6 +547,53 @@ describe('createDevCommand', () => {
     expect(spawnFn).toHaveBeenCalledTimes(2);
   });
 
+  it('emits "dev/rebuild: ok" trigger line on successful rebuild', async () => {
+    // Monitor-tool friendly trigger contract — agents tail stdout for this
+    // exact prefix to know a rebuild settled. Guard the format so a refactor
+    // that drops/renames the line breaks this test instead of silently
+    // breaking every consumer's wait condition.
+    const subprocess = mockSubprocess();
+    const spawnFn = mock(() => subprocess);
+    const changedFile = join(tmpDir, 'src', 'main.ts');
+
+    let onIndexedCallback: ((result: IndexResult) => void) | null = null;
+    const ledgerMock = {
+      ...makeGildashLedgerMock(),
+      onIndexed: mock((cb: (result: IndexResult) => void) => {
+        onIndexedCallback = cb;
+        return mock(() => {});
+      }),
+    } as unknown as Gildash;
+
+    const transport = new TestTransport();
+    Logger.configure({ level: 'trace', transports: [transport] });
+
+    const deps = makeDeps({
+      createGildash: mock(async () => ledgerMock),
+      spawnProcess: spawnFn,
+    });
+
+    const dev = createDevCommand(deps);
+    await dev();
+
+    // deletedFiles forces needsRebuild=true so the rebuild branch runs and
+    // the trigger line is emitted. (Pure "modified" events with no
+    // fingerprint shift exit via the fast-path early.)
+    onIndexedCallback!(makeIndexResult({
+      changedFiles: [changedFile],
+      deletedFiles: ['/tmp/nonexistent-deleted.ts'],
+      removedFiles: 1,
+    }));
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    const triggerEvent = transport.messages.find((m: { level: string; context?: string; msg: string }) =>
+      m.level === 'info'
+      && m.context === 'dev/rebuild'
+      && typeof m.msg === 'string'
+      && m.msg.startsWith('ok'));
+    expect(triggerEvent).toBeDefined();
+  });
+
   it('should NOT restart process when rebuild fails', async () => {
     // Arrange
     const subprocess = mockSubprocess();
@@ -645,12 +676,13 @@ describe('createDevCommand', () => {
       }),
     } as unknown as Gildash;
 
-    const renderer = makeRendererMock();
+    const transport = new TestTransport();
+    Logger.configure({ level: 'trace', transports: [transport] });
+
     const deps = makeDeps({
       createManifestGenerator: mock(() => manifestGenMock),
       createGildash: mock(async () => ledgerMock),
       spawnProcess: spawnFn,
-      renderer,
     });
 
     const dev = createDevCommand(deps);
@@ -666,14 +698,13 @@ describe('createDevCommand', () => {
     onIndexedCallback!(indexEvent);
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    // 2nd watch event: rebuild succeeds (rebuildCount=3, no throw) → should log recovery
+    // 2nd watch event: rebuild succeeds → should log recovery
     onIndexedCallback!(indexEvent);
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    // Assert
-    const successCalls = (renderer.success as ReturnType<typeof mock>).mock.calls;
-    const recoveryCall = successCalls.find((call: unknown[]) => call[0] === 'Build recovered');
-    expect(recoveryCall).toBeDefined();
+    const recoveryEvent = transport.messages.find((m: { level: string; context?: string; msg: string }) =>
+      m.level === 'info' && m.context === 'dev' && m.msg.includes('build recovered'));
+    expect(recoveryEvent).toBeDefined();
   });
 
   // -- 시그널 핸들링 --

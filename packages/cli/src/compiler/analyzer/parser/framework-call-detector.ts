@@ -1,4 +1,4 @@
-import { parseSource, extractSymbols } from '@zipbul/gildash';
+import { parseSource, extractSymbols, is } from '@zipbul/gildash';
 import type { ParsedFile, ExtractedSymbol, ExpressionObject, PatternMatch } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 import {
@@ -229,27 +229,43 @@ export function convertModuleDefinition(
   const providers: AnalyzerValue[] = [];
   let adapters: AnalyzerValue | undefined = undefined;
 
-  for (const prop of expr.properties) {
-    if (prop.key === 'name') {
+  for (const entry of expr.properties) {
+    if (entry.kind === 'spread') {
+      // defineModule({ ...someBase, name: 'x' }) — spread 는 정적 분석 무관, skip.
+      continue;
+    }
+
+    // gildash 0.26: prop.key 는 KeyExpression. plain identifier / 'string'-literal
+    // 키는 모두 { kind: 'string', value: 'name' } 형태로 옴.
+    const propKey = entry.key.kind === 'string' && typeof entry.key.value === 'string'
+      ? entry.key.value
+      : null;
+
+    if (propKey === null) {
+      // computed key (`[varName]: ...`) 는 모듈 정의에 미지원
+      continue;
+    }
+
+    if (propKey === 'name') {
       nameDeclared = true;
 
-      if (prop.value.kind === 'string' && typeof prop.value.value === 'string') {
-        name = prop.value.value;
+      if (entry.value.kind === 'string' && typeof entry.value.value === 'string') {
+        name = entry.value.value;
       }
 
       continue;
     }
 
-    if (prop.key === 'providers' && prop.value.kind === 'array') {
-      for (const element of prop.value.elements) {
+    if (propKey === 'providers' && entry.value.kind === 'array') {
+      for (const element of entry.value.elements) {
         providers.push(convertExpression(element));
       }
 
       continue;
     }
 
-    if (prop.key === 'adapters') {
-      adapters = convertExpression(prop.value);
+    if (propKey === 'adapters') {
+      adapters = convertExpression(entry.value);
     }
   }
 
@@ -393,13 +409,13 @@ export function resolveExportDefaultDefineModule(
   }
 
   for (const stmt of parsed.program.body) {
-    if (stmt.type !== 'ExportDefaultDeclaration') {
+    if (!is.ExportDefaultDeclaration(stmt)) {
       continue;
     }
 
     const decl = stmt.declaration;
 
-    if (decl.type === 'CallExpression') {
+    if (is.CallExpression(decl)) {
       const existing = defineModuleCalls.find(
         call => call.start === decl.start && call.end === decl.end,
       );
@@ -409,7 +425,7 @@ export function resolveExportDefaultDefineModule(
       }
     }
 
-    if (decl.type === 'Identifier') {
+    if (is.Identifier(decl)) {
       const name = decl.name;
 
       if (isNonEmptyString(name)) {

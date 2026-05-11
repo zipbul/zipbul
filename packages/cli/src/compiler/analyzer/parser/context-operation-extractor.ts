@@ -1,13 +1,5 @@
-import type {
-  Node as AstNode,
-  Function as OxcFunction,
-  ArrowFunctionExpression,
-  CallExpression,
-  Expression,
-  MemberExpression,
-} from 'oxc-parser';
-
-import { walkChildren } from './ast-node-locator';
+import { isFunctionNode, walk, is } from '@zipbul/gildash';
+import type { Node as AstNode } from '@zipbul/gildash';
 
 /**
  * 단일 ctx 작업 호출 — `<rootVar>.set(KEY, ...)` / `<rootVar>.use(KEY)` / `<rootVar>.get(KEY)`.
@@ -20,7 +12,7 @@ import { walkChildren } from './ast-node-locator';
  * `keyIdentifier` — 첫 번째 인자의 Identifier 이름. `contextKey<T>(...)` 결과를 참조해야 한다.
  *  비-Identifier (literal, expression 등) 는 `null` 으로 기록 — 검증 대상에서 제외된다.
  *
- * `start` — 진단 메시지용 source byte offset (oxc-parser 의 `start`).
+ * `start` — 진단 메시지용 source byte offset (길대시 `Node.start`).
  *  파일 내용과 결합하여 1-based 라인/컬럼 변환 가능. 추출 실패 시 `null`.
  */
 export interface ContextOperation {
@@ -45,14 +37,23 @@ export interface ContextOperation {
  * ```
  */
 export function extractContextOperations(
-  funcNode: OxcFunction | ArrowFunctionExpression,
+  funcNode: AstNode,
   rootVarNames: ReadonlySet<string>,
 ): ContextOperation[] {
+  if (!isFunctionNode(funcNode)) return [];
+
   const body = funcNode.body;
   if (!body) return [];
 
   const ops: ContextOperation[] = [];
-  visitNode(body, rootVarNames, ops);
+  walk(body, {
+    enter(node) {
+      if (is.CallExpression(node)) {
+        const op = tryExtractOperation(node, rootVarNames);
+        if (op !== null) ops.push(op);
+      }
+    },
+  });
   return ops;
 }
 
@@ -63,8 +64,10 @@ export function extractContextOperations(
  * binding 변수까지 root 에 포함하여 set/use/get 호출을 모두 수집한다.
  */
 export function extractHandlerContextOps(
-  funcNode: OxcFunction | ArrowFunctionExpression,
+  funcNode: AstNode,
 ): readonly ContextOperation[] {
+  if (!isFunctionNode(funcNode)) return [];
+
   const ctxParam = readFirstIdentifierParam(funcNode);
   if (ctxParam === null) return [];
 
@@ -72,7 +75,7 @@ export function extractHandlerContextOps(
   if (!body) return [];
 
   const roots = new Set<string>([ctxParam]);
-  if (body.type === 'BlockStatement') {
+  if (is.BlockStatement(body)) {
     for (const binding of findContextBindings(body, ctxParam)) {
       roots.add(binding);
     }
@@ -88,7 +91,7 @@ export function extractHandlerContextOps(
  * inner handler 의 첫 번째 파라미터 + `ctx.to(<Type>)` binding 들을 root 로 수집.
  */
 export function extractMiddlewareContextOps(
-  factory: OxcFunction | ArrowFunctionExpression,
+  factory: AstNode,
 ): readonly ContextOperation[] {
   const inner = findInnerHandler(factory);
   if (inner === null) return [];
@@ -105,24 +108,26 @@ export function extractMiddlewareContextOps(
  * augment 추출과 ops 추출 양쪽에서 동일 로직이 필요하므로 단일 소스로 export.
  */
 export function findInnerHandler(
-  factory: OxcFunction | ArrowFunctionExpression,
-): OxcFunction | ArrowFunctionExpression | null {
+  factory: AstNode,
+): AstNode | null {
+  if (!isFunctionNode(factory)) return null;
+
   const body = factory.body;
   if (!body) return null;
 
-  if (body.type !== 'BlockStatement') {
-    return body.type === 'ArrowFunctionExpression' || body.type === 'FunctionExpression'
-      ? (body as ArrowFunctionExpression | OxcFunction)
+  if (!is.BlockStatement(body)) {
+    return is.ArrowFunctionExpression(body) || is.FunctionExpression(body)
+      ? body
       : null;
   }
 
   for (const stmt of body.body) {
     if (
-      stmt.type === 'ReturnStatement'
+      is.ReturnStatement(stmt)
       && stmt.argument
-      && (stmt.argument.type === 'ArrowFunctionExpression' || stmt.argument.type === 'FunctionExpression')
+      && (is.ArrowFunctionExpression(stmt.argument) || is.FunctionExpression(stmt.argument))
     ) {
-      return stmt.argument as ArrowFunctionExpression | OxcFunction;
+      return stmt.argument;
     }
   }
   return null;
@@ -133,13 +138,15 @@ export function findInnerHandler(
  * 비어있거나 destructuring/rest 등이면 `null`.
  */
 export function readFirstIdentifierParam(
-  fn: OxcFunction | ArrowFunctionExpression,
+  fn: AstNode,
 ): string | null {
+  if (!isFunctionNode(fn)) return null;
+
   const params = fn.params;
   if (!params || params.length === 0) return null;
   const first = params[0];
-  if (!first || first.type !== 'Identifier') return null;
-  return (first as { name: string }).name;
+  if (!first || !is.Identifier(first)) return null;
+  return first.name;
 }
 
 /**
@@ -152,65 +159,53 @@ export function findContextBindings(
 ): readonly string[] {
   const bindings: string[] = [];
 
-  const visit = (node: AstNode): void => {
-    if (node.type === 'VariableDeclaration') {
+  walk(body, {
+    enter(node) {
+      if (!is.VariableDeclaration(node)) return;
       for (const decl of node.declarations) {
-        if (decl.id.type !== 'Identifier' || !decl.init) continue;
+        if (!is.Identifier(decl.id) || !decl.init) continue;
 
         const init = decl.init;
-        if (init.type !== 'CallExpression') continue;
+        if (!is.CallExpression(init)) continue;
 
         const callee = init.callee;
-        if (callee.type !== 'MemberExpression' || callee.computed) continue;
-        if (callee.object.type !== 'Identifier' || callee.object.name !== ctxParam) continue;
-        if (callee.property.type !== 'Identifier' || callee.property.name !== 'to') continue;
+        if (!is.MemberExpression(callee) || callee.computed) continue;
+        if (!is.Identifier(callee.object) || callee.object.name !== ctxParam) continue;
+        if (!is.Identifier(callee.property) || callee.property.name !== 'to') continue;
 
         bindings.push(decl.id.name);
       }
-    }
+    },
+  });
 
-    walkChildren(node, visit);
-  };
-
-  visit(body);
   return bindings;
 }
 
 const TRACKED_METHODS = new Set<'set' | 'use' | 'get'>(['set', 'use', 'get']);
 
-function visitNode(node: AstNode, roots: ReadonlySet<string>, out: ContextOperation[]): void {
-  if (node.type === 'CallExpression') {
-    const op = tryExtractOperation(node as CallExpression, roots);
-    if (op !== null) {
-      out.push(op);
-    }
-  }
-
-  walkChildren(node, (child) => visitNode(child, roots, out));
-}
-
 function tryExtractOperation(
-  call: CallExpression,
+  call: AstNode,
   roots: ReadonlySet<string>,
 ): ContextOperation | null {
+  if (!is.CallExpression(call)) return null;
+
   const callee = call.callee;
-  if (callee.type !== 'MemberExpression') return null;
+  if (!is.MemberExpression(callee)) return null;
 
-  const member = callee as MemberExpression;
-  if (member.computed) return null;
-  if (member.property.type !== 'Identifier') return null;
+  if (callee.computed) return null;
+  if (!is.Identifier(callee.property)) return null;
 
-  const methodName = (member.property as { name: string }).name;
+  const methodName = callee.property.name;
   if (!isTrackedMethod(methodName)) return null;
 
-  if (member.object.type !== 'Identifier') return null;
-  const rootName = (member.object as { name: string }).name;
+  if (!is.Identifier(callee.object)) return null;
+  const rootName = callee.object.name;
   if (!roots.has(rootName)) return null;
 
-  const firstArg = call.arguments[0] as Expression | undefined;
+  const firstArg = call.arguments[0];
   const keyIdentifier =
-    firstArg !== undefined && firstArg.type === 'Identifier'
-      ? (firstArg as { name: string }).name
+    firstArg !== undefined && is.Identifier(firstArg)
+      ? firstArg.name
       : null;
 
   const start = readStart(call);
@@ -223,7 +218,6 @@ function isTrackedMethod(name: string): name is 'set' | 'use' | 'get' {
 }
 
 function readStart(node: AstNode): number | null {
-  const start = (node as { start?: number }).start;
-  return typeof start === 'number' ? start : null;
+  return typeof node.start === 'number' ? node.start : null;
 }
 

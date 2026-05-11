@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { parseSource, extractSymbols } from '@zipbul/gildash';
-import type { ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
+import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
+import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import { isErr, err } from '@zipbul/result';
 import { ZIPBUL_REF } from '@zipbul/common';
 
@@ -19,7 +19,7 @@ import type {
   AnonymousClassCallback,
   ClassMetadataContext,
 } from './class-metadata-extractor';
-import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, getMethodAstMeta } from './ast-node-locator';
+import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode } from './ast-node-locator';
 
 interface ParseFixture {
   parsed: ParsedFile;
@@ -36,7 +36,7 @@ function parseFixture(code: string, filename: string = '/app/src/test.ts'): Pars
 
   const parsed = parseResult;
   const symbols = extractSymbols(parsed);
-  const importMap = buildImportMap(parsed.module.staticImports);
+  const importMap = buildImportMap(extractRelations(parsed.program, filename));
 
   return { parsed, symbols, importMap };
 }
@@ -64,7 +64,6 @@ function createRealAstLocators(): AstNodeLocatorCallbacks {
     findClassAstNode,
     findMethodBodyAstNode,
     findPropertyAstNode,
-    getMethodAstMeta,
   };
 }
 
@@ -817,14 +816,15 @@ describe('convertClassSymbol', () => {
     const { parsed, symbols, importMap } = parseFixture(code);
     const symbol = findClassSymbol(symbols, 'MyClass');
 
-    // Simulate computed method scenario: gildash gives name "unknown" for computed methods
+    // gildash 0.25+: computed key 의 name 은 source text + keyKind: 'computed' 로 표시
     const symbolWithComputed: ExtractedSymbol = {
       ...symbol,
       members: [
         {
           kind: 'method',
           methodKind: 'method',
-          name: 'unknown',
+          name: '[Symbol.iterator]',
+          key: { kind: 'member', object: 'Symbol', property: 'iterator' },
           span: { start: { line: 2, column: 2 }, end: { line: 2, column: 20 } },
           isExported: false,
           modifiers: [],
@@ -833,10 +833,7 @@ describe('convertClassSymbol', () => {
       ],
     };
 
-    const astLocators: AstNodeLocatorCallbacks = {
-      ...createRealAstLocators(),
-      getMethodAstMeta: mock(() => ({ isComputed: true, isPrivateName: false, start: 42 })),
-    };
+    const astLocators: AstNodeLocatorCallbacks = createRealAstLocators();
 
     const result = convertClassSymbol(
       symbolWithComputed, parsed, {}, importMap,
@@ -849,7 +846,8 @@ describe('convertClassSymbol', () => {
     const metadata = result as ClassMetadata;
 
     expect(metadata.methods).toHaveLength(1);
-    expect(metadata.methods[0]?.name).toBe('__computed_42__');
+    // span.start.line 기반 disambiguator (구 byte offset 대체)
+    expect(metadata.methods[0]?.name).toBe('__computed_2__');
     expect(metadata.methods[0]?.isComputed).toBe(true);
   });
 
@@ -878,7 +876,6 @@ describe('convertClassSymbol', () => {
 
     const astLocators: AstNodeLocatorCallbacks = {
       ...createRealAstLocators(),
-      getMethodAstMeta: mock(() => ({ isComputed: true, isPrivateName: false, start: 42 })),
     };
 
     const result = convertClassSymbol(
@@ -910,7 +907,6 @@ describe('convertClassSymbol', () => {
       findClassAstNode: mock(() => null),
       findMethodBodyAstNode: mock(() => null),
       findPropertyAstNode: mock(() => null),
-      getMethodAstMeta: mock(() => null),
     };
 
     const result = convertClassSymbol(
@@ -1099,7 +1095,7 @@ describe('resolveTypeArgName', () => {
 
     expect(classNode).not.toBeNull();
 
-    const superTypeArgs = classNode!.superTypeArguments;
+    const superTypeArgs = (classNode as unknown as { superTypeArguments?: { params: Node[] } | null }).superTypeArguments;
 
     expect(superTypeArgs).not.toBeNull();
 
@@ -1139,7 +1135,7 @@ describe('resolveTypeArgName', () => {
 
     expect(classNode).not.toBeNull();
 
-    const superTypeArgs = classNode!.superTypeArguments;
+    const superTypeArgs = (classNode as unknown as { superTypeArguments?: { params: Node[] } | null }).superTypeArguments;
 
     if (superTypeArgs !== null && superTypeArgs !== undefined) {
       const firstParam = superTypeArgs.params[0];

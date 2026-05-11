@@ -35,5 +35,9 @@ jobs:
         run: bun run build
         working-directory: packages/http-adapter
 
+      - name: Build cli
+        run: bun run build
+        working-directory: packages/cli
+
       - name: Lint
         run: bunx oxlint@1.48.0
