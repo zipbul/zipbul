@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import { HttpHeader, HttpStatus } from '@zipbul/shared';
+import { HttpHeader } from '@zipbul/shared';
 
 import { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
 import {
@@ -8,7 +8,6 @@ import {
 } from './interfaces';
 import type {
   CorsContinueResult,
-  CorsOptions,
   CorsPreflightResult,
   CorsRejectResult,
 } from './interfaces';

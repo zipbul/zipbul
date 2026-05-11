@@ -4,7 +4,7 @@ import type { ResultAsync } from '@zipbul/result';
 
 import { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
 import { CorsError } from './interfaces';
-import type { CorsErrorData, CorsOptions, CorsPreflightResult, CorsRejectResult } from './interfaces';
+import type { CorsErrorData, CorsOptions, CorsRejectResult } from './interfaces';
 import { resolveCorsOptions, validateCorsOptions } from './options';
 import type { CorsResult, ResolvedCorsOptions } from './types';
 import type { OriginResult } from './types';
