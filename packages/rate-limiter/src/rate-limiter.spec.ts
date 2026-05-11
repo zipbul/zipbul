@@ -5,7 +5,7 @@ import { RateLimiterError } from './interfaces';
 import type { RateLimitAllowResult, RateLimitDenyResult, RateLimiterStore, StoreEntry } from './interfaces';
 import { RateLimitAction, RateLimiterErrorReason, Algorithm } from './enums';
 import { MemoryStore } from './stores/memory';
-import { WithFallbackStore, withFallback } from './stores/with-fallback';
+import { withFallback } from './stores/with-fallback';
 import { validateRateLimiterOptions, resolveRateLimiterOptions } from './options';
 
 // ── Helpers ─────────────────────────────────────────────────────────
