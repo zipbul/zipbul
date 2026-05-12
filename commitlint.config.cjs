@@ -29,6 +29,7 @@ module.exports = {
         'result',
         'router',
         'shared',
+        'tck',
         'examples',
         'benchmark',
         'example-stamp-middleware',

@@ -17,6 +17,8 @@ import type {
 import type { ErrorResponseData, RouteHandlerFunction, RouteHandlerResult } from './types';
 
 import { HttpContext } from './http-context';
+import type { Server } from 'bun';
+
 import { HttpServer } from './http-server';
 import type { HttpServerMetrics } from './http-server';
 import { HttpResponse } from './http-response';
@@ -505,6 +507,19 @@ export class HttpAdapter extends Adapter {
    */
   getMetrics(): HttpServerMetrics | undefined {
     return this.httpServer?.getMetrics();
+  }
+
+  /**
+   * Returns the underlying Bun Server instance.
+   *
+   * Primarily for observability (e.g. reading `server.port` after a dynamic
+   * `port: 0` bind) and integration testing.
+   *
+   * @returns The Bun Server, or `undefined` if not yet booted.
+   * @public
+   */
+  getServer(): Server<unknown> | undefined {
+    return this.httpServer?.getServer();
   }
 
 }
