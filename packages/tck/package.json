@@ -27,6 +27,7 @@
   "dependencies": {
     "@zipbul/common": "workspace:*",
     "@zipbul/core": "workspace:*",
+    "@zipbul/logger": "workspace:*",
     "@zipbul/result": "workspace:*"
   },
   "devDependencies": {
