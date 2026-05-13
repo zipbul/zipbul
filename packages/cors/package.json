@@ -53,5 +53,14 @@
     "@zipbul/shared": "workspace:*",
     "safe-regex2": "^5.0.0"
   },
+  "peerDependencies": {
+    "@zipbul/common": "workspace:*",
+    "@zipbul/http-adapter": "workspace:*"
+  },
+  "devDependencies": {
+    "@zipbul/common": "workspace:*",
+    "@zipbul/http-adapter": "workspace:*",
+    "@zipbul/tck": "workspace:*"
+  },
   "sideEffects": false
 }

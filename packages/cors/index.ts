@@ -1,6 +1,7 @@
 import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
 
 export { Cors } from './src/cors';
+export { corsMiddleware } from './src/middleware';
 export { CorsAction, CorsRejectionReason, CorsErrorReason } from './src/enums';
 export { CorsError } from './src/interfaces';
 export type {

@@ -138,6 +138,7 @@ describe('validateCorsOptions', () => {
       maxAge: null,
       preflightContinue: false,
       optionsSuccessStatus: CORS_DEFAULT_OPTIONS_SUCCESS_STATUS,
+      allowPrivateNetwork: false,
       ...overrides,
     };
   }

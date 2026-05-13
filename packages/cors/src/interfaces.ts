@@ -118,4 +118,16 @@ export interface CorsOptions {
    * @defaultValue `204`
    */
   optionsSuccessStatus?: number;
+
+  /**
+   * When `true`, preflight requests carrying
+   * `Access-Control-Request-Private-Network: true` receive
+   * `Access-Control-Allow-Private-Network: true` in the response.
+   *
+   * Enables private-network access from public-origin pages per the
+   * WICG Private Network Access spec (enforced by Chrome 130+).
+   *
+   * @defaultValue `false`
+   */
+  allowPrivateNetwork?: boolean;
 }

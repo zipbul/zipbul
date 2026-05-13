@@ -124,6 +124,13 @@ export class Cors {
       headers.set(HttpHeader.AccessControlMaxAge, this.options.maxAge.toString());
     }
 
+    if (
+      this.options.allowPrivateNetwork
+      && request.headers.get(HttpHeader.AccessControlRequestPrivateNetwork) === 'true'
+    ) {
+      headers.set(HttpHeader.AccessControlAllowPrivateNetwork, 'true');
+    }
+
     if (this.options.preflightContinue) {
       return { action: CorsAction.Continue, headers };
     }

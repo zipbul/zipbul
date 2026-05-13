@@ -7,6 +7,7 @@ export enum HttpHeader {
   // ── Request / general ──
   Origin = 'origin',
   Vary = 'vary',
+  Authorization = 'authorization',
 
   // ── CORS ──
   AccessControlAllowOrigin = 'access-control-allow-origin',
@@ -17,6 +18,8 @@ export enum HttpHeader {
   AccessControlMaxAge = 'access-control-max-age',
   AccessControlRequestMethod = 'access-control-request-method',
   AccessControlRequestHeaders = 'access-control-request-headers',
+  AccessControlRequestPrivateNetwork = 'access-control-request-private-network',
+  AccessControlAllowPrivateNetwork = 'access-control-allow-private-network',
 
   // ── Content / encoding ──
   ContentType = 'content-type',

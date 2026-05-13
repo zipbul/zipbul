@@ -35,4 +35,5 @@ export type ResolvedCorsOptions = {
   maxAge: number | null;
   preflightContinue: boolean;
   optionsSuccessStatus: number;
+  allowPrivateNetwork: boolean;
 };

@@ -29,6 +29,7 @@ export function resolveCorsOptions(options?: CorsOptions): ResolvedCorsOptions {
     maxAge: options?.maxAge ?? null,
     preflightContinue: options?.preflightContinue ?? false,
     optionsSuccessStatus: options?.optionsSuccessStatus ?? CORS_DEFAULT_OPTIONS_SUCCESS_STATUS,
+    allowPrivateNetwork: options?.allowPrivateNetwork ?? false,
   };
 }
 
