@@ -1,6 +1,6 @@
 import type { Class } from '@zipbul/common';
 
-import { HttpHeader, HttpMethod } from './enums';
+import { HttpHeader, HttpMethod, UrlScheme } from './enums';
 import type { ContentTypeInfo, HttpRequestData } from './interfaces';
 import type { RequestBodyValue, RequestParamMap } from './types';
 import { parseContentTypeInfo } from './content-type';
@@ -125,7 +125,7 @@ export class HttpRequest {
     const proxyProtocol = this._origin.proxyProtocol;
     const urlProtocol = this._origin.urlProtocol;
 
-    this._protocol = (proxyProtocol === 'http' || proxyProtocol === 'https')
+    this._protocol = (proxyProtocol === UrlScheme.Http || proxyProtocol === UrlScheme.Https)
       ? proxyProtocol
       : urlProtocol;
 

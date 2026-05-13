@@ -221,7 +221,7 @@ export class HttpServer {
       // Bun 파서의 413은 CORS 등 미들웨어를 우회하므로 사용하지 않는다.
       error: (error: Error) => {
         this.logger.error('Unhandled server error', error);
-        return new Response('Internal server error', { status: 500 });
+        return new Response('Internal server error', { status: HttpStatus.InternalServerError });
       },
     };
 
@@ -286,10 +286,10 @@ export class HttpServer {
 
     // URL 파싱 실패 또는 HttpRequest 생성 불가 → 고정 응답 (컨텍스트 없음)
     if (createResult.kind === 'bad-request' && createResult.reason === 'invalid-url') {
-      return new Response(null, { status: 400 });
+      return new Response(null, { status: HttpStatus.BadRequest });
     }
     if (createResult.request === undefined) {
-      return new Response(null, { status: 400 });
+      return new Response(null, { status: HttpStatus.BadRequest });
     }
 
     const zipbulReq = createResult.request;
@@ -313,7 +313,7 @@ export class HttpServer {
     } catch (error) {
       zipbulRes.cancelNativeStream();
       this.logger.error('Fetch Error', error instanceof Error ? error : undefined);
-      return new Response('Internal server error', { status: 500 });
+      return new Response('Internal server error', { status: HttpStatus.InternalServerError });
     } finally {
       try {
         await requestContainer?.dispose?.();

@@ -1,3 +1,6 @@
+import { HTTP_DEFAULT_PORT, HTTPS_DEFAULT_PORT } from './constants';
+import { UrlScheme } from './enums';
+
 export interface ParsedRequestTarget {
   readonly protocol: string | null;
   readonly authority: string | null;
@@ -26,8 +29,8 @@ export function extractPort(host: string): string | null {
 }
 
 export function defaultPortByProtocol(protocol: string | null): number {
-  if (protocol === 'https') return 443;
-  return 80;
+  if (protocol === UrlScheme.Https) return HTTPS_DEFAULT_PORT;
+  return HTTP_DEFAULT_PORT;
 }
 
 export function parseRequestTarget(raw: string): ParsedRequestTarget | null {
