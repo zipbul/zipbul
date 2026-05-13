@@ -6,7 +6,7 @@ export type {
   RequestQueryMap,
   RequestQueryValue,
 } from './request';
-export type { ResponseBodyValue } from './response';
+export type { RedirectStatus, ResponseBodyValue } from './response';
 export type {
   InternalRouteHandler,
   InternalRouteMethod,

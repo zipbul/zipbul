@@ -533,10 +533,10 @@ function cloneHeadersWithSetCookie(input: Headers): Headers {
     seenSetCookie.push(...input.getSetCookie());
   }
   for (const [k, v] of input) {
-    if (k.toLowerCase() === 'set-cookie') continue;
+    if (k.toLowerCase() === HttpHeader.SetCookie) continue;
     out.append(k, v);
   }
-  for (const v of seenSetCookie) out.append('set-cookie', v);
+  for (const v of seenSetCookie) out.append(HttpHeader.SetCookie, v);
   return out;
 }
 

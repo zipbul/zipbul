@@ -1,5 +1,5 @@
 import type { HttpRequest } from './http-request';
-import type { ResponseBodyValue } from './types';
+import type { RedirectStatus, ResponseBodyValue } from './types';
 
 import { ContentType, HttpHeader, HttpStatus } from './enums';
 import { reasonOf } from './utils';
@@ -259,7 +259,7 @@ export class HttpResponse {
 
   // ── Convenience ─────────────────────────────────────────────
 
-  redirect(url: string, status?: 301 | 302 | 303 | 307 | 308): this {
+  redirect(url: string, status?: RedirectStatus): this {
     if (DANGEROUS_SCHEME_PATTERN.test(url)) {
       throw new Error(`Redirect to dangerous scheme is not allowed: ${url.slice(0, url.indexOf(':') + 1)}`);
     }

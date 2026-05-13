@@ -1,35 +1,46 @@
 import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
-import { CompressionErrorReason, Encoding } from './enums.ts';
+
 import {
   DEFAULT_ENCODINGS,
   DEFAULT_FILTER,
   DEFAULT_LEVELS,
   DEFAULT_THRESHOLD,
 } from './constants.ts';
+import { CompressionCodec, CompressionErrorReason } from './enums.ts';
 import type { BreachOptions, CompressionErrorData, CompressionOptions } from './interfaces.ts';
 import type { ResolvedCompressionOptions } from './types.ts';
 
-const VALID_ENCODINGS = new Set<string>(Object.values(Encoding));
+const VALID_ENCODINGS = new Set<string>(Object.values(CompressionCodec));
 
-const LEVEL_RANGES: Record<Encoding, { min: number; max: number }> = {
-  [Encoding.Gzip]: { min: 1, max: 9 },
-  [Encoding.Deflate]: { min: 1, max: 9 },
-  [Encoding.Brotli]: { min: 0, max: 11 },
-  [Encoding.Zstd]: { min: 1, max: 19 },
-};
+const LEVEL_RANGES = {
+  [CompressionCodec.Gzip]: { min: 1, max: 9 },
+  [CompressionCodec.Deflate]: { min: 1, max: 9 },
+  [CompressionCodec.Br]: { min: 0, max: 11 },
+  [CompressionCodec.Zstd]: { min: 1, max: 19 },
+} satisfies Record<CompressionCodec, { min: number; max: number }>;
 
 /** Encodings with safe format-level padding for BREACH mitigation. */
-export const BREACH_SAFE_ENCODINGS = new Set<Encoding>([Encoding.Gzip, Encoding.Zstd]);
+export const BREACH_SAFE_ENCODINGS: ReadonlySet<CompressionCodec> = new Set<CompressionCodec>([
+  CompressionCodec.Gzip,
+  CompressionCodec.Zstd,
+]);
 
 export function resolveCompressionOptions(
   options?: CompressionOptions,
 ): ResolvedCompressionOptions {
+  const level: Record<CompressionCodec, number> = { ...DEFAULT_LEVELS };
+  if (options?.level !== undefined) {
+    for (const codec of Object.values(CompressionCodec)) {
+      const override = options.level[codec];
+      if (override !== undefined) level[codec] = override;
+    }
+  }
   return {
     encodings: options?.encodings ?? DEFAULT_ENCODINGS,
     threshold: options?.threshold ?? DEFAULT_THRESHOLD,
     filter: options?.filter ?? DEFAULT_FILTER,
-    level: { ...DEFAULT_LEVELS, ...options?.level },
+    level,
   };
 }
 
@@ -60,7 +71,7 @@ export function validateCompressionOptions(
     });
   }
 
-  for (const encoding of Object.values(Encoding)) {
+  for (const encoding of Object.values(CompressionCodec)) {
     const level = resolved.level[encoding];
     if (level === undefined) continue;
 

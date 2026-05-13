@@ -1,4 +1,5 @@
 import type { HttpStatus } from '../enums';
+import type { RedirectStatus } from '../types';
 
 interface OptionEntry {
   readonly name: string;
@@ -7,7 +8,7 @@ interface OptionEntry {
 
 interface RedirectSpec {
   readonly url: string;
-  readonly status?: 301 | 302 | 303 | 307 | 308;
+  readonly status?: RedirectStatus;
 }
 
 export interface ParsedDecoratorOptions {
@@ -59,7 +60,7 @@ export function parseDecoratorOptions(options: readonly OptionEntry[] | undefine
         if (typeof option.arguments?.[0] === 'string') {
           redirect = {
             url: option.arguments[0],
-            ...(option.arguments?.[1] !== undefined ? { status: option.arguments[1] as 301 | 302 | 303 | 307 | 308 } : {}),
+            ...(option.arguments?.[1] !== undefined ? { status: option.arguments[1] as RedirectStatus } : {}),
           };
         }
         break;

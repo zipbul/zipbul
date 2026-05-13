@@ -11,10 +11,12 @@ export { HttpResponse } from './src/http-response';
 export {
   HttpAdapterPhase,
   HttpAdapterStep,
+  ContentEncoding,
   ContentType,
   HttpHeader,
   HttpStatus,
   HttpMethod,
+  UrlScheme,
 } from './src/enums';
 export type { HttpMethodToken } from './src/types';
 

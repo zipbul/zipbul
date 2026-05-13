@@ -1,4 +1,5 @@
 import type { HttpStatus } from '../enums';
+import type { RedirectStatus } from '../types';
 
 /**
  * Enables raw request body capture for this handler.
@@ -109,7 +110,7 @@ export function Status(_code: HttpStatus): MethodDecorator {
  *
  * @public
  */
-export function Redirect(_url: string, _status?: 301 | 302 | 303 | 307 | 308): MethodDecorator {
+export function Redirect(_url: string, _status?: RedirectStatus): MethodDecorator {
   return () => {};
 }
 

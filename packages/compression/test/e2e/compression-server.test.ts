@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
-import { compressionMiddleware, Encoding } from '../../index.ts';
+import { compressionMiddleware } from '../../index.ts';
+import { CompressionCodec } from '../../src/enums.ts';
 import {
   HttpRequest,
   HttpResponse,
@@ -14,7 +15,7 @@ let BASE: string;
 const LARGE_DATA = JSON.stringify({ data: 'x'.repeat(2048) });
 
 const result = compressionMiddleware({
-  encodings: [Encoding.Brotli, Encoding.Gzip],
+  encodings: [CompressionCodec.Br, CompressionCodec.Gzip],
 });
 if (isErr(result)) throw new Error(`setup failed: ${result.data.message}`);
 const middlewareHandler = result.factory();

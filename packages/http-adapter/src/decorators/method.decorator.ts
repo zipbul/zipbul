@@ -33,7 +33,7 @@ export const Head =
  *
  * **Permanently forbidden methods** — `TRACE`, `CONNECT` — are rejected at
  * compile time (case-insensitive via `Uppercase<>`) and at scan time. See
- * {@link ForbiddenHttpMethod}.
+ * `FORBIDDEN_HTTP_METHODS` in `../constants`.
  *
  * @param method - Custom HTTP method token (e.g. `'PURGE'`, `'PROPFIND'`).
  * @param pathOrOptions - Route path or options. Same as `@Get()` / `@Post()`.

@@ -1,11 +1,12 @@
 import type { HttpResponse } from '../http-response';
 import type { HttpStatus } from '../enums';
+import type { RedirectStatus } from '../types';
 
 export function buildResponseDefaultsApplier(
   status: HttpStatus | undefined,
   contentType: string | undefined,
   headers: readonly (readonly [string, string])[],
-  redirect: { readonly url: string; readonly status?: 301 | 302 | 303 | 307 | 308 } | undefined,
+  redirect: { readonly url: string; readonly status?: RedirectStatus } | undefined,
 ): ((response: HttpResponse) => void) | undefined {
   if (status === undefined && contentType === undefined && headers.length === 0 && redirect === undefined) {
     return undefined;

@@ -1,14 +1,14 @@
 import type { ResolvedExceptionFilter, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
 
 import type { HttpResponse } from '../http-response';
-import type { InternalRouteHandler, InternalRouteMethod, RouteHandlerFunction } from '../types';
+import type { InternalRouteHandler, InternalRouteMethod, RedirectStatus, RouteHandlerFunction } from '../types';
 
 export interface MatchedRouteMetadata {
   readonly rawBody: boolean;
   readonly sse: boolean;
   readonly bodyLimit: number | undefined;
   readonly status: number | undefined;
-  readonly redirect: { readonly url: string; readonly status?: 301 | 302 | 303 | 307 | 308 } | undefined;
+  readonly redirect: { readonly url: string; readonly status?: RedirectStatus } | undefined;
   readonly contentType: string | undefined;
   readonly headers: readonly (readonly [string, string])[];
   readonly applyResponseDefaults?: (response: HttpResponse) => void;

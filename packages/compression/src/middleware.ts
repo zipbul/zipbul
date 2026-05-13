@@ -6,7 +6,7 @@ import type { Result } from '@zipbul/result';
 import { HttpHeader, HttpStatus } from '@zipbul/shared';
 
 import { BUFFER_COMPRESSORS } from './compressors.ts';
-import { Encoding } from './enums.ts';
+import { CompressionCodec } from './enums.ts';
 import { injectGzipPadding, injectZstdPadding } from './htb.ts';
 import type { BreachOptions, CompressionErrorData, CompressionOptions } from './interfaces.ts';
 import { BREACH_SAFE_ENCODINGS, resolveCompressionOptions, validateCompressionOptions } from './options.ts';
@@ -102,9 +102,9 @@ export function compressionMiddleware(
 
     // BREACH mitigation: inject format-level padding
     if (breach !== undefined) {
-      if (encoding === Encoding.Gzip) {
+      if (encoding === CompressionCodec.Gzip) {
         compressed = injectGzipPadding(compressed, breach.maxPadding);
-      } else if (encoding === Encoding.Zstd) {
+      } else if (encoding === CompressionCodec.Zstd) {
         compressed = injectZstdPadding(compressed, breach.maxPadding);
       }
     }

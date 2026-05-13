@@ -1,4 +1,4 @@
-import { Encoding } from './enums.ts';
+import { CompressionCodec } from './enums.ts';
 
 export interface EncodingPreference {
   encoding: string;
@@ -54,9 +54,9 @@ export function parseAcceptEncoding(header: string): EncodingPreference[] {
  * preference order (earlier = higher priority).
  */
 export function negotiateEncoding(
-  serverEncodings: Encoding[],
+  serverEncodings: CompressionCodec[],
   clientPreferences: EncodingPreference[],
-): Encoding | null {
+): CompressionCodec | null {
   const clientMap = new Map<string, number>();
   let wildcardQuality = -1;
 
@@ -68,7 +68,7 @@ export function negotiateEncoding(
     }
   }
 
-  let best: Encoding | null = null;
+  let best: CompressionCodec | null = null;
   let bestQuality = 0;
 
   for (const encoding of serverEncodings) {

@@ -1,5 +1,6 @@
 import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
+import { HttpHeader } from '@zipbul/shared';
 
 import { MultipartErrorReason } from '../enums';
 import type { MultipartErrorData } from '../interfaces';
@@ -49,9 +50,9 @@ export function parsePartHeaders(headerBlock: string): Result<PartHeaders, Multi
     const headerName = line.slice(0, colonIndex).trim().toLowerCase();
     const headerValue = line.slice(colonIndex + 1).trim();
 
-    if (headerName === 'content-disposition' && contentDisposition === undefined) {
+    if (headerName === HttpHeader.ContentDisposition && contentDisposition === undefined) {
       contentDisposition = headerValue;
-    } else if (headerName === 'content-type' && !hasContentType) {
+    } else if (headerName === HttpHeader.ContentType && !hasContentType) {
       contentType = headerValue;
       hasContentType = true;
     }

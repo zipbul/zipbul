@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { parseAcceptEncoding, negotiateEncoding } from './encoding.ts';
-import { Encoding } from './enums.ts';
+import { CompressionCodec } from './enums.ts';
 
 describe('parseAcceptEncoding', () => {
   it('should parse single encoding without quality as quality 1.0 when given plain encoding', () => {
@@ -161,91 +161,91 @@ describe('parseAcceptEncoding', () => {
 
 describe('negotiateEncoding', () => {
   it('should return server-preferred encoding when client supports it', () => {
-    const serverEncodings = [Encoding.Brotli, Encoding.Gzip];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Br, CompressionCodec.Gzip];
     const clientPreferences = [{ encoding: 'br', quality: 1.0 }];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
-    expect(result).toBe(Encoding.Brotli);
+    expect(result).toBe(CompressionCodec.Br);
   });
 
   it('should select encoding with highest client quality when multiple matches exist', () => {
-    const serverEncodings = [Encoding.Gzip, Encoding.Deflate, Encoding.Brotli];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Gzip, CompressionCodec.Deflate, CompressionCodec.Br];
     const clientPreferences = [
       { encoding: 'gzip', quality: 0.5 },
       { encoding: 'deflate', quality: 0.9 },
       { encoding: 'br', quality: 0.3 },
     ];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
-    expect(result).toBe(Encoding.Deflate);
+    expect(result).toBe(CompressionCodec.Deflate);
   });
 
   it('should match via wildcard when no specific match exists', () => {
-    const serverEncodings = [Encoding.Zstd];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Zstd];
     const clientPreferences = [{ encoding: '*', quality: 0.5 }];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
-    expect(result).toBe(Encoding.Zstd);
+    expect(result).toBe(CompressionCodec.Zstd);
   });
 
   it('should prefer specific match over wildcard when specific has higher quality', () => {
-    const serverEncodings = [Encoding.Gzip];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Gzip];
     const clientPreferences = [
       { encoding: 'gzip', quality: 0.9 },
       { encoding: '*', quality: 0.5 },
     ];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
-    expect(result).toBe(Encoding.Gzip);
+    expect(result).toBe(CompressionCodec.Gzip);
   });
 
   it('should return null when server encodings is empty', () => {
-    const serverEncodings: Encoding[] = [];
+    const serverEncodings: CompressionCodec[] = [];
     const clientPreferences = [{ encoding: 'gzip', quality: 1.0 }];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
     expect(result).toBeNull();
   });
 
   it('should return null when client preferences is empty', () => {
-    const serverEncodings = [Encoding.Gzip];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Gzip];
     const clientPreferences: { encoding: string; quality: number }[] = [];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
     expect(result).toBeNull();
   });
 
   it('should return null when all client qualities are 0', () => {
-    const serverEncodings = [Encoding.Gzip];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Gzip];
     const clientPreferences = [{ encoding: 'gzip', quality: 0 }];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
     expect(result).toBeNull();
   });
 
   it('should return null when no overlap exists between server and client', () => {
-    const serverEncodings = [Encoding.Brotli];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Br];
     const clientPreferences = [{ encoding: 'gzip', quality: 1.0 }];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
     expect(result).toBeNull();
   });
 
   it('should return null when quality is exactly 0', () => {
-    const serverEncodings = [Encoding.Gzip];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Gzip];
     const clientPreferences = [{ encoding: 'gzip', quality: 0 }];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
     expect(result).toBeNull();
   });
 
   it('should return encoding when quality is just above 0', () => {
-    const serverEncodings = [Encoding.Gzip];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Gzip];
     const clientPreferences = [{ encoding: 'gzip', quality: 0.001 }];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
-    expect(result).toBe(Encoding.Gzip);
+    expect(result).toBe(CompressionCodec.Gzip);
   });
 
   it('should use wildcard quality when encoding not in client map', () => {
-    const serverEncodings = [Encoding.Zstd];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Zstd];
     const clientPreferences = [{ encoding: '*', quality: 0.4 }];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
-    expect(result).toBe(Encoding.Zstd);
+    expect(result).toBe(CompressionCodec.Zstd);
   });
 
   it('should use specific quality over wildcard even when specific is q=0', () => {
-    const serverEncodings = [Encoding.Gzip];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Gzip];
     const clientPreferences = [
       { encoding: 'gzip', quality: 0 },
       { encoding: '*', quality: 0.5 },
@@ -255,17 +255,17 @@ describe('negotiateEncoding', () => {
   });
 
   it('should use last wildcard quality when multiple wildcards present', () => {
-    const serverEncodings = [Encoding.Zstd];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Zstd];
     const clientPreferences = [
       { encoding: '*', quality: 0.1 },
       { encoding: '*', quality: 0.6 },
     ];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
-    expect(result).toBe(Encoding.Zstd);
+    expect(result).toBe(CompressionCodec.Zstd);
   });
 
   it('should return same result when given same input multiple times', () => {
-    const serverEncodings = [Encoding.Gzip];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Gzip];
     const clientPreferences = [{ encoding: 'gzip', quality: 0.8 }];
     const a = negotiateEncoding(serverEncodings, clientPreferences);
     const b = negotiateEncoding(serverEncodings, clientPreferences);
@@ -273,23 +273,23 @@ describe('negotiateEncoding', () => {
   });
 
   it('should break quality ties by server encoding order when client qualities are equal', () => {
-    const serverEncodings = [Encoding.Brotli, Encoding.Gzip, Encoding.Deflate];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Br, CompressionCodec.Gzip, CompressionCodec.Deflate];
     const clientPreferences = [
       { encoding: 'br', quality: 0.5 },
       { encoding: 'gzip', quality: 0.5 },
       { encoding: 'deflate', quality: 0.5 },
     ];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
-    expect(result).toBe(Encoding.Brotli);
+    expect(result).toBe(CompressionCodec.Br);
   });
 
   it('should let higher quality override server order when qualities differ', () => {
-    const serverEncodings = [Encoding.Brotli, Encoding.Gzip];
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Br, CompressionCodec.Gzip];
     const clientPreferences = [
       { encoding: 'br', quality: 0.3 },
       { encoding: 'gzip', quality: 0.9 },
     ];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
-    expect(result).toBe(Encoding.Gzip);
+    expect(result).toBe(CompressionCodec.Gzip);
   });
 });

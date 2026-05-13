@@ -2,7 +2,7 @@ import { describe, expect, it, spyOn } from 'bun:test';
 import * as zlib from 'node:zlib';
 
 import { BUFFER_COMPRESSORS } from './compressors.ts';
-import { Encoding } from './enums.ts';
+import { CompressionCodec } from './enums.ts';
 
 describe('BUFFER_COMPRESSORS', () => {
   it('should call Bun.gzipSync with data and level when compressing with gzip', () => {
@@ -10,7 +10,7 @@ describe('BUFFER_COMPRESSORS', () => {
     const fakeResult = new Uint8Array([4, 5]);
     const spy = spyOn(Bun, 'gzipSync').mockReturnValue(fakeResult);
 
-    const result = BUFFER_COMPRESSORS[Encoding.Gzip](data, 6);
+    const result = BUFFER_COMPRESSORS[CompressionCodec.Gzip](data, 6);
 
     expect(spy).toHaveBeenCalledWith(data, { level: 6 });
     expect(result).toBe(fakeResult);
@@ -22,7 +22,7 @@ describe('BUFFER_COMPRESSORS', () => {
     const fakeResult = Buffer.from([4, 5]);
     const spy = spyOn(zlib, 'deflateSync').mockReturnValue(fakeResult);
 
-    const result = BUFFER_COMPRESSORS[Encoding.Deflate](data, 6);
+    const result = BUFFER_COMPRESSORS[CompressionCodec.Deflate](data, 6);
 
     expect(spy).toHaveBeenCalledWith(data, { level: 6 });
     expect(result).toEqual(fakeResult);
@@ -35,7 +35,7 @@ describe('BUFFER_COMPRESSORS', () => {
     const fakeResult = Buffer.from([10, 20]);
     const spy = spyOn(zlib, 'brotliCompressSync').mockReturnValue(fakeResult);
 
-    const result = BUFFER_COMPRESSORS[Encoding.Brotli](data, level);
+    const result = BUFFER_COMPRESSORS[CompressionCodec.Br](data, level);
 
     expect(spy).toHaveBeenCalledWith(data, {
       params: { [zlib.constants.BROTLI_PARAM_QUALITY]: level },
@@ -49,7 +49,7 @@ describe('BUFFER_COMPRESSORS', () => {
     const fakeResult = Buffer.from([7, 8, 9]);
     const spy = spyOn(Bun, 'zstdCompressSync').mockReturnValue(fakeResult);
 
-    const result = BUFFER_COMPRESSORS[Encoding.Zstd](data, 6);
+    const result = BUFFER_COMPRESSORS[CompressionCodec.Zstd](data, 6);
 
     expect(spy).toHaveBeenCalledWith(data, { level: 6 });
     expect(result).toBe(fakeResult);
@@ -61,7 +61,7 @@ describe('BUFFER_COMPRESSORS', () => {
     const fakeResult = new Uint8Array([]);
     const spy = spyOn(Bun, 'gzipSync').mockReturnValue(fakeResult);
 
-    const result = BUFFER_COMPRESSORS[Encoding.Gzip](data, 6);
+    const result = BUFFER_COMPRESSORS[CompressionCodec.Gzip](data, 6);
 
     expect(spy).toHaveBeenCalledWith(data, { level: 6 });
     expect(result).toBe(fakeResult);
@@ -73,8 +73,8 @@ describe('BUFFER_COMPRESSORS', () => {
     const fakeResult = new Uint8Array([4, 5, 6]);
     const spy = spyOn(Bun, 'gzipSync').mockReturnValue(fakeResult);
 
-    const result1 = BUFFER_COMPRESSORS[Encoding.Gzip](data, 6);
-    const result2 = BUFFER_COMPRESSORS[Encoding.Gzip](data, 6);
+    const result1 = BUFFER_COMPRESSORS[CompressionCodec.Gzip](data, 6);
+    const result2 = BUFFER_COMPRESSORS[CompressionCodec.Gzip](data, 6);
 
     expect(spy).toHaveBeenCalledTimes(2);
     expect(spy).toHaveBeenNthCalledWith(1, data, { level: 6 });

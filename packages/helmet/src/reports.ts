@@ -1,3 +1,5 @@
+import { HttpHeader } from '@zipbul/shared';
+
 import { LIMITS } from './constants';
 import { HelmetErrorReason } from './enums';
 import { HelmetError } from './interfaces';
@@ -31,7 +33,7 @@ const ALLOWED_CONTENT_TYPES = new Set<string>([
  *   or read timeout (10s).
  */
 export async function parseCspReport(request: Request): Promise<CspReportNormalized[]> {
-  const contentType = (request.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
+  const contentType = (request.headers.get(HttpHeader.ContentType) ?? '').split(';')[0]!.trim().toLowerCase();
   if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
     throw new HelmetError([
       {

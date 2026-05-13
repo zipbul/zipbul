@@ -6,9 +6,10 @@ import type { AdapterContext, ClassToken, ContextKey, MiddlewareDefinition, Midd
 import { HttpContext } from '@zipbul/http-adapter';
 import {
   compressionMiddleware,
-  Encoding,
+
   CompressionErrorReason,
 } from '../../index.ts';
+import { CompressionCodec } from '../../src/enums.ts';
 
 interface MockHeaders {
   get(name: string): string | null;
@@ -164,7 +165,7 @@ describe('compressionMiddleware', () => {
 
   describe('deflate compression', () => {
     it('should compress JSON body when Accept-Encoding: deflate', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Deflate] }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Deflate] }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('deflate') }, response);
       m.handler(ctx);
@@ -172,7 +173,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should roundtrip deflate (zlib-wrapped per RFC 1950)', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Deflate] }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Deflate] }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('deflate') }, response);
       m.handler(ctx);
@@ -183,7 +184,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should produce zlib-wrapped output (starts with 0x78 CMF byte)', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Deflate] }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Deflate] }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('deflate') }, response);
       m.handler(ctx);
@@ -195,7 +196,7 @@ describe('compressionMiddleware', () => {
 
   describe('zstd compression', () => {
     it('should compress JSON body when Accept-Encoding: zstd', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Zstd] }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Zstd] }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('zstd') }, response);
       m.handler(ctx);
@@ -203,7 +204,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should roundtrip zstd', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Zstd] }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Zstd] }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('zstd') }, response);
       m.handler(ctx);
@@ -239,7 +240,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should respect quality values (gzip;q=1 > br;q=0.5)', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Brotli, Encoding.Gzip] }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Br, CompressionCodec.Gzip] }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('gzip;q=1, br;q=0.5') }, response);
       m.handler(ctx);
@@ -254,7 +255,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should skip when client does not support server-preferred encoding', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Gzip] }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Gzip] }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('br') }, response);
       m.handler(ctx);
@@ -272,7 +273,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should return Err with InvalidEncodings for unknown encoding', () => {
-      const result = compressionMiddleware({ encodings: ['lz4' as Encoding] });
+      const result = compressionMiddleware({ encodings: ['lz4' as unknown as CompressionCodec] });
       expect(isErr(result)).toBe(true);
       if (isErr(result)) {
         expect(result.data.reason).toBe(CompressionErrorReason.InvalidEncodings);
@@ -296,7 +297,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should return Err with InvalidLevel for gzip level=10', () => {
-      const result = compressionMiddleware({ level: { [Encoding.Gzip]: 10 } });
+      const result = compressionMiddleware({ level: { [CompressionCodec.Gzip]: 10 } });
       expect(isErr(result)).toBe(true);
       if (isErr(result)) {
         expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
@@ -304,7 +305,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should return Err with InvalidLevel for brotli level=12', () => {
-      const result = compressionMiddleware({ level: { [Encoding.Brotli]: 12 } });
+      const result = compressionMiddleware({ level: { [CompressionCodec.Br]: 12 } });
       expect(isErr(result)).toBe(true);
       if (isErr(result)) {
         expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
@@ -312,7 +313,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should return Err with InvalidLevel for fractional level', () => {
-      const result = compressionMiddleware({ level: { [Encoding.Gzip]: 5.5 } });
+      const result = compressionMiddleware({ level: { [CompressionCodec.Gzip]: 5.5 } });
       expect(isErr(result)).toBe(true);
       if (isErr(result)) {
         expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
@@ -338,7 +339,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should apply custom level', () => {
-      const m = unwrap(compressionMiddleware({ level: { [Encoding.Gzip]: 1 } }));
+      const m = unwrap(compressionMiddleware({ level: { [CompressionCodec.Gzip]: 1 } }));
       const response = mockHttpResponse({ body: { data: largeBody(2048) }, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('gzip') }, response);
       m.handler(ctx);
@@ -403,7 +404,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should skip when Accept-Encoding: gzip;q=0 → no changes', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Gzip], threshold: 0 }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Gzip], threshold: 0 }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('gzip;q=0') }, response);
       m.handler(ctx);
@@ -454,7 +455,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should exclude gzip;q=0 but use wildcard for br', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Brotli, Encoding.Gzip] }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Br, CompressionCodec.Gzip] }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('*, gzip;q=0') }, response);
       m.handler(ctx);
@@ -485,8 +486,8 @@ describe('compressionMiddleware', () => {
 
   describe('idempotency', () => {
     it('should produce equivalent results with same options via different instances', () => {
-      const m1 = unwrap(compressionMiddleware({ encodings: [Encoding.Gzip] }));
-      const m2 = unwrap(compressionMiddleware({ encodings: [Encoding.Gzip] }));
+      const m1 = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Gzip] }));
+      const m2 = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Gzip] }));
 
       const r1 = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       m1.handler(mockContext({ headers: makeRequestHeaders('gzip') }, r1));
@@ -502,8 +503,8 @@ describe('compressionMiddleware', () => {
 
   describe('ordering', () => {
     it('should select different encoding based on encodings order', () => {
-      const m1 = unwrap(compressionMiddleware({ encodings: [Encoding.Gzip, Encoding.Brotli] }));
-      const m2 = unwrap(compressionMiddleware({ encodings: [Encoding.Brotli, Encoding.Gzip] }));
+      const m1 = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Gzip, CompressionCodec.Br] }));
+      const m2 = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Br, CompressionCodec.Gzip] }));
 
       const r1 = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       m1.handler(mockContext({ headers: makeRequestHeaders('gzip, br') }, r1));
@@ -586,7 +587,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should set Vary even when no matching encoding is negotiated', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Gzip] }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Gzip] }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('br') }, response);
       m.handler(ctx);
@@ -670,7 +671,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should return Err when breach enabled with only non-BREACH-safe encodings', () => {
-      const result = compressionMiddleware({ encodings: [Encoding.Brotli], breach: { maxPadding: 32 } });
+      const result = compressionMiddleware({ encodings: [CompressionCodec.Br], breach: { maxPadding: 32 } });
       expect(isErr(result)).toBe(true);
       if (isErr(result)) {
         expect(result.data.reason).toBe(CompressionErrorReason.InvalidBreach);
@@ -688,7 +689,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should apply zstd skippable frame padding when breach enabled', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Zstd], breach: { maxPadding: 32 } }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Zstd], breach: { maxPadding: 32 } }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('zstd') }, response);
       m.handler(ctx);
@@ -704,7 +705,7 @@ describe('compressionMiddleware', () => {
 
     it('should filter out brotli/deflate when breach enabled with mixed encodings', () => {
       const m = unwrap(compressionMiddleware({
-        encodings: [Encoding.Brotli, Encoding.Gzip, Encoding.Deflate],
+        encodings: [CompressionCodec.Br, CompressionCodec.Gzip, CompressionCodec.Deflate],
         breach: { maxPadding: 16 },
       }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
@@ -938,7 +939,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should skip when identity;q=0 but no other matching encoding', () => {
-      const m = unwrap(compressionMiddleware({ encodings: [Encoding.Gzip], threshold: 0 }));
+      const m = unwrap(compressionMiddleware({ encodings: [CompressionCodec.Gzip], threshold: 0 }));
       const response = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
       const ctx = mockContext({ headers: makeRequestHeaders('identity;q=0, br') }, response);
       m.handler(ctx);
@@ -949,7 +950,7 @@ describe('compressionMiddleware', () => {
   describe('BREACH + zstd varying sizes', () => {
     it('should produce varying zstd output sizes across requests when breach is enabled', () => {
       const m = unwrap(compressionMiddleware({
-        encodings: [Encoding.Zstd],
+        encodings: [CompressionCodec.Zstd],
         breach: { maxPadding: 64 },
       }));
       const sizes = new Set<number>();
@@ -965,7 +966,7 @@ describe('compressionMiddleware', () => {
 
   describe('RFC 9659 zstd level cap', () => {
     it('should return Err for zstd level 20 (exceeds RFC 9659 8MB window)', () => {
-      const result = compressionMiddleware({ encodings: [Encoding.Zstd], level: { [Encoding.Zstd]: 20 } });
+      const result = compressionMiddleware({ encodings: [CompressionCodec.Zstd], level: { [CompressionCodec.Zstd]: 20 } });
       expect(isErr(result)).toBe(true);
       if (isErr(result)) {
         expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
@@ -973,7 +974,7 @@ describe('compressionMiddleware', () => {
     });
 
     it('should accept zstd level 19', () => {
-      const result = compressionMiddleware({ encodings: [Encoding.Zstd], level: { [Encoding.Zstd]: 19 } });
+      const result = compressionMiddleware({ encodings: [CompressionCodec.Zstd], level: { [CompressionCodec.Zstd]: 19 } });
       expect(isErr(result)).toBe(false);
     });
   });

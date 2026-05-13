@@ -8,6 +8,7 @@ export enum HttpHeader {
   Origin = 'origin',
   Vary = 'vary',
   Authorization = 'authorization',
+  SetCookie = 'set-cookie',
 
   // ── CORS ──
   AccessControlAllowOrigin = 'access-control-allow-origin',

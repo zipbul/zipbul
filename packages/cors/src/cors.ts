@@ -250,9 +250,9 @@ export class Cors {
     if (hasWildcard) {
       const explicitHeaders = allowedHeaders.filter(header => header.trim() !== '*');
 
-      const hasAuthorization = requestHeaders.some(header => header.toLowerCase() === 'authorization');
+      const hasAuthorization = requestHeaders.some(header => header.toLowerCase() === HttpHeader.Authorization);
 
-      if (hasAuthorization && !this.includesHeader(explicitHeaders, 'authorization')) {
+      if (hasAuthorization && !this.includesHeader(explicitHeaders, HttpHeader.Authorization)) {
         return false;
       }
 
@@ -265,7 +265,7 @@ export class Cors {
           return true;
         }
 
-        return header.toLowerCase() !== 'authorization';
+        return header.toLowerCase() !== HttpHeader.Authorization;
       });
     }
 

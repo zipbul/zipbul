@@ -1,10 +1,10 @@
-import type { Encoding } from './enums.ts';
+import type { CompressionCodec } from './enums.ts';
 
 export type ResolvedCompressionOptions = {
-  encodings: Encoding[];
+  encodings: CompressionCodec[];
   threshold: number;
   filter: (contentType: string) => boolean;
-  level: Record<Encoding, number>;
+  level: Record<CompressionCodec, number>;
 };
 
 export type BufferCompressFn = (data: Uint8Array, level: number) => Uint8Array;

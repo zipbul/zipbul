@@ -1,14 +1,15 @@
-import type { CompressionErrorReason, Encoding } from './enums.ts';
+import { CompressionCodec } from './enums.ts';
+import type { CompressionErrorReason } from './enums.ts';
 
 export interface BreachOptions {
   maxPadding: number;
 }
 
 export interface CompressionOptions {
-  encodings?: Encoding[];
+  encodings?: CompressionCodec[];
   threshold?: number;
   filter?: (contentType: string) => boolean;
-  level?: Partial<Record<Encoding, number>>;
+  level?: Partial<Record<CompressionCodec, number>>;
   breach?: BreachOptions;
 }
 
