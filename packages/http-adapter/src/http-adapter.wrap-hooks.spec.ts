@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
 
 import { HttpAdapter } from './http-adapter';
-import type { ErrorResponseData } from './types';
+import type { ErrorResponseData } from './interfaces';
 
 describe('HttpAdapter protocol-translation hooks (symmetric with wrapValidationError)', () => {
   class Exposed extends HttpAdapter {

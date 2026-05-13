@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'bun:test';
-import { StatusCodes } from 'http-status-codes';
+import { HttpStatus } from '../enums';
 
 import { ContentType as ContentTypeDecorator, Header, Status } from './method-option.decorator';
 
 describe('Status decorator (H14)', () => {
   it('accepts any StatusCodes enum member', () => {
-    expect(typeof Status(StatusCodes.OK)).toBe('function');
-    expect(typeof Status(StatusCodes.NOT_FOUND)).toBe('function');
-    expect(typeof Status(StatusCodes.IM_A_TEAPOT)).toBe('function');
-    expect(typeof Status(StatusCodes.INTERNAL_SERVER_ERROR)).toBe('function');
+    expect(typeof Status(HttpStatus.Ok)).toBe('function');
+    expect(typeof Status(HttpStatus.NotFound)).toBe('function');
+    expect(typeof Status(HttpStatus.ImATeapot)).toBe('function');
+    expect(typeof Status(HttpStatus.InternalServerError)).toBe('function');
   });
 
   it('returns a no-op MethodDecorator (runtime is AOT-wired)', () => {
-    const dec = Status(StatusCodes.CREATED);
+    const dec = Status(HttpStatus.Created);
     expect(() =>
       dec({} as unknown as object, 'm', {} as unknown as PropertyDescriptor),
     ).not.toThrow();

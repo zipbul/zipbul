@@ -1,10 +1,8 @@
-import { StatusCodes, getReasonPhrase } from 'http-status-codes';
-import type { HttpStatus } from './types';
-
 import type { HttpRequest } from './http-request';
 import type { ResponseBodyValue } from './types';
 
-import { ContentType, HeaderField } from './enums';
+import { ContentType, HttpHeader, HttpStatus } from './enums';
+import { reasonOf } from './utils';
 
 const DANGEROUS_SCHEME_PATTERN = /^(?:javascript|data|vbscript):/i;
 
@@ -109,7 +107,7 @@ export class HttpResponse {
 
   setStatus(status: HttpStatus, statusText?: string): this {
     this._status = status;
-    this._statusText = statusText ?? getReasonPhrase(status);
+    this._statusText = statusText ?? reasonOf(status);
     return this;
   }
 
@@ -122,11 +120,11 @@ export class HttpResponse {
   getHeader(name: string): string | null {
     const normalized = name.toLowerCase();
 
-    if (normalized === HeaderField.ContentType) {
+    if (normalized === HttpHeader.ContentType) {
       return this._contentType ?? null;
     }
 
-    if (normalized === HeaderField.ContentLength) {
+    if (normalized === HttpHeader.ContentLength) {
       return this._contentLength ?? null;
     }
 
@@ -136,13 +134,13 @@ export class HttpResponse {
   setHeader(name: string, value: string): this {
     const normalized = name.toLowerCase();
 
-    if (normalized === HeaderField.ContentType) {
+    if (normalized === HttpHeader.ContentType) {
       this._contentType = value;
       this._headers?.set(name, value);
       return this;
     }
 
-    if (normalized === HeaderField.ContentLength) {
+    if (normalized === HttpHeader.ContentLength) {
       this._contentLength = value;
       this._headers?.set(name, value);
       return this;
@@ -162,9 +160,9 @@ export class HttpResponse {
   removeHeader(name: string): this {
     const normalized = name.toLowerCase();
 
-    if (normalized === HeaderField.ContentType) {
+    if (normalized === HttpHeader.ContentType) {
       this._contentType = undefined;
-    } else if (normalized === HeaderField.ContentLength) {
+    } else if (normalized === HttpHeader.ContentLength) {
       this._contentLength = undefined;
     }
 
@@ -173,7 +171,7 @@ export class HttpResponse {
   }
 
   getContentType(): string | null {
-    return this.getHeader(HeaderField.ContentType);
+    return this.getHeader(HttpHeader.ContentType);
   }
 
   /**
@@ -190,7 +188,7 @@ export class HttpResponse {
         || contentType === 'application/json'
         || contentType.endsWith('+json'));
     this.setHeader(
-      HeaderField.ContentType,
+      HttpHeader.ContentType,
       needsCharset ? `${contentType}; charset=utf-8` : contentType,
     );
     return this;
@@ -245,7 +243,7 @@ export class HttpResponse {
       if (this.getContentType() === null && data.type) {
         this.setContentType(data.type);
       }
-      this.setHeader(HeaderField.ContentLength, data.size.toString());
+      this.setHeader(HttpHeader.ContentLength, data.size.toString());
       this._rawNativeResponse = new Response(data.stream());
       this._mergedNativeResponse = undefined;
       return this;
@@ -268,7 +266,7 @@ export class HttpResponse {
     if (status !== undefined) {
       this.setStatus(status);
     }
-    this.setHeader(HeaderField.Location, url);
+    this.setHeader(HttpHeader.Location, url);
     return this;
   }
 
@@ -402,48 +400,48 @@ export class HttpResponse {
     // Idempotent — no-op if already called by Serialize step.
     this.serialize();
 
-    const location = this.getHeader(HeaderField.Location);
+    const location = this.getHeader(HttpHeader.Location);
 
     // 1. Redirect: Location header → default 302, body removed
     if (typeof location === 'string' && location.length > 0) {
       if (this._status === undefined) {
-        this.setStatus(StatusCodes.MOVED_TEMPORARILY);
+        this.setStatus(HttpStatus.Found);
       }
       this._body = undefined;
       return this.createResponse();
     }
 
     // 2. 204/304: body removed per RFC — checked before Content-Type inference
-    if (this._status === StatusCodes.NO_CONTENT || this._status === StatusCodes.NOT_MODIFIED) {
+    if (this._status === HttpStatus.NoContent || this._status === HttpStatus.NotModified) {
       this._body = undefined;
       // RFC 9110 §15.3.5: 204 MUST NOT contain content. Content-Type describes
       // non-existent content and MUST be removed. 304 MAY carry Content-Type
       // (RFC 9110 §15.4.5) so only strip for 204.
-      if (this._status === StatusCodes.NO_CONTENT) {
+      if (this._status === HttpStatus.NoContent) {
         this._contentType = undefined;
-        this._headers?.delete(HeaderField.ContentType);
+        this._headers?.delete(HttpHeader.ContentType);
       }
       return this.createResponse();
     }
 
     // 3. Auto 204: no status + no body — skip Content-Type
     if (this._status === undefined && this._body === undefined) {
-      this.setStatus(StatusCodes.NO_CONTENT);
+      this.setStatus(HttpStatus.NoContent);
       return this.createResponse();
     }
 
     // 4. HEAD: Content-Length from serialized body, then body removed (RFC 9110 §9.3.2)
     if (this.req.method === 'HEAD') {
       if (this._status === undefined) {
-        this.setStatus(StatusCodes.OK);
+        this.setStatus(HttpStatus.Ok);
       }
 
       if (typeof this._body === 'string') {
-        this.setHeader(HeaderField.ContentLength, Buffer.byteLength(this._body, 'utf-8').toString());
+        this.setHeader(HttpHeader.ContentLength, Buffer.byteLength(this._body, 'utf-8').toString());
       } else if (this._body instanceof Uint8Array) {
-        this.setHeader(HeaderField.ContentLength, this._body.byteLength.toString());
+        this.setHeader(HttpHeader.ContentLength, this._body.byteLength.toString());
       } else if (this._body instanceof ArrayBuffer) {
-        this.setHeader(HeaderField.ContentLength, this._body.byteLength.toString());
+        this.setHeader(HttpHeader.ContentLength, this._body.byteLength.toString());
       }
 
       this._body = undefined;
@@ -459,13 +457,13 @@ export class HttpResponse {
    */
   private createResponse(): Response {
     const body = this.normalizeBody();
-    const status = this._status ?? StatusCodes.OK;
+    const status = this._status ?? HttpStatus.Ok;
     const headers = this.buildHeaders();
 
     // Status range validation (integrates former toResponse logic)
     if (status < 100 || status > 599) {
       return new Response('Internal Server Error', {
-        status: StatusCodes.INTERNAL_SERVER_ERROR,
+        status: HttpStatus.InternalServerError,
         ...(headers !== undefined ? { headers } : {}),
       });
     }
@@ -516,11 +514,11 @@ export class HttpResponse {
       this._headers = new Headers();
 
       if (this._contentType !== undefined) {
-        this._headers.set(HeaderField.ContentType, this._contentType);
+        this._headers.set(HttpHeader.ContentType, this._contentType);
       }
 
       if (this._contentLength !== undefined) {
-        this._headers.set(HeaderField.ContentLength, this._contentLength);
+        this._headers.set(HttpHeader.ContentLength, this._contentLength);
       }
     }
 
@@ -536,11 +534,11 @@ export class HttpResponse {
       const headers = new Headers();
 
       if (this._contentType !== undefined) {
-        headers.set(HeaderField.ContentType, this._contentType);
+        headers.set(HttpHeader.ContentType, this._contentType);
       }
 
       if (this._contentLength !== undefined) {
-        headers.set(HeaderField.ContentLength, this._contentLength);
+        headers.set(HttpHeader.ContentLength, this._contentLength);
       }
 
       return headers;

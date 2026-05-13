@@ -7,9 +7,10 @@ import { HttpRequest } from './http-request';
 import { HttpContext } from './http-context';
 import { HttpResponse } from './http-response';
 import { parseBody } from './body';
-import type { ErrorResponseData, HttpRequestData, RouteHandlerResult } from './types';
+import type { ErrorResponseData, HttpRequestData } from './interfaces';
+import type { RouteHandlerResult } from './types';
 import { writeErrorResponse, writeSuccessResponse } from './response-writer';
-import { HttpPhase } from './enums';
+import { HttpAdapterPhase, HttpMethod } from './enums';
 import { createTestHttpRequest } from './test-fixtures/http-request-fixture';
 import { assertDefined } from './test-fixtures/assertions';
 
@@ -518,8 +519,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -556,7 +557,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
         defineMiddleware(() => () => { order.push('OnReceive:1'); }),
         defineMiddleware(() => () => { order.push('OnReceive:2'); }),
       ]);
@@ -618,8 +619,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeMw = mock((_ctx: Context) => {});
       const handlerFn = mock(() => 'ok');
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => err({ status: 429 }))]);
-      adapter.addMiddlewares(HttpPhase.BeforeValidate, [defineMiddleware(() => () => { throw new Error('should not run'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => err({ status: 429 }))]);
+      adapter.addMiddlewares(HttpAdapterPhase.BeforeValidate, [defineMiddleware(() => () => { throw new Error('should not run'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -640,7 +641,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeMw = mock((_ctx: Context) => {});
@@ -760,8 +761,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const guardFn = mock((_ctx: Context) => { order.push('guard'); });
       const handlerFn = mock(() => { order.push('handler'); return 'ok'; });
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -793,7 +794,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -813,7 +814,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const onCompleteFn = mock((_ctx: Context) => {});
 
       adapter.addGuards([defineGuard(() => () => err({ status: 403 }))]);
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({});
@@ -1108,8 +1109,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const contexts: Context[] = [];
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1190,8 +1191,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const noMatchRouteHandler = {
@@ -1233,7 +1234,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('global'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('global'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1318,8 +1319,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         return err({ caught: true });
       };
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1475,7 +1476,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should not affect request result when OnComplete middleware throws', async () => {
       // Arrange
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [
         defineMiddleware(() => () => { throw new Error('OnComplete crash'); }),
       ]);
       adapter.initializePipeline(createMockContainer());
@@ -1497,7 +1498,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should not affect request result when OnComplete middleware returns Err', async () => {
       // Arrange
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [
         defineMiddleware(() => () => err({ reason: 'OnComplete err' })),
       ]);
       adapter.initializePipeline(createMockContainer());
@@ -1777,7 +1778,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1796,7 +1797,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1815,7 +1816,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
       adapter.addExceptionFilters([defineExceptionFilter([], () => (_error, _ctx) => err({ caught: true }))]);
       adapter.initializePipeline(createMockContainer());
 
@@ -1835,7 +1836,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
       adapter.initializePipeline(createMockContainer());
       (adapter as any).emergencyTeardown = mock(() => {});
 
@@ -1931,7 +1932,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect(() => adapter.applyMiddlewareConfig(invalidConfig)).toThrow(/Invalid middleware phase 'InvalidPhase'/);
     });
 
-    it('should accept all valid HttpPhase keys', () => {
+    it('should accept all valid HttpAdapterPhase keys', () => {
       // Arrange
       const adapter = new HttpAdapter();
       const mw = defineMiddleware(() => () => {});
@@ -1978,14 +1979,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const jsonBody = JSON.stringify({ name: 'test' });
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json' },
         body: jsonBody,
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2001,14 +2002,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should parse text body for POST request without JSON content-type', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'text/plain' },
         body: 'hello world',
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'text/plain' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2024,14 +2025,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should return Err with 400 status for invalid JSON', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json' },
         body: '{invalid json',
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2050,8 +2051,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const rawRequest = new Request('http://localhost/test');
 
       const req = createStubHttpRequest({
-        method: 'GET',
-        originalMethod: 'GET',
+        method: HttpMethod.Get,
+        originalMethod: HttpMethod.Get,
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2067,8 +2068,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
 
       const req = createStubHttpRequest({
-        method: 'HEAD',
-        originalMethod: 'HEAD',
+        method: HttpMethod.Head,
+        originalMethod: HttpMethod.Head,
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'HEAD' }));
@@ -2084,8 +2085,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
 
       const req = createStubHttpRequest({
-        method: 'DELETE',
-        originalMethod: 'DELETE',
+        method: HttpMethod.Delete,
+        originalMethod: HttpMethod.Delete,
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'DELETE' }));
@@ -2101,8 +2102,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
 
       const req = createStubHttpRequest({
-        method: 'OPTIONS',
-        originalMethod: 'OPTIONS',
+        method: HttpMethod.Options,
+        originalMethod: HttpMethod.Options,
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'OPTIONS' }));
@@ -2118,8 +2119,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2137,14 +2138,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should return 415 error when Content-Encoding is not identity', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
         body: JSON.stringify({ data: 'compressed' }),
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json', 'content-encoding': 'gzip' }),
         contentLength: 30,
       }) as InstanceType<typeof HttpRequest>;
@@ -2166,14 +2167,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should return 400 error when JSON body has non-UTF-8 charset', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json; charset=iso-8859-1' },
         body: JSON.stringify({ name: 'test' }),
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json; charset=iso-8859-1' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2191,14 +2192,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should accept JSON body with UTF-8 charset', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json; charset=utf-8' },
         body: JSON.stringify({ accepted: true }),
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2217,14 +2218,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const jsonBody = JSON.stringify({ id: 42 });
       const rawRequest = new Request('http://localhost/test', {
-        method: 'DELETE',
+        method: HttpMethod.Delete,
         headers: { 'content-type': 'application/json' },
         body: jsonBody,
       });
 
       const req = createStubHttpRequest({
-        method: 'DELETE',
-        originalMethod: 'DELETE',
+        method: HttpMethod.Delete,
+        originalMethod: HttpMethod.Delete,
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2242,13 +2243,13 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should skip body parsing when Content-Length is 0', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json', 'content-length': '0' },
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json', 'content-length': '0' }),
         contentLength: 0,
       }) as InstanceType<typeof HttpRequest>;
@@ -2269,14 +2270,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const jsonPayload = JSON.stringify({ webhook: 'data' });
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json' },
         body: jsonPayload,
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2312,14 +2313,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const binaryData = new Uint8Array([0x00, 0x01, 0x02, 0x03]);
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/octet-stream' },
         body: binaryData,
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/octet-stream' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2338,14 +2339,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const jsonPayload = JSON.stringify({ type: 'articles', id: '1' });
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/vnd.api+json' },
         body: jsonPayload,
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/vnd.api+json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2364,15 +2365,15 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
 
       // Create a Request whose body has already been consumed so rawReq.json() throws TypeError
       const consumedRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ data: 'valid' }),
       });
@@ -2661,9 +2662,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const server = { timeout: timeoutSpy } as unknown as import('bun').Server<unknown>;
       const httpReq = new HttpRequest({
         requestId: 'sse-id',
-        originalMethod: 'GET',
+        originalMethod: HttpMethod.Get,
         originalUrl: 'http://localhost/sse',
-        method: 'GET',
+        method: HttpMethod.Get,
         url: 'http://localhost/sse',
         path: '/sse',
         headers: new Headers(),
@@ -2841,7 +2842,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
   // ── validPhases ────────────────────────────────────────────────
 
   describe('validPhases', () => {
-    it('should contain all HttpPhase values', () => {
+    it('should contain all HttpAdapterPhase values', () => {
       // Assert
       expect(HttpAdapter.validPhases).toContain('OnRequest');
       expect(HttpAdapter.validPhases).toContain('BeforeParse');
@@ -2862,7 +2863,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const adapter = new HttpAdapter();
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => { order.push('mw1'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('mw1'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -2882,7 +2883,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const adapter = new HttpAdapter();
 
       // Act & Assert
-      expect(adapter.addMiddlewares(HttpPhase.OnRequest, [])).toBe(adapter);
+      expect(adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [])).toBe(adapter);
     });
   });
 
@@ -2961,10 +2962,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpPhase.BeforeParse, [defineMiddleware(() => () => { order.push('BeforeParse'); })]);
-      adapter.addMiddlewares(HttpPhase.BeforeValidate, [defineMiddleware(() => () => { order.push('BeforeValidate'); })]);
-      adapter.addMiddlewares(HttpPhase.BeforeHandle, [defineMiddleware(() => () => { order.push('BeforeHandle'); })]);
-      adapter.addMiddlewares(HttpPhase.AfterResponse, [defineMiddleware(() => () => { order.push('AfterResponse'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.BeforeParse, [defineMiddleware(() => () => { order.push('BeforeParse'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.BeforeValidate, [defineMiddleware(() => () => { order.push('BeforeValidate'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.BeforeHandle, [defineMiddleware(() => () => { order.push('BeforeHandle'); })]);
+      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => () => { order.push('AfterResponse'); })]);
       adapter.initializePipeline(createMockContainer());
 
       const mockRouteHandler = {
@@ -3291,7 +3292,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => (ctx) => {
         order.push('OnRequest');
         ctx.to(HttpContext).pipelineError = { status: 501, message: 'Not Implemented' };
       })]);
@@ -3315,7 +3316,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should include OnRequest MW headers in pipelineError response', async () => {
       // Arrange
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => (ctx) => {
         const http = ctx.to(HttpContext);
         http.response.setHeader('access-control-allow-origin', '*');
         http.pipelineError = { status: 400, message: 'Bad Request' };
@@ -3338,7 +3339,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should return 501 status for pipelineError with 501', async () => {
       // Arrange
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => (ctx) => {
         ctx.to(HttpContext).pipelineError = { status: 501, message: 'Not Implemented' };
       })]);
       adapter.initializePipeline(createMockContainer());
@@ -3358,7 +3359,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should return 400 status for pipelineError with 400', async () => {
       // Arrange
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => (ctx) => {
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => (ctx) => {
         ctx.to(HttpContext).pipelineError = { status: 400, message: 'Bad Request' };
       })]);
       adapter.initializePipeline(createMockContainer());
@@ -3380,7 +3381,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const handlerFn = mock(() => ({ data: 'success' }));
 
-      adapter.addMiddlewares(HttpPhase.OnRequest, [defineMiddleware(() => () => {
+      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => {
         // OnRequest MW runs but does NOT set pipelineError
       })]);
       adapter.initializePipeline(createMockContainer());
@@ -3800,14 +3801,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const smallBody = JSON.stringify({ data: 'x'.repeat(100) });
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json', 'content-length': smallBody.length.toString() },
         body: smallBody,
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json', 'content-length': smallBody.length.toString() }),
         contentLength: smallBody.length,
       }) as InstanceType<typeof HttpRequest>;
@@ -3842,14 +3843,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange — global bodyLimit is 1024, body is 500 bytes
       const bodyContent = JSON.stringify({ data: 'x'.repeat(450) });
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json', 'content-length': bodyContent.length.toString() },
         body: bodyContent,
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json', 'content-length': bodyContent.length.toString() }),
         contentLength: bodyContent.length,
       }) as InstanceType<typeof HttpRequest>;
@@ -3883,14 +3884,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const largeBody = JSON.stringify({ data: 'x'.repeat(200) });
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         headers: { 'content-type': 'application/json', 'content-length': largeBody.length.toString() },
         body: largeBody,
       });
 
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'application/json', 'content-length': largeBody.length.toString() }),
         contentLength: largeBody.length,
       }) as InstanceType<typeof HttpRequest>;
@@ -3952,13 +3953,13 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange — text/plain + rawBody + no CL → chunked readBodyWithLimit path
       const largeBody = 'A'.repeat(200); // 200 bytes > 100 limit
       const rawRequest = new Request('http://localhost/test', {
-        method: 'POST',
+        method: HttpMethod.Post,
         body: largeBody,
         headers: { 'content-type': 'text/plain' },
       });
       const req = createStubHttpRequest({
-        method: 'POST',
-        originalMethod: 'POST',
+        method: HttpMethod.Post,
+        originalMethod: HttpMethod.Post,
         headers: new Headers({ 'content-type': 'text/plain' }),
         contentLength: null, // forces chunked path
       }) as InstanceType<typeof HttpRequest>;

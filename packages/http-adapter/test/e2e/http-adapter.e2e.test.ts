@@ -3,7 +3,7 @@ import type { Context, ZipbulContainer, CompiledHandlerEntry } from '@zipbul/com
 import { defineMiddleware, defineGuard, contextKey } from '@zipbul/common';
 import { err } from '@zipbul/result';
 import { getAdapterContext } from '@zipbul/core';
-import { StatusCodes } from 'http-status-codes';
+import { HttpStatus } from '../../src/enums';
 
 
 /**
@@ -189,7 +189,7 @@ const { HttpServer } = await import('../../src/http-server');
 type HttpServer = InstanceType<typeof HttpServer>;
 const { HttpContext } = await import('../../src/http-context');
 type HttpContext = InstanceType<typeof HttpContext>;
-const { HttpPhase } = await import('../../src/enums');
+const { HttpAdapterPhase } = await import('../../src/enums');
 const { ServerSentEvent } = await import('../../src/server-sent-event');
 type ServerSentEvent = InstanceType<typeof ServerSentEvent>;
 const { httpError } = await import('../../src/http-error');
@@ -314,7 +314,7 @@ describe('HttpAdapter E2E', () => {
     adapter = new HttpAdapter({ port: TEST_PORT, bodyLimit: 1024 });
 
     // OnRequest CORS middleware
-    adapter.addMiddlewares(HttpPhase.OnRequest, [
+    adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
       defineMiddleware(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         http.response.setHeader('access-control-allow-origin', '*');
@@ -327,7 +327,7 @@ describe('HttpAdapter E2E', () => {
     ]);
 
     // BeforeResponse middleware
-    adapter.addMiddlewares(HttpPhase.BeforeResponse, [
+    adapter.addMiddlewares(HttpAdapterPhase.BeforeResponse, [
       defineMiddleware(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         http.response.setHeader('x-before-response', 'applied');
@@ -336,7 +336,7 @@ describe('HttpAdapter E2E', () => {
     ]);
 
     // Cleanup middleware
-    adapter.addMiddlewares(HttpPhase.AfterResponse, [
+    adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [
       defineMiddleware(() => (_ctx: Context) => {
         cleanupMiddlewareCalls.push('cleanup-ran');
         return undefined;
@@ -344,7 +344,7 @@ describe('HttpAdapter E2E', () => {
     ]);
 
     // BeforeParsing middleware
-    adapter.addMiddlewares(HttpPhase.BeforeParse, [
+    adapter.addMiddlewares(HttpAdapterPhase.BeforeParse, [
       defineMiddleware(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         http.response.setHeader('x-before-parsing', 'applied');
@@ -353,7 +353,7 @@ describe('HttpAdapter E2E', () => {
     ]);
 
     // AfterHandle middleware — envelope wrapper for /envelope/* routes only
-    adapter.addMiddlewares(HttpPhase.AfterHandle, [
+    adapter.addMiddlewares(HttpAdapterPhase.AfterHandle, [
       defineMiddleware(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         if (!http.request.path.startsWith('/envelope')) return undefined;
@@ -383,7 +383,7 @@ describe('HttpAdapter E2E', () => {
     // handled by the dispatcher's generic-500 emergency teardown.
 
     // BeforeResponse middleware that conditionally throws for emergency teardown test
-    adapter.addMiddlewares(HttpPhase.BeforeResponse, [
+    adapter.addMiddlewares(HttpAdapterPhase.BeforeResponse, [
       defineMiddleware(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         if (http.request.path === '/trigger-emergency') {
@@ -1112,7 +1112,7 @@ describe('HttpAdapter E2E', () => {
         path: 'http-error',
         controllerMethod: {
           name: 'getReturnHttpError',
-          handler: () => httpError(StatusCodes.FORBIDDEN, 'Forbidden'),
+          handler: () => httpError(HttpStatus.Forbidden, 'Forbidden'),
         },
       },
       {
@@ -1177,7 +1177,7 @@ describe('HttpAdapter E2E', () => {
         controllerMethod: {
           name: 'getExplicit304',
           handler: (ctx: InstanceType<typeof HttpContext>) => {
-            ctx.response.setStatus(304 as StatusCodes);
+            ctx.response.setStatus(304 as HttpStatus);
             return { shouldBeStripped: true };
           },
         },

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll } from 'bun:test';
-import { HttpAdapter, HttpPhase } from '@zipbul/http-adapter';
+import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
 import { Tck, type TestApplication } from '@zipbul/tck';
 
 import { corsMiddleware } from '../../index';
@@ -19,7 +19,7 @@ export async function bootCorsApp(opts: CorsOptions): Promise<CorsTestApp> {
   const testApp = await Tck.createApplication({
     register: (app) => {
       const http = app.attach(HttpAdapter, { port: 0 });
-      http.addMiddlewares(HttpPhase.OnRequest, [corsMiddleware(opts)]);
+      http.addMiddlewares(HttpAdapterPhase.OnRequest, [corsMiddleware(opts)]);
       captured = http;
     },
   });

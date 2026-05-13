@@ -1,4 +1,4 @@
-import type { HttpStatus } from '../types';
+import type { HttpStatus } from '../enums';
 
 interface OptionEntry {
   readonly name: string;

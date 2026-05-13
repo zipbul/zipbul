@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { defineMiddleware } from '@zipbul/common';
-import { HttpAdapter, HttpContext, HttpPhase } from '@zipbul/http-adapter';
+import { HttpAdapter, HttpContext, HttpAdapterPhase } from '@zipbul/http-adapter';
 
 import { Tck, type TestApplication } from '../../index';
 
@@ -21,7 +21,7 @@ describe('Tck.createApplication PoC', () => {
     testApp = await Tck.createApplication({
       register: (app) => {
         httpAdapter = app.attach(HttpAdapter, { port: 0 });
-        httpAdapter.addMiddlewares(HttpPhase.OnRequest, [stampMw]);
+        httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [stampMw]);
       },
     });
 

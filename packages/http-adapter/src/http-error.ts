@@ -1,7 +1,9 @@
 import { err, type Err } from '@zipbul/result';
-import { getReasonPhrase } from 'http-status-codes';
 
-import type { ErrorResponseData, HttpStatus, JsonValue } from './types';
+import { HttpStatus } from './enums';
+import type { ErrorResponseData } from './interfaces';
+import type { JsonValue } from './types';
+import { reasonOf } from './utils';
 
 /**
  * RFC 9110 §15 reason phrase updates. The `http-status-codes` package still
@@ -33,8 +35,8 @@ const RFC_9110_PHRASE_OVERRIDES: Readonly<Record<number, string>> = {
  *   uncaught throws and converts them to a generic 500 by design.
  *
  * @example
- * if (!user) return httpError(StatusCodes.NOT_FOUND);
- * if (!body) return httpError(StatusCodes.BAD_REQUEST, 'Empty body');
+ * if (!user) return httpError(HttpStatus.NotFound);
+ * if (!body) return httpError(HttpStatus.BadRequest, 'Empty body');
  * return httpError(StatusCodes.UNPROCESSABLE_ENTITY, 'Validation failed', issues);
  */
 export function httpError(
@@ -44,7 +46,7 @@ export function httpError(
 ): Err<ErrorResponseData> {
   return err({
     status,
-    message: message ?? RFC_9110_PHRASE_OVERRIDES[status] ?? getReasonPhrase(status),
+    message: message ?? RFC_9110_PHRASE_OVERRIDES[status] ?? reasonOf(status),
     ...(errors !== undefined ? { errors } : {}),
   });
 }

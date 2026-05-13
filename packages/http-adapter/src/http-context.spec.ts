@@ -4,13 +4,14 @@ import { contextKey, type ZipbulContainer } from '@zipbul/common';
 import { HttpContext } from './http-context';
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
+import { HttpMethod } from './enums';
 
 function createStubRequest(): HttpRequest {
   return {
     requestId: 'stub-request-id',
     originalMethod: 'GET',
     originalUrl: 'http://localhost/test',
-    method: 'GET',
+    method: HttpMethod.Get,
     url: 'http://localhost/test',
     path: '/test',
     headers: new Headers(),
@@ -263,7 +264,7 @@ describe('HttpContext', () => {
         sse: false,
         handler: mock(() => {}),
         validations: [],
-      } as unknown as import('./types').MatchedRouteMetadata;
+      } as unknown as import('./interfaces').MatchedRouteMetadata;
 
       ctx.matchedRoute = route;
 
@@ -283,7 +284,7 @@ describe('HttpContext', () => {
         sse: false,
         handler: mock(() => {}),
         validations: [],
-      } as unknown as import('./types').MatchedRouteMetadata;
+      } as unknown as import('./interfaces').MatchedRouteMetadata;
 
       ctx.matchedRoute = route;
       ctx.matchedRoute = undefined;

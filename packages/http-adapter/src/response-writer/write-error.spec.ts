@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { StatusCodes } from 'http-status-codes';
+import { HttpStatus } from '../enums';
 
 import { httpError } from '../http-error';
 import { HttpResponse } from '../http-response';
@@ -13,7 +13,7 @@ function makeRes(): HttpResponse {
 describe('writeErrorResponse', () => {
   it('writes ErrorResponseData built by httpError() factory (status + default reason phrase)', async () => {
     const res = makeRes();
-    const e = httpError(StatusCodes.IM_A_TEAPOT);
+    const e = httpError(HttpStatus.ImATeapot);
     writeErrorResponse(res, e.data);
     const wire = res.end();
     expect(wire.status).toBe(418);
@@ -23,7 +23,7 @@ describe('writeErrorResponse', () => {
 
   it('writes ErrorResponseData with custom message', async () => {
     const res = makeRes();
-    const e = httpError(StatusCodes.FORBIDDEN, 'No entry');
+    const e = httpError(HttpStatus.Forbidden, 'No entry');
     writeErrorResponse(res, e.data);
     const wire = res.end();
     expect(wire.status).toBe(403);
@@ -34,7 +34,7 @@ describe('writeErrorResponse', () => {
   it('includes errors array when present', async () => {
     const res = makeRes();
     const e = httpError(
-      StatusCodes.UNPROCESSABLE_ENTITY,
+      HttpStatus.UnprocessableContent,
       'Validation failed',
       [{ field: 'name' }],
     );
@@ -47,7 +47,7 @@ describe('writeErrorResponse', () => {
 
   it('omits errors field when undefined', async () => {
     const res = makeRes();
-    writeErrorResponse(res, { status: StatusCodes.NOT_FOUND, message: 'nope' });
+    writeErrorResponse(res, { status: HttpStatus.NotFound, message: 'nope' });
     const wire = res.end();
     const body = await wire.json() as Record<string, unknown>;
     expect(body.errors).toBeUndefined();
@@ -57,7 +57,7 @@ describe('writeErrorResponse', () => {
     const res = makeRes();
     const errors = [{ field: 'a' }];
     writeErrorResponse(res, {
-      status: StatusCodes.BAD_REQUEST,
+      status: HttpStatus.BadRequest,
       message: 'x',
       errors,
     });
@@ -111,4 +111,4 @@ describe('httpError() factory', () => {
   });
 });
 
-import type { ErrorResponseData } from '../types';
+import type { ErrorResponseData } from '../interfaces';

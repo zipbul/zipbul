@@ -2,7 +2,7 @@ import { defineAdapter } from '@zipbul/common';
 import { CoreStep } from '@zipbul/core';
 import { HttpAdapter } from './http-adapter';
 import { HttpContext } from './http-context';
-import { HttpStep, HttpPhase } from './enums';
+import { HttpAdapterStep, HttpAdapterPhase } from './enums';
 
 /**
  * HTTP adapter definition.
@@ -15,22 +15,22 @@ import { HttpStep, HttpPhase } from './enums';
 export const adapterDefinition = defineAdapter({
   adapter: HttpAdapter,
   context: HttpContext,
-  step: HttpStep,
-  phase: HttpPhase,
+  step: HttpAdapterStep,
+  phase: HttpAdapterPhase,
   pipeline: [
-    HttpPhase.OnRequest,
-    HttpStep.ResolveRoute,
-    HttpPhase.BeforeParse,
-    HttpStep.ParseBody,
-    HttpPhase.BeforeValidate,
+    HttpAdapterPhase.OnRequest,
+    HttpAdapterStep.ResolveRoute,
+    HttpAdapterPhase.BeforeParse,
+    HttpAdapterStep.ParseBody,
+    HttpAdapterPhase.BeforeValidate,
     CoreStep.Validation,
     CoreStep.Guard,
-    HttpPhase.BeforeHandle,
+    HttpAdapterPhase.BeforeHandle,
     CoreStep.Handler,
-    HttpStep.WriteResponse,
-    HttpPhase.AfterHandle,
-    HttpStep.Serialize,
-    HttpPhase.BeforeResponse,
-    HttpPhase.AfterResponse,
+    HttpAdapterStep.WriteResponse,
+    HttpAdapterPhase.AfterHandle,
+    HttpAdapterStep.Serialize,
+    HttpAdapterPhase.BeforeResponse,
+    HttpAdapterPhase.AfterResponse,
   ],
 });

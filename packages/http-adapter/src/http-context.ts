@@ -3,7 +3,7 @@ import type { Server } from 'bun';
 import { ContextError, type AdapterContext, type ContextKey, type ClassToken, type ZipbulContainer } from '@zipbul/common';
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
-import type { ErrorResponseData, MatchedRouteMetadata } from './types';
+import type { ErrorResponseData, MatchedRouteMetadata } from './interfaces';
 
 import { HTTP_CONTEXT_TYPE } from './constants';
 

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { defineMiddleware } from '@zipbul/common';
-import { HttpAdapter, HttpContext, HttpPhase } from '@zipbul/http-adapter';
+import { HttpAdapter, HttpContext, HttpAdapterPhase } from '@zipbul/http-adapter';
 import { Tck, type TestApplication } from '@zipbul/tck';
 
 import { corsMiddleware } from '../../index';
@@ -21,7 +21,7 @@ describe('CORS / Vary merge with prior middleware', () => {
     testApp = await Tck.createApplication({
       register: (app) => {
         const http = app.attach(HttpAdapter, { port: 0 });
-        http.addMiddlewares(HttpPhase.OnRequest, [
+        http.addMiddlewares(HttpAdapterPhase.OnRequest, [
           stampVary,
           corsMiddleware({ origin: 'https://x.com' }),
         ]);

@@ -1,5 +1,5 @@
 import type { HttpResponse } from '../http-response';
-import type { HttpStatus } from '../types';
+import type { HttpStatus } from '../enums';
 
 export function buildResponseDefaultsApplier(
   status: HttpStatus | undefined,

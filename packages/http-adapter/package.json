@@ -30,9 +30,7 @@
     "@zipbul/core": "workspace:*",
     "@zipbul/logger": "workspace:*",
     "@zipbul/result": "workspace:*",
-    "@zipbul/router": "0.2.3",
-    "@zipbul/shared": "workspace:*",
-    "http-status-codes": "catalog:"
+    "@zipbul/router": "0.2.3"
   },
   "devDependencies": {
     "@nestjs/common": "catalog:",

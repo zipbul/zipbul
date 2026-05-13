@@ -1,5 +1,6 @@
 import { HttpRequest } from '../http-request';
-import type { HttpMethod, HttpRequestData } from '../types';
+import { HttpMethod } from '../enums';
+import type { HttpRequestData } from '../interfaces';
 
 /**
  * Shared, strictly-typed fixture for {@link HttpRequest} instances in tests.
@@ -19,7 +20,7 @@ import type { HttpMethod, HttpRequestData } from '../types';
  * `HttpRequestData` interface must break this file, not silently diverge.
  */
 export function createTestHttpRequest(overrides: Partial<HttpRequestData> = {}): HttpRequest {
-  const method: HttpMethod = overrides.method ?? 'GET';
+  const method: HttpMethod = overrides.method ?? HttpMethod.Get;
   const url = overrides.url ?? 'http://localhost/';
   return new HttpRequest({
     requestId: 'test-id',

@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, spyOn } from 'bun:test';
+import { HttpMethod } from './enums';
 
 mock.module('@zipbul/logger', () => ({
   Logger: class {
@@ -1005,7 +1006,7 @@ describe('createHttpRequest', () => {
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
-      expect(result.request.method).toBe('GET');
+      expect(result.request.method).toBe(HttpMethod.Get);
       expect(result.request.path).toBe('/path');
       expect(result.request.hostname).toBe('example.com');
       expect(result.request.protocol).toBe('http');
@@ -1080,7 +1081,7 @@ describe('createHttpRequest', () => {
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
-      expect(result.request.method).toBe('GET');
+      expect(result.request.method).toBe(HttpMethod.Get);
       expect(result.request.path).toBe('/users');
       expect(result.request.queryString).toBe('?page=2');
       expect(result.request.hostname).toBe('example.com');

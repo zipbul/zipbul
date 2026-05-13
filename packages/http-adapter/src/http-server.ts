@@ -4,20 +4,16 @@ import type {
   ZipbulContainer,
 } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
-import { StatusCodes } from 'http-status-codes';
 
 import type {
   HttpServerBootOptions,
   HttpServerOptions,
-} from './interfaces';
-import type {
   ClassMetadata,
   MatchedRouteMetadata,
-  MetadataRegistryKey,
   RequestIdOptions,
-} from './types';
-
-import type { HttpMethod } from '@zipbul/shared';
+} from './interfaces';
+import type { MetadataRegistryKey } from './types';
+import { HttpMethod, HttpStatus } from './enums';
 import { HttpContext } from './http-context';
 import { HttpRequest } from './http-request';
 import { HttpResponse } from './http-response';
@@ -286,7 +282,7 @@ export class HttpServer {
 
     // URI 길이 초과 — RFC 9110 §15.5.15
     if (createResult.kind === 'uri-too-long') {
-      return new Response(null, { status: StatusCodes.REQUEST_URI_TOO_LONG });
+      return new Response(null, { status: HttpStatus.UriTooLong });
     }
 
     // URL 파싱 실패 또는 HttpRequest 생성 불가 → 고정 응답 (컨텍스트 없음)
@@ -309,7 +305,7 @@ export class HttpServer {
     // executePipeline 이 OnRequest MW 실행 후 이 에러를 반환하여
     // CORS 등 미들웨어 헤더가 응답에 포함된다.
     if (createResult.kind === 'bad-request') {
-      context.pipelineError = { status: StatusCodes.BAD_REQUEST, message: 'Bad Request' };
+      context.pipelineError = { status: HttpStatus.BadRequest, message: 'Bad Request' };
     }
 
     try {

@@ -1,10 +1,9 @@
 import { err, isErr } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
-import { StatusCodes } from 'http-status-codes';
 
 import type { HttpContext } from '../http-context';
-import type { ErrorResponseData } from '../types';
-import { HeaderField } from '../enums';
+import type { ErrorResponseData } from '../interfaces';
+import { HttpHeader, HttpStatus } from '../enums';
 
 import { readBodyWithLimit } from './read-with-limit';
 import { parseJsonBody } from './parse-json';
@@ -37,9 +36,9 @@ export async function parseBody(
   const contentEncoding = req.headers.get('content-encoding');
   if (contentEncoding !== null && contentEncoding.toLowerCase() !== 'identity') {
     // RFC 9110 §15.5.16
-    http.response.setHeader(HeaderField.AcceptEncoding, 'identity');
+    http.response.setHeader(HttpHeader.AcceptEncoding, 'identity');
     return err({
-      status: StatusCodes.UNSUPPORTED_MEDIA_TYPE,
+      status: HttpStatus.UnsupportedMediaType,
       message: `Content-Encoding '${contentEncoding}' is not supported. Send uncompressed request body.`,
     });
   }
@@ -58,13 +57,13 @@ export async function parseBody(
     try {
       if (new TextDecoder(charset as Bun.Encoding).encoding !== 'utf-8') {
         return err({
-          status: StatusCodes.BAD_REQUEST,
+          status: HttpStatus.BadRequest,
           message: `JSON requires UTF-8 encoding (RFC 8259 §8.1), received: ${charset}`,
         });
       }
     } catch {
       return err({
-        status: StatusCodes.BAD_REQUEST,
+        status: HttpStatus.BadRequest,
         message: `JSON requires UTF-8 encoding (RFC 8259 §8.1), received: ${charset}`,
       });
     }
@@ -83,14 +82,14 @@ export async function parseBody(
     try {
       text = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(bytesResult);
     } catch {
-      return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
+      return err({ status: HttpStatus.BadRequest, message: `Unsupported or malformed charset: ${charset}` });
     }
 
     if (isJson) {
       try {
         req.body = parseJsonBody(JSON.parse(text));
       } catch {
-        return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
+        return err({ status: HttpStatus.BadRequest, message: 'Invalid JSON in request body' });
       }
     } else {
       req.body = text;
@@ -109,14 +108,14 @@ export async function parseBody(
       try {
         text = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(bytesResult);
       } catch {
-        return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
+        return err({ status: HttpStatus.BadRequest, message: `Unsupported or malformed charset: ${charset}` });
       }
 
       if (isJson) {
         try {
           req.body = parseJsonBody(JSON.parse(text));
         } catch {
-          return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
+          return err({ status: HttpStatus.BadRequest, message: 'Invalid JSON in request body' });
         }
       } else {
         req.body = text;
@@ -126,7 +125,7 @@ export async function parseBody(
 
     // CL 존재 — fast path. bodyLimit 초과 시 즉시 거부.
     if (req.contentLength! > effectiveBodyLimit) {
-      return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
+      return err({ status: HttpStatus.ContentTooLarge, message: 'Request body exceeds size limit' });
     }
     if (isJson) {
       try {
@@ -135,7 +134,7 @@ export async function parseBody(
         // SyntaxError = 클라이언트가 잘못된 JSON 전송 → err(400)
         // TypeError/기타 = body 이중 소비, 네트워크 끊김 등 인프라 에러 → throw 전파
         if (error instanceof SyntaxError) {
-          return err({ status: StatusCodes.BAD_REQUEST, message: 'Invalid JSON in request body' });
+          return err({ status: HttpStatus.BadRequest, message: 'Invalid JSON in request body' });
         }
         throw error;
       }
@@ -144,7 +143,7 @@ export async function parseBody(
         const raw = new Uint8Array(await rawReq.arrayBuffer());
         req.body = new TextDecoder(charset as Bun.Encoding, { fatal: true }).decode(raw);
       } catch {
-        return err({ status: StatusCodes.BAD_REQUEST, message: `Unsupported or malformed charset: ${charset}` });
+        return err({ status: HttpStatus.BadRequest, message: `Unsupported or malformed charset: ${charset}` });
       }
     }
     return undefined;

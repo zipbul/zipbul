@@ -1,4 +1,4 @@
-import type { RequestIdOptions } from './types';
+import type { RequestIdOptions } from './interfaces';
 
 export function resolveRequestId(headers: Headers, options?: RequestIdOptions): string {
   if (options?.header !== undefined) {

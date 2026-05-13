@@ -1,8 +1,8 @@
 import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
-import { StatusCodes } from 'http-status-codes';
 
-import type { ErrorResponseData } from '../types';
+import type { ErrorResponseData } from '../interfaces';
+import { HttpStatus } from '../enums';
 
 export async function readBodyWithLimit(
   rawReq: Request,
@@ -12,7 +12,7 @@ export async function readBodyWithLimit(
   // CL 존재 — fast path. bodyLimit 초과 시 즉시 거부.
   if (contentLength !== null) {
     if (contentLength > bodyLimit) {
-      return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
+      return err({ status: HttpStatus.ContentTooLarge, message: 'Request body exceeds size limit' });
     }
     return new Uint8Array(await rawReq.arrayBuffer());
   }
@@ -37,7 +37,7 @@ export async function readBodyWithLimit(
       totalSize += value.byteLength;
       if (totalSize > bodyLimit) {
         limitExceeded = true;
-        return err({ status: StatusCodes.REQUEST_TOO_LONG, message: 'Request body exceeds size limit' });
+        return err({ status: HttpStatus.ContentTooLarge, message: 'Request body exceeds size limit' });
       }
 
       chunks.push(value);

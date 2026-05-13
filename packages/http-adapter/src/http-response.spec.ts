@@ -1,16 +1,17 @@
 import { describe, it, expect, spyOn } from 'bun:test';
-import { StatusCodes, getReasonPhrase } from 'http-status-codes';
+import { HttpStatus } from './enums';
+import { reasonOf } from './utils';
 
 import { HttpResponse } from './http-response';
 import type { HttpRequest } from './http-request';
 import { createTestHttpRequest } from './test-fixtures/http-request-fixture';
-import type { HttpMethod } from './types';
+import { HttpMethod } from './enums';
 
-function createRequest(method: HttpMethod = 'GET'): HttpRequest {
+function createRequest(method: HttpMethod = HttpMethod.Get): HttpRequest {
   return createTestHttpRequest({ method, originalMethod: method });
 }
 
-function createResponse(method: HttpMethod = 'GET'): HttpResponse {
+function createResponse(method: HttpMethod = HttpMethod.Get): HttpResponse {
   return new HttpResponse(createRequest(method), new Headers());
 }
 
@@ -73,7 +74,7 @@ describe('HttpResponse', () => {
   describe('reset', () => {
     it('should reset all state including committed and response and rawNativeResponse', () => {
       const res = createResponse();
-      res.setStatus(StatusCodes.OK);
+      res.setStatus(HttpStatus.Ok);
       res.setHeader('x-custom', 'value');
       res.setBody('hello');
       res.send();
@@ -113,7 +114,7 @@ describe('HttpResponse', () => {
     it('should return this from setStatus for chaining', () => {
       const res = createResponse();
 
-      const result = res.setStatus(StatusCodes.OK);
+      const result = res.setStatus(HttpStatus.Ok);
 
       expect(result).toBe(res);
     });
@@ -121,17 +122,17 @@ describe('HttpResponse', () => {
     it('should use default statusText from getReasonPhrase', () => {
       const res = createResponse();
 
-      res.setStatus(StatusCodes.NOT_FOUND);
+      res.setStatus(HttpStatus.NotFound);
       const response = res.end();
 
       expect(response.status).toBe(404);
-      expect(response.statusText).toBe(getReasonPhrase(StatusCodes.NOT_FOUND));
+      expect(response.statusText).toBe(reasonOf(HttpStatus.NotFound));
     });
 
     it('should use custom statusText when provided', () => {
       const res = createResponse();
 
-      res.setStatus(StatusCodes.OK, 'All Good');
+      res.setStatus(HttpStatus.Ok, 'All Good');
       const response = res.end();
 
       expect(response.statusText).toBe('All Good');
@@ -536,7 +537,7 @@ describe('HttpResponse', () => {
 
     it('should remove body for 204 status', async () => {
       const res = createResponse();
-      res.setStatus(StatusCodes.NO_CONTENT);
+      res.setStatus(HttpStatus.NoContent);
       res.setBody('should be removed');
 
       const response = res.end();
@@ -548,7 +549,7 @@ describe('HttpResponse', () => {
 
     it('should remove body for 304 status', async () => {
       const res = createResponse();
-      res.setStatus(StatusCodes.NOT_MODIFIED);
+      res.setStatus(HttpStatus.NotModified);
       res.setBody('should be removed');
 
       const response = res.end();
@@ -603,7 +604,7 @@ describe('HttpResponse', () => {
     });
 
     it('should calculate Content-Length and remove body for HEAD request with string', async () => {
-      const res = new HttpResponse(createRequest('HEAD'), new Headers());
+      const res = new HttpResponse(createRequest(HttpMethod.Head), new Headers());
       res.setBody('hello');
 
       const response = res.end();
@@ -617,7 +618,7 @@ describe('HttpResponse', () => {
     });
 
     it('should calculate Content-Length and remove body for HEAD request with Uint8Array', async () => {
-      const res = new HttpResponse(createRequest('HEAD'), new Headers());
+      const res = new HttpResponse(createRequest(HttpMethod.Head), new Headers());
       const body = new Uint8Array([1, 2, 3, 4, 5]);
       res.setContentType('application/octet-stream');
       res.setBody(body);
@@ -631,7 +632,7 @@ describe('HttpResponse', () => {
     });
 
     it('should calculate Content-Length and remove body for HEAD request with ArrayBuffer', async () => {
-      const res = new HttpResponse(createRequest('HEAD'), new Headers());
+      const res = new HttpResponse(createRequest(HttpMethod.Head), new Headers());
       const body = new ArrayBuffer(8);
       res.setContentType('application/octet-stream');
       res.setBody(body);
@@ -723,7 +724,7 @@ describe('HttpResponse', () => {
     });
 
     it('should set HEAD status to 200 when no status was set explicitly', async () => {
-      const res = new HttpResponse(createRequest('HEAD'), new Headers());
+      const res = new HttpResponse(createRequest(HttpMethod.Head), new Headers());
       res.setBody('content');
 
       const response = res.end();
@@ -741,7 +742,7 @@ describe('HttpResponse', () => {
     });
 
     it('should HEAD request with JSON body should serialize then calculate Content-Length', async () => {
-      const res = new HttpResponse(createRequest('HEAD'), new Headers());
+      const res = new HttpResponse(createRequest(HttpMethod.Head), new Headers());
       res.setBody({ key: 'value' });
 
       const response = res.end();
@@ -933,7 +934,7 @@ describe('HttpResponse', () => {
 
       res.reset();
       res.setBody('second');
-      res.setStatus(StatusCodes.CREATED);
+      res.setStatus(HttpStatus.Created);
       const second = res.end();
 
       expect(second).not.toBe(first);
@@ -1148,7 +1149,7 @@ describe('HttpResponse', () => {
   describe('build — 204 should not set Content-Type', () => {
     it('should not include Content-Type header on explicit 204 response', () => {
       const res = createResponse();
-      res.setStatus(StatusCodes.NO_CONTENT);
+      res.setStatus(HttpStatus.NoContent);
 
       const response = res.end();
 

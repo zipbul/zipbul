@@ -1,7 +1,7 @@
 import { HttpContext } from '../http-context';
 import { HttpResponse } from '../http-response';
 import { createTestHttpRequest } from './http-request-fixture';
-import type { HttpRequestData } from '../types';
+import type { HttpRequestData } from '../interfaces';
 
 /**
  * Full request-scoped context for tests. Returns the concrete

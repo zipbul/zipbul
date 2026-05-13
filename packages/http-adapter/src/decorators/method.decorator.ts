@@ -53,7 +53,7 @@ export const Head =
  */
 export const Method =
   <const M extends string>(
-    _method: Uppercase<M> extends import('../http-method').ForbiddenHttpMethod ? never : M,
+    _method: Uppercase<M> extends typeof import('../constants').FORBIDDEN_HTTP_METHODS[number] ? never : M,
     _pathOrOptions?: string | HttpMethodDecoratorOptions,
   ): MethodDecorator =>
   () => {};

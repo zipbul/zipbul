@@ -1,4 +1,5 @@
-import type { ErrorResponseData, ResponseBodyValue } from '../types';
+import type { ErrorResponseData } from '../interfaces';
+import type { ResponseBodyValue } from '../types';
 
 export function isResponseBodyValue(value: unknown): value is ResponseBodyValue {
   if (value === null) {

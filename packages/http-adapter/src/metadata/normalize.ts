@@ -5,7 +5,8 @@ import type {
   DecoratorMetadata as CoreDecoratorMetadata,
 } from '@zipbul/core';
 
-import type { ClassMetadata, MetadataRegistryKey, ParamTypeReference } from '../types';
+import type { ClassMetadata } from '../interfaces';
+import type { MetadataRegistryKey, ParamTypeReference } from '../types';
 
 export function normalizeMetadataRegistry(
   registry:

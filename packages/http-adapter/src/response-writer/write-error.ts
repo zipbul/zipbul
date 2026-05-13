@@ -1,5 +1,5 @@
 import type { HttpResponse } from '../http-response';
-import type { ErrorResponseData } from '../types';
+import type { ErrorResponseData } from '../interfaces';
 
 /**
  * Writes a typed error value to the HTTP response.

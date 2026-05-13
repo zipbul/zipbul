@@ -1,6 +1,6 @@
 import type { Router } from '@zipbul/router';
 import type { Logger } from '@zipbul/logger';
-import type { MatchedRouteMetadata } from '../types';
+import type { MatchedRouteMetadata } from '../interfaces';
 
 export function addWithHeadAlias(args: {
   router: Router<MatchedRouteMetadata>;

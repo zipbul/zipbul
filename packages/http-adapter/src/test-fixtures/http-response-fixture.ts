@@ -1,6 +1,6 @@
 import { HttpResponse } from '../http-response';
 import { createTestHttpRequest } from './http-request-fixture';
-import type { HttpRequestData } from '../types';
+import type { HttpRequestData } from '../interfaces';
 
 /**
  * Creates a real {@link HttpResponse} bound to a test {@link HttpRequest}.

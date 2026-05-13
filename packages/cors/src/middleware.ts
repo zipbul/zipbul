@@ -15,10 +15,10 @@ type SetStatusArg = Parameters<HttpResponse['setStatus']>[0];
  * Options are resolved and validated at registration time (`Cors.create`)
  * so configuration errors fail fast at boot.
  *
- * Register on `HttpPhase.OnRequest`:
+ * Register on `HttpAdapterPhase.OnRequest`:
  *
  * ```ts
- * httpAdapter.addMiddlewares(HttpPhase.OnRequest, [
+ * httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
  *   corsMiddleware({ origin: 'https://example.com' }),
  * ]);
  * ```

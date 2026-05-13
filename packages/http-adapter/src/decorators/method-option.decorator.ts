@@ -1,4 +1,4 @@
-import type { HttpStatus } from '../types';
+import type { HttpStatus } from '../enums';
 
 /**
  * Enables raw request body capture for this handler.

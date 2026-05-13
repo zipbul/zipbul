@@ -15,7 +15,7 @@ const DEFAULT_HEADER = 'X-Response-Time';
  *
  * @example
  * ```ts
- * httpAdapter.addMiddlewares(HttpPhase.OnReceive, [
+ * httpAdapter.addMiddlewares(HttpAdapterPhase.OnReceive, [
  *   requestTimingMiddleware({ headerName: 'X-Timing' }),
  * ]);
  * ```

@@ -1,4 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
+import { HttpMethod } from './enums';
 
 mock.module('@zipbul/logger', () => ({
   Logger: class {
@@ -587,7 +588,7 @@ describe('createHttpRequest', () => {
 
     expect(result.kind).toBe('ok');
     if (result.kind === 'ok') {
-      expect(result.request.method).toBe('GET');
+      expect(result.request.method).toBe(HttpMethod.Get);
       expect(result.request.path).toBe('/path');
       expect(result.request.protocol).toBe('http');
       expect(result.request.hostname).toBe('example.com');

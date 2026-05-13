@@ -1,4 +1,4 @@
-import type { ContentTypeInfo } from './types';
+import type { ContentTypeInfo } from './interfaces';
 
 /**
  * RFC 9110 parameter parsing.

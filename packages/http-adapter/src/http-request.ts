@@ -1,5 +1,8 @@
 import type { Class } from '@zipbul/common';
-import type { ContentTypeInfo, HttpMethod, HttpRequestData, RequestBodyValue, RequestParamMap } from './types';
+
+import { HttpMethod } from './enums';
+import type { ContentTypeInfo, HttpRequestData } from './interfaces';
+import type { RequestBodyValue, RequestParamMap } from './types';
 import { parseContentTypeInfo } from './content-type';
 import { validateRequestId } from './request-id';
 import { defaultPortByProtocol, extractHostname, extractPort } from './url-parts';

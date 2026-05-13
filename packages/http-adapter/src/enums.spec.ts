@@ -1,54 +1,55 @@
 import { describe, expect, it } from 'bun:test';
-import { HttpPhase, isHttpPhase } from './enums';
+import { HttpAdapterPhase } from './enums';
+import { isHttpAdapterPhase } from './utils';
 
-describe('isHttpPhase', () => {
+describe('isHttpAdapterPhase', () => {
   it('should return true for OnRequest', () => {
-    expect(isHttpPhase('OnRequest')).toBe(true);
+    expect(isHttpAdapterPhase('OnRequest')).toBe(true);
   });
 
   it('should return true for BeforeParse', () => {
-    expect(isHttpPhase('BeforeParse')).toBe(true);
+    expect(isHttpAdapterPhase('BeforeParse')).toBe(true);
   });
 
   it('should return true for BeforeValidate', () => {
-    expect(isHttpPhase('BeforeValidate')).toBe(true);
+    expect(isHttpAdapterPhase('BeforeValidate')).toBe(true);
   });
 
   it('should return true for BeforeHandle', () => {
-    expect(isHttpPhase('BeforeHandle')).toBe(true);
+    expect(isHttpAdapterPhase('BeforeHandle')).toBe(true);
   });
 
   it('should return true for AfterHandle', () => {
-    expect(isHttpPhase('AfterHandle')).toBe(true);
+    expect(isHttpAdapterPhase('AfterHandle')).toBe(true);
   });
 
   it('should return true for BeforeResponse', () => {
-    expect(isHttpPhase('BeforeResponse')).toBe(true);
+    expect(isHttpAdapterPhase('BeforeResponse')).toBe(true);
   });
 
   it('should return true for AfterResponse', () => {
-    expect(isHttpPhase('AfterResponse')).toBe(true);
+    expect(isHttpAdapterPhase('AfterResponse')).toBe(true);
   });
 
   it('should return false for InvalidPhase', () => {
-    expect(isHttpPhase('InvalidPhase')).toBe(false);
+    expect(isHttpAdapterPhase('InvalidPhase')).toBe(false);
   });
 
   it('should return false for empty string', () => {
-    expect(isHttpPhase('')).toBe(false);
+    expect(isHttpAdapterPhase('')).toBe(false);
   });
 
   it('should return false for removed phase names', () => {
-    expect(isHttpPhase('BeforeParsing')).toBe(false);
-    expect(isHttpPhase('BeforeValidation')).toBe(false);
-    expect(isHttpPhase('BeforeHandler')).toBe(false);
-    expect(isHttpPhase('Cleanup')).toBe(false);
+    expect(isHttpAdapterPhase('BeforeParsing')).toBe(false);
+    expect(isHttpAdapterPhase('BeforeValidation')).toBe(false);
+    expect(isHttpAdapterPhase('BeforeHandler')).toBe(false);
+    expect(isHttpAdapterPhase('Cleanup')).toBe(false);
   });
 });
 
-describe('HttpPhase', () => {
+describe('HttpAdapterPhase', () => {
   it('should have exactly 7 values', () => {
-    const values: readonly string[] = Object.values(HttpPhase);
+    const values: readonly string[] = Object.values(HttpAdapterPhase);
 
     expect(values).toHaveLength(7);
     expect(values).toContain('OnRequest');
@@ -61,12 +62,12 @@ describe('HttpPhase', () => {
   });
 
   it('should contain all expected phase values', () => {
-    expect(HttpPhase.OnRequest as string).toBe('OnRequest');
-    expect(HttpPhase.BeforeParse as string).toBe('BeforeParse');
-    expect(HttpPhase.BeforeValidate as string).toBe('BeforeValidate');
-    expect(HttpPhase.BeforeHandle as string).toBe('BeforeHandle');
-    expect(HttpPhase.AfterHandle as string).toBe('AfterHandle');
-    expect(HttpPhase.BeforeResponse as string).toBe('BeforeResponse');
-    expect(HttpPhase.AfterResponse as string).toBe('AfterResponse');
+    expect(HttpAdapterPhase.OnRequest as string).toBe('OnRequest');
+    expect(HttpAdapterPhase.BeforeParse as string).toBe('BeforeParse');
+    expect(HttpAdapterPhase.BeforeValidate as string).toBe('BeforeValidate');
+    expect(HttpAdapterPhase.BeforeHandle as string).toBe('BeforeHandle');
+    expect(HttpAdapterPhase.AfterHandle as string).toBe('AfterHandle');
+    expect(HttpAdapterPhase.BeforeResponse as string).toBe('BeforeResponse');
+    expect(HttpAdapterPhase.AfterResponse as string).toBe('AfterResponse');
   });
 });

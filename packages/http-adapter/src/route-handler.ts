@@ -6,12 +6,15 @@ import type { ResolvedExceptionFilter, ResolvedValidationEntry, PipelineStepFn }
 
 import { Logger } from '@zipbul/logger';
 
-import type { MatchedRouteMetadata, MatchRouteOutput } from './types';
+import type { MatchRouteOutput } from './types';
 import type { RouterOptions } from '@zipbul/router';
 import type {
   ClassMetadata,
-  ControllerInstance,
+  MatchedRouteMetadata,
   InternalRouteDefinition,
+} from './interfaces';
+import type {
+  ControllerInstance,
   MetadataRegistryKey,
   RouteHandlerFunction,
   RouteHandlerResult,
@@ -22,7 +25,7 @@ import type { HttpResponse } from './http-response';
 import { Router } from '@zipbul/router';
 import { parseDecoratorOptions, buildResponseDefaultsApplier } from './route-options';
 import { addWithHeadAlias } from './pipeline/router-register';
-import { FORBIDDEN_HTTP_METHODS } from './http-method';
+import { isForbiddenHttpMethod } from './utils';
 
 type HttpCompiledHandlerEntry = CompiledHandlerEntry;
 
@@ -153,7 +156,7 @@ export class RouteHandler {
         );
       }
 
-      if (FORBIDDEN_HTTP_METHODS.has(httpMethod)) {
+      if (isForbiddenHttpMethod(httpMethod)) {
         throw new Error(
           `[RouteHandler] @Method('${httpMethod}', ...) at ${entry.controllerKey}.${entry.methodName} ` +
           `is permanently rejected. ` +

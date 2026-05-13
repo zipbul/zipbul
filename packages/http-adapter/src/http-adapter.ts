@@ -4,17 +4,16 @@ import { err, isErr } from '@zipbul/result';
 import type { Result, Err } from '@zipbul/result';
 import { Adapter, handlerResultKey } from '@zipbul/core';
 import type { ResolvedMiddleware, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
-import { StatusCodes } from 'http-status-codes';
 import { Logger } from '@zipbul/logger';
 
 import { getBootstrapState } from '@zipbul/core';
 import type {
   HttpServerBootOptions,
   HttpServerOptions,
-  InternalRouteHandler,
   InternalRouteEntry,
+  ErrorResponseData,
 } from './interfaces';
-import type { ErrorResponseData, RouteHandlerFunction, RouteHandlerResult } from './types';
+import type { InternalRouteHandler, RouteHandlerFunction, RouteHandlerResult } from './types';
 
 import { HttpContext } from './http-context';
 import type { Server } from 'bun';
@@ -28,7 +27,7 @@ import { Get, Post, Put, Delete, Patch, Options, Head, Method } from './decorato
 import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
 import type { RouteHandler } from './route-handler';
 import type { ResolvedRoutePipeline } from './route-handler';
-import { HttpPhase, HttpStep, HeaderField } from './enums';
+import { HttpHeader, HttpStatus, HttpAdapterPhase, HttpAdapterStep } from './enums';
 import { parseBody } from './body';
 import { writeErrorResponse, writeSuccessResponse } from './response-writer';
 import { normalizeMetadataRegistry } from './metadata';
@@ -47,7 +46,7 @@ function formatUnknownError(value: unknown): string {
 // ── HttpAdapter ──────────────────────────────────────────────
 
 export class HttpAdapter extends Adapter {
-  static override readonly validPhases: ReadonlySet<string> = new Set(Object.values(HttpPhase));
+  static override readonly validPhases: ReadonlySet<string> = new Set(Object.values(HttpAdapterPhase));
 
   readonly decorators: AdapterEntryDecorators = {
     controller: RestController,
@@ -101,7 +100,7 @@ export class HttpAdapter extends Adapter {
    * @returns `this` for chaining.
    * @public
    */
-  addMiddlewares(phase: HttpPhase, middlewares: readonly MiddlewareDefinition[]): this {
+  addMiddlewares(phase: HttpAdapterPhase, middlewares: readonly MiddlewareDefinition[]): this {
     this.registerMiddleware(phase, middlewares);
     return this;
   }
@@ -116,7 +115,7 @@ export class HttpAdapter extends Adapter {
    * @public
    */
   protected override getFinalizeMiddlewares(): readonly ResolvedMiddleware[] {
-    return this.getPhaseMiddlewares(HttpPhase.AfterResponse);
+    return this.getPhaseMiddlewares(HttpAdapterPhase.AfterResponse);
   }
 
   // ── Pipeline assembly ───────────────────────────────────────
@@ -134,7 +133,7 @@ export class HttpAdapter extends Adapter {
     const http = context.to(HttpContext);
 
     // ── Pre-route: global OnRequest phase middlewares ──
-    const onRequestMws = this.getPhaseMiddlewares(HttpPhase.OnRequest);
+    const onRequestMws = this.getPhaseMiddlewares(HttpAdapterPhase.OnRequest);
 
     if (onRequestMws.length > 0) {
       const result = await this.runHttpMiddlewares(onRequestMws, http);
@@ -211,12 +210,12 @@ export class HttpAdapter extends Adapter {
 
     // Skip pre-route steps (handled by executePipeline)
     const compiledPre = entry.compiledPre ?? [];
-    const routeBoundary = compiledPre.indexOf(HttpStep.ResolveRoute);
+    const routeBoundary = compiledPre.indexOf(HttpAdapterStep.ResolveRoute);
     const postRouteSteps = routeBoundary >= 0 ? compiledPre.slice(routeBoundary + 1) : compiledPre;
-    const preSteps = postRouteSteps.filter(step => step !== HttpPhase.OnRequest);
+    const preSteps = postRouteSteps.filter(step => step !== HttpAdapterPhase.OnRequest);
 
     // Skip AfterResponse (handled by finalize)
-    const postSteps = (entry.compiledPost ?? []).filter(step => step !== HttpPhase.AfterResponse);
+    const postSteps = (entry.compiledPost ?? []).filter(step => step !== HttpAdapterPhase.AfterResponse);
 
     // Core resolves core steps + adapter steps in one pass
     const pre = this.resolveStepFns(preSteps, adapterSteps, guards, validations);
@@ -240,36 +239,36 @@ export class HttpAdapter extends Adapter {
 
     return new Map<string, PipelineStepFn>([
       // ── Adapter phases ──
-      [HttpPhase.BeforeParse, async (context: AdapterContext) => {
+      [HttpAdapterPhase.BeforeParse, async (context: AdapterContext) => {
         const http = context.to(HttpContext);
         if (http.response.isSent()) return undefined;
-        return this.runHttpMiddlewares(resolvePhaseMws(HttpPhase.BeforeParse), http);
+        return this.runHttpMiddlewares(resolvePhaseMws(HttpAdapterPhase.BeforeParse), http);
       }],
-      [HttpPhase.BeforeValidate, async (context: AdapterContext) => {
+      [HttpAdapterPhase.BeforeValidate, async (context: AdapterContext) => {
         const http = context.to(HttpContext);
         if (http.response.isSent()) return undefined;
-        return this.runHttpMiddlewares(resolvePhaseMws(HttpPhase.BeforeValidate), http);
+        return this.runHttpMiddlewares(resolvePhaseMws(HttpAdapterPhase.BeforeValidate), http);
       }],
-      [HttpPhase.BeforeHandle, async (context: AdapterContext) => {
+      [HttpAdapterPhase.BeforeHandle, async (context: AdapterContext) => {
         const http = context.to(HttpContext);
         if (http.response.isSent()) return undefined;
-        return this.runHttpMiddlewares(resolvePhaseMws(HttpPhase.BeforeHandle), http);
+        return this.runHttpMiddlewares(resolvePhaseMws(HttpAdapterPhase.BeforeHandle), http);
       }],
-      [HttpPhase.AfterHandle, async (context: AdapterContext) => {
+      [HttpAdapterPhase.AfterHandle, async (context: AdapterContext) => {
         const http = context.to(HttpContext);
         if (http.response.hasNativeResponse() || http.response.isSent()) return undefined;
-        return this.runHttpMiddlewares(resolvePhaseMws(HttpPhase.AfterHandle), http);
+        return this.runHttpMiddlewares(resolvePhaseMws(HttpAdapterPhase.AfterHandle), http);
       }],
-      [HttpPhase.BeforeResponse, async (context: AdapterContext) => {
+      [HttpAdapterPhase.BeforeResponse, async (context: AdapterContext) => {
         const http = context.to(HttpContext);
-        return this.runHttpMiddlewares(resolvePhaseMws(HttpPhase.BeforeResponse), http);
+        return this.runHttpMiddlewares(resolvePhaseMws(HttpAdapterPhase.BeforeResponse), http);
       }],
 
       // ── Adapter steps ──
-      [HttpStep.ParseBody, (context: AdapterContext) =>
+      [HttpAdapterStep.ParseBody, (context: AdapterContext) =>
         parseBody(context.to(HttpContext), this.options.bodyLimit!, this.textMediaTypes),
       ],
-      [HttpStep.WriteResponse, async (context: AdapterContext) => {
+      [HttpAdapterStep.WriteResponse, async (context: AdapterContext) => {
         const http = context.to(HttpContext);
         const result = context.get(handlerResultKey);
 
@@ -281,7 +280,7 @@ export class HttpAdapter extends Adapter {
           await writeSuccessResponse(http.response, result as RouteHandlerResult, http);
         }
       }],
-      [HttpStep.Serialize, (context: AdapterContext) => {
+      [HttpAdapterStep.Serialize, (context: AdapterContext) => {
         context.to(HttpContext).response.serialize();
       }],
     ]);
@@ -299,26 +298,26 @@ export class HttpAdapter extends Adapter {
     const req = http.request;
 
     if (this.routeHandler === undefined) {
-      return err({ status: StatusCodes.INTERNAL_SERVER_ERROR, message: 'Router not initialized' });
+      return err({ status: HttpStatus.InternalServerError, message: 'Router not initialized' });
     }
 
     const matchResult = this.routeHandler.matchRoute(req.method, req.path);
 
     if (matchResult.kind === 'not-found') {
-      return err({ status: StatusCodes.NOT_FOUND, message: 'Not Found' });
+      return err({ status: HttpStatus.NotFound, message: 'Not Found' });
     }
 
     if (matchResult.kind === 'method-not-allowed') {
       if (req.method === 'OPTIONS') {
-        http.response.setHeader(HeaderField.Allow, matchResult.allowedMethods.join(', '));
-        http.response.setStatus(StatusCodes.NO_CONTENT);
+        http.response.setHeader(HttpHeader.Allow, matchResult.allowedMethods.join(', '));
+        http.response.setStatus(HttpStatus.NoContent);
         http.response.send();
         return undefined;
       }
 
       // RFC 9110 §15.5.6: Allow 헤더 필수
-      http.response.setHeader(HeaderField.Allow, matchResult.allowedMethods.join(', '));
-      return err({ status: StatusCodes.METHOD_NOT_ALLOWED, message: 'Method Not Allowed' });
+      http.response.setHeader(HttpHeader.Allow, matchResult.allowedMethods.join(', '));
+      return err({ status: HttpStatus.MethodNotAllowed, message: 'Method Not Allowed' });
     }
 
     req.params = matchResult.params;
@@ -349,7 +348,7 @@ export class HttpAdapter extends Adapter {
    */
   protected override wrapUnhandledException(_error: unknown): Err<unknown> {
     return err({
-      status: StatusCodes.INTERNAL_SERVER_ERROR,
+      status: HttpStatus.InternalServerError,
       message: 'Internal Server Error',
     } satisfies ErrorResponseData);
   }
@@ -361,7 +360,7 @@ export class HttpAdapter extends Adapter {
    */
   protected override wrapInvalidFilterResult(_error: unknown, _filterResult: unknown): Err<unknown> {
     return err({
-      status: StatusCodes.INTERNAL_SERVER_ERROR,
+      status: HttpStatus.InternalServerError,
       message: 'Internal Server Error',
     } satisfies ErrorResponseData);
   }
@@ -369,7 +368,7 @@ export class HttpAdapter extends Adapter {
   protected override wrapValidationError(_entry: ResolvedValidationEntry, errors: unknown): Err<unknown> {
     if (isBakerError(errors)) {
       return err({
-        status: StatusCodes.BAD_REQUEST,
+        status: HttpStatus.BadRequest,
         message: 'Validation failed',
         errors: errors.errors.map(fieldError => ({
           path: fieldError.path,
@@ -423,7 +422,7 @@ export class HttpAdapter extends Adapter {
       // violated (bug, misconfiguration, or unexpected failure). Request
       // errors flow as `Err<ErrorResponseData>`, not exceptions. Respond
       // with a generic 500; headers set earlier (CORS, security) survive.
-      res.setStatus(StatusCodes.INTERNAL_SERVER_ERROR);
+      res.setStatus(HttpStatus.InternalServerError);
       res.setContentType('text/plain');
       res.setBody('Internal Server Error');
     }
