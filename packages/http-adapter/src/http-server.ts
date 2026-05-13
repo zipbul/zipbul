@@ -13,7 +13,8 @@ import type {
   RequestIdOptions,
 } from './interfaces';
 import type { MetadataRegistryKey } from './types';
-import { HttpMethod, HttpStatus } from './enums';
+import { DEFAULT_MAX_URI_LENGTH } from './constants';
+import { HttpHeader, HttpMethod, HttpStatus } from './enums';
 import { HttpContext } from './http-context';
 import { HttpRequest } from './http-request';
 import { HttpResponse } from './http-response';
@@ -46,12 +47,10 @@ type CreateHttpRequestOutput =
   | CreateHttpRequestBadRequest
   | CreateHttpRequestUriTooLong;
 
-const DEFAULT_MAX_URI_LENGTH = 8192;
-
 // ── Helper functions ──────────────────────────────────────────
 
 function parseContentLength(headers: Headers): number | null | 'invalid' {
-  const raw = headers.get('content-length');
+  const raw = headers.get(HttpHeader.ContentLength);
   if (raw === null || raw.length === 0) return null;
 
   // Bun 실측: 중복 CL 헤더를 "5, 3"으로 합쳐서 통과시킨다.

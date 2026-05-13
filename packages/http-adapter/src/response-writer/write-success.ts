@@ -1,9 +1,9 @@
 import type { HttpResponse } from '../http-response';
 import type { HttpContext } from '../http-context';
 import type { RouteHandlerResult, ResponseBodyValue } from '../types';
+import { CACHE_CONTROL_NO_CACHE, CONNECTION_KEEP_ALIVE, TEXT_ENCODER, X_ACCEL_BUFFERING_OFF } from '../constants';
+import { ContentType, HttpHeader } from '../enums';
 import { isAsyncIterable, formatSSEChunk } from '../server-sent-event';
-
-const TEXT_ENCODER = new TextEncoder();
 
 export async function writeSuccessResponse(res: HttpResponse, result: RouteHandlerResult, http: HttpContext): Promise<void> {
   const signal = http.request.signal;
@@ -59,10 +59,10 @@ export async function writeSuccessResponse(res: HttpResponse, result: RouteHandl
       http.setTimeout(0);
       const sseResponse = new Response(stream, {
         headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          'X-Accel-Buffering': 'no',
+          [HttpHeader.ContentType]: ContentType.EventStream,
+          [HttpHeader.CacheControl]: CACHE_CONTROL_NO_CACHE,
+          [HttpHeader.Connection]: CONNECTION_KEEP_ALIVE,
+          [HttpHeader.XAccelBuffering]: X_ACCEL_BUFFERING_OFF,
         },
       });
       res.setNativeResponse(sseResponse);

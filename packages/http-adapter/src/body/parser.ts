@@ -3,7 +3,7 @@ import type { Result } from '@zipbul/result';
 
 import type { HttpContext } from '../http-context';
 import type { ErrorResponseData } from '../interfaces';
-import { HttpHeader, HttpStatus } from '../enums';
+import { ContentType, HttpHeader, HttpMethod, HttpStatus } from '../enums';
 
 import { readBodyWithLimit } from './read-with-limit';
 import { parseJsonBody } from './parse-json';
@@ -26,14 +26,14 @@ export async function parseBody(
   const rawReq = http.consumeRawRequest();
 
   if (rawReq === undefined) return undefined;
-  if (req.method === 'GET' || req.method === 'HEAD') return undefined;
-  if ((req.method === 'DELETE' || req.method === 'OPTIONS') && req.contentType === null) return undefined;
+  if (req.method === HttpMethod.Get || req.method === HttpMethod.Head) return undefined;
+  if ((req.method === HttpMethod.Delete || req.method === HttpMethod.Options) && req.contentType === null) return undefined;
 
   // Content-Length: 0 — body 없음. Content-Encoding보다 먼저 체크.
   if (req.contentLength === 0) return undefined;
 
   // Content-Encoding 감지
-  const contentEncoding = req.headers.get('content-encoding');
+  const contentEncoding = req.headers.get(HttpHeader.ContentEncoding);
   if (contentEncoding !== null && contentEncoding.toLowerCase() !== 'identity') {
     // RFC 9110 §15.5.16
     http.response.setHeader(HttpHeader.AcceptEncoding, 'identity');
@@ -44,9 +44,9 @@ export async function parseBody(
   }
 
   const mediaType = req.contentType?.mediaType ?? '';
-  const isJson = mediaType === 'application/json' || mediaType.endsWith('+json');
+  const isJson = mediaType === ContentType.Json || mediaType.endsWith('+json');
   const isTextLike = mediaType.startsWith('text/')
-    || mediaType === 'application/x-www-form-urlencoded'
+    || mediaType === ContentType.FormUrlEncoded
     || textMediaTypes.has(mediaType);
   const shouldBuffer = isJson || isTextLike;
   const rawBodyEnabled = http.matchedRoute?.rawBody === true;

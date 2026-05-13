@@ -323,7 +323,7 @@ export class HttpResponse {
 
     const merged = new Headers(this._rawNativeResponse.headers);
     for (const [key, value] of headerOverrides.entries()) {
-      if (key === 'set-cookie') {
+      if (key === HttpHeader.SetCookie) {
         merged.append(key, value);
       } else if (!merged.has(key)) {
         merged.set(key, value);

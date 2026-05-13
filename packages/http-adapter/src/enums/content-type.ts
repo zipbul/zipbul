@@ -7,4 +7,6 @@
 export enum ContentType {
   Text = 'text/plain',
   Json = 'application/json',
+  FormUrlEncoded = 'application/x-www-form-urlencoded',
+  EventStream = 'text/event-stream',
 }

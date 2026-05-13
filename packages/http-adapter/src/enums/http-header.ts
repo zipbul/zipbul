@@ -37,6 +37,8 @@ export enum HttpHeader {
   AcceptEncoding = 'accept-encoding',
   TransferEncoding = 'transfer-encoding',
   ETag = 'etag',
+  Connection = 'connection',
+  XAccelBuffering = 'x-accel-buffering',
 
   // ── Helmet: CSP family ──
   ContentSecurityPolicy = 'content-security-policy',

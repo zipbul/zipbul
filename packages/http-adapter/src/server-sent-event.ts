@@ -1,3 +1,4 @@
+import { TEXT_ENCODER } from './constants';
 import type { JsonValue } from './types';
 
 /**
@@ -31,8 +32,6 @@ export class ServerSentEvent {
     this.retry = options?.retry;
   }
 }
-
-const TEXT_ENCODER = new TextEncoder();
 
 /**
  * Formats an SSE chunk into a `Uint8Array` wire frame.

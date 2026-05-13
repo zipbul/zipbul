@@ -1,6 +1,6 @@
 import type { Class } from '@zipbul/common';
 
-import { HttpMethod } from './enums';
+import { HttpHeader, HttpMethod } from './enums';
 import type { ContentTypeInfo, HttpRequestData } from './interfaces';
 import type { RequestBodyValue, RequestParamMap } from './types';
 import { parseContentTypeInfo } from './content-type';
@@ -190,7 +190,7 @@ export class HttpRequest {
       return this._contentType;
     }
 
-    this._contentType = parseContentTypeInfo(this.headers.get('content-type'));
+    this._contentType = parseContentTypeInfo(this.headers.get(HttpHeader.ContentType));
 
     return this._contentType;
   }

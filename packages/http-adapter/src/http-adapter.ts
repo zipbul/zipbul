@@ -27,6 +27,7 @@ import { Get, Post, Put, Delete, Patch, Options, Head, Method } from './decorato
 import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
 import type { RouteHandler } from './route-handler';
 import type { ResolvedRoutePipeline } from './route-handler';
+import { DEFAULT_BODY_LIMIT_BYTES, DEFAULT_HTTP_PORT } from './constants';
 import { HttpHeader, HttpStatus, HttpAdapterPhase, HttpAdapterStep } from './enums';
 import { parseBody } from './body';
 import { writeErrorResponse, writeSuccessResponse } from './response-writer';
@@ -68,8 +69,8 @@ export class HttpAdapter extends Adapter {
     const normalizedOptions: HttpServerOptions = {
       name: 'zipbul-http',
       logLevel: 'debug',
-      port: 5000,
-      bodyLimit: 10 * 1024 * 1024,
+      port: DEFAULT_HTTP_PORT,
+      bodyLimit: DEFAULT_BODY_LIMIT_BYTES,
       trustProxy: false,
       ...options,
     };
