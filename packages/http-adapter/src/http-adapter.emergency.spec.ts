@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-import { HttpStatus } from './enums';
 
 import { HttpAdapter } from './http-adapter';
 import { HttpContext } from './http-context';
@@ -43,7 +42,7 @@ describe('emergencyTeardown (C5)', () => {
   it('skips rewriting if response already sent', async () => {
     const ctx = buildContext();
     const http = ctx.to(HttpContext);
-    http.response.setStatus(HttpStatus.Ok);
+    http.response.setStatus(200);
     http.response.setBody('done');
     http.response.end();
     const adapter = new TestAdapter();

@@ -396,13 +396,18 @@ describe('HttpAdapter', () => {
  * `host`, etc.) should seed the raw inputs instead; the getters resolve
  * naturally from them.
  */
-function createStubHttpRequest(overrides: Partial<HttpRequestData> = {}): HttpRequest {
+type StubHttpRequestInit = Omit<Partial<HttpRequestData>, 'method' | 'originalMethod'> & {
+  method?: string;
+  originalMethod?: string;
+};
+
+function createStubHttpRequest(overrides: StubHttpRequestInit = {}): HttpRequest {
   return createTestHttpRequest({
     originalUrl: 'http://localhost/test',
     url: 'http://localhost/test',
     path: '/test',
     ...overrides,
-  });
+  } as Partial<HttpRequestData>);
 }
 
 function createHttpContext(method: string, path: string, signal?: AbortSignal): HttpContext {
@@ -1979,14 +1984,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       const jsonBody = JSON.stringify({ name: 'test' });
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: jsonBody,
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2002,14 +2007,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should parse text body for POST request without JSON content-type', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'text/plain' },
         body: 'hello world',
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'text/plain' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2025,14 +2030,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should return Err with 400 status for invalid JSON', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{invalid json',
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2051,8 +2056,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const rawRequest = new Request('http://localhost/test');
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Get,
-        originalMethod: HttpMethod.Get,
+        method: 'GET',
+        originalMethod: 'GET',
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, rawRequest);
@@ -2068,8 +2073,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Head,
-        originalMethod: HttpMethod.Head,
+        method: 'HEAD',
+        originalMethod: 'HEAD',
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'HEAD' }));
@@ -2085,8 +2090,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Delete,
-        originalMethod: HttpMethod.Delete,
+        method: 'DELETE',
+        originalMethod: 'DELETE',
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'DELETE' }));
@@ -2102,8 +2107,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Options,
-        originalMethod: HttpMethod.Options,
+        method: 'OPTIONS',
+        originalMethod: 'OPTIONS',
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
       const http = new HttpContext(req, res, new Request('http://localhost/test', { method: 'OPTIONS' }));
@@ -2119,8 +2124,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2138,14 +2143,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should return 415 error when Content-Encoding is not identity', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' },
         body: JSON.stringify({ data: 'compressed' }),
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json', 'content-encoding': 'gzip' }),
         contentLength: 30,
       }) as InstanceType<typeof HttpRequest>;
@@ -2167,14 +2172,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should return 400 error when JSON body has non-UTF-8 charset', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json; charset=iso-8859-1' },
         body: JSON.stringify({ name: 'test' }),
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json; charset=iso-8859-1' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2192,14 +2197,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should accept JSON body with UTF-8 charset', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json; charset=utf-8' },
         body: JSON.stringify({ accepted: true }),
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2218,14 +2223,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const jsonBody = JSON.stringify({ id: 42 });
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Delete,
+        method: 'DELETE',
         headers: { 'content-type': 'application/json' },
         body: jsonBody,
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Delete,
-        originalMethod: HttpMethod.Delete,
+        method: 'DELETE',
+        originalMethod: 'DELETE',
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2243,13 +2248,13 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     it('should skip body parsing when Content-Length is 0', async () => {
       // Arrange
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json', 'content-length': '0' },
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json', 'content-length': '0' }),
         contentLength: 0,
       }) as InstanceType<typeof HttpRequest>;
@@ -2270,14 +2275,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const jsonPayload = JSON.stringify({ webhook: 'data' });
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: jsonPayload,
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2313,14 +2318,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const binaryData = new Uint8Array([0x00, 0x01, 0x02, 0x03]);
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/octet-stream' },
         body: binaryData,
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/octet-stream' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2339,14 +2344,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const jsonPayload = JSON.stringify({ type: 'articles', id: '1' });
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/vnd.api+json' },
         body: jsonPayload,
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/vnd.api+json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
@@ -2365,15 +2370,15 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json' }),
       }) as InstanceType<typeof HttpRequest>;
       const res = new HttpResponse(req, new Headers());
 
       // Create a Request whose body has already been consumed so rawReq.json() throws TypeError
       const consumedRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ data: 'valid' }),
       });
@@ -3801,14 +3806,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const smallBody = JSON.stringify({ data: 'x'.repeat(100) });
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json', 'content-length': smallBody.length.toString() },
         body: smallBody,
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json', 'content-length': smallBody.length.toString() }),
         contentLength: smallBody.length,
       }) as InstanceType<typeof HttpRequest>;
@@ -3843,14 +3848,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange — global bodyLimit is 1024, body is 500 bytes
       const bodyContent = JSON.stringify({ data: 'x'.repeat(450) });
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json', 'content-length': bodyContent.length.toString() },
         body: bodyContent,
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json', 'content-length': bodyContent.length.toString() }),
         contentLength: bodyContent.length,
       }) as InstanceType<typeof HttpRequest>;
@@ -3884,14 +3889,14 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const largeBody = JSON.stringify({ data: 'x'.repeat(200) });
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         headers: { 'content-type': 'application/json', 'content-length': largeBody.length.toString() },
         body: largeBody,
       });
 
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'application/json', 'content-length': largeBody.length.toString() }),
         contentLength: largeBody.length,
       }) as InstanceType<typeof HttpRequest>;
@@ -3953,13 +3958,13 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange — text/plain + rawBody + no CL → chunked readBodyWithLimit path
       const largeBody = 'A'.repeat(200); // 200 bytes > 100 limit
       const rawRequest = new Request('http://localhost/test', {
-        method: HttpMethod.Post,
+        method: 'POST',
         body: largeBody,
         headers: { 'content-type': 'text/plain' },
       });
       const req = createStubHttpRequest({
-        method: HttpMethod.Post,
-        originalMethod: HttpMethod.Post,
+        method: 'POST',
+        originalMethod: 'POST',
         headers: new Headers({ 'content-type': 'text/plain' }),
         contentLength: null, // forces chunked path
       }) as InstanceType<typeof HttpRequest>;

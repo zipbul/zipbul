@@ -1,5 +1,4 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { HttpMethod } from './enums';
 
 mock.module('@zipbul/logger', () => ({
   Logger: class {
@@ -18,6 +17,7 @@ mock.module('@zipbul/baker', () => ({
   isBakerError: () => false,
 }));
 
+import { HttpMethod } from './enums';
 import {
   evaluateTrustProxy,
   resolveClientIp,

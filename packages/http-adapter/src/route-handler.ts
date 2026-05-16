@@ -27,8 +27,6 @@ import { parseDecoratorOptions, buildResponseDefaultsApplier } from './route-opt
 import { addWithHeadAlias } from './pipeline/router-register';
 import { isForbiddenHttpMethod } from './utils';
 
-type HttpCompiledHandlerEntry = CompiledHandlerEntry;
-
 interface RouteHandlerDecoratorConfig {
   readonly adapterId: string;
   readonly controllerDecoratorName: string;
@@ -132,11 +130,13 @@ export class RouteHandler {
    * @public
    */
   registerFromHandlerIndex(
-    entries: readonly HttpCompiledHandlerEntry[],
+    entries: readonly CompiledHandlerEntry[],
     controllerInstances?: Map<string, unknown>,
     buildPipeline?: PipelineBuildFn,
   ): void {
     // Phase 1: 모든 entry 의 메서드를 검증한다 (원자성 — 한 entry 라도 거부되면 등록 0 건).
+    // 검증 통과한 entry 는 httpMethod 와 함께 typed 배열에 적재해 Phase 2 에서 재계산을 피한다.
+    const validatedEntries: Array<{ entry: CompiledHandlerEntry; httpMethod: string }> = [];
     for (const entry of entries) {
       if (entry.adapterId !== this.decoratorConfig.adapterId) continue;
 
@@ -166,18 +166,14 @@ export class RouteHandler {
         );
       }
 
+      validatedEntries.push({ entry, httpMethod });
     }
 
     // Phase 2: 검증 통과 후 실제 등록.
     let routeCount = 0;
 
-    for (const entry of entries) {
-      if (entry.adapterId !== this.decoratorConfig.adapterId) {
-        continue;
-      }
-
+    for (const { entry, httpMethod } of validatedEntries) {
       const isCustomMethod = entry.handlerDecorator === 'Method';
-      const httpMethod = extractHttpMethod(entry)!;
 
       const instance = controllerInstances?.get(entry.controllerKey);
 
@@ -309,10 +305,8 @@ export class RouteHandler {
       throw new Error(`[RouteHandler] Controller method not found: ${methodName}`);
     }
 
-    const handler = candidate;
-
     return (ctx: HttpContext): RouteHandlerResult | Promise<RouteHandlerResult> =>
-      handler.call(instance, ctx);
+      candidate.call(instance, ctx);
   }
 
   /**

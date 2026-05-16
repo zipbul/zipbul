@@ -1,6 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
 import type { MatchRouteResult } from './interfaces';
-import { HttpMethod } from './enums';
 
 mock.module('@zipbul/logger', () => ({
   Logger: class {
@@ -245,7 +244,7 @@ describe('RouteHandler', () => {
 
       // Act — registerInternalRoutes with a GET route
       handler.registerInternalRoutes([{
-        method: HttpMethod.Get,
+        method: 'GET',
         path: '/docs',
         handler: () => '<html>docs</html>',
       }]);

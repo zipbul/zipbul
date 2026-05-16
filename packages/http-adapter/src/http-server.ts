@@ -9,7 +9,6 @@ import type {
   HttpServerBootOptions,
   HttpServerOptions,
   ClassMetadata,
-  MatchedRouteMetadata,
   RequestIdOptions,
 } from './interfaces';
 import type { MetadataRegistryKey } from './types';
@@ -68,10 +67,6 @@ function parseContentLength(headers: Headers): number | null | 'invalid' {
   return parsed < 0 ? 'invalid' : parsed;
 }
 
-function resolveRawBody(matchedRoute: MatchedRouteMetadata | undefined): boolean {
-  return matchedRoute?.rawBody === true;
-}
-
 // ── createHttpRequest factory ─────────────────────────────────
 
 function createHttpRequest(
@@ -92,6 +87,7 @@ function createHttpRequest(
   }
 
   const contentLength = parseContentLength(raw.headers);
+  const isInvalidCL = contentLength === 'invalid';
   const rawProtocol = parsedTarget.protocol;
   const urlProtocol = rawProtocol !== null && rawProtocol.length > 0 ? rawProtocol : null;
   const urlHost = parsedTarget.authority;
@@ -118,14 +114,14 @@ function createHttpRequest(
         }
         : {}),
     },
-    contentLength: contentLength === 'invalid' ? null : contentLength,
+    contentLength: isInvalidCL ? null : contentLength,
     ip: normalizeIp(proxyInfo !== null ? (proxyInfo.clientIp ?? socketIp) : socketIp),
     ips: proxyInfo !== null ? proxyInfo.ipChain : [],
     isTrustedProxy,
     signal: raw.signal,
   });
 
-  if (contentLength === 'invalid') {
+  if (isInvalidCL) {
     return { kind: 'bad-request', reason: 'invalid-content-length', request };
   }
 
@@ -340,6 +336,5 @@ export class HttpServer {
 
 export const __internals = {
   parseContentLength,
-  resolveRawBody,
   createHttpRequest,
 };

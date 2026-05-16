@@ -1,12 +1,16 @@
-import type { AdapterContext, ApplicationContext, AdapterEntryDecorators, CompiledHandlerEntry } from '@zipbul/common';
-import type { MiddlewareDefinition } from '@zipbul/common';
+import type {
+  AdapterContext,
+  ApplicationContext,
+  AdapterEntryDecorators,
+  CompiledHandlerEntry,
+  MiddlewareDefinition,
+} from '@zipbul/common';
 import { err, isErr } from '@zipbul/result';
 import type { Result, Err } from '@zipbul/result';
-import { Adapter, handlerResultKey } from '@zipbul/core';
+import { Adapter, handlerResultKey, getBootstrapState } from '@zipbul/core';
 import type { ResolvedMiddleware, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
 import { Logger } from '@zipbul/logger';
 
-import { getBootstrapState } from '@zipbul/core';
 import type {
   HttpServerBootOptions,
   HttpServerOptions,
@@ -25,8 +29,7 @@ import { isBakerError } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head, Method } from './decorators/method.decorator';
 import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
-import type { RouteHandler } from './route-handler';
-import type { ResolvedRoutePipeline } from './route-handler';
+import type { RouteHandler, ResolvedRoutePipeline } from './route-handler';
 import { DEFAULT_BODY_LIMIT_BYTES, DEFAULT_HTTP_PORT } from './constants';
 import { HttpHeader, HttpStatus, HttpAdapterPhase, HttpAdapterStep } from './enums';
 import { parseBody } from './body';
@@ -330,14 +333,18 @@ export class HttpAdapter extends Adapter {
 
 
   /**
-   * Wraps baker validation errors as HTTP 400 with field-level details.
-   * Non-baker errors are re-thrown to enter the exception filter path.
-   *
-   * @param _entry - The validation entry that failed.
-   * @param errors - The `BakerErrors` returned by baker `deserialize()`.
-   * @returns `Err` with structured 400 response for baker errors.
-   * @public
+   * Shared generic 500 error used by HTTP protocol-translation overrides
+   * (`wrapUnhandledException`, `wrapInvalidFilterResult`). Returns the
+   * minimal {@link ErrorResponseData} shape that the `WriteResponse` step
+   * can render without any runtime inspection.
    */
+  private genericServerError(): Err<unknown> {
+    return err({
+      status: HttpStatus.InternalServerError,
+      message: 'Internal Server Error',
+    } satisfies ErrorResponseData);
+  }
+
   /**
    * HTTP protocol translation for unhandled throws.
    *
@@ -348,10 +355,7 @@ export class HttpAdapter extends Adapter {
    * response without any runtime shape inspection.
    */
   protected override wrapUnhandledException(_error: unknown): Err<unknown> {
-    return err({
-      status: HttpStatus.InternalServerError,
-      message: 'Internal Server Error',
-    } satisfies ErrorResponseData);
+    return this.genericServerError();
   }
 
   /**
@@ -360,12 +364,18 @@ export class HttpAdapter extends Adapter {
    * {@link wrapUnhandledException} — generic 500.
    */
   protected override wrapInvalidFilterResult(_error: unknown, _filterResult: unknown): Err<unknown> {
-    return err({
-      status: HttpStatus.InternalServerError,
-      message: 'Internal Server Error',
-    } satisfies ErrorResponseData);
+    return this.genericServerError();
   }
 
+  /**
+   * Wraps baker validation errors as HTTP 400 with field-level details.
+   * Non-baker errors are re-thrown to enter the exception filter path.
+   *
+   * @param _entry - The validation entry that failed.
+   * @param errors - The `BakerErrors` returned by baker `deserialize()`.
+   * @returns `Err` with structured 400 response for baker errors.
+   * @public
+   */
   protected override wrapValidationError(_entry: ResolvedValidationEntry, errors: unknown): Err<unknown> {
     if (isBakerError(errors)) {
       return err({

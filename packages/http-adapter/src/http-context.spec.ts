@@ -4,14 +4,13 @@ import { contextKey, type ZipbulContainer } from '@zipbul/common';
 import { HttpContext } from './http-context';
 import type { HttpRequest } from './http-request';
 import type { HttpResponse } from './http-response';
-import { HttpMethod } from './enums';
 
 function createStubRequest(): HttpRequest {
   return {
     requestId: 'stub-request-id',
     originalMethod: 'GET',
     originalUrl: 'http://localhost/test',
-    method: HttpMethod.Get,
+    method: 'GET',
     url: 'http://localhost/test',
     path: '/test',
     headers: new Headers(),

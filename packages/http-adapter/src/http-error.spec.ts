@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { HttpStatus } from './enums';
 import { isErr } from '@zipbul/result';
 
 import { httpError } from './http-error';
 
 describe('httpError', () => {
   it('defaults message to RFC reason phrase', () => {
-    const result = httpError(HttpStatus.NotFound);
+    const result = httpError(404);
     expect(isErr(result)).toBe(true);
     if (!isErr(result)) return;
     expect(result.data.status).toBe(404);
@@ -15,38 +14,38 @@ describe('httpError', () => {
   });
 
   it('uses RFC 9110 phrase override for 413', () => {
-    const result = httpError(HttpStatus.ContentTooLarge);
+    const result = httpError(413);
     if (!isErr(result)) throw new Error('expected err');
     expect(result.data.status).toBe(413);
     expect(result.data.message).toBe('Content Too Large');
   });
 
   it('uses RFC 9110 phrase override for 414', () => {
-    const result = httpError(HttpStatus.UriTooLong);
+    const result = httpError(414);
     if (!isErr(result)) throw new Error('expected err');
     expect(result.data.message).toBe('URI Too Long');
   });
 
   it('uses RFC 9110 phrase override for 416', () => {
-    const result = httpError(HttpStatus.RangeNotSatisfiable);
+    const result = httpError(416);
     if (!isErr(result)) throw new Error('expected err');
     expect(result.data.message).toBe('Range Not Satisfiable');
   });
 
   it('uses RFC 9110 phrase override for 422', () => {
-    const result = httpError(HttpStatus.UnprocessableContent);
+    const result = httpError(422);
     if (!isErr(result)) throw new Error('expected err');
     expect(result.data.message).toBe('Unprocessable Content');
   });
 
   it('accepts a custom message overriding defaults', () => {
-    const result = httpError(HttpStatus.BadRequest, 'Empty body');
+    const result = httpError(400, 'Empty body');
     if (!isErr(result)) throw new Error('expected err');
     expect(result.data.message).toBe('Empty body');
   });
 
   it('attaches errors array when provided', () => {
-    const result = httpError(HttpStatus.UnprocessableContent, 'Validation failed', [
+    const result = httpError(422, 'Validation failed', [
       { field: 'email', code: 'invalid' },
     ]);
     if (!isErr(result)) throw new Error('expected err');
@@ -54,13 +53,13 @@ describe('httpError', () => {
   });
 
   it('omits errors property when undefined (exactOptionalPropertyTypes)', () => {
-    const result = httpError(HttpStatus.BadRequest);
+    const result = httpError(400);
     if (!isErr(result)) throw new Error('expected err');
     expect('errors' in result.data).toBe(false);
   });
 
   it('falls back to http-status-codes phrase for non-override statuses', () => {
-    const result = httpError(HttpStatus.Forbidden);
+    const result = httpError(403);
     if (!isErr(result)) throw new Error('expected err');
     expect(result.data.message).toBe('Forbidden');
   });

@@ -478,10 +478,12 @@ export class HttpResponse {
   }
 
   private inferContentType(): string {
+    if (this._body instanceof Uint8Array || this._body instanceof ArrayBuffer) {
+      return 'application/octet-stream';
+    }
     if (
       this._body !== null &&
       (typeof this._body === 'object' ||
-        Array.isArray(this._body) ||
         typeof this._body === 'number' ||
         typeof this._body === 'boolean')
     ) {

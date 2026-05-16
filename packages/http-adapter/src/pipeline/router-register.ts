@@ -20,6 +20,6 @@ export function addWithHeadAlias(args: {
   if (method === 'GET') {
     router.add('HEAD', path, entry);
     registeredMethods.add('HEAD');
-    logger.debug(`HEAD ${path} (auto from GET)${sourceLabel ? ` ${sourceLabel}` : ''}`);
+    logger.debug(`HEAD ${path} (auto from GET)${sourceLabel}`);
   }
 }

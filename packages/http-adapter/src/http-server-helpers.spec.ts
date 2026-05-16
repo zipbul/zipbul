@@ -1,5 +1,4 @@
 import { describe, it, expect, mock, spyOn } from 'bun:test';
-import { HttpMethod } from './enums';
 
 mock.module('@zipbul/logger', () => ({
   Logger: class {
@@ -19,6 +18,7 @@ mock.module('@zipbul/baker', () => ({
 }));
 
 // Direct imports from source modules
+import { HttpMethod } from './enums';
 import { parseContentTypeInfo, parseParameters } from './content-type';
 import { resolveRequestId, validateRequestId } from './request-id';
 import { extractHostname, extractPort, defaultPortByProtocol } from './url-parts';
@@ -30,7 +30,6 @@ const { __internals } = await import('./http-server');
 
 const {
   parseContentLength,
-  resolveRawBody,
   createHttpRequest,
 } = __internals;
 
@@ -620,30 +619,6 @@ describe('parseJsonBody', () => {
     const result = parseJsonBody(42);
 
     expect(result).toBe(42);
-  });
-});
-
-describe('resolveRawBody', () => {
-  it('should return false when route is undefined', () => {
-    const result = resolveRawBody(undefined);
-
-    expect(result).toBe(false);
-  });
-
-  it('should return false when route has rawBody false', () => {
-    const route = { rawBody: false } as { rawBody: boolean };
-
-    const result = resolveRawBody(route as never);
-
-    expect(result).toBe(false);
-  });
-
-  it('should return true when route has rawBody true', () => {
-    const route = { rawBody: true } as { rawBody: boolean };
-
-    const result = resolveRawBody(route as never);
-
-    expect(result).toBe(true);
   });
 });
 
