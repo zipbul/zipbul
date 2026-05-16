@@ -32,7 +32,6 @@ module.exports = {
         'tck',
         'examples',
         'benchmark',
-        'example-stamp-middleware',
         'repo',
         'config',
         'ci',

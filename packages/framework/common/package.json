@@ -1,0 +1,58 @@
+{
+  "name": "@zipbul/common",
+  "version": "0.3.0",
+  "description": "Shared types, interfaces, decorators and base classes for Zipbul",
+  "license": "MIT",
+  "type": "module",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "test": "bun test",
+    "coverage": "bun test --coverage"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zipbul/zipbul",
+    "directory": "packages/framework/common"
+  },
+  "dependencies": {
+    "@zipbul/result": "workspace:*"
+  },
+  "devDependencies": {
+    "@zipbul/core": "workspace:*",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  },
+  "sideEffects": false,
+  "author": "Junhyung Park (https://github.com/parkrevil)",
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "bugs": {
+    "url": "https://github.com/zipbul/zipbul/issues"
+  },
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/common#readme",
+  "keywords": [
+    "common",
+    "decorators",
+    "interfaces",
+    "types",
+    "framework",
+    "bun",
+    "typescript",
+    "zipbul"
+  ]
+}

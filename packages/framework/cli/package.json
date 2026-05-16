@@ -1,0 +1,55 @@
+{
+  "name": "@zipbul/cli",
+  "version": "0.1.1",
+  "description": "AOT compiler CLI with dev watch and build commands for Zipbul",
+  "license": "MIT",
+  "author": "Junhyung Park (https://github.com/parkrevil)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zipbul/zipbul",
+    "directory": "packages/framework/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/zipbul/zipbul/issues"
+  },
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/cli#readme",
+  "keywords": [
+    "zipbul",
+    "cli",
+    "aot",
+    "compiler",
+    "bun",
+    "dev",
+    "build",
+    "watch",
+    "typescript"
+  ],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "type": "module",
+  "bin": {
+    "zb": "dist/zb.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "bun build ./src/bin/zb.ts --outdir dist --target bun --format esm --packages external --production --banner='#!/usr/bin/env bun'",
+    "test": "bun test",
+    "coverage": "bun test --coverage"
+  },
+  "dependencies": {
+    "@zipbul/common": "workspace:*",
+    "@zipbul/gildash": "catalog:",
+    "@zipbul/logger": "workspace:*",
+    "@zipbul/result": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}

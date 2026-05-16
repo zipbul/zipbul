@@ -1,7 +1,6 @@
 import { createApplication } from '@zipbul/core';
 import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
-import { stampMiddleware } from '@zipbul/example-stamp-middleware';
 
 import { requestTimingMiddleware } from './middleware/request-timing.middleware';
 import { appModule } from './module';
@@ -14,7 +13,7 @@ const logger = new Logger('App');
 const app = createApplication(appModule);
 
 const httpAdapter = app.attach(HttpAdapter, { port: 5000 });
-httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [requestTimingMiddleware(), stampMiddleware]);
+httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [requestTimingMiddleware()]);
 
 // Inline custom adapter — defined inside `src/tick/`, compiled by `zb build`
 // alongside the external HttpAdapter. Real periodic transport: a setInterval

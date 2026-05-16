@@ -1,0 +1,52 @@
+{
+  "name": "@zipbul/result",
+  "version": "1.0.0",
+  "description": "Lightweight Result type for error handling without exceptions",
+  "license": "MIT",
+  "author": "Junhyung Park (https://github.com/parkrevil)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zipbul/zipbul",
+    "directory": "packages/libs/result"
+  },
+  "bugs": {
+    "url": "https://github.com/zipbul/zipbul/issues"
+  },
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/result#readme",
+  "keywords": [
+    "result",
+    "result-type",
+    "error-handling",
+    "error",
+    "either",
+    "functional",
+    "no-exceptions",
+    "bun",
+    "typescript",
+    "zipbul"
+  ],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "type": "module",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "bun build index.ts --outdir dist --target bun --format esm --production && tsc -p tsconfig.build.json",
+    "test": "bun test",
+    "coverage": "bun test --coverage"
+  },
+  "sideEffects": false
+}
