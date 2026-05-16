@@ -37,7 +37,7 @@ describe('soak smoke', () => {
       thrower: () => httpError(500, 'boom'),
       big: (c: any) => { c.response.setHeader('content-type', 'application/octet-stream'); return new Uint8Array(256*1024); },
     };
-    const controllerInstances = new Map<string, unknown>([['SoakController', inst]]);
+    const controllerFactories = new Map<string, () => unknown>([['SoakController', () => inst]]);
     const defs = [
       ['Get','ping','ping'], ['Post','echo','echo'], ['Get','stream','stream'],
       ['Get','sse','sse'], ['Get','throw','thrower'], ['Get','bigbody','big'],
@@ -58,7 +58,7 @@ describe('soak smoke', () => {
     const container = { get: () => undefined, set: () => {}, has: () => false, getInstances: function*(){}, keys: function*(){} } as unknown as ZipbulContainer;
     adapter.initializePipeline(container);
     const server = new HttpServer();
-    await server.boot(container, { port: PORT, bodyLimit: 1024*1024, metadata: metadata as never, handlerIndex, controllerInstances } as never, adapter as never);
+    await server.boot(container, { port: PORT, bodyLimit: 1024*1024, metadata: metadata as never, handlerIndex, controllerFactories } as never, adapter as never);
 
     const r1 = await fetch(`${BASE}/ping`); expect(r1.status).toBe(200); expect(await r1.json()).toEqual({ ok: 1 });
     const r2 = await fetch(`${BASE}/echo`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"a":1}' }); expect(r2.status).toBe(200); expect(await r2.json()).toEqual({ a: 1 });

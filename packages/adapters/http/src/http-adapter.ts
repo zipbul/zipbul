@@ -525,7 +525,7 @@ export class HttpAdapter extends Adapter {
       ...(scopedKeys !== undefined ? { scopedKeys } : {}),
       internalRoutes: this.internalRoutes,
       ...(bootstrapState.handlerIndex !== undefined ? { handlerIndex: bootstrapState.handlerIndex } : {}),
-      ...(bootstrapState.controllerInstances !== undefined ? { controllerInstances: bootstrapState.controllerInstances } : {}),
+      ...(bootstrapState.controllerFactories !== undefined ? { controllerFactories: bootstrapState.controllerFactories } : {}),
     };
   }
 

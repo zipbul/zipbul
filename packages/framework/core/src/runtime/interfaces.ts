@@ -22,7 +22,17 @@ export interface BootstrapState {
   isAotRuntime?: boolean;
   adapterConfig?: Record<string, AdapterMiddlewareConfig>;
   handlerIndex?: readonly CompiledHandlerEntry[];
-  controllerInstances?: Map<string, unknown>;
+  /**
+   * Lazy controller factories produced by the AOT runtime. Each entry maps
+   * a scoped controller key (e.g. `'users::UsersController'`) to a thunk
+   * that constructs the controller on first call, resolving its deps from
+   * the bootstrap container at materialization time.
+   *
+   * Lazy resolution lets `@zipbul/testing` apply `container.replace(...)`
+   * (or per-request overrides) BEFORE controllers are constructed so the
+   * override actually reaches their constructor injections.
+   */
+  controllerFactories?: ReadonlyMap<string, () => unknown>;
   /** Worker ID assigned by ClusterManager. Present only in worker processes. */
   workerId?: number;
   /** Adapter class names this worker should start. Present only in worker processes. */

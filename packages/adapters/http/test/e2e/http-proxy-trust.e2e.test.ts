@@ -30,7 +30,7 @@ function emptyContainer(): ZipbulContainer {
   };
 }
 
-function buildIndex(): { handlerIndex: readonly CompiledHandlerEntry[]; controllerInstances: Map<string, unknown>; metadata: Map<new (...args: readonly unknown[]) => unknown, { readonly className: string; readonly decorators: readonly { readonly name: string; readonly arguments?: readonly unknown[] }[] }> } {
+function buildIndex(): { handlerIndex: readonly CompiledHandlerEntry[]; controllerFactories: Map<string, () => unknown>; metadata: Map<new (...args: readonly unknown[]) => unknown, { readonly className: string; readonly decorators: readonly { readonly name: string; readonly arguments?: readonly unknown[] }[] }> } {
   class TestController { [key: string]: unknown }
   const handler = (ctx: InstanceType<typeof HttpContext>) => ({
     ip: ctx.request.ip,
@@ -42,7 +42,7 @@ function buildIndex(): { handlerIndex: readonly CompiledHandlerEntry[]; controll
     isTrustedProxy: ctx.request.isTrustedProxy,
   });
   const controllerInstance: Record<string, unknown> = { probe: handler };
-  const controllerInstances = new Map<string, unknown>([['TestController', controllerInstance]]);
+  const controllerFactories = new Map<string, () => unknown>([['TestController', () => controllerInstance]]);
   const handlerIndex: CompiledHandlerEntry[] = [{
     id: 'HttpAdapter:TestController.probe',
     adapterId: 'HttpAdapter',
@@ -56,7 +56,7 @@ function buildIndex(): { handlerIndex: readonly CompiledHandlerEntry[]; controll
   }];
   const metadata = new Map<new (...args: readonly unknown[]) => unknown, { readonly className: string; readonly decorators: readonly { readonly name: string; readonly arguments?: readonly unknown[] }[] }>();
   metadata.set(TestController, { className: 'TestController', decorators: [{ name: 'RestController', arguments: [] }] });
-  return { handlerIndex, controllerInstances, metadata };
+  return { handlerIndex, controllerFactories, metadata };
 }
 
 async function bootWith(trustProxy: unknown): Promise<{ server: Server; adapter: Adapter; port: number }> {
@@ -71,7 +71,7 @@ async function bootWith(trustProxy: unknown): Promise<{ server: Server; adapter:
     trustProxy: trustProxy as never,
     metadata: idx.metadata as never,
     handlerIndex: idx.handlerIndex,
-    controllerInstances: idx.controllerInstances,
+    controllerFactories: idx.controllerFactories,
   }, adapter as never);
   return { server, adapter, port };
 }

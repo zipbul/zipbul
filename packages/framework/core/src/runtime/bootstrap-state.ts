@@ -41,10 +41,10 @@ export function registerBootstrapState(context: BootstrapState): void {
     nextContext.handlerIndex = currentContext.handlerIndex;
   }
 
-  if (context.controllerInstances !== undefined) {
-    nextContext.controllerInstances = context.controllerInstances;
-  } else if (currentContext.controllerInstances !== undefined) {
-    nextContext.controllerInstances = currentContext.controllerInstances;
+  if (context.controllerFactories !== undefined) {
+    nextContext.controllerFactories = context.controllerFactories;
+  } else if (currentContext.controllerFactories !== undefined) {
+    nextContext.controllerFactories = currentContext.controllerFactories;
   }
 
   if (context.workerId !== undefined) {

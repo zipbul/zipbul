@@ -124,14 +124,18 @@ export class RouteHandler {
   /**
    * Registers routes from AOT-compiled handler index.
    *
+   * Controllers are constructed lazily on first match per `controllerKey`
+   * and cached. Lazy resolution lets `@zipbul/testing` apply container
+   * overrides BEFORE the controller's constructor injections fire.
+   *
    * @param entries - Compiled handler entries from AOT.
-   * @param controllerInstances - Map of controller keys to instantiated controllers.
+   * @param controllerFactories - Lazy thunks keyed by `controllerKey`.
    * @param buildPipeline - Adapter-provided callback to resolve compiled pipeline data.
    * @public
    */
   registerFromHandlerIndex(
     entries: readonly CompiledHandlerEntry[],
-    controllerInstances?: Map<string, unknown>,
+    controllerFactories?: ReadonlyMap<string, () => unknown>,
     buildPipeline?: PipelineBuildFn,
   ): void {
     // Phase 1: 모든 entry 의 메서드를 검증한다 (원자성 — 한 entry 라도 거부되면 등록 0 건).
@@ -170,24 +174,37 @@ export class RouteHandler {
     }
 
     // Phase 2: 검증 통과 후 실제 등록.
+    // controller 인스턴스화는 첫 매칭 시점까지 지연. 같은 controllerKey 가
+    // 여러 라우트에 걸쳐 등장해도 단일 인스턴스를 공유한다.
     let routeCount = 0;
+    const controllerCache = new Map<string, ControllerInstance>();
+    const resolveController = (key: string): ControllerInstance | undefined => {
+      const cached = controllerCache.get(key);
+      if (cached !== undefined) return cached;
+      const factory = controllerFactories?.get(key);
+      if (factory === undefined) return undefined;
+      const instance = factory();
+      if (!this.isControllerInstance(instance)) return undefined;
+      controllerCache.set(key, instance);
+      return instance;
+    };
 
     for (const { entry, httpMethod } of validatedEntries) {
       const isCustomMethod = entry.handlerDecorator === 'Method';
 
-      const instance = controllerInstances?.get(entry.controllerKey);
+      // Bind the lazy factory into the route handler closure: the controller
+      // is constructed on the FIRST request that matches this route, not at
+      // registration time. This is the load-bearing line for testing
+      // overrides applied after AOT runtime import but before first dispatch.
+      const lazyResolve = (): ControllerInstance => {
+        const inst = resolveController(entry.controllerKey);
+        if (inst === undefined) {
+          throw new Error(`[RouteHandler] Cannot resolve controller: ${entry.controllerKey}`);
+        }
+        return inst;
+      };
 
-      if (instance === undefined || instance === null) {
-        this.logger.warn(`Cannot resolve controller: ${entry.controllerKey}`);
-        continue;
-      }
-
-      if (!this.isControllerInstance(instance)) {
-        this.logger.warn(`Invalid controller instance: ${entry.controllerKey}`);
-        continue;
-      }
-
-      const handler = this.resolveHandler(instance, entry.methodName);
+      const handler = this.resolveHandlerLazy(lazyResolve, entry.methodName);
       const validations = this.resolveValidations(entry);
 
       const pathArgIndex = isCustomMethod ? 1 : 0;
@@ -298,15 +315,23 @@ export class RouteHandler {
     return methods;
   }
 
-  private resolveHandler(instance: ControllerInstance, methodName: string): RouteHandlerFunction {
-    const candidate = instance[methodName];
-
-    if (typeof candidate !== 'function') {
-      throw new Error(`[RouteHandler] Controller method not found: ${methodName}`);
-    }
-
-    return (ctx: HttpContext): RouteHandlerResult | Promise<RouteHandlerResult> =>
-      candidate.call(instance, ctx);
+  /**
+   * Wraps a lazy controller resolver into a per-request handler closure.
+   * The controller is constructed on the first request that matches; the
+   * method lookup happens on the resolved instance (post-override).
+   */
+  private resolveHandlerLazy(
+    resolveInstance: () => ControllerInstance,
+    methodName: string,
+  ): RouteHandlerFunction {
+    return (ctx: HttpContext): RouteHandlerResult | Promise<RouteHandlerResult> => {
+      const instance = resolveInstance();
+      const candidate = instance[methodName];
+      if (typeof candidate !== 'function') {
+        throw new Error(`[RouteHandler] Controller method not found: ${methodName}`);
+      }
+      return candidate.call(instance, ctx);
+    };
   }
 
   /**

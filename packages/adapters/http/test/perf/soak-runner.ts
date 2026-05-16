@@ -54,7 +54,7 @@ const controllerInstance: Record<string, unknown> = {
   thrower: () => httpError(500, 'boom'),
   big: (c: any) => { c.response.setHeader('content-type', 'application/octet-stream'); return BIGBODY; },
 };
-const controllerInstances = new Map<string, unknown>([['SoakController', controllerInstance]]);
+const controllerFactories = new Map<string, () => unknown>([['SoakController', () => controllerInstance]]);
 
 type Def = readonly [string, string, string, ReadonlyArray<{name:string,arguments?:readonly unknown[]}>?];
 const defs: Def[] = [
@@ -85,7 +85,7 @@ const adapter = new HttpAdapter({ port: PORT, bodyLimit: 1024 * 1024 });
 const container = { get: () => undefined, set: () => {}, has: () => false, getInstances: function*(){}, keys: function*(){} } as unknown as ZipbulContainer;
 adapter.initializePipeline(container);
 const server = new HttpServer();
-await server.boot(container, { port: PORT, bodyLimit: 1024*1024, metadata: metadata as never, handlerIndex, controllerInstances } as never, adapter as never);
+await server.boot(container, { port: PORT, bodyLimit: 1024*1024, metadata: metadata as never, handlerIndex, controllerFactories } as never, adapter as never);
 
 // Verify
 {

@@ -58,7 +58,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -69,7 +69,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/test');
@@ -83,7 +83,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
       const stubPre = mock();
       const stubPost = mock();
       const stubFilter = { handler: mock(), catchTypes: [] };
@@ -102,7 +102,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-      } as never], controllerInstances, buildPipeline as never);
+      } as never], controllerFactories, buildPipeline as never);
 
       // Assert
       const match = handler.matchRoute('GET', '/test');
@@ -116,7 +116,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -127,7 +127,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert — HEAD route should match the same path as GET
       const headMatch = handler.matchRoute('HEAD', '/test');
@@ -139,7 +139,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -150,7 +150,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert — HEAD route entry should be the same object as GET route entry
       const getMatch = handler.matchRoute('GET', '/test');
@@ -164,7 +164,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { doPost: () => 'created', doPut: () => 'updated', doDelete: () => 'deleted' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([
@@ -195,7 +195,7 @@ describe('RouteHandler', () => {
           handlerDecoratorArgs: ['items'],
           params: [],
         },
-      ] as never[], controllerInstances);
+      ] as never[], controllerFactories);
 
       // Assert — HEAD should not be in the matched routes (only POST, PUT, DELETE are registered)
       const headMatch = handler.matchRoute('HEAD', '/items');
@@ -211,7 +211,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -222,7 +222,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert — HEAD should appear in method-not-allowed allowedMethods for a different path
       // We verify HEAD is registered by checking that matchRoute recognizes HEAD on /test
@@ -259,7 +259,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -271,7 +271,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['rawtest'],
         params: [],
         options: [{ name: 'RawBody', arguments: [] }],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('POST', '/rawtest');
@@ -283,7 +283,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -294,7 +294,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Post',
         handlerDecoratorArgs: ['noopt'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('POST', '/noopt');
@@ -306,7 +306,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -318,7 +318,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['other'],
         params: [],
         options: [{ name: 'SomeOther', arguments: [] }],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('POST', '/other');
@@ -330,7 +330,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -345,7 +345,7 @@ describe('RouteHandler', () => {
           { name: 'SomeOther', arguments: ['val'] },
           { name: 'RawBody', arguments: [] },
         ],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('POST', '/multi');
@@ -359,7 +359,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -371,7 +371,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['sse-test'],
         params: [],
         options: [{ name: 'Sse' }],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/sse-test');
@@ -383,7 +383,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -395,7 +395,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['no-sse'],
         params: [],
         options: [{ name: 'SomeOther', arguments: [] }],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/no-sse');
@@ -409,7 +409,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -421,7 +421,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['body-limit'],
         params: [],
         options: [{ name: 'BodyLimit', arguments: [5242880] }],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('POST', '/body-limit');
@@ -433,7 +433,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -444,7 +444,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Post',
         handlerDecoratorArgs: ['no-body-limit'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('POST', '/no-body-limit');
@@ -458,7 +458,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -470,7 +470,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['status-test'],
         params: [],
         options: [{ name: 'Status', arguments: [201] }],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('POST', '/status-test');
@@ -482,7 +482,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -493,7 +493,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Post',
         handlerDecoratorArgs: ['no-status'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('POST', '/no-status');
@@ -507,7 +507,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -519,7 +519,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['redirect-test'],
         params: [],
         options: [{ name: 'Redirect', arguments: ['/target'] }],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/redirect-test');
@@ -531,7 +531,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -543,7 +543,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['redirect-status'],
         params: [],
         options: [{ name: 'Redirect', arguments: ['/target', 301] }],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/redirect-status');
@@ -555,7 +555,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -566,7 +566,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['no-redirect'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/no-redirect');
@@ -580,7 +580,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -592,7 +592,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['content-type-test'],
         params: [],
         options: [{ name: 'ContentType', arguments: ['text/csv'] }],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/content-type-test');
@@ -604,7 +604,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -615,7 +615,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['no-content-type'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/no-content-type');
@@ -629,7 +629,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -641,7 +641,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['header-test'],
         params: [],
         options: [{ name: 'Header', arguments: ['X-Custom', 'value'] }],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/header-test');
@@ -653,7 +653,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -668,7 +668,7 @@ describe('RouteHandler', () => {
           { name: 'Header', arguments: ['X-First', 'one'] },
           { name: 'Header', arguments: ['X-Second', 'two'] },
         ],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/multi-header');
@@ -683,7 +683,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -694,7 +694,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['no-header'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/no-header');
@@ -708,7 +708,7 @@ describe('RouteHandler', () => {
       // Arrange
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['Ctrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['Ctrl', () => instance]]);
 
       // Act
       handler.registerFromHandlerIndex([{
@@ -726,7 +726,7 @@ describe('RouteHandler', () => {
           { name: 'Header', arguments: ['X-Powered-By', 'Zipbul'] },
           { name: 'Header', arguments: ['X-Request-Id', 'abc'] },
         ],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert
       const match = handler.matchRoute('GET', '/combined');
@@ -745,7 +745,7 @@ describe('RouteHandler', () => {
       // Arrange — simulates CompiledHandlerEntry from compiler that omits optional fields
       const handler = createRouteHandler();
       const instance = { doSomething: () => 'result' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       // Act — entry without pipeline key fields (undefined, not empty arrays)
       handler.registerFromHandlerIndex([{
@@ -756,7 +756,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-      } as never], controllerInstances);
+      } as never], controllerFactories);
 
       // Assert — should register route with empty pipeline arrays, no crash
       const match = handler.matchRoute('GET', '/test');
@@ -780,7 +780,7 @@ describe('RouteHandler', () => {
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
       );
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       let capturedValidations: readonly unknown[] = [];
       const buildPipeline = mock((_entry: unknown, validations: readonly unknown[]) => {
@@ -797,7 +797,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['test'],
         params: [],
         validations: [{ accessor: ['request', 'getBody'], metatypeKey: 'UserDto' }],
-      } as never], controllerInstances, buildPipeline as never);
+      } as never], controllerFactories, buildPipeline as never);
 
       expect(capturedValidations).toHaveLength(1);
 
@@ -819,7 +819,7 @@ describe('RouteHandler', () => {
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
       );
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       let capturedValidations: readonly unknown[] = [];
       const buildPipeline = mock((_entry: unknown, validations: readonly unknown[]) => {
@@ -836,7 +836,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['test'],
         params: [],
         validations: [{ accessor: ['request', 'getParams'], metatypeKey: 'ParamsDto' }],
-      } as never], controllerInstances, buildPipeline as never);
+      } as never], controllerFactories, buildPipeline as never);
 
       expect(capturedValidations).toHaveLength(1);
 
@@ -856,7 +856,7 @@ describe('RouteHandler', () => {
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
       );
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       let capturedValidations: readonly unknown[] = [];
       const buildPipeline = mock((_entry: unknown, validations: readonly unknown[]) => {
@@ -873,7 +873,7 @@ describe('RouteHandler', () => {
         handlerDecoratorArgs: ['test'],
         params: [],
         validations: [{ accessor: ['request', 'unknownAccessor'], metatypeKey: 'SomeDto' }],
-      } as never], controllerInstances, buildPipeline as never);
+      } as never], controllerFactories, buildPipeline as never);
 
       expect(capturedValidations).toEqual([]);
     });
@@ -884,7 +884,7 @@ describe('RouteHandler', () => {
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
       );
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       expect(() => {
         handlerWithMeta.registerFromHandlerIndex([{
@@ -896,14 +896,14 @@ describe('RouteHandler', () => {
           handlerDecoratorArgs: ['test'],
           params: [],
           validations: [{ accessor: ['request', 'getBody'], metatypeKey: 'UnknownDto' }],
-        } as never], controllerInstances);
+        } as never], controllerFactories);
       }).toThrow(/Cannot resolve DTO class for metatypeKey 'UnknownDto'/);
     });
 
     it('should return empty validations when entry has no validations field', () => {
       const handler = createRouteHandler();
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       let capturedValidations: readonly unknown[] = [];
       const buildPipeline = mock((_entry: unknown, validations: readonly unknown[]) => {
@@ -919,7 +919,7 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-      } as never], controllerInstances, buildPipeline as never);
+      } as never], controllerFactories, buildPipeline as never);
 
       expect(capturedValidations).toEqual([]);
     });
@@ -934,7 +934,7 @@ describe('RouteHandler', () => {
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Method'] },
       );
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       expect(() => {
         handler.registerFromHandlerIndex([{
@@ -945,7 +945,7 @@ describe('RouteHandler', () => {
           handlerDecorator: 'Method',
           handlerDecoratorArgs: ['PURGE', '/x'],
           params: [],
-        } as never], controllerInstances, mock(() => ({ pre: [], post: [], filters: [] })) as never);
+        } as never], controllerFactories, mock(() => ({ pre: [], post: [], filters: [] })) as never);
       }).not.toThrow();
     });
 
@@ -955,7 +955,7 @@ describe('RouteHandler', () => {
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Method'] },
       );
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       expect(() => {
         handler.registerFromHandlerIndex([{
@@ -966,7 +966,7 @@ describe('RouteHandler', () => {
           handlerDecorator: 'Method',
           handlerDecoratorArgs: ['', '/x'],
           params: [],
-        } as never], controllerInstances);
+        } as never], controllerFactories);
       }).toThrow(/method token is missing or empty/);
     });
 
@@ -976,7 +976,7 @@ describe('RouteHandler', () => {
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Method'] },
       );
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       expect(() => {
         handler.registerFromHandlerIndex([{
@@ -987,7 +987,7 @@ describe('RouteHandler', () => {
           handlerDecorator: 'Method',
           handlerDecoratorArgs: ['FOO BAR', '/x'],
           params: [],
-        } as never], controllerInstances);
+        } as never], controllerFactories);
       }).toThrow(/not a valid HTTP token/);
     });
 
@@ -997,7 +997,7 @@ describe('RouteHandler', () => {
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get', 'Method'] },
       );
       const instance = { handle: () => 'ok' };
-      const controllerInstances = new Map([['TestCtrl', instance]]);
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
 
       // 2 entries: 첫 번째는 valid GET, 두 번째는 invalid TRACE
       expect(() => {
@@ -1020,7 +1020,7 @@ describe('RouteHandler', () => {
             handlerDecoratorArgs: ['TRACE', '/x'],
             params: [],
           },
-        ] as never, controllerInstances, mock(() => ({ pre: [], post: [], filters: [] })) as never);
+        ] as never, controllerFactories, mock(() => ({ pre: [], post: [], filters: [] })) as never);
       }).toThrow(/permanently rejected/);
 
       // 첫 번째 라우트도 등록되지 않아야 함 (원자성)

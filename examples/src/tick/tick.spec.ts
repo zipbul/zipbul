@@ -55,7 +55,7 @@ describe('TickAdapter — addMiddlewares lifecycle guard', () => {
     // empty-handler short-circuit returns *before* cache population.
     // Instead, test the guard explicitly using a fake bootstrap state.
     const { registerBootstrapState } = await import('@zipbul/core');
-    registerBootstrapState({ handlerIndex: [], controllerInstances: new Map() });
+    registerBootstrapState({ handlerIndex: [], controllerFactories: new Map() });
 
     const fakeAppCtx = {} as ApplicationContext;
     await adapter.start(fakeAppCtx);

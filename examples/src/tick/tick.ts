@@ -331,12 +331,20 @@ export class TickAdapter extends Adapter {
     const entries = (state.handlerIndex ?? []).filter(h => h.adapterId === 'TickAdapter');
     const out: Array<{ entry: CompiledHandlerEntry; instance: object; pipeline: ResolvedRoutePipeline }> = [];
 
+    const controllerCache = new Map<string, object>();
     for (const entry of entries) {
-      const instance = state.controllerInstances?.get(entry.controllerKey);
-      if (instance === undefined) continue;
+      let instance = controllerCache.get(entry.controllerKey);
+      if (instance === undefined) {
+        const factory = state.controllerFactories?.get(entry.controllerKey);
+        if (factory === undefined) continue;
+        const created = factory();
+        if (created === null || typeof created !== 'object') continue;
+        instance = created;
+        controllerCache.set(entry.controllerKey, instance);
+      }
       out.push({
         entry,
-        instance: instance as object,
+        instance,
         pipeline: this.buildHandlerPipeline(entry),
       });
     }

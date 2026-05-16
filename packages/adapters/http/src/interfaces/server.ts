@@ -31,7 +31,12 @@ export interface HttpServerBootOptions extends HttpServerOptions {
   readonly internalRoutes?: readonly InternalRouteEntry[];
   readonly logger?: unknown;
   readonly handlerIndex?: readonly CompiledHandlerEntry[];
-  readonly controllerInstances?: Map<string, unknown>;
+  /**
+   * Lazy controller factories from the AOT runtime. Each entry constructs
+   * its controller on first invocation, after any container overrides have
+   * been applied.
+   */
+  readonly controllerFactories?: ReadonlyMap<string, () => unknown>;
 }
 
 export interface HttpWorkerEntryModule {

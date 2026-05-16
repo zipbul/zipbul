@@ -262,17 +262,17 @@ interface RouteDefinition {
 
 function buildHandlerIndex(routes: readonly RouteDefinition[]): {
   readonly handlerIndex: readonly CompiledHandlerEntry[];
-  readonly controllerInstances: Map<string, unknown>;
+  readonly controllerFactories: Map<string, () => unknown>;
   readonly metadata: Map<new (...args: readonly unknown[]) => unknown, { readonly className: string; readonly decorators: readonly { readonly name: string; readonly arguments?: readonly unknown[] }[] }>;
 } {
   const controllerInstance: Record<string, unknown> = {};
-  const controllerInstances = new Map<string, unknown>();
+  const controllerFactories = new Map<string, () => unknown>();
 
   for (const route of routes) {
     controllerInstance[route.controllerMethod.name] = route.controllerMethod.handler;
   }
 
-  controllerInstances.set('TestController', controllerInstance);
+  controllerFactories.set('TestController', () => controllerInstance);
 
   const handlerIndex: CompiledHandlerEntry[] = routes.map((route): CompiledHandlerEntry => {
     const base = {
@@ -300,7 +300,7 @@ function buildHandlerIndex(routes: readonly RouteDefinition[]): {
     decorators: [{ name: 'RestController', arguments: [] }],
   });
 
-  return { handlerIndex, controllerInstances, metadata };
+  return { handlerIndex, controllerFactories, metadata };
 }
 
 // ── E2E Test Suite ──────────────────────────────────────────
@@ -1473,7 +1473,7 @@ describe('HttpAdapter E2E', () => {
       bodyLimit: 1024,
       metadata: builtIndex.metadata as never,
       handlerIndex: patchedHandlerIndex,
-      controllerInstances: builtIndex.controllerInstances,
+      controllerFactories: builtIndex.controllerFactories,
     }, adapter as never);
   });
 

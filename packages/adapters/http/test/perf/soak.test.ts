@@ -46,7 +46,7 @@ type Route = { method: string; path: string; name: string; handler: (c: Instance
 function build(routes: Route[]) {
   const inst: Record<string, unknown> = {};
   for (const r of routes) inst[r.name] = r.handler;
-  const controllerInstances = new Map<string, unknown>([['SoakController', inst]]);
+  const controllerFactories = new Map<string, () => unknown>([['SoakController', () => inst]]);
   const handlerIndex: CompiledHandlerEntry[] = routes.map(r => {
     const base = {
       id: `HttpAdapter:SoakController.${r.name}`,
@@ -65,7 +65,7 @@ function build(routes: Route[]) {
   });
   const metadata = new Map();
   metadata.set(SoakController, { className: 'SoakController', decorators: [{ name: 'RestController', arguments: [] }] });
-  return { handlerIndex, controllerInstances, metadata };
+  return { handlerIndex, controllerFactories, metadata };
 }
 
 const BIGBODY = new Uint8Array(256 * 1024);
@@ -97,7 +97,7 @@ describe('http-adapter soak', () => {
       port: PORT, bodyLimit: 1024 * 1024,
       metadata: built.metadata as never,
       handlerIndex: built.handlerIndex,
-      controllerInstances: built.controllerInstances,
+      controllerFactories: built.controllerFactories,
     } as never, adapter as never);
 
     // ── Verify endpoints once ──

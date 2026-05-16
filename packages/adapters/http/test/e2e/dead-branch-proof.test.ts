@@ -94,7 +94,7 @@ describe('Unknown methods route through resolveRoute → 404/405 (501 fast path 
       handlerDecoratorArgs: ['registered'],
       params: [],
     } as never];
-    const controllerInstances = new Map<string, unknown>([['TestController', ctrl]]);
+    const controllerFactories = new Map<string, () => unknown>([['TestController', () => ctrl]]);
 
     server = new HttpServer();
     await server.boot(createMockContainer(), {
@@ -102,7 +102,7 @@ describe('Unknown methods route through resolveRoute → 404/405 (501 fast path 
       bodyLimit: 1024,
       metadata: metadata as never,
       handlerIndex,
-      controllerInstances,
+      controllerFactories,
     } as never, adapter);
   });
 

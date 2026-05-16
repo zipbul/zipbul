@@ -223,14 +223,6 @@ ${controllerEntries.join('\n')}
 
 const __controllerFactories__ = createControllerFactories();
 
-function resolveControllerInstances() {
-  const instances = new Map();
-  for (const [key, factory] of __controllerFactories__) {
-    instances.set(key, factory());
-  }
-  return instances;
-}
-
 registerBootstrapState({
   container: __container__,
   metadataRegistry,
@@ -238,10 +230,7 @@ registerBootstrapState({
   isAotRuntime: true,
   adapterConfig,
   handlerIndex,
-});
-
-registerBootstrapState({
-  controllerInstances: resolveControllerInstances(),
+  controllerFactories: __controllerFactories__,
 });
 
 `;

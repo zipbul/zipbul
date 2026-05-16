@@ -39,13 +39,13 @@ interface RouteSpec {
 
 function buildIndex(routes: readonly RouteSpec[]): {
   handlerIndex: readonly CompiledHandlerEntry[];
-  controllerInstances: Map<string, unknown>;
+  controllerFactories: Map<string, () => unknown>;
   metadata: Map<new (...args: readonly unknown[]) => unknown, { readonly className: string; readonly decorators: readonly { readonly name: string; readonly arguments?: readonly unknown[] }[] }>;
 } {
   class TestController { [key: string]: unknown }
   const controllerInstance: Record<string, unknown> = {};
   for (const r of routes) controllerInstance[r.handlerName] = r.handler;
-  const controllerInstances = new Map<string, unknown>([['TestController', controllerInstance]]);
+  const controllerFactories = new Map<string, () => unknown>([['TestController', () => controllerInstance]]);
   const handlerIndex: CompiledHandlerEntry[] = routes.map(r => {
     const base = {
       id: `HttpAdapter:TestController.${r.handlerName}`,
@@ -64,7 +64,7 @@ function buildIndex(routes: readonly RouteSpec[]): {
   });
   const metadata = new Map<new (...args: readonly unknown[]) => unknown, { readonly className: string; readonly decorators: readonly { readonly name: string; readonly arguments?: readonly unknown[] }[] }>();
   metadata.set(TestController, { className: 'TestController', decorators: [{ name: 'RestController', arguments: [] }] });
-  return { handlerIndex, controllerInstances, metadata };
+  return { handlerIndex, controllerFactories, metadata };
 }
 
 async function boot(options: Record<string, unknown>, routes: readonly RouteSpec[]): Promise<{ server: Server; adapter: Adapter; port: number }> {
@@ -79,7 +79,7 @@ async function boot(options: Record<string, unknown>, routes: readonly RouteSpec
     ...options,
     metadata: idx.metadata as never,
     handlerIndex: idx.handlerIndex,
-    controllerInstances: idx.controllerInstances,
+    controllerFactories: idx.controllerFactories,
   }, adapter as never);
   return { server, adapter, port };
 }
@@ -269,7 +269,7 @@ async function bootWithMethodToken(token: string): Promise<{ server: Server; ada
   adapter.initializePipeline(container);
   const server = new HttpServer();
   class TestController { handle = (): string => 'ok'; }
-  const controllerInstances = new Map<string, unknown>([['TestController', new TestController()]]);
+  const controllerFactories = new Map<string, () => unknown>([['TestController', () => new TestController()]]);
   const handlerIndex = [{
     id: `HttpAdapter:TestController.handle`,
     adapterId: 'HttpAdapter',
@@ -286,7 +286,7 @@ async function bootWithMethodToken(token: string): Promise<{ server: Server; ada
     port,
     metadata,
     handlerIndex,
-    controllerInstances,
+    controllerFactories,
   } as never, adapter as never);
   return { server, adapter, port };
 }
