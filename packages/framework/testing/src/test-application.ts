@@ -1,6 +1,5 @@
 import type { AdapterClass, ProviderToken, ZipbulValue, ModuleMarker } from '@zipbul/common';
-import { TEST_SURFACE } from '@zipbul/common';
-import { Application, Container, getBootstrapState, resetBootstrapState, registerBootstrapState } from '@zipbul/core';
+import { Application, Container, getBootstrapState, resetBootstrapState, registerBootstrapState, TEST_SURFACE } from '@zipbul/core';
 
 import type { OverrideRecord } from './overrides';
 import { OverrideRegistry, makeProviderOverrideBuilder, type ProviderOverrideBuilder } from './overrides';

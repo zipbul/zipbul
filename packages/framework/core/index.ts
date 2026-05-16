@@ -24,5 +24,6 @@ export {
   currentRequestOverrides,
   type RequestOverrideMap,
 } from './src/testing/request-overrides-context';
+export { TEST_SURFACE } from './src/testing/test-surface-symbol';
 
 export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;
