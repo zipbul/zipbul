@@ -1,5 +1,7 @@
 import type { Server } from 'bun';
 
+import { runWithRequestOverrides, type RequestOverrideMap } from '@zipbul/core';
+
 import type { HttpServer } from './http-server';
 
 /**
@@ -16,6 +18,21 @@ export interface HttpInjectInput {
   url: string;
   headers?: HeadersInit;
   body?: BodyInit | null;
+}
+
+/**
+ * Per-call options for {@link HttpTestSurface.inject}.
+ *
+ * @public
+ */
+export interface HttpInjectOptions {
+  /**
+   * Per-request provider override map applied only to this inject call.
+   * The map is consulted by `RequestScopeContainer.get` before the parent
+   * registration. Use to swap a request-scoped provider (e.g.
+   * `RequestContext`) with a stub for one specific test request.
+   */
+  requestOverrides?: RequestOverrideMap;
 }
 
 // Re-declare DOM-derived globals to avoid `@types/web` dependency.
@@ -37,7 +54,10 @@ export interface HttpTestSurface {
    *
    * @public
    */
-  inject(input: Request | HttpInjectInput): Promise<Response>;
+  inject(
+    input: Request | HttpInjectInput,
+    options?: HttpInjectOptions,
+  ): Promise<Response>;
 }
 
 /**
@@ -50,7 +70,7 @@ export function createHttpInjectSurface(
   stubServer: Server<unknown>,
 ): HttpTestSurface {
   return {
-    async inject(input) {
+    async inject(input, options) {
       const request = input instanceof Request
         ? input
         : new Request(input.url, {
@@ -58,7 +78,10 @@ export function createHttpInjectSurface(
           ...(input.headers !== undefined ? { headers: input.headers } : {}),
           ...(input.body !== undefined ? { body: input.body } : {}),
         });
-      return await httpServer.fetch(request, stubServer);
+      const run = (): Promise<Response> => httpServer.fetch(request, stubServer);
+      return options?.requestOverrides !== undefined
+        ? runWithRequestOverrides(options.requestOverrides, run)
+        : run();
     },
   };
 }

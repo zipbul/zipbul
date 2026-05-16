@@ -19,4 +19,10 @@ export { CoreStep } from './src/adapter/enums';
 export { inject, lazy, runInInjectionContext } from './src/injection-context';
 export { getAdapterContext, runInAdapterContext } from './src/adapter-context';
 
+export {
+  runWithRequestOverrides,
+  currentRequestOverrides,
+  type RequestOverrideMap,
+} from './src/testing/request-overrides-context';
+
 export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;

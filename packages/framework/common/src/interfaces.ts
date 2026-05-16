@@ -177,9 +177,15 @@ export interface ZipbulContainer {
    * Singletons delegate to the parent; request-scoped providers are cached per contextId.
    *
    * @param contextId - Unique identifier for this request scope.
+   * @param requestOverrides - Optional per-token override registry consulted
+   *   by the child container before the parent registration. Used by
+   *   `@zipbul/testing` to swap request-scoped providers per test.
    * @returns A scoped container that implements `ZipbulContainer`.
    */
-  createRequestScope?(contextId: string): ZipbulContainer;
+  createRequestScope?(
+    contextId: string,
+    requestOverrides?: ReadonlyMap<unknown, unknown>,
+  ): ZipbulContainer;
 
   /**
    * Returns whether any provider is registered with request scope.

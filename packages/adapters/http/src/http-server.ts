@@ -3,6 +3,7 @@ import type { Server } from 'bun';
 import type {
   ZipbulContainer,
 } from '@zipbul/common';
+import { currentRequestOverrides } from '@zipbul/core';
 import { Logger } from '@zipbul/logger';
 
 import type {
@@ -316,8 +317,12 @@ export class HttpServer {
     const zipbulReq = createResult.request;
     const zipbulRes = new HttpResponse(zipbulReq);
 
+    // 토킷이 inject() 호출 시 ALS 프레임에 per-request override 맵을 심으면
+    // 여기서 읽어 createRequestScope 두 번째 인자로 전달한다. production
+    // 경로에서는 currentRequestOverrides()가 항상 undefined → 동작 무변경.
+    const overrides = currentRequestOverrides();
     const requestContainer = this.shouldCreateRequestScope()
-      ? this.container.createRequestScope?.(zipbulReq.requestId)
+      ? this.container.createRequestScope?.(zipbulReq.requestId, overrides)
       : undefined;
     const context = new HttpContext(zipbulReq, zipbulRes, req, requestContainer, server);
 
