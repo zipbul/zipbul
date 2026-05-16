@@ -31,6 +31,12 @@
   "bin": {
     "zb": "dist/zb.js"
   },
+  "exports": {
+    "./compiler": {
+      "types": "./dist/compiler.d.ts",
+      "default": "./dist/compiler.js"
+    }
+  },
   "files": [
     "dist"
   ],
@@ -38,7 +44,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build ./src/bin/zb.ts --outdir dist --target bun --format esm --packages external --production --banner='#!/usr/bin/env bun'",
+    "build": "bun build ./src/bin/zb.ts --outdir dist --target bun --format esm --packages external --production --banner='#!/usr/bin/env bun' && bun build ./compiler.ts --outdir dist --target bun --format esm --packages external --production && bunx tsc --emitDeclarationOnly --declaration --outDir dist compiler.ts",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },
