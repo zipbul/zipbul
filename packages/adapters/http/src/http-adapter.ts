@@ -5,19 +5,13 @@ import type {
   CompiledHandlerEntry,
   MiddlewareDefinition,
 } from '@zipbul/common';
+import { TEST_SURFACE } from '@zipbul/common';
 import { err, isErr } from '@zipbul/result';
 import type { Result, Err } from '@zipbul/result';
 import { Adapter, handlerResultKey, getBootstrapState } from '@zipbul/core';
 import type { HttpTestSurface } from './test-surface';
 import { createHttpInjectSurface } from './test-surface';
 import { createStubBunServer } from './stub-bun-server';
-
-/**
- * Global symbol shared with `@zipbul/testing`. Both packages call
- * `Symbol.for('@zipbul/testing/surface')` so they resolve to the same key
- * without a hard dependency between them.
- */
-const TEST_SURFACE = Symbol.for('@zipbul/testing/surface');
 import type { ResolvedMiddleware, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
 import { Logger } from '@zipbul/logger';
 
@@ -475,7 +469,7 @@ export class HttpAdapter extends Adapter {
    *
    * @public
    */
-  async startTest(context: ApplicationContext): Promise<void> {
+  override async startTest(context: ApplicationContext): Promise<void> {
     await Logger.runScoped(this.logger, () => this.startTestInternal(context));
   }
 

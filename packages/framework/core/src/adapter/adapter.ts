@@ -142,6 +142,20 @@ export abstract class Adapter implements AdapterContract {
   abstract start(context: ApplicationContext): Promise<void>;
 
   /**
+   * Optional test-mode boot path used by `@zipbul/testing` to wire routes
+   * and pipeline state without binding a transport. When absent, the
+   * testing toolkit treats the adapter as not bootable in-process and
+   * skips its start step entirely (the adapter's providers remain
+   * registered; its surface — if any — is still callable).
+   *
+   * Adapters that don't implement startTest cannot be exercised through
+   * the toolkit's in-process inject path.
+   *
+   * @public
+   */
+  startTest?(context: ApplicationContext): Promise<void>;
+
+  /**
    * Gracefully shuts down the adapter.
    *
    * @public

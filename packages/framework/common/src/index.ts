@@ -3,6 +3,8 @@ import { name as __pkgName, version as __pkgVersion } from '../package.json' wit
 export { contextKey } from './context-key';
 export type { ContextKey } from './context-key';
 
+export { TEST_SURFACE } from './testing';
+
 export { defineAdapter } from './adapter/define-adapter';
 export type { DefineAdapterConfig } from './adapter/define-adapter';
 export { ClusterStrategy } from './adapter/types';

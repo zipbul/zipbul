@@ -52,11 +52,7 @@ describe('examples — CORS e2e (in-process inject through production fetch path
       },
     }).compile();
 
-    // The `SurfaceOf<T>` inference cannot prove that `HttpAdapter`'s symbol
-    // method (keyed on `Symbol.for(...)`) matches the toolkit's
-    // `unique symbol` TEST_SURFACE — both resolve to the same runtime
-    // symbol but TypeScript treats them as distinct types. Cast explicitly.
-    http = app.adapter(HttpAdapter) as HttpTestSurface;
+    http = app.adapter(HttpAdapter);
   });
 
   afterAll(async () => {

@@ -80,6 +80,20 @@ export interface Adapter {
   start(context: ApplicationContext): Promise<void>;
 
   /**
+   * Optional test-mode boot path used by `@zipbul/testing` to wire routes
+   * and pipeline state without binding a transport. Adapters that don't
+   * implement it are skipped by the toolkit (their providers stay
+   * registered, their test surface — if any — remains callable, but no
+   * transport binds and no start hook fires).
+   *
+   * Long-term: this hook is provisional pending a proper
+   * `prepare(ctx)` / `listen(ctx)` split of the lifecycle.
+   *
+   * @public
+   */
+  startTest?(context: ApplicationContext): Promise<void>;
+
+  /**
    * Gracefully shuts down the adapter.
    *
    * @public

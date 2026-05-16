@@ -152,7 +152,7 @@ export class Application {
     }
 
     this.started = true;
-    this.startPromise = this.executeStart();
+    this.startPromise = this.executeStart({ testMode: false });
 
     try {
       await this.startPromise;
@@ -161,7 +161,84 @@ export class Application {
     }
   }
 
-  private async executeStart(): Promise<void> {
+  /**
+   * Test-mode start. Runs the full lifecycle — topo sort, init hooks,
+   * adapter config application, pipeline init — but invokes
+   * `adapter.startTest(ctx)` instead of `adapter.start(ctx)`. Adapters
+   * that do not implement `startTest` are skipped (their providers
+   * stay registered, their test surface — if any — remains callable;
+   * no transport binds).
+   *
+   * Cluster mode (`workers > 1`) is rejected here: tests run in a
+   * single process and cannot drive Bun Worker children through the
+   * in-process inject path.
+   *
+   * @public
+   */
+  public async startTest(): Promise<void> {
+    if (this.started) {
+      throw new Error('Application has already started');
+    }
+
+    const workers = this.options.workers;
+    if (workers !== undefined && workers > 1) {
+      throw new Error(
+        `Cannot use Application.startTest() with workers: ${workers}. ` +
+        `Cluster mode spawns Bun Workers that bind real ports — incompatible ` +
+        `with the in-process test path. Test cluster behavior separately ` +
+        `(see packages/framework/core/test/e2e/cluster.e2e.test.ts).`,
+      );
+    }
+
+    this.started = true;
+    this.startPromise = this.executeStart({ testMode: true });
+
+    try {
+      await this.startPromise;
+    } finally {
+      this.startPromise = undefined;
+    }
+  }
+
+  /**
+   * Retrieves an attached adapter instance by class. When the same class
+   * is attached multiple times (each with a unique `name`), pass `name`
+   * to disambiguate.
+   *
+   * @public
+   */
+  public getAdapter<T extends AdapterClass>(
+    adapterClass: T,
+    options?: { name?: string },
+  ): InstanceType<T> {
+    const matches = this.adapters.filter((e) => e.adapterClass === adapterClass);
+
+    if (matches.length === 0) {
+      throw new Error(`Adapter "${adapterClass.name}" is not attached to this application.`);
+    }
+
+    const wantName = options?.name;
+
+    if (wantName === undefined) {
+      if (matches.length > 1) {
+        throw new Error(
+          `Adapter "${adapterClass.name}" has ${matches.length} instances. ` +
+          `Pass { name } to disambiguate.`,
+        );
+      }
+      return matches[0]!.adapter as InstanceType<T>;
+    }
+
+    const named = matches.find((e) => e.name === wantName);
+    if (named === undefined) {
+      throw new Error(
+        `Adapter "${adapterClass.name}" with name "${wantName}" is not attached.`,
+      );
+    }
+    return named.adapter as InstanceType<T>;
+  }
+
+  private async executeStart(opts: { testMode: boolean }): Promise<void> {
     const context = new AppContext(this.container);
     this.startOrder = this.topologicalSort();
 
@@ -214,6 +291,19 @@ export class Application {
 
     try {
       for (const entry of this.startOrder) {
+        if (opts.testMode === true) {
+          // Adapters without startTest are silently skipped in test mode:
+          // they remain attached (providers registered, surface callable),
+          // but no transport binds and no start hook fires. This matches
+          // the toolkit's policy of letting a test target one adapter
+          // (e.g., HttpAdapter) without forcing every other attached
+          // adapter (e.g., TickAdapter) to implement test support.
+          if (typeof entry.adapter.startTest === 'function') {
+            await entry.adapter.startTest(context);
+            started.push(entry);
+          }
+          continue;
+        }
         await entry.adapter.start(context);
         started.push(entry);
       }
