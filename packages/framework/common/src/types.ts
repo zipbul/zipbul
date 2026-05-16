@@ -1,12 +1,8 @@
 import type {
-  BeforeStart,
   ConfigService,
-  Configurer,
   EnvService,
   OnDestroy,
   OnInit,
-  OnShutdown,
-  OnStart,
 } from './interfaces';
 import type { Adapter } from './adapter/types';
 
@@ -33,12 +29,8 @@ export type ZipbulValue =
   | Callable
   | Adapter
   | ConfigService
-  | Configurer
   | EnvService
   | OnInit
-  | BeforeStart
-  | OnStart
-  | OnShutdown
   | OnDestroy;
 
 export interface ZipbulFunction {

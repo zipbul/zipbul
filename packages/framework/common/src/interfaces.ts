@@ -5,13 +5,12 @@ import type { GuardDefinition } from './define-guard';
 import type { ExceptionFilterDefinition } from './define-exception-filter';
 import type { ContextKey } from './context-key';
 
-import type { Adapter } from './adapter/types';
-
 /**
  * Application-level context for lifecycle management.
  *
- * Used during application bootstrap (Configurer, adapter.start).
- * Does NOT support per-request features (get/set, validation).
+ * Passed into `Adapter.start(ctx)` / `Adapter.startTest(ctx)` so adapters
+ * can resolve providers from the root container during boot. Does NOT
+ * support per-request features (get/set/validation).
  *
  * @public
  */
@@ -101,39 +100,17 @@ export interface ProviderUseFactory extends ProviderBase {
   inject?: ProviderToken[];
 }
 
-// Lifecycle Interfaces
+// Lifecycle Interfaces — only the hooks wired by the runtime are exported.
+// onInit fires from runInitHooks(); onDestroy fires from runDestroyHooks().
+// Anything else (beforeStart / onStart / onShutdown / Configurer pattern)
+// was declared in earlier drafts but never wired — removed to keep the
+// contract honest.
 export interface OnInit {
   onInit(): Promise<void> | void;
 }
 
-export interface BeforeStart {
-  beforeStart(): Promise<void> | void;
-}
-
-export interface OnStart {
-  onStart(): Promise<void> | void;
-}
-
-export interface OnShutdown {
-  onShutdown(signal?: string): Promise<void> | void;
-}
-
 export interface OnDestroy {
   onDestroy(): Promise<void> | void;
-}
-
-export interface AdapterGroup<T> {
-  get(name: string): T | undefined;
-  all(): T[];
-  forEach(cb: (adapter: T) => void): void;
-}
-
-export interface AdapterCollection {
-  [protocol: string]: AdapterGroup<Adapter>;
-}
-
-export interface Configurer {
-  configure(app: ApplicationContext, adapters: AdapterCollection): void;
 }
 
 export interface ApplicationOptions {
