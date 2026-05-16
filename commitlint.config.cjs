@@ -29,7 +29,7 @@ module.exports = {
         'result',
         'router',
         'shared',
-        'tck',
+        'conformance',
         'examples',
         'benchmark',
         'repo',

@@ -50,7 +50,6 @@
   "workspaces": {
     "packages": [
       "packages/*/*",
-      "packages/tck",
       "examples",
       "benchmark"
     ],

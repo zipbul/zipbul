@@ -1,6 +1,6 @@
 import { afterAll, beforeAll } from 'bun:test';
 import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
-import { Tck, type TestApplication } from '@zipbul/tck';
+import { Tck, type TestApplication } from '@zipbul/conformance';
 
 import { corsMiddleware } from '../../index';
 import type { CorsOptions } from '../../index';

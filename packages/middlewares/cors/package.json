@@ -60,7 +60,7 @@
   "devDependencies": {
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
-    "@zipbul/tck": "workspace:*"
+    "@zipbul/conformance": "workspace:*"
   },
   "sideEffects": false
 }
