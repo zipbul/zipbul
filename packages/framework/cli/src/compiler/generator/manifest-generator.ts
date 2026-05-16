@@ -206,32 +206,44 @@ ${scopedKeysEntries.join('\n')}
   return sealMap(map);
 }
 
+// ── Immutable, build-time artifacts (safe to share across test runs) ──
+// metadataRegistry / scopedKeysMap / handlerIndex are pure data extracted by
+// the AOT compiler. They don't carry per-instance state, so they are built
+// once at module load and reused.
 export const metadataRegistry = createMetadataRegistry();
 export const scopedKeysMap = createScopedKeysMap();
 export const handlerIndex = ${JSON.stringify(handlerIndex)} as const;
 
-const __container__ = createContainer();
+// ── Per-install state (fresh on every installRuntime() call) ──
+// The container, the route-level middleware/filter/guard bindings, and the
+// controller factory map are all installation-scoped: they carry references
+// to provider singletons that the test toolkit may override between runs.
+// Each installRuntime() invocation rebuilds them from scratch and pushes a
+// new BootstrapState — multi-test isolation is therefore automatic.
 
-// Route-level pipeline registrations (middleware/filter/guard container keys)
-${routeRegistrationCode}
+export function installRuntime() {
+  const __container__ = createContainer();
 
-function createControllerFactories() {
+  // Route-level pipeline registrations (middleware/filter/guard container keys)
+${routeRegistrationCode.split('\n').map(l => l.length > 0 ? '  ' + l : l).join('\n')}
+
   const factories = new Map();
-${controllerEntries.join('\n')}
-  return factories;
+${controllerEntries.map(l => '  ' + l).join('\n')}
+
+  registerBootstrapState({
+    container: __container__,
+    metadataRegistry,
+    scopedKeys: scopedKeysMap,
+    isAotRuntime: true,
+    adapterConfig,
+    handlerIndex,
+    controllerFactories: factories,
+  });
 }
 
-const __controllerFactories__ = createControllerFactories();
-
-registerBootstrapState({
-  container: __container__,
-  metadataRegistry,
-  scopedKeys: scopedKeysMap,
-  isAotRuntime: true,
-  adapterConfig,
-  handlerIndex,
-  controllerFactories: __controllerFactories__,
-});
+// Production / CLI entry: install once on module load so existing entry.ts
+// callers (and 'bun dist/entry.js') see a fully-wired bootstrap state.
+installRuntime();
 
 `;
   }
