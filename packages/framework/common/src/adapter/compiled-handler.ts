@@ -81,6 +81,12 @@ export interface CompiledHandlerEntry {
   readonly id: string;
   /** Adapter identifier (e.g. `"HttpAdapter"`). */
   readonly adapterId: string;
+  /**
+   * Class name of the controller (e.g. `"UserController"`). The AOT
+   * generator always emits this; it is `optional` only for hand-rolled
+   * test fixtures that predate the field.
+   */
+  readonly className?: string;
   /** Container key for the controller instance (e.g. `"AppModule::UserController"`). */
   readonly controllerKey: string;
   /** Method name on the controller class. */
