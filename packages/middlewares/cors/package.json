@@ -50,8 +50,7 @@
   },
   "dependencies": {
     "@zipbul/result": "workspace:*",
-    "@zipbul/shared": "workspace:*",
-    "safe-regex2": "^5.0.0"
+    "@zipbul/shared": "workspace:*"
   },
   "peerDependencies": {
     "@zipbul/common": "workspace:*",
