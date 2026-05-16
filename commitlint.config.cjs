@@ -30,6 +30,7 @@ module.exports = {
         'router',
         'shared',
         'conformance',
+        'testing',
         'examples',
         'benchmark',
         'repo',
