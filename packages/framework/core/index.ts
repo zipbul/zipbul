@@ -2,7 +2,7 @@ import { name as __pkgName, version as __pkgVersion } from './package.json' with
 
 export { createApplication, Application, type AdapterEntry, type AdapterOptions, type AttachOptions } from './src/application';
 export { defineModule, type DefineModuleOptions } from './src/module';
-export { getBootstrapState, registerBootstrapState } from './src/runtime/bootstrap-state';
+export { getBootstrapState, registerBootstrapState, resetBootstrapState, clearMetadataRegistry } from './src/runtime/bootstrap-state';
 export { Container } from './src/injector/container';
 export type { ClassMetadata, ConstructorParamMetadata, DecoratorMetadata, TokenRecord } from './src/injector/types';
 export { ClusterManager } from './src/cluster/cluster-manager';

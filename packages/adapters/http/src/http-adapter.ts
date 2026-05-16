@@ -8,6 +8,16 @@ import type {
 import { err, isErr } from '@zipbul/result';
 import type { Result, Err } from '@zipbul/result';
 import { Adapter, handlerResultKey, getBootstrapState } from '@zipbul/core';
+import type { HttpTestSurface } from './test-surface';
+import { createHttpInjectSurface } from './test-surface';
+import { createStubBunServer } from './stub-bun-server';
+
+/**
+ * Global symbol shared with `@zipbul/testing`. Both packages call
+ * `Symbol.for('@zipbul/testing/surface')` so they resolve to the same key
+ * without a hard dependency between them.
+ */
+const TEST_SURFACE = Symbol.for('@zipbul/testing/surface');
 import type { ResolvedMiddleware, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
 import { Logger } from '@zipbul/logger';
 
@@ -457,14 +467,65 @@ export class HttpAdapter extends Adapter {
     await Logger.runScoped(this.logger, () => this.startInternal(context));
   }
 
+  /**
+   * In-process test lifecycle. Wires routes and adapter state exactly like
+   * {@link start} but **skips the network listener** — no `Bun.serve` bind.
+   * The adapter's `fetch()` path remains invocable via {@link getHttpServer}
+   * for `@zipbul/testing`'s in-process inject.
+   *
+   * @public
+   */
+  async startTest(context: ApplicationContext): Promise<void> {
+    await Logger.runScoped(this.logger, () => this.startTestInternal(context));
+  }
+
+  /**
+   * Returns the underlying `HttpServer` once `start()` or `startTest()` has
+   * been called. Used by `@zipbul/testing` to drive the production `fetch()`
+   * path with an injected `Request`.
+   *
+   * @public
+   */
+  getHttpServer(): HttpServer | undefined {
+    return this.httpServer;
+  }
+
+  /**
+   * Well-known `@zipbul/testing` surface accessor. Returns an
+   * {@link HttpTestSurface} whose `inject()` calls the production
+   * `httpServer.fetch()` directly with a stub `Bun.Server`.
+   *
+   * Only valid after {@link startTest} (or {@link start} when not bound to
+   * a port). Throws if called before the test/start lifecycle ran.
+   *
+   * @public
+   */
+  [TEST_SURFACE](): HttpTestSurface {
+    if (this.httpServer === undefined) {
+      throw new Error(
+        '[HttpAdapter] test surface requested before startTest()/start(). ' +
+        'Compile the test application before calling app.adapter(HttpAdapter).',
+      );
+    }
+    return createHttpInjectSurface(this.httpServer, createStubBunServer());
+  }
+
   private async startInternal(context: ApplicationContext): Promise<void> {
-    const bootstrapState = getBootstrapState();
-
     this.httpServer = new HttpServer();
+    await this.httpServer.boot(context.container, this.buildBootOptions(), this);
+  }
 
+  private async startTestInternal(context: ApplicationContext): Promise<void> {
+    this.httpServer = new HttpServer();
+    await this.httpServer.prepareRoutes(context.container, this.buildBootOptions(), this);
+  }
+
+  private buildBootOptions(): HttpServerBootOptions {
+    const bootstrapState = getBootstrapState();
     const metadata = normalizeMetadataRegistry(bootstrapState.metadataRegistry);
     const scopedKeys = bootstrapState.scopedKeys;
-    const bootOptions: HttpServerBootOptions = {
+
+    return {
       ...this.options,
       ...(metadata !== undefined ? { metadata } : {}),
       ...(scopedKeys !== undefined ? { scopedKeys } : {}),
@@ -472,8 +533,6 @@ export class HttpAdapter extends Adapter {
       ...(bootstrapState.handlerIndex !== undefined ? { handlerIndex: bootstrapState.handlerIndex } : {}),
       ...(bootstrapState.controllerInstances !== undefined ? { controllerInstances: bootstrapState.controllerInstances } : {}),
     };
-
-    await this.httpServer.boot(context.container, bootOptions, this);
   }
 
   async stop(): Promise<void> {

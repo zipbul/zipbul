@@ -1,7 +1,7 @@
 import type { ZipbulContainer, ProviderToken } from '@zipbul/common';
 
 import type { Container } from './container';
-import type { ContainerValue, Token } from './types';
+import type { ContainerValue, ProviderRegistration, Token } from './types';
 
 /**
  * Request-scoped child container that delegates singleton/transient to the parent
@@ -15,9 +15,22 @@ export class RequestScopeContainer implements ZipbulContainer {
   constructor(
     private readonly parent: Container,
     private readonly contextId: string,
+    private readonly requestOverrides?: ReadonlyMap<Token, ProviderRegistration>,
   ) {}
 
   get(token: Token): ContainerValue {
+    if (this.requestOverrides !== undefined) {
+      const override = this.requestOverrides.get(token);
+      if (override !== undefined) {
+        if (this.requestInstances.has(token)) {
+          return this.requestInstances.get(token);
+        }
+        const instance = override.factory(this);
+        this.requestInstances.set(token, instance);
+        return instance;
+      }
+    }
+
     const registration = this.parent.getRegistration(token);
 
     if (!registration) {

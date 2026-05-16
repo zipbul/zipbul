@@ -71,6 +71,20 @@ export function getBootstrapState(): BootstrapState {
 }
 
 /**
+ * Resets the module-global bootstrap state to its initial empty form.
+ *
+ * **Test-only.** Production never calls this; clearing live runtime state
+ * mid-process would break any active adapter or request scope. Used by
+ * `@zipbul/testing` between `compile()` invocations to guarantee no field
+ * leaks from a previous test app.
+ *
+ * @public
+ */
+export function resetBootstrapState(): void {
+  currentContext = {};
+}
+
+/**
  * Purges the metadata registry from the runtime context.
  * Called after bootstrap to enforce INVARIANTS §4 (Metadata Volatility).
  *

@@ -180,6 +180,18 @@ export class HttpServer {
   }
 
   async boot(container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
+    await this.prepareRoutes(container, options, adapter);
+    await this.startTransport();
+  }
+
+  /**
+   * Build the route table and wire the adapter without binding a network
+   * listener. Safe to call from in-process test harnesses that exercise
+   * `fetch()` directly without `Bun.serve`.
+   *
+   * @public
+   */
+  async prepareRoutes(container: ZipbulContainer, options: HttpServerBootOptions, adapter: HttpAdapter): Promise<void> {
     this.adapter = adapter;
     this.container = container;
     this.options = options;
@@ -210,7 +222,15 @@ export class HttpServer {
     }
 
     this.adapter.setRouteHandler(routeHandler);
+  }
 
+  /**
+   * Start the `Bun.serve` listener using options already captured by
+   * {@link prepareRoutes}. Must be called after `prepareRoutes`.
+   *
+   * @public
+   */
+  async startTransport(): Promise<void> {
     const isProduction = process.env['NODE_ENV'] === 'production';
 
     const serveOptions: Parameters<typeof Bun.serve>[0] = {

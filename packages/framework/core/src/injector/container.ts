@@ -147,10 +147,46 @@ export class Container implements ZipbulContainer {
    * Creates a request-scoped child container.
    *
    * @param contextId - Unique identifier for this request scope.
+   * @param requestOverrides - Optional per-token override registry consulted
+   *   by the child before the parent registration. Used by `@zipbul/testing`
+   *   to swap request-scoped providers per test.
    * @returns A scoped container that delegates singletons to this parent.
    */
-  createRequestScope(contextId: string): ZipbulContainer & { dispose: () => Promise<void> } {
-    return new RequestScopeContainer(this, contextId);
+  createRequestScope(
+    contextId: string,
+    requestOverrides?: ReadonlyMap<Token, ProviderRegistration>,
+  ): ZipbulContainer & { dispose: () => Promise<void> } {
+    return new RequestScopeContainer(this, contextId, requestOverrides);
+  }
+
+  /**
+   * Replaces an existing registration with a new one and invalidates any
+   * cached singleton instance for that token. Intended for `@zipbul/testing`
+   * to override providers after the production module graph is wired.
+   *
+   * For request-scoped providers, pass overrides through
+   * {@link createRequestScope} instead — `replace()` only affects the root
+   * registration table.
+   *
+   * @param token - The provider token (already-normalized for scoped tokens,
+   *   pass the same key returned by `loadDynamicModule`).
+   * @param factory - The replacement factory.
+   * @param options - Optional scope/visibility metadata.
+   *
+   * @public
+   */
+  replace<TValue extends ZipbulValue = ZipbulValue>(
+    token: Token,
+    factory: ZipbulFactory<TValue> | FactoryFn,
+    options?: ProviderRegistrationOptions,
+  ): void {
+    const resolvedToken = this.resolveToken(token);
+    const scope: ProviderScope = options?.scope ?? 'singleton';
+    const visibleTo: ProviderVisibleTo = options?.visibleTo ?? 'module';
+
+    this.registrations.set(resolvedToken, { factory: factory as FactoryFn, scope, visibleTo });
+    this.singletons.delete(resolvedToken);
+    if (scope === 'request') this._hasRequestScope = true;
   }
 
   /**

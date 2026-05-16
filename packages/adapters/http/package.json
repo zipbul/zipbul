@@ -16,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun ../../packages/cli/src/bin/zb.ts build adapter",
+    "build": "bun ../../framework/cli/src/bin/zb.ts build adapter",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },
