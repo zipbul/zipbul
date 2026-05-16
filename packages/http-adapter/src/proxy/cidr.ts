@@ -2,14 +2,17 @@
  * CIDR matching utilities for IPv4 and IPv6 addresses.
  */
 
+const OCTET_PATTERN = /^(?:0|[1-9][0-9]{0,2})$/;
+
 export function ipv4ToNumber(ip: string): number | null {
   const parts = ip.split('.');
   if (parts.length !== 4) return null;
 
   let result = 0;
   for (const part of parts) {
-    const octet = parseInt(part, 10);
-    if (Number.isNaN(octet) || octet < 0 || octet > 255) return null;
+    if (!OCTET_PATTERN.test(part)) return null;
+    const octet = Number(part);
+    if (octet > 255) return null;
     result = (result << 8) | octet;
   }
   return result >>> 0;

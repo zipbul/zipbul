@@ -48,6 +48,15 @@ type CreateHttpRequestOutput =
 
 // ── Helper functions ──────────────────────────────────────────
 
+const NON_NEGATIVE_INT_PATTERN = /^(?:0|[1-9][0-9]*)$/;
+
+function parseContentLengthValue(raw: string): number | 'invalid' {
+  if (!NON_NEGATIVE_INT_PATTERN.test(raw)) return 'invalid';
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) return 'invalid';
+  return parsed;
+}
+
 function parseContentLength(headers: Headers): number | null | 'invalid' {
   const raw = headers.get(HttpHeader.ContentLength);
   if (raw === null || raw.length === 0) return null;
@@ -57,14 +66,10 @@ function parseContentLength(headers: Headers): number | null | 'invalid' {
     const values = raw.split(',').map(v => v.trim());
     const unique = new Set(values);
     if (unique.size !== 1) return 'invalid';
-    const parsed = parseInt(values[0]!, 10);
-    if (Number.isNaN(parsed)) return null;
-    return parsed < 0 ? 'invalid' : parsed;
+    return parseContentLengthValue(values[0]!);
   }
 
-  const parsed = parseInt(raw, 10);
-  if (Number.isNaN(parsed)) return null;
-  return parsed < 0 ? 'invalid' : parsed;
+  return parseContentLengthValue(raw.trim());
 }
 
 // ── createHttpRequest factory ─────────────────────────────────

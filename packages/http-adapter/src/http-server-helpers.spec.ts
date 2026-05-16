@@ -360,12 +360,20 @@ describe('parseContentLength', () => {
     expect(result).toBe(42);
   });
 
-  it('should return null when content-length is NaN', () => {
+  it("should return 'invalid' when content-length is non-numeric", () => {
     const headers = new Headers({ 'content-length': 'abc' });
 
     const result = parseContentLength(headers);
 
-    expect(result).toBeNull();
+    expect(result).toBe('invalid');
+  });
+
+  it("should return 'invalid' when content-length has trailing junk", () => {
+    const headers = new Headers({ 'content-length': '5x' });
+
+    const result = parseContentLength(headers);
+
+    expect(result).toBe('invalid');
   });
 
   it('should return 5 when duplicate consistent "5, 5"', () => {

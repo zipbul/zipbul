@@ -152,7 +152,7 @@ export class HttpResponse {
 
   setHeaders(headers: Record<string, string>): this {
     for (const [name, value] of Object.entries(headers)) {
-      this.ensureHeaders().set(name, value);
+      this.setHeader(name, value);
     }
     return this;
   }
@@ -411,13 +411,17 @@ export class HttpResponse {
       return this.createResponse();
     }
 
-    // 2. 204/304: body removed per RFC — checked before Content-Type inference
-    if (this._status === HttpStatus.NoContent || this._status === HttpStatus.NotModified) {
+    // 2. 204/205/304: body removed per RFC — checked before Content-Type inference
+    if (
+      this._status === HttpStatus.NoContent ||
+      this._status === HttpStatus.ResetContent ||
+      this._status === HttpStatus.NotModified
+    ) {
       this._body = undefined;
-      // RFC 9110 §15.3.5: 204 MUST NOT contain content. Content-Type describes
-      // non-existent content and MUST be removed. 304 MAY carry Content-Type
-      // (RFC 9110 §15.4.5) so only strip for 204.
-      if (this._status === HttpStatus.NoContent) {
+      // RFC 9110 §15.3.5/§15.3.6: 204/205 MUST NOT contain content. Content-Type
+      // describes non-existent content and MUST be removed. 304 MAY carry
+      // Content-Type (RFC 9110 §15.4.5) so only strip for 204/205.
+      if (this._status !== HttpStatus.NotModified) {
         this._contentType = undefined;
         this._headers?.delete(HttpHeader.ContentType);
       }
@@ -460,8 +464,9 @@ export class HttpResponse {
     const status = this._status ?? HttpStatus.Ok;
     const headers = this.buildHeaders();
 
-    // Status range validation (integrates former toResponse logic)
-    if (status < 100 || status > 599) {
+    // Status range validation: Fetch Response constructor only accepts
+    // 200–599 (and the special-case 101 for switching protocols).
+    if (status !== 101 && (status < 200 || status > 599)) {
       return new Response('Internal Server Error', {
         status: HttpStatus.InternalServerError,
         ...(headers !== undefined ? { headers } : {}),

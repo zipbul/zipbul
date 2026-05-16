@@ -54,7 +54,7 @@ export function formatSSEChunk(chunk: unknown): Uint8Array {
   } else if (typeof chunk === 'string') {
     frame = formatDataField(chunk);
   } else {
-    frame = formatDataField(JSON.stringify(chunk));
+    frame = formatDataField(serializeData(chunk));
   }
 
   return TEXT_ENCODER.encode(frame);
@@ -72,7 +72,10 @@ function formatDataField(value: string): string {
 }
 
 function serializeData(data: unknown): string {
-  return typeof data === 'string' ? data : JSON.stringify(data);
+  if (typeof data === 'string') return data;
+  // JSON.stringify(undefined) returns undefined (not a string); coerce to empty
+  // so downstream `replace`/encode never receives a non-string.
+  return JSON.stringify(data) ?? '';
 }
 
 /** SSE event/id 필드는 단일 행 값이다. 개행·NULL 문자를 제거하여 프레임 인젝션을 방지한다 (WHATWG SSE §9.2.6). */
@@ -98,8 +101,7 @@ function stripLineBreaks(value: string): string {
  * @public
  */
 export function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return value !== null
-    && value !== undefined
-    && typeof value === 'object'
-    && Symbol.asyncIterator in value;
+  if (value === null || value === undefined || typeof value !== 'object') return false;
+  if (!(Symbol.asyncIterator in value)) return false;
+  return typeof (value as { [Symbol.asyncIterator]: unknown })[Symbol.asyncIterator] === 'function';
 }

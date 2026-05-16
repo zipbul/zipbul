@@ -802,22 +802,22 @@ describe('HttpResponse', () => {
       expect(text).toBe('false');
     });
 
-    it('should throw when status code 100 is used with body', () => {
+    it('should fall back to 500 when status code 100 is used (Fetch Response constructor rejects 1xx final status)', () => {
       const res = createResponse();
       (res as unknown as Record<string, unknown>)['_status'] = 100;
       (res as unknown as Record<string, unknown>)['_statusText'] = 'Continue';
       res.setBody('continue');
 
-      expect(() => res.end()).toThrow();
+      expect(res.end().status).toBe(500);
     });
 
-    it('should throw when status code 199 is used with body', () => {
+    it('should fall back to 500 when status code 199 is used', () => {
       const res = createResponse();
       (res as unknown as Record<string, unknown>)['_status'] = 199;
       (res as unknown as Record<string, unknown>)['_statusText'] = 'Custom';
       res.setBody('info');
 
-      expect(() => res.end()).toThrow();
+      expect(res.end().status).toBe(500);
     });
 
     it('should accept status code 299', () => {
