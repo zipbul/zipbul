@@ -145,6 +145,11 @@ export class TestApplication {
    * Returns the test surface for an attached adapter. When the same
    * adapter class is attached multiple times, pass `{ name }`.
    *
+   * For HTTP, prefer the shorter `app.adapter(HttpAdapter)` and wrap with
+   * `createHttpClient(...)` from `@zipbul/http-adapter/testing` when
+   * verb-style sugar (`http.get('/users')`) is desired — `@zipbul/testing`
+   * stays adapter-agnostic.
+   *
    * @public
    */
   adapter<T extends AdapterClass>(
