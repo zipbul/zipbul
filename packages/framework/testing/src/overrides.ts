@@ -1,11 +1,12 @@
 import type { ProviderToken, ProviderScope, ProviderVisibleTo, ZipbulValue } from '@zipbul/common';
 
 /**
- * Registration record captured by override builders before {@link compile}.
+ * Recorded provider override. Materialized into a `container.replace(...)`
+ * or `requestOverrides` map entry at `Test.create()` time.
  *
  * @internal
  */
-export interface OverrideRecord {
+export interface ProviderOverrideRecord {
   readonly token: ProviderToken;
   readonly factory: (...args: unknown[]) => unknown;
   readonly scope?: ProviderScope;
@@ -13,65 +14,39 @@ export interface OverrideRecord {
 }
 
 /**
- * In-memory collection of root + request override records.
- *
- * @internal
- */
-export class OverrideRegistry {
-  private readonly _root: OverrideRecord[] = [];
-  private readonly _request: OverrideRecord[] = [];
-
-  addRoot(record: OverrideRecord): void {
-    this._root.push(record);
-  }
-
-  addRequest(record: OverrideRecord): void {
-    this._request.push(record);
-  }
-
-  get root(): ReadonlyArray<OverrideRecord> {
-    return this._root;
-  }
-
-  get request(): ReadonlyArray<OverrideRecord> {
-    return this._request;
-  }
-}
-
-/**
  * Fluent provider override entry point — `.useValue / .useFactory / .useClass`.
  *
  * @public
  */
-export interface ProviderOverrideBuilder<TBuilder> {
-  useValue(value: ZipbulValue): TBuilder;
-  useFactory(factory: (...args: unknown[]) => unknown): TBuilder;
-  useClass(ctor: new (...args: unknown[]) => unknown): TBuilder;
+export interface ProviderOverrideBuilder<T = ZipbulValue> {
+  useValue(value: T): void;
+  useFactory(factory: (...args: unknown[]) => T): void;
+  useClass(ctor: new (...args: never[]) => T): void;
 }
 
 /**
- * Creates a `ProviderOverrideBuilder` bound to a registry slot.
+ * Creates a `ProviderOverrideBuilder` that pushes its choice into the
+ * supplied collector function.
  *
  * @internal
  */
-export function makeProviderOverrideBuilder<TBuilder>(
-  back: TBuilder,
-  push: (record: OverrideRecord) => void,
+export function makeProviderOverrideBuilder<T = ZipbulValue>(
+  push: (record: ProviderOverrideRecord) => void,
   token: ProviderToken,
   scope?: ProviderScope,
-): ProviderOverrideBuilder<TBuilder> {
+): ProviderOverrideBuilder<T> {
+  const base: { token: ProviderToken; scope?: ProviderScope } = scope !== undefined
+    ? { token, scope }
+    : { token };
   return {
-    useValue(value) {
-      push({ token, factory: () => value, ...(scope !== undefined ? { scope } : {}) });
-      return back;
+    useValue(value): void {
+      push({ ...base, factory: () => value });
     },
-    useFactory(factory) {
-      push({ token, factory, ...(scope !== undefined ? { scope } : {}) });
-      return back;
+    useFactory(factory): void {
+      push({ ...base, factory });
     },
-    useClass(ctor) {
-      push({ token, factory: () => new ctor(), ...(scope !== undefined ? { scope } : {}) });
-      return back;
+    useClass(ctor): void {
+      push({ ...base, factory: () => new ctor() });
     },
   };
 }

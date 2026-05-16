@@ -48,6 +48,7 @@
     "coverage": "bun test --coverage"
   },
   "dependencies": {
+    "@zipbul/cli": "workspace:*",
     "@zipbul/common": "workspace:*",
     "@zipbul/core": "workspace:*",
     "@zipbul/result": "workspace:*"

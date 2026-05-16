@@ -40,12 +40,28 @@ export interface CompileResult {
  *
  * @public
  */
+/**
+ * Process-scoped in-memory cache. The Bun test runner reuses the same
+ * process across multiple test files; without this cache, every file's
+ * `Test.create` would re-invoke the compiler, hammering Bun.build's
+ * atomic-emit lock and producing race-prone artifacts.
+ *
+ * The cache keys on the resolved project root. `force: true` bypasses it.
+ */
+const compileCache = new Map<string, CompileResult>();
+
 export async function compile(opts: CompileOptions): Promise<CompileResult> {
   const runtimePath = join(opts.projectRoot, '.zipbul-temp', 'runtime.ts');
   const manifestPath = join(opts.projectRoot, '.zipbul', 'manifest.json');
 
-  if (opts.force !== true && await isManifestFresh(opts.projectRoot)) {
-    return { runtimePath, manifestPath, fromCache: true };
+  if (opts.force !== true) {
+    const cached = compileCache.get(opts.projectRoot);
+    if (cached !== undefined) return cached;
+    if (await isManifestFresh(opts.projectRoot)) {
+      const result: CompileResult = { runtimePath, manifestPath, fromCache: true };
+      compileCache.set(opts.projectRoot, result);
+      return result;
+    }
   }
 
   const originalCwd = process.cwd();
@@ -56,7 +72,9 @@ export async function compile(opts: CompileOptions): Promise<CompileResult> {
     process.chdir(originalCwd);
   }
 
-  return { runtimePath, manifestPath, fromCache: false };
+  const result: CompileResult = { runtimePath, manifestPath, fromCache: false };
+  compileCache.set(opts.projectRoot, result);
+  return result;
 }
 
 /**
@@ -68,11 +86,17 @@ export async function compile(opts: CompileOptions): Promise<CompileResult> {
  * @public
  */
 export async function isManifestFresh(projectRoot: string): Promise<boolean> {
-  const manifestPath = join(projectRoot, '.zipbul', 'manifest.json');
-  let manifestMtime: number;
+  // runtime.ts is the only artifact the toolkit consumes directly and the
+  // only one the compiler re-emits unconditionally on every run (manifest
+  // .json uses writeIfChanged, so its mtime stays stable when nothing in
+  // the source graph affects the JSON shape). Comparing runtime.ts mtime
+  // to the newest source mtime gives a reliable staleness signal.
+  const runtimePath = join(projectRoot, '.zipbul-temp', 'runtime.ts');
+
+  let runtimeMtime: number;
   try {
-    const s = await stat(manifestPath);
-    manifestMtime = s.mtimeMs;
+    const rs = await stat(runtimePath);
+    runtimeMtime = rs.mtimeMs;
   } catch {
     return false;
   }
@@ -82,12 +106,12 @@ export async function isManifestFresh(projectRoot: string): Promise<boolean> {
   try {
     newestSrc = await findNewestMtime(sourceDir);
   } catch {
-    // No source dir means nothing to compile from — treat as not fresh
-    // so the compiler can surface a coherent error.
-    return false;
+    // No source dir → can't compile against this project. Existing artifact
+    // is the best we have; trust it.
+    return true;
   }
 
-  return manifestMtime >= newestSrc;
+  return runtimeMtime >= newestSrc;
 }
 
 async function findNewestMtime(dir: string): Promise<number> {
