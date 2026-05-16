@@ -132,7 +132,8 @@ export class ManifestGenerator {
 
     const imports = registry.getImportStatements().join('\n');
 
-    return `
+    return `// @ts-nocheck
+// AOT-generated runtime artifact. Do not edit by hand and do not type-check.
 ${imports}
 import { registerBootstrapState } from "@zipbul/core";
 
