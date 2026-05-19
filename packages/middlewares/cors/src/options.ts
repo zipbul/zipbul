@@ -33,7 +33,8 @@ export function resolveCorsOptions(options?: CorsOptions): ResolvedCorsOptions {
   };
 }
 
-function isBlank(value: string): boolean {
+/** @internal */
+export function isBlank(value: string): boolean {
   return value.trim().length === 0;
 }
 

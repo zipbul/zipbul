@@ -38,6 +38,7 @@ export interface CorsRejectResult {
 export interface CorsErrorData {
   reason: CorsErrorReason;
   message: string;
+  cause?: unknown;
 }
 
 /**
@@ -45,12 +46,14 @@ export interface CorsErrorData {
  * when the origin function throws.
  *
  * Inspect {@link reason} to programmatically distinguish error kinds.
+ * When the origin function throws, the original thrown value is preserved
+ * in {@link cause} for diagnostic purposes.
  */
 export class CorsError extends Error {
   public readonly reason: CorsErrorReason;
 
   constructor(data: CorsErrorData) {
-    super(data.message);
+    super(data.message, data.cause !== undefined ? { cause: data.cause } : undefined);
     this.name = 'CorsError';
     this.reason = data.reason;
   }
@@ -64,6 +67,12 @@ export interface CorsOptions {
   /**
    * Allowed origin(s).
    * Accepts `'*'`, `false`, `true`, string, RegExp, array, or async function.
+   *
+   * Origin values are matched as raw header strings (no URL parsing or
+   * normalization). A spec-conformant user agent serializes an opaque origin
+   * (e.g., a sandboxed iframe, `data:`, `file:`) as the literal string
+   * `"null"` per RFC 6454 §6. To accept such opaque origins, pass `'null'`
+   * (the string) as the option.
    *
    * @defaultValue `'*'`
    */

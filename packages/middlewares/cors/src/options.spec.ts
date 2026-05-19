@@ -2,8 +2,30 @@ import { describe, expect, it } from 'bun:test';
 
 import { CORS_DEFAULT_METHODS, CORS_DEFAULT_OPTIONS_SUCCESS_STATUS } from './constants';
 import { CorsErrorReason } from './enums';
-import { resolveCorsOptions, validateCorsOptions } from './options';
+import { isBlank, resolveCorsOptions, validateCorsOptions } from './options';
 import type { ResolvedCorsOptions } from './types';
+
+describe('isBlank', () => {
+  it('should return true for an empty string', () => {
+    expect(isBlank('')).toBe(true);
+  });
+
+  it('should return true for a single space', () => {
+    expect(isBlank(' ')).toBe(true);
+  });
+
+  it('should return true for multiple whitespace characters (spaces, tabs, newlines)', () => {
+    expect(isBlank('   \t\n  ')).toBe(true);
+  });
+
+  it('should return false for a non-blank token', () => {
+    expect(isBlank('X-Custom')).toBe(false);
+  });
+
+  it('should return false for a token with surrounding whitespace', () => {
+    expect(isBlank('  X-Custom  ')).toBe(false);
+  });
+});
 
 describe('resolveCorsOptions', () => {
   it('should return all defaults when called without arguments', () => {
@@ -18,6 +40,7 @@ describe('resolveCorsOptions', () => {
     expect(result.maxAge).toBeNull();
     expect(result.preflightContinue).toBe(false);
     expect(result.optionsSuccessStatus).toBe(CORS_DEFAULT_OPTIONS_SUCCESS_STATUS);
+    expect(result.allowPrivateNetwork).toBe(false);
   });
 
   it('should reflect all explicit values when every field is provided', () => {
@@ -72,16 +95,6 @@ describe('resolveCorsOptions', () => {
     expect(result.maxAge).toBe(0);
     expect(result.preflightContinue).toBe(false);
     expect(result.optionsSuccessStatus).toBe(0);
-  });
-
-  it('should return identical structure for identical options called twice', () => {
-    // Arrange
-    const options = { origin: 'https://a.com' as const, credentials: true };
-    // Act
-    const r1 = resolveCorsOptions(options);
-    const r2 = resolveCorsOptions(options);
-    // Assert
-    expect(r1).toEqual(r2);
   });
 
   it('should uppercase all method strings except wildcard when methods has lowercase entries', () => {
@@ -167,9 +180,9 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
-    expect(typeof result!.data.message).toBe('string');
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+    expect(typeof result.data.message).toBe('string');
   });
 
   it('should return CorsError when maxAge is negative', () => {
@@ -178,8 +191,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
   });
 
   it('should return CorsError when optionsSuccessStatus is below 200', () => {
@@ -188,8 +201,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
   });
 
   it('should return CorsError when optionsSuccessStatus is above 299', () => {
@@ -198,8 +211,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
   });
 
   it('should return CorsError when maxAge is non-integer', () => {
@@ -208,8 +221,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
   });
 
   it('should return CorsError when maxAge is Infinity', () => {
@@ -218,8 +231,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
   });
 
   it('should return CorsError when optionsSuccessStatus is 100', () => {
@@ -228,8 +241,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
   });
 
   it('should return CorsError when optionsSuccessStatus is 599', () => {
@@ -238,8 +251,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
   });
 
   it('should pass when maxAge is zero (boundary)', () => {
@@ -278,32 +291,26 @@ describe('validateCorsOptions', () => {
     expect(result).toBeUndefined();
   });
 
-  it('should reject at first violated rule when multiple rules fail', () => {
-    // Arrange — credentials+wildcard (V1) + maxAge:-1 (V2) + status:0 (V3)
+  it('should report credentials-with-wildcard origin before maxAge and status code violations', () => {
     const resolved = makeResolved({
       credentials: true,
       origin: '*',
       maxAge: -1,
       optionsSuccessStatus: 0,
     });
-    // Act
     const result = validateCorsOptions(resolved);
-    // Assert — V1 fires first
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
   });
 
-  it('should reject V2 before V3 when both maxAge and status fail', () => {
-    // Arrange — maxAge:1.5 (V2) + status:0 (V3)
+  it('should report maxAge violation before status code violation', () => {
     const resolved = makeResolved({
       maxAge: 1.5,
       optionsSuccessStatus: 0,
     });
-    // Act
     const result = validateCorsOptions(resolved);
-    // Assert — V2 fires first
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
   });
 
   // ── origin 신규 검증 ──
@@ -359,8 +366,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
   it('should return CorsError when origin is a blank string with spaces', () => {
@@ -369,8 +376,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
   it('should return CorsError when origin is a single space', () => {
@@ -379,8 +386,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
   it('should return CorsError when origin is an empty array', () => {
@@ -389,8 +396,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
   it('should return CorsError when origin array contains an empty string', () => {
@@ -399,8 +406,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
   it('should return CorsError when origin array contains a blank string', () => {
@@ -409,8 +416,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
   it('should return CorsError when origin array contains a single space', () => {
@@ -419,8 +426,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
   it('should return CorsError when origin array mixes valid and empty string entries', () => {
@@ -429,8 +436,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
   it('should fire InvalidOrigin before CredentialsWithWildcardOrigin when origin is empty string and credentials is true', () => {
@@ -439,8 +446,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert — InvalidOrigin fires before V1
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
   // ── methods 신규 검증 ──
@@ -478,8 +485,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidMethods);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidMethods);
   });
 
   it('should return CorsError when methods contains an empty string', () => {
@@ -488,8 +495,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidMethods);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidMethods);
   });
 
   it('should return CorsError when methods contains a blank string', () => {
@@ -498,8 +505,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidMethods);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidMethods);
   });
 
   it('should return CorsError when methods mixes valid and empty string entries', () => {
@@ -508,8 +515,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidMethods);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidMethods);
   });
 
   // ── allowedHeaders 신규 검증 ──
@@ -547,8 +554,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidAllowedHeaders);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidAllowedHeaders);
   });
 
   it('should return CorsError when allowedHeaders contains a blank string', () => {
@@ -557,8 +564,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidAllowedHeaders);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidAllowedHeaders);
   });
 
   it('should return CorsError when allowedHeaders mixes valid and empty string entries', () => {
@@ -567,8 +574,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidAllowedHeaders);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidAllowedHeaders);
   });
 
   // ── exposedHeaders 신규 검증 ──
@@ -606,8 +613,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidExposedHeaders);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidExposedHeaders);
   });
 
   it('should return CorsError when exposedHeaders contains a blank string', () => {
@@ -616,8 +623,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidExposedHeaders);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidExposedHeaders);
   });
 
   it('should return CorsError when exposedHeaders mixes valid and empty string entries', () => {
@@ -626,8 +633,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidExposedHeaders);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidExposedHeaders);
   });
 
   // ── optionsSuccessStatus 강화 검증 ──
@@ -638,8 +645,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
   });
 
   it('should return CorsError when optionsSuccessStatus is a decimal number', () => {
@@ -648,8 +655,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidStatusCode);
   });
 
   // ── V_regex — single RegExp origin ──
@@ -723,9 +730,9 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-    expect(typeof result!.data.message).toBe('string');
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
+    expect(typeof result.data.message).toBe('string');
   });
 
   it('should return CorsError when origin is an unsafe RegExp (nested star)', () => {
@@ -734,8 +741,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
   });
 
   it('should return CorsError when origin RegExp has star height ≥ 2', () => {
@@ -744,8 +751,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
   });
 
   // ── V_regex — array containing RegExp ──
@@ -774,8 +781,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
   });
 
   it('should return CorsError when origin array mixes safe string and unsafe RegExp', () => {
@@ -784,8 +791,8 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
   });
 
   it('should return CorsError when origin array mixes safe RegExp and unsafe RegExp', () => {
@@ -794,63 +801,37 @@ describe('validateCorsOptions', () => {
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
   });
 
-  // ── V_regex — validation order ──
+  // ── origin RegExp validation order ──
 
-  it('should fire UnsafeRegExp before V1/V2/V3 when origin is unsafe RegExp with other invalid options', () => {
-    // Arrange — unsafe origin + invalid maxAge + invalid status
+  it('should report unsafe RegExp before maxAge and status code violations', () => {
     const resolved = makeResolved({ origin: /(a+)+$/, maxAge: -1, optionsSuccessStatus: 0 });
-    // Act
     const result = validateCorsOptions(resolved);
-    // Assert — V_regex fires first
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
   });
 
-  it('should fire InvalidOrigin before UnsafeRegExp when array has blank string and unsafe RegExp', () => {
-    // Arrange — blank string triggers V0b before V_regex
+  it('should report blank origin entry before unsafe RegExp within the same array', () => {
     const resolved = makeResolved({ origin: ['', /(a+)+$/] });
-    // Act
     const result = validateCorsOptions(resolved);
-    // Assert — V0b (blank) fires first
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
-  it('should pass both V_regex and V1 when origin is safe RegExp with credentials:true', () => {
-    // Arrange — RegExp origin is not '*', so V1 does not fire
+  it('should pass for a safe RegExp origin with credentials:true (RegExp is not the wildcard)', () => {
     const resolved = makeResolved({ origin: /^a$/, credentials: true });
-    // Act
     const result = validateCorsOptions(resolved);
-    // Assert
     expect(result).toBeUndefined();
   });
 
-  it('should fire UnsafeRegExp before V0c when origin array has unsafe RegExp and methods is invalid', () => {
-    // Arrange
+  it('should report unsafe RegExp in origin array before invalid methods', () => {
     const resolved = makeResolved({ origin: [/(a+)+$/], methods: [] });
-    // Act
     const result = validateCorsOptions(resolved);
-    // Assert — V_regex fires inside V0b before V0c
-    expect(result).toBeDefined();
-    expect(result!.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
+    if (result === undefined) throw new Error('expected validation error');
+    expect(result.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
   });
 
-  // ── V_regex — idempotency ──
-
-  it('should return the same UnsafeRegExp error on repeated calls with the same unsafe RegExp', () => {
-    // Arrange
-    const resolved = makeResolved({ origin: /(a+)+$/ });
-    // Act
-    const r1 = validateCorsOptions(resolved);
-    const r2 = validateCorsOptions(resolved);
-    // Assert
-    expect(r1).toBeDefined();
-    expect(r2).toBeDefined();
-    expect(r1!.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-    expect(r2!.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-  });
 });

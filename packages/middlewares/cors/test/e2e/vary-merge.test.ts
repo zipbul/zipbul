@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { defineMiddleware } from '@zipbul/common';
 import { HttpAdapter, HttpContext, HttpAdapterPhase } from '@zipbul/http-adapter';
-import { Tck, type TestApplication } from '@zipbul/conformance';
+import { Tck, type TestApplication } from '@zipbul/tck';
 
 import { corsMiddleware } from '../../index';
 import { setupSilentLogger, varyTokens } from './helpers';

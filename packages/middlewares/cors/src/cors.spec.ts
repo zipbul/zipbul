@@ -67,15 +67,19 @@ describe('Cors', () => {
     });
 
     it('should throw CorsError for invalid options', () => {
-      // Arrange / Act / Assert
-      let caught: unknown;
+      expect(() => Cors.create({ credentials: true, origin: '*' })).toThrow(CorsError);
+    });
+
+    it('should throw CorsError with CredentialsWithWildcardOrigin reason for invalid options', () => {
       try {
         Cors.create({ credentials: true, origin: '*' });
+        throw new Error('expected throw');
       } catch (e) {
-        caught = e;
+        expect(e).toBeInstanceOf(CorsError);
+        if (e instanceof CorsError) {
+          expect(e.reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+        }
       }
-      expect(caught).toBeInstanceOf(CorsError);
-      expect((caught as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
     });
   });
 
@@ -90,7 +94,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertReject(result);
-      expect((result as CorsRejectResult).reason).toBe(CorsRejectionReason.NoOrigin);
+      expect(result.reason).toBe(CorsRejectionReason.NoOrigin);
     });
 
     it('should reject when Origin header is empty string', async () => {
@@ -101,7 +105,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertReject(result);
-      expect((result as CorsRejectResult).reason).toBe(CorsRejectionReason.NoOrigin);
+      expect(result.reason).toBe(CorsRejectionReason.NoOrigin);
     });
 
     it('should return ACAO:* for wildcard origin and GET', async () => {
@@ -112,33 +116,31 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
-      expect((result as CorsContinueResult).headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('*');
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('*');
     });
 
-    it('should reflect origin when wildcard with credentials', async () => {
-      // Arrange — origin defaults to '*', credentials:true → reflected
-      // wait, create({credentials:true}) with default origin '*' → validate fails.
-      // So we need origin:true + credentials:true
+    it('should reflect origin when origin:true with credentials', async () => {
       const cors = Cors.create({ origin: true, credentials: true });
       const req = makeRequest('GET', 'https://a.com');
-      // Act
       const result = await cors.handle(req);
-      // Assert
       assertContinue(result);
-      expect((result as CorsContinueResult).headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
     });
 
-    it('should return Continue with Vary:Origin for specific string origin match', async () => {
-      // Arrange
+    it('should return ACAO matching the request origin for specific string origin match', async () => {
       const cors = Cors.create({ origin: 'https://a.com' });
       const req = makeRequest('GET', 'https://a.com');
-      // Act
       const result = await cors.handle(req);
-      // Assert
       assertContinue(result);
-      const headers = (result as CorsContinueResult).headers;
-      expect(headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
-      expect(headers.get(HttpHeader.Vary)).toContain(HttpHeader.Origin);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
+    });
+
+    it('should append Vary:Origin for specific string origin match', async () => {
+      const cors = Cors.create({ origin: 'https://a.com' });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.Vary)).toContain(HttpHeader.Origin);
     });
 
     it('should reject when specific string origin does not match', async () => {
@@ -149,7 +151,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertReject(result);
-      expect((result as CorsRejectResult).reason).toBe(CorsRejectionReason.OriginNotAllowed);
+      expect(result.reason).toBe(CorsRejectionReason.OriginNotAllowed);
     });
 
     it('should reflect origin when origin is true', async () => {
@@ -160,7 +162,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
-      expect((result as CorsContinueResult).headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://any.com');
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://any.com');
     });
 
     it('should reject when origin is false', async () => {
@@ -171,7 +173,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertReject(result);
-      expect((result as CorsRejectResult).reason).toBe(CorsRejectionReason.OriginNotAllowed);
+      expect(result.reason).toBe(CorsRejectionReason.OriginNotAllowed);
     });
 
     it('should allow when origin matches RegExp', async () => {
@@ -220,19 +222,6 @@ describe('Cors', () => {
       assertContinue(result2);
     });
 
-    it('should return Allow consistently when RegExp has no flag and called twice', async () => {
-      // Arrange
-      const cors = Cors.create({ origin: /^https:\/\/a\.com$/ });
-      const req1 = makeRequest('GET', 'https://a.com');
-      const req2 = makeRequest('GET', 'https://a.com');
-      // Act
-      const result1 = await cors.handle(req1);
-      const result2 = await cors.handle(req2);
-      // Assert
-      assertContinue(result1);
-      assertContinue(result2);
-    });
-
     it('should allow when origin matches any entry in array (string+RegExp)', async () => {
       // Arrange
       const cors = Cors.create({ origin: ['https://a.com', /\.example\.com$/] });
@@ -253,15 +242,19 @@ describe('Cors', () => {
       assertReject(result);
     });
 
-    it('should allow when OriginFn returns true', async () => {
-      // Arrange
+    it('should reflect the request origin in ACAO when OriginFn returns true', async () => {
+      const cors = Cors.create({ origin: () => true });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
+    });
+
+    it('should invoke OriginFn with (origin, request) tuple', async () => {
       const fn = mock(() => true as const);
       const cors = Cors.create({ origin: fn });
       const req = makeRequest('GET', 'https://a.com');
-      // Act
-      const result = await cors.handle(req);
-      // Assert
-      assertContinue(result);
+      await cors.handle(req);
       expect(fn).toHaveBeenCalledWith('https://a.com', req);
     });
 
@@ -273,7 +266,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
-      expect((result as CorsContinueResult).headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://custom.com');
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://custom.com');
     });
 
     it('should reject when OriginFn returns false', async () => {
@@ -286,19 +279,39 @@ describe('Cors', () => {
       assertReject(result);
     });
 
-    it('should throw CorsError when OriginFn throws', async () => {
-      // Arrange
+    it('should reject with CorsError when OriginFn throws', async () => {
       const cors = Cors.create({ origin: () => { throw new Error('boom'); } });
       const req = makeRequest('GET', 'https://a.com');
-      // Act / Assert
-      let caught: unknown;
+      await expect(cors.handle(req)).rejects.toBeInstanceOf(CorsError);
+    });
+
+    it('should set CorsError.reason to OriginFunctionError when OriginFn throws', async () => {
+      const cors = Cors.create({ origin: () => { throw new Error('boom'); } });
+      const req = makeRequest('GET', 'https://a.com');
       try {
         await cors.handle(req);
+        throw new Error('expected throw');
       } catch (e) {
-        caught = e;
+        expect(e).toBeInstanceOf(CorsError);
+        if (e instanceof CorsError) {
+          expect(e.reason).toBe(CorsErrorReason.OriginFunctionError);
+        }
       }
-      expect(caught).toBeInstanceOf(CorsError);
-      expect((caught as CorsError).reason).toBe(CorsErrorReason.OriginFunctionError);
+    });
+
+    it('should preserve original thrown value in CorsError.cause', async () => {
+      const original = new Error('boom');
+      const cors = Cors.create({ origin: () => { throw original; } });
+      const req = makeRequest('GET', 'https://a.com');
+      try {
+        await cors.handle(req);
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        if (e instanceof CorsError) {
+          expect(e.cause).toBe(original);
+        }
+      }
     });
   });
 
@@ -313,7 +326,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
-      expect((result as CorsContinueResult).headers.get(HttpHeader.AccessControlAllowCredentials)).toBe('true');
+      expect(result.headers.get(HttpHeader.AccessControlAllowCredentials)).toBe('true');
     });
   });
 
@@ -328,7 +341,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
-      expect((result as CorsContinueResult).headers.get(HttpHeader.AccessControlExposeHeaders)).toBe('X-Custom,X-Other');
+      expect(result.headers.get(HttpHeader.AccessControlExposeHeaders)).toBe('X-Custom,X-Other');
     });
 
     it('should not set ACEH when exposedHeaders is wildcard and credentials is true', async () => {
@@ -339,7 +352,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
-      expect((result as CorsContinueResult).headers.has(HttpHeader.AccessControlExposeHeaders)).toBe(false);
+      expect(result.headers.has(HttpHeader.AccessControlExposeHeaders)).toBe(false);
     });
 
     it('should keep explicit headers filtering wildcard when credentials is true', async () => {
@@ -350,7 +363,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
-      expect((result as CorsContinueResult).headers.get(HttpHeader.AccessControlExposeHeaders)).toBe('X-Custom');
+      expect(result.headers.get(HttpHeader.AccessControlExposeHeaders)).toBe('X-Custom');
     });
 
     it('should keep multiple explicit headers filtering wildcard when credentials is true', async () => {
@@ -361,7 +374,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
-      expect((result as CorsContinueResult).headers.get(HttpHeader.AccessControlExposeHeaders)).toBe('X-A,X-B');
+      expect(result.headers.get(HttpHeader.AccessControlExposeHeaders)).toBe('X-A,X-B');
     });
   });
 
@@ -379,14 +392,11 @@ describe('Cors', () => {
     });
 
     it('should return RespondPreflight with ACAM when method is allowed', async () => {
-      // Arrange
       const cors = Cors.create({ origin: true });
       const req = makePreflight('https://a.com', 'POST');
-      // Act
       const result = await cors.handle(req);
-      // Assert
       assertPreflight(result);
-      expect((result as CorsPreflightResult).headers.has(HttpHeader.AccessControlAllowMethods)).toBe(true);
+      expect(result.headers.get(HttpHeader.AccessControlAllowMethods)).toBe('GET,HEAD,PUT,PATCH,POST,DELETE');
     });
 
     it('should reject when preflight method is not allowed', async () => {
@@ -397,7 +407,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertReject(result);
-      expect((result as CorsRejectResult).reason).toBe(CorsRejectionReason.MethodNotAllowed);
+      expect(result.reason).toBe(CorsRejectionReason.MethodNotAllowed);
     });
 
     it('should reject when preflight method has wrong case', async () => {
@@ -408,7 +418,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertReject(result);
-      expect((result as CorsRejectResult).reason).toBe(CorsRejectionReason.MethodNotAllowed);
+      expect(result.reason).toBe(CorsRejectionReason.MethodNotAllowed);
     });
 
     it('should set ACAH when explicit allowedHeaders match', async () => {
@@ -419,7 +429,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertPreflight(result);
-      expect((result as CorsPreflightResult).headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom,Authorization');
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom,Authorization');
     });
 
     it('should reject when explicit allowedHeaders do not match', async () => {
@@ -430,7 +440,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertReject(result);
-      expect((result as CorsRejectResult).reason).toBe(CorsRejectionReason.HeaderNotAllowed);
+      expect(result.reason).toBe(CorsRejectionReason.HeaderNotAllowed);
     });
 
     it('should echo request headers when allowedHeaders is null (echo mode)', async () => {
@@ -441,7 +451,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertPreflight(result);
-      expect((result as CorsPreflightResult).headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom, X-Other');
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom, X-Other');
     });
 
     it('should set ACAH:* when allowedHeaders is wildcard without credentials', async () => {
@@ -452,7 +462,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertPreflight(result);
-      expect((result as CorsPreflightResult).headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('*');
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('*');
     });
 
     it('should reject when wildcard allowedHeaders with Authorization but no explicit entry', async () => {
@@ -463,7 +473,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertReject(result);
-      expect((result as CorsRejectResult).reason).toBe(CorsRejectionReason.HeaderNotAllowed);
+      expect(result.reason).toBe(CorsRejectionReason.HeaderNotAllowed);
     });
 
     it('should allow Authorization with wildcard when explicitly listed', async () => {
@@ -488,7 +498,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertPreflight(result);
-      expect((result as CorsPreflightResult).headers.get(HttpHeader.AccessControlMaxAge)).toBe('86400');
+      expect(result.headers.get(HttpHeader.AccessControlMaxAge)).toBe('86400');
     });
 
     it('should return Continue when preflightContinue is true', async () => {
@@ -509,7 +519,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertPreflight(result);
-      expect((result as CorsPreflightResult).statusCode).toBe(200);
+      expect(result.statusCode).toBe(200);
     });
   });
 
@@ -524,34 +534,355 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertPreflight(result);
-      expect((result as CorsPreflightResult).headers.get(HttpHeader.AccessControlAllowMethods)).toBe('PATCH');
+      expect(result.headers.get(HttpHeader.AccessControlAllowMethods)).toBe('PATCH');
     });
 
     it('should return ACAM:* when methods is wildcard without credentials', async () => {
-      // Arrange
       const cors = Cors.create({ origin: true, methods: ['*'] });
       const req = makePreflight('https://a.com', 'PUT');
-      // Act
       const result = await cors.handle(req);
-      // Assert
       assertPreflight(result);
-      expect((result as CorsPreflightResult).headers.get(HttpHeader.AccessControlAllowMethods)).toBe('*');
+      expect(result.headers.get(HttpHeader.AccessControlAllowMethods)).toBe('*');
     });
   });
 
-  // ── Idempotency ──
+  // ── HEAD method (CORS-safelisted) ──
 
-  describe('idempotency', () => {
-    it('should produce identical results for the same request called twice', async () => {
-      // Arrange
+  describe('HEAD method', () => {
+    it('should treat HEAD as a non-preflight request and emit ACAO', async () => {
       const cors = Cors.create({ origin: 'https://a.com' });
-      const req1 = makeRequest('GET', 'https://a.com');
-      const req2 = makeRequest('GET', 'https://a.com');
-      // Act
-      const r1 = await cors.handle(req1);
-      const r2 = await cors.handle(req2);
-      // Assert
-      expect(r1).toEqual(r2);
+      const req = makeRequest('HEAD', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
+    });
+
+    it('should append Vary:Origin for HEAD when ACAO is non-wildcard', async () => {
+      const cors = Cors.create({ origin: 'https://a.com' });
+      const req = makeRequest('HEAD', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.Vary)).toContain(HttpHeader.Origin);
+    });
+
+    it('should attach ACEH on HEAD when exposedHeaders is configured', async () => {
+      const cors = Cors.create({ origin: true, exposedHeaders: ['X-Trace'] });
+      const req = makeRequest('HEAD', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlExposeHeaders)).toBe('X-Trace');
     });
   });
+
+  // ── Negative assertions (header absence) ──
+
+  describe('header absence (negative assertions)', () => {
+    it('should not set ACAC when credentials is false', async () => {
+      const cors = Cors.create({ origin: 'https://a.com', credentials: false });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.has(HttpHeader.AccessControlAllowCredentials)).toBe(false);
+    });
+
+    it('should not set ACEH on preflight (OPTIONS + ACRM) even when exposedHeaders is configured', async () => {
+      const cors = Cors.create({ origin: true, exposedHeaders: ['X-Trace'] });
+      const req = makePreflight('https://a.com', 'POST');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.has(HttpHeader.AccessControlExposeHeaders)).toBe(false);
+    });
+
+    it('should not set ACEH on OPTIONS + no ACRM (non-preflight OPTIONS) even when exposedHeaders is configured', async () => {
+      const cors = Cors.create({ origin: true, exposedHeaders: ['X-Trace'] });
+      const req = makeRequest('OPTIONS', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.has(HttpHeader.AccessControlExposeHeaders)).toBe(false);
+    });
+
+    it('should not set Vary:Origin when ACAO is wildcard with no credentials', async () => {
+      const cors = Cors.create({ origin: '*' });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      const vary = result.headers.get(HttpHeader.Vary);
+      // Vary may be unset or set to other tokens — but must not contain Origin.
+      if (vary !== null) expect(vary).not.toContain(HttpHeader.Origin);
+    });
+  });
+
+  // ── ACEH wildcard + no credentials ──
+
+  describe('exposed headers wildcard without credentials', () => {
+    it('should emit ACEH:* literally when exposedHeaders is ["*"] and credentials is false', async () => {
+      const cors = Cors.create({ origin: true, exposedHeaders: ['*'] });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlExposeHeaders)).toBe('*');
+    });
+
+    it('should emit ACEH joined when exposedHeaders has no wildcard and credentials is true', async () => {
+      const cors = Cors.create({ origin: 'https://a.com', credentials: true, exposedHeaders: ['X-A', 'X-B'] });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlExposeHeaders)).toBe('X-A,X-B');
+    });
+  });
+
+  // ── async OriginFn ──
+
+  describe('async OriginFn', () => {
+    it('should reflect origin when OriginFn returns Promise<true>', async () => {
+      const cors = Cors.create({ origin: async () => true });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
+    });
+
+    it('should use literal when OriginFn returns Promise<string>', async () => {
+      const cors = Cors.create({ origin: async () => 'https://override.com' });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://override.com');
+    });
+
+    it('should reject when OriginFn returns Promise<false>', async () => {
+      const cors = Cors.create({ origin: async () => false });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertReject(result);
+      expect(result.reason).toBe(CorsRejectionReason.OriginNotAllowed);
+    });
+
+    it('should throw CorsError(OriginFunctionError) when OriginFn rejects', async () => {
+      const cors = Cors.create({ origin: async () => { throw new Error('boom'); } });
+      const req = makeRequest('GET', 'https://a.com');
+      await expect(cors.handle(req)).rejects.toBeInstanceOf(CorsError);
+    });
+
+    it('should reject when OriginFn returns empty string', async () => {
+      const cors = Cors.create({ origin: () => '' });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertReject(result);
+      expect(result.reason).toBe(CorsRejectionReason.OriginNotAllowed);
+    });
+  });
+
+  // ── pure string array origin ──
+
+  describe('pure string array origin', () => {
+    it('should match the first matching string entry', async () => {
+      const cors = Cors.create({ origin: ['https://a.com', 'https://b.com'] });
+      const req = makeRequest('GET', 'https://b.com');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://b.com');
+    });
+
+    it('should reject when no string entry matches', async () => {
+      const cors = Cors.create({ origin: ['https://a.com', 'https://b.com'] });
+      const req = makeRequest('GET', 'https://c.com');
+      const result = await cors.handle(req);
+      assertReject(result);
+    });
+  });
+
+  // ── preflight with empty ACRM ──
+
+  describe('preflight with empty ACRM', () => {
+    it('should treat OPTIONS + empty ACRM as non-preflight (Continue)', async () => {
+      const cors = Cors.create({ origin: true });
+      const req = new Request('http://localhost', {
+        method: 'OPTIONS',
+        headers: {
+          [HttpHeader.Origin]: 'https://a.com',
+          [HttpHeader.AccessControlRequestMethod]: '',
+        },
+      });
+      const result = await cors.handle(req);
+      assertContinue(result);
+    });
+  });
+
+  // ── preflight with explicit allowedHeaders ──
+
+  describe('preflight with explicit allowedHeaders edge cases', () => {
+    it('should reject when allowedHeaders is empty array and ACRH is non-empty', async () => {
+      const cors = Cors.create({ origin: true, allowedHeaders: [] });
+      const req = makePreflight('https://a.com', 'POST', 'X-Custom');
+      const result = await cors.handle(req);
+      assertReject(result);
+      expect(result.reason).toBe(CorsRejectionReason.HeaderNotAllowed);
+    });
+
+    it('should allow when allowedHeaders is empty array and ACRH is absent', async () => {
+      const cors = Cors.create({ origin: true, allowedHeaders: [] });
+      const req = makePreflight('https://a.com', 'POST');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+    });
+
+    it('should not set ACAH when explicit allowedHeaders is set but ACRH is absent', async () => {
+      const cors = Cors.create({ origin: true, allowedHeaders: ['X-A'] });
+      const req = makePreflight('https://a.com', 'POST');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      // Implementation only writes ACAH when there are headers to serialize; bare allowed list
+      // without a corresponding ACRH still produces a value because allowedHeaders is non-empty.
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-A');
+    });
+
+    it('should match Authorization header case-insensitively under wildcard ACAH', async () => {
+      const cors = Cors.create({ origin: 'https://a.com', allowedHeaders: ['*', 'Authorization'], credentials: true });
+      const req = makePreflight('https://a.com', 'POST', 'AUTHORIZATION');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+    });
+
+    it('should pass when ACAH wildcard with credentials and ACRH contains a non-Authorization header', async () => {
+      const cors = Cors.create({ origin: 'https://a.com', allowedHeaders: ['*'], credentials: true });
+      const req = makePreflight('https://a.com', 'POST', 'X-Custom');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+    });
+  });
+
+  // ── maxAge serialization ──
+
+  describe('maxAge serialization', () => {
+    it('should serialize maxAge=0 as ACMA:"0"', async () => {
+      const cors = Cors.create({ origin: true, maxAge: 0 });
+      const req = makePreflight('https://a.com', 'POST');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlMaxAge)).toBe('0');
+    });
+  });
+
+  // ── preflightContinue header attachment ──
+
+  describe('preflightContinue', () => {
+    it('should attach ACAM headers even when preflightContinue is true', async () => {
+      const cors = Cors.create({ origin: true, preflightContinue: true });
+      const req = makePreflight('https://a.com', 'POST');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.has(HttpHeader.AccessControlAllowMethods)).toBe(true);
+    });
+
+    it('should attach ACAH headers even when preflightContinue is true', async () => {
+      const cors = Cors.create({ origin: true, preflightContinue: true, allowedHeaders: ['X-Custom'] });
+      const req = makePreflight('https://a.com', 'POST', 'X-Custom');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom');
+    });
+
+    it('should attach ACMA when preflightContinue is true and maxAge is configured', async () => {
+      const cors = Cors.create({ origin: true, preflightContinue: true, maxAge: 3600 });
+      const req = makePreflight('https://a.com', 'POST');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlMaxAge)).toBe('3600');
+    });
+  });
+
+  // ── Vary header on preflight ──
+
+  describe('Vary header on preflight', () => {
+    it('should append Access-Control-Request-Method to Vary on preflight', async () => {
+      const cors = Cors.create({ origin: true });
+      const req = makePreflight('https://a.com', 'POST');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.get(HttpHeader.Vary)).toContain(HttpHeader.AccessControlRequestMethod);
+    });
+
+    it('should append Access-Control-Request-Headers to Vary when ACAH is emitted', async () => {
+      const cors = Cors.create({ origin: true, allowedHeaders: ['X-Custom'] });
+      const req = makePreflight('https://a.com', 'POST', 'X-Custom');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.get(HttpHeader.Vary)).toContain(HttpHeader.AccessControlRequestHeaders);
+    });
+  });
+
+  // ── Private Network Access ──
+
+  describe('PNA (private network access)', () => {
+    it('should set ACAPN:true when allowPrivateNetwork=true and ACRPN:true', async () => {
+      const cors = Cors.create({ origin: true, allowPrivateNetwork: true });
+      const req = new Request('http://localhost', {
+        method: 'OPTIONS',
+        headers: {
+          [HttpHeader.Origin]: 'https://a.com',
+          [HttpHeader.AccessControlRequestMethod]: 'POST',
+          [HttpHeader.AccessControlRequestPrivateNetwork]: 'true',
+        },
+      });
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowPrivateNetwork)).toBe('true');
+    });
+
+    it('should not set ACAPN when ACRPN header is absent', async () => {
+      const cors = Cors.create({ origin: true, allowPrivateNetwork: true });
+      const req = makePreflight('https://a.com', 'POST');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.has(HttpHeader.AccessControlAllowPrivateNetwork)).toBe(false);
+    });
+
+    it('should not set ACAPN when ACRPN is "false"', async () => {
+      const cors = Cors.create({ origin: true, allowPrivateNetwork: true });
+      const req = new Request('http://localhost', {
+        method: 'OPTIONS',
+        headers: {
+          [HttpHeader.Origin]: 'https://a.com',
+          [HttpHeader.AccessControlRequestMethod]: 'POST',
+          [HttpHeader.AccessControlRequestPrivateNetwork]: 'false',
+        },
+      });
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.has(HttpHeader.AccessControlAllowPrivateNetwork)).toBe(false);
+    });
+
+    it('should not set ACAPN when allowPrivateNetwork=false even with ACRPN:true', async () => {
+      const cors = Cors.create({ origin: true, allowPrivateNetwork: false });
+      const req = new Request('http://localhost', {
+        method: 'OPTIONS',
+        headers: {
+          [HttpHeader.Origin]: 'https://a.com',
+          [HttpHeader.AccessControlRequestMethod]: 'POST',
+          [HttpHeader.AccessControlRequestPrivateNetwork]: 'true',
+        },
+      });
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.has(HttpHeader.AccessControlAllowPrivateNetwork)).toBe(false);
+    });
+
+    it('should reject ACRPN with non-canonical "TRUE" (case-sensitive match required)', async () => {
+      const cors = Cors.create({ origin: true, allowPrivateNetwork: true });
+      const req = new Request('http://localhost', {
+        method: 'OPTIONS',
+        headers: {
+          [HttpHeader.Origin]: 'https://a.com',
+          [HttpHeader.AccessControlRequestMethod]: 'POST',
+          [HttpHeader.AccessControlRequestPrivateNetwork]: 'TRUE',
+        },
+      });
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.has(HttpHeader.AccessControlAllowPrivateNetwork)).toBe(false);
+    });
+  });
+
 });

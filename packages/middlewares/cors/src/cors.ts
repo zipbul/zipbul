@@ -15,7 +15,10 @@ import type { OriginResult } from './types';
  * instead of generating responses directly.
  */
 export class Cors {
-  private constructor(private readonly options: ResolvedCorsOptions) {}
+  private constructor(
+    /** @internal */
+    readonly options: ResolvedCorsOptions,
+  ) {}
 
   /**
    * Creates a Cors instance after resolving and validating options.
@@ -138,11 +141,13 @@ export class Cors {
     return { action: CorsAction.RespondPreflight, headers, statusCode: this.options.optionsSuccessStatus };
   }
 
-  private reject(reason: CorsRejectionReason): CorsRejectResult {
+  /** @internal */
+  reject(reason: CorsRejectionReason): CorsRejectResult {
     return { action: CorsAction.Reject, reason };
   }
 
-  private async matchOrigin(origin: string, request: Request): ResultAsync<string | undefined, CorsErrorData> {
+  /** @internal */
+  async matchOrigin(origin: string, request: Request): ResultAsync<string | undefined, CorsErrorData> {
     const originOption = this.options.origin;
 
     if (originOption === false) {
@@ -181,9 +186,10 @@ export class Cors {
 
     const originResult = await safe(
       (async () => originOption(origin, request))(),
-      (): CorsErrorData => ({
+      (thrown): CorsErrorData => ({
         reason: CorsErrorReason.OriginFunctionError,
         message: 'Origin function threw an error',
+        cause: thrown,
       }),
     );
 
@@ -194,7 +200,8 @@ export class Cors {
     return this.resolveOriginResult(origin, originResult);
   }
 
-  private resolveOriginResult(origin: string, result: OriginResult): string | undefined {
+  /** @internal */
+  resolveOriginResult(origin: string, result: OriginResult): string | undefined {
     if (result === true) {
       return origin;
     }
@@ -206,7 +213,8 @@ export class Cors {
     return undefined;
   }
 
-  private serializeExposeHeaders(exposedHeaders: string[]): string | undefined {
+  /** @internal */
+  serializeExposeHeaders(exposedHeaders: string[]): string | undefined {
     if (this.options.credentials && this.includesWildcard(exposedHeaders)) {
       const explicit = exposedHeaders.filter(header => header.trim() !== '*');
 
@@ -216,7 +224,8 @@ export class Cors {
     return exposedHeaders.join(',');
   }
 
-  private isMethodAllowed(requestMethod: string, allowedMethods: Array<string>): boolean {
+  /** @internal */
+  isMethodAllowed(requestMethod: string, allowedMethods: Array<string>): boolean {
     if (this.includesWildcard(allowedMethods)) {
       return true;
     }
@@ -224,7 +233,8 @@ export class Cors {
     return allowedMethods.includes(requestMethod);
   }
 
-  private serializeAllowedMethods(allowedMethods: Array<string>, requestMethod: string): string {
+  /** @internal */
+  serializeAllowedMethods(allowedMethods: Array<string>, requestMethod: string): string {
     if (!this.includesWildcard(allowedMethods)) {
       return allowedMethods.join(',');
     }
@@ -236,7 +246,8 @@ export class Cors {
     return '*';
   }
 
-  private areRequestHeadersAllowed(requestHeaders: string[], allowedHeaders: string[]): boolean {
+  /** @internal */
+  areRequestHeadersAllowed(requestHeaders: string[], allowedHeaders: string[]): boolean {
     if (requestHeaders.length === 0) {
       return true;
     }
@@ -272,7 +283,8 @@ export class Cors {
     return requestHeaders.every(header => this.includesHeader(allowedHeaders, header));
   }
 
-  private serializeAllowedHeaders(allowedHeaders: string[], requestHeadersRaw: string | null): string | undefined {
+  /** @internal */
+  serializeAllowedHeaders(allowedHeaders: string[], requestHeadersRaw: string | null): string | undefined {
     if (allowedHeaders.length === 0) {
       return undefined;
     }
@@ -292,15 +304,18 @@ export class Cors {
     return '*';
   }
 
-  private includesWildcard(values: string[]): boolean {
+  /** @internal */
+  includesWildcard(values: string[]): boolean {
     return values.some(value => value === '*');
   }
 
-  private includesHeader(allowedHeaders: string[], requestHeader: string): boolean {
+  /** @internal */
+  includesHeader(allowedHeaders: string[], requestHeader: string): boolean {
     return allowedHeaders.some(header => header.toLowerCase() === requestHeader.toLowerCase());
   }
 
-  private parseCommaSeparatedValues(value: string | null): string[] {
+  /** @internal */
+  parseCommaSeparatedValues(value: string | null): string[] {
     if (value === null || value.length === 0) {
       return [];
     }
