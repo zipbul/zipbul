@@ -132,6 +132,21 @@ describe('CORS / origin', () => {
     });
   });
 
+  describe('origin "null" option combined with credentials (opaque origin + credentialed request)', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => {
+      app = await bootCorsApp({ origin: 'null', credentials: true });
+    });
+    afterAll(async () => { await app.close(); });
+
+    it('should set Access-Control-Allow-Origin: null, Access-Control-Allow-Credentials: true, and Vary: Origin', async () => {
+      const res = await app.fetch('/x', { headers: { Origin: 'null' } });
+      expect(res.headers.get('access-control-allow-origin')).toBe('null');
+      expect(res.headers.get('access-control-allow-credentials')).toBe('true');
+      expect(varyTokens(res.headers.get('vary'))).toContain('origin');
+    });
+  });
+
   describe('no Origin header (NoOrigin reject)', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
