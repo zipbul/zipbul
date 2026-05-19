@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { bootCorsApp, preflight, setupSilentLogger, type CorsTestApp } from './helpers';
 
-describe('CORS / Private Network Access (PNA)', () => {
+describe('CORS / privateNetworkAccess', () => {
   setupSilentLogger();
 
-  describe('allowPrivateNetwork=true + ACR-Private-Network: true', () => {
+  describe('allowPrivateNetwork:true with Access-Control-Request-Private-Network:true', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({
@@ -16,7 +16,7 @@ describe('CORS / Private Network Access (PNA)', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('attaches Access-Control-Allow-Private-Network: true', async () => {
+    it('should set Access-Control-Allow-Private-Network:true on preflight', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
         'Access-Control-Request-Private-Network': 'true',
       }));
@@ -24,7 +24,7 @@ describe('CORS / Private Network Access (PNA)', () => {
     });
   });
 
-  describe('allowPrivateNetwork=true but no request header → no response header', () => {
+  describe('allowPrivateNetwork:true with no Access-Control-Request-Private-Network header', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({
@@ -35,24 +35,44 @@ describe('CORS / Private Network Access (PNA)', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('Allow-Private-Network is not set when request did not opt-in', async () => {
+    it('should omit Access-Control-Allow-Private-Network', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
       expect(res.headers.get('access-control-allow-private-network')).toBeNull();
     });
   });
 
-  describe('allowPrivateNetwork default (false) → ignore request header', () => {
+  describe('allowPrivateNetwork default (false) with Access-Control-Request-Private-Network:true', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'] });
     });
     afterAll(async () => { await app.close(); });
 
-    it('does not attach Allow-Private-Network even if requested', async () => {
+    it('should ignore the request header and omit Access-Control-Allow-Private-Network', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
         'Access-Control-Request-Private-Network': 'true',
       }));
       expect(res.headers.get('access-control-allow-private-network')).toBeNull();
+    });
+  });
+
+  describe('allowPrivateNetwork:true combined with preflightContinue:true', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => {
+      app = await bootCorsApp({
+        origin: 'https://x.com',
+        methods: ['POST'],
+        allowPrivateNetwork: true,
+        preflightContinue: true,
+      });
+    });
+    afterAll(async () => { await app.close(); });
+
+    it('should attach Access-Control-Allow-Private-Network on the continued response', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
+        'Access-Control-Request-Private-Network': 'true',
+      }));
+      expect(res.headers.get('access-control-allow-private-network')).toBe('true');
     });
   });
 });

@@ -2,32 +2,32 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { bootCorsApp, setupSilentLogger, varyTokens, type CorsTestApp } from './helpers';
 
-describe('CORS / Vary header', () => {
+describe('CORS / vary', () => {
   setupSilentLogger();
 
-  describe('dynamic origin attaches Vary: Origin', () => {
+  describe('dynamic (non-wildcard) origin', () => {
     let app: CorsTestApp;
     beforeAll(async () => { app = await bootCorsApp({ origin: 'https://x.com' }); });
     afterAll(async () => { await app.close(); });
 
-    it('non-wildcard origin → Vary contains Origin', async () => {
+    it('should append Origin to the Vary header', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://x.com' } });
       expect(varyTokens(res.headers.get('vary'))).toContain('origin');
     });
   });
 
-  describe('wildcard origin omits Vary: Origin', () => {
+  describe('wildcard origin', () => {
     let app: CorsTestApp;
     beforeAll(async () => { app = await bootCorsApp({ origin: '*' }); });
     afterAll(async () => { await app.close(); });
 
-    it('wildcard → Vary does not contain Origin', async () => {
+    it('should not append Origin to the Vary header', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://x.com' } });
       expect(varyTokens(res.headers.get('vary'))).not.toContain('origin');
     });
   });
 
-  describe('Vary tokens are unique and comma-separated (RFC 9110)', () => {
+  describe('preflight with allowedHeaders explicit', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({
@@ -38,7 +38,7 @@ describe('CORS / Vary header', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('preflight Vary tokens are exactly {origin, ACRM, ACRH} with no duplicates', async () => {
+    it('should set Vary to exactly {Origin, Access-Control-Request-Method, Access-Control-Request-Headers} without duplicates', async () => {
       const res = await app.fetch('/x', {
         method: 'OPTIONS',
         headers: {

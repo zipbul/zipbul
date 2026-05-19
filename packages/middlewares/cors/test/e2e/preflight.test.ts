@@ -5,14 +5,14 @@ import { bootCorsApp, preflight, setupSilentLogger, type CorsTestApp } from './h
 describe('CORS / preflight', () => {
   setupSilentLogger();
 
-  describe('successful preflight returns optionsSuccessStatus + empty body', () => {
+  describe('default optionsSuccessStatus', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'] });
     });
     afterAll(async () => { await app.close(); });
 
-    it('204 with no body', async () => {
+    it('should respond 204 with an empty body', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
       expect(res.status).toBe(204);
       expect(await res.text()).toBe('');
@@ -30,13 +30,13 @@ describe('CORS / preflight', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('returns 200', async () => {
+    it('should respond with the configured status code', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
       expect(res.status).toBe(200);
     });
   });
 
-  describe('preflightContinue passes through (not short-circuit)', () => {
+  describe('preflightContinue:true', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({
@@ -47,11 +47,48 @@ describe('CORS / preflight', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('all preflight headers attached and route progresses (404, no route)', async () => {
+    it('should attach preflight headers and let the route run (404 when no route matches)', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
       expect(res.status).toBe(404);
       expect(res.headers.get('access-control-allow-origin')).toBe('https://x.com');
       expect(res.headers.get('access-control-allow-methods')).toContain('POST');
+    });
+  });
+
+  describe('preflightContinue:true combined with maxAge', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => {
+      app = await bootCorsApp({
+        origin: 'https://x.com',
+        methods: ['POST'],
+        maxAge: 3600,
+        preflightContinue: true,
+      });
+    });
+    afterAll(async () => { await app.close(); });
+
+    it('should attach Access-Control-Max-Age on the continued response', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
+      expect(res.headers.get('access-control-max-age')).toBe('3600');
+    });
+  });
+
+  describe('preflightContinue:true combined with credentials', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => {
+      app = await bootCorsApp({
+        origin: 'https://x.com',
+        credentials: true,
+        methods: ['POST'],
+        preflightContinue: true,
+      });
+    });
+    afterAll(async () => { await app.close(); });
+
+    it('should attach Access-Control-Allow-Credentials on the continued response', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
+      expect(res.headers.get('access-control-allow-credentials')).toBe('true');
+      expect(res.headers.get('access-control-allow-origin')).toBe('https://x.com');
     });
   });
 
@@ -62,44 +99,44 @@ describe('CORS / preflight', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('Access-Control-Max-Age: 3600', async () => {
+    it('should set Access-Control-Max-Age to 3600', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
       expect(res.headers.get('access-control-max-age')).toBe('3600');
     });
   });
 
-  describe('maxAge: 0 still set', () => {
+  describe('maxAge: 0', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'], maxAge: 0 });
     });
     afterAll(async () => { await app.close(); });
 
-    it('Access-Control-Max-Age: 0', async () => {
+    it('should set Access-Control-Max-Age to "0"', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
       expect(res.headers.get('access-control-max-age')).toBe('0');
     });
   });
 
-  describe('maxAge: default (null) → header omitted', () => {
+  describe('maxAge default (null)', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'] });
     });
     afterAll(async () => { await app.close(); });
 
-    it('Access-Control-Max-Age is not attached', async () => {
+    it('should omit Access-Control-Max-Age', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
       expect(res.headers.get('access-control-max-age')).toBeNull();
     });
   });
 
-  describe('OPTIONS without ACRM is treated as simple request (not preflight)', () => {
+  describe('OPTIONS without Access-Control-Request-Method', () => {
     let app: CorsTestApp;
     beforeAll(async () => { app = await bootCorsApp({ origin: '*' }); });
     afterAll(async () => { await app.close(); });
 
-    it('OPTIONS + Origin (no ACRM) → ACAO set, no preflight headers', async () => {
+    it('should treat the request as a simple request and skip preflight headers', async () => {
       const res = await app.fetch('/x', {
         method: 'OPTIONS',
         headers: { Origin: 'https://x.com' },
@@ -109,14 +146,14 @@ describe('CORS / preflight', () => {
     });
   });
 
-  describe('preflight body is empty and headerless', () => {
+  describe('preflight response body', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'] });
     });
     afterAll(async () => { await app.close(); });
 
-    it('204 preflight → empty body, no Content-Type, Content-Length: 0', async () => {
+    it('should return an empty body with no Content-Type and Content-Length: 0', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
       expect(await res.text()).toBe('');
       expect(res.headers.get('content-type')).toBeNull();

@@ -5,14 +5,14 @@ import { bootCorsApp, setupSilentLogger, type CorsTestApp } from './helpers';
 describe('CORS / exposedHeaders', () => {
   setupSilentLogger();
 
-  describe('exposedHeaders explicit', () => {
+  describe('explicit list', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({ origin: '*', exposedHeaders: ['X-Foo', 'X-Bar'] });
     });
     afterAll(async () => { await app.close(); });
 
-    it('sets Access-Control-Expose-Headers from list', async () => {
+    it('should set Access-Control-Expose-Headers from the configured list', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://x.com' } });
       const expose = String(res.headers.get('access-control-expose-headers')).toLowerCase();
       expect(expose).toContain('x-foo');
@@ -20,7 +20,7 @@ describe('CORS / exposedHeaders', () => {
     });
   });
 
-  describe('exposedHeaders wildcard + credentials with explicit → wildcard removed, explicit kept', () => {
+  describe('wildcard with credentials and explicit entries', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({
@@ -31,7 +31,7 @@ describe('CORS / exposedHeaders', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('omits "*" and keeps explicit headers', async () => {
+    it('should drop the wildcard and keep explicit entries in Access-Control-Expose-Headers', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://x.com' } });
       const expose = String(res.headers.get('access-control-expose-headers'));
       expect(expose).not.toContain('*');
@@ -39,33 +39,33 @@ describe('CORS / exposedHeaders', () => {
     });
   });
 
-  describe('exposedHeaders wildcard without credentials → "*"', () => {
+  describe('wildcard without credentials', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({ origin: '*', exposedHeaders: ['*'] });
     });
     afterAll(async () => { await app.close(); });
 
-    it('Expose-Headers is "*"', async () => {
+    it('should set Access-Control-Expose-Headers to "*"', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://x.com' } });
       expect(res.headers.get('access-control-expose-headers')).toBe('*');
     });
   });
 
-  describe('exposedHeaders: [] explicit empty → header omitted', () => {
+  describe('explicit empty list', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({ origin: '*', exposedHeaders: [] });
     });
     afterAll(async () => { await app.close(); });
 
-    it('Access-Control-Expose-Headers is not attached', async () => {
+    it('should omit Access-Control-Expose-Headers', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://x.com' } });
       expect(res.headers.get('access-control-expose-headers')).toBeNull();
     });
   });
 
-  describe('exposedHeaders wildcard + credentials with no explicit → header omitted', () => {
+  describe('wildcard with credentials and no explicit entries', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({
@@ -76,7 +76,7 @@ describe('CORS / exposedHeaders', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('Access-Control-Expose-Headers is not attached', async () => {
+    it('should omit Access-Control-Expose-Headers', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://x.com' } });
       expect(res.headers.get('access-control-expose-headers')).toBeNull();
     });
