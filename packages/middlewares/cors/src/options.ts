@@ -1,11 +1,12 @@
-import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
-import safe from 'safe-regex2';
+
+import { err } from '@zipbul/result';
+
+import type { CorsErrorData, CorsOptions } from './interfaces';
+import type { ResolvedCorsOptions } from './types';
 
 import { CORS_DEFAULT_METHODS, CORS_DEFAULT_OPTIONS_SUCCESS_STATUS } from './constants';
 import { CorsErrorReason } from './enums';
-import type { CorsErrorData, CorsOptions } from './interfaces';
-import type { ResolvedCorsOptions } from './types';
 
 /**
  * Takes partial {@link CorsOptions} and fills in every missing field with a
@@ -20,9 +21,7 @@ import type { ResolvedCorsOptions } from './types';
 export function resolveCorsOptions(options?: CorsOptions): ResolvedCorsOptions {
   return {
     origin: options?.origin ?? '*',
-    methods: options?.methods?.includes('*')
-      ? ['*']
-      : (options?.methods ?? CORS_DEFAULT_METHODS).map(m => m.toUpperCase()),
+    methods: options?.methods?.includes('*') ? ['*'] : (options?.methods ?? CORS_DEFAULT_METHODS).map(m => m.toUpperCase()),
     allowedHeaders: options?.allowedHeaders ?? null,
     exposedHeaders: options?.exposedHeaders ?? null,
     credentials: options?.credentials ?? false,
@@ -33,7 +32,6 @@ export function resolveCorsOptions(options?: CorsOptions): ResolvedCorsOptions {
   };
 }
 
-/** @internal */
 export function isBlank(value: string): boolean {
   return value.trim().length === 0;
 }
@@ -42,7 +40,7 @@ export function isBlank(value: string): boolean {
  * Validates a fully resolved {@link ResolvedCorsOptions} object and returns
  * the first problem it finds, or `undefined` when everything looks good.
  *
- * Covers origins (blank strings, unsafe RegExp, empty arrays), methods,
+ * Covers origins (blank strings, empty arrays), methods,
  * allowed/exposed headers, the `credentials` + wildcard combination,
  * `maxAge`, and `optionsSuccessStatus`.
  *
@@ -61,13 +59,6 @@ export function validateCorsOptions(resolved: ResolvedCorsOptions): Result<void,
     });
   }
 
-  if (resolved.origin instanceof RegExp && !safe(resolved.origin)) {
-    return err<CorsErrorData>({
-      reason: CorsErrorReason.UnsafeRegExp,
-      message: 'origin RegExp is potentially unsafe (exponential backtracking / ReDoS)',
-    });
-  }
-
   if (Array.isArray(resolved.origin)) {
     if (resolved.origin.length === 0) {
       return err<CorsErrorData>({
@@ -82,15 +73,6 @@ export function validateCorsOptions(resolved: ResolvedCorsOptions): Result<void,
       return err<CorsErrorData>({
         reason: CorsErrorReason.InvalidOrigin,
         message: 'origin array must not contain empty or blank string entries (RFC 6454)',
-      });
-    }
-
-    const hasUnsafeRegExp = resolved.origin.some(entry => entry instanceof RegExp && !safe(entry));
-
-    if (hasUnsafeRegExp) {
-      return err<CorsErrorData>({
-        reason: CorsErrorReason.UnsafeRegExp,
-        message: 'origin array contains an unsafe RegExp (exponential backtracking / ReDoS)',
       });
     }
   }
@@ -137,7 +119,11 @@ export function validateCorsOptions(resolved: ResolvedCorsOptions): Result<void,
     });
   }
 
-  if (!Number.isInteger(resolved.optionsSuccessStatus) || resolved.optionsSuccessStatus < 200 || resolved.optionsSuccessStatus > 299) {
+  if (
+    !Number.isInteger(resolved.optionsSuccessStatus) ||
+    resolved.optionsSuccessStatus < 200 ||
+    resolved.optionsSuccessStatus > 299
+  ) {
     return err<CorsErrorData>({
       reason: CorsErrorReason.InvalidStatusCode,
       message: 'optionsSuccessStatus must be a 2xx integer status code (200–299)',

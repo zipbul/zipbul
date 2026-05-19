@@ -1,4 +1,4 @@
-import type { HttpMethod } from '@zipbul/shared';
+import type { HttpMethod, HttpStatus } from '@zipbul/shared';
 
 import type { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
 import type { OriginOptions } from './types';
@@ -19,7 +19,7 @@ export interface CorsContinueResult {
 export interface CorsPreflightResult {
   action: CorsAction.RespondPreflight;
   headers: Headers;
-  statusCode: number;
+  statusCode: HttpStatus;
 }
 
 /**
@@ -74,7 +74,7 @@ export interface CorsOptions {
    * `"null"` per RFC 6454 §6. To accept such opaque origins, pass `'null'`
    * (the string) as the option.
    *
-   * @defaultValue `'*'`
+   * @default `'*'`
    */
   origin?: OriginOptions;
 
@@ -83,7 +83,7 @@ export interface CorsOptions {
    * Standard methods are autocompleted; any RFC 9110 §5.6.2 token is accepted.
    * Values are normalized to uppercase internally.
    *
-   * @defaultValue `['GET','HEAD','PUT','PATCH','POST','DELETE']`
+   * @default `['GET','HEAD','PUT','PATCH','POST','DELETE']`
    * @example ['GET', 'POST', 'DELETE']
    * @example ['*']  // allow all methods
    * @example ['GET', 'PROPFIND']  // custom token
@@ -104,7 +104,7 @@ export interface CorsOptions {
   /**
    * Whether to send `Access-Control-Allow-Credentials: true`.
    *
-   * @defaultValue `false`
+   * @default `false`
    */
   credentials?: boolean;
 
@@ -117,14 +117,14 @@ export interface CorsOptions {
   /**
    * When `true`, preflight returns `Continue` instead of `RespondPreflight`.
    *
-   * @defaultValue `false`
+   * @default `false`
    */
   preflightContinue?: boolean;
 
   /**
    * HTTP status for the preflight response.
    *
-   * @defaultValue `204`
+   * @default `204`
    */
   optionsSuccessStatus?: number;
 
@@ -136,7 +136,7 @@ export interface CorsOptions {
    * Enables private-network access from public-origin pages per the
    * WICG Private Network Access spec (enforced by Chrome 130+).
    *
-   * @defaultValue `false`
+   * @default `false`
    */
   allowPrivateNetwork?: boolean;
 }

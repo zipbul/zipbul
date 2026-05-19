@@ -1,36 +1,24 @@
+import { HttpHeader } from '@zipbul/shared';
 import { describe, expect, it } from 'bun:test';
 
-import { HttpHeader } from '@zipbul/shared';
-
-import { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
-import {
-  CorsError,
-} from './interfaces';
-import type {
-  CorsContinueResult,
-  CorsPreflightResult,
-  CorsRejectResult,
-} from './interfaces';
+import type { CorsContinueResult, CorsPreflightResult, CorsRejectResult } from './interfaces';
 import type { CorsResult } from './types';
+
 import { Cors } from './cors';
+import { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
+import { CorsError } from './interfaces';
 
 // ── helpers ──
 
-function makeRequest(
-  method: string,
-  origin?: string,
-  headers?: Record<string, string>,
-): Request {
+function makeRequest(method: string, origin?: string, headers?: Record<string, string>): Request {
   const h: Record<string, string> = { ...headers };
-  if (origin !== undefined) h[HttpHeader.Origin] = origin;
+  if (origin !== undefined) {
+    h[HttpHeader.Origin] = origin;
+  }
   return new Request('http://localhost', { method, headers: h });
 }
 
-function makePreflight(
-  origin: string,
-  requestMethod: string,
-  requestHeaders?: string,
-): Request {
+function makePreflight(origin: string, requestMethod: string, requestHeaders?: string): Request {
   const h: Record<string, string> = {
     [HttpHeader.Origin]: origin,
     [HttpHeader.AccessControlRequestMethod]: requestMethod,
@@ -76,9 +64,7 @@ describe('Cors', () => {
         throw new Error('expected throw');
       } catch (e) {
         expect(e).toBeInstanceOf(CorsError);
-        if (e instanceof CorsError) {
-          expect(e.reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
-        }
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
       }
     });
   });
@@ -288,37 +274,45 @@ describe('Cors', () => {
     });
 
     it('should reject with CorsError when OriginFn throws', async () => {
-      const cors = Cors.create({ origin: () => { throw new Error('boom'); } });
+      const cors = Cors.create({
+        origin: () => {
+          throw new Error('boom');
+        },
+      });
       const req = makeRequest('GET', 'https://a.com');
       await expect(cors.handle(req)).rejects.toBeInstanceOf(CorsError);
     });
 
     it('should set CorsError.reason to OriginFunctionError when OriginFn throws', async () => {
-      const cors = Cors.create({ origin: () => { throw new Error('boom'); } });
+      const cors = Cors.create({
+        origin: () => {
+          throw new Error('boom');
+        },
+      });
       const req = makeRequest('GET', 'https://a.com');
       try {
         await cors.handle(req);
         throw new Error('expected throw');
       } catch (e) {
         expect(e).toBeInstanceOf(CorsError);
-        if (e instanceof CorsError) {
-          expect(e.reason).toBe(CorsErrorReason.OriginFunctionError);
-        }
+        expect((e as CorsError).reason).toBe(CorsErrorReason.OriginFunctionError);
       }
     });
 
     it('should preserve original thrown value in CorsError.cause', async () => {
       const original = new Error('boom');
-      const cors = Cors.create({ origin: () => { throw original; } });
+      const cors = Cors.create({
+        origin: () => {
+          throw original;
+        },
+      });
       const req = makeRequest('GET', 'https://a.com');
       try {
         await cors.handle(req);
         throw new Error('expected throw');
       } catch (e) {
         expect(e).toBeInstanceOf(CorsError);
-        if (e instanceof CorsError) {
-          expect(e.cause).toBe(original);
-        }
+        expect((e as CorsError).cause).toBe(original);
       }
     });
   });
@@ -614,9 +608,7 @@ describe('Cors', () => {
       const req = makeRequest('GET', 'https://a.com');
       const result = await cors.handle(req);
       assertContinue(result);
-      const vary = result.headers.get(HttpHeader.Vary);
-      // Vary may be unset or set to other tokens — but must not contain Origin.
-      if (vary !== null) expect(vary).not.toContain(HttpHeader.Origin);
+      expect(result.headers.has(HttpHeader.Vary)).toBe(false);
     });
   });
 
@@ -668,7 +660,11 @@ describe('Cors', () => {
     });
 
     it('should throw CorsError(OriginFunctionError) when OriginFn rejects', async () => {
-      const cors = Cors.create({ origin: async () => { throw new Error('boom'); } });
+      const cors = Cors.create({
+        origin: async () => {
+          throw new Error('boom');
+        },
+      });
       const req = makeRequest('GET', 'https://a.com');
       await expect(cors.handle(req)).rejects.toBeInstanceOf(CorsError);
     });
@@ -890,5 +886,4 @@ describe('Cors', () => {
       expect(result.headers.has(HttpHeader.AccessControlAllowPrivateNetwork)).toBe(false);
     });
   });
-
 });

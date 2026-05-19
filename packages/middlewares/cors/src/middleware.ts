@@ -1,13 +1,13 @@
-import { defineMiddleware } from '@zipbul/common';
 import type { MiddlewareDefinition } from '@zipbul/common';
-import { HttpAdapter, HttpContext, type HttpResponse } from '@zipbul/http-adapter';
+
+import { defineMiddleware } from '@zipbul/common';
+import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
 import { HttpHeader } from '@zipbul/shared';
+
+import type { CorsOptions } from './interfaces';
 
 import { Cors } from './cors';
 import { CorsAction } from './enums';
-import type { CorsOptions } from './interfaces';
-
-type SetStatusArg = Parameters<HttpResponse['setStatus']>[0];
 
 /**
  * Wraps the framework-agnostic {@link Cors} engine as a zipbul HTTP middleware.
@@ -28,19 +28,23 @@ type SetStatusArg = Parameters<HttpResponse['setStatus']>[0];
 export function corsMiddleware(opts?: CorsOptions): MiddlewareDefinition {
   const cors = Cors.create(opts);
 
-  return defineMiddleware([HttpAdapter], () => async (ctx) => {
+  return defineMiddleware([HttpAdapter], () => async ctx => {
     const http = ctx.to(HttpContext);
     const raw = http.rawRequest;
-    if (raw === undefined) return;
+    if (raw === undefined) {
+      return;
+    }
 
     const result = await cors.handle(raw);
 
-    if (result.action === CorsAction.Reject) return;
+    if (result.action === CorsAction.Reject) {
+      return;
+    }
 
     const response = http.response;
 
     if (result.action === CorsAction.RespondPreflight) {
-      response.setStatus(result.statusCode as SetStatusArg);
+      response.setStatus(result.statusCode);
       result.headers.forEach((value, name) => {
         response.setHeader(name, value);
       });
@@ -51,7 +55,7 @@ export function corsMiddleware(opts?: CorsOptions): MiddlewareDefinition {
 
     // CorsAction.Continue
     result.headers.forEach((value, name) => {
-      if (name.toLowerCase() === HttpHeader.Vary) {
+      if (name === HttpHeader.Vary) {
         response.appendHeader(name, value);
       } else {
         response.setHeader(name, value);

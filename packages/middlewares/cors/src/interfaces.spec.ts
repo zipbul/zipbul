@@ -15,8 +15,8 @@ describe('CorsError', () => {
   });
 
   it('should set reason from data.reason', () => {
-    const err = new CorsError({ reason: CorsErrorReason.UnsafeRegExp, message: 'x' });
-    expect(err.reason).toBe(CorsErrorReason.UnsafeRegExp);
+    const err = new CorsError({ reason: CorsErrorReason.InvalidMaxAge, message: 'x' });
+    expect(err.reason).toBe(CorsErrorReason.InvalidMaxAge);
   });
 
   it('should be an instance of Error', () => {

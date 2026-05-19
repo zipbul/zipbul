@@ -1,3 +1,6 @@
+import { HttpAdapter, HttpMethod } from '@zipbul/http-adapter';
+import { mockContext } from '@zipbul/http-adapter/testing';
+import { HttpHeader, HttpStatus } from '@zipbul/shared';
 /**
  * Unit spec for the `corsMiddleware` factory (colocated with the source).
  * Covers the adapter integration contract — every branch in `middleware.ts`
@@ -10,12 +13,8 @@
  */
 import { describe, expect, it } from 'bun:test';
 
-import { HttpHeader, HttpStatus } from '@zipbul/shared';
-import { HttpAdapter, HttpMethod } from '@zipbul/http-adapter';
-import { mockContext } from '@zipbul/http-adapter/testing';
-
-import { CorsError } from './interfaces';
 import { CorsErrorReason } from './enums';
+import { CorsError } from './interfaces';
 import { corsMiddleware } from './middleware';
 
 const ORIGIN = 'https://allowed.example';
@@ -38,9 +37,7 @@ describe('corsMiddleware factory — definition shape', () => {
       throw new Error('expected throw');
     } catch (e) {
       expect(e).toBeInstanceOf(CorsError);
-      if (e instanceof CorsError) {
-        expect(e.reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
-      }
+      expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
     }
   });
 });

@@ -45,6 +45,4 @@ export enum CorsErrorReason {
   InvalidAllowedHeaders = 'invalid_allowed_headers',
   /** exposedHeaders contains empty/blank string entries (RFC 9110 §5.6.2 token). */
   InvalidExposedHeaders = 'invalid_exposed_headers',
-  /** origin RegExp is potentially unsafe (exponential backtracking / ReDoS). */
-  UnsafeRegExp = 'unsafe_regexp',
 }

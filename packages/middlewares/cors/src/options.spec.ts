@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 
+import type { ResolvedCorsOptions } from './types';
+
 import { CORS_DEFAULT_METHODS, CORS_DEFAULT_OPTIONS_SUCCESS_STATUS } from './constants';
 import { CorsErrorReason } from './enums';
 import { isBlank, resolveCorsOptions, validateCorsOptions } from './options';
-import type { ResolvedCorsOptions } from './types';
 
 describe('isBlank', () => {
   it('should return true for an empty string', () => {
@@ -709,34 +710,6 @@ describe('validateCorsOptions', () => {
     expect(result).toBeUndefined();
   });
 
-  it('should return CorsError when origin is an unsafe RegExp (nested quantifier)', () => {
-    // Arrange
-    const resolved = makeResolved({ origin: /(a+)+$/ });
-    // Act
-    const result = validateCorsOptions(resolved);
-    // Assert
-    expect(result?.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-    expect(typeof result?.data.message).toBe('string');
-  });
-
-  it('should return CorsError when origin is an unsafe RegExp (nested star)', () => {
-    // Arrange
-    const resolved = makeResolved({ origin: /(a*)*$/ });
-    // Act
-    const result = validateCorsOptions(resolved);
-    // Assert
-    expect(result?.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-  });
-
-  it('should return CorsError when origin RegExp has star height ≥ 2', () => {
-    // Arrange
-    const resolved = makeResolved({ origin: /(a+)+/ });
-    // Act
-    const result = validateCorsOptions(resolved);
-    // Assert
-    expect(result?.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-  });
-
   // ── V_regex — array containing RegExp ──
 
   it('should pass when origin array contains only safe RegExps', () => {
@@ -757,57 +730,9 @@ describe('validateCorsOptions', () => {
     expect(result).toBeUndefined();
   });
 
-  it('should return CorsError when origin array contains an unsafe RegExp', () => {
-    // Arrange
-    const resolved = makeResolved({ origin: [/(a+)+$/] });
-    // Act
-    const result = validateCorsOptions(resolved);
-    // Assert
-    expect(result?.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-  });
-
-  it('should return CorsError when origin array mixes safe string and unsafe RegExp', () => {
-    // Arrange
-    const resolved = makeResolved({ origin: ['https://ok.com', /(a+)+$/] });
-    // Act
-    const result = validateCorsOptions(resolved);
-    // Assert
-    expect(result?.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-  });
-
-  it('should return CorsError when origin array mixes safe RegExp and unsafe RegExp', () => {
-    // Arrange
-    const resolved = makeResolved({ origin: [/^a$/, /(a+)+$/] });
-    // Act
-    const result = validateCorsOptions(resolved);
-    // Assert
-    expect(result?.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-  });
-
-  // ── origin RegExp validation order ──
-
-  it('should report unsafe RegExp before maxAge and status code violations', () => {
-    const resolved = makeResolved({ origin: /(a+)+$/, maxAge: -1, optionsSuccessStatus: 0 });
-    const result = validateCorsOptions(resolved);
-    expect(result?.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-  });
-
-  it('should report blank origin entry before unsafe RegExp within the same array', () => {
-    const resolved = makeResolved({ origin: ['', /(a+)+$/] });
-    const result = validateCorsOptions(resolved);
-    expect(result?.data.reason).toBe(CorsErrorReason.InvalidOrigin);
-  });
-
-  it('should pass for a safe RegExp origin with credentials:true (RegExp is not the wildcard)', () => {
+  it('should pass for a RegExp origin with credentials:true (RegExp is not the wildcard)', () => {
     const resolved = makeResolved({ origin: /^a$/, credentials: true });
     const result = validateCorsOptions(resolved);
     expect(result).toBeUndefined();
   });
-
-  it('should report unsafe RegExp in origin array before invalid methods', () => {
-    const resolved = makeResolved({ origin: [/(a+)+$/], methods: [] });
-    const result = validateCorsOptions(resolved);
-    expect(result?.data.reason).toBe(CorsErrorReason.UnsafeRegExp);
-  });
-
 });

@@ -41,9 +41,10 @@ describe('CorsErrorReason enum', () => {
       InvalidMethods: CorsErrorReason.InvalidMethods,
       InvalidAllowedHeaders: CorsErrorReason.InvalidAllowedHeaders,
       InvalidExposedHeaders: CorsErrorReason.InvalidExposedHeaders,
-      UnsafeRegExp: CorsErrorReason.UnsafeRegExp,
     });
-    expect(CorsErrorReason.CredentialsWithWildcardOrigin).toBe('credentials_with_wildcard_origin' as CorsErrorReason.CredentialsWithWildcardOrigin);
+    expect(CorsErrorReason.CredentialsWithWildcardOrigin).toBe(
+      'credentials_with_wildcard_origin' as CorsErrorReason.CredentialsWithWildcardOrigin,
+    );
     expect(CorsErrorReason.InvalidMaxAge).toBe('invalid_max_age' as CorsErrorReason.InvalidMaxAge);
     expect(CorsErrorReason.InvalidStatusCode).toBe('invalid_status_code' as CorsErrorReason.InvalidStatusCode);
     expect(CorsErrorReason.OriginFunctionError).toBe('origin_function_error' as CorsErrorReason.OriginFunctionError);
@@ -51,6 +52,5 @@ describe('CorsErrorReason enum', () => {
     expect(CorsErrorReason.InvalidMethods).toBe('invalid_methods' as CorsErrorReason.InvalidMethods);
     expect(CorsErrorReason.InvalidAllowedHeaders).toBe('invalid_allowed_headers' as CorsErrorReason.InvalidAllowedHeaders);
     expect(CorsErrorReason.InvalidExposedHeaders).toBe('invalid_exposed_headers' as CorsErrorReason.InvalidExposedHeaders);
-    expect(CorsErrorReason.UnsafeRegExp).toBe('unsafe_regexp' as CorsErrorReason.UnsafeRegExp);
   });
 });
