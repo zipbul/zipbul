@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 
 import { HttpHeader } from '@zipbul/shared';
 
@@ -250,12 +250,20 @@ describe('Cors', () => {
       expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
     });
 
-    it('should invoke OriginFn with (origin, request) tuple', async () => {
-      const fn = mock(() => true as const);
-      const cors = Cors.create({ origin: fn });
+    it('should pass the request origin and Request instance to OriginFn for decision', async () => {
+      const seen: { origin?: string; request?: Request } = {};
+      const cors = Cors.create({
+        origin: (origin, request) => {
+          seen.origin = origin;
+          seen.request = request;
+          return true;
+        },
+      });
       const req = makeRequest('GET', 'https://a.com');
-      await cors.handle(req);
-      expect(fn).toHaveBeenCalledWith('https://a.com', req);
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(seen.origin).toBe('https://a.com');
+      expect(seen.request).toBe(req);
     });
 
     it('should use custom string when OriginFn returns string', async () => {
@@ -728,13 +736,11 @@ describe('Cors', () => {
       assertPreflight(result);
     });
 
-    it('should not set ACAH when explicit allowedHeaders is set but ACRH is absent', async () => {
+    it('should set ACAH from explicit allowedHeaders list even when ACRH is absent', async () => {
       const cors = Cors.create({ origin: true, allowedHeaders: ['X-A'] });
       const req = makePreflight('https://a.com', 'POST');
       const result = await cors.handle(req);
       assertPreflight(result);
-      // Implementation only writes ACAH when there are headers to serialize; bare allowed list
-      // without a corresponding ACRH still produces a value because allowedHeaders is non-empty.
       expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-A');
     });
 
@@ -869,7 +875,7 @@ describe('Cors', () => {
       expect(result.headers.has(HttpHeader.AccessControlAllowPrivateNetwork)).toBe(false);
     });
 
-    it('should reject ACRPN with non-canonical "TRUE" (case-sensitive match required)', async () => {
+    it('should not set ACAPN when ACRPN is non-canonical "TRUE" (case-sensitive match required)', async () => {
       const cors = Cors.create({ origin: true, allowPrivateNetwork: true });
       const req = new Request('http://localhost', {
         method: 'OPTIONS',

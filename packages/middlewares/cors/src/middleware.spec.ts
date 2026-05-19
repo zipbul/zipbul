@@ -147,3 +147,47 @@ describe('corsMiddleware factory — RespondPreflight action', () => {
     expect(ctx.response.headers.get(HttpHeader.AccessControlAllowMethods)).toBeNull();
   });
 });
+
+describe('corsMiddleware factory — rawRequest guard', () => {
+  it('should no-op when rawRequest is undefined (consumed body / non-Bun adapter)', async () => {
+    const ctx = mockContext({ headers: new Headers({ Origin: ORIGIN }) });
+    ctx.consumeRawRequest();
+    const handler = corsMiddleware({ origin: ORIGIN }).factory();
+    await handler(ctx);
+    expect(ctx.response.headers.get(HttpHeader.AccessControlAllowOrigin)).toBeNull();
+    expect(ctx.response.headers.get(HttpHeader.ContentLength)).toBeNull();
+  });
+});
+
+describe('corsMiddleware factory — preflightContinue Continue path', () => {
+  it('should attach preflight headers without committing the response when preflightContinue is true', async () => {
+    const ctx = mockContext({
+      method: HttpMethod.Options,
+      headers: new Headers({
+        Origin: ORIGIN,
+        [HttpHeader.AccessControlRequestMethod]: 'POST',
+      }),
+    });
+    const handler = corsMiddleware({ origin: ORIGIN, preflightContinue: true }).factory();
+    await handler(ctx);
+    expect(ctx.response.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe(ORIGIN);
+    expect(ctx.response.headers.has(HttpHeader.AccessControlAllowMethods)).toBe(true);
+    expect(ctx.response.headers.get(HttpHeader.ContentLength)).toBeNull();
+  });
+
+  it('should append Vary via appendHeader on the preflightContinue path (preserves prior values)', async () => {
+    const ctx = mockContext({
+      method: HttpMethod.Options,
+      headers: new Headers({
+        Origin: ORIGIN,
+        [HttpHeader.AccessControlRequestMethod]: 'POST',
+      }),
+    });
+    ctx.response.appendHeader(HttpHeader.Vary, 'Accept-Encoding');
+    const handler = corsMiddleware({ origin: ORIGIN, preflightContinue: true }).factory();
+    await handler(ctx);
+    const vary = ctx.response.headers.get(HttpHeader.Vary);
+    expect(vary).toContain('Accept-Encoding');
+    expect(vary).toContain(HttpHeader.Origin);
+  });
+});
