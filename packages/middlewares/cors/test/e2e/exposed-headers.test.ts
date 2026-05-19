@@ -14,7 +14,7 @@ describe('CORS / exposedHeaders', () => {
 
     it('sets Access-Control-Expose-Headers from list', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://x.com' } });
-      const expose = (res.headers.get('access-control-expose-headers') ?? '').toLowerCase();
+      const expose = String(res.headers.get('access-control-expose-headers')).toLowerCase();
       expect(expose).toContain('x-foo');
       expect(expose).toContain('x-bar');
     });
@@ -33,7 +33,7 @@ describe('CORS / exposedHeaders', () => {
 
     it('omits "*" and keeps explicit headers', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://x.com' } });
-      const expose = res.headers.get('access-control-expose-headers') ?? '';
+      const expose = String(res.headers.get('access-control-expose-headers'));
       expect(expose).not.toContain('*');
       expect(expose.toLowerCase()).toContain('x-foo');
     });

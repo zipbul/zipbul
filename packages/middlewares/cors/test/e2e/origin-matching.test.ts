@@ -202,13 +202,48 @@ describe('CORS / origin matching', () => {
     });
   });
 
-  describe('no Origin header (non-CORS request)', () => {
+  describe('no Origin header (non-CORS request) → NoOrigin reject (Fetch §4.10 wire invariants)', () => {
     let app: CorsTestApp;
     beforeAll(async () => { app = await bootCorsApp({ origin: '*' }); });
     afterAll(async () => { await app.close(); });
 
-    it('does not attach ACAO', async () => {
+    it('route progresses to 404 with no CORS headers', async () => {
       const res = await app.fetch('/x');
+      expect(res.status).toBe(404);
+      expect(res.headers.get('access-control-allow-origin')).toBeNull();
+      expect(res.headers.get('access-control-allow-credentials')).toBeNull();
+      expect(res.headers.get('access-control-expose-headers')).toBeNull();
+    });
+  });
+
+  describe('OriginNotAllowed → reject (Fetch §4.10 wire invariants)', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => { app = await bootCorsApp({ origin: 'https://allowed.com' }); });
+    afterAll(async () => { await app.close(); });
+
+    it('mismatched origin → 404 with no CORS headers', async () => {
+      const res = await app.fetch('/x', { headers: { Origin: 'https://evil.com' } });
+      expect(res.status).toBe(404);
+      expect(res.headers.get('access-control-allow-origin')).toBeNull();
+      expect(res.headers.get('access-control-allow-credentials')).toBeNull();
+    });
+  });
+
+  describe('OriginFn rejected Promise (async throw) → wire 500', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => {
+      app = await bootCorsApp({
+        origin: async () => {
+          await Promise.resolve();
+          throw new Error('async origin fn boom');
+        },
+      });
+    });
+    afterAll(async () => { await app.close(); });
+
+    it('propagates → wire 500 with no ACAO', async () => {
+      const res = await app.fetch('/x', { headers: { Origin: 'https://x.com' } });
+      expect(res.status).toBe(500);
       expect(res.headers.get('access-control-allow-origin')).toBeNull();
     });
   });

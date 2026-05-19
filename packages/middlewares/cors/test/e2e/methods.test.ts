@@ -14,7 +14,7 @@ describe('CORS / methods', () => {
 
     it('preflight Allow-Methods includes listed methods', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
-      const allow = (res.headers.get('access-control-allow-methods') ?? '')
+      const allow = String(res.headers.get('access-control-allow-methods'))
         .split(',').map((s) => s.trim());
       expect(allow).toEqual(expect.arrayContaining(['POST', 'PUT']));
     });
@@ -46,15 +46,17 @@ describe('CORS / methods', () => {
     });
   });
 
-  describe('ACRM not in methods → Reject', () => {
+  describe('ACRM not in methods → Reject (Fetch §4.10 wire invariants)', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({ origin: 'https://x.com', methods: ['GET'] });
     });
     afterAll(async () => { await app.close(); });
 
-    it('preflight with disallowed method → no Allow-Methods', async () => {
+    it('preflight with disallowed method → 404 with no CORS headers and route progresses', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'DELETE'));
+      expect(res.status).toBe(404);
+      expect(res.headers.get('access-control-allow-origin')).toBeNull();
       expect(res.headers.get('access-control-allow-methods')).toBeNull();
     });
   });

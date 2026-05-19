@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
-import { bootCorsApp, preflight, setupSilentLogger, varyTokens, type CorsTestApp } from './helpers';
+import { bootCorsApp, preflight, setupSilentLogger, type CorsTestApp } from './helpers';
 
 describe('CORS / preflight', () => {
   setupSilentLogger();
@@ -81,27 +81,46 @@ describe('CORS / preflight', () => {
     });
   });
 
-  describe('Vary multi-value on preflight (exact tokens)', () => {
+  describe('maxAge: default (null) → header omitted', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
-      app = await bootCorsApp({
-        origin: 'https://x.com',
-        methods: ['POST'],
-        allowedHeaders: ['X-Foo'],
-      });
+      app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'] });
     });
     afterAll(async () => { await app.close(); });
 
-    it('Vary contains exact tokens: origin, ACRM, ACRH', async () => {
-      const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
-        'Access-Control-Request-Headers': 'X-Foo',
-      }));
-      const tokens = varyTokens(res.headers.get('vary'));
-      expect(tokens).toEqual(expect.arrayContaining([
-        'origin',
-        'access-control-request-method',
-        'access-control-request-headers',
-      ]));
+    it('Access-Control-Max-Age is not attached', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
+      expect(res.headers.get('access-control-max-age')).toBeNull();
+    });
+  });
+
+  describe('OPTIONS without ACRM is treated as simple request (not preflight)', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => { app = await bootCorsApp({ origin: '*' }); });
+    afterAll(async () => { await app.close(); });
+
+    it('OPTIONS + Origin (no ACRM) → ACAO set, no preflight headers', async () => {
+      const res = await app.fetch('/x', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://x.com' },
+      });
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+      expect(res.headers.get('access-control-allow-methods')).toBeNull();
+    });
+  });
+
+  describe('preflight body is empty and headerless', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => {
+      app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'] });
+    });
+    afterAll(async () => { await app.close(); });
+
+    it('204 preflight → empty body, no Content-Type, Content-Length: 0', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
+      expect(await res.text()).toBe('');
+      expect(res.headers.get('content-type')).toBeNull();
+      expect(res.headers.get('content-length')).toBe('0');
     });
   });
 });

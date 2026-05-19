@@ -47,7 +47,9 @@ export async function bootCorsApp(opts: CorsOptions): Promise<CorsTestApp> {
 }
 
 export function varyTokens(header: string | null): string[] {
-  if (header === null) return [];
+  if (header === null) {
+    return [];
+  }
   return header.split(',').map((t) => t.trim().toLowerCase()).filter((t) => t.length > 0);
 }
 
@@ -63,6 +65,6 @@ export function preflight(
 ): RequestInit {
   return {
     method: 'OPTIONS',
-    headers: { Origin: origin, 'Access-Control-Request-Method': method, ...(extra ?? {}) },
+    headers: { Origin: origin, 'Access-Control-Request-Method': method, ...extra },
   };
 }

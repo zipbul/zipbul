@@ -16,25 +16,28 @@ describe('CORS / allowedHeaders', () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
         'Access-Control-Request-Headers': 'X-Foo',
       }));
-      const allow = (res.headers.get('access-control-allow-headers') ?? '')
+      const allow = String(res.headers.get('access-control-allow-headers'))
         .split(',').map((s) => s.trim().toLowerCase());
       expect(allow).toEqual(expect.arrayContaining(['x-foo', 'x-bar']));
       expect(varyTokens(res.headers.get('vary'))).toContain('access-control-request-headers');
     });
   });
 
-  describe('explicit allowedHeaders + ACRH mismatch → Reject', () => {
+  describe('explicit allowedHeaders + ACRH mismatch → Reject (Fetch §4.10 wire invariants)', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
       app = await bootCorsApp({ origin: 'https://x.com', allowedHeaders: ['X-Bar'] });
     });
     afterAll(async () => { await app.close(); });
 
-    it('preflight with disallowed ACRH → no Allow-Methods (Reject)', async () => {
+    it('preflight with disallowed ACRH → 404 with no CORS headers and route progresses', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
         'Access-Control-Request-Headers': 'X-Foo',
       }));
+      expect(res.status).toBe(404);
+      expect(res.headers.get('access-control-allow-origin')).toBeNull();
       expect(res.headers.get('access-control-allow-methods')).toBeNull();
+      expect(res.headers.get('access-control-allow-headers')).toBeNull();
     });
   });
 
@@ -43,13 +46,47 @@ describe('CORS / allowedHeaders', () => {
     beforeAll(async () => { app = await bootCorsApp({ origin: 'https://x.com' }); });
     afterAll(async () => { await app.close(); });
 
-    it('echoes ACRH into Allow-Headers', async () => {
+    it('echoes ACRH into Allow-Headers and appends Vary: ACRH', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
         'Access-Control-Request-Headers': 'X-Custom-A, X-Custom-B',
       }));
-      const allow = (res.headers.get('access-control-allow-headers') ?? '').toLowerCase();
+      const allow = String(res.headers.get('access-control-allow-headers')).toLowerCase();
       expect(allow).toContain('x-custom-a');
       expect(allow).toContain('x-custom-b');
+      expect(varyTokens(res.headers.get('vary'))).toContain('access-control-request-headers');
+    });
+  });
+
+  describe('allowedHeaders wildcard without credentials → "*"', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => {
+      app = await bootCorsApp({ origin: '*', allowedHeaders: ['*'] });
+    });
+    afterAll(async () => { await app.close(); });
+
+    it('Allow-Headers is "*"', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
+        'Access-Control-Request-Headers': 'X-Foo',
+      }));
+      expect(res.headers.get('access-control-allow-headers')).toBe('*');
+    });
+  });
+
+  describe('allowedHeaders wildcard + credentials + no ACRH → header omitted', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => {
+      app = await bootCorsApp({
+        origin: 'https://x.com',
+        allowedHeaders: ['*'],
+        credentials: true,
+      });
+    });
+    afterAll(async () => { await app.close(); });
+
+    it('preflight without ACRH → Allow-Headers omitted', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
+      expect(res.headers.get('access-control-allow-methods')).not.toBeNull();
+      expect(res.headers.get('access-control-allow-headers')).toBeNull();
     });
   });
 
@@ -68,7 +105,7 @@ describe('CORS / allowedHeaders', () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
         'Access-Control-Request-Headers': 'X-Foo, X-Bar',
       }));
-      const allow = res.headers.get('access-control-allow-headers') ?? '';
+      const allow = String(res.headers.get('access-control-allow-headers'));
       expect(allow).not.toBe('*');
       expect(allow.toLowerCase()).toContain('x-foo');
     });
@@ -115,7 +152,7 @@ describe('CORS / allowedHeaders', () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
         'Access-Control-Request-Headers': '',
       }));
-      expect((res.headers.get('access-control-allow-methods') ?? '')).toContain('POST');
+      expect(String(res.headers.get('access-control-allow-methods'))).toContain('POST');
       expect(res.headers.get('access-control-allow-headers')).toBeNull();
     });
   });
@@ -134,10 +171,11 @@ describe('CORS / allowedHeaders', () => {
       expect(res.headers.get('access-control-allow-methods')).toBeNull();
     });
 
-    it('preflight without ACRH → succeeds, Allow-Headers omitted', async () => {
+    it('preflight without ACRH → succeeds, Allow-Headers omitted, Vary does not contain ACRH', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
       expect(res.headers.get('access-control-allow-methods')).not.toBeNull();
       expect(res.headers.get('access-control-allow-headers')).toBeNull();
+      expect(varyTokens(res.headers.get('vary'))).not.toContain('access-control-request-headers');
     });
   });
 
@@ -157,7 +195,7 @@ describe('CORS / allowedHeaders', () => {
         'Access-Control-Request-Headers': 'Authorization',
       }));
       expect(res.headers.get('access-control-allow-methods')).not.toBeNull();
-      expect((res.headers.get('access-control-allow-headers') ?? '').toLowerCase())
+      expect(String(res.headers.get('access-control-allow-headers')).toLowerCase())
         .toContain('authorization');
     });
   });
