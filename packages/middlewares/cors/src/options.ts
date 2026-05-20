@@ -21,7 +21,7 @@ import { CorsErrorReason } from './enums';
 export function resolveCorsOptions(options?: CorsOptions): ResolvedCorsOptions {
   return {
     origin: options?.origin ?? '*',
-    methods: options?.methods?.includes('*') ? ['*'] : (options?.methods ?? CORS_DEFAULT_METHODS).map(m => m.toUpperCase()),
+    methods: options?.methods?.includes('*') ? ['*'] : [...(options?.methods ?? CORS_DEFAULT_METHODS)],
     allowedHeaders: options?.allowedHeaders ?? null,
     exposedHeaders: options?.exposedHeaders ?? null,
     credentials: options?.credentials ?? false,
@@ -81,13 +81,6 @@ export function validateCorsOptions(resolved: ResolvedCorsOptions): Result<void,
     return err<CorsErrorData>({
       reason: CorsErrorReason.InvalidMethods,
       message: 'methods must not be an empty array (RFC 9110 §5.6.2)',
-    });
-  }
-
-  if (resolved.methods.some(isBlank)) {
-    return err<CorsErrorData>({
-      reason: CorsErrorReason.InvalidMethods,
-      message: 'methods must not contain empty or blank string entries (RFC 9110 §5.6.2 token)',
     });
   }
 

@@ -1,3 +1,4 @@
+import { HttpMethod } from '@zipbul/http-adapter';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { bootCorsApp, preflight, setupSilentLogger, type CorsTestApp } from './helpers';
@@ -8,7 +9,7 @@ describe('CORS / preflight', () => {
   describe('default optionsSuccessStatus', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
-      app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'] });
+      app = await bootCorsApp({ origin: 'https://x.com', methods: [HttpMethod.Post] });
     });
     afterAll(async () => { await app.close(); });
 
@@ -24,7 +25,7 @@ describe('CORS / preflight', () => {
     beforeAll(async () => {
       app = await bootCorsApp({
         origin: 'https://x.com',
-        methods: ['POST'],
+        methods: [HttpMethod.Post],
         optionsSuccessStatus: 200,
       });
     });
@@ -41,7 +42,7 @@ describe('CORS / preflight', () => {
     beforeAll(async () => {
       app = await bootCorsApp({
         origin: 'https://x.com',
-        methods: ['POST'],
+        methods: [HttpMethod.Post],
         preflightContinue: true,
       });
     });
@@ -60,7 +61,7 @@ describe('CORS / preflight', () => {
     beforeAll(async () => {
       app = await bootCorsApp({
         origin: 'https://x.com',
-        methods: ['POST'],
+        methods: [HttpMethod.Post],
         maxAge: 3600,
         preflightContinue: true,
       });
@@ -79,7 +80,7 @@ describe('CORS / preflight', () => {
       app = await bootCorsApp({
         origin: 'https://x.com',
         credentials: true,
-        methods: ['POST'],
+        methods: [HttpMethod.Post],
         preflightContinue: true,
       });
     });
@@ -95,7 +96,7 @@ describe('CORS / preflight', () => {
   describe('maxAge: 3600', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
-      app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'], maxAge: 3600 });
+      app = await bootCorsApp({ origin: 'https://x.com', methods: [HttpMethod.Post], maxAge: 3600 });
     });
     afterAll(async () => { await app.close(); });
 
@@ -108,7 +109,7 @@ describe('CORS / preflight', () => {
   describe('maxAge: 0', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
-      app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'], maxAge: 0 });
+      app = await bootCorsApp({ origin: 'https://x.com', methods: [HttpMethod.Post], maxAge: 0 });
     });
     afterAll(async () => { await app.close(); });
 
@@ -121,7 +122,7 @@ describe('CORS / preflight', () => {
   describe('maxAge default (null)', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
-      app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'] });
+      app = await bootCorsApp({ origin: 'https://x.com', methods: [HttpMethod.Post] });
     });
     afterAll(async () => { await app.close(); });
 
@@ -138,7 +139,7 @@ describe('CORS / preflight', () => {
 
     it('should treat the request as a simple request and skip preflight headers', async () => {
       const res = await app.fetch('/x', {
-        method: 'OPTIONS',
+        method: HttpMethod.Options,
         headers: { Origin: 'https://x.com' },
       });
       expect(res.headers.get('access-control-allow-origin')).toBe('*');
@@ -149,7 +150,7 @@ describe('CORS / preflight', () => {
   describe('preflight response body', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
-      app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'] });
+      app = await bootCorsApp({ origin: 'https://x.com', methods: [HttpMethod.Post] });
     });
     afterAll(async () => { await app.close(); });
 

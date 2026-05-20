@@ -1,4 +1,5 @@
-import type { HttpMethod, HttpStatus } from '@zipbul/shared';
+import { HttpMethod } from '@zipbul/http-adapter';
+import type { HttpStatus } from '@zipbul/http-adapter';
 
 import type { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
 import type { OriginOptions } from './types';
@@ -79,16 +80,14 @@ export interface CorsOptions {
   origin?: OriginOptions;
 
   /**
-   * HTTP methods allowed in preflight.
-   * Standard methods are autocompleted; any RFC 9110 §5.6.2 token is accepted.
-   * Values are normalized to uppercase internally.
+   * HTTP methods allowed in preflight. Use the {@link HttpMethod} enum.
    *
-   * @default `['GET','HEAD','PUT','PATCH','POST','DELETE']`
-   * @example ['GET', 'POST', 'DELETE']
-   * @example ['*']  // allow all methods
-   * @example ['GET', 'PROPFIND']  // custom token
+   * @default `[HttpMethod.Get, HttpMethod.Head, HttpMethod.Put, HttpMethod.Patch, HttpMethod.Post, HttpMethod.Delete]`
+   * @example [HttpMethod.Get, HttpMethod.Post, HttpMethod.Delete]
+   * @example ['*']  // wildcard — allow all methods
+   * @example [HttpMethod.Get, HttpMethod.Propfind]
    */
-  methods?: HttpMethod[];
+  methods?: Array<HttpMethod | '*'>;
 
   /**
    * Request headers allowed in preflight.

@@ -1,3 +1,4 @@
+import { HttpMethod } from '@zipbul/http-adapter';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { bootCorsApp, setupSilentLogger, varyTokens, type CorsTestApp } from './helpers';
@@ -32,7 +33,7 @@ describe('CORS / vary', () => {
     beforeAll(async () => {
       app = await bootCorsApp({
         origin: 'https://x.com',
-        methods: ['POST'],
+        methods: [HttpMethod.Post],
         allowedHeaders: ['X-Foo'],
       });
     });
@@ -40,10 +41,10 @@ describe('CORS / vary', () => {
 
     it('should set Vary to exactly {Origin, Access-Control-Request-Method, Access-Control-Request-Headers} without duplicates', async () => {
       const res = await app.fetch('/x', {
-        method: 'OPTIONS',
+        method: HttpMethod.Options,
         headers: {
           Origin: 'https://x.com',
-          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Method': HttpMethod.Post,
           'Access-Control-Request-Headers': 'X-Foo',
         },
       });

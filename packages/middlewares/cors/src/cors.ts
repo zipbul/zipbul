@@ -1,7 +1,8 @@
 import type { ResultAsync } from '@zipbul/result';
 
 import { isErr, safe } from '@zipbul/result';
-import { HttpHeader, type HttpStatus } from '@zipbul/shared';
+import { HttpHeader } from '@zipbul/http-adapter';
+import type { HttpStatus } from '@zipbul/http-adapter';
 
 import type { CorsErrorData, CorsOptions, CorsRejectResult } from './interfaces';
 import type { CorsResult, OriginResult, ResolvedCorsOptions } from './types';
@@ -223,7 +224,7 @@ export class Cors {
   }
 
   /** @internal */
-  private isMethodAllowed(requestMethod: string, allowedMethods: Array<string>): boolean {
+  private isMethodAllowed(requestMethod: string, allowedMethods: ReadonlyArray<string>): boolean {
     if (this.includesWildcard(allowedMethods)) {
       return true;
     }
@@ -232,7 +233,7 @@ export class Cors {
   }
 
   /** @internal */
-  private serializeAllowedMethods(allowedMethods: Array<string>, requestMethod: string): string {
+  private serializeAllowedMethods(allowedMethods: ReadonlyArray<string>, requestMethod: string): string {
     if (!this.includesWildcard(allowedMethods)) {
       return allowedMethods.join(',');
     }
@@ -290,7 +291,7 @@ export class Cors {
   }
 
   /** @internal */
-  private includesWildcard(values: string[]): boolean {
+  private includesWildcard(values: ReadonlyArray<string>): boolean {
     return values.some(value => value === '*');
   }
 

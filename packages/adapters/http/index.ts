@@ -18,8 +18,6 @@ export {
   HttpMethod,
   UrlScheme,
 } from './src/enums';
-export type { HttpMethodToken } from './src/types';
-
 export { HTTP_STATUS_REASON, FORBIDDEN_HTTP_METHODS } from './src/constants';
 export { reasonOf } from './src/utils/reason-of';
 export { isForbiddenHttpMethod } from './src/utils/is-forbidden-http-method';

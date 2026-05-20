@@ -1,3 +1,4 @@
+import { HttpMethod } from '@zipbul/http-adapter';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { bootCorsApp, preflight, setupSilentLogger, type CorsTestApp } from './helpers';
@@ -8,7 +9,7 @@ describe('CORS / methods', () => {
   describe('explicit list', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
-      app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST', 'PUT'] });
+      app = await bootCorsApp({ origin: 'https://x.com', methods: [HttpMethod.Post, HttpMethod.Put] });
     });
     afterAll(async () => { await app.close(); });
 
@@ -51,7 +52,7 @@ describe('CORS / methods', () => {
     beforeAll(async () => {
       app = await bootCorsApp({
         origin: 'https://x.com',
-        methods: ['GET'],
+        methods: [HttpMethod.Get],
         maxAge: 3600,
         exposedHeaders: ['X-Trace'],
         allowPrivateNetwork: true,

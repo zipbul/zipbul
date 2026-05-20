@@ -49,8 +49,7 @@
     "coverage": "bun test --coverage"
   },
   "dependencies": {
-    "@zipbul/result": "workspace:*",
-    "@zipbul/shared": "workspace:*"
+    "@zipbul/result": "workspace:*"
   },
   "peerDependencies": {
     "@zipbul/common": "workspace:*",

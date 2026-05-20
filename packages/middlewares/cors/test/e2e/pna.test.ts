@@ -1,3 +1,4 @@
+import { HttpMethod } from '@zipbul/http-adapter';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { bootCorsApp, preflight, setupSilentLogger, type CorsTestApp } from './helpers';
@@ -10,7 +11,7 @@ describe('CORS / privateNetworkAccess', () => {
     beforeAll(async () => {
       app = await bootCorsApp({
         origin: 'https://x.com',
-        methods: ['POST'],
+        methods: [HttpMethod.Post],
         allowPrivateNetwork: true,
       });
     });
@@ -29,7 +30,7 @@ describe('CORS / privateNetworkAccess', () => {
     beforeAll(async () => {
       app = await bootCorsApp({
         origin: 'https://x.com',
-        methods: ['POST'],
+        methods: [HttpMethod.Post],
         allowPrivateNetwork: true,
       });
     });
@@ -44,7 +45,7 @@ describe('CORS / privateNetworkAccess', () => {
   describe('allowPrivateNetwork default (false) with Access-Control-Request-Private-Network:true', () => {
     let app: CorsTestApp;
     beforeAll(async () => {
-      app = await bootCorsApp({ origin: 'https://x.com', methods: ['POST'] });
+      app = await bootCorsApp({ origin: 'https://x.com', methods: [HttpMethod.Post] });
     });
     afterAll(async () => { await app.close(); });
 
@@ -61,7 +62,7 @@ describe('CORS / privateNetworkAccess', () => {
     beforeAll(async () => {
       app = await bootCorsApp({
         origin: 'https://x.com',
-        methods: ['POST'],
+        methods: [HttpMethod.Post],
         allowPrivateNetwork: true,
         preflightContinue: true,
       });

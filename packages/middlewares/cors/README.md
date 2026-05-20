@@ -109,11 +109,13 @@ interface CorsOptions {
 
 ### `methods`
 
-HTTP methods to allow in preflight. Accepts `HttpMethod[]` — standard methods are autocompleted, and any RFC 9110 §5.6.2 token (e.g. `'PROPFIND'`) is also valid.
+HTTP methods to allow in preflight. Accepts `Array<HttpMethod | '*'>` — the `HttpMethod` enum (from `@zipbul/http-adapter`) covers all 36 methods accepted by Bun's HTTP parser.
 
 ```typescript
-Cors.create({ methods: ['GET', 'POST', 'DELETE'] });
-Cors.create({ methods: ['GET', 'PROPFIND'] }); // custom token
+import { HttpMethod } from '@zipbul/http-adapter';
+
+Cors.create({ methods: [HttpMethod.Get, HttpMethod.Post, HttpMethod.Delete] });
+Cors.create({ methods: [HttpMethod.Get, HttpMethod.Propfind] }); // WebDAV
 ```
 
 A wildcard `'*'` allows all methods. With `credentials: true`, the wildcard is replaced by echoing the request method.

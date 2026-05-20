@@ -22,8 +22,4 @@ export type {
   MetadataRegistryKey,
   ParamTypeReference,
 } from './container';
-export type {
-  HttpMethodToken,
-  HttpTlsOptions,
-  TrustProxyConfig,
-} from './server';
+export type { HttpTlsOptions, TrustProxyConfig } from './server';

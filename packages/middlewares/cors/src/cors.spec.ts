@@ -1,4 +1,4 @@
-import { HttpHeader } from '@zipbul/shared';
+import { HttpHeader, HttpMethod } from '@zipbul/http-adapter';
 import { describe, expect, it } from 'bun:test';
 
 import type { CorsContinueResult, CorsPreflightResult, CorsRejectResult } from './interfaces';
@@ -26,7 +26,7 @@ function makePreflight(origin: string, requestMethod: string, requestHeaders?: s
   if (requestHeaders !== undefined) {
     h[HttpHeader.AccessControlRequestHeaders] = requestHeaders;
   }
-  return new Request('http://localhost', { method: 'OPTIONS', headers: h });
+  return new Request('http://localhost', { method: HttpMethod.Options, headers: h });
 }
 
 function assertReject(result: CorsResult): asserts result is CorsRejectResult {
@@ -403,7 +403,7 @@ describe('Cors', () => {
 
     it('should reject when preflight method is not allowed', async () => {
       // Arrange
-      const cors = Cors.create({ origin: true, methods: ['GET'] });
+      const cors = Cors.create({ origin: true, methods: [HttpMethod.Get] });
       const req = makePreflight('https://a.com', 'DELETE');
       // Act
       const result = await cors.handle(req);
@@ -414,7 +414,7 @@ describe('Cors', () => {
 
     it('should reject when preflight method has wrong case', async () => {
       // Arrange
-      const cors = Cors.create({ origin: true, methods: ['GET', 'POST'] });
+      const cors = Cors.create({ origin: true, methods: [HttpMethod.Get, HttpMethod.Post] });
       const req = makePreflight('https://a.com', 'get');
       // Act
       const result = await cors.handle(req);
@@ -703,7 +703,7 @@ describe('Cors', () => {
     it('should treat OPTIONS + empty ACRM as non-preflight (Continue)', async () => {
       const cors = Cors.create({ origin: true });
       const req = new Request('http://localhost', {
-        method: 'OPTIONS',
+        method: HttpMethod.Options,
         headers: {
           [HttpHeader.Origin]: 'https://a.com',
           [HttpHeader.AccessControlRequestMethod]: '',
@@ -821,7 +821,7 @@ describe('Cors', () => {
     it('should set ACAPN:true when allowPrivateNetwork=true and ACRPN:true', async () => {
       const cors = Cors.create({ origin: true, allowPrivateNetwork: true });
       const req = new Request('http://localhost', {
-        method: 'OPTIONS',
+        method: HttpMethod.Options,
         headers: {
           [HttpHeader.Origin]: 'https://a.com',
           [HttpHeader.AccessControlRequestMethod]: 'POST',
@@ -844,7 +844,7 @@ describe('Cors', () => {
     it('should not set ACAPN when ACRPN is "false"', async () => {
       const cors = Cors.create({ origin: true, allowPrivateNetwork: true });
       const req = new Request('http://localhost', {
-        method: 'OPTIONS',
+        method: HttpMethod.Options,
         headers: {
           [HttpHeader.Origin]: 'https://a.com',
           [HttpHeader.AccessControlRequestMethod]: 'POST',
@@ -859,7 +859,7 @@ describe('Cors', () => {
     it('should not set ACAPN when allowPrivateNetwork=false even with ACRPN:true', async () => {
       const cors = Cors.create({ origin: true, allowPrivateNetwork: false });
       const req = new Request('http://localhost', {
-        method: 'OPTIONS',
+        method: HttpMethod.Options,
         headers: {
           [HttpHeader.Origin]: 'https://a.com',
           [HttpHeader.AccessControlRequestMethod]: 'POST',
@@ -874,7 +874,7 @@ describe('Cors', () => {
     it('should not set ACAPN when ACRPN is non-canonical "TRUE" (case-sensitive match required)', async () => {
       const cors = Cors.create({ origin: true, allowPrivateNetwork: true });
       const req = new Request('http://localhost', {
-        method: 'OPTIONS',
+        method: HttpMethod.Options,
         headers: {
           [HttpHeader.Origin]: 'https://a.com',
           [HttpHeader.AccessControlRequestMethod]: 'POST',

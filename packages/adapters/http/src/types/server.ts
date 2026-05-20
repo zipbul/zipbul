@@ -1,5 +1,3 @@
-import type { HttpMethod } from '../enums';
-
 export type TrustProxyConfig =
   | boolean
   | number
@@ -10,5 +8,3 @@ export type TrustProxyConfig =
 export type HttpTlsOptions =
   | import('bun').TLSOptions
   | readonly import('bun').TLSOptions[];
-
-export type HttpMethodToken = HttpMethod | (string & {});

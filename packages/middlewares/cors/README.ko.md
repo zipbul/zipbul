@@ -109,11 +109,13 @@ interface CorsOptions {
 
 ### `methods`
 
-프리플라이트에서 허용할 HTTP 메서드 목록. `HttpMethod[]`를 받으며, 표준 메서드는 자동 완성되고 RFC 9110 §5.6.2 토큰(예: `'PROPFIND'`)도 허용합니다.
+프리플라이트에서 허용할 HTTP 메서드 목록. `Array<HttpMethod | '*'>` 를 받습니다. `HttpMethod` enum (`@zipbul/http-adapter`) 은 Bun HTTP parser 가 받는 36개 메서드를 전부 정의합니다.
 
 ```typescript
-Cors.create({ methods: ['GET', 'POST', 'DELETE'] });
-Cors.create({ methods: ['GET', 'PROPFIND'] }); // 커스텀 토큰
+import { HttpMethod } from '@zipbul/http-adapter';
+
+Cors.create({ methods: [HttpMethod.Get, HttpMethod.Post, HttpMethod.Delete] });
+Cors.create({ methods: [HttpMethod.Get, HttpMethod.Propfind] }); // WebDAV
 ```
 
 와일드카드 `'*'`를 넣으면 모든 메서드를 허용합니다. `credentials: true`이면 와일드카드 대신 요청 메서드를 그대로 반영합니다.

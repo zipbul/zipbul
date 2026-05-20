@@ -1,3 +1,5 @@
+import type { HttpMethod } from '@zipbul/http-adapter';
+
 import type { CorsContinueResult, CorsPreflightResult, CorsRejectResult } from './interfaces';
 
 /**
@@ -28,7 +30,7 @@ export type CorsResult = CorsContinueResult | CorsPreflightResult | CorsRejectRe
  */
 export type ResolvedCorsOptions = {
   origin: OriginOptions;
-  methods: string[];
+  methods: ReadonlyArray<HttpMethod | '*'>;
   allowedHeaders: string[] | null;
   exposedHeaders: string[] | null;
   credentials: boolean;

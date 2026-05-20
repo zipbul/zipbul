@@ -1,6 +1,6 @@
 import { afterAll, beforeAll } from 'bun:test';
 import type { MiddlewareDefinition } from '@zipbul/common';
-import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+import { HttpAdapter, HttpAdapterPhase, HttpMethod } from '@zipbul/http-adapter';
 import { Tck, type TestApplication } from '@zipbul/tck';
 
 import { corsMiddleware } from '../../index';
@@ -72,7 +72,7 @@ export function preflight(
   extra?: Record<string, string>,
 ): RequestInit {
   return {
-    method: 'OPTIONS',
+    method: HttpMethod.Options,
     headers: { Origin: origin, 'Access-Control-Request-Method': method, ...extra },
   };
 }

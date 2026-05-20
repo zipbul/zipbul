@@ -1,3 +1,4 @@
+import { HttpMethod } from '@zipbul/http-adapter';
 import { describe, expect, it } from 'bun:test';
 
 import type { ResolvedCorsOptions } from './types';
@@ -46,7 +47,7 @@ describe('resolveCorsOptions', () => {
 
   it('should reflect all explicit values when every field is provided', () => {
     // Arrange
-    const methods = ['GET', 'POST'];
+    const methods = [HttpMethod.Get, HttpMethod.Post];
     const allowedHeaders = ['X-Custom'];
     const exposedHeaders = ['X-Result'];
     const originFn = () => true as const;
@@ -105,32 +106,18 @@ describe('resolveCorsOptions', () => {
     expect(result.optionsSuccessStatus).toBe(0);
   });
 
-  it('should uppercase all method strings except wildcard when methods has lowercase entries', () => {
+  it('should preserve methods as-is without normalization', () => {
     // Arrange / Act
-    const result = resolveCorsOptions({ methods: ['get', 'post', 'delete'] });
+    const result = resolveCorsOptions({ methods: [HttpMethod.Get, HttpMethod.Post] });
     // Assert
-    expect(result.methods).toEqual(['GET', 'POST', 'DELETE']);
+    expect(result.methods).toEqual([HttpMethod.Get, HttpMethod.Post]);
   });
 
-  it('should preserve already-uppercase methods unchanged when methods has uppercase entries', () => {
-    // Arrange / Act
-    const result = resolveCorsOptions({ methods: ['GET', 'POST'] });
-    // Assert
-    expect(result.methods).toEqual(['GET', 'POST']);
-  });
-
-  it('should preserve wildcard * without uppercasing when methods contains wildcard', () => {
+  it('should preserve wildcard * unchanged when methods contains wildcard', () => {
     // Arrange / Act
     const result = resolveCorsOptions({ methods: ['*'] });
     // Assert
     expect(result.methods).toEqual(['*']);
-  });
-
-  it('should uppercase all entries when methods has mixed-case strings', () => {
-    // Arrange / Act
-    const result = resolveCorsOptions({ methods: ['Get', 'pOST', 'DELETE'] });
-    // Assert
-    expect(result.methods).toEqual(['GET', 'POST', 'DELETE']);
   });
 
   it('should return empty array when methods is empty array', () => {
@@ -142,7 +129,7 @@ describe('resolveCorsOptions', () => {
 
   it('should collapse to wildcard-only array when methods contains * mixed with other methods', () => {
     // Arrange / Act
-    const result = resolveCorsOptions({ methods: ['get', '*', 'post'] });
+    const result = resolveCorsOptions({ methods: [HttpMethod.Get, '*', HttpMethod.Post] });
     // Assert
     expect(result.methods).toEqual(['*']);
   });
@@ -468,9 +455,9 @@ describe('validateCorsOptions', () => {
     expect(result).toBeUndefined();
   });
 
-  it('should pass when methods contains a custom method token', () => {
+  it('should pass when methods contains a custom enum method like PROPFIND', () => {
     // Arrange
-    const resolved = makeResolved({ methods: ['GET', 'PROPFIND'] });
+    const resolved = makeResolved({ methods: [HttpMethod.Get, HttpMethod.Propfind] });
     // Act
     const result = validateCorsOptions(resolved);
     // Assert
@@ -486,32 +473,6 @@ describe('validateCorsOptions', () => {
     expect(result?.data.reason).toBe(CorsErrorReason.InvalidMethods);
   });
 
-  it('should return CorsError when methods contains an empty string', () => {
-    // Arrange
-    const resolved = makeResolved({ methods: [''] });
-    // Act
-    const result = validateCorsOptions(resolved);
-    // Assert
-    expect(result?.data.reason).toBe(CorsErrorReason.InvalidMethods);
-  });
-
-  it('should return CorsError when methods contains a blank string', () => {
-    // Arrange
-    const resolved = makeResolved({ methods: ['  '] });
-    // Act
-    const result = validateCorsOptions(resolved);
-    // Assert
-    expect(result?.data.reason).toBe(CorsErrorReason.InvalidMethods);
-  });
-
-  it('should return CorsError when methods mixes valid and empty string entries', () => {
-    // Arrange
-    const resolved = makeResolved({ methods: ['GET', ''] });
-    // Act
-    const result = validateCorsOptions(resolved);
-    // Assert
-    expect(result?.data.reason).toBe(CorsErrorReason.InvalidMethods);
-  });
 
   // ── allowedHeaders 신규 검증 ──
 

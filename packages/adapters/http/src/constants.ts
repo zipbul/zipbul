@@ -1,3 +1,4 @@
+import { HttpMethod } from './enums/http-method';
 import { HttpStatus } from './enums/http-status';
 
 export const HTTP_STATUS_REASON: Readonly<Record<HttpStatus, string>> = Object.freeze({
@@ -69,7 +70,7 @@ export const HTTP_STATUS_REASON: Readonly<Record<HttpStatus, string>> = Object.f
   [HttpStatus.NetworkAuthenticationRequired]: 'Network Authentication Required',
 });
 
-export const FORBIDDEN_HTTP_METHODS = ['TRACE', 'CONNECT'] as const;
+export const FORBIDDEN_HTTP_METHODS = [HttpMethod.Trace, HttpMethod.Connect] as const;
 
 export const HTTP_STATUS_MIN = 100;
 export const HTTP_STATUS_MAX = 599;

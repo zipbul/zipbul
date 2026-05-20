@@ -1,6 +1,5 @@
-import { HttpAdapter, HttpMethod } from '@zipbul/http-adapter';
+import { HttpAdapter, HttpHeader, HttpMethod, HttpStatus } from '@zipbul/http-adapter';
 import { mockContext } from '@zipbul/http-adapter/testing';
-import { HttpHeader, HttpStatus } from '@zipbul/shared';
 /**
  * Unit spec for the `corsMiddleware` factory (colocated with the source).
  * Covers the adapter integration contract — every branch in `middleware.ts`

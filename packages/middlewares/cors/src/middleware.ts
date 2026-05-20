@@ -1,8 +1,7 @@
 import type { MiddlewareDefinition } from '@zipbul/common';
 
 import { defineMiddleware } from '@zipbul/common';
-import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
-import { HttpHeader } from '@zipbul/shared';
+import { HttpAdapter, HttpContext, HttpHeader } from '@zipbul/http-adapter';
 
 import type { CorsOptions } from './interfaces';
 
