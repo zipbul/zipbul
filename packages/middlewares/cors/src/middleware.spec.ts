@@ -142,6 +142,23 @@ describe('corsMiddleware factory — RespondPreflight action', () => {
     expect(ctx.response.headers.get(HttpHeader.AccessControlAllowOrigin)).toBeNull();
     expect(ctx.response.headers.get(HttpHeader.AccessControlAllowMethods)).toBeNull();
   });
+
+  it('should append Vary via appendHeader on a committed preflight (preserves prior values)', async () => {
+    const ctx = mockContext({
+      method: HttpMethod.Options,
+      headers: new Headers({
+        Origin: ORIGIN,
+        [HttpHeader.AccessControlRequestMethod]: 'POST',
+      }),
+    });
+    ctx.response.appendHeader(HttpHeader.Vary, 'Accept-Encoding');
+    const handler = corsMiddleware({ origin: ORIGIN }).factory();
+    await handler(ctx);
+    const vary = ctx.response.headers.get(HttpHeader.Vary);
+    expect(vary).toContain('Accept-Encoding');
+    expect(vary?.toLowerCase()).toContain('origin');
+    expect(vary?.toLowerCase()).toContain('access-control-request-method');
+  });
 });
 
 describe('corsMiddleware factory — rawRequest guard', () => {
