@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { defineMiddleware } from '@zipbul/common';
-import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
+import { HttpAdapter, HttpContext, HttpMethod } from '@zipbul/http-adapter';
 
-import { bootCorsApp, setupSilentLogger, varyTokens, type CorsTestApp } from './helpers';
+import { bootCorsApp, preflight, setupSilentLogger, varyTokens, type CorsTestApp } from './helpers';
 
 const stampVary = defineMiddleware([HttpAdapter], () => (ctx) => {
   ctx.to(HttpContext).response.appendHeader('Vary', 'Accept-Encoding');
@@ -23,6 +23,25 @@ describe('CORS / pipeline', () => {
       const tokens = varyTokens(res.headers.get('vary'));
       expect(tokens).toContain('accept-encoding');
       expect(tokens).toContain('origin');
+    });
+  });
+
+  describe('prior middleware appends Vary token before CORS preflight runs', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => {
+      app = await bootCorsApp(
+        { origin: 'https://x.com', methods: [HttpMethod.Post] },
+        { priorMiddlewares: [stampVary] },
+      );
+    });
+    afterAll(async () => { await app.close(); });
+
+    it('should preserve the prior Vary token on preflight response', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', HttpMethod.Post));
+      const tokens = varyTokens(res.headers.get('vary'));
+      expect(tokens).toContain('accept-encoding');
+      expect(tokens).toContain('origin');
+      expect(tokens).toContain('access-control-request-method');
     });
   });
 

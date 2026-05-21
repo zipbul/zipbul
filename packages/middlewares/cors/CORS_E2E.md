@@ -94,68 +94,13 @@ wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 �
 
 ---
 
-### D2. Preflight 응답이 상위 미들웨어의 `Vary` 토큰을 덮어씀
+### D2. Preflight 응답이 상위 미들웨어의 `Vary` 토큰을 덮어씀 ✅ CLOSED (2026-05-21)
 
-**상황**
+**해결 경로**: 사양 verbatim 확인 결과 wire MUST 위반은 아니지만 (RFC 9110 §9.3.7 OPTIONS non-cacheable + Fetch §4.9 preflight cache Vary 무시), 산업 관례 10/13 (TS/Go/Rust 3 ecosystem 수렴 — tower-http 는 "vary header can have multiple values, don't overwrite" 명시 코멘트) 가 merge 패턴. zipbul 이 hono + elysia + gin 의 deviating 진영에 있을 합당한 이유 없음.
 
-`Continue` 분기(non-preflight)에서는 `middleware.ts:57-63` 이 `Vary` 헤더만 `appendHeader` 로 누적하고 나머지는 `setHeader` 로 교체한다. 하지만 `RespondPreflight` 분기는 모든 헤더를 `setHeader` 로 일괄 처리한다. 그 결과 압축 미들웨어 등이 사전에 `Vary: Accept-Encoding` 을 stamp 해놨다면 preflight 응답에서 그 토큰이 사라진다.
+**적용된 변경**: `packages/middlewares/cors/src/middleware.ts:45-62` — `RespondPreflight` 분기와 `Continue` 분기를 공통 `writeHeader` 클로저로 통합. `Vary` 만 `appendHeader` 누적, 나머지는 `setHeader` 교체.
 
-**사양 근거**
-
-RFC 9111 §4.1: "When a cache receives a request that can be satisfied by a stored response and that stored response contains a Vary header field, the cache MUST NOT use that stored response without revalidation unless all the presented request header fields nominated by that Vary field value match those fields in the original request."
-
-RFC 9110 §12.5.5 Vary 시맨틱: 응답이 어떤 요청 차원에 따라 달라지는지 명시. 동일 응답이 두 차원에 따라 달라지면 두 토큰 모두 누적되어야 한다.
-
-다만 RFC 9110 §9.3.7 "Responses to the OPTIONS method are not cacheable" 가 있어 preflight 응답 자체는 HTTP 캐시 대상이 아니다. 그러나 Fetch §4.9 의 preflight cache 는 별도이고, 더 중요한 것은 **상위 미들웨어가 부여한 Vary 의도가 미들웨어 체인 뒤쪽에서 파괴되면 안 된다**는 미들웨어 합성 계약이다.
-
-**코드 위치**
-
-`src/middleware.ts:46-54`
-```ts
-if (result.action === CorsAction.RespondPreflight) {
-  response.setStatus(result.statusCode);
-  result.headers.forEach((value, name) => {
-    response.setHeader(name, value);   // ← Vary 도 setHeader
-  });
-  response.setHeader(HttpHeader.ContentLength, '0');
-  response.send();
-  return;
-}
-```
-
-`Continue` 경로는 동일 파일 57-63 에서 `name === HttpHeader.Vary` 분기로 `appendHeader` 호출하므로 안전. preflight 경로만 비대칭.
-
-**어댑터 시맨틱 verify**
-
-`packages/adapters/http/src/http-response.ts:134-150` 의 `setHeader` 는 Web `Headers.set()` 호출 → 기존 값 교체. `appendHeader` (line 206-208) 는 `Headers.append()` → 누적. 따라서 `setHeader` 가 prior 토큰을 손실시키는 것은 어댑터 의도된 동작이고, 미들웨어 측이 잘못 호출하는 것이다.
-
-**재현 (bun 실행)**
-
-```
-before CORS: response.appendHeader(Vary, 'Accept-Encoding')
-입력: OPTIONS, Origin, ACRM: POST
-출력 Vary: 'origin, access-control-request-method'
-기대 Vary: 'Accept-Encoding, origin, access-control-request-method'
-```
-
-**산업 비교**
-
-- `expressjs/cors` 는 `vary` npm 패키지로 prior Vary 와 merge (`lib/index.js:151`) — **회피**
-- `@fastify/cors` 는 자체 `vary.js:75-110` 으로 동일하게 merge — **회피**
-- `koa-cors` 는 Koa 의 `ctx.vary('Origin')` 헬퍼 사용 — **회피**
-- `hono/cors` 는 non-preflight 에서는 append 하나 preflight 에서 `set("Vary","Origin")` 으로 덮어씀 (`index.js:51`) — **부분 결함**
-- `zipbul` 은 preflight 에서 모든 헤더를 set — **결함**
-
-3/5 라이브러리는 회피, zipbul + hono(preflight only) 결함.
-
-**테스트 갭**
-
-- `test/e2e/pipeline.test.ts:14-26` 는 non-preflight Continue 경로에서 prior Vary 보존만 검증. preflight 경로의 동일 회귀 표면 (`U6` 으로 별도 분류) 미커버.
-- preflight 응답을 받는 e2e 에서 prior 미들웨어가 stamp 한 Vary 가 보존되는지 검증해야 함.
-
-**수정 방향**
-
-`RespondPreflight` 경로도 `Continue` 와 동일하게 `name === HttpHeader.Vary` 분기로 `appendHeader` 사용. 또는 미들웨어 합성 일반화: 미들웨어가 emit 하는 헤더는 기본 `appendHeader` 로 처리하고 절대적으로 교체 의도인 것(`Access-Control-Allow-Origin`, `Content-Length`)만 `setHeader`. 다만 ACAO 같은 헤더는 한 응답에 하나만 있어야 하므로 단순 일괄 append 는 적절하지 않다 — `Vary` 만 분기하는 현재 패턴을 preflight 경로에 동일하게 적용하면 충분.
+**테스트 (U6 동시 해결)**: `test/e2e/pipeline.test.ts` 에 preflight 경로 prior Vary 보존 시나리오 추가 — RED 확인 후 GREEN 통과.
 
 ---
 

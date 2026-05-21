@@ -42,23 +42,23 @@ export function corsMiddleware(opts?: CorsOptions): MiddlewareDefinition {
 
     const response = http.response;
 
+    const writeHeader = (value: string, name: string): void => {
+      if (name === HttpHeader.Vary) {
+        response.appendHeader(name, value);
+      } else {
+        response.setHeader(name, value);
+      }
+    };
+
     if (result.action === CorsAction.RespondPreflight) {
       response.setStatus(result.statusCode);
-      result.headers.forEach((value, name) => {
-        response.setHeader(name, value);
-      });
+      result.headers.forEach(writeHeader);
       response.setHeader(HttpHeader.ContentLength, '0');
       response.send();
       return;
     }
 
     // CorsAction.Continue
-    result.headers.forEach((value, name) => {
-      if (name === HttpHeader.Vary) {
-        response.appendHeader(name, value);
-      } else {
-        response.setHeader(name, value);
-      }
-    });
+    result.headers.forEach(writeHeader);
   });
 }
