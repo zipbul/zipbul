@@ -27,6 +27,9 @@ class BunSqlPgDriver implements Driver {
   async commitTransaction(c: DatabaseConnection) { await c.executeQuery(CompiledQuery.raw('commit')); }
   async rollbackTransaction(c: DatabaseConnection) { await c.executeQuery(CompiledQuery.raw('rollback')); }
   async releaseConnection(c: DatabaseConnection) { await (c as BunSqlReservedConnection).release(); }
+  async savepoint(c: DatabaseConnection, name: string) { await c.executeQuery(CompiledQuery.raw(`savepoint "${name}"`)); }
+  async rollbackToSavepoint(c: DatabaseConnection, name: string) { await c.executeQuery(CompiledQuery.raw(`rollback to savepoint "${name}"`)); }
+  async releaseSavepoint(c: DatabaseConnection, name: string) { await c.executeQuery(CompiledQuery.raw(`release savepoint "${name}"`)); }
   async destroy() { await this.sql?.close?.(); }
 }
 

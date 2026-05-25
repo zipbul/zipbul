@@ -150,9 +150,27 @@ NestJS/TypeORM와 동일하게 엔티티는 DI 컨테이너 구성원이 아니�
 
 **결론(2.10):** MikroORM의 SchemaGenerator·타입 시스템이 Bun.SQL 커스텀 dialect 위에서 **표준대로 동작** — DX 손실 없음. decimal scale 등은 평소 MikroORM에서 하던 것과 똑같이 명시하면 됨.
 
-### 2.11 미실증/유의 (잔여, 정확히)
-- MySQL/MariaDB 경로 미실증(어댑터 + reserve 지원만 확인).
-- Migrator(파일 기반 마이그레이션 `@mikro-orm/migrations`)·EntityGenerator·인트로스펙션 기반 schema diff(`update()`)는 미실증 — `create()/drop()`만 확인. (introspector는 꽂혀 있으나 diff 경로 미exercise)
-- 스트리밍(`streamQuery`) 미구현(PoC throw).
+### 2.11 잔여 미검증 전수 확인 (실 PG16 + MySQL 8.4)
+- **introspection 기반 schema diff + `update()`** → 통과. v1 스키마 생성 후 v2(컬럼 추가) 엔티티로 `getUpdateSchemaSQL()`이 기존 DB를 introspect→diff(`alter table "widget" add "price" int null`) 생성, `update()`가 적용. (`poc-pg-update.ts`)
+- **Migrator(파일 기반 마이그레이션 `@mikro-orm/migrations`)** → 통과. `create()`(파일 생성)→`getPending()`→`up()`(적용)→`mikro_orm_migrations` 부킹 테이블 + executed 1건. (`poc-pg-migrator.ts`) **단 두 전제 발견**: (1) Bun의 `fs.glob`가 `options.withFileTypes` 미지원 → MikroORM 마이그레이션 discover가 깨짐 → **`tinyglobby` 설치 필요**(MikroORM이 자동 감지, 문서화된 해법). (2) 마이그레이션은 savepoint를 쓰므로 **드라이버가 `savepoint`/`rollbackToSavepoint`/`releaseSavepoint` 구현 필수**(Kysely Driver 선택 메서드, raw `savepoint`/`release`/`rollback to` SQL로 구현).
+- **MySQL/MariaDB 런타임** → 통과. MySqlPlatform + Mysql Kysely(Adapter/Compiler/Introspector) + Bun.SQL mysql 연결로 실 MySQL 8.4.9에 init·스키마생성·insert·트랜잭션·findAll 라운드트립. (`bun-sql-mysql-dialect.ts`, `bun-mysql-mikro-driver.ts`, `poc-mysql.ts`)
+- **스트리밍** → **불가(한계).** Bun.SQL 1.3.13의 쿼리 객체엔 async-iterator/`.cursor`/`.stream`이 없음(`.values()`/`.raw()`/`.simple()`만). 따라서 Kysely `streamQuery`/MikroORM `qb.stream()`을 Bun.SQL로 네이티브 구현 불가 — 버퍼링 fallback이거나 미지원으로 둬야 함. 공식 pg 드라이버는 `pg-cursor`로 스트리밍하나 Bun.SQL엔 대응물 없음.
+
+### 2.12 "정공법" 드라이버/패키지 설계 (공식 @mikro-orm/postgresql 템플릿 기준)
+공식 드라이버 패키지(`@mikro-orm/postgresql`) 해부 결과 — 정확한 구조:
+- `XConnection extends AbstractSqlConnection` → `createKyselyDialect(overrides): Dialect` 구현. (공식은 kysely 내장 `PostgresDialect`에 `new pg.Pool(...)`을 넘김. 우리는 Bun.SQL 백엔드 커스텀 Kysely Dialect를 반환.)
+- `XDriver extends AbstractSqlDriver` → `super(config, new XPlatform(), XConnection, ['kysely', <native>])` + `createEntityManager()` + `getORMClass()`.
+- `XPlatform` → **재사용**: `BasePostgreSqlPlatform`(pg) / `MySqlPlatform`(mysql) / `SqlitePlatform`(sqlite) 그대로 상속. 새로 만들 필요 거의 없음.
+- `XMikroORM extends SqlMikroORM` + `defineXConfig = defineConfig({ driver: XDriver, ... })` + `index.ts`가 `@mikro-orm/sql` 재export.
+
+**만들 드라이버**: DB 패밀리별 3종 — `BunPostgreSqlDriver`, `BunMySqlDriver`, `BunSqliteDriver`. 공통 자산은 "Bun.SQL 백엔드 Kysely Dialect" 하나(executeQuery=`sql.unsafe`, 트랜잭션 begin/commit/rollback + savepoint 3종, pg/mysql은 `sql.reserve()`로 연결 핀, sqlite는 동기 better-sqlite3 브리지). Dialect의 Adapter/Compiler/Introspector만 DB별로 kysely 것 교체.
+
+**패키지**: 단일 패키지(가칭 `@zipbul/mikro-orm-bun`). exports = 3 드라이버 + defineConfig 3종. peerDeps = `@mikro-orm/core`·`@mikro-orm/sql`·해당 platform 패키지(`@mikro-orm/postgresql`/`mysql`)·`kysely`. deps = `tinyglobby`(마이그레이션 Bun glob 회피). 엔티티는 모던 ES 데코레이터(`@mikro-orm/decorators/es`) 사용 — 앱은 `experimentalDecorators:false`.
+
+### 2.13 최종 미검증 (정확히 남은 것)
+- **스트리밍**: Bun.SQL 커서 부재로 미지원 (위 2.11).
+- MariaDB 별도 미테스트(MySQL과 동일 어댑터라 동작 추정이나 미실증).
+- pg `pg-cursor` 의존 기능(refcursor 라우틴 등 공식 Connection의 callRoutine 경로) 미구현/미검증.
+- 실제 `@zipbul` DB 프로바이더 패키지로의 통합(EntityManager/Repository inject)은 미조립 — 구성요소는 전부 실증됨.
 - 실 MikroORM 엔티티를 **DI로 쓰는 서비스가 EntityManager/Repository를 inject**하는 풀 통합(DB 프로바이더 패키지)을 zipbul 런타임에서 엔드투엔드로는 미조립 — 단 구성요소(모던 데코레이터 zipbul 런타임 §2.9 + MikroORM/Bun.SQL 라운드트립 §2.2·2.5·2.6)는 각각 실증됨.
 - (참고) 워크트리 루트 `bun install`이 로컬 @zipbul 워크스페이스 링크 실패 → 빌드/런타임 검증은 메인 repo에서 수행. 워크트리 링크 이슈는 별도 원인 규명 필요.
