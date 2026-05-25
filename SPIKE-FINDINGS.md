@@ -174,3 +174,42 @@ NestJS/TypeORM와 동일하게 엔티티는 DI 컨테이너 구성원이 아니�
 - 실제 `@zipbul` DB 프로바이더 패키지로의 통합(EntityManager/Repository inject)은 미조립 — 구성요소는 전부 실증됨.
 - 실 MikroORM 엔티티를 **DI로 쓰는 서비스가 EntityManager/Repository를 inject**하는 풀 통합(DB 프로바이더 패키지)을 zipbul 런타임에서 엔드투엔드로는 미조립 — 단 구성요소(모던 데코레이터 zipbul 런타임 §2.9 + MikroORM/Bun.SQL 라운드트립 §2.2·2.5·2.6)는 각각 실증됨.
 - (참고) 워크트리 루트 `bun install`이 로컬 @zipbul 워크스페이스 링크 실패 → 빌드/런타임 검증은 메인 repo에서 수행. 워크트리 링크 이슈는 별도 원인 규명 필요.
+
+---
+
+## 3. 추가 정밀조사 (DB버전·DI통합·패키징·DX·기능)
+
+### 3.1 DB 버전 — 최신으로 재검증
+구버전(pg16/mysql8)을 쓴 건 기본 태그 습관일 뿐 이유 없음. **최신 재검증**: PostgreSQL **18.4** (타입변환 + Migrator 통과), MySQL **9.7.0** (라운드트립 + 트랜잭션 통과). 결과 동일.
+
+### 3.2 DI 통합 — "프로바이더만"으론 부족, 특정 메커니즘 필요 (컴파일러 전수조사)
+zipbul 컴파일러를 전수조사한 결과(file:line 근거 확보):
+- **외부 npm 패키지는 자동 결선 불가.** 컴파일러는 사용자 `sourceDir`만 스캔(`module-graph.ts:70-72`). 즉 `@mikro-orm` 드라이버 패키지가 forRoot를 export해도 컴파일러가 자동 인식 못 함 → **사용자가 자기 src에 모듈/프로바이더 글루를 직접 작성해야 함.** (NestJS가 `imports:[MikroOrmModule.forRoot()]`만으로 되는 것과 가장 큰 DX 차이.)
+- **async 팩토리 불가.** 생성된 팩토리는 전부 동기(`(c)=>...`). `await MikroORM.init()`은 팩토리에 못 넣음 → **서비스 클래스의 `onInit()` 라이프사이클 훅**에서 init, `onDestroy()`에서 close. (`lifecycle-runner.ts:39`, `application.ts:265`에서 adapter.start 전에 실행.)
+- **동적 모듈/forRoot는 지원되나 호출이 사용자 소스에 있어야 함.** 컴파일러는 `ZIPBUL_CALL` 마커(`Class.method()` 형태)를 사용자 모듈의 dynamicImports에서 감지 → `loadDynamicModule`로 런타임 등록(`injector-generator.ts:526`, `container.ts:199`). forRoot가 반환하는 providers도 동기 팩토리.
+- **per-request EntityManager**: 자동 훅 없음. 두 경로 — (a) `scope:'request'` 프로바이더로 `em.fork()`, request scope dispose 시 자동 `onDestroy`(`request-scope-container.ts:90`, http-server.ts가 요청당 createRequestScope+dispose 호출), (b) **`defineMiddleware`의 `provides`/`ctx.set(contextKey, forkedEm)`** 로 컨텍스트 주입.
+- **defineAdapter는 무관**(프로토콜 파이프라인 전용). **defineMiddleware는 per-request EM 컨텍스트 메커니즘으로 유효.**
+- 결론: **프로바이더만으론 안 됨.** 필요한 것 = 사용자 src의 모듈 글루 + `onInit` 비동기 init 서비스 + (request-scope 프로바이더 또는 미들웨어) per-request EM. 컴파일러 변경 없이 기존 인프라로 가능하나, **자동 결선이 아니라 사용자가 글루를 써야 함**(또는 zipbul 측 브리지 패키지 제공). ※ 이 풀 결선은 코드 분석으로 확인했고 실제 zipbul 앱 PoC 조립은 미실행(다음 단계).
+
+### 3.3 패키지 — 두 레이어, "mikro-orm-bun"은 가칭(미확정)
+"mikro-orm-bun"은 내가 임의로 붙인 이름. 정확히는 **두 레이어**가 필요:
+1. **MikroORM 드라이버(zipbul 무관)** — Bun.SQL 백엔드. 비공식이라 `@mikro-orm/*` 스코프 불가 → 커뮤니티 관례상 `mikro-orm-bun-sql` 류. 공식은 DB별 별도 패키지(`@mikro-orm/postgresql`·`mysql`·`sqlite`)지만, **Bun.SQL이 4종을 통합**하므로 한 패키지에서 DB별 드라이버 export(`BunPostgreSqlDriver`/`BunMySqlDriver`/`BunSqliteDriver`)가 자연스러움(공식과 갈리는 지점).
+2. **zipbul DI 브리지** — NestJS의 `@mikro-orm/nestjs` 대응물(`@zipbul/...`). 모듈 글루 헬퍼 + request-context 미들웨어 + repository 주입 편의.
+
+### 3.4 NestJS DX 대조 — "거의 비슷"하나 동일하진 않음
+`@mikro-orm/nestjs` 제공: `MikroOrmModule.forRoot/forRootAsync`, `forFeature([Entity])`, `@InjectRepository`, `@CreateRequestContext`/`@EnsureRequestContext`, 요청당 EM 포크 미들웨어, `MikroORM`+`EntityManager` 주입.
+zipbul로 재현 가능성: forRoot/forFeature는 사용자 모듈 글루로 흉내 가능(자동 import는 아님). `@InjectRepository`/`@CreateRequestContext`는 **직접 대응 데코레이터가 없음** → zipbul 브리지가 request-scope/미들웨어로 에뮬레이트 필요. **결론: 매우 근접 가능하나 1:1 아님**(특히 자동 forRoot import와 데코레이터 기반 request-context).
+
+### 3.5 mikro-orm postgres와 동일 DX? — ORM API는 동일, 단 3가지 제외
+EM·QueryBuilder·관계·UoW·Identity Map·SchemaGenerator·Migrator·타입은 **그대로**(전부 @mikro-orm/sql 재사용). 제외/차이:
+- **스트리밍 불가** (Bun.SQL 커서 없음; 공식은 pg-cursor)
+- **타입 파서 제어 상실** — 공식 pg 드라이버는 `createPostgreSqlTypeParsers`+pg `TypeOverrides`로 OID별 JS 변환을 명시 제어. Bun.SQL은 자체 변환 → 흔한 타입(Date/json/bigint/decimal)은 검증됐으나 엣지 타입은 Bun 동작에 의존(MikroORM의 세밀 제어 못 씀).
+- **callRoutine/refcursor**(저장프로시저 OUT/refcursor) 미구현.
+
+### 3.6 직접 만들 것 vs 그대로 쓸 것 (확정)
+**그대로 재사용(만들 필요 없음):** `@mikro-orm/sql` 전체(SqlEntityManager·QueryBuilder·UnitOfWork·Identity Map·SqlSchemaGenerator·SchemaComparator·SchemaHelper), 플랫폼(`BasePostgreSqlPlatform`/`MySqlPlatform`/`SqlitePlatform`), ExceptionConverter, `@mikro-orm/migrations`(Migrator), kysely의 DB별 Adapter/QueryCompiler/Introspector, `@mikro-orm/decorators/es`(모던 데코레이터), `definePostgreSqlConfig`류·MikroORM 서브클래스 패턴.
+**직접 만들 것:** (a) Bun.SQL 백엔드 **Kysely Dialect**(executeQuery=`sql.unsafe`, begin/commit/rollback, **savepoint 3종**, pg/mysql은 `sql.reserve()`로 연결 핀, sqlite는 동기 better-sqlite3 브리지), (b) DB별 얇은 `Connection.createKyselyDialect` + `Driver`(super에 기존 Platform 재사용), (c) **zipbul DI 브리지**(모듈 글루 + request-context 미들웨어), (d) `tinyglobby` 의존(Bun glob 회피).
+**못 얻는 것:** 스트리밍, pg 타입파서 세밀제어, refcursor 라우틴.
+
+### 3.7 공식 드라이버 전체 기능 파악 (AbstractSqlConnection 추상 멤버 = createKyselyDialect 1개뿐)
+`AbstractSqlConnection`의 추상 메서드는 **`createKyselyDialect` 단 하나**. execute/begin/commit/rollback/transactional/getClient/checkConnection/createKysely는 베이스 제공(즉 dialect만 주면 트랜잭션·실행 무료). 공식 `PostgreSqlConnection`이 베이스 위에 **추가**하는 것: createKyselyDialect(pg.Pool+kysely PostgresDialect), `callRoutine`(저장프로시저/refcursor), `mapOptions`(TypeOverrides+OID 타입파서, onCreateConnection), pg-cursor 스트리밍. 그 외 PostgreSqlPlatform(BasePostgreSqlPlatform 확장)·PostgreSqlEntityManager(pg 헬퍼)·definePostgreSqlConfig·PostgreSqlMikroORM·raw(). → 우리가 신경 쓸 표면은 createKyselyDialect + (선택)callRoutine/타입파서이며 나머지는 상속으로 해결.
