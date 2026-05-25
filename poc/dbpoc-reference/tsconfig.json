@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ESNext", "module": "Preserve", "moduleDetection": "force",
+    "moduleResolution": "bundler", "experimentalDecorators": false, "emitDecoratorMetadata": false,
+    "strict": true, "skipLibCheck": true, "verbatimModuleSyntax": true, "noEmit": true,
+    "types": ["bun"]
+  },
+  "include": ["src/**/*.ts", ".zipbul/**/*.d.ts"]
+}

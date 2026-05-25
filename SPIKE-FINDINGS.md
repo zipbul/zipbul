@@ -213,3 +213,27 @@ EM·QueryBuilder·관계·UoW·Identity Map·SchemaGenerator·Migrator·타입�
 
 ### 3.7 공식 드라이버 전체 기능 파악 (AbstractSqlConnection 추상 멤버 = createKyselyDialect 1개뿐)
 `AbstractSqlConnection`의 추상 메서드는 **`createKyselyDialect` 단 하나**. execute/begin/commit/rollback/transactional/getClient/checkConnection/createKysely는 베이스 제공(즉 dialect만 주면 트랜잭션·실행 무료). 공식 `PostgreSqlConnection`이 베이스 위에 **추가**하는 것: createKyselyDialect(pg.Pool+kysely PostgresDialect), `callRoutine`(저장프로시저/refcursor), `mapOptions`(TypeOverrides+OID 타입파서, onCreateConnection), pg-cursor 스트리밍. 그 외 PostgreSqlPlatform(BasePostgreSqlPlatform 확장)·PostgreSqlEntityManager(pg 헬퍼)·definePostgreSqlConfig·PostgreSqlMikroORM·raw(). → 우리가 신경 쓸 표면은 createKyselyDialect + (선택)callRoutine/타입파서이며 나머지는 상속으로 해결.
+
+---
+
+## 4. 풀 엔드투엔드 실증 — zipbul 앱 + DI + 드라이버 + 실 Postgres (완료)
+
+레퍼런스 소스: `poc/dbpoc-reference/` (메인 repo의 격리 워크스페이스 앱에서 빌드·실행 후 소스만 보존). 구성: 모던 ES 엔티티 + `OrmService`(onInit에서 MikroORM.init) + `DbController`(OrmService 주입) + main.ts + 드라이버(node_modules 패키지).
+
+**결과 (실 PostgreSQL, port 55433):**
+```
+info: [OrmService] MikroORM(Bun.SQL/Postgres) initialized + seeded
+info: [HttpAdapter] 2 routes registered (AOT)
+info: [HttpAdapter] Listening on :5055
+GET  /db/users -> 200 [{"id":1,"name":"Ada Lovelace",...},{"id":2,"name":"Alan Turing",...}]
+POST /db/users -> 200 {"id":3,"total":3}
+```
+빌드: `2 modules, 1 providers`(OrmService 등록), DbController 컨트롤러 인식, 28 classes. **HTTP→DI주입 컨트롤러→onInit로 비동기 init된 OrmService→MikroORM(모던 데코레이터 엔티티)→커스텀 Bun.SQL Postgres 드라이버→실 PG** 전 구간 동작.
+
+### 4.1 이 과정에서 드러난 결정적 제약 3가지 (전부 실측)
+1. **드라이버는 반드시 "실제 node_modules 패키지"여야 함.** src/ 안이나 **워크스페이스 심링크**(packages/ 소스를 가리킴)에 두면 AOT(gildash)가 드라이버의 내부 클래스(BunPgConnection 등)까지 파싱해 runtime.ts에 import 생성→`No matching export`로 번들 실패. 레지스트리/실제 node_modules 패키지만 컴파일러가 불투명 취급. → 드라이버는 published 패키지로 배포해야 하며, 워크스페이스 개발 중엔 심링크 파싱 이슈 주의.
+2. **모던(stage-3)은 standalone tsconfig 필요 — `extends`로 못 켬.** Bun의 tsconfig `extends` 처리 버그: 상위(`experimentalDecorators:true`)를 extends하고 로컬에서 `false`로 override해도 **Bun은 레거시로 트랜스파일**(`__legacyDecorateClassTS`). standalone false여야 stage-3(`__decorateElement`). → **모던 데코레이터 채택 시 root tsconfig 자체를 false로** 해야 함(또는 각 패키지가 extends 없이 inline). ※ 앞 §2.9의 "false에서 실행됨"은 실은 extends 버그로 레거시 폴백된 것이었음(no-op 데코레이터라 통과해 못 알아챔).
+3. **기존 examples 앱은 진짜 stage-3에서 Bun 번들 버그.** 공유 클래스(AuditService, 다중 모듈)가 `splitting:true` + stage-3에서 `SyntaxError: Cannot declare let _AuditService twice`. Bun stage-3+splitting 트랜스파일 버그로 추정 — DB 통합과 무관하나, 모던 전환 시 공유 클래스 패턴에서 터질 수 있음(요주의). 최소 앱(dbpoc)에선 미발생.
+
+### 4.2 종합 결론
+"MikroORM DX 그대로 + driver만 커스텀"은 **풀 엔드투엔드로 실증됨**(스키마생성·마이그레이션·타입·트랜잭션·풀링·실 HTTP 쿼리 포함, pg/mysql/sqlite, 모던 데코레이터). 단 위 3제약 + 앞서의 한계(스트리밍 불가, pg 타입파서 세밀제어, refcursor)를 전제로 한다. 패키지는 두 레이어(외부 MikroORM 드라이버 패키지 + zipbul DI 브리지)로 가야 하며, 드라이버는 반드시 실제 패키지로 배포, root tsconfig는 experimentalDecorators:false.

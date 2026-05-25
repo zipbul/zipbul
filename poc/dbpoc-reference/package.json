@@ -1,0 +1,13 @@
+{
+  "name": "@zipbul-poc/dbpoc",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "bun ../../framework/cli/src/bin/zb.ts build", "start": "bun dist/entry.js" },
+  "dependencies": {
+    "@zipbul/core": "workspace:*", "@zipbul/common": "workspace:*",
+    "@zipbul/http-adapter": "workspace:*", "@zipbul/logger": "workspace:*",
+    "@mikro-orm/core": "^7", "@mikro-orm/sql": "^7", "@mikro-orm/postgresql": "^7",
+    "@mikro-orm/decorators": "^7", "kysely": "^0.29", "tinyglobby": "^0.2"
+  },
+  "devDependencies": { "@zipbul/cli": "workspace:*" }
+}
