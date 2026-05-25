@@ -134,8 +134,25 @@ NestJS/TypeORM와 동일하게 엔티티는 DI 컨테이너 구성원이 아니�
 
 **결론(2.9):** 모던 데코레이터 전환의 빌드·런타임 리스크는 **없다(실증)**. 남는 작업은 **no-op 데코레이터들을 모던 시그니처로 재선언**(HTTP+common+DTO 검증 데코레이터)해 tsc를 그린으로 유지하는 것뿐 — 동작 변화 없는 기계적 타입 작업. 모던 시그니처가 tsc 통과함은 §1.4에서 확인됨.
 
-### 2.10 미실증/유의 (잔여, 정확히)
-- `orm.schema.createSchema()` 미동작(SchemaGenerator extension 등록 필요로 추정) → 마이그레이션/스키마생성 경로 별도 검증 필요.
+### 2.10 "완벽" 게이트 — 스키마 생성 + 타입 변환 (실증 완료)
+"DX 그대로 + driver만 완벽"을 가르는 두 DX-핵심 표면을 실제 PostgreSQL 16으로 검증. PoC: `entity-types.ts`(Date/json/bigint/boolean/decimal), `poc-pg-types.ts`.
+
+**게이트 1 — SchemaGenerator(스키마 생성/마이그레이션):** 통과.
+- 앞서 `orm.schema.createSchema()` 미동작의 원인 두 가지를 규명: (1) extension 미등록 → `extensions: [SqlSchemaGenerator]` 필요, (2) 메서드명 오류 → 실제 API는 `create()`/`drop()`/`update()`/`getCreateSchemaSQL()`(`createSchema`/`refreshDatabase` 아님).
+- `orm.schema.drop()` + `orm.schema.create()`가 Bun.SQL dialect 위에서 정상 동작, 엔티티 메타데이터로부터 DDL 생성·실행. 생성 결과(information_schema 확인): `serial / varchar(255) / timestamptz / jsonb / bigint / boolean / numeric` — 표준 pg 타입.
+
+**게이트 2 — 타입 변환(coercion) 왕복:** 전부 통과.
+- Date(timestamptz): `instanceof Date` + 값 동일 ✓
+- JSON(jsonb): 객체/배열 복원 + deep-equal ✓
+- bigint: `'9007199254740993'`(MAX_SAFE_INTEGER 초과) 문자열 무손실 보존 ✓
+- boolean: `true` ✓
+- decimal: `'123.45'` 정확 ✓ — 단 `@Property({ type:'decimal', precision:10, scale:2 })`로 scale 명시해야 함. scale 미지정 시 MikroORM 기본 `numeric(10,0)`라 `123.45→123`이 되는데, 이는 **공식 드라이버와 동일한 MikroORM 기본 동작**이지 Bun.SQL 드라이버 문제가 아님(검증함).
+
+**결론(2.10):** MikroORM의 SchemaGenerator·타입 시스템이 Bun.SQL 커스텀 dialect 위에서 **표준대로 동작** — DX 손실 없음. decimal scale 등은 평소 MikroORM에서 하던 것과 똑같이 명시하면 됨.
+
+### 2.11 미실증/유의 (잔여, 정확히)
 - MySQL/MariaDB 경로 미실증(어댑터 + reserve 지원만 확인).
+- Migrator(파일 기반 마이그레이션 `@mikro-orm/migrations`)·EntityGenerator·인트로스펙션 기반 schema diff(`update()`)는 미실증 — `create()/drop()`만 확인. (introspector는 꽂혀 있으나 diff 경로 미exercise)
+- 스트리밍(`streamQuery`) 미구현(PoC throw).
 - 실 MikroORM 엔티티를 **DI로 쓰는 서비스가 EntityManager/Repository를 inject**하는 풀 통합(DB 프로바이더 패키지)을 zipbul 런타임에서 엔드투엔드로는 미조립 — 단 구성요소(모던 데코레이터 zipbul 런타임 §2.9 + MikroORM/Bun.SQL 라운드트립 §2.2·2.5·2.6)는 각각 실증됨.
 - (참고) 워크트리 루트 `bun install`이 로컬 @zipbul 워크스페이스 링크 실패 → 빌드/런타임 검증은 메인 repo에서 수행. 워크트리 링크 이슈는 별도 원인 규명 필요.
