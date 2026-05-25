@@ -1,0 +1,11 @@
+{
+  "name": "poc-mikro-bunsql",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mikro-orm/core": "7",
+    "@mikro-orm/decorators": "7",
+    "@mikro-orm/sql": "7",
+    "kysely": "^0.29.2"
+  }
+}
