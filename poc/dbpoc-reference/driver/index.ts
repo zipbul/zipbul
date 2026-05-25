@@ -1,6 +1,9 @@
 import { type Dialect, type Driver, type DatabaseConnection, type QueryResult, type DatabaseIntrospector, type QueryCompiler, type DialectAdapter, type Kysely, PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler, CompiledQuery } from 'kysely';
 import { AbstractSqlDriver, AbstractSqlConnection } from '@mikro-orm/sql';
 import { PostgreSqlPlatform } from '@mikro-orm/postgresql';
+import { MikroORM, type Options } from '@mikro-orm/core';
+import { SqlSchemaGenerator } from '@mikro-orm/sql';
+
 class BunReserved implements DatabaseConnection {
   constructor(private readonly r: any) {}
   async executeQuery<R>(cq: CompiledQuery): Promise<QueryResult<R>> {
@@ -39,4 +42,18 @@ class BunPgConnection extends AbstractSqlConnection {
 }
 export class BunPostgreSqlDriver extends AbstractSqlDriver<BunPgConnection, PostgreSqlPlatform> {
   constructor(config: any) { super(config, new PostgreSqlPlatform(), BunPgConnection, ['kysely']); }
+}
+// ── DI bridge: base service the user extends ──
+export abstract class MikroOrmBase {
+  orm!: MikroORM;
+  protected abstract options(): Options<any>;
+  protected async seed(): Promise<void> {}
+  async onInit(): Promise<void> {
+    this.orm = await MikroORM.init({ extensions: [SqlSchemaGenerator], ...this.options() } as any);
+    await this.orm.schema.drop({ dropForeignKeys: true });
+    await this.orm.schema.create();
+    await this.seed();
+  }
+  async onDestroy(): Promise<void> { await this.orm?.close(true); }
+  get em() { return this.orm.em; }
 }

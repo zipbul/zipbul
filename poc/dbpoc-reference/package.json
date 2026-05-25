@@ -1,7 +1,5 @@
 {
-  "name": "@zipbul-poc/dbpoc",
-  "private": true,
-  "type": "module",
+  "name": "@zipbul-poc/dbpoc", "private": true, "type": "module",
   "scripts": { "build": "bun ../../framework/cli/src/bin/zb.ts build", "start": "bun dist/entry.js" },
   "dependencies": {
     "@zipbul/core": "workspace:*", "@zipbul/common": "workspace:*",

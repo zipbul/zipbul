@@ -237,3 +237,32 @@ POST /db/users -> 200 {"id":3,"total":3}
 
 ### 4.2 종합 결론
 "MikroORM DX 그대로 + driver만 커스텀"은 **풀 엔드투엔드로 실증됨**(스키마생성·마이그레이션·타입·트랜잭션·풀링·실 HTTP 쿼리 포함, pg/mysql/sqlite, 모던 데코레이터). 단 위 3제약 + 앞서의 한계(스트리밍 불가, pg 타입파서 세밀제어, refcursor)를 전제로 한다. 패키지는 두 레이어(외부 MikroORM 드라이버 패키지 + zipbul DI 브리지)로 가야 하며, 드라이버는 반드시 실제 패키지로 배포, root tsconfig는 experimentalDecorators:false.
+
+---
+
+## 5. DI 브리지 + request-scope EM 미들웨어 — 워크트리에서 실증 완료
+
+(이 검증은 워크트리 안에서만 수행. 워크트리 빌드 전제: `@zipbul/*` 패키지는 `exports`가 `dist/index.js`를 가리키므로 `bun run build`로 dist를 먼저 빌드해야 함. 워크트리 bun은 **isolated 링커**라 워크스페이스는 `node_modules/.bun/node_modules/@zipbul/`에 링크됨—루트 `node_modules/@zipbul`이 비어보이는 건 정상.)
+
+레퍼런스: `poc/dbpoc-reference/` (최종본). 구성: `OrmService extends MikroOrmBase`(브리지) + `requestEmMiddleware`(RequestContext.enter) + `@UseMiddlewares` 결선 + `DbController`.
+
+**결과 (실 PostgreSQL 18, 워크트리):**
+```
+[HttpAdapter] 2 routes registered (AOT) / Listening :5066
+GET /db/users           -> 200 [Ada Lovelace, Alan Turing]   (DI 브리지: OrmService.onInit 시드 → 실 PG)
+5x concurrent GET /db/em-id ->
+  {"emId":5,"viaOrmEm":5,"rows":2}{"emId":6,"viaOrmEm":6}{"emId":7..}{"emId":8..}{"emId":9..}
+```
+
+### 5.1 DI 브리지 (검증)
+- 패키지(`@zipbul-poc/bun-pg-driver`)가 `MikroOrmBase` 추상 클래스 제공(onInit=MikroORM.init+schema+seed, onDestroy=close, `em` 게터). 사용자는 src에 **얇은 `@Injectable` 서브클래스**(`options()`만 구현)만 작성 → 컴파일러가 스캔·프로바이더 등록. 빌드 `1 providers`=OrmService.
+- 즉 NestJS의 forRoot 대응: 패키지가 베이스 제공, 사용자가 최소 글루(서브클래스 1개)를 자기 src에 둠. (패키지가 forRoot를 자동 결선하진 못함—컴파일러가 src만 스캔하므로.)
+- 상속된 `onInit`이 zipbul 라이프사이클에서 정상 호출됨(시드 데이터 확인).
+
+### 5.2 request-scope per-request EM (검증)
+- `requestEmMiddleware = defineMiddleware([HttpAdapter], () => { const orm = inject(OrmService); return (ctx) => { RequestContext.enter(orm.orm.em); ctx.set(RequestEm, RequestContext.getEntityManager()); }; })`. 미들웨어 팩토리가 injection context에서 실행되므로(`adapter.ts: runInInjectionContext(container, def.factory)`) `inject(OrmService)` 동작.
+- `@UseMiddlewares('BeforeHandle', [requestEmMiddleware])`로 컨트롤러에 결선 → AOT의 producer/consumer 검증 통과(전엔 `ctx.use(RequestEm)` consumer만 있어 violation 났음; 데코레이터 결선으로 해결).
+- **격리 증명**: 5개 동시 요청 emId=5,6,7,8,9 전부 distinct = 요청마다 독립 EM fork. `viaOrmEm===emId` = `RequestContext.enter`의 AsyncLocalStorage로 핸들러/서비스의 `orm.em`이 요청별 fork로 자동 해석(= MikroORM @CreateRequestContext 동등 동작, next-less 미들웨어용 `enter()` 사용). rows=2 = 요청 EM 통한 실 쿼리.
+
+### 5.3 결론
+NestJS+MikroORM의 핵심 DX(모듈 forRoot류 글루 + per-request EM/RequestContext + repository 접근)를 zipbul에서 **DI 브리지(패키지 베이스 + 사용자 서브클래스) + RequestContext.enter 미들웨어**로 재현 가능함을 실증. 이로써 전 구간(드라이버·스키마·마이그레이션·타입·트랜잭션·풀링·DI·per-request EM·실 HTTP, pg/mysql/sqlite, 모던 데코레이터) 검증 완료. 잔여 한계는 §2.11의 스트리밍(Bun 커서 부재)·pg 타입파서 세밀제어·refcursor뿐.
