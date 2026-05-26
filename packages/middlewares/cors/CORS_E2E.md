@@ -147,9 +147,9 @@ wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 �
 
 **boot-time strict 옵션 미도입**: ACRH 는 runtime client 입력. silent filter 가 (a) framework-agnostic 정합 (logger/callback 의존 0), (b) D5 (config 오류 → throw) 와 책임 경계 분리 측면 정공.
 
-**남은 별도 결함**: explicit `allowedHeaders` 경로 (`cors.ts:113-123`) 에서 client 가 invalid token (예: `'X Bad'`) 보내면 `areRequestHeadersAllowed` 가 lowercase string 비교 후 미매치 → `HeaderNotAllowed` reject. reason 이 의미적으로 mislabel — 실제 결함은 invalid token. 새 reason (`InvalidRequestHeader`) 또는 echo 경로와 동일 filter 적용이 정공. 별도 결함으로 추적.
-
 **미세 wire 변화**: D6 fix 로 ACAH 값의 OWS 가 제거 (`'X-A, X-B'` → `'X-A,X-B'`). RFC 9110 §5.6.1 list grammar 의 OWS 허용 부분이라 conformant 클라이언트 영향 0. strict string match 하던 클라이언트만 미세 영향 가능.
+
+**explicit `allowedHeaders` 경로는 결함 아님**: client invalid token (예: `'X Bad'`) 이 explicit list 와 lowercase 비교에서 미매치 → `HeaderNotAllowed` reject. server 정책상 정공 동작 (사양 wire MUST 위반 0). reason 의미는 약하지만 별도 결함 아님.
 
 ---
 
