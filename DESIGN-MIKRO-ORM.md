@@ -82,42 +82,46 @@
 
 ---
 
-## 9. 최종 DX — 단일 `inject` (실증 완료) — `poc/zipbul-mikro-orm-dx/`
+## 9. 최종 DX — `inject(UserRepository)` (NestJS @InjectRepository 동급, 실증) — `poc/zipbul-mikro-orm-dx/`
 
-DX 일관성 위해 **새 주입 함수 0개**. 사용자는 zipbul 기존 `inject(Database)` 하나만 쓰고, 거기서 `.repo(Entity)`·`.em`을 꺼낸다. `.em`/`.repo()`는 호출마다 `RequestContext`를 읽어 요청별 fork로 자동 해석. injectRepository/injectEntityManager/레지스트리/프록시 전부 폐기. 패키지 ~52줄.
+zipbul DI는 클래스 프로바이더만 지원 → 리포지토리를 **엔티티별 @Injectable 클래스**로 만들면 `inject(UserRepository)`가 그대로 된다. 새 주입 함수 0개(zipbul 기존 `inject`만). 패키지의 `Repository(Entity)` 베이스가 호출마다 RequestContext의 요청-fork em으로 위임 → per-request 격리 투명.
 
 ### 9.1 사용자 코드 (전부)
 ```ts
-// entity — 모던 ES 데코레이터, 단일 import
+// entity
 import { Entity, PrimaryKey, Property } from '@zipbul/mikro-orm';
 @Entity() export class User { @PrimaryKey({type:'number',autoincrement:true}) id!:number; @Property({type:'string'}) email!:string; }
 
-// database/orm.service.ts — 유일한 글루: @Injectable 서브클래스
+// database — 유일한 셋업 글루
 @Injectable({ scope:'singleton', visibleTo:'all' })
-export class Database extends MikroOrm({ driver: BunPostgreSqlDriver, clientUrl: env.DB_URL, entities:[User] }) {}
+export class Database extends MikroOrm({ driver:BunPostgreSqlDriver, clientUrl:env.DB_URL, entities:[User] }) {}
+export const dbContext = defineMiddleware([HttpAdapter], () => { const db=inject(Database); return ()=>db.enter(); });
 
-// database/db-context.middleware.ts — 한 줄(기존 inject 사용)
-export const dbContext = defineMiddleware([HttpAdapter], () => { const db = inject(Database); return () => db.enter(); });
+// repository — 엔티티당 한 줄 (NestJS forFeature 대응). 커스텀 메서드도 가능.
+@Injectable({ visibleTo:'all' })
+export class UserRepository extends Repository(User) {
+  byEmail(email:string){ return this.findOne({ email }); }
+}
 
-// users/users.service.ts — inject 하나, 끝
+// service — inject(UserRepository), 끝.
 @Injectable()
 export class UsersService {
-  private readonly db = inject(Database);              // ← zipbul 기존 inject, 단 하나
-  list() { return this.db.repo(User).findAll(); }      // 요청별 fork repo
-  async create(email) { const u=this.db.repo(User).create({email}); await this.db.em.persistAndFlush(u); }
+  private readonly users = inject(UserRepository);   // ← NestJS @InjectRepository(User) 동급
+  list(){ return this.users.findAll(); }
+  async create(email){ const u=this.users.create({email}); await this.users.getEntityManager().persistAndFlush(u); }
 }
-// controller: @UseMiddlewares('BeforeHandle',[dbContext])
 ```
 
-### 9.2 패키지(`@zipbul/mikro-orm`, ~52줄)
-- `BunPostgreSqlDriver`(+My/Sqlite 동형) — AbstractSqlDriver + 공식 PostgreSqlPlatform 재사용, 에러정규화(errno→code)·insertId·tx settings 포함.
+### 9.2 패키지(`@zipbul/mikro-orm`, ~67줄)
+- `BunPostgreSqlDriver`(+My/Sqlite 동형, 공식 Platform 재사용, 에러정규화·insertId·tx settings).
 - ES 데코레이터 재export.
-- `MikroOrm(options)` 믹스인 = 사용자가 @Injectable로 상속하는 **유일한 클래스**: `onInit`=init만(비파괴), `onDestroy`=close, **`get em`**(RequestContext 우선, 없으면 global), **`repo(E)`**(현재 em의 repository), **`enter()`**(미들웨어용 RequestContext.enter).
+- `MikroOrm(options)` 믹스인 = 사용자 @Injectable `Database`의 베이스: onInit=init만(비파괴)+내부 레지스트리 등록, `em` 게터(context-aware), `enter()`(미들웨어용).
+- `Repository(Entity, conn?)` = 사용자 @Injectable `XxxRepository`의 베이스: 생성자가 Proxy 반환 → 호출마다 `RequestContext.getEntityManager() ?? registry.em`의 `getRepository(Entity)`로 위임. 사용자 정의 메서드 우선(`prop in target`).
 
-### 9.3 실증 (실 PostgreSQL, 워크트리)
-빌드 `3 modules, 2 providers`(Database+UsersService, 클래스만). `GET /users` 200 — `inject(Database).repo(User).findAll()` 실 PG. 5 동시요청 → `db.em.id` = 5,6,7,8,9 **전부 distinct**(요청별 fork 격리). **zipbul 기존 inject 하나로** NestJS @InjectRepository+RequestContext 상응 DX 달성.
+### 9.3 실증 (실 PostgreSQL)
+빌드 `3 modules, 3 providers`(Database+UserRepository+UsersService, **전부 클래스 프로바이더**). `GET /users` 200 — `inject(UserRepository).findAll()` 실 PG. 5 동시요청 → em.id 5~9 **전부 distinct**(요청별 fork 격리). → zipbul 기존 `inject` 하나로 NestJS `@InjectRepository`+RequestContext 동급 DX 달성.
 
 ### 9.4 정리
-- 주입 = `inject(Database)` 하나(프레임워크 표준과 동일). repo/em은 서비스 메서드.
-- 글루 = `Database` 서브클래스 1개 + `dbContext` 1줄. 그 외 학습할 신규 개념 없음.
-- named connection: `MikroOrm({connection:'replica'})` + 별도 @Injectable 클래스 → `inject(Replica)`. (설계 반영, 미실증)
+- 주입은 `inject(SomeClass)` 하나로 통일(서비스/리포지토리 동일 관용구). injectRepository 등 신규 함수 없음.
+- 글루 = `Database` 1개 + `dbContext` 1줄 + 엔티티당 `XxxRepository` 1줄. NestJS forRoot/forFeature와 거의 동일한 분량.
+- named connection: `Repository(User,'replica')` + `MikroOrm({connection:'replica'})`. (설계 반영, 미실증)

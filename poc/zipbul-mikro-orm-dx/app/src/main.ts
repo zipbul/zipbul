@@ -4,7 +4,7 @@ import { appModule } from './module';
 import { Database } from './database/orm.service';
 import { User } from './entities/user.entity';
 const app = createApplication(appModule);
-app.attach(HttpAdapter, { port: 5099 });
+app.attach(HttpAdapter, { port: 5100 });
 await app.start();
 const db = app.get(Database) as Database;
 await (db.orm as any).schema?.drop?.({ dropForeignKeys:true }).catch(()=>{});
