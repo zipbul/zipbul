@@ -530,6 +530,24 @@ describe('validateCorsOptions', () => {
     expect(result?.data.reason).toBe(CorsErrorReason.InvalidAllowedHeaders);
   });
 
+  it('should return CorsError when allowedHeaders contains non-tchar characters (parentheses)', () => {
+    // Arrange
+    const resolved = makeResolved({ allowedHeaders: ['X-Foo(bar)'] });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidAllowedHeaders);
+  });
+
+  it('should return CorsError when allowedHeaders contains internal whitespace', () => {
+    // Arrange
+    const resolved = makeResolved({ allowedHeaders: ['X Foo'] });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidAllowedHeaders);
+  });
+
   // ── exposedHeaders 신규 검증 ──
 
   it('should pass when exposedHeaders is null', () => {
@@ -580,6 +598,15 @@ describe('validateCorsOptions', () => {
   it('should return CorsError when exposedHeaders mixes valid and empty string entries', () => {
     // Arrange
     const resolved = makeResolved({ exposedHeaders: ['X-Custom', ''] });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidExposedHeaders);
+  });
+
+  it('should return CorsError when exposedHeaders contains comma (list separator)', () => {
+    // Arrange
+    const resolved = makeResolved({ exposedHeaders: ['X-Foo,Bar'] });
     // Act
     const result = validateCorsOptions(resolved);
     // Assert

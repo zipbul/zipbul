@@ -104,48 +104,16 @@ wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 �
 
 ---
 
-### D3. 옵션 `methods` / `allowedHeaders` / `exposedHeaders` 의 invalid token 이 wire 로 그대로 emit
+### D3. 옵션 `methods` / `allowedHeaders` / `exposedHeaders` 의 invalid token 이 wire 로 그대로 emit ✅ CLOSED (2026-05-26)
 
-**상황**
+**해결 경로**: Fetch §3.3.4 (`#field-name`) + RFC 9110 §5.6.2 (`token = 1*tchar`) verbatim 위반. baker 3.0 의 `isHttpToken` predicate 도입으로 정공 해결. `methods` 부분은 D1 (HttpMethod closed enum) 으로 컴파일 타임 차단 — 자동 해결.
 
-`Cors.create({ origin: true, methods: ['BAD METHOD'] })` 처럼 RFC 9110 token 문법(공백 금지, 특정 구분자 금지) 을 위반하는 값을 옵션에 넣어도 `validateCorsOptions` 가 empty/blank 만 검사하므로 통과한다. 이후 preflight 응답에서 `Access-Control-Allow-Methods: BAD METHOD` 가 그대로 wire 에 흘러간다. UA 는 ABNF 위반으로 parse 실패할 수 있다.
+**적용된 변경 (allowedHeaders / exposedHeaders)**:
+- `options.ts`: 두 분기를 `for...of + isHttpToken(name) !== true` 로 대체. `isHttpToken` 이 빈 문자열/공백 모두 cover → 기존 `isBlank` 호출 제거.
+- `origin` 분기 (`:55, :70`) 의 `isBlank` 유지 — URL/regex/wildcard 는 token 규칙 부적합.
+- `enums.ts` JSDoc 갱신 (RFC 9110 §5.6.2 1*tchar).
 
-**사양 근거 (Fetch §3.3.4, verbatim from /tmp/cors-review/fetch-spec.txt)**
-
-> ```
-> Access-Control-Allow-Methods    = #method
-> Access-Control-Allow-Headers    = #field-name
-> Access-Control-Expose-Headers   = #field-name
-> ```
-
-RFC 9110 §5.6.2: `token = 1*tchar`, `tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." / "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA`. 공백·괄호 등은 포함되지 않는다.
-
-**코드 위치**
-
-`src/options.ts:80-106` 가 `isBlank` (공백 trim 후 길이 0) 만 검사. token 문법 검증 부재.
-
-**재현**
-
-```
-입력: methods: ['BAD METHOD']
-출력 ACAM: 'BAD METHOD' (공백 포함)
-입력: allowedHeaders: ['X-Foo(bar)']
-출력 ACAH: 'X-Foo(bar)' (괄호 포함)
-입력: methods: ['GET '] (trailing space)
-저장 internal methods: ['GET ']
-```
-
-**산업 비교**
-
-5/5 라이브러리 모두 동일하게 검증하지 않음. 산업 공통 결함.
-
-**테스트 갭**
-
-옵션 검증 spec 이 `isBlank` 케이스만 다루고 token 문법 위반 케이스(`'BAD METHOD'`, `'X-Foo(bar)'`, trailing space) 부재.
-
-**수정 방향**
-
-`validateCorsOptions` 에 RFC 9110 token regex (`/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/`) 검증 추가. 단 산업 5/5 가 안 하는 영역이므로 strict 옵션으로 opt-in 할지 default 강제할지는 정책 결정. default 강제가 사양 정합. 호환성 우려는 그동안 사용자가 잘못된 값을 넣어도 조용히 통과시켜 온 ecosystem 영향 — 사용자 입장에서는 boot-time fail-fast 가 훨씬 안전.
+**테스트 (RED→GREEN)**: invalid token 케이스 (`'X-Foo(bar)'`, `'X Foo'`, `'X-Foo,Bar'`) options.spec + cors.spec 5건 추가. 250 pass / 0 fail.
 
 ---
 

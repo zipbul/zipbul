@@ -67,6 +67,26 @@ describe('Cors', () => {
         expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
       }
     });
+
+    it('should throw CorsError with InvalidAllowedHeaders reason when an entry is not a valid HTTP token', () => {
+      try {
+        Cors.create({ origin: 'https://a.com', allowedHeaders: ['X-Foo(bar)'] });
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidAllowedHeaders);
+      }
+    });
+
+    it('should throw CorsError with InvalidExposedHeaders reason when an entry is not a valid HTTP token', () => {
+      try {
+        Cors.create({ origin: 'https://a.com', exposedHeaders: ['X Bad'] });
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidExposedHeaders);
+      }
+    });
   });
 
   // ── Origin resolution ──

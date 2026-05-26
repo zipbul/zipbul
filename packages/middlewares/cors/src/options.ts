@@ -1,5 +1,6 @@
 import type { Result } from '@zipbul/result';
 
+import { isHttpToken } from '@zipbul/baker/rules';
 import { err } from '@zipbul/result';
 
 import type { CorsErrorData, CorsOptions } from './interfaces';
@@ -84,18 +85,26 @@ export function validateCorsOptions(resolved: ResolvedCorsOptions): Result<void,
     });
   }
 
-  if (resolved.allowedHeaders !== null && resolved.allowedHeaders.some(isBlank)) {
-    return err<CorsErrorData>({
-      reason: CorsErrorReason.InvalidAllowedHeaders,
-      message: 'allowedHeaders must not contain empty or blank string entries (RFC 9110 §5.6.2 token)',
-    });
+  if (resolved.allowedHeaders !== null) {
+    for (const name of resolved.allowedHeaders) {
+      if (isHttpToken(name) !== true) {
+        return err<CorsErrorData>({
+          reason: CorsErrorReason.InvalidAllowedHeaders,
+          message: `allowedHeaders entry "${name}" must be a valid HTTP token (RFC 9110 §5.6.2: 1*tchar — no empty/blank/invalid chars)`,
+        });
+      }
+    }
   }
 
-  if (resolved.exposedHeaders !== null && resolved.exposedHeaders.some(isBlank)) {
-    return err<CorsErrorData>({
-      reason: CorsErrorReason.InvalidExposedHeaders,
-      message: 'exposedHeaders must not contain empty or blank string entries (RFC 9110 §5.6.2 token)',
-    });
+  if (resolved.exposedHeaders !== null) {
+    for (const name of resolved.exposedHeaders) {
+      if (isHttpToken(name) !== true) {
+        return err<CorsErrorData>({
+          reason: CorsErrorReason.InvalidExposedHeaders,
+          message: `exposedHeaders entry "${name}" must be a valid HTTP token (RFC 9110 §5.6.2: 1*tchar — no empty/blank/invalid chars)`,
+        });
+      }
+    }
   }
 
   if (resolved.credentials === true && resolved.origin === '*') {

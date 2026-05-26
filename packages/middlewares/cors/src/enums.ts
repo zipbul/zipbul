@@ -41,8 +41,8 @@ export enum CorsErrorReason {
   InvalidOrigin = 'invalid_origin',
   /** methods is an empty array or contains empty/blank string entries (RFC 9110 §5.6.2 token). */
   InvalidMethods = 'invalid_methods',
-  /** allowedHeaders contains empty/blank string entries (RFC 9110 §5.6.2 token). */
+  /** allowedHeaders contains an entry that is not a valid HTTP token — empty/blank or non-tchar chars (RFC 9110 §5.6.2: 1*tchar). */
   InvalidAllowedHeaders = 'invalid_allowed_headers',
-  /** exposedHeaders contains empty/blank string entries (RFC 9110 §5.6.2 token). */
+  /** exposedHeaders contains an entry that is not a valid HTTP token — empty/blank or non-tchar chars (RFC 9110 §5.6.2: 1*tchar). */
   InvalidExposedHeaders = 'invalid_exposed_headers',
 }

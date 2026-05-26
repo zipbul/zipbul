@@ -49,6 +49,7 @@
     "coverage": "bun test --coverage"
   },
   "dependencies": {
+    "@zipbul/baker": "catalog:",
     "@zipbul/result": "workspace:*"
   },
   "peerDependencies": {
