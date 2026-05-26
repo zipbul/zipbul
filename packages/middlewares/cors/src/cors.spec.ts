@@ -88,6 +88,16 @@ describe('Cors', () => {
       }
     });
 
+    it('should throw CorsError with InvalidOrigin reason for trailing-slash origin (DN-3)', () => {
+      try {
+        Cors.create({ origin: 'https://a.com/' });
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOrigin);
+      }
+    });
+
     it('should throw CorsError with InvalidExposedHeaders reason when an entry is not a valid HTTP token', () => {
       try {
         Cors.create({ origin: 'https://a.com', exposedHeaders: ['X Bad'] });

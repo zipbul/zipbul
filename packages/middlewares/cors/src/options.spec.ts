@@ -426,6 +426,80 @@ describe('validateCorsOptions', () => {
     expect(result?.data.reason).toBe(CorsErrorReason.InvalidOrigin);
   });
 
+  it('should return CorsError when origin has a trailing slash (DN-3)', () => {
+    // Arrange
+    const resolved = makeResolved({ origin: 'https://a.com/' });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+  });
+
+  it('should return CorsError when origin has an uppercase scheme/host (RFC 6454 §6.2 canonical form)', () => {
+    // Arrange
+    const resolved = makeResolved({ origin: 'HTTPS://A.COM' });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+  });
+
+  it('should return CorsError when origin explicitly carries the default port', () => {
+    // Arrange
+    const resolved = makeResolved({ origin: 'https://a.com:443' });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+  });
+
+  it('should return CorsError when origin carries a path / query / fragment', () => {
+    // Arrange
+    const resolved = makeResolved({ origin: 'https://a.com/path' });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+  });
+
+  it('should return CorsError when origin is not a parseable URL', () => {
+    // Arrange
+    const resolved = makeResolved({ origin: 'not-a-url' });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+  });
+
+  it('should pass when origin is the literal "null" (RFC 6454 opaque origin)', () => {
+    // Arrange
+    const resolved = makeResolved({ origin: 'null' });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result).toBeUndefined();
+  });
+
+  it('should pass when origin is a serialized IPv6 origin', () => {
+    // Arrange
+    const resolved = makeResolved({ origin: 'https://[::1]' });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result).toBeUndefined();
+  });
+
+  it('should report the offending entry index when an array origin has a trailing slash', () => {
+    // Arrange
+    const resolved = makeResolved({ origin: ['https://a.com', 'https://b.com/'] });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidOrigin);
+    expect(result?.data.message).toContain('origin[1]');
+    expect(result?.data.message).toContain('https://b.com/');
+  });
+
   it('should fire InvalidOrigin before CredentialsWithWildcardOrigin when origin is empty string and credentials is true', () => {
     // Arrange
     const resolved = makeResolved({ origin: '', credentials: true });

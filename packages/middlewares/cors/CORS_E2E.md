@@ -840,41 +840,22 @@ downstream consumer 가 `r.action` 으로 분기하는 코드가 영향. Cors �
 
 ---
 
-### DN-3. Trailing slash 가 포함된 origin 옵션이 검증 우회 후 wire 위반 emit
+### DN-3. Trailing slash 가 포함된 origin 옵션이 검증 우회 후 wire 위반 emit ✅ CLOSED (2026-05-26)
 
-**상황**
+**해결 경로**: RFC 6454 §6.2 serialized origin (`scheme "://" host [":" port]`) 와 1:1 매칭. WHATWG `URL` 파서의 `.origin` 정규화 출력 (소문자 scheme/host, default port 제거, trailing slash/path/query/fragment 제거, IDN punycode) 와 입력 문자열을 byte 비교 — 차이가 있으면 reject. `'*'` / `'null'` (opaque origin) 은 short-circuit 통과.
 
-`Cors.create({ origin: 'https://a.com/' })` 처럼 trailing slash 가 포함된 origin 옵션이 `validateCorsOptions` 를 통과한다. 매칭은 byte-비교라 클라이언트가 정확히 같은 값(trailing slash 포함된 Origin) 을 보내야만 매치되며, 정상 UA 는 trailing slash 없는 origin 을 보내므로 의도된 origin 이 거부된다. 또한 매치되더라도 `Access-Control-Allow-Origin: https://a.com/` 이 wire 에 emit 되어 UA 가 reject 한다.
+**적용된 변경**:
+- `options.ts` 에 helper `validateOriginString(value)` + `describeOriginViolation(value, failure)` 신설. 두 실패 분기 (parse fail / canonical mismatch) 의 에러 메시지 분리.
+- `validateCorsOptions` 의 single string + array entry 분기에 적용. array 분기는 `for` 루프 + `origin[N]: ...` 메시지 echo.
 
-**사양 근거 (Fetch §3.3.5 표 row 3, verbatim)**
+**테스트 (RED→GREEN)**:
+- `options.spec.ts`: trailing slash / uppercase / default port / path / parse-fail / `'null'` literal / IPv6 / array entry index echo — 8 RED → GREEN
+- `cors.spec.ts`: boundary 1건 (`Cors.create({origin:'https://a.com/'})` throws InvalidOrigin)
+- 결과: 270 pass / 0 fail
 
-> `"omit"` | `https://rabbit.invalid/` | Omitted | ❌ | A serialized origin has no trailing slash.
+**BREAKING 표면**: trailing slash, uppercase scheme/host, default port (`:443`/`:80`), IDN Unicode, path/query/fragment 가 boot reject 로 전환. RFC 6454 위반이 silent wire emit 되던 동작이 fail-fast 됨. 정상 사용자 영향 0, 잘못된 origin 작성자만 boot 단계에서 인식.
 
-RFC 6454 §6.2 ASCII Serialization of an Origin: `scheme "://" host [ ":" port ]` — trailing slash 없음.
-
-**코드 위치**
-
-`src/options.ts:55-77` 가 empty/blank 만 검사. URL 형식 검증 부재.
-
-**재현**
-
-```
-입력: Cors.create({ origin: 'https://a.com/' })
-     + Request GET, Origin: 'https://a.com/'
-출력 ACAO: 'https://a.com/'   (UA 가 reject — A serialized origin has no trailing slash)
-```
-
-**산업 비교**
-
-5/5 라이브러리 동일하게 검증 안 함. 산업 공통.
-
-**테스트 갭**
-
-trailing slash 옵션 케이스 부재.
-
-**수정 방향**
-
-`validateCorsOptions` 에 RFC 6454 serialized origin 검증 추가. `URL` 파싱 후 `.origin` 비교 또는 정규식 `/^[a-z][a-z0-9+\-.]*:\/\/[^/?#]+$/i` 검증.
+**별도 결함 (D-NEW-2 분리)**: OriginFn 반환값의 CR/LF 검증은 runtime path (`cors.ts` `resolveOriginResult`) 책임축 + RFC 9113 field-value ABNF. DN-3 와 다른 결함, 별도 commit.
 
 ---
 

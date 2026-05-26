@@ -38,6 +38,42 @@ export function isBlank(value: string): boolean {
 }
 
 /**
+ * Checks whether `value` is an RFC 6454 §6.2 serialized origin or one of the
+ * two reserved literals accepted by the CORS protocol (`'*'`, `'null'`).
+ *
+ * A serialized origin is `scheme "://" host [":" port]` with no path, query,
+ * fragment, trailing slash, default port, uppercase scheme/host, or Unicode
+ * (IDN must be punycoded). Anything browsers would canonicalize is rejected
+ * here so the wire-emitted ACAO byte-matches the request Origin header.
+ *
+ * @returns A result describing the first failure (parse failure vs canonical
+ *   mismatch), or `undefined` when the string is a valid origin.
+ */
+export function validateOriginString(value: string): { reason: 'parse' | 'mismatch'; canonical?: string } | undefined {
+  if (value === '*' || value === 'null') return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return { reason: 'parse' };
+  }
+  if (parsed.origin !== value) {
+    return { reason: 'mismatch', canonical: parsed.origin };
+  }
+  return undefined;
+}
+
+function describeOriginViolation(
+  value: string,
+  failure: { reason: 'parse' | 'mismatch'; canonical?: string },
+): string {
+  if (failure.reason === 'parse') {
+    return `origin "${value}" is not a valid absolute URL; expected scheme://host[:port] per RFC 6454 §6.2`;
+  }
+  return `origin "${value}" is not a serialized origin per RFC 6454 §6.2; expected "${failure.canonical ?? ''}" (lowercase scheme+host, no trailing slash, default port omitted, IDN as punycode)`;
+}
+
+/**
  * Validates a fully resolved {@link ResolvedCorsOptions} object and returns
  * the first problem it finds, or `undefined` when everything looks good.
  *
@@ -53,11 +89,20 @@ export function isBlank(value: string): boolean {
  *   rule violation found.
  */
 export function validateCorsOptions(resolved: ResolvedCorsOptions): Result<void, CorsErrorData> {
-  if (typeof resolved.origin === 'string' && resolved.origin !== '*' && isBlank(resolved.origin)) {
-    return err<CorsErrorData>({
-      reason: CorsErrorReason.InvalidOrigin,
-      message: 'origin must not be an empty or blank string (RFC 6454)',
-    });
+  if (typeof resolved.origin === 'string') {
+    if (resolved.origin !== '*' && isBlank(resolved.origin)) {
+      return err<CorsErrorData>({
+        reason: CorsErrorReason.InvalidOrigin,
+        message: 'origin must not be an empty or blank string (RFC 6454)',
+      });
+    }
+    const violation = validateOriginString(resolved.origin);
+    if (violation !== undefined) {
+      return err<CorsErrorData>({
+        reason: CorsErrorReason.InvalidOrigin,
+        message: describeOriginViolation(resolved.origin, violation),
+      });
+    }
   }
 
   if (Array.isArray(resolved.origin)) {
@@ -68,13 +113,22 @@ export function validateCorsOptions(resolved: ResolvedCorsOptions): Result<void,
       });
     }
 
-    const hasBlankEntry = resolved.origin.some(entry => typeof entry === 'string' && isBlank(entry));
-
-    if (hasBlankEntry) {
-      return err<CorsErrorData>({
-        reason: CorsErrorReason.InvalidOrigin,
-        message: 'origin array must not contain empty or blank string entries (RFC 6454)',
-      });
+    for (let i = 0; i < resolved.origin.length; i += 1) {
+      const entry = resolved.origin[i];
+      if (typeof entry !== 'string') continue;
+      if (isBlank(entry)) {
+        return err<CorsErrorData>({
+          reason: CorsErrorReason.InvalidOrigin,
+          message: `origin[${i}] must not be an empty or blank string (RFC 6454)`,
+        });
+      }
+      const violation = validateOriginString(entry);
+      if (violation !== undefined) {
+        return err<CorsErrorData>({
+          reason: CorsErrorReason.InvalidOrigin,
+          message: `origin[${i}]: ${describeOriginViolation(entry, violation)}`,
+        });
+      }
     }
   }
 
