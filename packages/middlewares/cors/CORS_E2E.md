@@ -136,8 +136,8 @@ wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 �
 **적용된 변경**:
 - `src/cors.ts` 에 helper `filterValidHeaderTokens(raw)` 신설 — `parseCommaSeparatedValues` + baker `isHttpToken` 으로 validate, 빈 결과 → `undefined`.
 - 두 echo 경로 모두 적용:
-  - `allowedHeaders === null` (echo mode, line 124-128)
-  - `allowedHeaders: ['*']` + `credentials: true` (wildcard echo, `serializeAllowedHeaders` line 291-292)
+  - `allowedHeaders === null` (echo mode, `cors.ts:126-130`)
+  - `allowedHeaders: ['*']` + `credentials: true` (wildcard echo, `serializeAllowedHeaders` `cors.ts:294-297`)
 - `Vary: Access-Control-Request-Headers` append 를 `ACAH` set 분기 **밖**으로 분리 — 모든 entry filter 되어도 preflight cache key 보존.
 
 **테스트 (RED→GREEN, 3 계층 + e2e)**:
@@ -146,6 +146,10 @@ wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 �
 - 결과: 260 pass / 0 fail
 
 **boot-time strict 옵션 미도입**: ACRH 는 runtime client 입력. silent filter 가 (a) framework-agnostic 정합 (logger/callback 의존 0), (b) D5 (config 오류 → throw) 와 책임 경계 분리 측면 정공.
+
+**남은 별도 결함**: explicit `allowedHeaders` 경로 (`cors.ts:113-123`) 에서 client 가 invalid token (예: `'X Bad'`) 보내면 `areRequestHeadersAllowed` 가 lowercase string 비교 후 미매치 → `HeaderNotAllowed` reject. reason 이 의미적으로 mislabel — 실제 결함은 invalid token. 새 reason (`InvalidRequestHeader`) 또는 echo 경로와 동일 filter 적용이 정공. 별도 결함으로 추적.
+
+**미세 wire 변화**: D6 fix 로 ACAH 값의 OWS 가 제거 (`'X-A, X-B'` → `'X-A,X-B'`). RFC 9110 §5.6.1 list grammar 의 OWS 허용 부분이라 conformant 클라이언트 영향 0. strict string match 하던 클라이언트만 미세 영향 가능.
 
 ---
 
