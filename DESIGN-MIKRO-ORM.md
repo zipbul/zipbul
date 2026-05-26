@@ -50,3 +50,30 @@
 ## 7. Codex 최종 우선순위
 1) 에러 정규화 — BLOCKING  2) 트랜잭션 settings — SHOULD-FIX  3) named connections — SHOULD-FIX  4) per-request EM(create>enter) — SHOULD-FIX  5) shutdown/logging/replicas — SHOULD-FIX  6) repository providers — CORRECT  7) streaming 명시 — NICE-TO-HAVE
 (+ 내 추가 BLOCKING: B3 비파괴 onInit, B1-b insertId 매핑)
+
+---
+
+## 8. 검증: zipbul은 현재 "클래스 프로바이더만" 지원 (실측, 결정적)
+
+`defineModule({ providers: [{ provide, useValue/useFactory, inject }] })`를 최소 앱으로 실측 (워크트리):
+- 빌드: 성공이나 **"0 providers"** — 명시적 레코드 미등록.
+- 런타임: 컨트롤러가 useFactory로 제공한 `Greeter` 주입 → **HTTP 500**(의존성 미해결).
+
+근본 원인: `convertModuleDefinition`(providers 배열 추출)은 **객체 리터럴 initializer**일 때만 호출됨(`ast-parser.ts:416`). `defineModule(arg)` **호출 경로**(`framework-call-detector.ts:134-143`)는 args를 raw로만 저장하고 providers를 모듈 프로바이더 집합으로 변환하지 않음. + `DefineModuleOptions`는 `{__temp?}` 스텁.
+
+**결론(확정)**: 현 zipbul DI는 **`@Injectable` 클래스 프로바이더 + 폴더 컨벤션 + `visibleTo` 가시성**만 동작. useValue/useFactory/useExisting 레코드는 미지원.
+
+### 8.1 설계에 미치는 영향
+- ✅ **OrmService**(class `@Injectable`, `visibleTo:'all'`) — 동작(실증).
+- ✅ **per-request EM** — 미들웨어 + `ctx.set/use(RequestEm)` 컨텍스트 키(프로바이더 아님) — 동작(실증).
+- ❌ **`defineRepositoryProviders`(useFactory 레코드)** — **불가**. `@InjectRepository`/`forFeature` 패리티는 현재 미달성.
+- ❌ **useValue 설정 프로바이더** — 불가. 설정은 OrmService 내부(env/config)에서 읽음.
+
+### 8.2 repository 주입 DX — 현실적 대안 (클래스 프로바이더만으로)
+1. **EM/서비스 주입 후 `em.getRepository(Entity)`** — 가장 단순, 확실. (권장 기본)
+2. **엔티티별 `@Injectable` 리포지토리 래퍼 클래스**(사용자 작성): `@Injectable() class UserRepo { private orm = inject(OrmService); find(){ return this.orm.em.getRepository(User).findAll() } }` — 약간 장황하나 클래스 프로바이더라 동작.
+3. zipbul이 `defineModule({providers})` 레코드 경로를 구현하면 그때 `defineRepositoryProviders`로 `@InjectRepository`급 DX 가능 — **프레임워크 측 선결 과제**.
+
+### 8.3 패키지 계획 수정
+- `@zipbul/mikro-orm`는 `MikroOrmBase`(클래스) + 드라이버 + request 미들웨어 팩토리만 우선 제공. `defineRepositoryProviders`는 **프레임워크가 provider 레코드를 지원하기 전까지 보류**(또는 클래스 래퍼 생성 헬퍼로 대체).
+- 즉 "NestJS DX 패리티"의 상한은 **현재 zipbul DI 능력(클래스 프로바이더)** 이 결정. forRoot/forFeature/@InjectRepository 완전 패리티는 zipbul 코어의 provider-record 지원이 전제.
