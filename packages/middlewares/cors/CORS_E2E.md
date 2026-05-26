@@ -123,73 +123,9 @@ wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 �
 
 **적용된 변경**: `src/cors.ts` `resolveOriginResult` 에 분기 추가 — OriginFn 반환값이 `'*'` 이고 `credentials:true` 면 `CorsError(CredentialsWithWildcardOrigin)` throw. 기존 boot-time error reason 재사용.
 
-**테스트 (RED→GREEN)**: `cors.spec.ts` 에 `Cors.create({ origin: () => '*', credentials: true })` + GET → throws `CorsError` with `CredentialsWithWildcardOrigin` reason. 251 pass / 0 fail.
+**테스트 (RED→GREEN)**: `cors.spec.ts` + `middleware.spec.ts` 에 sync/async OriginFn 반환 `'*'`, conditional 분기, factory propagation 4 시나리오. 254 pass / 0 fail.
 
-
-
-**상황**
-
-`validateCorsOptions:108-113` 가 `credentials === true && origin === '*'` 정적 조합만 차단한다. 그러나 사용자가 `origin: () => '*'` 같이 함수를 통해 동적으로 `'*'` 를 반환하면 boot-time 검증을 우회한다. 결과적으로 응답에 `Access-Control-Allow-Origin: *` 와 `Access-Control-Allow-Credentials: true` 가 동시에 emit 되며, 이는 Fetch Standard 가 명시적으로 금지하는 조합이다.
-
-**사양 근거 (Fetch §3.3.5 표 row 5, verbatim)**
-
-> "If credentials mode is `include`, then `Access-Control-Allow-Origin` cannot be `*`."
-
-이는 표 형식으로 명시되며, 같은 표 다른 행이 valid/invalid 를 모두 열거한다. row 5 는 ❌ 로 표시되며 "If credentials mode is 'include', then ACAO cannot be `*`" 가 사유로 적혀 있다.
-
-**코드 위치**
-
-`src/cors.ts:202-208`
-```ts
-private resolveOriginResult(origin: string, result: OriginResult): string | undefined {
-  if (result === true) return origin;
-  if (typeof result === 'string' && result.length > 0) return result;
-  return undefined;
-}
-```
-
-string 길이만 검사. `'*'` 인지 확인 없음.
-
-`src/cors.ts:68, 74-76`
-```ts
-headers.set(HttpHeader.AccessControlAllowOrigin, allowedOrigin);
-// ...
-if (this.options.credentials) {
-  headers.set(HttpHeader.AccessControlAllowCredentials, 'true');
-}
-```
-
-두 헤더가 충돌 검사 없이 set 됨.
-
-**재현 (bun 실행)**
-
-```
-입력: Cors.create({ origin: () => '*', credentials: true })
-     + Request GET, Origin: https://a.com
-출력: ACAO: *
-     ACAC: true
-기대: CorsError throw 또는 reject (사양 금지 조합)
-```
-
-또한 `origin: /.*/` + `credentials: true` 도 사실상 동일 효과 (모든 origin reflect + ACAC:true) 이며 boot 검증 통과한다. 이는 사양 strict MUST 는 아니나 OWASP CSRF anti-pattern.
-
-**산업 비교**
-
-- `expressjs/cors` — 동일 결함. fn 반환값을 그대로 ACAO 로 set
-- `@fastify/cors` — 동일 결함
-- `hono/cors` — 동일 결함
-- `koa-cors index.js:77-79` — 우회하지만 `origin === '*'` 일 때 `requestOrigin` 으로 swap. 사양 위반은 막지만 임의 origin 자동 허용이라는 별도 위험 발생
-- zipbul — 결함
-
-4/5 결함, koa 만 우회 (다른 위험).
-
-**테스트 갭**
-
-unit `cors.spec.ts:255-264` 가 OriginFn 이 string 을 반환하는 케이스를 검증하지만 `'*'` 반환 + credentials 조합 케이스 부재. e2e 동일.
-
-**수정 방향**
-
-`resolveOriginResult` 에서 `result === '*' && this.options.credentials` 조합을 감지하면 `CorsError` throw. 또는 reject 처리. throw 가 fail-fast 측면에서 권장. koa 의 swap 패턴은 임의 origin 허용 위험으로 비권장.
+**남은 별도 결함**: `origin: /.*/` + `credentials:true` (regex 가 모든 origin reflect + ACAC:true, OWASP CSRF anti-pattern); `origin: ['*']` (array dead config). D5 fix 와 다른 trigger 경로 — 별도 결함으로 추적.
 
 ---
 
