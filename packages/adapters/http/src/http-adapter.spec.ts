@@ -36,16 +36,9 @@ mock.module('@zipbul/core', () => ({
   getBootstrapState: mockGetBootstrapState,
 }));
 
-mock.module('@zipbul/logger', () => ({
-  Logger: class {
-    static runScoped(_logger: unknown, fn: () => unknown) { return fn(); }
-    constructor() {}
-    debug() {}
-    info() {}
-    warn() {}
-    error() {}
-  },
-}));
+import { loggerMockModule } from '@zipbul/logger/testing';
+
+mock.module('@zipbul/logger', loggerMockModule());
 
 const { HttpAdapter } = await import('./http-adapter');
 

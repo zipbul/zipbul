@@ -11,13 +11,9 @@ type ProcessInternals = NodeJS.Process & {
 };
 type BunWithGc = typeof Bun & { gc: (force: boolean) => void };
 
-mock.module('@zipbul/logger', () => ({
-  Logger: class {
-    static inherit() { return { debug() {}, info() {}, warn() {}, error() {} }; }
-    static runScoped(_l: unknown, fn: () => unknown) { return fn(); }
-    constructor() { return { debug() {}, info() {}, warn() {}, error() {} } as never; }
-  },
-}));
+import { loggerMockModule } from '@zipbul/logger/testing';
+
+mock.module('@zipbul/logger', loggerMockModule());
 
 const realCore = await import('@zipbul/core');
 mock.module('@zipbul/core', () => ({

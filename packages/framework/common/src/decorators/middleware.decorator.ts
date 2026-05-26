@@ -27,7 +27,7 @@ import type { MiddlewareDefinition } from '../define-middleware';
 export function UseMiddlewares(
   _phase: string,
   _middlewares: readonly MiddlewareDefinition[],
-): MethodDecorator & ClassDecorator;
+): (value: Function, context: ClassDecoratorContext | ClassMethodDecoratorContext) => void;
 
 /**
  * Attaches middleware definitions using a phase-keyed map.
@@ -44,10 +44,10 @@ export function UseMiddlewares(
  */
 export function UseMiddlewares(
   _phaseMap: Readonly<Record<string, readonly MiddlewareDefinition[]>>,
-): MethodDecorator & ClassDecorator;
+): (value: Function, context: ClassDecoratorContext | ClassMethodDecoratorContext) => void;
 
 export function UseMiddlewares(
   ..._args: unknown[]
-): MethodDecorator & ClassDecorator {
+): (value: Function, context: ClassDecoratorContext | ClassMethodDecoratorContext) => void {
   return () => {};
 }

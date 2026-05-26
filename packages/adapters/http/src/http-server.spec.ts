@@ -4,23 +4,15 @@ import type { Server } from 'bun';
 import type { ZipbulContainer } from '@zipbul/common';
 import type { HttpAdapter } from './http-adapter';
 
-const mockLoggerDebug = mock(() => {});
-const mockLoggerInfo = mock(() => {});
-const mockLoggerWarn = mock(() => {});
-const mockLoggerError = mock(() => {});
+import { createLoggerMockSpies, loggerMockModule } from '@zipbul/logger/testing';
 
-mock.module('@zipbul/logger', () => ({
-  Logger: class {
-    static inherit() {
-      return {
-        debug: mockLoggerDebug,
-        info: mockLoggerInfo,
-        warn: mockLoggerWarn,
-        error: mockLoggerError,
-      };
-    }
-  },
-}));
+const loggerSpies = createLoggerMockSpies();
+const mockLoggerDebug = loggerSpies.debug;
+const mockLoggerInfo = loggerSpies.info;
+const mockLoggerWarn = loggerSpies.warn;
+const mockLoggerError = loggerSpies.error;
+
+mock.module('@zipbul/logger', loggerMockModule(loggerSpies));
 
 const { HttpServer } = await import('./http-server');
 

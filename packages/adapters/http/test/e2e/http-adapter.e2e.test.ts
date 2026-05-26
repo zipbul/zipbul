@@ -163,17 +163,9 @@ import { HttpStatus } from '../../src/enums';
 
 // ── Logger mock ───────────────────────────────────────────────
 
-mock.module('@zipbul/logger', () => ({
-  Logger: class {
-    static inherit() {
-      return { debug() {}, info() {}, warn() {}, error() {} };
-    }
-    static runScoped(_logger: unknown, fn: () => unknown) { return fn(); }
-    constructor() {
-      return { debug() {}, info() {}, warn() {}, error() {} } as never;
-    }
-  },
-}));
+import { loggerMockModule } from '@zipbul/logger/testing';
+
+mock.module('@zipbul/logger', loggerMockModule());
 
 mock.module('@zipbul/core', () => ({
   ClusterManager: class {},

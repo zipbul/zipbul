@@ -25,8 +25,11 @@ import type { RedirectStatus } from '../types';
  *
  * @public
  */
-export function RawBody(): MethodDecorator {
-  return () => {};
+export function RawBody() {
+  return <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 }
 
 /**
@@ -49,8 +52,11 @@ export function RawBody(): MethodDecorator {
  *
  * @public
  */
-export function Sse(): MethodDecorator {
-  return () => {};
+export function Sse() {
+  return <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 }
 
 /**
@@ -69,8 +75,11 @@ export function Sse(): MethodDecorator {
  *
  * @public
  */
-export function BodyLimit(_bytes: number): MethodDecorator {
-  return () => {};
+export function BodyLimit(_bytes: number) {
+  return <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 }
 
 /**
@@ -89,8 +98,11 @@ export function BodyLimit(_bytes: number): MethodDecorator {
  *
  * @public
  */
-export function Status(_code: HttpStatus): MethodDecorator {
-  return () => {};
+export function Status(_code: HttpStatus) {
+  return <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 }
 
 /**
@@ -110,8 +122,11 @@ export function Status(_code: HttpStatus): MethodDecorator {
  *
  * @public
  */
-export function Redirect(_url: string, _status?: RedirectStatus): MethodDecorator {
-  return () => {};
+export function Redirect(_url: string, _status?: RedirectStatus) {
+  return <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 }
 
 /**
@@ -130,8 +145,11 @@ export function Redirect(_url: string, _status?: RedirectStatus): MethodDecorato
  *
  * @public
  */
-export function ContentType(_type: string): MethodDecorator {
-  return () => {};
+export function ContentType(_type: string) {
+  return <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 }
 
 /**
@@ -151,6 +169,9 @@ export function ContentType(_type: string): MethodDecorator {
  *
  * @public
  */
-export function Header(_name: string, _value: string): MethodDecorator {
-  return () => {};
+export function Header(_name: string, _value: string) {
+  return <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 }

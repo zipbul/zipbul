@@ -77,32 +77,15 @@ import type { RequestScopeContainer } from '../../../../framework/core/src/injec
 
 // ── Logger mock ───────────────────────────────────────────────
 
-const mockLoggerDebug = mock(() => {});
-const mockLoggerInfo = mock(() => {});
-const mockLoggerWarn = mock(() => {});
-const mockLoggerError = mock(() => {});
+import { createLoggerMockSpies, loggerMockModule } from '@zipbul/logger/testing';
 
-mock.module('@zipbul/logger', () => ({
-  Logger: class {
-    static inherit() {
-      return {
-        debug: mockLoggerDebug,
-        info: mockLoggerInfo,
-        warn: mockLoggerWarn,
-        error: mockLoggerError,
-      };
-    }
+const loggerSpies = createLoggerMockSpies();
+const mockLoggerDebug = loggerSpies.debug;
+const mockLoggerInfo = loggerSpies.info;
+const mockLoggerWarn = loggerSpies.warn;
+const mockLoggerError = loggerSpies.error;
 
-    constructor() {
-      return {
-        debug: mockLoggerDebug,
-        info: mockLoggerInfo,
-        warn: mockLoggerWarn,
-        error: mockLoggerError,
-      };
-    }
-  },
-}));
+mock.module('@zipbul/logger', loggerMockModule(loggerSpies));
 
 // utils/ip.ts no longer used — IP resolution moved to http-server.ts internals
 

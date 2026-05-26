@@ -1,20 +1,13 @@
 import { describe, it, expect, mock } from 'bun:test';
 
-mock.module('@zipbul/logger', () => ({
-  Logger: class {
-    static inherit() {
-      return { debug: mock(), info: mock(), warn: mock(), error: mock() };
-    }
-    debug() {}
-    info() {}
-    warn() {}
-    error() {}
-  },
-}));
+import { loggerMockModule } from '@zipbul/logger/testing';
+
+mock.module('@zipbul/logger', loggerMockModule());
 
 mock.module('@zipbul/baker', () => ({
   deserialize: async () => ({}),
-  isBakerError: () => false,
+  isBakerIssueSet: () => false,
+  seal: () => {},
 }));
 
 import { HttpMethod } from './enums';

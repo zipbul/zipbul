@@ -10,13 +10,17 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/src/testing.d.ts",
+      "default": "./dist/src/testing.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "build": "bun build index.ts src/testing.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },

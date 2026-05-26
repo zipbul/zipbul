@@ -44,17 +44,11 @@ describe('HTTP method decorators', () => {
   it('should return a callable decorator that does not throw when applied to a method descriptor', () => {
     // Arrange
     const decorator = Get('/test');
-    const target = {};
-    const propertyKey = 'findAll';
-    const descriptor: PropertyDescriptor = {
-      value: () => {},
-      writable: true,
-      enumerable: false,
-      configurable: true,
-    };
+    const value = () => {};
+    const context = { kind: 'method', name: 'findAll' } as ClassMethodDecoratorContext;
 
     // Act & Assert
-    expect(() => decorator(target, propertyKey, descriptor)).not.toThrow();
+    expect(() => decorator(value, context)).not.toThrow();
   });
 });
 

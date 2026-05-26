@@ -1,13 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, mock } from 'bun:test';
 import type { ZipbulContainer, CompiledHandlerEntry } from '@zipbul/common';
 
-mock.module('@zipbul/logger', () => ({
-  Logger: class {
-    static inherit() { return { debug() {}, info() {}, warn() {}, error() {} }; }
-    static runScoped(_logger: unknown, fn: () => unknown) { return fn(); }
-    constructor() { return { debug() {}, info() {}, warn() {}, error() {} } as never; }
-  },
-}));
+import { loggerMockModule } from '@zipbul/logger/testing';
+
+mock.module('@zipbul/logger', loggerMockModule());
 
 const { HttpAdapter } = await import('../../src/http-adapter');
 type HttpAdapter = InstanceType<typeof HttpAdapter>;

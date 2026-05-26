@@ -1,13 +1,9 @@
 import { describe, it, expect, mock } from 'bun:test';
 import type { MatchRouteResult } from './interfaces';
 
-mock.module('@zipbul/logger', () => ({
-  Logger: class {
-    static inherit() {
-      return { debug: mock(), info: mock(), warn: mock(), error: mock() };
-    }
-  },
-}));
+import { loggerMockModule } from '@zipbul/logger/testing';
+
+mock.module('@zipbul/logger', loggerMockModule());
 
 const { RouteHandler } = await import('./route-handler');
 

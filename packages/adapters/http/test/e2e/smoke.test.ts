@@ -1,13 +1,9 @@
 import { describe, it, mock, expect } from 'bun:test';
 import type { ZipbulContainer, CompiledHandlerEntry } from '@zipbul/common';
 
-mock.module('@zipbul/logger', () => ({
-  Logger: class {
-    static inherit() { return { debug() {}, info() {}, warn() {}, error() {} }; }
-    static runScoped(_l: unknown, fn: () => unknown) { return fn(); }
-    constructor() { return { debug() {}, info() {}, warn() {}, error() {} } as never; }
-  },
-}));
+import { loggerMockModule } from '@zipbul/logger/testing';
+
+mock.module('@zipbul/logger', loggerMockModule());
 const realCore = await import('@zipbul/core');
 mock.module('@zipbul/core', () => ({
   ...realCore,

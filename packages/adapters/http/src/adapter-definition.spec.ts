@@ -8,7 +8,8 @@ mock.module('@zipbul/core', () => ({
 
 mock.module('@zipbul/baker', () => ({
   deserialize: async () => ({}),
-  isBakerError: () => false,
+  isBakerIssueSet: () => false,
+  seal: () => {},
 }));
 
 const { adapterDefinition } = await import('./adapter-definition');

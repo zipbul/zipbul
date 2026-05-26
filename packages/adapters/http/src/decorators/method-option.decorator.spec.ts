@@ -11,10 +11,10 @@ describe('Status decorator (H14)', () => {
     expect(typeof Status(HttpStatus.InternalServerError)).toBe('function');
   });
 
-  it('returns a no-op MethodDecorator (runtime is AOT-wired)', () => {
+  it('returns a no-op method decorator (runtime is AOT-wired)', () => {
     const dec = Status(HttpStatus.Created);
     expect(() =>
-      dec({} as unknown as object, 'm', {} as unknown as PropertyDescriptor),
+      dec(() => {}, { kind: 'method', name: 'm' } as ClassMethodDecoratorContext),
     ).not.toThrow();
   });
 

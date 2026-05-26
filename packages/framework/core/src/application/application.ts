@@ -6,6 +6,7 @@ import type {
   ZipbulValue,
   ModuleMarker,
 } from '@zipbul/common';
+import { seal } from '@zipbul/baker';
 import { ClusterStrategy } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 
@@ -286,6 +287,8 @@ export class Application {
     for (const entry of this.startOrder) {
       entry.adapter.initializePipeline(this.container);
     }
+
+    seal();
 
     const started: AdapterEntry[] = [];
 

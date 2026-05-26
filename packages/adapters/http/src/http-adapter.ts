@@ -28,7 +28,7 @@ import type { Server } from 'bun';
 import { HttpServer } from './http-server';
 import type { HttpServerMetrics } from './http-server';
 import { HttpResponse } from './http-response';
-import { isBakerError } from '@zipbul/baker';
+import { isBakerIssueSet } from '@zipbul/baker';
 import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head, Method } from './decorators/method.decorator';
 import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
@@ -375,12 +375,12 @@ export class HttpAdapter extends Adapter {
    * Non-baker errors are re-thrown to enter the exception filter path.
    *
    * @param _entry - The validation entry that failed.
-   * @param errors - The `BakerErrors` returned by baker `deserialize()`.
+   * @param errors - The `BakerIssueSet` returned by baker `deserialize()`.
    * @returns `Err` with structured 400 response for baker errors.
    * @public
    */
   protected override wrapValidationError(_entry: ResolvedValidationEntry, errors: unknown): Err<unknown> {
-    if (isBakerError(errors)) {
+    if (isBakerIssueSet(errors)) {
       return err({
         status: HttpStatus.BadRequest,
         message: 'Validation failed',

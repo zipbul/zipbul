@@ -1,26 +1,47 @@
 import type { HttpMethodDecoratorOptions } from './interfaces';
 
 export const Get =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
-  () => {};
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions) =>
+  <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 export const Post =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
-  () => {};
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions) =>
+  <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 export const Put =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
-  () => {};
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions) =>
+  <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 export const Delete =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
-  () => {};
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions) =>
+  <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 export const Patch =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
-  () => {};
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions) =>
+  <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 export const Options =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
-  () => {};
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions) =>
+  <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 export const Head =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
-  () => {};
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions) =>
+  <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 
 /**
  * Declares a handler for a custom HTTP method not covered by the standard
@@ -55,5 +76,8 @@ export const Method =
   <const M extends string>(
     _method: Uppercase<M> extends `${typeof import('../constants').FORBIDDEN_HTTP_METHODS[number]}` ? never : M,
     _pathOrOptions?: string | HttpMethodDecoratorOptions,
-  ): MethodDecorator =>
-  () => {};
+  ) =>
+  <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
