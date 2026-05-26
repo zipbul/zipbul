@@ -283,6 +283,18 @@ describe('Cors', () => {
       expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://custom.com');
     });
 
+    it('should throw CorsError when OriginFn returns "*" with credentials:true (Fetch §3.3.5)', async () => {
+      const cors = Cors.create({ origin: () => '*', credentials: true });
+      const req = makeRequest('GET', 'https://a.com');
+      try {
+        await cors.handle(req);
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+      }
+    });
+
     it('should reject when OriginFn returns false', async () => {
       // Arrange
       const cors = Cors.create({ origin: () => false });

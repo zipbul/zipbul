@@ -117,7 +117,15 @@ wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 �
 
 ---
 
-### D5. Origin 함수가 동적으로 `'*'` 반환 + credentials:true → `ACAO:*` + `ACAC:true` 동시 emit
+### D5. Origin 함수가 동적으로 `'*'` 반환 + credentials:true → `ACAO:*` + `ACAC:true` 동시 emit ✅ CLOSED (2026-05-26)
+
+**해결 경로**: Fetch §3.3.5 row 5 ("If credentials mode is `include`, then `Access-Control-Allow-Origin` cannot be `*`.") wire MUST 위반. boot-time guard (`origin === '*'` + `credentials:true` → throw) 의 runtime mirror 적용.
+
+**적용된 변경**: `src/cors.ts` `resolveOriginResult` 에 분기 추가 — OriginFn 반환값이 `'*'` 이고 `credentials:true` 면 `CorsError(CredentialsWithWildcardOrigin)` throw. 기존 boot-time error reason 재사용.
+
+**테스트 (RED→GREEN)**: `cors.spec.ts` 에 `Cors.create({ origin: () => '*', credentials: true })` + GET → throws `CorsError` with `CredentialsWithWildcardOrigin` reason. 251 pass / 0 fail.
+
+
 
 **상황**
 

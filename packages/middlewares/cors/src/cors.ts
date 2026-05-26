@@ -206,6 +206,12 @@ export class Cors {
     }
 
     if (typeof result === 'string' && result.length > 0) {
+      if (result === '*' && this.options.credentials) {
+        throw new CorsError({
+          reason: CorsErrorReason.CredentialsWithWildcardOrigin,
+          message: 'origin function returned "*" while credentials:true; this combination is forbidden by Fetch Standard §3.3.5',
+        });
+      }
       return result;
     }
 
