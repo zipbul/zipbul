@@ -10,7 +10,7 @@ import { authGuard } from '../guards/auth.guard';
 import { AddressDto } from './dto/address.dto';
 import { CreateUserComplexDto } from './dto/complex.dto';
 import { SocialDto } from './dto/social.dto';
-import { AuditService } from './audit.service';
+import { UsersAuditService } from './audit.service';
 import { sessionMiddleware } from './session.middleware';
 import { SessionContext } from './session-context';
 import { UsersService } from './users.service';
@@ -18,7 +18,7 @@ import { UsersService } from './users.service';
 @RestController('users')
 export class UsersController {
   private readonly logger = new Logger('UsersController');
-  private readonly auditService = inject(AuditService);
+  private readonly auditService = inject(UsersAuditService);
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
