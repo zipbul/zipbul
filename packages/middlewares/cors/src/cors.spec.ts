@@ -295,6 +295,39 @@ describe('Cors', () => {
       }
     });
 
+    it('should throw when async OriginFn resolves to "*" with credentials:true', async () => {
+      const cors = Cors.create({ origin: async () => '*', credentials: true });
+      const req = makeRequest('GET', 'https://a.com');
+      try {
+        await cors.handle(req);
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+      }
+    });
+
+    it('should throw only on the request whose OriginFn returns "*" (conditional branch)', async () => {
+      const cors = Cors.create({
+        origin: (origin) => origin === 'https://evil.com' ? '*' : origin,
+        credentials: true,
+      });
+
+      const safeReq = makeRequest('GET', 'https://safe.com');
+      const safeResult = await cors.handle(safeReq);
+      assertContinue(safeResult);
+      expect(safeResult.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://safe.com');
+
+      const evilReq = makeRequest('GET', 'https://evil.com');
+      try {
+        await cors.handle(evilReq);
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+      }
+    });
+
     it('should reject when OriginFn returns false', async () => {
       // Arrange
       const cors = Cors.create({ origin: () => false });

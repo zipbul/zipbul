@@ -42,7 +42,9 @@ export class Cors {
   /**
    * Evaluates CORS policy for the given request.
    *
-   * @throws {CorsError} when the origin function throws at runtime.
+   * @throws {CorsError} when the origin function throws at runtime, or when it
+   *   returns `'*'` while `credentials:true` is enabled (forbidden by Fetch
+   *   Standard §3.3.5; `CorsErrorReason.CredentialsWithWildcardOrigin`).
    * @returns `Continue` — attach headers and proceed,
    *          `RespondPreflight` — return preflight response,
    *          `Reject` — deny with reason.
@@ -209,7 +211,7 @@ export class Cors {
       if (result === '*' && this.options.credentials) {
         throw new CorsError({
           reason: CorsErrorReason.CredentialsWithWildcardOrigin,
-          message: 'origin function returned "*" while credentials:true; this combination is forbidden by Fetch Standard §3.3.5',
+          message: 'origin function returned "*" while credentials:true is enabled; this combination is forbidden by Fetch Standard §3.3.5. Return the request origin to echo it back, or set credentials:false.',
         });
       }
       return result;
