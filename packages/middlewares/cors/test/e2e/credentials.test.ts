@@ -74,8 +74,10 @@ describe('CORS / credentials', () => {
 
     it('should never emit the forbidden Access-Control-Allow-Origin: * + Access-Control-Allow-Credentials: true combination on the wire', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://fn.com' } });
+      expect(res.status).toBe(500);
       const acao = res.headers.get('access-control-allow-origin');
       const acac = res.headers.get('access-control-allow-credentials');
+      expect(acao).not.toBe('*');
       const forbidden = acao === '*' && acac === 'true';
       expect(forbidden).toBe(false);
     });
