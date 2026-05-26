@@ -34,6 +34,7 @@ describe('CorsErrorReason enum', () => {
   it('should map every member to its exact literal wire value with no extra keys', () => {
     expect({ ...CorsErrorReason }).toEqual({
       CredentialsWithWildcardOrigin: CorsErrorReason.CredentialsWithWildcardOrigin,
+      CredentialsWithWildcardMethods: CorsErrorReason.CredentialsWithWildcardMethods,
       InvalidMaxAge: CorsErrorReason.InvalidMaxAge,
       InvalidStatusCode: CorsErrorReason.InvalidStatusCode,
       OriginFunctionError: CorsErrorReason.OriginFunctionError,
@@ -44,6 +45,9 @@ describe('CorsErrorReason enum', () => {
     });
     expect(CorsErrorReason.CredentialsWithWildcardOrigin).toBe(
       'credentials_with_wildcard_origin' as CorsErrorReason.CredentialsWithWildcardOrigin,
+    );
+    expect(CorsErrorReason.CredentialsWithWildcardMethods).toBe(
+      'credentials_with_wildcard_methods' as CorsErrorReason.CredentialsWithWildcardMethods,
     );
     expect(CorsErrorReason.InvalidMaxAge).toBe('invalid_max_age' as CorsErrorReason.InvalidMaxAge);
     expect(CorsErrorReason.InvalidStatusCode).toBe('invalid_status_code' as CorsErrorReason.InvalidStatusCode);

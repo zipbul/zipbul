@@ -628,15 +628,14 @@ describe('Cors', () => {
   // ── Method serialization ──
 
   describe('method serialization', () => {
-    it('should echo request method when methods is wildcard with credentials', async () => {
-      // Arrange
-      const cors = Cors.create({ origin: 'https://a.com', methods: ['*'], credentials: true });
-      const req = makePreflight('https://a.com', 'PATCH');
-      // Act
-      const result = await cors.handle(req);
-      // Assert
-      assertPreflight(result);
-      expect(result.headers.get(HttpHeader.AccessControlAllowMethods)).toBe('PATCH');
+    it('should throw CorsError at boot when methods:["*"] is combined with credentials:true (D7)', () => {
+      try {
+        Cors.create({ origin: 'https://a.com', methods: ['*'], credentials: true });
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardMethods);
+      }
     });
 
     it('should return ACAM:* when methods is wildcard without credentials', async () => {

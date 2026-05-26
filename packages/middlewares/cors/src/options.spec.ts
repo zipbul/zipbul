@@ -455,6 +455,15 @@ describe('validateCorsOptions', () => {
     expect(result).toBeUndefined();
   });
 
+  it('should return CorsError when methods is ["*"] with credentials:true (D7)', () => {
+    // Arrange
+    const resolved = makeResolved({ origin: 'https://a.com', methods: ['*'], credentials: true });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.CredentialsWithWildcardMethods);
+  });
+
   it('should pass when methods contains a custom enum method like PROPFIND', () => {
     // Arrange
     const resolved = makeResolved({ methods: [HttpMethod.Get, HttpMethod.Propfind] });

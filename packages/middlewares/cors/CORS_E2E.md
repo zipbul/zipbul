@@ -153,51 +153,23 @@ wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 �
 
 ---
 
-### D7. Wildcard methods + credentials + invalid ACRM 이 ACAM 으로 echo
+### D7. Wildcard methods + credentials + invalid ACRM 이 ACAM 으로 echo ✅ CLOSED (2026-05-26)
 
-**상황**
+**해결 경로**: MDN verbatim — "In requests with credentials, [`*`] is treated as the literal method name `*` without special semantics." 즉 `methods: ['*']` + `credentials: true` 조합 자체가 사양상 무의미한 misconfiguration. 기존 echo 동작은 spec 우회 hack 으로, invalid ACRM 까지 그대로 wire 에 흘려보냈음. D5 패턴 (`origin: '*'` + credentials → boot throw) 과 동일하게 **boot reject** 가 정공.
 
-`methods: ['*']` + `credentials: true` 조합에서 미들웨어는 사양 §3.3.5 ("`*` counts as a wildcard for requests without credentials. ... no way to solely match a header name or method that is `*`") 를 우회하기 위해 ACRM 값을 echo 한다 (`cors.ts:240-242`). 그러나 ACRM 이 invalid token (`'BAD METHOD'`) 이어도 검증 없이 ACAM 으로 그대로 emit 된다. ABNF `#method` 위반.
+**적용된 변경**:
+- `src/enums.ts`: `CorsErrorReason.CredentialsWithWildcardMethods` 신설
+- `src/options.ts`: D5 guard 직후 `credentials === true && methods.includes('*')` boot reject
+- `src/cors.ts:248-258`: `serializeAllowedMethods` 의 wildcard+credentials echo 분기 제거 (dead code) — flatten to `return '*'`
 
-**사양 근거**
+**테스트 (RED→GREEN)**:
+- `cors.spec.ts`: 기존 echo test → boot throw test
+- `options.spec.ts`: credentials:true + ['*'] reject 케이스 추가
+- `enums.spec.ts`: 신규 reason 등재
+- `test/e2e/methods.test.ts`: 기존 echo e2e → bootCorsApp throw 검증
+- 결과: 261 pass / 0 fail
 
-Fetch §3.3.4 ABNF: `Access-Control-Allow-Methods = #method`. RFC 9110 `method = token`.
-
-**코드 위치**
-
-`src/cors.ts:226-245`
-```ts
-private isMethodAllowed(requestMethod: string, allowedMethods: Array<string>): boolean {
-  if (this.includesWildcard(allowedMethods)) return true;   // ← 무조건 통과
-  return allowedMethods.includes(requestMethod);
-}
-
-private serializeAllowedMethods(allowedMethods: Array<string>, requestMethod: string): string {
-  if (!this.includesWildcard(allowedMethods)) return allowedMethods.join(',');
-  if (this.options.credentials) return requestMethod;   // ← invalid 도 echo
-  return '*';
-}
-```
-
-**재현**
-
-```
-입력: Cors.create({ origin: 'https://a.com', methods: ['*'], credentials: true })
-     + OPTIONS, Origin, ACRM: 'BAD METHOD'
-출력 ACAM: 'BAD METHOD'
-```
-
-**산업 비교**
-
-5/5 동일.
-
-**테스트 갭**
-
-wildcard + credentials + invalid ACRM 케이스 부재.
-
-**수정 방향**
-
-`isMethodAllowed` 의 wildcard 분기에서도 ACRM token 검증 수행. invalid 면 reject. 또는 옵션의 `'*'` + `credentials` 조합 자체를 boot 거부 (사양 §3.3.5 의도) — 더 안전.
+**runtime guard 미도입**: D5 는 OriginFn (동적 입력) 때문에 runtime mirror 필요했지만 `methods` 는 static array 만 — boot guard 로 invariant 완전 보장.
 
 ---
 

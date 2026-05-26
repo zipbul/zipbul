@@ -245,15 +245,13 @@ export class Cors {
   }
 
   /** @internal */
-  private serializeAllowedMethods(allowedMethods: ReadonlyArray<string>, requestMethod: string): string {
+  private serializeAllowedMethods(allowedMethods: ReadonlyArray<string>, _requestMethod: string): string {
     if (!this.includesWildcard(allowedMethods)) {
       return allowedMethods.join(',');
     }
-
-    if (this.options.credentials) {
-      return requestMethod;
-    }
-
+    // Wildcard with credentials:true is rejected at boot (see options.ts
+    // CredentialsWithWildcardMethods guard), so only credentials:false reaches
+    // this branch — emit the literal '*'.
     return '*';
   }
 

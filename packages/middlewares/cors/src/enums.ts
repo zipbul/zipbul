@@ -31,6 +31,8 @@ export enum CorsRejectionReason {
 export enum CorsErrorReason {
   /** credentials:true is incompatible with wildcard origin per Fetch Standard. */
   CredentialsWithWildcardOrigin = 'credentials_with_wildcard_origin',
+  /** credentials:true is incompatible with wildcard methods (`['*']`) per Fetch Standard. */
+  CredentialsWithWildcardMethods = 'credentials_with_wildcard_methods',
   /** maxAge must be non-negative. */
   InvalidMaxAge = 'invalid_max_age',
   /** optionsSuccessStatus must be 200–299 (ok status). */

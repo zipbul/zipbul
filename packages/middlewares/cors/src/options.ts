@@ -114,6 +114,13 @@ export function validateCorsOptions(resolved: ResolvedCorsOptions): Result<void,
     });
   }
 
+  if (resolved.credentials === true && resolved.methods.includes('*')) {
+    return err<CorsErrorData>({
+      reason: CorsErrorReason.CredentialsWithWildcardMethods,
+      message: 'credentials:true cannot be combined with wildcard methods (["*"]); per Fetch Standard the "*" token is treated as the literal method name under credentials mode, so the wildcard intent is unreachable. Enumerate the allowed methods explicitly.',
+    });
+  }
+
   if (resolved.maxAge !== null && (resolved.maxAge < 0 || !Number.isInteger(resolved.maxAge))) {
     return err<CorsErrorData>({
       reason: CorsErrorReason.InvalidMaxAge,

@@ -21,16 +21,16 @@ describe('CORS / methods', () => {
     });
   });
 
-  describe('wildcard methods with credentials', () => {
-    let app: CorsTestApp;
-    beforeAll(async () => {
-      app = await bootCorsApp({ origin: 'https://x.com', methods: ['*'], credentials: true });
-    });
-    afterAll(async () => { await app.close(); });
-
-    it('should echo the requested method into Access-Control-Allow-Methods (not "*")', async () => {
-      const res = await app.fetch('/x', preflight('https://x.com', 'PATCH'));
-      expect(res.headers.get('access-control-allow-methods')).toBe('PATCH');
+  describe('wildcard methods with credentials (D7)', () => {
+    it('should refuse to boot the app: bootCorsApp rejects at Cors.create', async () => {
+      let threw = false;
+      try {
+        const app = await bootCorsApp({ origin: 'https://x.com', methods: ['*'], credentials: true });
+        await app.close();
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBe(true);
     });
   });
 
