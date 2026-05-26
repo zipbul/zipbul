@@ -101,7 +101,7 @@ export class Cors {
       return this.reject(CorsRejectionReason.MethodNotAllowed);
     }
 
-    const allowMethodsValue = this.serializeAllowedMethods(this.options.methods, requestMethod);
+    const allowMethodsValue = this.serializeAllowedMethods(this.options.methods);
 
     headers.set(HttpHeader.AccessControlAllowMethods, allowMethodsValue);
 
@@ -245,7 +245,7 @@ export class Cors {
   }
 
   /** @internal */
-  private serializeAllowedMethods(allowedMethods: ReadonlyArray<string>, _requestMethod: string): string {
+  private serializeAllowedMethods(allowedMethods: ReadonlyArray<string>): string {
     if (!this.includesWildcard(allowedMethods)) {
       return allowedMethods.join(',');
     }

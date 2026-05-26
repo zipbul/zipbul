@@ -78,6 +78,16 @@ describe('Cors', () => {
       }
     });
 
+    it('should throw CorsError with CredentialsWithWildcardMethods reason for methods:["*"] + credentials:true (D7)', () => {
+      try {
+        Cors.create({ origin: 'https://a.com', methods: ['*'], credentials: true });
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardMethods);
+      }
+    });
+
     it('should throw CorsError with InvalidExposedHeaders reason when an entry is not a valid HTTP token', () => {
       try {
         Cors.create({ origin: 'https://a.com', exposedHeaders: ['X Bad'] });
@@ -628,16 +638,6 @@ describe('Cors', () => {
   // ── Method serialization ──
 
   describe('method serialization', () => {
-    it('should throw CorsError at boot when methods:["*"] is combined with credentials:true (D7)', () => {
-      try {
-        Cors.create({ origin: 'https://a.com', methods: ['*'], credentials: true });
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardMethods);
-      }
-    });
-
     it('should return ACAM:* when methods is wildcard without credentials', async () => {
       const cors = Cors.create({ origin: true, methods: ['*'] });
       const req = makePreflight('https://a.com', 'PUT');
