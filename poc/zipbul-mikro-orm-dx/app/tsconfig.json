@@ -1,0 +1,1 @@
+{ "compilerOptions":{"target":"ESNext","module":"Preserve","moduleResolution":"bundler","experimentalDecorators":false,"emitDecoratorMetadata":false,"strict":true,"skipLibCheck":true,"noEmit":true,"types":["bun"]},"include":["src/**/*.ts",".zipbul/**/*.d.ts"] }
