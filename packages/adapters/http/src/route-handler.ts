@@ -4,6 +4,7 @@ import type {
 } from '@zipbul/common';
 import type { ResolvedExceptionFilter, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
 
+import { isHttpToken } from '@zipbul/baker/rules';
 import { Logger } from '@zipbul/logger';
 
 import type { MatchRouteOutput } from './types';
@@ -153,7 +154,7 @@ export class RouteHandler {
         );
       }
 
-      if (!isValidMethodToken(httpMethod)) {
+      if (isHttpToken(httpMethod) !== true) {
         throw new Error(
           `[RouteHandler] Cannot register handler at ${entry.controllerKey}.${entry.methodName}: ` +
           `method '${httpMethod}' is not a valid HTTP token (RFC 9110 §5.1 — tchar only, no whitespace).`,
@@ -406,16 +407,6 @@ export class RouteHandler {
     };
   }
 
-}
-
-// RFC 9110 §5.1 token 문자 (tchar). 빈 문자열 / 공백 / CTL / non-ASCII 거부.
-const HTTP_TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-
-/**
- * RFC 9110 §5.1 token 검증. HTTP 메서드는 token 형태여야 한다.
- */
-export function isValidMethodToken(method: string): boolean {
-  return HTTP_TOKEN_PATTERN.test(method);
 }
 
 /**
