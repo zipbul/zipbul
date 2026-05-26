@@ -1,5 +1,6 @@
 import type { ResultAsync } from '@zipbul/result';
 
+import { isHttpToken } from '@zipbul/baker/rules';
 import { isErr, safe } from '@zipbul/result';
 import { HttpHeader } from '@zipbul/http-adapter';
 import type { HttpStatus } from '@zipbul/http-adapter';
@@ -122,7 +123,10 @@ export class Cors {
       }
     } else {
       if (requestHeadersRaw !== null && requestHeadersRaw.length > 0) {
-        headers.set(HttpHeader.AccessControlAllowHeaders, requestHeadersRaw);
+        const echoed = this.filterValidHeaderTokens(requestHeadersRaw);
+        if (echoed !== undefined) {
+          headers.set(HttpHeader.AccessControlAllowHeaders, echoed);
+        }
         headers.append(HttpHeader.Vary, HttpHeader.AccessControlRequestHeaders);
       }
     }
@@ -289,13 +293,29 @@ export class Cors {
 
     if (this.options.credentials) {
       if (requestHeadersRaw !== null && requestHeadersRaw.length > 0) {
-        return requestHeadersRaw;
+        return this.filterValidHeaderTokens(requestHeadersRaw);
       }
 
       return undefined;
     }
 
     return '*';
+  }
+
+  /**
+   * Filters a comma-separated header-name list down to entries that satisfy
+   * the RFC 9110 §5.6.2 `token` grammar, then re-joins the survivors with
+   * commas. Returns `undefined` when no entry survives so the caller can
+   * omit the `Access-Control-Allow-Headers` header entirely.
+   *
+   * @internal
+   */
+  private filterValidHeaderTokens(raw: string): string | undefined {
+    const valid = this.parseCommaSeparatedValues(raw).filter(name => isHttpToken(name) === true);
+    if (valid.length === 0) {
+      return undefined;
+    }
+    return valid.join(',');
   }
 
   /** @internal */

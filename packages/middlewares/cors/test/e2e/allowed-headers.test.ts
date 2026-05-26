@@ -68,6 +68,23 @@ describe('CORS / allowedHeaders', () => {
       expect(allow).toContain('x-custom-b');
       expect(varyTokens(res.headers.get('vary'))).toContain('access-control-request-headers');
     });
+
+    it('should drop invalid-token entries from echoed Access-Control-Allow-Headers (RFC 9110 §5.6.2)', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
+        'Access-Control-Request-Headers': 'X-Custom, X Bad, X-Foo(bar), X-Other',
+      }));
+      const allow = res.headers.get('access-control-allow-headers');
+      expect(allow).toBe('X-Custom,X-Other');
+      expect(varyTokens(res.headers.get('vary'))).toContain('access-control-request-headers');
+    });
+
+    it('should omit Access-Control-Allow-Headers when every ACRH entry is invalid but still emit Vary: ACRH', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
+        'Access-Control-Request-Headers': 'X Bad, X-Foo(bar)',
+      }));
+      expect(res.headers.get('access-control-allow-headers')).toBeNull();
+      expect(varyTokens(res.headers.get('vary'))).toContain('access-control-request-headers');
+    });
   });
 
   describe('allowedHeaders wildcard without credentials', () => {

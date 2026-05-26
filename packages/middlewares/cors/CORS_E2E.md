@@ -129,49 +129,23 @@ wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 �
 
 ---
 
-### D6. Echo mode 에서 invalid ACRH 값이 ACAH 로 그대로 emit
+### D6. Echo mode 에서 invalid ACRH 값이 ACAH 로 그대로 emit ✅ CLOSED (2026-05-26)
 
-**상황**
+**해결 경로**: RFC 9110 §5.6.2 `token = 1*tchar` MUST 위반 — 브라우저 preflight cache 파싱 실패 유발 가능. echo 의도 (valid 토큰 trust) 는 보존하되 invalid 토큰만 silent filter.
 
-`allowedHeaders` 옵션을 지정하지 않으면 (default `null`) 미들웨어는 클라이언트의 `Access-Control-Request-Headers` 값을 그대로 `Access-Control-Allow-Headers` 로 echo 한다 (`cors.ts:121-124`). 이때 `parseCommaSeparatedValues` (`cors.ts:303-312`) 가 split + trim + 빈 토큰 필터만 적용하고 token 문법 검증은 하지 않는다. 결과적으로 클라이언트가 보낸 `Access-Control-Request-Headers: X Bad` 같은 invalid token 이 그대로 응답에 emit 된다.
+**적용된 변경**:
+- `src/cors.ts` 에 helper `filterValidHeaderTokens(raw)` 신설 — `parseCommaSeparatedValues` + baker `isHttpToken` 으로 validate, 빈 결과 → `undefined`.
+- 두 echo 경로 모두 적용:
+  - `allowedHeaders === null` (echo mode, line 124-128)
+  - `allowedHeaders: ['*']` + `credentials: true` (wildcard echo, `serializeAllowedHeaders` line 291-292)
+- `Vary: Access-Control-Request-Headers` append 를 `ACAH` set 분기 **밖**으로 분리 — 모든 entry filter 되어도 preflight cache key 보존.
 
-**사양 근거**
+**테스트 (RED→GREEN, 3 계층 + e2e)**:
+- `cors.spec.ts`: valid mix / all-invalid (ACAH 미발행 + Vary 유지) / wildcard+credentials filter — 4 RED → GREEN
+- `allowed-headers.test.ts` e2e: wire-level 동일 시나리오 회귀 방지
+- 결과: 260 pass / 0 fail
 
-Fetch §3.3.4 ABNF: `Access-Control-Allow-Headers = #field-name`, RFC 9110 `field-name = token`. 공백 포함 토큰은 사양 위반.
-
-**코드 위치**
-
-`src/cors.ts:121-124`
-```ts
-} else {
-  if (requestHeadersRaw !== null && requestHeadersRaw.length > 0) {
-    headers.set(HttpHeader.AccessControlAllowHeaders, requestHeadersRaw);
-    // ...
-  }
-}
-```
-
-`requestHeadersRaw` 를 그대로 set.
-
-**재현**
-
-```
-입력: 기본 옵션 (allowedHeaders 미지정)
-     OPTIONS, Origin, ACRM:POST, ACRH: 'X Bad'
-출력 ACAH: 'X Bad'
-```
-
-**산업 비교**
-
-5/5 라이브러리 동일하게 검증 안 함. 산업 공통.
-
-**테스트 갭**
-
-invalid token ACRH echo 케이스 부재.
-
-**수정 방향**
-
-echo 전에 token 정규화. 각 토큰을 RFC 9110 token regex 로 검증하고 invalid 토큰만 제외하거나 전체 거부. 단 echo 의도 자체가 "클라이언트 신뢰" 이므로 strict 모드에서만 검증하는 정책도 합리적.
+**boot-time strict 옵션 미도입**: ACRH 는 runtime client 입력. silent filter 가 (a) framework-agnostic 정합 (logger/callback 의존 0), (b) D5 (config 오류 → throw) 와 책임 경계 분리 측면 정공.
 
 ---
 

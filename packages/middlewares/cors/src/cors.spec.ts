@@ -518,7 +518,33 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertPreflight(result);
-      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom, X-Other');
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom,X-Other');
+    });
+
+    it('should drop invalid-token entries from echoed ACAH (RFC 9110 §5.6.2)', async () => {
+      const cors = Cors.create({ origin: true });
+      const req = makePreflight('https://a.com', 'POST', 'X-Custom, X Bad, X-Foo(bar), X-Other');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom,X-Other');
+    });
+
+    it('should omit ACAH when every ACRH entry is invalid, but still append Vary:Access-Control-Request-Headers', async () => {
+      const cors = Cors.create({ origin: true });
+      const req = makePreflight('https://a.com', 'POST', 'X Bad, X-Foo(bar)');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBeNull();
+      const vary = result.headers.get(HttpHeader.Vary);
+      expect(vary).toContain(HttpHeader.AccessControlRequestHeaders);
+    });
+
+    it('should drop invalid-token entries on the wildcard+credentials echo path', async () => {
+      const cors = Cors.create({ origin: 'https://a.com', credentials: true, allowedHeaders: ['*'] });
+      const req = makePreflight('https://a.com', 'POST', 'X-Custom, X Bad, X-Other');
+      const result = await cors.handle(req);
+      assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom,X-Other');
     });
 
     it('should set ACAH:* when allowedHeaders is wildcard without credentials', async () => {
