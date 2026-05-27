@@ -6,7 +6,7 @@ export enum CorsAction {
   /** Attach CORS headers to the response and continue processing. */
   Continue = 'continue',
   /** Return a preflight-only response immediately. */
-  RespondPreflight = 'respond_preflight',
+  RespondPreflight = 'respond-preflight',
   /** Reject the request. See {@link CorsRejectionReason} for details. */
   Reject = 'reject',
 }
@@ -16,13 +16,13 @@ export enum CorsAction {
  */
 export enum CorsRejectionReason {
   /** `Origin` header is missing or empty. */
-  NoOrigin = 'no_origin',
+  NoOrigin = 'no-origin',
   /** Origin is not in the allowed list. */
-  OriginNotAllowed = 'origin_not_allowed',
+  OriginNotAllowed = 'origin-not-allowed',
   /** Preflight request method is not allowed. */
-  MethodNotAllowed = 'method_not_allowed',
+  MethodNotAllowed = 'method-not-allowed',
   /** Preflight request header is not allowed. */
-  HeaderNotAllowed = 'header_not_allowed',
+  HeaderNotAllowed = 'header-not-allowed',
 }
 
 /**
@@ -39,9 +39,9 @@ export enum CorsErrorReason {
    * specific {@link InvalidOriginReturn} fires instead (RFC 6454 §6.2 — not a
    * serialized origin).
    */
-  CredentialsWithWildcardOrigin = 'credentials_with_wildcard_origin',
+  CredentialsWithWildcardOrigin = 'credentials-with-wildcard-origin',
   /** credentials:true is incompatible with wildcard methods (`['*']`) per Fetch Standard. */
-  CredentialsWithWildcardMethods = 'credentials_with_wildcard_methods',
+  CredentialsWithWildcardMethods = 'credentials-with-wildcard-methods',
   /**
    * `maxAge` is not a non-negative integer below 10^21 (RFC 9111 §1.2.2:
    * `delta-seconds = 1*DIGIT`). Negative, non-integer, NaN, Infinity, or
@@ -49,11 +49,11 @@ export enum CorsErrorReason {
    * exponential notation, e.g. `"1e+21"`, violating the `1*DIGIT` ABNF)
    * all fail this check.
    */
-  InvalidMaxAge = 'invalid_max_age',
+  InvalidMaxAge = 'invalid-max-age',
   /** optionsSuccessStatus must be 200–299 (ok status). */
-  InvalidStatusCode = 'invalid_status_code',
+  InvalidStatusCode = 'invalid-status-code',
   /** Origin function threw at runtime. */
-  OriginFunctionError = 'origin_function_error',
+  OriginFunctionError = 'origin-function-error',
   /**
    * `origin` failed schema validation. The baker schema accepts a boolean, a
    * serialized RFC 6454 §6.2 origin (including the reserved literals `'*'`
@@ -67,13 +67,13 @@ export enum CorsErrorReason {
    * flag from your matcher; the stateless variants (`i`, `m`, `s`, `u`,
    * `d`) all pass.
    */
-  InvalidOrigin = 'invalid_origin',
+  InvalidOrigin = 'invalid-origin',
   /** methods is an empty array or contains empty/blank string entries (RFC 9110 §5.6.2 token). */
-  InvalidMethods = 'invalid_methods',
+  InvalidMethods = 'invalid-methods',
   /** allowedHeaders contains an entry that is not a valid HTTP token — empty/blank or non-tchar chars (RFC 9110 §5.6.2: 1*tchar). */
-  InvalidAllowedHeaders = 'invalid_allowed_headers',
+  InvalidAllowedHeaders = 'invalid-allowed-headers',
   /** exposedHeaders contains an entry that is not a valid HTTP token — empty/blank or non-tchar chars (RFC 9110 §5.6.2: 1*tchar). */
-  InvalidExposedHeaders = 'invalid_exposed_headers',
+  InvalidExposedHeaders = 'invalid-exposed-headers',
   /**
    * Origin function returned a string that is not a serialized origin per
    * RFC 6454 §6.2. Covers CR/LF/NUL/BOM/zero-width injection, trailing slash,
@@ -100,5 +100,5 @@ export enum CorsErrorReason {
    * was previously a silent reject; it now throws this error. If you used
    * empty string as a deny signal, return `false` instead.
    */
-  InvalidOriginReturn = 'invalid_origin_return',
+  InvalidOriginReturn = 'invalid-origin-return',
 }

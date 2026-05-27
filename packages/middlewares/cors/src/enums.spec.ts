@@ -10,7 +10,7 @@ describe('CorsAction enum', () => {
       Reject: CorsAction.Reject,
     });
     expect(CorsAction.Continue).toBe('continue' as CorsAction.Continue);
-    expect(CorsAction.RespondPreflight).toBe('respond_preflight' as CorsAction.RespondPreflight);
+    expect(CorsAction.RespondPreflight).toBe('respond-preflight' as CorsAction.RespondPreflight);
     expect(CorsAction.Reject).toBe('reject' as CorsAction.Reject);
   });
 });
@@ -23,10 +23,10 @@ describe('CorsRejectionReason enum', () => {
       MethodNotAllowed: CorsRejectionReason.MethodNotAllowed,
       HeaderNotAllowed: CorsRejectionReason.HeaderNotAllowed,
     });
-    expect(CorsRejectionReason.NoOrigin).toBe('no_origin' as CorsRejectionReason.NoOrigin);
-    expect(CorsRejectionReason.OriginNotAllowed).toBe('origin_not_allowed' as CorsRejectionReason.OriginNotAllowed);
-    expect(CorsRejectionReason.MethodNotAllowed).toBe('method_not_allowed' as CorsRejectionReason.MethodNotAllowed);
-    expect(CorsRejectionReason.HeaderNotAllowed).toBe('header_not_allowed' as CorsRejectionReason.HeaderNotAllowed);
+    expect(CorsRejectionReason.NoOrigin).toBe('no-origin' as CorsRejectionReason.NoOrigin);
+    expect(CorsRejectionReason.OriginNotAllowed).toBe('origin-not-allowed' as CorsRejectionReason.OriginNotAllowed);
+    expect(CorsRejectionReason.MethodNotAllowed).toBe('method-not-allowed' as CorsRejectionReason.MethodNotAllowed);
+    expect(CorsRejectionReason.HeaderNotAllowed).toBe('header-not-allowed' as CorsRejectionReason.HeaderNotAllowed);
   });
 });
 
@@ -45,18 +45,18 @@ describe('CorsErrorReason enum', () => {
       InvalidOriginReturn: CorsErrorReason.InvalidOriginReturn,
     });
     expect(CorsErrorReason.CredentialsWithWildcardOrigin).toBe(
-      'credentials_with_wildcard_origin' as CorsErrorReason.CredentialsWithWildcardOrigin,
+      'credentials-with-wildcard-origin' as CorsErrorReason.CredentialsWithWildcardOrigin,
     );
     expect(CorsErrorReason.CredentialsWithWildcardMethods).toBe(
-      'credentials_with_wildcard_methods' as CorsErrorReason.CredentialsWithWildcardMethods,
+      'credentials-with-wildcard-methods' as CorsErrorReason.CredentialsWithWildcardMethods,
     );
-    expect(CorsErrorReason.InvalidMaxAge).toBe('invalid_max_age' as CorsErrorReason.InvalidMaxAge);
-    expect(CorsErrorReason.InvalidStatusCode).toBe('invalid_status_code' as CorsErrorReason.InvalidStatusCode);
-    expect(CorsErrorReason.OriginFunctionError).toBe('origin_function_error' as CorsErrorReason.OriginFunctionError);
-    expect(CorsErrorReason.InvalidOrigin).toBe('invalid_origin' as CorsErrorReason.InvalidOrigin);
-    expect(CorsErrorReason.InvalidMethods).toBe('invalid_methods' as CorsErrorReason.InvalidMethods);
-    expect(CorsErrorReason.InvalidAllowedHeaders).toBe('invalid_allowed_headers' as CorsErrorReason.InvalidAllowedHeaders);
-    expect(CorsErrorReason.InvalidExposedHeaders).toBe('invalid_exposed_headers' as CorsErrorReason.InvalidExposedHeaders);
-    expect(CorsErrorReason.InvalidOriginReturn).toBe('invalid_origin_return' as CorsErrorReason.InvalidOriginReturn);
+    expect(CorsErrorReason.InvalidMaxAge).toBe('invalid-max-age' as CorsErrorReason.InvalidMaxAge);
+    expect(CorsErrorReason.InvalidStatusCode).toBe('invalid-status-code' as CorsErrorReason.InvalidStatusCode);
+    expect(CorsErrorReason.OriginFunctionError).toBe('origin-function-error' as CorsErrorReason.OriginFunctionError);
+    expect(CorsErrorReason.InvalidOrigin).toBe('invalid-origin' as CorsErrorReason.InvalidOrigin);
+    expect(CorsErrorReason.InvalidMethods).toBe('invalid-methods' as CorsErrorReason.InvalidMethods);
+    expect(CorsErrorReason.InvalidAllowedHeaders).toBe('invalid-allowed-headers' as CorsErrorReason.InvalidAllowedHeaders);
+    expect(CorsErrorReason.InvalidExposedHeaders).toBe('invalid-exposed-headers' as CorsErrorReason.InvalidExposedHeaders);
+    expect(CorsErrorReason.InvalidOriginReturn).toBe('invalid-origin-return' as CorsErrorReason.InvalidOriginReturn);
   });
 });
