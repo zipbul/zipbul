@@ -458,9 +458,9 @@ export const CORS_DEFAULT_METHODS: readonly string[] = Object.freeze(['GET', 'HE
 **재현**
 
 ```
-const err = new CorsError({ reason: 'origin_function_error', message: 'boom', cause: 'src' });
+const err = new CorsError({ reason: 'origin-function-error', message: 'boom', cause: 'src' });
 const cloned = structuredClone(err);
-cloned.reason                    → undefined          (기대: 'origin_function_error')
+cloned.reason                    → undefined          (기대: 'origin-function-error')
 cloned.name                      → 'Error'            (기대: 'CorsError')
 cloned instanceof CorsError      → false
 cloned instanceof Error          → true
@@ -489,7 +489,7 @@ cloned instanceof Error          → true
 **재현**
 
 ```
-const err = new CorsError({ reason: 'invalid_max_age', message: 'oops', cause: 'src' });
+const err = new CorsError({ reason: 'invalid-max-age', message: 'oops', cause: 'src' });
 JSON.stringify(err)
 → {"reason":"invalid_max_age","name":"CorsError"}
 
@@ -586,7 +586,7 @@ enum 객체에 `Object.freeze`:
 ```ts
 export const CorsAction = Object.freeze({
   Continue: 'continue',
-  RespondPreflight: 'respond_preflight',
+  RespondPreflight: 'respond-preflight',
   Reject: 'reject',
 } as const);
 export type CorsAction = typeof CorsAction[keyof typeof CorsAction];
@@ -606,8 +606,8 @@ const enum + assertion 패턴 또는 `as const` 객체로 변환. 추가 비용�
 
 ```
 const r = await cors.handle(req)
-// r.action === 'reject', r.reason === 'origin_not_allowed'
-(r as any).reason = 'no_origin'       ← 변조 가능
+// r.action === 'reject', r.reason === 'origin-not-allowed'
+(r as any).reason = 'no-origin'       ← 변조 가능
 (r as any).action = 'continue'        ← 변조 가능
 ```
 
