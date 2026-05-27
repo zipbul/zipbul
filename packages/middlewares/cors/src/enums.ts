@@ -42,7 +42,13 @@ export enum CorsErrorReason {
   CredentialsWithWildcardOrigin = 'credentials_with_wildcard_origin',
   /** credentials:true is incompatible with wildcard methods (`['*']`) per Fetch Standard. */
   CredentialsWithWildcardMethods = 'credentials_with_wildcard_methods',
-  /** maxAge must be non-negative. */
+  /**
+   * `maxAge` is not a non-negative integer below 10^21 (RFC 9111 §1.2.2:
+   * `delta-seconds = 1*DIGIT`). Negative, non-integer, NaN, Infinity, or
+   * values ≥ 10^21 (which `Number.prototype.toString` serializes in
+   * exponential notation, e.g. `"1e+21"`, violating the `1*DIGIT` ABNF)
+   * all fail this check.
+   */
   InvalidMaxAge = 'invalid_max_age',
   /** optionsSuccessStatus must be 200–299 (ok status). */
   InvalidStatusCode = 'invalid_status_code',

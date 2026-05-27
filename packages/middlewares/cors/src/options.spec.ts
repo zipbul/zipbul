@@ -211,6 +211,62 @@ describe('validateCorsOptions', () => {
     expect(result?.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
   });
 
+  // ── D-NEW-1: maxAge >= 1e21 (ECMAScript §6.1.6.1.30 toString exp threshold) ──
+
+  it('should return CorsError when maxAge is 1e21 (ECMAScript exp-notation threshold)', () => {
+    // Arrange
+    const resolved = makeResolved({ maxAge: 1e21 });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
+  });
+
+  it('should return CorsError when maxAge is Number.MAX_VALUE (1.7e308)', () => {
+    // Arrange
+    const resolved = makeResolved({ maxAge: Number.MAX_VALUE });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
+  });
+
+  it('should return CorsError when maxAge is 2e21 (above exp threshold)', () => {
+    // Arrange
+    const resolved = makeResolved({ maxAge: 2e21 });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result?.data.reason).toBe(CorsErrorReason.InvalidMaxAge);
+  });
+
+  it('should pass when maxAge is 9.999e20 (just below the exp threshold)', () => {
+    // Arrange
+    const resolved = makeResolved({ maxAge: 9.999e20 });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result).toBeUndefined();
+  });
+
+  it('should pass when maxAge is Number.MAX_SAFE_INTEGER (wire still serializes as integer)', () => {
+    // Arrange
+    const resolved = makeResolved({ maxAge: Number.MAX_SAFE_INTEGER });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result).toBeUndefined();
+  });
+
+  it('should pass when maxAge is 2**53 (above MAX_SAFE_INTEGER but wire serializes as integer)', () => {
+    // Arrange
+    const resolved = makeResolved({ maxAge: 2 ** 53 });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result).toBeUndefined();
+  });
+
   it('should return CorsError when optionsSuccessStatus is 100', () => {
     // Arrange
     const resolved = makeResolved({ optionsSuccessStatus: 100 });

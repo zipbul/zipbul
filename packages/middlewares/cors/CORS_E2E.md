@@ -32,10 +32,10 @@ verify 안 한 영역: RFC 7540 의 deprecated 사용 사례, 실제 Cloudflare/
 
 이 문서가 발견·검증한 모든 결함의 ID 와 분류. 본문 상세는 ID 순서가 아닌 발견 순서 (D 시리즈 → D-NEW 시리즈 → DN 시리즈 → Q 시리즈) 로 배치되어 있다.
 
-### 기능 범위 안 — 사양 MUST / ABNF 위반 (14건)
+### 기능 범위 안 — 사양 MUST / ABNF 위반 (13건)
 CORS 미들웨어가 emit 하는 wire 가 Fetch Standard / RFC 9110 / RFC 9111 / RFC 6454 의 사양 의무를 위반하거나, 사용자가 의도한 정책이 wire 에 정확히 반영되지 않는 결함이다.
 
-`D1`, `D2`, `D3`, `D5`, `D6`, `D7`, `G5`, `DN-3`, `DN-31`, `D-NEW-1`, `D-NEW-3`
+`D1`, `D2`, `D3`, `D5`, `D6`, `D7`, `G5`, `DN-3`, `DN-31`, `D-NEW-3` (D-NEW-1 은 13차에서 closed)
 
 > 정확한 기준: 산업 평균 비교가 아닌 사양 verbatim 부합. 산업 5/5 라이브러리가 같이 위반하는 결함도 사양 MUST 위반이면 본 카테고리 포함. **DN-31 은 11차에서 강화 후보로 분류했으나 RFC 9110 §5.6.2 token ABNF 위반 카테고리 (D3 와 동일) 로 재분류** (사용자 정확한 기준 지시 반영).
 
@@ -268,6 +268,8 @@ maxAge=Number.MAX_VALUE              → ACMA="1.7976931348623157e+308"  위반
 **수정 방향**
 
 `validateCorsOptions` 에서 `maxAge` 상한을 `2147483647` (RFC 9111 §1.2.2 권장 32-bit signed 표현) 또는 `< 1e21` 로 제한. 또는 `cors.ts:128` 에서 `Math.trunc(maxAge).toFixed(0)` 형식으로 직렬화 (BigInt 처리 가능). 더 깔끔한 방향은 boot validation 에서 상한 설정.
+
+**✅ CLOSED (2026-05-27)**: boot validation 에 `resolved.maxAge >= 1e21` 상한 추가 (ECMAScript §6.1.6.1.30 Number::toString 의 exp threshold). 임계값은 `CORS_MAX_AGE_EXPONENTIAL_THRESHOLD` 상수로 분리, JSDoc 에 ECMAScript + RFC 9111 §1.2.2 인용. `Number.isInteger` 분기 유지로 NaN/Infinity/소수 거부 보존. `InvalidMaxAge` enum JSDoc 도 ABNF 위반 메커니즘 명시. wire 정상 영역 (Number.MAX_SAFE_INTEGER, 2^53, 1e20, 9.999e20 등) 은 그대로 통과 — 결함 카테고리 정확히 차단. `.toFixed(0)` 직렬화 대안은 silent normalize 가 되므로 fail-fast 정신과 충돌, 채택 안 함. **No breaking** (1e21+ 영역은 기존에도 wire ABNF 위반을 emit 하던 결함 영역).
 
 ---
 
@@ -965,6 +967,7 @@ unit 에 `Cors.create({ origin: 'null' })` + Request with `Origin: 'null'` → r
 | 10차 | boolean 옵션 비대칭(allowPrivateNetwork/preflightContinue), null silent coerce, origin object→OriginFn 오분류, private ctor 미강제, throw undefined cause 부재 | **신규 6건** (D-NEW-6~11) — 12차에서 D-NEW-6/7/8/9 모두 type 우회 trigger 로 재분류, 결함 catalog 제외 |
 | 11차 | export surface, enum wire 영구성, 상수 mutation, freeze 부재, CorsError serialization | **신규 7건** (D-NEW-12~18) |
 | 12차 | baker 3.1.0 `isOrigin`/`isCorsOrigin` 도입 + DN-3 마이그레이션 (로컬 helper → baker rule, `isBlank` 통합 제거) + D-NEW-2 fix (OriginFn 반환값 sanitize, wildcard 분기 2-branch 보존: Fetch §3.3.5 wire 결함 vs RFC 6454 §6.2 직렬화 결함 의미축 분리) | **신규 0건**, 기존 2건 CLOSED + **1건 BREAKING** (빈 문자열 OriginFn 반환: silent reject → InvalidOriginReturn throw, 거부 신호는 `return false` 통일) |
+| 13차 | D-NEW-1 fix (maxAge wire ABNF 위반): boot validation 에 `>= 1e21` 상한 추가, `CORS_MAX_AGE_EXPONENTIAL_THRESHOLD` 상수화, ECMAScript §6.1.6.1.30 + RFC 9111 §1.2.2 인용. v1 (isSafeInteger 교체) 은 실측 결과 1e20/2^53 등 wire 정상 영역까지 과잉 차단 발견 후 self-correct → `>= 1e21` 정확 임계 채택 | **신규 0건**, 기존 1건 CLOSED, no breaking |
 
 각 차수 결과는 3자 cross-verify (나 / 서브에이전트 / 코덱스) + bun 실행 재현으로 검증.
 

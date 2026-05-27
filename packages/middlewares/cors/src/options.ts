@@ -6,7 +6,11 @@ import { err } from '@zipbul/result';
 import type { CorsErrorData, CorsOptions } from './interfaces';
 import type { ResolvedCorsOptions } from './types';
 
-import { CORS_DEFAULT_METHODS, CORS_DEFAULT_OPTIONS_SUCCESS_STATUS } from './constants';
+import {
+  CORS_DEFAULT_METHODS,
+  CORS_DEFAULT_OPTIONS_SUCCESS_STATUS,
+  CORS_MAX_AGE_EXPONENTIAL_THRESHOLD,
+} from './constants';
 import { CorsErrorReason } from './enums';
 
 /**
@@ -121,10 +125,15 @@ export function validateCorsOptions(resolved: ResolvedCorsOptions): Result<void,
     });
   }
 
-  if (resolved.maxAge !== null && (resolved.maxAge < 0 || !Number.isInteger(resolved.maxAge))) {
+  if (
+    resolved.maxAge !== null &&
+    (resolved.maxAge < 0 ||
+      !Number.isInteger(resolved.maxAge) ||
+      resolved.maxAge >= CORS_MAX_AGE_EXPONENTIAL_THRESHOLD)
+  ) {
     return err<CorsErrorData>({
       reason: CorsErrorReason.InvalidMaxAge,
-      message: 'maxAge must be a non-negative integer (delta-seconds per RFC 9111)',
+      message: 'maxAge must be a non-negative integer below 10^21 (delta-seconds per RFC 9111 §1.2.2)',
     });
   }
 
