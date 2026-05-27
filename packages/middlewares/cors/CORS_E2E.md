@@ -318,7 +318,7 @@ OriginFn 반환값 sanitize 케이스 부재.
 
 ---
 
-> **정책 — type-guaranteed 입력만 검증**: TypeScript 시그니처가 보장하는 형태 외 (`as any`/`as unknown`/`as XxxType` cast 로 우회한 입력) 는 미들웨어가 방어하지 않는다. 사용자 책임. D-NEW-4~9 (type 우회 trigger) + D-NEW-3 (사용자 코드의 외부 옵션 배열 mutation — 진짜 공격자가 사용자 process 의 JS 변수를 mutate 할 수 있다면 이미 RCE 단계라 CORS 책임 외) 는 모두 결함에서 제외했다.
+> **정책 — 값 자체 validation 모두 보장 (baker schema 일원화), type 우회는 사용자 책임**: 미들웨어는 `CorsOptions` baker class 의 `@Field` schema 로 모든 옵션 값을 검증한다 — 사양 grammar (RFC 6454 §6.2 / RFC 9110 §5.6.2 / RFC 9111 §1.2.2 / ECMAScript §6.1.6.1.30) + cross-field (credentials + wildcard) + RegExp 의 stateless flag 보장 모두 포함. 옵션 배열은 shallow clone 으로 격리하고 결과는 deep freeze. **단** TypeScript 시그니처를 `as any`/`as unknown`/`as XxxType` cast 로 우회한 입력은 미들웨어가 방어하지 않는다 (`tsc` 의 책임). D-NEW-4~9 가 type 우회를 통해서만 trigger 가능하므로 결함에서 제외했다. D-NEW-3 (사용자 array mutation) 는 14차에서 "사용자 책임 영역" 으로 제외했으나 15차의 schema 일원화 + array clone 으로 미들웨어가 자연 격리하므로 closed 로 재분류했다.
 
 ---
 
@@ -897,6 +897,7 @@ unit 에 `Cors.create({ origin: 'null' })` + Request with `Origin: 'null'` → r
 | 12차 | baker 3.1.0 `isOrigin`/`isCorsOrigin` 도입 + DN-3 마이그레이션 (로컬 helper → baker rule, `isBlank` 통합 제거) + D-NEW-2 fix (OriginFn 반환값 sanitize, wildcard 분기 2-branch 보존: Fetch §3.3.5 wire 결함 vs RFC 6454 §6.2 직렬화 결함 의미축 분리) | **신규 0건**, 기존 2건 CLOSED + **1건 BREAKING** (빈 문자열 OriginFn 반환: silent reject → InvalidOriginReturn throw, 거부 신호는 `return false` 통일) |
 | 13차 | D-NEW-1 fix (maxAge wire ABNF 위반): boot validation 에 `>= 1e21` 상한 추가, `CORS_MAX_AGE_EXPONENTIAL_THRESHOLD` 상수화, ECMAScript §6.1.6.1.30 + RFC 9111 §1.2.2 인용. v1 (isSafeInteger 교체) 은 실측 결과 1e20/2^53 등 wire 정상 영역까지 과잉 차단 발견 후 self-correct → `>= 1e21` 정확 임계 채택 | **신규 0건**, 기존 1건 CLOSED, no breaking |
 | 14차 | D-NEW-3 (옵션 배열 reference 보존) 결함 카탈로그에서 제외. "공격자가 사용자 process 의 JS 변수를 mutate 한다" 시나리오가 이미 RCE 단계 — CORS 책임 영역 아님. 사용자가 자기 옵션 배열을 외부에 노출/mutate 하는 것은 사용자 코드 패턴 책임 (D-NEW-4~9 와 같은 사용자 책임 카테고리). §1 매트릭스 (13건→12건) + D-NEW-3 본문 삭제 + type-guaranteed 정책 노트에 사유 부기 | **신규 0건**, 1건 제외 (CLOSED 아님 — 결함 분류 정정) |
+| 15차 | **옵션 검증 baker 3.3.0 schema 일원화**: `CorsOptions` 를 데이터 클래스로 promotion (`@Recipe` + `@Field`) + `validateCorsOptions`/`resolveCorsOptions` 함수 폐기 + `options.ts`/`options.spec.ts` 파일 삭제 (87 boundary 검증은 신규 `cors-options.spec.ts` 로 마이그레이션). `Cors.create` 가 baker `validateSync(CorsOptions, merged)` 호출 + post-validate cross-check (credentials + wildcard origin/methods) + methods `'*'` 정규화 + array shallow clone + deep freeze + new Cors. baker custom rule 0 — origin union 은 `oneOf(isBoolean, isCorsOrigin, isStatelessRegExp, arrayEvery(oneOf(isCorsOrigin, isStatelessRegExp)), isFunction)`. **D-NEW-3 (사용자 array mutation) 정책 flip**: clone 도입으로 미들웨어가 격리 — 14차 "제외" → 15차 "closed". `CORS_DEFAULT_METHODS` `Object.freeze` 적용. `cors.ts` 의 RegExp `lastIndex` reset 두 줄 제거 (stateless RegExp 만 통과). `CorsError` instance `Object.freeze` 적용. baker NaN context 누락 우회로 cors.ts 에 path 기반 fallback reason 매핑 추가 (path → CorsErrorReason) | **신규 0건**, **2건 CLOSED** (D-NEW-3 격리, baker schema 일원화), **BREAKING 1건** (origin RegExp 의 `/g`·`/y` flag boot reject — stateful matcher 패치워크 폐기) |
 
 각 차수 결과는 3자 cross-verify (나 / 서브에이전트 / 코덱스) + bun 실행 재현으로 검증.
 

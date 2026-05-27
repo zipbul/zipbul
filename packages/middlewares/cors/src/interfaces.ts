@@ -1,8 +1,6 @@
-import { HttpMethod } from '@zipbul/http-adapter';
 import type { HttpStatus } from '@zipbul/http-adapter';
 
 import type { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
-import type { OriginOptions } from './types';
 
 /**
  * Normal request or `preflightContinue` preflight.
@@ -57,85 +55,7 @@ export class CorsError extends Error {
     super(data.message, data.cause !== undefined ? { cause: data.cause } : undefined);
     this.name = 'CorsError';
     this.reason = data.reason;
+    Object.freeze(this);
   }
 }
 
-/**
- * Configuration for the {@link Cors} handler.
- * All fields are optional.
- */
-export interface CorsOptions {
-  /**
-   * Allowed origin(s).
-   * Accepts `'*'`, `false`, `true`, string, RegExp, array, or async function.
-   *
-   * Origin values are matched as raw header strings (no URL parsing or
-   * normalization). A spec-conformant user agent serializes an opaque origin
-   * (e.g., a sandboxed iframe, `data:`, `file:`) as the literal string
-   * `"null"` per RFC 6454 §6. To accept such opaque origins, pass `'null'`
-   * (the string) as the option.
-   *
-   * @default `'*'`
-   */
-  origin?: OriginOptions;
-
-  /**
-   * HTTP methods allowed in preflight. Use the {@link HttpMethod} enum.
-   *
-   * @default `[HttpMethod.Get, HttpMethod.Head, HttpMethod.Put, HttpMethod.Patch, HttpMethod.Post, HttpMethod.Delete]`
-   * @example [HttpMethod.Get, HttpMethod.Post, HttpMethod.Delete]
-   * @example ['*']  // wildcard — allow all methods
-   * @example [HttpMethod.Get, HttpMethod.Propfind]
-   */
-  methods?: Array<HttpMethod | '*'>;
-
-  /**
-   * Request headers allowed in preflight.
-   * When omitted, echoes `Access-Control-Request-Headers`.
-   */
-  allowedHeaders?: string[];
-
-  /**
-   * Response headers exposed to browser JavaScript.
-   */
-  exposedHeaders?: string[];
-
-  /**
-   * Whether to send `Access-Control-Allow-Credentials: true`.
-   *
-   * @default `false`
-   */
-  credentials?: boolean;
-
-  /**
-   * Preflight cache duration in seconds.
-   * When omitted, the header is not sent.
-   */
-  maxAge?: number;
-
-  /**
-   * When `true`, preflight returns `Continue` instead of `RespondPreflight`.
-   *
-   * @default `false`
-   */
-  preflightContinue?: boolean;
-
-  /**
-   * HTTP status for the preflight response.
-   *
-   * @default `204`
-   */
-  optionsSuccessStatus?: number;
-
-  /**
-   * When `true`, preflight requests carrying
-   * `Access-Control-Request-Private-Network: true` receive
-   * `Access-Control-Allow-Private-Network: true` in the response.
-   *
-   * Enables private-network access from public-origin pages per the
-   * WICG Private Network Access spec (enforced by Chrome 130+).
-   *
-   * @default `false`
-   */
-  allowPrivateNetwork?: boolean;
-}

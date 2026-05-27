@@ -1,16 +1,32 @@
 import type { ResultAsync } from '@zipbul/result';
 
+import { validateSync, isBakerIssueSet } from '@zipbul/baker';
 import { isHttpToken, isOrigin } from '@zipbul/baker/rules';
 import { isErr, safe } from '@zipbul/result';
 import { HttpHeader } from '@zipbul/http-adapter';
 import type { HttpStatus } from '@zipbul/http-adapter';
 
-import type { CorsErrorData, CorsOptions, CorsRejectResult } from './interfaces';
+import type { CorsErrorData, CorsRejectResult } from './interfaces';
 import type { CorsResult, OriginResult, ResolvedCorsOptions } from './types';
 
 import { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
 import { CorsError } from './interfaces';
-import { resolveCorsOptions, validateCorsOptions } from './options';
+import { CORS_DEFAULTS, CorsOptions, type CorsOptionsInput } from './cors-options';
+
+/**
+ * Fallback `BakerIssue.path` → {@link CorsErrorReason} mapping. Used when
+ * baker fails to propagate the field-level `context.reason` (observed for
+ * NaN inputs in baker 3.3.0 — `isInt` type-gate failure does not attach the
+ * field context). Field-level `context` is preferred when present.
+ */
+const PATH_REASON: Record<string, CorsErrorReason> = {
+  origin: CorsErrorReason.InvalidOrigin,
+  methods: CorsErrorReason.InvalidMethods,
+  allowedHeaders: CorsErrorReason.InvalidAllowedHeaders,
+  exposedHeaders: CorsErrorReason.InvalidExposedHeaders,
+  maxAge: CorsErrorReason.InvalidMaxAge,
+  optionsSuccessStatus: CorsErrorReason.InvalidStatusCode,
+};
 
 /**
  * Framework-agnostic CORS handler.
@@ -24,18 +40,65 @@ export class Cors {
   ) {}
 
   /**
-   * Creates a Cors instance after resolving and validating options.
+   * Creates a Cors instance after resolving, validating, and freezing options.
+   *
+   * Validation delegates to the {@link CorsOptions} baker schema; cross-field
+   * checks (`credentials:true` + wildcard origin/methods) run as a
+   * post-validate step. Arrays are shallow-cloned and the resolved options
+   * are deep-frozen so neither the caller nor the middleware can mutate them
+   * after this call returns.
    *
    * @throws {CorsError} when options fail validation (invalid origin, methods, maxAge, etc.)
    * @returns A ready-to-use Cors instance.
    */
-  public static create(options?: CorsOptions): Cors {
-    const resolved = resolveCorsOptions(options);
-    const validation = validateCorsOptions(resolved);
+  public static create(options?: CorsOptionsInput): Cors {
+    const merged: ResolvedCorsOptions = { ...CORS_DEFAULTS, ...(options ?? {}) };
 
-    if (isErr(validation)) {
-      throw new CorsError(validation.data);
+    const result = validateSync(CorsOptions, merged);
+    if (isBakerIssueSet(result)) {
+      const issue = result.errors[0]!;
+      const contextReason = (issue.context as { reason?: CorsErrorReason } | undefined)?.reason;
+      const pathReason = PATH_REASON[issue.path.split('[')[0]!];
+      const reason = contextReason ?? pathReason ?? CorsErrorReason.InvalidOrigin;
+      throw new CorsError({
+        reason,
+        message: `${issue.path}: ${issue.code}`,
+      });
     }
+
+    // Cross-field semantics (schema = single-field value, cors = cross-field).
+    if (merged.credentials === true) {
+      if (merged.origin === '*') {
+        throw new CorsError({
+          reason: CorsErrorReason.CredentialsWithWildcardOrigin,
+          message: 'credentials:true with origin:"*" forbidden (Fetch Standard §3.2.5)',
+        });
+      }
+      if (Array.isArray(merged.methods) && merged.methods.includes('*')) {
+        throw new CorsError({
+          reason: CorsErrorReason.CredentialsWithWildcardMethods,
+          message: 'credentials:true with methods:["*"] forbidden (Fetch Standard §3.2.6)',
+        });
+      }
+    }
+
+    // Normalize methods wildcard and shallow-clone every array option so
+    // post-create caller mutation cannot bypass validation.
+    const normalizedMethods = merged.methods.includes('*') ? ['*' as const] : [...merged.methods];
+    const resolved: ResolvedCorsOptions = {
+      ...merged,
+      methods: Object.freeze(normalizedMethods) as ResolvedCorsOptions['methods'],
+      origin: Array.isArray(merged.origin)
+        ? Object.freeze([...merged.origin]) as ResolvedCorsOptions['origin']
+        : merged.origin,
+      allowedHeaders: Array.isArray(merged.allowedHeaders)
+        ? Object.freeze([...merged.allowedHeaders]) as ResolvedCorsOptions['allowedHeaders']
+        : merged.allowedHeaders,
+      exposedHeaders: Array.isArray(merged.exposedHeaders)
+        ? Object.freeze([...merged.exposedHeaders]) as ResolvedCorsOptions['exposedHeaders']
+        : merged.exposedHeaders,
+    };
+    Object.freeze(resolved);
 
     return new Cors(resolved);
   }
@@ -172,14 +235,12 @@ export class Cors {
     }
 
     if (originOption instanceof RegExp) {
-      originOption.lastIndex = 0;
       return originOption.test(origin) ? origin : undefined;
     }
 
     if (Array.isArray(originOption)) {
       const matched = originOption.some(entry => {
         if (entry instanceof RegExp) {
-          entry.lastIndex = 0;
           return entry.test(origin);
         }
 

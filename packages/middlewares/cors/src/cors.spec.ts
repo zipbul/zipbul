@@ -222,30 +222,34 @@ describe('Cors', () => {
       assertReject(result);
     });
 
-    it('should return Allow consistently when RegExp has /g flag and called twice', async () => {
-      // Arrange
-      const cors = Cors.create({ origin: /^https:\/\/a\.com$/g });
-      const req1 = makeRequest('GET', 'https://a.com');
-      const req2 = makeRequest('GET', 'https://a.com');
-      // Act
-      const result1 = await cors.handle(req1);
-      const result2 = await cors.handle(req2);
-      // Assert
-      assertContinue(result1);
-      assertContinue(result2);
+    it('should throw CorsError(InvalidOrigin) when origin RegExp carries the /g flag (stateful matcher rejected at boot)', () => {
+      try {
+        Cors.create({ origin: /^https:\/\/a\.com$/g });
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOrigin);
+      }
     });
 
-    it('should return Allow consistently when array contains /g flag RegExp and called twice', async () => {
-      // Arrange
-      const cors = Cors.create({ origin: [/^https:\/\/a\.com$/g, 'https://b.com'] });
-      const req1 = makeRequest('GET', 'https://a.com');
-      const req2 = makeRequest('GET', 'https://a.com');
-      // Act
-      const result1 = await cors.handle(req1);
-      const result2 = await cors.handle(req2);
-      // Assert
-      assertContinue(result1);
-      assertContinue(result2);
+    it('should throw CorsError(InvalidOrigin) when origin RegExp carries the /y (sticky) flag', () => {
+      try {
+        Cors.create({ origin: /^https:\/\/a\.com$/y });
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOrigin);
+      }
+    });
+
+    it('should throw CorsError(InvalidOrigin) when an array contains a /g flag RegExp', () => {
+      try {
+        Cors.create({ origin: [/^https:\/\/a\.com$/g, 'https://b.com'] });
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOrigin);
+      }
     });
 
     it('should allow when origin matches any entry in array (string+RegExp)', async () => {
