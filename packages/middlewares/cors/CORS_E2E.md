@@ -47,7 +47,7 @@ wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 �
 ### 범위 밖 참고 — Defensive / JS API Surface / TS-level (9건)
 **zipbul CORS 미들웨어 기능 범위 밖**. defensive programming (`Object.freeze`), Error API 디테일 (`JSON.stringify`, `structuredClone`), TypeScript `private` 런타임 강제, JS 객체 캡슐화 영역. 발견 사실은 본문에 보존하되 미들웨어 기능 결함으로 분류하지 않는다.
 
-`D-NEW-10`, `D-NEW-11`, `D-NEW-12`, `D-NEW-13`, `D-NEW-14`, `D-NEW-15`, `D-NEW-16`, `D-NEW-17`, `D-NEW-18`
+`D-NEW-15` (16차 삼자리뷰: D-NEW-11/12/13/16 CLOSED, D-NEW-10/14/17/18 EXCLUDED. 잔여 D-NEW-15 만 ENHANCE 후보)
 
 ### 강화 후보 — 사양 의무 아님 (4건)
 사양이 요구하지 않으나 보안/캐시 효율/일관성 측면 강화 후보.
@@ -322,7 +322,7 @@ OriginFn 반환값 sanitize 케이스 부재.
 
 ---
 
-### D-NEW-10. `private constructor` 가 런타임 미강제 → invalid options 으로 Cors 인스턴스 생성 가능
+### D-NEW-10. `private constructor` 가 런타임 미강제 → invalid options 으로 Cors 인스턴스 생성 가능 ⚪ EXCLUDED (16차 삼자리뷰 — `new (Cors as any)(opts)` 우회는 type 우회, 사용자 책임 카테고리)
 
 **상황**
 
@@ -351,7 +351,7 @@ new (Cors as any)({ origin: '*', credentials: true, methods: [], optionsSuccessS
 
 ---
 
-### D-NEW-11. `throw undefined` 시 `CorsError.cause` 속성 자체가 부재 (정보 보존 계약 위반)
+### D-NEW-11. `throw undefined` 시 `CorsError.cause` 속성 자체가 부재 (정보 보존 계약 위반) ✅ CLOSED (16차 — `data.cause !== undefined` → `'cause' in data` 가드 변경)
 
 **상황**
 
@@ -379,7 +379,7 @@ throw 'real-string'    → CorsError, 'cause' in e === true,  e.cause === 'real-
 
 ---
 
-### D-NEW-12. `cors.options` 가 런타임에 외부 mutable → post-create validation 우회 (사양 MUST 위반 가능)
+### D-NEW-12. `cors.options` 가 런타임에 외부 mutable → post-create validation 우회 (사양 MUST 위반 가능) ✅ CLOSED (15차 — `Object.freeze(resolved)` + array deep freeze 로 자연 차단; 참조 자체 교체는 type 우회)
 
 **상황**
 
@@ -449,7 +449,7 @@ export const CORS_DEFAULT_METHODS: readonly string[] = Object.freeze(['GET', 'HE
 
 ---
 
-### D-NEW-14. `structuredClone(corsError)` 가 `reason` 손실 + 일반 `Error` 로 강등 → worker 경계에서 reason 분기 깨짐
+### D-NEW-14. `structuredClone(corsError)` 가 `reason` 손실 + 일반 `Error` 로 강등 → worker 경계에서 reason 분기 깨짐 ⚪ EXCLUDED (16차 — HTML Standard StructuredSerialize 알고리즘 한계, cors 측 결함 아님)
 
 **상황**
 
@@ -480,7 +480,7 @@ cloned instanceof Error          → true
 
 ---
 
-### D-NEW-15. `JSON.stringify(corsError)` 에 `message`/`cause`/`stack` 누락 → 진단성 갭
+### D-NEW-15. `JSON.stringify(corsError)` 에 `message`/`cause`/`stack` 누락 → 진단성 갭 💪 ENHANCE (표준 Error 동작, 사양 의무 아님 — `toJSON()` 추가는 별개 강화 후보)
 
 **상황**
 
@@ -521,7 +521,7 @@ D-NEW-14 와 같은 fix.
 
 ---
 
-### D-NEW-16. `CorsErrorData` 가 `@internal` 마킹인데 `index.ts` barrel 로 public export — 캡슐화 누출
+### D-NEW-16. `CorsErrorData` 가 `@internal` 마킹인데 `index.ts` barrel 로 public export — 캡슐화 누출 ✅ CLOSED (16차 — `index.ts` 의 `CorsErrorData` export 제거. 사용자는 `CorsError` instanceof + reason/message/cause 만 사용)
 
 **상황**
 
@@ -559,7 +559,7 @@ export type {
 
 ---
 
-### D-NEW-17. `CorsAction` / `CorsRejectionReason` / `CorsErrorReason` enum 객체가 frozen 아니어서 wire value tamper 가능 → cors.handle 결과 변조
+### D-NEW-17. `CorsAction` / `CorsRejectionReason` / `CorsErrorReason` enum 객체가 frozen 아니어서 wire value tamper 가능 → cors.handle 결과 변조 ⚪ EXCLUDED (16차 — `(enum as any).Key = ...` 우회는 type 우회, 사용자 책임)
 
 **상황**
 
@@ -596,7 +596,7 @@ const enum + assertion 패턴 또는 `as const` 객체로 변환. 추가 비용�
 
 ---
 
-### D-NEW-18. `CorsResult` 반환 객체가 frozen 아니어서 caller 가 action/reason/headers 변조 가능 → downstream 미들웨어/router 영향
+### D-NEW-18. `CorsResult` 반환 객체가 frozen 아니어서 caller 가 action/reason/headers 변조 가능 → downstream 미들웨어/router 영향 ⚪ EXCLUDED (16차 — per-request 새 객체, caller self-harm only; Headers 는 freeze 불가)
 
 **상황**
 
@@ -898,6 +898,7 @@ unit 에 `Cors.create({ origin: 'null' })` + Request with `Origin: 'null'` → r
 | 13차 | D-NEW-1 fix (maxAge wire ABNF 위반): boot validation 에 `>= 1e21` 상한 추가, `CORS_MAX_AGE_EXPONENTIAL_THRESHOLD` 상수화, ECMAScript §6.1.6.1.30 + RFC 9111 §1.2.2 인용. v1 (isSafeInteger 교체) 은 실측 결과 1e20/2^53 등 wire 정상 영역까지 과잉 차단 발견 후 self-correct → `>= 1e21` 정확 임계 채택 | **신규 0건**, 기존 1건 CLOSED, no breaking |
 | 14차 | D-NEW-3 (옵션 배열 reference 보존) 결함 카탈로그에서 제외. "공격자가 사용자 process 의 JS 변수를 mutate 한다" 시나리오가 이미 RCE 단계 — CORS 책임 영역 아님. 사용자가 자기 옵션 배열을 외부에 노출/mutate 하는 것은 사용자 코드 패턴 책임 (D-NEW-4~9 와 같은 사용자 책임 카테고리). §1 매트릭스 (13건→12건) + D-NEW-3 본문 삭제 + type-guaranteed 정책 노트에 사유 부기 — *15차에서 baker schema 일원화 + array shallow clone 도입으로 미들웨어가 자연 격리하므로 closed 로 재분류함* | **신규 0건**, 1건 제외 (CLOSED 아님 — 결함 분류 정정) |
 | 15차 | **옵션 검증 baker 3.3.0 schema 일원화**: `CorsOptions` 를 데이터 클래스로 promotion (`@Recipe` + `@Field`) + `validateCorsOptions`/`resolveCorsOptions` 함수 폐기 + `options.ts`/`options.spec.ts` 파일 삭제 (87 boundary 검증은 신규 `cors-options.spec.ts` 로 마이그레이션). `Cors.create` 가 baker `validateSync(CorsOptions, merged)` 호출 + post-validate cross-check (credentials + wildcard origin/methods) + methods `'*'` 정규화 + array shallow clone + deep freeze + new Cors. baker custom rule 0 — origin union 은 `oneOf(isBoolean, isCorsOrigin, isStatelessRegExp, arrayEvery(oneOf(isCorsOrigin, isStatelessRegExp)), isFunction)`. **D-NEW-3 (사용자 array mutation) 정책 flip**: clone 도입으로 미들웨어가 격리 — 14차 "제외" → 15차 "closed". `CORS_DEFAULT_METHODS` `Object.freeze` 적용. `cors.ts` 의 RegExp `lastIndex` reset 두 줄 제거 (stateless RegExp 만 통과). `CorsError` instance `Object.freeze` 적용. baker NaN context 누락 우회로 cors.ts 에 path 기반 fallback reason 매핑 추가 (path → CorsErrorReason) | **신규 0건**, **2건 CLOSED** (D-NEW-3 격리, baker schema 일원화), **BREAKING 1건** (origin RegExp 의 `/g`·`/y` flag boot reject — stateful matcher 패치워크 폐기) |
+| 16차 | **§1 "기능 범위 밖" 8건 삼자리뷰 + 일괄 closure**: enum wire 값 16개 snake_case → kebab-case (CorsAction/CorsRejectionReason/CorsErrorReason). `CorsError` `Object.freeze(this)` → per-property `defineProperty` (reason/message/cause non-writable + 인스턴스 extensible — 사용자 subclass 자유). baker `seal()` 을 `Cors.create` 의 lazy first-call 로 이동 (라이브러리가 global baker config 점유 X). **D-NEW-11** `data.cause !== undefined` → `'cause' in data` 가드 변경으로 ECMAScript Error Cause 시그널 정합. **D-NEW-16** `index.ts` 의 `CorsErrorData` export 제거 (`@internal` 유지 — 사용자 facing 은 `instanceof CorsError` + reason/message/cause read 만). D-NEW-12 (15차 `Object.freeze` cover 재확인 CLOSED), D-NEW-10/14/17/18 EXCLUDED (type 우회 사용자 책임 또는 HTML Standard 한계 또는 self-harm). D-NEW-15 ENHANCE (`toJSON()` 별개 후보). CorsError per-property freeze + subclass extensibility spec 5건 신규 (interfaces.spec.ts) | **신규 0건**, **3건 CLOSED** (D-NEW-11/12/16), **4건 EXCLUDED** (D-NEW-10/14/17/18), **BREAKING 2건** (enum wire kebab + CorsError ABI 변경) |
 
 각 차수 결과는 3자 cross-verify (나 / 서브에이전트 / 코덱스) + bun 실행 재현으로 검증.
 

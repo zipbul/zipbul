@@ -40,6 +40,18 @@ describe('CorsError', () => {
     expect(err.cause).toBeUndefined();
   });
 
+  it('should preserve a literal undefined cause when explicitly passed (Error Cause contract)', () => {
+    const err = new CorsError({ reason: CorsErrorReason.OriginFunctionError, message: 'x', cause: undefined });
+    expect('cause' in err).toBe(true);
+    expect(err.cause).toBeUndefined();
+  });
+
+  it('should preserve a literal null cause when explicitly passed', () => {
+    const err = new CorsError({ reason: CorsErrorReason.OriginFunctionError, message: 'x', cause: null });
+    expect('cause' in err).toBe(true);
+    expect(err.cause).toBeNull();
+  });
+
   // ── own-property immutability + instance extensibility ──
 
   it('should mark reason as non-writable', () => {

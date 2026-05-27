@@ -52,7 +52,7 @@ export class CorsError extends Error {
   public readonly reason!: CorsErrorReason;
 
   constructor(data: CorsErrorData) {
-    super(data.message, data.cause !== undefined ? { cause: data.cause } : undefined);
+    super(data.message, 'cause' in data ? { cause: data.cause } : undefined);
     this.name = 'CorsError';
     Object.defineProperty(this, 'reason', {
       value: data.reason,
@@ -66,7 +66,7 @@ export class CorsError extends Error {
       configurable: false,
       enumerable: false,
     });
-    if (data.cause !== undefined) {
+    if ('cause' in data) {
       Object.defineProperty(this, 'cause', {
         value: data.cause,
         writable: false,
