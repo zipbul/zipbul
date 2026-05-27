@@ -1,6 +1,6 @@
 import type { ResultAsync } from '@zipbul/result';
 
-import { validateSync, isBakerIssueSet } from '@zipbul/baker';
+import { validateSync, isBakerIssueSet, seal } from '@zipbul/baker';
 import { isHttpToken, isOrigin } from '@zipbul/baker/rules';
 import { isErr, safe } from '@zipbul/result';
 import { HttpHeader } from '@zipbul/http-adapter';
@@ -29,6 +29,22 @@ const PATH_REASON: Record<string, CorsErrorReason> = {
 };
 
 /**
+ * Lazy seal — `Cors.create` triggers `baker.seal()` once on first call.
+ *
+ * baker requires a single `seal()` after every `@Recipe` class has been
+ * imported. Calling it eagerly in cors's package entry would seize global
+ * baker config before the host app finishes registering its own DTOs, so we
+ * defer until the first `Cors.create`. `seal()` itself is idempotent — the
+ * boolean only avoids the second call's cost.
+ */
+let isSealed = false;
+function ensureSealed(): void {
+  if (isSealed) return;
+  seal();
+  isSealed = true;
+}
+
+/**
  * Framework-agnostic CORS handler.
  * Evaluates CORS policy and returns a discriminated union result
  * instead of generating responses directly.
@@ -52,6 +68,7 @@ export class Cors {
    * @returns A ready-to-use Cors instance.
    */
   public static create(options?: CorsOptionsInput): Cors {
+    ensureSealed();
     const merged: ResolvedCorsOptions = { ...CORS_DEFAULTS, ...(options ?? {}) };
 
     const result = validateSync(CorsOptions, merged);
@@ -322,9 +339,9 @@ export class Cors {
     if (!this.includesWildcard(allowedMethods)) {
       return allowedMethods.join(',');
     }
-    // Wildcard with credentials:true is rejected at boot (see options.ts
-    // CredentialsWithWildcardMethods guard), so only credentials:false reaches
-    // this branch — emit the literal '*'.
+    // Wildcard with credentials:true is rejected by the cross-check in
+    // Cors.create (CredentialsWithWildcardMethods), so only credentials:false
+    // reaches this branch — emit the literal '*'.
     return '*';
   }
 

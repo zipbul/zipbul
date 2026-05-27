@@ -54,7 +54,19 @@ export enum CorsErrorReason {
   InvalidStatusCode = 'invalid_status_code',
   /** Origin function threw at runtime. */
   OriginFunctionError = 'origin_function_error',
-  /** origin is an empty/blank string, empty array, or array containing empty/blank string entries (RFC 6454). */
+  /**
+   * `origin` failed schema validation. The baker schema accepts a boolean, a
+   * serialized RFC 6454 §6.2 origin (including the reserved literals `'*'`
+   * and `'null'`), a stateless `RegExp`, a mixed `Array<string | RegExp>`,
+   * or a function — anything else fires this reason.
+   *
+   * **BREAKING (baker 3.3.0 migration)**: `RegExp` matchers carrying the
+   * `g` (global) or `y` (sticky) flag are now rejected at boot — they
+   * mutate `lastIndex` between `test()` calls, so the previous workaround
+   * silently rewrote the caller's instance on every request. Drop the
+   * flag from your matcher; the stateless variants (`i`, `m`, `s`, `u`,
+   * `d`) all pass.
+   */
   InvalidOrigin = 'invalid_origin',
   /** methods is an empty array or contains empty/blank string entries (RFC 9110 §5.6.2 token). */
   InvalidMethods = 'invalid_methods',
