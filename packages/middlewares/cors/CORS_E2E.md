@@ -32,10 +32,10 @@ verify 안 한 영역: RFC 7540 의 deprecated 사용 사례, 실제 Cloudflare/
 
 이 문서가 발견·검증한 모든 결함의 ID 와 분류. 본문 상세는 ID 순서가 아닌 발견 순서 (D 시리즈 → D-NEW 시리즈 → DN 시리즈 → Q 시리즈) 로 배치되어 있다.
 
-### 기능 범위 안 — 사양 MUST / ABNF 위반 (13건)
+### 기능 범위 안 — 사양 MUST / ABNF 위반 (12건)
 CORS 미들웨어가 emit 하는 wire 가 Fetch Standard / RFC 9110 / RFC 9111 / RFC 6454 의 사양 의무를 위반하거나, 사용자가 의도한 정책이 wire 에 정확히 반영되지 않는 결함이다.
 
-`D1`, `D2`, `D3`, `D5`, `D6`, `D7`, `G5`, `DN-3`, `DN-31`, `D-NEW-3` (D-NEW-1 은 13차에서 closed)
+`D1`, `D2`, `D3`, `D5`, `D6`, `D7`, `G5`, `DN-3`, `DN-31` (D-NEW-1 13차 closed, D-NEW-3 14차 사용자 책임 영역으로 제외)
 
 > 정확한 기준: 산업 평균 비교가 아닌 사양 verbatim 부합. 산업 5/5 라이브러리가 같이 위반하는 결함도 사양 MUST 위반이면 본 카테고리 포함. **DN-31 은 11차에서 강화 후보로 분류했으나 RFC 9110 §5.6.2 token ABNF 위반 카테고리 (D3 와 동일) 로 재분류** (사용자 정확한 기준 지시 반영).
 
@@ -318,79 +318,7 @@ OriginFn 반환값 sanitize 케이스 부재.
 
 ---
 
-### D-NEW-3. 사용자 옵션 배열이 defensive copy 없이 reference 로 저장됨
-
-**상황**
-
-`resolveCorsOptions` (`src/options.ts:21-33`) 가 사용자 제공 array 옵션을 그대로 저장한다. 단 `methods` 는 `.map(m => m.toUpperCase())` 로 새 배열을 만들기 때문에 격리되어 있지만, `origin`, `allowedHeaders`, `exposedHeaders` 세 옵션은 **사용자가 제공한 배열의 참조 그대로**다. 결과적으로 사용자가 `Cors.create()` 직후 그 배열을 mutate 하면 boot-time 검증을 우회한 정책 변경이 가능하다.
-
-**상황 시나리오**
-
-사용자가 외부 config (`process.env.ALLOWED_ORIGINS.split(',')`) 에서 옵션 배열을 만들어 전달한 뒤, 코드 다른 곳에서 그 변수에 `push()` / `splice()` 를 호출하는 경우. 또는 라이브러리 사용자가 `Cors.create({ origin: opts.origins })` 한 뒤 `opts.origins` 를 외부에 노출하는 경우. boot-time 검증이 무효화되어 검증 안 된 값(예: blank string, trailing slash, wildcard) 이 정책에 진입한다.
-
-`Cors.create` JSDoc (`src/cors.ts:24-29`) 은 "Creates a Cors instance after resolving and validating options" 라고 명시하여 사용자에게 "create 후엔 옵션이 고정" 이라는 contract 인상을 준다. 실제 구현이 contract 위반.
-
-**사양 근거**
-
-명시적 사양 MUST 위반은 아님. 구현 캡슐화 결함 + boot-validation 우회 = 사양 정신 위반.
-
-**코드 위치**
-
-`src/options.ts:21-33`
-```ts
-export function resolveCorsOptions(options?: CorsOptions): ResolvedCorsOptions {
-  return {
-    origin: options?.origin ?? '*',                          // ← reference 보존
-    methods: options?.methods?.includes('*') ? ['*'] : (options?.methods ?? CORS_DEFAULT_METHODS).map(m => m.toUpperCase()),   // ← .map() 으로 격리
-    allowedHeaders: options?.allowedHeaders ?? null,         // ← reference 보존
-    exposedHeaders: options?.exposedHeaders ?? null,         // ← reference 보존
-    ...
-  };
-}
-```
-
-**재현 (bun 실행, 3개 옵션 모두 우회 확인)**
-
-```
-(1) origin array:
-   Cors.create({ origin: arr=['https://a.com'] })
-   arr.push('https://attacker.com')
-   handle(Origin: 'https://attacker.com') → continue ← BYPASSED
-
-(2) allowedHeaders array (wildcard injection):
-   Cors.create({ allowedHeaders: arr=['X-Safe'] })
-   arr.length=0; arr.push('*')
-   preflight with arbitrary ACRH → ACAH="*" ← BYPASSED
-
-(3) exposedHeaders array:
-   Cors.create({ exposedHeaders: arr=['X-Safe'] })
-   arr.push('X-Injected')
-   handle → ACEH="X-Safe,X-Injected" ← BYPASSED
-
-(4) methods array (verify safe):
-   Cors.create({ methods: arr=['GET'] })
-   arr.push('TRACE')
-   preflight ACRM=TRACE → reject ← safe (.map() new array)
-```
-
-**테스트 갭**
-
-옵션 mutation 시나리오 케이스 부재. `options.spec.ts` 가 input/output 의 reference 동일성을 검증하지 않음.
-
-**수정 방향**
-
-`resolveCorsOptions` 에서 array 옵션을 shallow clone:
-```ts
-origin: Array.isArray(options?.origin) ? [...options.origin] : (options?.origin ?? '*'),
-allowedHeaders: options?.allowedHeaders ? [...options.allowedHeaders] : null,
-exposedHeaders: options?.exposedHeaders ? [...options.exposedHeaders] : null,
-```
-
-`methods` 처리와 일관성. RegExp 인스턴스는 deep clone 불필요 (`cors.ts:168/175` 가 매 호출 시 `lastIndex=0` reset 하므로 격리).
-
----
-
-> **정책 — type-guaranteed 입력만 검증**: TypeScript 시그니처가 보장하는 형태 외 (`as any`/`as unknown`/`as XxxType` cast 로 우회한 입력) 는 미들웨어가 방어하지 않는다. 사용자 책임. D-NEW-4~9 (이전 catalog) 는 모두 type 우회를 통해서만 trigger 가능하므로 결함에서 제외했다.
+> **정책 — type-guaranteed 입력만 검증**: TypeScript 시그니처가 보장하는 형태 외 (`as any`/`as unknown`/`as XxxType` cast 로 우회한 입력) 는 미들웨어가 방어하지 않는다. 사용자 책임. D-NEW-4~9 (type 우회 trigger) + D-NEW-3 (사용자 코드의 외부 옵션 배열 mutation — 진짜 공격자가 사용자 process 의 JS 변수를 mutate 할 수 있다면 이미 RCE 단계라 CORS 책임 외) 는 모두 결함에서 제외했다.
 
 ---
 
@@ -968,6 +896,7 @@ unit 에 `Cors.create({ origin: 'null' })` + Request with `Origin: 'null'` → r
 | 11차 | export surface, enum wire 영구성, 상수 mutation, freeze 부재, CorsError serialization | **신규 7건** (D-NEW-12~18) |
 | 12차 | baker 3.1.0 `isOrigin`/`isCorsOrigin` 도입 + DN-3 마이그레이션 (로컬 helper → baker rule, `isBlank` 통합 제거) + D-NEW-2 fix (OriginFn 반환값 sanitize, wildcard 분기 2-branch 보존: Fetch §3.3.5 wire 결함 vs RFC 6454 §6.2 직렬화 결함 의미축 분리) | **신규 0건**, 기존 2건 CLOSED + **1건 BREAKING** (빈 문자열 OriginFn 반환: silent reject → InvalidOriginReturn throw, 거부 신호는 `return false` 통일) |
 | 13차 | D-NEW-1 fix (maxAge wire ABNF 위반): boot validation 에 `>= 1e21` 상한 추가, `CORS_MAX_AGE_EXPONENTIAL_THRESHOLD` 상수화, ECMAScript §6.1.6.1.30 + RFC 9111 §1.2.2 인용. v1 (isSafeInteger 교체) 은 실측 결과 1e20/2^53 등 wire 정상 영역까지 과잉 차단 발견 후 self-correct → `>= 1e21` 정확 임계 채택 | **신규 0건**, 기존 1건 CLOSED, no breaking |
+| 14차 | D-NEW-3 (옵션 배열 reference 보존) 결함 카탈로그에서 제외. "공격자가 사용자 process 의 JS 변수를 mutate 한다" 시나리오가 이미 RCE 단계 — CORS 책임 영역 아님. 사용자가 자기 옵션 배열을 외부에 노출/mutate 하는 것은 사용자 코드 패턴 책임 (D-NEW-4~9 와 같은 사용자 책임 카테고리). §1 매트릭스 (13건→12건) + D-NEW-3 본문 삭제 + type-guaranteed 정책 노트에 사유 부기 | **신규 0건**, 1건 제외 (CLOSED 아님 — 결함 분류 정정) |
 
 각 차수 결과는 3자 cross-verify (나 / 서브에이전트 / 코덱스) + bun 실행 재현으로 검증.
 
