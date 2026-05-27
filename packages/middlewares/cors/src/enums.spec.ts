@@ -42,6 +42,7 @@ describe('CorsErrorReason enum', () => {
       InvalidMethods: CorsErrorReason.InvalidMethods,
       InvalidAllowedHeaders: CorsErrorReason.InvalidAllowedHeaders,
       InvalidExposedHeaders: CorsErrorReason.InvalidExposedHeaders,
+      InvalidOriginReturn: CorsErrorReason.InvalidOriginReturn,
     });
     expect(CorsErrorReason.CredentialsWithWildcardOrigin).toBe(
       'credentials_with_wildcard_origin' as CorsErrorReason.CredentialsWithWildcardOrigin,
@@ -56,5 +57,6 @@ describe('CorsErrorReason enum', () => {
     expect(CorsErrorReason.InvalidMethods).toBe('invalid_methods' as CorsErrorReason.InvalidMethods);
     expect(CorsErrorReason.InvalidAllowedHeaders).toBe('invalid_allowed_headers' as CorsErrorReason.InvalidAllowedHeaders);
     expect(CorsErrorReason.InvalidExposedHeaders).toBe('invalid_exposed_headers' as CorsErrorReason.InvalidExposedHeaders);
+    expect(CorsErrorReason.InvalidOriginReturn).toBe('invalid_origin_return' as CorsErrorReason.InvalidOriginReturn);
   });
 });

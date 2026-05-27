@@ -5,29 +5,7 @@ import type { ResolvedCorsOptions } from './types';
 
 import { CORS_DEFAULT_METHODS, CORS_DEFAULT_OPTIONS_SUCCESS_STATUS } from './constants';
 import { CorsErrorReason } from './enums';
-import { isBlank, resolveCorsOptions, validateCorsOptions } from './options';
-
-describe('isBlank', () => {
-  it('should return true for an empty string', () => {
-    expect(isBlank('')).toBe(true);
-  });
-
-  it('should return true for a single space', () => {
-    expect(isBlank(' ')).toBe(true);
-  });
-
-  it('should return true for multiple whitespace characters (spaces, tabs, newlines)', () => {
-    expect(isBlank('   \t\n  ')).toBe(true);
-  });
-
-  it('should return false for a non-blank token', () => {
-    expect(isBlank('X-Custom')).toBe(false);
-  });
-
-  it('should return false for a token with surrounding whitespace', () => {
-    expect(isBlank('  X-Custom  ')).toBe(false);
-  });
-});
+import { resolveCorsOptions, validateCorsOptions } from './options';
 
 describe('resolveCorsOptions', () => {
   it('should return all defaults when called without arguments', () => {
@@ -483,6 +461,15 @@ describe('validateCorsOptions', () => {
   it('should pass when origin is a serialized IPv6 origin', () => {
     // Arrange
     const resolved = makeResolved({ origin: 'https://[::1]' });
+    // Act
+    const result = validateCorsOptions(resolved);
+    // Assert
+    expect(result).toBeUndefined();
+  });
+
+  it('should pass when an array origin entry is the CORS wildcard "*" literal', () => {
+    // Arrange
+    const resolved = makeResolved({ origin: ['https://a.com', '*'] });
     // Act
     const result = validateCorsOptions(resolved);
     // Assert

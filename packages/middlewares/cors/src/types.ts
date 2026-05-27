@@ -5,6 +5,11 @@ import type { CorsContinueResult, CorsPreflightResult, CorsRejectResult } from '
 /**
  * Return value of an origin function.
  * `true` to reflect, a string to override, or `false` to reject.
+ *
+ * **BREAKING (baker 3.1.0 migration)**: empty-string return is no longer a
+ * silent deny; use `false` for rejection. Any non-`'null'` string must be a
+ * serialized origin per RFC 6454 §6.2 or `CorsError` is thrown — see
+ * {@link CorsErrorReason.InvalidOriginReturn} for the full failure contract.
  */
 export type OriginResult = boolean | string;
 

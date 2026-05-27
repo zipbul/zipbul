@@ -29,7 +29,16 @@ export enum CorsRejectionReason {
  * Reason why CORS options validation failed.
  */
 export enum CorsErrorReason {
-  /** credentials:true is incompatible with wildcard origin per Fetch Standard. */
+  /**
+   * `credentials:true` is incompatible with wildcard origin (`'*'`) per Fetch
+   * Standard §3.3.5 (CORS protocol and credentials). Fires from both:
+   *  - option validation (`origin: '*'` + `credentials: true`)
+   *  - runtime origin-function return (`origin: () => '*'` + `credentials: true`)
+   *
+   * When an origin function returns `'*'` with `credentials: false`, the more
+   * specific {@link InvalidOriginReturn} fires instead (RFC 6454 §6.2 — not a
+   * serialized origin).
+   */
   CredentialsWithWildcardOrigin = 'credentials_with_wildcard_origin',
   /** credentials:true is incompatible with wildcard methods (`['*']`) per Fetch Standard. */
   CredentialsWithWildcardMethods = 'credentials_with_wildcard_methods',
@@ -47,4 +56,31 @@ export enum CorsErrorReason {
   InvalidAllowedHeaders = 'invalid_allowed_headers',
   /** exposedHeaders contains an entry that is not a valid HTTP token — empty/blank or non-tchar chars (RFC 9110 §5.6.2: 1*tchar). */
   InvalidExposedHeaders = 'invalid_exposed_headers',
+  /**
+   * Origin function returned a string that is not a serialized origin per
+   * RFC 6454 §6.2. Covers CR/LF/NUL/BOM/zero-width injection, trailing slash,
+   * uppercase scheme/host, default port, path/query/fragment, userinfo, raw
+   * IDN (must be punycode), parse failures, empty string, and the wildcard
+   * literal `'*'` (when `credentials: false` — with `credentials: true` the
+   * more specific {@link CredentialsWithWildcardOrigin} fires first).
+   *
+   * **Origin function return-value contract** (3 forms):
+   *  - `return true`        — echo the request `Origin` header (recommended;
+   *                           prefer this over manual `return originHeader`)
+   *  - `return false`       — reject (yields `CorsRejectionReason.OriginNotAllowed`)
+   *  - `return '<origin>'`  — override with a serialized RFC 6454 §6.2 origin
+   *                           (`'null'` is the only allowed reserved literal;
+   *                           wildcard `'*'` is rejected — return `true` instead)
+   *
+   * **Asymmetry with option validation**: the `origin` *option* accepts `'*'`
+   * (via baker's `isCorsOrigin`) because static wildcard is a meaningful
+   * configuration; the *return value* of an origin function rejects `'*'`
+   * (via baker's `isOrigin`) because dynamic wildcard is an anti-pattern —
+   * use `return true` to echo the request origin instead.
+   *
+   * **BREAKING (baker 3.1.0 migration)**: empty-string return (`return ''`)
+   * was previously a silent reject; it now throws this error. If you used
+   * empty string as a deny signal, return `false` instead.
+   */
+  InvalidOriginReturn = 'invalid_origin_return',
 }

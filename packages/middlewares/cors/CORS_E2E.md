@@ -35,14 +35,14 @@ verify 안 한 영역: RFC 7540 의 deprecated 사용 사례, 실제 Cloudflare/
 ### 기능 범위 안 — 사양 MUST / ABNF 위반 (14건)
 CORS 미들웨어가 emit 하는 wire 가 Fetch Standard / RFC 9110 / RFC 9111 / RFC 6454 의 사양 의무를 위반하거나, 사용자가 의도한 정책이 wire 에 정확히 반영되지 않는 결함이다.
 
-`D1`, `D2`, `D3`, `D5`, `D6`, `D7`, `G5`, `DN-3`, `DN-31`, `D-NEW-1`, `D-NEW-3`, `D-NEW-4`, `D-NEW-6`, `D-NEW-7`
+`D1`, `D2`, `D3`, `D5`, `D6`, `D7`, `G5`, `DN-3`, `DN-31`, `D-NEW-1`, `D-NEW-3`
 
 > 정확한 기준: 산업 평균 비교가 아닌 사양 verbatim 부합. 산업 5/5 라이브러리가 같이 위반하는 결함도 사양 MUST 위반이면 본 카테고리 포함. **DN-31 은 11차에서 강화 후보로 분류했으나 RFC 9110 §5.6.2 token ABNF 위반 카테고리 (D3 와 동일) 로 재분류** (사용자 정확한 기준 지시 반영).
 
-### 기능 범위 안 — Contract / 진단성 약함 (4건)
+### 기능 범위 안 — Contract / 진단성 약함 (0건, 12차에서 closed)
 wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 등이 깨지는 경계 결함.
 
-`D-NEW-2`, `D-NEW-5`, `D-NEW-8`, `D-NEW-9`
+(D-NEW-2 는 12차에서 baker 3.1.0 `isOrigin` 마이그레이션으로 closed. wildcard 분기 2-branch 보존 + 빈 문자열 throw BREAKING.)
 
 ### 범위 밖 참고 — Defensive / JS API Surface / TS-level (9건)
 **zipbul CORS 미들웨어 기능 범위 밖**. defensive programming (`Object.freeze`), Error API 디테일 (`JSON.stringify`, `structuredClone`), TypeScript `private` 런타임 강제, JS 객체 캡슐화 영역. 발견 사실은 본문에 보존하되 미들웨어 기능 결함으로 분류하지 않는다.
@@ -310,6 +310,10 @@ OriginFn 반환값 sanitize 케이스 부재.
 
 `resolveOriginResult` (cors.ts:202-212) 에서 반환 string 이 RFC 9110 field-value ABNF 위반(CR/LF/NUL) 인지 검사하고, 위반 시 `undefined` 반환 (silent reject) 또는 `CorsError(OriginFunctionError)` throw. 후자가 일관성 있고 디버깅 친화적.
 
+**✅ CLOSED (2026-05-27)** — baker 3.1.0 `isOrigin` 으로 OriginFn 반환값 런타임 sanitize. 단일 `isOrigin(result) !== true` 검사가 CR/LF/NUL/BOM/zero-width injection, trailing slash, uppercase scheme/host, default port, path/query/fragment, userinfo, raw IDN, parse fail, 빈 문자열, wildcard `'*'`(credentials:false) 까지 모두 일관 reject. wildcard 분기 단독 표면화 + 2-branch 보존: credentials:true + `'*'` → `CredentialsWithWildcardOrigin`(Fetch §3.3.5 wire 결함), 그 외 → `InvalidOriginReturn`(RFC 6454 §6.2 직렬화 결함). 의미축 분리 유지.
+
+**BREAKING (v0.x)**: 기존 `result.length > 0` silent fallthrough 제거. `() => ''` 반환은 silent `OriginNotAllowed` reject 였으나 이제 `CorsError(InvalidOriginReturn)` throw. 거부 신호는 `return false` 로 통일 (types.ts `OriginResult` JSDoc 의 기존 contract).
+
 ---
 
 ### D-NEW-3. 사용자 옵션 배열이 defensive copy 없이 reference 로 저장됨
@@ -384,158 +388,7 @@ exposedHeaders: options?.exposedHeaders ? [...options.exposedHeaders] : null,
 
 ---
 
-### D-NEW-4. `credentials: 'true'` (truthy string) 우회 → wire 에 `ACAO:* + ACAC:true` 사양 금지 조합 emit
-
-**상황**
-
-`validateCorsOptions:108` 가 `resolved.credentials === true && resolved.origin === '*'` 로 **strict equality** 검사하지만, `cors.ts:74` 의 emit 분기는 `if (this.options.credentials)` 로 **truthy** 검사한다. 이 비대칭 때문에 `credentials: 'true'` (TS 우회로 string 값) 같은 truthy non-boolean 이 boot 검증을 통과하고 그대로 emit 단계에서 `Access-Control-Allow-Credentials: true` 를 stamp 한다. 결과적으로 `origin: '*'` 와 결합하면 Fetch §3.3.5 row5 가 명시적으로 금지한 `ACAO: * + ACAC: true` 조합이 wire 에 흘러간다.
-
-D5 와 같은 root cause(동적 credentials/origin 결합 미차단) 의 또 다른 attack surface. D5 는 OriginFn 으로 `'*'` 를 동적 반환하는 경로, D-NEW-4 는 credentials 자체에 string 을 주입하는 경로.
-
-**사양 근거 (Fetch §3.3.5 표 row5, verbatim)**
-
-> "If credentials mode is `include`, then `Access-Control-Allow-Origin` cannot be `*`."
-
-**코드 위치**
-
-`src/options.ts:108-113`
-```ts
-if (resolved.credentials === true && resolved.origin === '*') {
-  return err<CorsErrorData>({ reason: CorsErrorReason.CredentialsWithWildcardOrigin, ... });
-}
-```
-strict `=== true`.
-
-`src/cors.ts:74-76`
-```ts
-if (this.options.credentials) {                                  // ← truthy
-  headers.set(HttpHeader.AccessControlAllowCredentials, 'true');
-}
-```
-truthy.
-
-**재현 (bun 실행)**
-
-```
-입력: Cors.create({ origin: '*', credentials: 'true' as any })
-     + Request GET, Origin: 'https://a.com'
-출력: ACAO="*", ACAC="true"
-     spec violation (Fetch §3.3.5 row5)? YES
-```
-
-**테스트 갭**
-
-`options.spec.ts` 가 `credentials: true` boolean 만 검증. truthy non-boolean (`'true'`, `1`, `{}`) 케이스 부재.
-
-**수정 방향**
-
-`cors.ts:74` 의 truthy 검사를 `=== true` strict 로 변경. 또는 `resolveCorsOptions` 에서 `options?.credentials === true` 로 boolean 강제 변환 (`Boolean()` 대신 strict). validation 과 emit 의 비교 규칙 통일이 핵심.
-
----
-
-### D-NEW-5. Wrong-type 옵션 → raw `TypeError` 누출 (Cors.create JSDoc 계약 위반)
-
-**상황**
-
-`Cors.create` JSDoc (`src/cors.ts:27`) 가 `@throws {CorsError} when options fail validation` 으로 명시한다. 그러나 옵션 타입이 잘못된 경우 (TS 우회 또는 JSON config 로딩 시) `validateCorsOptions` 가 도달하기 전에 `resolveCorsOptions` 또는 그 안의 `.map()`/`.includes()`/`.some()` 호출에서 raw `TypeError` 가 throw 된다. 사용자가 `try { ... } catch (e instanceof CorsError)` 패턴으로 처리하면 누락.
-
-**상황 시나리오**
-
-- `methods: 'GET'` (string, 배열 기대) → `options?.methods?.includes('*')` 의 `.includes` 는 string 메서드라 통과하나, 그 뒤 `.map(m => m.toUpperCase())` 가 `'GET'.map is not a function` TypeError
-- `allowedHeaders: /X-.*/` (RegExp, 배열 기대) → `validateCorsOptions:94` 의 `resolved.allowedHeaders.some(isBlank)` 가 `.some is not a function` TypeError
-- `exposedHeaders: 'X-A'` (string, 배열 기대) → 동일
-
-특이 케이스: `methods: '*'` (string wildcard) 는 우연히 통과한다 (`'*'.includes('*') === true` 라 `['*']` 분기로 진입). 결과적으로 의도와 다르게 wildcard methods 가 적용된다 — silent misconfig.
-
-**사양 근거**
-
-명시적 사양 MUST 위반은 아님. `Cors.create` JSDoc 계약 위반 + 에러 분류 일관성 위반.
-
-**코드 위치**
-
-`src/options.ts:24` (`.map` 호출)
-`src/options.ts:94, 101` (`.some` 호출)
-
-**재현 (bun 실행)**
-
-```
-methods: 'GET' (string)         → TypeError, is CorsError? false
-methods: '*' (string)           → boot OK (silent misconfig, wildcard 적용)
-allowedHeaders: /X-.*/          → TypeError, is CorsError? false
-exposedHeaders: 'X-A' (string)  → TypeError, is CorsError? false
-```
-
-**테스트 갭**
-
-wrong-type 옵션 케이스 부재.
-
-**수정 방향**
-
-`validateCorsOptions` 진입부 또는 `resolveCorsOptions` 에서 `Array.isArray` 가드 추가. 위반 시 `CorsError(InvalidMethods/InvalidAllowedHeaders/InvalidExposedHeaders)` throw. silent misconfig (`methods: '*'`) 도 같은 가드로 boot 거부.
-
----
-
-### D-NEW-6. `allowPrivateNetwork` 비-boolean truthy → 사용자 의도 정반대 ACAPN:true emit
-
-**상황**
-
-`options.ts:31` 가 `allowPrivateNetwork: options?.allowPrivateNetwork ?? false` 만 한다. validation 자체가 부재 (`options.ts:54-134` 어디에도 `allowPrivateNetwork` 검증 없음). `cors.ts:131` 의 emit 분기는 `if (this.options.allowPrivateNetwork && request.headers.get(ACRPN) === 'true')` truthy 검사. 사용자가 의도적으로 `'false'` 문자열 (env var 직역) 을 넘기면 truthy 라 emit 분기 진입 → ACAPN:true wire.
-
-**재현**: `allowPrivateNetwork: 'false' as any` → ACAPN: "true" (사용자 의도 정반대)
-
-**코드**: `src/options.ts:31`, `src/cors.ts:131`
-
-**수정 방향**: `validateCorsOptions` 에 `typeof allowPrivateNetwork !== 'boolean'` 가드 추가, 또는 `resolveCorsOptions` 에서 `options?.allowPrivateNetwork === true` strict.
-
----
-
-### D-NEW-7. `preflightContinue` 비-boolean truthy → 사용자 의도 정반대 분기
-
-**상황**
-
-`options.ts:29` `preflightContinue: options?.preflightContinue ?? false`. validation 부재. `cors.ts:135` `if (this.options.preflightContinue)` truthy. 사용자가 `'false'` 문자열 넘기면 → Continue 분기 (기대: RespondPreflight).
-
-**재현**: `preflightContinue: 'false' as any` → action: continue (기대 respond_preflight)
-
-**코드**: `src/options.ts:29`, `src/cors.ts:135`
-
-**수정 방향**: D-NEW-6 와 동일 보강.
-
----
-
-### D-NEW-8. `origin: null` / `optionsSuccessStatus: null` → silent coerce to default
-
-**상황**
-
-`options.ts:23, 30` 의 `?? '*'`, `?? CORS_DEFAULT_OPTIONS_SUCCESS_STATUS` 는 nullish coalescing. `null` 이 누락(`undefined`) 과 동일하게 default 로 coerce 된다. 그러나 `OriginOptions` 타입 정의 (`types.ts:17`) 는 `null` 을 포함하지 않으며 `optionsSuccessStatus` 도 `number` 만. 다른 wrong-type (`'200'` string, `0`) 은 `CorsError` throw 하는데 `null` 만 silent coerce — 일관성 위반.
-
-**재현**:
-```
-Cors.create({ origin: null as any }) → resolved.origin = "*" (silent default)
-Cors.create({ origin: true, optionsSuccessStatus: null as any }) → resolved = 204 (silent default)
-```
-
-**영향**: 사용자가 옵션을 명시적으로 `null` 로 비활성화한 의도 vs default 적용. 사양 의무는 아니나 contract 일관성 결함.
-
-**코드**: `src/options.ts:23, 30`
-
-**수정 방향**: `??` 대신 `===` undefined 비교, 또는 `null` 케이스도 명시적 throw.
-
----
-
-### D-NEW-9. `origin: {}` / `0` / `Symbol` 등 비-OriginFn 객체 → matchOrigin 의 OriginFn 분기로 떨어져 CorsError(OriginFunctionError) 잘못 분류
-
-**상황**
-
-`cors.ts:148-199` matchOrigin 의 분기는: `=== false` / `=== '*'` / `typeof === 'string'` / `=== true` / `instanceof RegExp` / `Array.isArray` / default → `originOption(origin, request)` 호출. 사용자가 plain object `{}`, number `0`, `Symbol`, `Date` 등을 origin 으로 넘기면 default 분기로 떨어져 함수 호출 시도 → `TypeError: originOption is not a function`. 이 throw 는 `safe()` wrapper 가 잡아 `CorsError(OriginFunctionError)` 로 분류.
-
-**진단성 결함**: 사용자에게 전달되는 reason 은 "Origin function threw an error" — 실제 원인은 "origin 옵션이 함수가 아닌 잘못된 타입" 인데 OriginFn 호출 실패로 잘못 분류.
-
-**재현**: `Cors.create({ origin: {} as any })` → `CorsError/origin_function_error` (기대: `CorsError/invalid_origin` boot-time)
-
-**코드**: `src/cors.ts:148-199`, `src/options.ts:54-77` (origin 타입 검증 부재)
-
-**수정 방향**: `validateCorsOptions` 에 origin 의 정확한 타입 가드 추가 (`OriginOptions` union 검증). default 분기 진입 전에 `typeof === 'function'` 확인.
+> **정책 — type-guaranteed 입력만 검증**: TypeScript 시그니처가 보장하는 형태 외 (`as any`/`as unknown`/`as XxxType` cast 로 우회한 입력) 는 미들웨어가 방어하지 않는다. 사용자 책임. D-NEW-4~9 (이전 catalog) 는 모두 type 우회를 통해서만 trigger 가능하므로 결함에서 제외했다.
 
 ---
 
@@ -857,6 +710,8 @@ downstream consumer 가 `r.action` 으로 분기하는 코드가 영향. Cors �
 
 **별도 결함 (D-NEW-2 분리)**: OriginFn 반환값의 CR/LF 검증은 runtime path (`cors.ts` `resolveOriginResult`) 책임축 + RFC 9113 field-value ABNF. DN-3 와 다른 결함, 별도 commit.
 
+**12차 업데이트 (2026-05-27)**: baker 3.1.0 `isCorsOrigin` 으로 마이그레이션. 로컬 helper `validateOriginString`, `describeOriginViolation` 제거. `isBlank` 함수 + `options.spec.ts` 의 `describe('isBlank')` 5 케이스도 제거 (`isCorsOrigin` 이 빈 문자열/공백/탭 모두 false 반환하므로 통합). 메시지는 parse/mismatch 분기 통합 + entry index/value echo 유지.
+
 ---
 
 ## 3. 강화 후보 — 사양 의무 아님 (4건)
@@ -1106,9 +961,10 @@ unit 에 `Cors.create({ origin: 'null' })` + Request with `Origin: 'null'` → r
 | 6차 | RFC 9111 + HTTP/2 + 라이브러리 비교 + 동시성 | 신규 0, D1/D2 가 zipbul 단독 회귀 확정 |
 | 7차 | RFC 9113/9114, WebSocket/SSE, Service Worker, Proxy/CDN, PNA secure context | 신규 0, out-of-scope 명시 |
 | 8차 | matchOrigin 엣지, Cors 재사용, CorsError, 검증 순서, 분기 결합, PNA 다중값, Vary 결합, maxAge 엣지, exposedHeaders 엣지, 호출 contract | **신규 3건** (D-NEW-1/2/3) |
-| 9차 | 옵션 nested mutation, 검증 순서 보안, wildcard 비교 비대칭, deadlock, wrong-type, credentials truthy | **신규 4건** (D-NEW-4/5 사양 MUST, DN-31/32 강화) |
-| 10차 | boolean 옵션 비대칭(allowPrivateNetwork/preflightContinue), null silent coerce, origin object→OriginFn 오분류, private ctor 미강제, throw undefined cause 부재 | **신규 6건** (D-NEW-6~11) |
+| 9차 | 옵션 nested mutation, 검증 순서 보안, wildcard 비교 비대칭, deadlock, wrong-type, credentials truthy | **신규 4건** (D-NEW-4/5 사양 MUST, DN-31/32 강화) — 12차에서 D-NEW-4/5 모두 type 우회 trigger 로 재분류, 결함 catalog 제외 |
+| 10차 | boolean 옵션 비대칭(allowPrivateNetwork/preflightContinue), null silent coerce, origin object→OriginFn 오분류, private ctor 미강제, throw undefined cause 부재 | **신규 6건** (D-NEW-6~11) — 12차에서 D-NEW-6/7/8/9 모두 type 우회 trigger 로 재분류, 결함 catalog 제외 |
 | 11차 | export surface, enum wire 영구성, 상수 mutation, freeze 부재, CorsError serialization | **신규 7건** (D-NEW-12~18) |
+| 12차 | baker 3.1.0 `isOrigin`/`isCorsOrigin` 도입 + DN-3 마이그레이션 (로컬 helper → baker rule, `isBlank` 통합 제거) + D-NEW-2 fix (OriginFn 반환값 sanitize, wildcard 분기 2-branch 보존: Fetch §3.3.5 wire 결함 vs RFC 6454 §6.2 직렬화 결함 의미축 분리) | **신규 0건**, 기존 2건 CLOSED + **1건 BREAKING** (빈 문자열 OriginFn 반환: silent reject → InvalidOriginReturn throw, 거부 신호는 `return false` 통일) |
 
 각 차수 결과는 3자 cross-verify (나 / 서브에이전트 / 코덱스) + bun 실행 재현으로 검증.
 

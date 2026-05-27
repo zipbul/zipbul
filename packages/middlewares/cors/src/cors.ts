@@ -1,6 +1,6 @@
 import type { ResultAsync } from '@zipbul/result';
 
-import { isHttpToken } from '@zipbul/baker/rules';
+import { isHttpToken, isOrigin } from '@zipbul/baker/rules';
 import { isErr, safe } from '@zipbul/result';
 import { HttpHeader } from '@zipbul/http-adapter';
 import type { HttpStatus } from '@zipbul/http-adapter';
@@ -211,11 +211,23 @@ export class Cors {
       return origin;
     }
 
-    if (typeof result === 'string' && result.length > 0) {
-      if (result === '*' && this.options.credentials) {
+    if (typeof result === 'string') {
+      if (result === '*') {
+        if (this.options.credentials) {
+          throw new CorsError({
+            reason: CorsErrorReason.CredentialsWithWildcardOrigin,
+            message: 'origin function returned "*" while credentials:true is enabled; this combination is forbidden by Fetch Standard §3.3.5 (CORS protocol and credentials). Return true to echo the request origin instead.',
+          });
+        }
         throw new CorsError({
-          reason: CorsErrorReason.CredentialsWithWildcardOrigin,
-          message: 'origin function returned "*" while credentials:true is enabled; this combination is forbidden by Fetch Standard §3.3.5. Return the request origin to echo it back, or set credentials:false.',
+          reason: CorsErrorReason.InvalidOriginReturn,
+          message: 'origin function returned "*"; the wildcard literal is not a serialized origin per RFC 6454 §6.2. To echo the request origin, return true instead.',
+        });
+      }
+      if (isOrigin(result) !== true) {
+        throw new CorsError({
+          reason: CorsErrorReason.InvalidOriginReturn,
+          message: `origin function returned "${result}" which is not a serialized origin per RFC 6454 §6.2 (no CR/LF/NUL/BOM, lowercase scheme+host, no trailing slash, default port omitted, IDN as punycode). 'null' literal is accepted; to echo the request origin, return true instead.`,
         });
       }
       return result;
