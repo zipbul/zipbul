@@ -39,15 +39,15 @@ CORS 미들웨어가 emit 하는 wire 가 Fetch Standard / RFC 9110 / RFC 9111 /
 
 > 정확한 기준: 산업 평균 비교가 아닌 사양 verbatim 부합. 산업 5/5 라이브러리가 같이 위반하는 결함도 사양 MUST 위반이면 본 카테고리 포함. **DN-31 은 11차에서 강화 후보로 분류했으나 RFC 9110 §5.6.2 token ABNF 위반 카테고리 (D3 와 동일) 로 재분류** (사용자 정확한 기준 지시 반영).
 
-### 기능 범위 안 — Contract / 진단성 약함 (0건, 12차에서 closed)
+### 기능 범위 안 — Contract / 진단성 약함 (0건)
 wire 사양 위반은 없으나 JSDoc 계약, 에러 분류, 의도 일관성 등이 깨지는 경계 결함.
 
-(D-NEW-2 는 12차에서 baker 3.1.0 `isOrigin` 마이그레이션으로 closed. wildcard 분기 2-branch 보존 + 빈 문자열 throw BREAKING.)
+(D-NEW-2 는 12차 baker 3.1.0 `isOrigin` 마이그레이션으로 CLOSED — 18차에서 정책 재정립 ("CorsOptions 만 validation, 그 외 방어 금지") 으로 EXCLUDED 재분류. OriginFn 반환값 runtime 검증 = 사용자 책임.)
 
 ### 범위 밖 참고 — Defensive / JS API Surface / TS-level (9건)
 **zipbul CORS 미들웨어 기능 범위 밖**. defensive programming (`Object.freeze`), Error API 디테일 (`JSON.stringify`, `structuredClone`), TypeScript `private` 런타임 강제, JS 객체 캡슐화 영역. 발견 사실은 본문에 보존하되 미들웨어 기능 결함으로 분류하지 않는다.
 
-`D-NEW-15` (16차 삼자리뷰: D-NEW-11/12/13/16 CLOSED, D-NEW-10/14/17/18 EXCLUDED. 잔여 D-NEW-15 만 ENHANCE 후보)
+`D-NEW-15` (16차 삼자리뷰: D-NEW-11/13/16 CLOSED, D-NEW-10/14/17/18 EXCLUDED. D-NEW-12 는 15차 CLOSED 후 18차 EXCLUDED 재분류. 잔여 D-NEW-15 만 ENHANCE 후보)
 
 ### 강화 후보 — 사양 의무 아님 (4건)
 사양이 요구하지 않으나 보안/캐시 효율/일관성 측면 강화 후보.
@@ -314,11 +314,19 @@ OriginFn 반환값 sanitize 케이스 부재.
 
 **✅ CLOSED (2026-05-27)** — baker 3.1.0 `isOrigin` 으로 OriginFn 반환값 런타임 sanitize. 단일 `isOrigin(result) !== true` 검사가 CR/LF/NUL/BOM/zero-width injection, trailing slash, uppercase scheme/host, default port, path/query/fragment, userinfo, raw IDN, parse fail, 빈 문자열, wildcard `'*'`(credentials:false) 까지 모두 일관 reject. wildcard 분기 단독 표면화 + 2-branch 보존: credentials:true + `'*'` → `CredentialsWithWildcardOrigin`(Fetch §3.3.5 wire 결함), 그 외 → `InvalidOriginReturn`(RFC 6454 §6.2 직렬화 결함). 의미축 분리 유지.
 
+**⚪ EXCLUDED 재분류 (16차/18차 — 2026-05-28)** — "CorsOptions 만 validation, 그 외 방어 코드 금지" 정책 확정 후 OriginFn 반환값 runtime 검증 = 사용자 책임 영역으로 재분류. `isOrigin(result)` 검증 + wildcard branch + `InvalidOriginReturn` enum 모두 제거. 사용자 함수가 반환한 string 은 그대로 wire 에 emit; CR/LF/NUL 같은 field-value byte 위반은 Bun `Headers.set` 이 reject → `safe()` wrapper 가 `CorsError(OriginFunctionError)` 로 분류. RFC 6454 §6.2 직렬화 부합은 사용자 함수 작성자 책임 (산업 표준 동일).
+
 **BREAKING (v0.x)**: 기존 `result.length > 0` silent fallthrough 제거. `() => ''` 반환은 silent `OriginNotAllowed` reject 였으나 이제 `CorsError(InvalidOriginReturn)` throw. 거부 신호는 `return false` 로 통일 (types.ts `OriginResult` JSDoc 의 기존 contract).
 
 ---
 
-> **정책 — 값 자체 validation 모두 보장 (baker schema 일원화), type 우회는 사용자 책임**: 미들웨어는 `CorsOptions` baker class 의 `@Field` schema 로 모든 옵션 값을 검증한다 — 사양 grammar (RFC 6454 §6.2 / RFC 9110 §5.6.2 / RFC 9111 §1.2.2 / ECMAScript §6.1.6.1.30) + cross-field (credentials + wildcard) + RegExp 의 stateless flag 보장 모두 포함. 옵션 배열은 shallow clone 으로 격리하고 결과는 deep freeze. **단** TypeScript 시그니처를 `as any`/`as unknown`/`as XxxType` cast 로 우회한 입력은 미들웨어가 방어하지 않는다 (`tsc` 의 책임). D-NEW-4~9 가 type 우회를 통해서만 trigger 가능하므로 결함에서 제외했다. D-NEW-3 (사용자 array mutation) 는 14차에서 "사용자 책임 영역" 으로 제외했으나 15차의 schema 일원화 + array clone 으로 미들웨어가 자연 격리하므로 closed 로 재분류했다.
+> **정책 — `CorsOptions` boot validation 만 cors 책임, 그 외는 모두 사용자 책임 (18차 확정)**: 미들웨어는 `CorsOptions` baker class 의 `@Field` schema 로 boot 시점에 옵션 값을 검증한다 — 사양 grammar (RFC 6454 §6.2 / RFC 9110 §5.6.2 / RFC 9111 §1.2.2 / ECMAScript §6.1.6.1.30) + cross-field (credentials + wildcard) + RegExp 의 stateless flag 보장 + methods `'*'` 정규화. **그 외 모든 방어/검증/freeze/clone 은 cors 의 책임이 아니다**:
+> - **type 우회** (`as any`/`as unknown`/`as XxxType` cast): `tsc` 책임. D-NEW-4~9 / D-NEW-10 / D-NEW-12 / D-NEW-17 가 여기 해당
+> - **사용자 JS 변수 mutation**: 사용자 코드 패턴 책임. D-NEW-3 / D-NEW-18 가 여기 해당 (공격자가 사용자 process 의 JS 변수를 mutate 한다면 이미 RCE 단계라 CORS 책임 영역 아님)
+> - **runtime input 검증** (OriginFn 반환값 / request 헤더 token): Bun `Headers.set` 의 wire 검증 + `safe()` 의 throw → `CorsError(OriginFunctionError)` 분류로 충분. 사양 grammar 부합은 사용자 함수 작성자 책임. D-NEW-2 가 여기 해당
+> - **JS API 직렬화 한계** (`structuredClone` / `JSON.stringify`): HTML/ECMAScript 표준 동작, cors 측 결함 아님. D-NEW-14 / D-NEW-15 가 여기 해당
+>
+> **산업 표준 일치**: express-cors / koa-cors / hono / @fastify/cors 모두 runtime 검증 / freeze / clone 없음 — 옵션 받아 wire emit. zipbul cors 는 boot validation 만 산업 평균보다 엄격 (baker schema).
 
 ---
 
@@ -379,7 +387,7 @@ throw 'real-string'    → CorsError, 'cause' in e === true,  e.cause === 'real-
 
 ---
 
-### D-NEW-12. `cors.options` 가 런타임에 외부 mutable → post-create validation 우회 (사양 MUST 위반 가능) ✅ CLOSED (15차 — `Object.freeze(resolved)` + array deep freeze 로 자연 차단; 참조 자체 교체는 type 우회)
+### D-NEW-12. `cors.options` 가 런타임에 외부 mutable → post-create validation 우회 (사양 MUST 위반 가능) ⚪ EXCLUDED 재분류 (18차 — 15차 freeze 도 제거. type 우회 + JS-variable mutation = 사용자 책임 영역)
 
 **상황**
 
@@ -899,6 +907,8 @@ unit 에 `Cors.create({ origin: 'null' })` + Request with `Origin: 'null'` → r
 | 14차 | D-NEW-3 (옵션 배열 reference 보존) 결함 카탈로그에서 제외. "공격자가 사용자 process 의 JS 변수를 mutate 한다" 시나리오가 이미 RCE 단계 — CORS 책임 영역 아님. 사용자가 자기 옵션 배열을 외부에 노출/mutate 하는 것은 사용자 코드 패턴 책임 (D-NEW-4~9 와 같은 사용자 책임 카테고리). §1 매트릭스 (13건→12건) + D-NEW-3 본문 삭제 + type-guaranteed 정책 노트에 사유 부기 — *15차에서 baker schema 일원화 + array shallow clone 도입으로 미들웨어가 자연 격리하므로 closed 로 재분류함* | **신규 0건**, 1건 제외 (CLOSED 아님 — 결함 분류 정정) |
 | 15차 | **옵션 검증 baker 3.3.0 schema 일원화**: `CorsOptions` 를 데이터 클래스로 promotion (`@Recipe` + `@Field`) + `validateCorsOptions`/`resolveCorsOptions` 함수 폐기 + `options.ts`/`options.spec.ts` 파일 삭제 (87 boundary 검증은 신규 `cors-options.spec.ts` 로 마이그레이션). `Cors.create` 가 baker `validateSync(CorsOptions, merged)` 호출 + post-validate cross-check (credentials + wildcard origin/methods) + methods `'*'` 정규화 + array shallow clone + deep freeze + new Cors. baker custom rule 0 — origin union 은 `oneOf(isBoolean, isCorsOrigin, isStatelessRegExp, arrayEvery(oneOf(isCorsOrigin, isStatelessRegExp)), isFunction)`. **D-NEW-3 (사용자 array mutation) 정책 flip**: clone 도입으로 미들웨어가 격리 — 14차 "제외" → 15차 "closed". `CORS_DEFAULT_METHODS` `Object.freeze` 적용. `cors.ts` 의 RegExp `lastIndex` reset 두 줄 제거 (stateless RegExp 만 통과). `CorsError` instance `Object.freeze` 적용. baker NaN context 누락 우회로 cors.ts 에 path 기반 fallback reason 매핑 추가 (path → CorsErrorReason) | **신규 0건**, **2건 CLOSED** (D-NEW-3 격리, baker schema 일원화), **BREAKING 1건** (origin RegExp 의 `/g`·`/y` flag boot reject — stateful matcher 패치워크 폐기) |
 | 16차 | **§1 "기능 범위 밖" 8건 삼자리뷰 + 일괄 closure**: enum wire 값 16개 snake_case → kebab-case (CorsAction/CorsRejectionReason/CorsErrorReason). `CorsError` `Object.freeze(this)` → per-property `defineProperty` (reason/message/cause non-writable + 인스턴스 extensible — 사용자 subclass 자유). baker `seal()` 을 `Cors.create` 의 lazy first-call 로 이동 (라이브러리가 global baker config 점유 X). **D-NEW-11** `data.cause !== undefined` → `'cause' in data` 가드 변경으로 ECMAScript Error Cause 시그널 정합. **D-NEW-16** `index.ts` 의 `CorsErrorData` export 제거 (`@internal` 유지 — 사용자 facing 은 `instanceof CorsError` + reason/message/cause read 만). D-NEW-12 (15차 `Object.freeze` cover 재확인 CLOSED), D-NEW-10/14/17/18 EXCLUDED (type 우회 사용자 책임 또는 HTML Standard 한계 또는 self-harm). D-NEW-15 ENHANCE (`toJSON()` 별개 후보). CorsError per-property freeze + subclass extensibility spec 5건 신규 (interfaces.spec.ts) | **신규 0건**, **3건 CLOSED** (D-NEW-11/12/16), **4건 EXCLUDED** (D-NEW-10/14/17/18), **BREAKING 2건** (enum wire kebab + CorsError ABI 변경) |
+| 17차 | follow-up: CORS_E2E.md 의 stale snake_case reason 6곳 → kebab-case sweep. interfaces.spec.ts 에 CorsError per-property freeze + subclass extensibility 검증 5건 추가 | **신규 0건**, 누락 spec 5건 보강 |
+| 18차 | **정책 재정립 + 방어 코드 일괄 제거 (삼자리뷰 전수조사)**: 사용자 토론 결정 — "`CorsOptions` boot validation 만 cors 책임, 그 외 모든 방어/검증/freeze/clone 은 사용자 책임". 제거: (1) `cors.ts` 의 array clone 4종 + `Object.freeze(resolved)` + `CORS_DEFAULT_METHODS` `Object.freeze` + `CorsError` per-property `defineProperty`, (2) `cors.ts` `resolveOriginResult` 의 wildcard 분기 + `isOrigin(result)` runtime 검증, (3) `cors.ts` `filterValidHeaderTokens` + 사용처, (4) `CorsErrorReason.InvalidOriginReturn` enum (dead). spec 33건 동반 삭제 (closure 3 / immutability 5 / InvalidOriginReturn 15 / wildcard runtime throw 3 / ACAH filter 3 + 1 / e2e 3). 정책 노트 정정 + D-NEW-2/D-NEW-12 EXCLUDED 재분류 + Contract 카테고리 0건 표기. baker `safe()` wrapper / methods 정규화 / OriginOptions union 디스패치는 유지 (사양 검증/wire 정확성 영역, 방어 코드 아님) | **신규 0건**, **D-NEW-2/D-NEW-12 EXCLUDED 재분류**, **BREAKING 4건** (OriginFn `'*'` + credentials runtime throw 폐지, OriginFn 반환 사양 부합 검증 폐지, ACAH echo verbatim, 사용자 array reference 보존) |
 
 각 차수 결과는 3자 cross-verify (나 / 서브에이전트 / 코덱스) + bun 실행 재현으로 검증.
 
