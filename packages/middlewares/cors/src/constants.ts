@@ -1,13 +1,13 @@
 import { HttpMethod, HttpStatus } from '@zipbul/http-adapter';
 
-export const CORS_DEFAULT_METHODS: readonly HttpMethod[] = Object.freeze([
+export const CORS_DEFAULT_METHODS: readonly HttpMethod[] = [
   HttpMethod.Get,
   HttpMethod.Head,
   HttpMethod.Put,
   HttpMethod.Patch,
   HttpMethod.Post,
   HttpMethod.Delete,
-]);
+];
 
 export const CORS_DEFAULT_OPTIONS_SUCCESS_STATUS = HttpStatus.NoContent;
 

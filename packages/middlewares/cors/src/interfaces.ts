@@ -49,31 +49,12 @@ export interface CorsErrorData {
  * in {@link cause} for diagnostic purposes.
  */
 export class CorsError extends Error {
-  public readonly reason!: CorsErrorReason;
+  public readonly reason: CorsErrorReason;
 
   constructor(data: CorsErrorData) {
     super(data.message, 'cause' in data ? { cause: data.cause } : undefined);
     this.name = 'CorsError';
-    Object.defineProperty(this, 'reason', {
-      value: data.reason,
-      writable: false,
-      configurable: false,
-      enumerable: true,
-    });
-    Object.defineProperty(this, 'message', {
-      value: data.message,
-      writable: false,
-      configurable: false,
-      enumerable: false,
-    });
-    if ('cause' in data) {
-      Object.defineProperty(this, 'cause', {
-        value: data.cause,
-        writable: false,
-        configurable: false,
-        enumerable: false,
-      });
-    }
+    this.reason = data.reason;
   }
 }
 

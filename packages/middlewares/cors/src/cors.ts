@@ -1,7 +1,6 @@
 import type { ResultAsync } from '@zipbul/result';
 
 import { validateSync, isBakerIssueSet, seal } from '@zipbul/baker';
-import { isHttpToken, isOrigin } from '@zipbul/baker/rules';
 import { isErr, safe } from '@zipbul/result';
 import { HttpHeader } from '@zipbul/http-adapter';
 import type { HttpStatus } from '@zipbul/http-adapter';
@@ -99,25 +98,14 @@ export class Cors {
       }
     }
 
-    // Normalize methods wildcard and shallow-clone every array option so
-    // post-create caller mutation cannot bypass validation.
-    const normalizedMethods = merged.methods.includes('*') ? ['*' as const] : [...merged.methods];
-    const resolved: ResolvedCorsOptions = {
-      ...merged,
-      methods: Object.freeze(normalizedMethods) as ResolvedCorsOptions['methods'],
-      origin: Array.isArray(merged.origin)
-        ? Object.freeze([...merged.origin]) as ResolvedCorsOptions['origin']
-        : merged.origin,
-      allowedHeaders: Array.isArray(merged.allowedHeaders)
-        ? Object.freeze([...merged.allowedHeaders]) as ResolvedCorsOptions['allowedHeaders']
-        : merged.allowedHeaders,
-      exposedHeaders: Array.isArray(merged.exposedHeaders)
-        ? Object.freeze([...merged.exposedHeaders]) as ResolvedCorsOptions['exposedHeaders']
-        : merged.exposedHeaders,
-    };
-    Object.freeze(resolved);
+    // Normalize the wildcard methods array (`['*', ...]` → `['*']`). This is
+    // wire-emit accuracy, not mutation isolation — the rest of the merged
+    // options are handed to the instance as-is.
+    if (merged.methods.includes('*')) {
+      merged.methods = ['*'];
+    }
 
-    return new Cors(resolved);
+    return new Cors(merged);
   }
 
   /**
@@ -203,10 +191,7 @@ export class Cors {
       }
     } else {
       if (requestHeadersRaw !== null && requestHeadersRaw.length > 0) {
-        const echoed = this.filterValidHeaderTokens(requestHeadersRaw);
-        if (echoed !== undefined) {
-          headers.set(HttpHeader.AccessControlAllowHeaders, echoed);
-        }
+        headers.set(HttpHeader.AccessControlAllowHeaders, requestHeadersRaw);
         headers.append(HttpHeader.Vary, HttpHeader.AccessControlRequestHeaders);
       }
     }
@@ -288,29 +273,9 @@ export class Cors {
     if (result === true) {
       return origin;
     }
-
     if (typeof result === 'string') {
-      if (result === '*') {
-        if (this.options.credentials) {
-          throw new CorsError({
-            reason: CorsErrorReason.CredentialsWithWildcardOrigin,
-            message: 'origin function returned "*" while credentials:true is enabled; this combination is forbidden by Fetch Standard §3.3.5 (CORS protocol and credentials). Return true to echo the request origin instead.',
-          });
-        }
-        throw new CorsError({
-          reason: CorsErrorReason.InvalidOriginReturn,
-          message: 'origin function returned "*"; the wildcard literal is not a serialized origin per RFC 6454 §6.2. To echo the request origin, return true instead.',
-        });
-      }
-      if (isOrigin(result) !== true) {
-        throw new CorsError({
-          reason: CorsErrorReason.InvalidOriginReturn,
-          message: `origin function returned "${result}" which is not a serialized origin per RFC 6454 §6.2 (no CR/LF/NUL/BOM, lowercase scheme+host, no trailing slash, default port omitted, IDN as punycode). 'null' literal is accepted; to echo the request origin, return true instead.`,
-        });
-      }
       return result;
     }
-
     return undefined;
   }
 
@@ -381,29 +346,13 @@ export class Cors {
 
     if (this.options.credentials) {
       if (requestHeadersRaw !== null && requestHeadersRaw.length > 0) {
-        return this.filterValidHeaderTokens(requestHeadersRaw);
+        return requestHeadersRaw;
       }
 
       return undefined;
     }
 
     return '*';
-  }
-
-  /**
-   * Filters a comma-separated header-name list down to entries that satisfy
-   * the RFC 9110 §5.6.2 `token` grammar, then re-joins the survivors with
-   * commas. Returns `undefined` when no entry survives so the caller can
-   * omit the `Access-Control-Allow-Headers` header entirely.
-   *
-   * @internal
-   */
-  private filterValidHeaderTokens(raw: string): string | undefined {
-    const valid = this.parseCommaSeparatedValues(raw).filter(name => isHttpToken(name) === true);
-    if (valid.length === 0) {
-      return undefined;
-    }
-    return valid.join(',');
   }
 
   /** @internal */

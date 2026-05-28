@@ -40,17 +40,6 @@ describe('corsMiddleware factory — definition shape', () => {
     }
   });
 
-  it('should propagate CorsError when OriginFn returns "*" with credentials:true at request time', async () => {
-    const ctx = mockContext({ headers: new Headers({ Origin: ORIGIN }) });
-    const handler = corsMiddleware({ origin: () => '*', credentials: true }).factory();
-    try {
-      await handler(ctx);
-      throw new Error('expected throw');
-    } catch (e) {
-      expect(e).toBeInstanceOf(CorsError);
-      expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
-    }
-  });
 });
 
 describe('corsMiddleware factory — Continue action (non-preflight)', () => {

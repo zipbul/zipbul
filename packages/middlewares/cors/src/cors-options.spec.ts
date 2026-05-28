@@ -5,7 +5,7 @@ import type { CorsOptionsInput } from './cors-options';
 
 import { Cors } from './cors';
 import { CORS_DEFAULT_METHODS } from './constants';
-import { CorsAction, CorsErrorReason } from './enums';
+import { CorsErrorReason } from './enums';
 import { CorsError } from './interfaces';
 
 function expectInvalid(input: CorsOptionsInput, reason: CorsErrorReason) {
@@ -135,49 +135,3 @@ describe('CorsOptions cross-field — credentials + wildcard', () => {
     expectInvalid({ origin: 'https://a.com', methods: ['*'], credentials: true }, CorsErrorReason.CredentialsWithWildcardMethods));
 });
 
-describe('Cors.create — resolved options isolation (D-NEW-3 closure)', () => {
-  it('clones the origin array — post-create caller mutation does not leak into the handler', async () => {
-    const origins = ['https://a.com'];
-    const cors = Cors.create({ origin: origins });
-    origins.push('https://attacker.com');
-
-    const req = new Request('http://localhost', {
-      method: 'GET',
-      headers: { Origin: 'https://attacker.com' },
-    });
-    const result = await cors.handle(req);
-    expect(result.action).toBe(CorsAction.Reject);
-  });
-
-  it('clones the allowedHeaders array — caller mutation does not relax the policy', async () => {
-    const headers = ['X-Custom'];
-    const cors = Cors.create({ allowedHeaders: headers });
-    headers.length = 0;
-    headers.push('Authorization');
-
-    const preflight = new Request('http://localhost', {
-      method: 'OPTIONS',
-      headers: {
-        Origin: 'https://a.com',
-        'Access-Control-Request-Method': 'GET',
-        'Access-Control-Request-Headers': 'Authorization',
-      },
-    });
-    const result = await cors.handle(preflight);
-    expect(result.action).toBe(CorsAction.Reject);
-  });
-
-  it('clones the exposedHeaders array — caller mutation does not inject extra exposed headers', async () => {
-    const headers = ['X-Safe'];
-    const cors = Cors.create({ exposedHeaders: headers });
-    headers.push('X-Injected');
-
-    const req = new Request('http://localhost', {
-      method: 'GET',
-      headers: { Origin: 'https://a.com' },
-    });
-    const result = await cors.handle(req);
-    if (result.action !== CorsAction.Continue) throw new Error('expected continue');
-    expect(result.headers.get('Access-Control-Expose-Headers')).toBe('X-Safe');
-  });
-});

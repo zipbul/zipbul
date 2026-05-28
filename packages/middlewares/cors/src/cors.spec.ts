@@ -307,51 +307,6 @@ describe('Cors', () => {
       expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://custom.com');
     });
 
-    it('should throw CorsError when OriginFn returns "*" with credentials:true (Fetch §3.3.5)', async () => {
-      const cors = Cors.create({ origin: () => '*', credentials: true });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
-      }
-    });
-
-    it('should throw when async OriginFn resolves to "*" with credentials:true', async () => {
-      const cors = Cors.create({ origin: async () => '*', credentials: true });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
-      }
-    });
-
-    it('should throw only on the request whose OriginFn returns "*" (conditional branch)', async () => {
-      const cors = Cors.create({
-        origin: (origin) => origin === 'https://evil.com' ? '*' : origin,
-        credentials: true,
-      });
-
-      const safeReq = makeRequest('GET', 'https://safe.com');
-      const safeResult = await cors.handle(safeReq);
-      assertContinue(safeResult);
-      expect(safeResult.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://safe.com');
-
-      const evilReq = makeRequest('GET', 'https://evil.com');
-      try {
-        await cors.handle(evilReq);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
-      }
-    });
-
     it('should reject when OriginFn returns false', async () => {
       // Arrange
       const cors = Cors.create({ origin: () => false });
@@ -388,139 +343,17 @@ describe('Cors', () => {
       }
     });
 
-    // ── D-NEW-2: OriginFn 반환값 sanitize (RFC 6454 §6.2 직렬화 검증) ──
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns trailing-slash origin', async () => {
-      const cors = Cors.create({ origin: () => 'https://a.com/' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns uppercase scheme/host', async () => {
-      const cors = Cors.create({ origin: () => 'HTTPS://A.COM' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns origin with default port', async () => {
-      const cors = Cors.create({ origin: () => 'https://a.com:443' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns unparseable string', async () => {
-      const cors = Cors.create({ origin: () => 'not-a-url' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns origin with path', async () => {
-      const cors = Cors.create({ origin: () => 'https://a.com/path' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns origin with userinfo', async () => {
-      const cors = Cors.create({ origin: () => 'https://user@a.com' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns origin containing NUL byte', async () => {
-      const cors = Cors.create({ origin: () => 'https://a.com evil' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns origin prefixed with BOM', async () => {
-      const cors = Cors.create({ origin: () => '﻿https://a.com' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns origin with zero-width suffix', async () => {
-      const cors = Cors.create({ origin: () => 'https://a.com​' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns empty string (BREAKING: previously silent reject)', async () => {
-      const cors = Cors.create({ origin: () => '' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when OriginFn returns "*" with credentials:false', async () => {
-      const cors = Cors.create({ origin: () => '*', credentials: false });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
     // ── D-NEW-2 regression guards (valid returns must still pass) ──
 
@@ -724,44 +557,9 @@ describe('Cors', () => {
       const req = makePreflight('https://a.com', 'POST', 'X-Custom, X-Other');
       // Act
       const result = await cors.handle(req);
-      // Assert
+      // Assert — ACRH echoed verbatim (no per-entry validation)
       assertPreflight(result);
-      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom,X-Other');
-    });
-
-    it('should drop invalid-token entries from echoed ACAH (RFC 9110 §5.6.2)', async () => {
-      // Arrange
-      const cors = Cors.create({ origin: true });
-      const req = makePreflight('https://a.com', 'POST', 'X-Custom, X Bad, X-Foo(bar), X-Other');
-      // Act
-      const result = await cors.handle(req);
-      // Assert
-      assertPreflight(result);
-      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom,X-Other');
-    });
-
-    it('should omit ACAH when every ACRH entry is invalid, but still append Vary:Access-Control-Request-Headers', async () => {
-      // Arrange
-      const cors = Cors.create({ origin: true });
-      const req = makePreflight('https://a.com', 'POST', 'X Bad, X-Foo(bar)');
-      // Act
-      const result = await cors.handle(req);
-      // Assert
-      assertPreflight(result);
-      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBeNull();
-      const vary = result.headers.get(HttpHeader.Vary);
-      expect(vary).toContain(HttpHeader.AccessControlRequestHeaders);
-    });
-
-    it('should drop invalid-token entries on the wildcard+credentials echo path', async () => {
-      // Arrange
-      const cors = Cors.create({ origin: 'https://a.com', credentials: true, allowedHeaders: ['*'] });
-      const req = makePreflight('https://a.com', 'POST', 'X-Custom, X Bad, X-Other');
-      // Act
-      const result = await cors.handle(req);
-      // Assert
-      assertPreflight(result);
-      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom,X-Other');
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom, X-Other');
     });
 
     it('should set ACAH:* when allowedHeaders is wildcard without credentials', async () => {
@@ -968,53 +766,9 @@ describe('Cors', () => {
 
     // ── D-NEW-2 async sanitize ──
 
-    it('should throw CorsError(InvalidOriginReturn) when async OriginFn returns origin with CR injection', async () => {
-      const cors = Cors.create({ origin: async () => 'https://a.com\r\nX-Evil: pwn' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when async OriginFn returns origin with LF injection', async () => {
-      const cors = Cors.create({ origin: async () => 'https://a.com\nX-Evil: pwn' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when async OriginFn resolves to unparseable string', async () => {
-      const cors = Cors.create({ origin: async () => 'not-a-url' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
 
-    it('should throw CorsError(InvalidOriginReturn) when async OriginFn returns empty string (BREAKING)', async () => {
-      const cors = Cors.create({ origin: async () => '' });
-      const req = makeRequest('GET', 'https://a.com');
-      try {
-        await cors.handle(req);
-        throw new Error('expected throw');
-      } catch (e) {
-        expect(e).toBeInstanceOf(CorsError);
-        expect((e as CorsError).reason).toBe(CorsErrorReason.InvalidOriginReturn);
-      }
-    });
   });
 
   // ── pure string array origin ──
