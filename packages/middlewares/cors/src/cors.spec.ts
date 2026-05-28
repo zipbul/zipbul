@@ -210,6 +210,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://sub.example.com');
     });
 
     it('should reject when origin does not match RegExp', async () => {
@@ -260,6 +261,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://sub.example.com');
     });
 
     it('should reject when origin matches no entry in array', async () => {
@@ -292,6 +294,7 @@ describe('Cors', () => {
       const req = makeRequest('GET', 'https://a.com');
       const result = await cors.handle(req);
       assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
       expect(seen.origin).toBe('https://a.com');
       expect(seen.request).toBe(req);
     });
@@ -387,6 +390,22 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       assertContinue(result);
       expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('null');
+    });
+
+    it('should reflect "null" when option origin is the RFC 6454 opaque literal and the request Origin matches', async () => {
+      const cors = Cors.create({ origin: 'null' });
+      const req = makeRequest('GET', 'null');
+      const result = await cors.handle(req);
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('null');
+    });
+
+    it('should reject when option origin is "null" but the request Origin is a different value', async () => {
+      const cors = Cors.create({ origin: 'null' });
+      const req = makeRequest('GET', 'https://a.com');
+      const result = await cors.handle(req);
+      assertReject(result);
+      expect(result.reason).toBe(CorsRejectionReason.OriginNotAllowed);
     });
 
     it('should reject (OriginNotAllowed) when OriginFn returns false', async () => {
@@ -497,6 +516,8 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
+      expect(result.headers.get(HttpHeader.AccessControlAllowMethods)).toBeNull();
     });
 
     it('should return RespondPreflight with ACAM when method is allowed', async () => {
@@ -596,6 +617,7 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('Authorization, X-Custom');
     });
 
     it('should set ACMA when maxAge is configured', async () => {
@@ -617,6 +639,8 @@ describe('Cors', () => {
       const result = await cors.handle(req);
       // Assert
       assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
+      expect(result.headers.get(HttpHeader.AccessControlAllowMethods)).toBe('GET,HEAD,PUT,PATCH,POST,DELETE');
     });
 
     it('should use custom optionsSuccessStatus', async () => {
@@ -804,6 +828,8 @@ describe('Cors', () => {
       });
       const result = await cors.handle(req);
       assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
+      expect(result.headers.get(HttpHeader.AccessControlAllowMethods)).toBeNull();
     });
   });
 
@@ -823,6 +849,7 @@ describe('Cors', () => {
       const req = makePreflight('https://a.com', 'POST');
       const result = await cors.handle(req);
       assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBeNull();
     });
 
     it('should set ACAH from explicit allowedHeaders list even when ACRH is absent', async () => {
@@ -838,6 +865,7 @@ describe('Cors', () => {
       const req = makePreflight('https://a.com', 'POST', 'AUTHORIZATION');
       const result = await cors.handle(req);
       assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('AUTHORIZATION');
     });
 
     it('should pass when ACAH wildcard with credentials and ACRH contains a non-Authorization header', async () => {
@@ -845,6 +873,7 @@ describe('Cors', () => {
       const req = makePreflight('https://a.com', 'POST', 'X-Custom');
       const result = await cors.handle(req);
       assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-Custom');
     });
   });
 

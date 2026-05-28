@@ -52,7 +52,7 @@ describe('CORS / preflight', () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST'));
       expect(res.status).toBe(404);
       expect(res.headers.get('access-control-allow-origin')).toBe('https://x.com');
-      expect(res.headers.get('access-control-allow-methods')).toContain('POST');
+      expect(res.headers.get('access-control-allow-methods')).toBe('POST');
     });
   });
 
