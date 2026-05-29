@@ -6,8 +6,9 @@ import type { CorsContinueResult, CorsPreflightResult, CorsRejectResult } from '
  * Return value of an origin function.
  * `true` to reflect the request `Origin`, `false` to reject, or a string to
  * emit verbatim as `Access-Control-Allow-Origin`. The middleware does not
- * validate the returned string — supply a serialized RFC 6454 §6.2 origin
- * (or `'null'`/`'*'`) yourself.
+ * validate the returned string, except `'*'` combined with `credentials:true`
+ * is rejected per Fetch Standard §3.3.5. Otherwise supply a serialized
+ * RFC 6454 §6.2 origin (or `'null'`/`'*'`) yourself.
  */
 export type OriginResult = boolean | string;
 

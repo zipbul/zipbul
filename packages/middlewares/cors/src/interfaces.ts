@@ -42,7 +42,8 @@ export interface CorsErrorData {
 
 /**
  * Thrown by {@link Cors.create} on invalid options, or by {@link Cors.handle}
- * when the origin function throws.
+ * when the origin function throws or returns `'*'` together with
+ * `credentials:true` (forbidden by Fetch Standard §3.3.5).
  *
  * Inspect {@link reason} to programmatically distinguish error kinds.
  * When the origin function throws, the original thrown value is preserved
