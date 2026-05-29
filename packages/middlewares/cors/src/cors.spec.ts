@@ -455,6 +455,36 @@ describe('Cors', () => {
       assertContinue(result);
       expect(result.headers.get(HttpHeader.AccessControlAllowCredentials)).toBe('true');
     });
+
+    it('should throw CorsError(CredentialsWithWildcardOrigin) when OriginFn returns "*" with credentials:true (Fetch Standard §3.2.5)', async () => {
+      const cors = Cors.create({ origin: () => '*', credentials: true });
+      try {
+        await cors.handle(makeRequest('GET', 'https://a.com'));
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+      }
+    });
+
+    it('should throw CorsError(CredentialsWithWildcardOrigin) when async OriginFn returns "*" with credentials:true', async () => {
+      const cors = Cors.create({ origin: async () => '*', credentials: true });
+      try {
+        await cors.handle(makeRequest('GET', 'https://a.com'));
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+      }
+    });
+
+    it('should NOT throw and emit ACAO:* when OriginFn returns "*" with credentials:false (wildcard allowed without credentials)', async () => {
+      const cors = Cors.create({ origin: () => '*', credentials: false });
+      const result = await cors.handle(makeRequest('GET', 'https://a.com'));
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('*');
+      expect(result.headers.get(HttpHeader.AccessControlAllowCredentials)).toBeNull();
+    });
   });
 
   // ── Exposed headers ──

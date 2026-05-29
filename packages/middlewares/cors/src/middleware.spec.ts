@@ -173,6 +173,39 @@ describe('corsMiddleware factory — rawRequest guard', () => {
   });
 });
 
+describe('corsMiddleware factory — error propagation', () => {
+  it('should propagate CorsError(OriginFunctionError) when origin function throws at request time', async () => {
+    const handler = corsMiddleware({
+      origin: () => { throw new Error('boom'); },
+    }).factory();
+    const ctx = mockContext({ headers: new Headers({ Origin: ORIGIN }) });
+    try {
+      await handler(ctx);
+      throw new Error('expected throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(CorsError);
+      expect((e as CorsError).reason).toBe(CorsErrorReason.OriginFunctionError);
+    }
+  });
+
+  it('should propagate CorsError(CredentialsWithWildcardOrigin) when OriginFn returns "*" with credentials:true and leave the response untouched', async () => {
+    const handler = corsMiddleware({
+      origin: () => '*',
+      credentials: true,
+    }).factory();
+    const ctx = mockContext({ headers: new Headers({ Origin: ORIGIN }) });
+    try {
+      await handler(ctx);
+      throw new Error('expected throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(CorsError);
+      expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+    }
+    expect(ctx.response.headers.get(HttpHeader.AccessControlAllowOrigin)).toBeNull();
+    expect(ctx.response.headers.get(HttpHeader.AccessControlAllowCredentials)).toBeNull();
+  });
+});
+
 describe('corsMiddleware factory — preflightContinue Continue path', () => {
   it('should attach preflight headers without committing the response when preflightContinue is true', async () => {
     const ctx = mockContext({

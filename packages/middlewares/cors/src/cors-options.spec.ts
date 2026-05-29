@@ -67,6 +67,8 @@ describe('CorsOptions schema — methods', () => {
     expectInvalid({ methods: [HttpMethod.Get, '' as unknown as HttpMethod] }, CorsErrorReason.InvalidMethods));
   it('rejects methods with unknown string entry', () =>
     expectInvalid({ methods: ['NOT-A-METHOD' as unknown as HttpMethod] }, CorsErrorReason.InvalidMethods));
+  it('rejects empty methods array', () =>
+    expectInvalid({ methods: [] }, CorsErrorReason.InvalidMethods));
 });
 
 describe('CorsOptions schema — allowedHeaders', () => {

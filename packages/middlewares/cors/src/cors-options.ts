@@ -2,6 +2,7 @@ import { Recipe, Field, createRule } from '@zipbul/baker';
 import {
   oneOf,
   arrayEvery,
+  arrayNotEmpty,
   isBoolean,
   isFunction,
   isInt,
@@ -59,10 +60,11 @@ export class CorsOptions {
 
   /**
    * Allowed HTTP methods. Each entry must be a known {@link HttpMethod}
-   * or the wildcard `'*'`. Empty arrays are rejected by {@link Cors.create}
-   * post-validate.
+   * or the wildcard `'*'`. Empty arrays are rejected at boot via
+   * `arrayNotEmpty`.
    */
   @Field(
+    arrayNotEmpty,
     arrayEvery(oneOf(isEnum(HttpMethod), isMethodsWildcard)),
     { optional: true, context: { reason: CorsErrorReason.InvalidMethods } },
   )
@@ -136,9 +138,9 @@ export type CorsOptionsInput = Partial<{
 }>;
 
 /**
- * Defaults applied before validation. After `Cors.create`, the resolved
- * options instance is frozen (deep — array entries included), so neither
- * the caller nor the middleware can mutate it.
+ * Defaults merged with caller-provided options inside `Cors.create`. The
+ * resolved instance is held privately by the `Cors` object; callers should
+ * not mutate inputs they passed in after registration.
  */
 export const CORS_DEFAULTS: ResolvedCorsOptions = {
   origin: '*',

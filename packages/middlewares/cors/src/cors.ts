@@ -40,13 +40,13 @@ export class Cors {
   ) {}
 
   /**
-   * Creates a Cors instance after resolving, validating, and freezing options.
+   * Creates a Cors instance after resolving and validating options.
    *
    * Validation delegates to the {@link CorsOptions} baker schema; cross-field
    * checks (`credentials:true` + wildcard origin/methods) run as a
-   * post-validate step. Arrays are shallow-cloned and the resolved options
-   * are deep-frozen so neither the caller nor the middleware can mutate them
-   * after this call returns.
+   * post-validate step. The resolved options object is held privately on the
+   * instance and is not mutated by the middleware; callers should not mutate
+   * inputs they passed in after this call returns.
    *
    * @throws {CorsError} when options fail validation (invalid origin, methods, maxAge, etc.)
    * @returns A ready-to-use Cors instance.
@@ -58,10 +58,12 @@ export class Cors {
     const result = validateSync(CorsOptions, merged);
     if (isBakerIssueSet(result)) {
       const issue = result.errors[0]!;
-      const reason = (issue.context as { reason?: CorsErrorReason } | undefined)?.reason
-        ?? CorsErrorReason.InvalidOrigin;
+      const ctx = issue.context as { reason?: CorsErrorReason } | undefined;
+      if (ctx?.reason === undefined) {
+        throw new Error(`internal: baker @Field for "${issue.path}" missing context.reason`);
+      }
       throw new CorsError({
-        reason,
+        reason: ctx.reason,
         message: `${issue.path}: ${issue.code}`,
       });
     }
@@ -71,7 +73,7 @@ export class Cors {
       if (merged.origin === '*') {
         throw new CorsError({
           reason: CorsErrorReason.CredentialsWithWildcardOrigin,
-          message: 'credentials:true with origin:"*" forbidden (Fetch Standard §3.2.5)',
+          message: 'credentials:true with origin:"*" forbidden (Fetch Standard §3.3.5)',
         });
       }
       if (Array.isArray(merged.methods) && merged.methods.includes('*')) {
@@ -117,6 +119,13 @@ export class Cors {
 
     if (allowedOrigin === undefined) {
       return this.reject(CorsRejectionReason.OriginNotAllowed);
+    }
+
+    if (allowedOrigin === '*' && this.options.credentials) {
+      throw new CorsError({
+        reason: CorsErrorReason.CredentialsWithWildcardOrigin,
+        message: 'origin function returned "*" with credentials:true forbidden (Fetch Standard §3.3.5)',
+      });
     }
 
     const headers = new Headers();
