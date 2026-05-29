@@ -485,6 +485,17 @@ describe('Cors', () => {
       expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('*');
       expect(result.headers.get(HttpHeader.AccessControlAllowCredentials)).toBeNull();
     });
+
+    it('should throw CorsError(CredentialsWithWildcardOrigin) on preflight when OriginFn returns "*" with credentials:true', async () => {
+      const cors = Cors.create({ origin: () => '*', credentials: true });
+      try {
+        await cors.handle(makePreflight('https://a.com', 'POST'));
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+      }
+    });
   });
 
   // ── Exposed headers ──
