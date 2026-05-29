@@ -13,21 +13,6 @@ import { CorsError } from './interfaces';
 import { CORS_DEFAULTS, CorsOptions, type CorsOptionsInput } from './cors-options';
 
 /**
- * Fallback `BakerIssue.path` → {@link CorsErrorReason} mapping. Used when
- * baker fails to propagate the field-level `context.reason` (observed for
- * NaN inputs in baker 3.3.0 — `isInt` type-gate failure does not attach the
- * field context). Field-level `context` is preferred when present.
- */
-const PATH_REASON: Record<string, CorsErrorReason> = {
-  origin: CorsErrorReason.InvalidOrigin,
-  methods: CorsErrorReason.InvalidMethods,
-  allowedHeaders: CorsErrorReason.InvalidAllowedHeaders,
-  exposedHeaders: CorsErrorReason.InvalidExposedHeaders,
-  maxAge: CorsErrorReason.InvalidMaxAge,
-  optionsSuccessStatus: CorsErrorReason.InvalidStatusCode,
-};
-
-/**
  * Lazy seal — `Cors.create` triggers `baker.seal()` once on first call.
  *
  * baker requires a single `seal()` after every `@Recipe` class has been
@@ -73,9 +58,8 @@ export class Cors {
     const result = validateSync(CorsOptions, merged);
     if (isBakerIssueSet(result)) {
       const issue = result.errors[0]!;
-      const contextReason = (issue.context as { reason?: CorsErrorReason } | undefined)?.reason;
-      const pathReason = PATH_REASON[issue.path.split('[')[0]!];
-      const reason = contextReason ?? pathReason ?? CorsErrorReason.InvalidOrigin;
+      const reason = (issue.context as { reason?: CorsErrorReason } | undefined)?.reason
+        ?? CorsErrorReason.InvalidOrigin;
       throw new CorsError({
         reason,
         message: `${issue.path}: ${issue.code}`,
