@@ -299,10 +299,6 @@ export class QueryParser {
       return this.assignLeaf(root, key, value);
     }
 
-    if (keys.length === 1) {
-      return this.assignLeaf(root, key, value);
-    }
-
     // Initialize/Validate root container
     if (!Object.prototype.hasOwnProperty.call(root, rootKey)) {
       const nextKey = keys[1] ?? '';
@@ -364,8 +360,6 @@ export class QueryParser {
           this.assignArrayRecordValue(parent, normalizedKey, current);
         } else if (this.isRecordValue(parent)) {
           parent[this.normalizeKey(parentKey)] = current;
-        } else {
-          return;
         }
       }
 
@@ -534,10 +528,6 @@ export class QueryParser {
         this.assignArrayRecordValue(obj, key, value);
       }
 
-      return;
-    }
-
-    if (!this.isRecordValue(obj)) {
       return;
     }
 

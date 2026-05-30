@@ -50,6 +50,7 @@
     "bench": "bun run bench/query-parser.bench.ts"
   },
   "dependencies": {
+    "@zipbul/baker": "catalog:",
     "@zipbul/result": "workspace:*"
   },
   "devDependencies": {
