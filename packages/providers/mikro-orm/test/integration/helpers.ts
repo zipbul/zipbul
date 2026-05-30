@@ -28,10 +28,9 @@ export class Account {
   name!: string;
 }
 
-/** Schema generator surface (typed loosely — getSchemaGenerator lives on the sql subclass). */
-type SchemaGen = { dropSchema(o?: { dropForeignKeys?: boolean }): Promise<void>; createSchema(): Promise<void> };
-const schemaGen = (orm: MikroORM): SchemaGen =>
-  (orm as unknown as { getSchemaGenerator(): SchemaGen }).getSchemaGenerator();
+/** Schema generator surface via the `orm.schema` getter (wired by the SqlSchemaGenerator extension). */
+type SchemaGen = { drop(o?: { dropForeignKeys?: boolean }): Promise<void>; create(): Promise<void> };
+const schemaGen = (orm: MikroORM): SchemaGen => (orm as unknown as { schema: SchemaGen }).schema;
 
 export async function makeOrm(
   driver: typeof BunPostgreSqlDriver | typeof BunMySqlDriver,
@@ -47,6 +46,6 @@ export async function makeOrm(
 }
 
 export async function freshSchema(orm: MikroORM): Promise<void> {
-  await schemaGen(orm).dropSchema({ dropForeignKeys: true });
-  await schemaGen(orm).createSchema();
+  await schemaGen(orm).drop({ dropForeignKeys: true });
+  await schemaGen(orm).create();
 }

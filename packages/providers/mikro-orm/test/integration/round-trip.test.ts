@@ -46,17 +46,19 @@ describePg('round-trip (postgres)', () => {
     expect(affected).toBe(1);
   });
 
-  test('streaming is unsupported and surfaces a typed error', async () => {
-    const connection = orm.em.getConnection();
-    const stream = () => (connection as unknown as { stream(q: string): AsyncIterable<unknown> }).stream?.('select 1');
-    // The driver-level streamQuery throws; MikroORM exposes no stream here, so assert the
-    // connection has no working stream path rather than a silent hang.
-    if (typeof stream() !== 'undefined') {
-      await expect((async () => {
-        for await (const _ of stream()!) {
-          /* drive */
+  // MikroORM v7 DOES expose streaming (qb.stream / connection.stream, pg cursor-based).
+  // Bun.SQL has no cursor, so driving it must surface the typed unsupported error end-to-end
+  // (fast — verified ~250ms, not a hang), proving the explicit-unsupported contract.
+  test('streaming through MikroORM surfaces StreamingUnsupportedError', async () => {
+    const conn = orm.em.getConnection() as unknown as {
+      stream(query: string, params?: readonly unknown[]): AsyncIterableIterator<unknown>;
+    };
+    await expect(
+      (async () => {
+        for await (const _row of conn.stream('select 1 as one', [])) {
+          /* drive the iterator */
         }
-      })()).rejects.toThrow(StreamingUnsupportedError);
-    }
+      })(),
+    ).rejects.toThrow(StreamingUnsupportedError);
   });
 });

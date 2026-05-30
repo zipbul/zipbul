@@ -6,9 +6,10 @@ import { StreamingUnsupportedError } from './errors';
 import type { ErrorNormalizer } from './interfaces';
 import type { ReservedConnection } from './types';
 
-// NOTE (review S1): the {affectedRows,lastInsertRowid}-on-an-array shape these fixtures
-// use is the assumed Bun.SQL DML result; the REAL shape is confirmed by the integration
-// round-trip. These unit tests lock the mapping LOGIC given that shape.
+// Shape VERIFIED against real Bun.SQL (integration): a DML result is the row array with
+// the affected count on `.count` (NOT `.affectedRows`, which is null for pg UPDATE/DELETE)
+// and the insert id on `.lastInsertRowid`. The scaffold currently reads `.affectedRows`,
+// so the `.count` cases below are RED until the driver maps `.count`.
 
 function setup(unsafeResult: unknown) {
   const reserved = {
@@ -28,8 +29,8 @@ test('maps a plain row array to { rows } with no affected/insert keys', async ()
   expect(result).toEqual({ rows: [{ id: 1 }] });
 });
 
-test('maps affectedRows to numAffectedRows as a BigInt', async () => {
-  const rows = Object.assign([] as unknown[], { affectedRows: 5 });
+test('maps the affected count to numAffectedRows as a BigInt', async () => {
+  const rows = Object.assign([] as unknown[], { count: 5, affectedRows: null });
   const { connection } = setup(rows);
   const result = await connection.executeQuery(cq('update t'));
   expect(result.numAffectedRows).toBe(5n);
@@ -42,8 +43,8 @@ test('maps lastInsertRowid to insertId as a BigInt', async () => {
   expect(result.insertId).toBe(42n);
 });
 
-test('includes numAffectedRows when affectedRows is 0 (boundary, not omitted)', async () => {
-  const rows = Object.assign([] as unknown[], { affectedRows: 0 });
+test('includes numAffectedRows when the count is 0 (boundary, not omitted)', async () => {
+  const rows = Object.assign([] as unknown[], { count: 0, affectedRows: null });
   const { connection } = setup(rows);
   const result = await connection.executeQuery(cq('update t'));
   expect(result.numAffectedRows).toBe(0n);

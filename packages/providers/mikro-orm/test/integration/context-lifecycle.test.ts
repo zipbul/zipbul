@@ -1,9 +1,9 @@
 import { test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
-import { RequestContext, type MikroORM } from '@mikro-orm/core';
+import { RequestContext, type EntityManager, type MikroORM } from '@mikro-orm/core';
 
 import { BunPostgreSqlDriver } from '../../src/driver';
-import { ConnectionRegistry, ConnectionNotRegisteredError } from '../../src/connection';
-import { EntityManagerResolver, RequestContextRunner } from '../../src/context';
+import { ConnectionRegistry, ConnectionNotRegisteredError, DEFAULT_CONNECTION } from '../../src/connection';
+import { EntityManagerResolver } from '../../src/context';
 import { PG_URL, describePg, makeOrm, freshSchema } from './helpers';
 
 describePg('context + registry lifecycle (postgres)', () => {
@@ -14,56 +14,55 @@ describePg('context + registry lifecycle (postgres)', () => {
   });
   afterAll(async () => {
     await orm.close(true);
-    ConnectionRegistry.delete('ctx');
+    ConnectionRegistry.delete(DEFAULT_CONNECTION);
+    ConnectionRegistry.delete('other');
   });
   beforeEach(() => {
-    ConnectionRegistry.delete('ctx');
+    ConnectionRegistry.delete(DEFAULT_CONNECTION);
+    ConnectionRegistry.delete('other');
   });
 
-  test('resolve returns the per-context forked EM inside enter, and the global EM outside', () => {
-    ConnectionRegistry.set('ctx', orm);
-    const outside = EntityManagerResolver.resolve('ctx');
-    expect(outside).toBe(orm.em);
+  test('resolve returns the global EM outside any request context', () => {
+    ConnectionRegistry.set(DEFAULT_CONNECTION, orm);
+    expect(EntityManagerResolver.resolve(DEFAULT_CONNECTION)).toBe(orm.em);
+  });
 
+  test('resolve returns a per-request fork inside an entered context', () => {
+    ConnectionRegistry.set(DEFAULT_CONNECTION, orm);
     RequestContext.create(orm.em, () => {
-      RequestContextRunner.enter('ctx');
-      const inside = EntityManagerResolver.resolve('ctx');
-      expect(inside).not.toBe(orm.em); // a fork, not the global EM
+      const inside = EntityManagerResolver.resolve(DEFAULT_CONNECTION);
+      expect(inside).not.toBe(orm.em);
     });
   });
 
-  test('two interleaved request contexts each see their own forked EM', async () => {
-    ConnectionRegistry.set('ctx', orm);
-    const ids = await Promise.all([
+  test('two interleaved request contexts each resolve their own forked EM', async () => {
+    ConnectionRegistry.set(DEFAULT_CONNECTION, orm);
+    const forks = await Promise.all([
       RequestContext.create(orm.em, async () => {
-        RequestContextRunner.enter('ctx');
         await Promise.resolve();
-        return (EntityManagerResolver.resolve('ctx') as unknown as { id: number }).id;
+        return EntityManagerResolver.resolve(DEFAULT_CONNECTION);
       }),
       RequestContext.create(orm.em, async () => {
-        RequestContextRunner.enter('ctx');
         await Promise.resolve();
-        return (EntityManagerResolver.resolve('ctx') as unknown as { id: number }).id;
+        return EntityManagerResolver.resolve(DEFAULT_CONNECTION);
       }),
     ]);
-    expect(ids[0]).not.toBe(ids[1]);
+    expect(forks[0]).not.toBe(forks[1]);
   });
 
-  // S3: after onDestroy-equivalent cleanup, the connection is no longer resolvable.
   test('a deregistered connection is no longer resolvable', () => {
-    ConnectionRegistry.set('ctx', orm);
-    ConnectionRegistry.delete('ctx');
-    expect(() => EntityManagerResolver.resolve('ctx')).toThrow(ConnectionNotRegisteredError);
+    ConnectionRegistry.set(DEFAULT_CONNECTION, orm);
+    ConnectionRegistry.delete(DEFAULT_CONNECTION);
+    expect(() => EntityManagerResolver.resolve(DEFAULT_CONNECTION)).toThrow(ConnectionNotRegisteredError);
   });
 
-  // S3: two named connections coexist and resolve to their own EM.
-  test('named connections coexist and resolve independently', async () => {
+  test('named connections coexist and resolve to their own global EM', async () => {
     const second = await makeOrm(BunPostgreSqlDriver, PG_URL!);
     try {
-      ConnectionRegistry.set('ctx', orm);
+      ConnectionRegistry.set(DEFAULT_CONNECTION, orm);
       ConnectionRegistry.set('other', second);
-      expect(EntityManagerResolver.resolve('ctx')).toBe(orm.em);
-      expect(EntityManagerResolver.resolve('other')).toBe(second.em);
+      expect(EntityManagerResolver.resolve(DEFAULT_CONNECTION)).toBe(orm.em as EntityManager);
+      expect(EntityManagerResolver.resolve('other')).toBe(second.em as EntityManager);
     } finally {
       ConnectionRegistry.delete('other');
       await second.close(true);
