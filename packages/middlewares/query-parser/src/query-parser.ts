@@ -517,16 +517,16 @@ export class QueryParser {
         }
 
         return this.assignToArrayIndex(obj, idx, key, value);
-      } else {
-        if (this.options.strict) {
-          return err<QueryParserErrorData>({
-            reason: QueryParserErrorReason.ConflictingStructure,
-            message: `Conflict: non-numeric key "${key}" used on an array structure`,
-          });
-        }
-
-        this.assignArrayRecordValue(obj, key, value);
       }
+
+      if (this.options.strict) {
+        return err<QueryParserErrorData>({
+          reason: QueryParserErrorReason.ConflictingStructure,
+          message: `Conflict: non-numeric key "${key}" used on an array structure`,
+        });
+      }
+
+      this.assignArrayRecordValue(obj, key, value);
 
       return;
     }
@@ -638,12 +638,11 @@ export class QueryParser {
   }
 
   private assignArrayRecordValue(target: QueryArray, key: string, value: QueryValue): void {
-    Object.defineProperty(target, key, {
-      value,
-      writable: true,
-      enumerable: true,
-      configurable: true,
-    });
+    // Direct assignment is safe here: poisoned keys (`__proto__` etc.) are
+    // filtered upstream by POISONED_KEYS before any write reaches this sink, and
+    // non-numeric keys convert the array to a plain object before assignment — so
+    // `key` is only ever a numeric index or an already-cleared property name.
+    (target as unknown as Record<string, QueryValue>)[key] = value;
   }
 
   private normalizeKey(key: string | number): string {

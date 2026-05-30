@@ -8,6 +8,20 @@ import { QueryParserErrorReason } from './enums';
 import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
 import type { ResolvedQueryParserOptions } from './types';
 
+const DUPLICATE_MODES: string[] = ['first', 'last', 'array'];
+
+/**
+ * Lazy seal — baker requires a single `seal()` after every `@Recipe` class is
+ * imported. Deferring it to the first validation avoids seizing global baker
+ * config before the host app registers its own DTOs. Mirrors the cors middleware.
+ */
+let isSealed = false;
+function ensureSealed(): void {
+  if (isSealed) return;
+  seal();
+  isSealed = true;
+}
+
 /**
  * Resolves partial {@link QueryParserOptions} into a fully populated
  * {@link ResolvedQueryParserOptions} by applying defaults via nullish coalescing.
@@ -23,8 +37,6 @@ export function resolveQueryParserOptions(options?: QueryParserOptions): Resolve
     urlEncoded: options?.urlEncoded ?? DEFAULT_QUERY_PARSER_OPTIONS.urlEncoded,
   };
 }
-
-const DUPLICATE_MODES: string[] = ['first', 'last', 'array'];
 
 /**
  * Query-parser options as a baker-validated data class — the same schema-driven
@@ -63,18 +75,6 @@ export class QueryParserOptionsSchema {
   /** Whether `+` is decoded as a space (application/x-www-form-urlencoded). */
   @Field(isBoolean, { optional: true, context: { reason: QueryParserErrorReason.InvalidUrlEncoded } })
   urlEncoded?: boolean;
-}
-
-/**
- * Lazy seal — baker requires a single `seal()` after every `@Recipe` class is
- * imported. Deferring it to the first validation avoids seizing global baker
- * config before the host app registers its own DTOs. Mirrors the cors middleware.
- */
-let isSealed = false;
-function ensureSealed(): void {
-  if (isSealed) return;
-  seal();
-  isSealed = true;
 }
 
 /**

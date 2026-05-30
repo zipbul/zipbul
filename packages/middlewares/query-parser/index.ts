@@ -1,6 +1,9 @@
 import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
 
+import './src/options';
+
 export { QueryParser } from './src/query-parser';
+export { queryParserMiddleware } from './src/middleware';
 export { QueryParserError } from './src/interfaces';
 export type { QueryParserErrorData, QueryParserOptions } from './src/interfaces';
 export { QueryParserErrorReason } from './src/enums';
