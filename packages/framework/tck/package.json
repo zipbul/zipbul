@@ -1,5 +1,5 @@
 {
-  "name": "@zipbul/conformance",
+  "name": "@zipbul/tck",
   "version": "0.0.1",
   "license": "MIT",
   "author": "Junhyung Park (https://github.com/parkrevil)",
@@ -37,6 +37,6 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/zipbul/zipbul",
-    "directory": "packages/framework/conformance"
+    "directory": "packages/framework/tck"
   }
 }
