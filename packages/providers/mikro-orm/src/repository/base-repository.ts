@@ -19,7 +19,9 @@ export abstract class BaseRepository<T extends object> {
   constructor() {
     return new Proxy(this, {
       get(target, prop, receiver) {
-        if (prop in target) {
+        // Never delegate own/inherited members, `then` (so awaiting/DI-resolving the instance
+        // does not trigger repository resolution as a thenable side-effect), or symbol keys.
+        if (prop === 'then' || typeof prop === 'symbol' || prop in target) {
           return Reflect.get(target, prop, receiver);
         }
         const self = target as BaseRepository<T>;

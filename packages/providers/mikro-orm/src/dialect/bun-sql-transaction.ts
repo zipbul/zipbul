@@ -30,14 +30,19 @@ export class BunSqlTransactionController {
   }
 
   async savepoint(connection: DatabaseConnection, name: string): Promise<void> {
-    await connection.executeQuery(CompiledQuery.raw(`savepoint "${name}"`));
+    await connection.executeQuery(CompiledQuery.raw(`savepoint ${this.quoteIdentifier(name)}`));
   }
 
   async rollbackToSavepoint(connection: DatabaseConnection, name: string): Promise<void> {
-    await connection.executeQuery(CompiledQuery.raw(`rollback to savepoint "${name}"`));
+    await connection.executeQuery(CompiledQuery.raw(`rollback to savepoint ${this.quoteIdentifier(name)}`));
   }
 
   async releaseSavepoint(connection: DatabaseConnection, name: string): Promise<void> {
-    await connection.executeQuery(CompiledQuery.raw(`release savepoint "${name}"`));
+    await connection.executeQuery(CompiledQuery.raw(`release savepoint ${this.quoteIdentifier(name)}`));
+  }
+
+  /** Quote a savepoint identifier, doubling embedded quotes so the identifier boundary holds. */
+  private quoteIdentifier(name: string): string {
+    return `"${name.replace(/"/g, '""')}"`;
   }
 }

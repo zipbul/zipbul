@@ -20,12 +20,15 @@ export class BunSqlConnection implements DatabaseConnection {
   async executeQuery<R>(compiled: CompiledQuery): Promise<QueryResult<R>> {
     try {
       const res = (await this.reserved.unsafe(compiled.sql, [...compiled.parameters])) as
-        | (Array<R> & { affectedRows?: number; lastInsertRowid?: number })
+        | (Array<R> & { count?: number | null; affectedRows?: number | null; lastInsertRowid?: number | null })
         | undefined;
       const rows = Array.isArray(res) ? (res as R[]) : [];
+      // Bun.SQL reports the affected row count on `.count` for pg/mysql DML; `.affectedRows`
+      // is null for pg UPDATE/DELETE, so prefer `.count` and fall back to `.affectedRows`.
+      const affected = res?.count ?? res?.affectedRows;
       return {
         rows,
-        ...(res?.affectedRows != null ? { numAffectedRows: BigInt(res.affectedRows) } : {}),
+        ...(affected != null ? { numAffectedRows: BigInt(affected) } : {}),
         ...(res?.lastInsertRowid != null ? { insertId: BigInt(res.lastInsertRowid) } : {}),
       };
     } catch (error) {
