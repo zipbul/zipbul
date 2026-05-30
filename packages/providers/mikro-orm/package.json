@@ -1,0 +1,79 @@
+{
+  "name": "@zipbul/mikro-orm",
+  "version": "0.0.0",
+  "description": "MikroORM v7 integration for zipbul backed by Bun's native SQL (Bun.SQL) — Postgres, MySQL, SQLite drivers + zipbul-native DI/request-context DX",
+  "license": "MIT",
+  "author": "Junhyung Park (https://github.com/parkrevil)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zipbul/zipbul",
+    "directory": "packages/providers/mikro-orm"
+  },
+  "bugs": {
+    "url": "https://github.com/zipbul/zipbul/issues"
+  },
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/providers/mikro-orm#readme",
+  "keywords": [
+    "mikro-orm",
+    "orm",
+    "bun",
+    "bun-sql",
+    "postgres",
+    "mysql",
+    "sqlite",
+    "kysely",
+    "database",
+    "zipbul",
+    "typescript"
+  ],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "type": "module",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "test": "bun test",
+    "coverage": "bun test --coverage"
+  },
+  "peerDependencies": {
+    "@mikro-orm/core": "^7",
+    "@mikro-orm/sql": "^7",
+    "@mikro-orm/postgresql": "^7",
+    "@mikro-orm/mysql": "^7",
+    "@mikro-orm/sqlite": "^7",
+    "@mikro-orm/decorators": "^7",
+    "kysely": "^0.29"
+  },
+  "peerDependenciesMeta": {
+    "@mikro-orm/postgresql": { "optional": true },
+    "@mikro-orm/mysql": { "optional": true },
+    "@mikro-orm/sqlite": { "optional": true }
+  },
+  "dependencies": {
+    "tinyglobby": "^0.2"
+  },
+  "devDependencies": {
+    "@mikro-orm/core": "^7",
+    "@mikro-orm/sql": "^7",
+    "@mikro-orm/postgresql": "^7",
+    "@mikro-orm/mysql": "^7",
+    "@mikro-orm/sqlite": "^7",
+    "@mikro-orm/decorators": "^7",
+    "kysely": "^0.29"
+  },
+  "sideEffects": false
+}
