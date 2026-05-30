@@ -3,7 +3,8 @@
  * ship a type for the constructed client, so we alias the structural surface we use.
  */
 export type BunSqlClient = {
-  reserve(): Promise<ReservedConnection>;
+  /** Present on pooled adapters (postgres/mysql); absent on sqlite (single connection). */
+  reserve?(): Promise<ReservedConnection>;
   unsafe(query: string, params: readonly unknown[]): Promise<unknown>;
   close?(): Promise<void> | void;
 };

@@ -26,10 +26,12 @@ export class BunSqlDialect implements Dialect {
 
   createDriver(): Driver {
     const poolMax = this.options.poolMax ?? DEFAULT_POOL_MAX;
+    const pooled = this.options.pooled ?? true;
     const createClient =
       this.options.createClient ??
-      ((url: string, max: number): BunSqlClient => new Bun.SQL(url, { max }) as unknown as BunSqlClient);
-    return new BunSqlKyselyDriver(this.options.url, this.errorNormalizer, poolMax, createClient);
+      ((url: string, max: number): BunSqlClient =>
+        (pooled ? new Bun.SQL(url, { max }) : new Bun.SQL(url)) as unknown as BunSqlClient);
+    return new BunSqlKyselyDriver(this.options.url, this.errorNormalizer, poolMax, createClient, pooled);
   }
 
   createQueryCompiler(): QueryCompiler {

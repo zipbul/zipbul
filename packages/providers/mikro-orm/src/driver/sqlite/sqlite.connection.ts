@@ -6,18 +6,16 @@ import { SQLITE_KYSELY_PARTS } from './kysely-parts';
 import { SqliteErrorNormalizer } from './sqlite.error-normalizer';
 
 /**
- * MikroORM SQL connection for SQLite backed by Bun.
+ * MikroORM SQL connection for SQLite backed by Bun.SQL.
  *
- * DIVERGENCE (TODO impl): Bun.SQL's SQLite adapter does NOT support `sql.reserve()`,
- * which the shared {@link BunSqlDialect} uses for pooled transactions. SQLite is
- * single-connection, so this connection must wire a no-reserve acquisition path
- * (use the client directly, or bridge `bun:sqlite`'s synchronous handle). The
- * current wiring reuses BunSqlDialect as a structural placeholder and must be
- * adjusted before SQLite is functional.
+ * SQLite is a single synchronous connection with no `reserve()`, so the dialect is built
+ * with `pooled: false` — the driver runs queries on the client directly. The Bun.SQL URL is
+ * derived from MikroORM's `dbName` (e.g. `:memory:` or a file path).
  */
 export class SqliteConnection extends AbstractSqlConnection {
   createKyselyDialect(): Dialect {
-    const url = this.config.get('clientUrl') as string;
-    return new BunSqlDialect(SQLITE_KYSELY_PARTS, new SqliteErrorNormalizer(), { url, poolMax: 1 });
+    const dbName = (this.config.get('dbName') as string | undefined) ?? ':memory:';
+    const url = dbName.includes('://') ? dbName : `sqlite://${dbName}`;
+    return new BunSqlDialect(SQLITE_KYSELY_PARTS, new SqliteErrorNormalizer(), { url, pooled: false });
   }
 }

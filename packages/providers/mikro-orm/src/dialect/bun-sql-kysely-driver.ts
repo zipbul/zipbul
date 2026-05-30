@@ -4,13 +4,16 @@ import { BunSqlConnection } from './bun-sql-connection';
 import { BunSqlTransactionController } from './bun-sql-transaction';
 import { DEFAULT_POOL_MAX } from './constants';
 import type { ErrorNormalizer } from './interfaces';
-import type { BunSqlClient } from './types';
+import type { BunSqlClient, ReservedConnection } from './types';
 
 /**
  * Kysely low-level `Driver` over Bun.SQL.
  *
  * Single responsibility: connection acquisition / release / pool lifecycle. All
  * transaction + savepoint logic is delegated to {@link BunSqlTransactionController}.
+ *
+ * Pooled adapters (postgres/mysql) check out a reserved connection per acquire; sqlite is
+ * a single synchronous connection with no reservation, so it uses the client directly.
  */
 export class BunSqlKyselyDriver implements Driver {
   private client: BunSqlClient | undefined;
@@ -21,6 +24,7 @@ export class BunSqlKyselyDriver implements Driver {
     private readonly errorNormalizer: ErrorNormalizer,
     private readonly poolMax: number = DEFAULT_POOL_MAX,
     private readonly createClient: (url: string, poolMax: number) => BunSqlClient,
+    private readonly pooled: boolean = true,
   ) {}
 
   async init(): Promise<void> {
@@ -31,7 +35,21 @@ export class BunSqlKyselyDriver implements Driver {
     if (!this.client) {
       throw new Error('@zipbul/mikro-orm: BunSqlKyselyDriver used before init().');
     }
-    return new BunSqlConnection(await this.client.reserve(), this.errorNormalizer);
+    if (this.pooled) {
+      if (!this.client.reserve) {
+        throw new Error('@zipbul/mikro-orm: pooled driver requires a Bun.SQL client with reserve().');
+      }
+      return new BunSqlConnection(await this.client.reserve(), this.errorNormalizer);
+    }
+    return new BunSqlConnection(this.directConnection(this.client), this.errorNormalizer);
+  }
+
+  /** Single-connection (sqlite) path: run on the client directly; release is a no-op. */
+  private directConnection(client: BunSqlClient): ReservedConnection {
+    return {
+      unsafe: (query, params) => client.unsafe(query, params),
+      release: () => {},
+    };
   }
 
   async beginTransaction(

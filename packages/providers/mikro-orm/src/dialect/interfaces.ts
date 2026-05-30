@@ -30,6 +30,12 @@ export interface BunSqlDialectOptions {
   readonly url: string;
   /** Connection pool size. Defaults to `DEFAULT_POOL_MAX`. */
   readonly poolMax?: number;
+  /**
+   * Whether the adapter pools connections and supports `reserve()` (postgres/mysql).
+   * `false` for sqlite, which is a single synchronous connection with no reservation.
+   * Defaults to `true`.
+   */
+  readonly pooled?: boolean;
   /** Factory for the underlying Bun.SQL client (override for testing). */
   readonly createClient?: (url: string, poolMax: number) => BunSqlClient;
 }
