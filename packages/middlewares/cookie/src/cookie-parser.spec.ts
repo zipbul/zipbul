@@ -1360,4 +1360,22 @@ describe('CookieParser', () => {
       expect((caught as CookieError).reason).toBe(CookieErrorReason.HostPrefixForbidsDomain);
     });
   });
+
+  describe('Expires canonicalization preserves the name=value pair', () => {
+    it('should not drop the name=value pair when the cookie is literally named "expires"', () => {
+      const cp = CookieParser.create();
+      const header = cp.serialize(cp.createCookie('expires', 'v', { expires: new Date(Date.UTC(2030, 0, 1)), path: '/' }));
+      // The leading name=value pair must survive the Expires rewrite (regression: it was filtered out).
+      expect(header.startsWith('expires=v')).toBe(true);
+      expect(header).toContain('Expires=Tue, 01 Jan 2030 00:00:00 GMT');
+    });
+
+    it('should emit a canonical IMF-fixdate Expires for an ordinary cookie', () => {
+      const cp = CookieParser.create();
+      const header = cp.serialize(cp.createCookie('sid', 'abc', { expires: new Date(Date.UTC(2030, 0, 1)), path: '/' }));
+      expect(header.startsWith('sid=abc')).toBe(true);
+      expect(header).toContain('Expires=Tue, 01 Jan 2030 00:00:00 GMT');
+      expect(header).not.toContain('-0000');
+    });
+  });
 });

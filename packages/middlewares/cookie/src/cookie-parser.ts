@@ -173,27 +173,31 @@ export class CookieParser {
       this.validatePrefix(target);
     }
 
+    // Bun.Cookie emits a non-conformant Expires ("Fri, 1 Jan 1970 00:00:00 -0000" — 1-digit day, a
+    // "-0000" zone) instead of an RFC 7231 §7.1.1.1 IMF-fixdate. Rather than rewrite Bun's output
+    // string (which cannot distinguish the leading `name=value` pair from an `Expires=` attribute and
+    // would corrupt a cookie literally named "expires"), serialize a copy that omits Expires and append
+    // the canonical value ourselves. `target.expires` is always a Date once the cookie is constructed
+    // (Bun rejects non-finite/invalid at construction), so toUTCString() is always valid, and attribute
+    // order is not significant (RFC 6265bis §5.4 / §4.1.1) so appending Expires last is conformant.
     let header: string;
     try {
-      header = target.serialize();
+      if (target.expires == null) {
+        header = target.serialize();
+      } else {
+        const base = new Cookie(target.name, target.value, {
+          ...(target.domain != null && { domain: target.domain }),
+          ...(target.path != null && { path: target.path }),
+          secure: target.secure,
+          httpOnly: target.httpOnly,
+          ...(target.sameSite != null && { sameSite: target.sameSite }),
+          ...(target.maxAge != null && { maxAge: target.maxAge }),
+          partitioned: target.partitioned,
+        });
+        header = `${base.serialize()}; Expires=${new Date(target.expires).toUTCString()}`;
+      }
     } catch (e) {
       throw this.wrapBunError(e);
-    }
-
-    // Bun.Cookie emits a non-conformant Expires ("Fri, 1 Jan 1970 00:00:00 -0000" — 1-digit day, a
-    // "-0000" zone) instead of an RFC 7231 §7.1.1.1 IMF-fixdate, and its attribute order is not stable.
-    // Treat the serialized header as the structured "; "-separated attribute list it is (cookie values
-    // are percent-encoded and Domain/Path reject ";", so "; " is unambiguously the separator), drop
-    // whatever Expires Bun produced, and append a canonical value via toUTCString(). `target.expires`
-    // is always a Date once the cookie is constructed (Bun rejects non-finite/invalid at construction),
-    // so the date is always valid and attribute order is not significant (RFC 6265bis §5.4 / §4.1.1).
-    if (target.expires != null) {
-      const canonical = new Date(target.expires).toUTCString();
-      header = header
-        .split('; ')
-        .filter((attr) => !attr.toLowerCase().startsWith('expires='))
-        .concat(`Expires=${canonical}`)
-        .join('; ');
     }
 
     const priority = meta?.priority ?? (defaults.priority ?? null);
