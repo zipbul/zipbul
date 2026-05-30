@@ -68,6 +68,17 @@ export class Cors {
       });
     }
 
+    // Collapse a wildcard array origin (`['*']` / `['*', ...]`) to the bare
+    // wildcard scalar so it allows every origin via matchOrigin's `=== '*'`
+    // branch. This MUST run *before* the credentials cross-field guard below:
+    // that guard compares `merged.origin === '*'`, so a still-array origin would
+    // bypass the credentials:true rejection. (Unlike the methods normalization
+    // further down, which sits after its guard because that guard tests
+    // `includes('*')` on the array directly.)
+    if (Array.isArray(merged.origin) && merged.origin.includes('*')) {
+      merged.origin = '*';
+    }
+
     // Cross-field semantics (schema = single-field value, cors = cross-field).
     if (merged.credentials === true) {
       if (merged.origin === '*') {
@@ -333,19 +344,17 @@ export class Cors {
       return undefined;
     }
 
-    if (!this.includesWildcard(allowedHeaders)) {
-      return allowedHeaders.join(',');
+    // '*' is not a valid Access-Control-Allow-Headers token under credentials
+    // (browsers reject the literal wildcard), so echo the concrete requested
+    // headers instead of the wildcard list.
+    if (this.options.credentials && this.includesWildcard(allowedHeaders)) {
+      return requestHeadersRaw !== null && requestHeadersRaw.length > 0 ? requestHeadersRaw : undefined;
     }
 
-    if (this.options.credentials) {
-      if (requestHeadersRaw !== null && requestHeadersRaw.length > 0) {
-        return requestHeadersRaw;
-      }
-
-      return undefined;
-    }
-
-    return '*';
+    // Otherwise emit the configured list verbatim. Explicit entries listed
+    // alongside '*' (e.g. Authorization — a CORS non-wildcard request-header
+    // name that '*' does not cover) are preserved, not collapsed to bare '*'.
+    return allowedHeaders.join(',');
   }
 
   /** @internal */

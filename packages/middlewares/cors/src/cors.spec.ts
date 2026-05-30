@@ -661,6 +661,40 @@ describe('Cors', () => {
       expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('Authorization, X-Custom');
     });
 
+    it('should keep explicit Authorization alongside wildcard allowedHeaders without credentials', async () => {
+      // Arrange — '*' does not cover Authorization (Fetch Standard non-wildcard
+      // request-header), so an explicitly listed Authorization must survive
+      // serialization even in the non-credentialed wildcard branch.
+      const cors = Cors.create({
+        origin: 'https://a.com',
+        allowedHeaders: ['*', 'Authorization'],
+        credentials: false,
+      });
+      const req = makePreflight('https://a.com', 'POST', 'Authorization, X-Foo');
+      // Act
+      const result = await cors.handle(req);
+      // Assert
+      assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('*,Authorization');
+    });
+
+    it('should keep an explicit non-Authorization header alongside wildcard allowedHeaders without credentials', async () => {
+      // Arrange — generalization guard: any explicit entry listed alongside '*'
+      // must survive serialization (not collapse to bare '*'), so the fix cannot
+      // hard-code only the Authorization case.
+      const cors = Cors.create({
+        origin: 'https://a.com',
+        allowedHeaders: ['*', 'X-Foo'],
+        credentials: false,
+      });
+      const req = makePreflight('https://a.com', 'POST', 'X-Foo');
+      // Act
+      const result = await cors.handle(req);
+      // Assert
+      assertPreflight(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('*,X-Foo');
+    });
+
     it('should set ACMA when maxAge is configured', async () => {
       // Arrange
       const cors = Cors.create({ origin: true, maxAge: 86400 });
@@ -852,6 +886,78 @@ describe('Cors', () => {
       const req = makeRequest('GET', 'https://c.com');
       const result = await cors.handle(req);
       assertReject(result);
+    });
+  });
+
+  // ── array origin containing wildcard ──
+
+  describe('array origin containing wildcard', () => {
+    it('should allow any origin when the array contains "*"', async () => {
+      // Arrange
+      const cors = Cors.create({ origin: ['*'] });
+      const req = makeRequest('GET', 'https://anything.com');
+      // Act
+      const result = await cors.handle(req);
+      // Assert
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('*');
+    });
+
+    it('should treat a mixed array containing "*" as a full wildcard', async () => {
+      // Arrange
+      const cors = Cors.create({ origin: ['*', 'https://a.com'] });
+      const req = makeRequest('GET', 'https://other.com');
+      // Act
+      const result = await cors.handle(req);
+      // Assert
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('*');
+    });
+
+    it('should throw CredentialsWithWildcardOrigin for array "*" with credentials:true', () => {
+      try {
+        Cors.create({ origin: ['*'], credentials: true });
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+      }
+    });
+
+    it('should throw CredentialsWithWildcardOrigin for a mixed array containing "*" with credentials:true', () => {
+      // Normalization must key on includes('*'), not a length===1 shortcut, so a
+      // mixed array still hits the credentials cross-field guard.
+      try {
+        Cors.create({ origin: ['*', 'https://a.com'], credentials: true });
+        throw new Error('expected throw');
+      } catch (e) {
+        expect(e).toBeInstanceOf(CorsError);
+        expect((e as CorsError).reason).toBe(CorsErrorReason.CredentialsWithWildcardOrigin);
+      }
+    });
+
+    it('should not append Vary:Origin for an array wildcard origin', async () => {
+      // Arrange
+      const cors = Cors.create({ origin: ['*'] });
+      const req = makeRequest('GET', 'https://anything.com');
+      // Act
+      const result = await cors.handle(req);
+      // Assert — a wildcard response is not origin-dependent
+      assertContinue(result);
+      expect(result.headers.has(HttpHeader.Vary)).toBe(false);
+    });
+
+    it('should still match a non-wildcard array origin with credentials:true (no normalization)', async () => {
+      // Arrange — normalization is gated strictly on includes('*'); a non-wildcard
+      // array must keep exact-match + credentials echo intact (regression guard).
+      const cors = Cors.create({ origin: ['https://a.com'], credentials: true });
+      const req = makeRequest('GET', 'https://a.com');
+      // Act
+      const result = await cors.handle(req);
+      // Assert
+      assertContinue(result);
+      expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
+      expect(result.headers.get(HttpHeader.AccessControlAllowCredentials)).toBe('true');
     });
   });
 
