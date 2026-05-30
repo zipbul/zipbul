@@ -4,7 +4,7 @@ import { isErr } from '@zipbul/result';
 import { CookieErrorReason } from './enums';
 import { CookieError, type CookieAttributes, type CookieParserOptions, type CookiePriority, type SerializeContext } from './interfaces';
 import { resolveCookieParserOptions, validateCookieParserOptions } from './options';
-import type { ResolvedCookieParserOptions } from './types';
+import type { ResolvedCookieParserOptions, SigningAlgorithm } from './types';
 
 const IV_LENGTH = 12;
 const KID_LENGTH = 4;
@@ -15,7 +15,11 @@ const MAX_NAME_VALUE_OCTETS = 4096;
 const MAX_ATTRIBUTE_OCTETS = 1024;
 const MAX_HEADER_OCTETS = 8190;
 const NAME_VALUE_SEPARATOR = '\x00';
-// NIST SP 800-38D §8.3: per-key invocation cap for AES-GCM with RBG-based 96-bit IV.
+// AES-GCM with a random 96-bit IV: the practical uniqueness guarantee is the IV birthday bound, and
+// NIST SP 800-38D §8.3 recommends rotating well before 2^32 encryptions under one key. This ceiling is
+// enforced on a BEST-EFFORT, per-process basis only — the counter (see `encryptCounters`) lives in
+// memory, so it resets on restart and is not shared across replicas. Operators MUST rotate the
+// encryption secret on a schedule; this counter is an in-process backstop, not a fleet-wide bound.
 const GCM_MAX_INVOCATIONS = 2 ** 32;
 
 // Cookie name token per RFC 9110 §5.6.2 minus '%' (Bun.CookieMap percent-decodes inbound names; excluding '%' guarantees round-trip).
@@ -25,6 +29,31 @@ const INVALID_TOKEN_CHARS = /[^\x21\x23\x24\x26\x27\x2A\x2B\x2D\x2E\x30-\x39\x41
 const RFC1123_DOMAIN = /^\.?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i;
 
 const PRIORITY_VALUES: ReadonlySet<CookiePriority> = new Set(['low', 'medium', 'high']);
+const SAME_SITE_VALUES: ReadonlySet<string> = new Set(['strict', 'lax', 'none']);
+
+// WebCrypto subtle hash name keyed by the configured signing algorithm. `satisfies` keeps the table
+// exhaustive over SigningAlgorithm — adding a 4th algorithm fails to compile until this table is
+// extended, so hashName() never laundates an out-of-union string into crypto.subtle.
+const SUBTLE_HASH_BY_ALGO = {
+  sha256: 'SHA-256',
+  sha384: 'SHA-384',
+  sha512: 'SHA-512',
+} as const satisfies Record<SigningAlgorithm, string>;
+
+type SubtleHash = (typeof SUBTLE_HASH_BY_ALGO)[SigningAlgorithm];
+
+// Bun.CryptoHasher algorithm name and digest length per subtle hash. Same exhaustiveness guarantee.
+const HASHER_NAME_BY_SUBTLE = {
+  'SHA-256': 'sha256',
+  'SHA-384': 'sha384',
+  'SHA-512': 'sha512',
+} as const satisfies Record<SubtleHash, string>;
+
+const HASH_LEN_BY_SUBTLE = {
+  'SHA-256': 32,
+  'SHA-384': 48,
+  'SHA-512': 64,
+} as const satisfies Record<SubtleHash, number>;
 
 const HKDF_INFO_HMAC = new TextEncoder().encode('@zipbul/cookie hmac v2');
 const HKDF_INFO_AES = new TextEncoder().encode('@zipbul/cookie aes-gcm v2');
@@ -78,7 +107,7 @@ export class CookieParser {
       }
     }
 
-    const merged = this.mergeAttributes(options);
+    const merged = this.mergeAttributes(name, options);
 
     if (merged.maxAge != null) {
       this.assertValidMaxAge(merged.maxAge);
@@ -97,9 +126,9 @@ export class CookieParser {
     }
     this.assertAttributeSizes(merged);
 
-    const priority = merged.priority;
-    const bunOpts: Record<string, unknown> = { ...merged };
-    delete bunOpts.priority;
+    // Priority is a CookieAttributes field but not a Bun.Cookie constructor option; omit it via a
+    // typed destructure (no Record widening) and re-attach it through `meta` below.
+    const { priority, ...bunOpts } = merged;
 
     let cookie: Cookie;
     try {
@@ -151,16 +180,20 @@ export class CookieParser {
       throw this.wrapBunError(e);
     }
 
-    // RFC 7231 §7.1.1.1: IMF-fixdate MUST end with " GMT" and use 2-digit day.
-    // Bun.Cookie emits "Fri, 1 Jan 1970 00:00:00 -0000" — non-conformant. Rewrite using toUTCString().
+    // Bun.Cookie emits a non-conformant Expires ("Fri, 1 Jan 1970 00:00:00 -0000" — 1-digit day, a
+    // "-0000" zone) instead of an RFC 7231 §7.1.1.1 IMF-fixdate, and its attribute order is not stable.
+    // Treat the serialized header as the structured "; "-separated attribute list it is (cookie values
+    // are percent-encoded and Domain/Path reject ";", so "; " is unambiguously the separator), drop
+    // whatever Expires Bun produced, and append a canonical value via toUTCString(). `target.expires`
+    // is always a Date once the cookie is constructed (Bun rejects non-finite/invalid at construction),
+    // so the date is always valid and attribute order is not significant (RFC 6265bis §5.4 / §4.1.1).
     if (target.expires != null) {
-      const ms = target.expires instanceof Date
-        ? target.expires.getTime()
-        : Date.parse(String(target.expires));
-      if (Number.isFinite(ms)) {
-        const canonical = new Date(ms).toUTCString();
-        header = header.replace(/Expires=[^;]+/i, 'Expires=' + canonical);
-      }
+      const canonical = new Date(target.expires).toUTCString();
+      header = header
+        .split('; ')
+        .filter((attr) => !attr.toLowerCase().startsWith('expires='))
+        .concat(`Expires=${canonical}`)
+        .join('; ');
     }
 
     const priority = meta?.priority ?? (defaults.priority ?? null);
@@ -262,14 +295,14 @@ export class CookieParser {
     }
     this.assertValidName(cookie.name);
 
-    // Atomically reserve a counter slot BEFORE any await — otherwise concurrent
-    // encrypt() calls would all observe the same `current` and the NIST SP 800-38D §8.3
-    // invocation cap could be exceeded silently.
+    // Atomically reserve a counter slot BEFORE any await — otherwise concurrent encrypt() calls would
+    // all observe the same `current` and the per-process invocation backstop could be overshot within
+    // a single process.
     const current = this.encryptCounters.get(0) ?? 0;
     if (current >= GCM_MAX_INVOCATIONS) {
       throw new CookieError({
         reason: CookieErrorReason.EncryptionKeyExhausted,
-        message: `AES-GCM key reached the NIST SP 800-38D §8.3 invocation cap (${GCM_MAX_INVOCATIONS}); rotate the encryption key`,
+        message: `AES-GCM key reached the per-process invocation backstop (${GCM_MAX_INVOCATIONS}, per NIST SP 800-38D §8.3); rotate the encryption key`,
       });
     }
     const next = current + 1;
@@ -328,16 +361,17 @@ export class CookieParser {
     const ct = combined.subarray(KID_LENGTH + IV_LENGTH);
     const aad = utf8.encode(cookie.name);
 
+    // KID-strict: the ciphertext's KID MUST identify a configured key, mirroring unsign()'s policy. A
+    // forged or corrupted KID matches nothing and is rejected outright — we never trial-decrypt with
+    // unrelated keys, which would drop the KID binding and amplify each read to N decrypt attempts.
+    // Legitimate rotation is unaffected: the active key's KID is always present in the configured set.
     const matchedKeys: CryptoKey[] = [];
-    const allKeys: CryptoKey[] = [];
     for (const entry of this.aesKeyPromises) {
       const { key, kid } = await entry;
-      allKeys.push(key);
       if (constantTimeEqual(ctKid, kid)) matchedKeys.push(key);
     }
 
-    const tryKeys = matchedKeys.length > 0 ? matchedKeys : allKeys;
-    for (const key of tryKeys) {
+    for (const key of matchedKeys) {
       try {
         const plaintext = await crypto.subtle.decrypt(
           { name: 'AES-GCM', iv: iv as Uint8Array<ArrayBuffer>, additionalData: aad, tagLength: AUTH_TAG_BITS },
@@ -392,35 +426,58 @@ export class CookieParser {
 
   // --- internals ---
 
-  private hashName(): 'SHA-256' | 'SHA-384' | 'SHA-512' {
-    return `SHA-${this.options.algorithm.slice(3)}` as 'SHA-256' | 'SHA-384' | 'SHA-512';
+  private hashName(): SubtleHash {
+    return SUBTLE_HASH_BY_ALGO[this.options.algorithm];
   }
 
-  private mergeAttributes(options?: CookieAttributes): CookieAttributes {
+  private mergeAttributes(name: string, options?: CookieAttributes): CookieAttributes {
     const { defaults } = this.options;
     const merged: CookieAttributes = {};
+
+    // A __Host- cookie is structurally host-only: RFC 6265bis §4.1.3.2 forbids a Domain attribute on
+    // it entirely. A parser-level default Domain therefore must not be applied to a __Host- name (it
+    // would make every __Host- cookie unserializable under prefixValidation). An EXPLICIT Domain passed
+    // for a __Host- cookie still flows through the options merge below and is rejected by validatePrefix
+    // with HostPrefixForbidsDomain — only the inapplicable default is suppressed here.
+    const isHostPrefix = name.toLowerCase().startsWith('__host-');
 
     if (defaults.httpOnly !== null) merged.httpOnly = defaults.httpOnly;
     if (defaults.secure !== null && defaults.secure !== 'auto') merged.secure = defaults.secure;
     if (defaults.sameSite !== null) merged.sameSite = defaults.sameSite;
     if (defaults.path !== null) merged.path = defaults.path;
-    if (defaults.domain !== null) merged.domain = defaults.domain;
+    if (defaults.domain !== null && !isHostPrefix) merged.domain = defaults.domain;
     if (defaults.maxAge !== null) merged.maxAge = defaults.maxAge;
     if (defaults.expires !== null) merged.expires = defaults.expires;
     if (defaults.partitioned !== null) merged.partitioned = defaults.partitioned;
     if (defaults.priority !== null) merged.priority = defaults.priority;
 
+    // Explicit per-field overrides (typed, no dynamic-key widening). A nullish option leaves the
+    // parser default in place; a present option wins.
     if (options) {
-      for (const [key, val] of Object.entries(options)) {
-        if (val === undefined || val === null) continue;
-        (merged as Record<string, unknown>)[key] = val;
-      }
+      if (options.httpOnly != null) merged.httpOnly = options.httpOnly;
+      if (options.secure != null) merged.secure = options.secure;
+      if (options.sameSite != null) merged.sameSite = options.sameSite;
+      if (options.path != null) merged.path = options.path;
+      if (options.domain != null) merged.domain = options.domain;
+      if (options.maxAge != null) merged.maxAge = options.maxAge;
+      if (options.expires != null) merged.expires = options.expires;
+      if (options.partitioned != null) merged.partitioned = options.partitioned;
+      if (options.priority != null) merged.priority = options.priority;
     }
 
-    // Bun.Cookie throws on capitalized SameSite ('Lax'/'Strict'/'None'); normalize to lowercase
-    // so user input following common spec docs (which use Pascal-case) doesn't crash.
+    // Bun.Cookie throws on capitalized SameSite ('Lax'/'Strict'/'None'); normalize to lowercase so
+    // input following common spec docs (which use Pascal-case) doesn't crash. Validate after
+    // lowercasing so an out-of-union value fails with a precise CookieError (InvalidAttribute) rather
+    // than being asserted into the union and surfacing as an opaque Bun construction error.
     if (typeof merged.sameSite === 'string') {
-      merged.sameSite = merged.sameSite.toLowerCase() as typeof merged.sameSite;
+      const lowered = merged.sameSite.toLowerCase();
+      if (!SAME_SITE_VALUES.has(lowered)) {
+        throw new CookieError({
+          reason: CookieErrorReason.InvalidAttribute,
+          message: 'sameSite must be one of: strict, lax, none',
+        });
+      }
+      merged.sameSite = lowered as 'strict' | 'lax' | 'none';
     }
 
     return merged;
@@ -446,7 +503,11 @@ export class CookieParser {
       resolvedSecure = context.isSecure;
     }
 
-    const applyDomain = cookie.domain == null && defaults.domain !== null;
+    // A __Host- cookie forbids Domain (RFC 6265bis §4.1.3.2). The parser default Domain must not be
+    // applied here either — mirroring mergeAttributes — otherwise serialize would re-introduce the
+    // Domain that createCookie deliberately omitted and validatePrefix would then reject it.
+    const isHostPrefix = cookie.name.toLowerCase().startsWith('__host-');
+    const applyDomain = cookie.domain == null && defaults.domain !== null && !isHostPrefix;
     const applyMaxAge = cookie.maxAge == null && defaults.maxAge !== null;
     const applyExpires = cookie.expires == null && defaults.expires !== null;
     const applySecure = resolvedSecure !== undefined;
@@ -476,7 +537,7 @@ export class CookieParser {
     const secret = this.options.secrets![0]!;
     const hash = this.hashName();
     const derivedKey = deriveHmacKeyBytesSync(secret, hash, this.options.kdfSalt);
-    const algoName = hash.toLowerCase().replace('-', '') as 'sha256' | 'sha384' | 'sha512';
+    const algoName = HASHER_NAME_BY_SUBTLE[hash];
     const hasher = new Bun.CryptoHasher(algoName, derivedKey);
     hasher.update(data);
     const mac = hasher.digest();
@@ -645,7 +706,7 @@ export class CookieParser {
 
 // --- key derivation ---
 
-async function deriveHmacKey(secret: string, hash: 'SHA-256' | 'SHA-384' | 'SHA-512', salt: Uint8Array): Promise<{ key: CryptoKey; kid: Uint8Array }> {
+async function deriveHmacKey(secret: string, hash: SubtleHash, salt: Uint8Array): Promise<{ key: CryptoKey; kid: Uint8Array }> {
   const ikm = utf8.encode(secret);
   const baseKey = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
@@ -682,22 +743,22 @@ async function deriveKid(keyBytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(h, 0, KID_LENGTH);
 }
 
-function deriveHmacKeyBytesSync(secret: string, hash: 'SHA-256' | 'SHA-384' | 'SHA-512', salt: Uint8Array): Uint8Array {
+function deriveHmacKeyBytesSync(secret: string, hash: SubtleHash, salt: Uint8Array): Uint8Array {
   // Sync HKDF derivation that mirrors async deriveHmacKey output exactly.
   const prk = hkdfExtract(secret, salt, hash);
   return hkdfExpand(prk, HKDF_INFO_HMAC, 32, hash);
 }
 
-function hkdfExtract(ikm: string | Uint8Array, salt: Uint8Array, hash: 'SHA-256' | 'SHA-384' | 'SHA-512'): Uint8Array {
-  const algoName = hash.toLowerCase().replace('-', '');
-  const h = new Bun.CryptoHasher(algoName as 'sha256' | 'sha384' | 'sha512', salt);
+function hkdfExtract(ikm: string | Uint8Array, salt: Uint8Array, hash: SubtleHash): Uint8Array {
+  const algoName = HASHER_NAME_BY_SUBTLE[hash];
+  const h = new Bun.CryptoHasher(algoName, salt);
   h.update(typeof ikm === 'string' ? utf8.encode(ikm) : ikm);
   return new Uint8Array(h.digest());
 }
 
-function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number, hash: 'SHA-256' | 'SHA-384' | 'SHA-512'): Uint8Array {
-  const algoName = hash.toLowerCase().replace('-', '') as 'sha256' | 'sha384' | 'sha512';
-  const hashLen = hash === 'SHA-256' ? 32 : hash === 'SHA-384' ? 48 : 64;
+function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number, hash: SubtleHash): Uint8Array {
+  const algoName = HASHER_NAME_BY_SUBTLE[hash];
+  const hashLen = HASH_LEN_BY_SUBTLE[hash];
   const N = Math.ceil(length / hashLen);
   const out = new Uint8Array(N * hashLen);
   let prev = new Uint8Array(0);

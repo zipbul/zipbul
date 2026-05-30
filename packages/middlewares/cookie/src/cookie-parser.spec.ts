@@ -1300,4 +1300,64 @@ describe('CookieParser', () => {
       expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidPath);
     });
   });
+
+  describe('decrypt KID binding', () => {
+    const ENC = '9v7BAwKpXHWZnoKZIHV2XWch22HvF8bleOM6t4nc-A4';
+
+    it('should reject a ciphertext whose KID matches no configured key', async () => {
+      const cp = CookieParser.create({ encryptionSecret: ENC });
+      const encrypted = await cp.encrypt(new Cookie('n', 'topsecret'));
+      const buf = Buffer.from(encrypted.value, 'base64url');
+      // Corrupt the 4-byte KID prefix; the GCM body is left intact.
+      for (let i = 0; i < 4; i++) buf[i] = (buf[i]! ^ 0xff) & 0xff;
+      let caught: unknown;
+      try {
+        await cp.decrypt(new Cookie('n', buf.toString('base64url')));
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(CookieError);
+      expect((caught as CookieError).reason).toBe(CookieErrorReason.DecryptionFailed);
+    });
+  });
+
+  describe('sameSite token validation', () => {
+    it('should throw InvalidAttribute when sameSite is not a valid token', () => {
+      const cp = CookieParser.create();
+      let caught: unknown;
+      try {
+        cp.createCookie('s', 'v', { sameSite: 'bogus' as any, secure: true });
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(CookieError);
+      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidAttribute);
+    });
+
+    it('should normalize a Pascal-case sameSite to its lowercase token', () => {
+      const cp = CookieParser.create();
+      const header = cp.serialize(cp.createCookie('s', 'v', { sameSite: 'Strict' as any }));
+      expect(header).toContain('SameSite=Strict');
+    });
+  });
+
+  describe('__Host- prefix domain suppression', () => {
+    it('should not apply a parser default Domain to a __Host- cookie', () => {
+      const cp = CookieParser.create({ domain: 'example.com' });
+      const header = cp.serialize(cp.createCookie('__Host-id', 'v', { secure: true, path: '/' }));
+      expect(header).not.toContain('Domain');
+    });
+
+    it('should still reject an explicit Domain on a __Host- cookie', () => {
+      const cp = CookieParser.create();
+      let caught: unknown;
+      try {
+        cp.serialize(cp.createCookie('__Host-id', 'v', { secure: true, path: '/', domain: 'example.com' }));
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(CookieError);
+      expect((caught as CookieError).reason).toBe(CookieErrorReason.HostPrefixForbidsDomain);
+    });
+  });
 });

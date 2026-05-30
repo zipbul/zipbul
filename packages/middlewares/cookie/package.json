@@ -12,14 +12,16 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/cookie#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/middlewares/cookie#readme",
   "keywords": [
     "cookie",
     "cookie-parser",
     "cookie-jar",
     "rfc6265",
     "signed-cookies",
+    "encrypted-cookies",
     "http",
+    "middleware",
     "bun",
     "typescript",
     "zipbul"
@@ -50,8 +52,15 @@
   "dependencies": {
     "@zipbul/result": "workspace:*"
   },
+  "peerDependencies": {
+    "@zipbul/common": "workspace:*",
+    "@zipbul/http-adapter": "workspace:*"
+  },
   "sideEffects": false,
   "devDependencies": {
+    "@zipbul/common": "workspace:*",
+    "@zipbul/http-adapter": "workspace:*",
+    "@zipbul/tck": "workspace:*",
     "fast-check": "^4.7.0"
   }
 }

@@ -313,4 +313,87 @@ describe('CookieJar', () => {
       expect(headers).toHaveLength(3);
     });
   });
+
+  describe('delete with cookie prefixes (RFC 6265bis §4.1.3)', () => {
+    it('should expire a __Host- cookie under default options with Secure and Path=/', async () => {
+      const parser = CookieParser.create();
+      const jar = new CookieJar(parser, '');
+      jar.delete('__Host-sess');
+      const headers = await jar.getSetCookieHeaders();
+      expect(headers).toHaveLength(1);
+      expect(headers[0]).toContain('__Host-sess=');
+      expect(headers[0]).toContain('Secure');
+      expect(headers[0]).toContain('Path=/');
+      expect(headers[0]).toContain('Max-Age=0');
+    });
+
+    it('should expire a __Secure- cookie under default options with Secure', async () => {
+      const parser = CookieParser.create();
+      const jar = new CookieJar(parser, '');
+      jar.delete('__Secure-sess');
+      const headers = await jar.getSetCookieHeaders();
+      expect(headers[0]).toContain('__Secure-sess=');
+      expect(headers[0]).toContain('Secure');
+      expect(headers[0]).toContain('Max-Age=0');
+    });
+
+    it('should not emit a Domain on a __Host- deletion even when the parser default sets one', async () => {
+      const parser = CookieParser.create({ domain: 'example.com' });
+      const jar = new CookieJar(parser, '');
+      jar.delete('__Host-sess');
+      const headers = await jar.getSetCookieHeaders();
+      expect(headers[0]).not.toContain('Domain');
+    });
+
+    it('should carry the parser default Domain on a non-prefixed deletion (deletion must match)', async () => {
+      const parser = CookieParser.create({ domain: 'example.com' });
+      const jar = new CookieJar(parser, '');
+      jar.delete('sess');
+      const headers = await jar.getSetCookieHeaders();
+      expect(headers[0]).toContain('Domain=example.com');
+    });
+
+    it('should expire a plain cookie without forcing Secure under default options', async () => {
+      const parser = CookieParser.create();
+      const jar = new CookieJar(parser, '');
+      jar.delete('plain');
+      const headers = await jar.getSetCookieHeaders();
+      expect(headers[0]).toContain('plain=');
+      expect(headers[0]).not.toContain('Secure');
+      expect(headers[0]).toContain('Max-Age=0');
+    });
+
+    it('should reject serialization when an explicit secure:false contradicts a __Host- deletion', async () => {
+      const parser = CookieParser.create();
+      const jar = new CookieJar(parser, '');
+      // An explicit secure:false is honored verbatim, so the prefix invariant fails closed at
+      // serialization (the same point set() would fail) rather than being silently overridden.
+      jar.delete('__Host-sess', { secure: false });
+      let caught: unknown;
+      try {
+        await jar.getSetCookieHeaders();
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(CookieError);
+      expect((caught as CookieError).reason).toBe(CookieErrorReason.HostPrefixRequiresSecure);
+    });
+  });
+
+  describe('inbound U+FFFD disambiguation', () => {
+    it('should keep a cookie whose value is a legitimately percent-encoded U+FFFD', () => {
+      const parser = CookieParser.create();
+      const jar = new CookieJar(parser, 's=%EF%BF%BD');
+      expect(jar.has('s')).toBe(true);
+      expect(jar.getRaw('s')).toBe('�');
+    });
+
+    it('should drop a malformed-percent-encoding cookie while keeping a sibling legit U+FFFD', () => {
+      const parser = CookieParser.create();
+      const jar = new CookieJar(parser, 'legit=%EF%BF%BD; bad=%XX; good=ok');
+      expect(jar.has('legit')).toBe(true);
+      expect(jar.getRaw('good')).toBe('ok');
+      expect(jar.has('bad')).toBe(false);
+    });
+  });
 });

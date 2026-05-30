@@ -3,7 +3,7 @@ import { isErr } from '@zipbul/result';
 
 import { CookieParser, CookieJar } from '../../index';
 
-describe('CookieParser E2E', () => {
+describe('CookieParser + CookieJar scenarios', () => {
   describe('simulated HTTP request/response cycle via jar', () => {
     it('should handle server setting signed+encrypted cookies and reading them back', async () => {
       const parser = CookieParser.create({
