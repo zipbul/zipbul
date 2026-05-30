@@ -1,3 +1,27 @@
 {
-  "extends": "../../../tsconfig.json"
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "types": ["bun"],
+    "allowJs": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "strictPropertyInitialization": false,
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noPropertyAccessFromIndexSignature": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true
+  },
+  "exclude": ["**/dist/**", "**/.zipbul/**", "**/.zipbul-temp/**"]
 }
