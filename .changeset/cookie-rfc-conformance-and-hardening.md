@@ -82,8 +82,23 @@ First release of `@zipbul/cookie`. RFC 6265 / RFC 6265bis-22 compliant cookie pa
 
 Reason codes are kebab-case strings (`'invalid-cookie-name'`, `'host-prefix-forbids-domain'`, etc.). Consumers matching by string value should use the `CookieErrorReason` enum.
 
+## Framework middleware + post-release hardening (this revision)
+
+Added the zipbul HTTP middleware layer and a second strictest-bar audit pass.
+
+- **`cookieMiddleware(options)`** — returns `{ onRequest, beforeResponse }`. One `CookieParser` is built and validated at registration (fail-fast). `onRequest` (`HttpAdapterPhase.OnRequest`) parses the inbound `Cookie` header into a `CookieJar` published on the context under **`cookieJarKey`** (a `contextKey<CookieJar>`, declared in `onRequest.provides` for AOT verification). `beforeResponse` (`HttpAdapterPhase.BeforeResponse`) flushes queued cookies via `appendHeader` — one `Set-Cookie` header per cookie (never comma-folded, RFC 6265 §3) — and derives `SerializeContext.isSecure` from the request URL scheme.
+- **`decrypt()` made KID-strict** — a forged/corrupted KID now matches no configured key and is rejected with `DecryptionFailed`, mirroring `unsign()`. Previously fell back to trial-decryption with every key (read-side KID-binding asymmetry + per-request O(N) decrypt amplification). Legitimate rotation is unaffected.
+- **`CookieJar.delete()` can expire `__Host-`/`__Secure-` cookies under default options** — delete() now defaults `secure:true` for prefixed names (and `Path=/` for `__Host-`), so the deletion `Set-Cookie` survives the UA prefix check (RFC 6265bis §4.1.3). Previously threw, breaking the standard logout flow. A parser-default `Domain` is also no longer applied to a `__Host-` cookie (in both `createCookie` and `serialize`); an explicit `Domain` is still rejected.
+- **Inbound U+FFFD disambiguation** — a legitimately percent-encoded U+FFFD (`%EF%BF%BD`) is now kept; only `Bun.CookieMap`'s lossy decode of genuinely malformed `%`-encoding is dropped, distinguished by strict `decodeURIComponent` of the raw wire segment (was a substring test that discarded valid values).
+- **`Expires` root-fix** — Bun's non-conformant `-0000` output is dropped and a canonical RFC 7231 IMF-fixdate is appended by rebuilding the attribute list (replacing the prior regex rewrite; the old non-finite branch was dead since `cookie.expires` is always a `Date` post-construction).
+- **`sameSite` validation** — an out-of-union value now throws `CookieError(InvalidAttribute)` instead of being cast into the union and surfacing as an opaque Bun error.
+- **Type hygiene** — `hashName()` and the SHA algorithm-name casts replaced with `satisfies Record<SigningAlgorithm, …>` lookup tables; the untyped `Object.entries` merge loop and `Record<string, unknown>` + `delete` replaced with typed per-field assignment and a typed destructure.
+- **GCM invocation cap reworded** — documented honestly as a per-process best-effort backstop, not the fleet-wide NIST SP 800-38D bound it implied.
+- **Packaging/tests** — added `@zipbul/common` + `@zipbul/http-adapter` (peer + dev) and `@zipbul/tck` (dev); `stripInternal` so `@internal CookieErrorData` no longer leaks into the emitted `.d.ts`; coverage gate raised to 1.0; added `enums.spec.ts` / `interfaces.spec.ts` / `middleware.spec.ts`; real `@zipbul/tck` inbound e2e (`test/e2e/{helpers,parse}.test.ts`); reclassified the former in-memory `test/e2e/cookie-parser.test.ts` to `test/integration/jar-scenarios.test.ts`; removed the stale `TODO.md`.
+
 ## Test coverage
 
+- 400 tests, 0 fail, 100% line / function coverage (this revision). The figures below describe the initial conformance/hardening pass.
 - 330 tests / 510 assertions / 99.49% line coverage / 99.62% function coverage
 - Conformance: RFC 6265bis §§4.1.1, 4.1.2.1, 4.1.2.2, 4.1.2.7, 4.1.3.1, 4.1.3.2, 5.5, 5.6, 5.7; CHIPS; NIST SP 800-38D; FIPS 198-1; RFC 9110 §5.6.2
 - Security: header injection, cross-name signature/ciphertext replay, algorithm confusion, ciphertext truncation/tampering, signature malformation, prototype pollution, weak secrets, oversized payloads, control characters in name, percent in name, error-type leakage
