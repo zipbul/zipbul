@@ -418,6 +418,15 @@ export class QueryParser {
           let nextValue = current[index];
 
           if (!this.isRecordValue(nextValue) && !Array.isArray(nextValue)) {
+            // An existing scalar at this index being nested into is a
+            // structure/scalar conflict — symmetric with the record path.
+            if (nextValue !== undefined && this.options.strict) {
+              return err<QueryParserErrorData>({
+                reason: QueryParserErrorReason.ConflictingStructure,
+                message: `Conflict: index "${prop}" is both a scalar and a nested structure`,
+              });
+            }
+
             nextValue = this.shouldCreateArray(nextKey) ? [] : {};
             this.assignArrayRecordValue(current, prop, nextValue);
           }
@@ -513,7 +522,7 @@ export class QueryParser {
           return;
         }
 
-        this.assignArrayRecordValue(obj, key, value);
+        return this.assignToArrayIndex(obj, idx, key, value);
       } else {
         if (this.options.strict) {
           return err<QueryParserErrorData>({
@@ -584,6 +593,60 @@ export class QueryParser {
     }
   }
 
+  /**
+   * Assigns a scalar to an explicit array index, applying the same duplicate-key
+   * strategy and structure/scalar conflict detection as {@link assignToRecord}
+   * so array indices behave consistently with object keys.
+   */
+  private assignToArrayIndex(
+    arr: QueryArray,
+    idx: number,
+    key: string,
+    value: string,
+  ): Err<QueryParserErrorData> | undefined {
+    const existing = arr[idx];
+
+    if (existing === undefined) {
+      this.assignArrayRecordValue(arr, key, value);
+
+      return;
+    }
+
+    if (typeof existing === 'object' && existing !== null) {
+      if (Array.isArray(existing) && this.options.duplicates === 'array') {
+        existing.push(value);
+
+        return;
+      }
+
+      if (this.options.strict) {
+        return err<QueryParserErrorData>({
+          reason: QueryParserErrorReason.ConflictingStructure,
+          message: `Conflict: index "${key}" is a nested structure but being assigned a scalar value`,
+        });
+      }
+
+      if (this.options.duplicates !== 'last') {
+        return;
+      }
+    }
+
+    if (this.options.duplicates === 'first') {
+      return;
+    }
+
+    if (this.options.duplicates === 'last') {
+      this.assignArrayRecordValue(arr, key, value);
+
+      return;
+    }
+
+    // duplicates:'array' with an existing scalar — combine into a pair. An
+    // existing array is already handled by the fast path above, so `existing`
+    // is necessarily a scalar at this point.
+    this.assignArrayRecordValue(arr, key, [existing, value]);
+  }
+
   private assignArrayRecordValue(target: QueryArray, key: string, value: QueryValue): void {
     Object.defineProperty(target, key, {
       value,
@@ -651,9 +714,12 @@ export class QueryParser {
   }
 
   private safeDecode(raw: string): string | Err<QueryParserErrorData> {
-    try {
-      const input = this.options.urlEncoded && raw.includes('+') ? raw.replaceAll('+', ' ') : raw;
+    // '+'->space and percent-decoding are independent passes (WHATWG
+    // x-www-form-urlencoded / URLSearchParams). Compute the '+'-substituted
+    // string up front so a percent-decode failure still preserves it.
+    const input = this.options.urlEncoded && raw.includes('+') ? raw.replaceAll('+', ' ') : raw;
 
+    try {
       return decodeURIComponent(input);
     } catch {
       if (this.options.strict) {
@@ -663,7 +729,7 @@ export class QueryParser {
         });
       }
 
-      return raw;
+      return input;
     }
   }
 }
