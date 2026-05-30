@@ -23,9 +23,10 @@ export class BunSqlConnection implements DatabaseConnection {
         | (Array<R> & { count?: number | null; affectedRows?: number | null; lastInsertRowid?: number | null })
         | undefined;
       const rows = Array.isArray(res) ? (res as R[]) : [];
-      // Bun.SQL reports the affected row count on `.count` for pg/mysql DML; `.affectedRows`
-      // is null for pg UPDATE/DELETE, so prefer `.count` and fall back to `.affectedRows`.
-      const affected = res?.count ?? res?.affectedRows;
+      // Bun.SQL reports the affected row count differently per adapter: mysql uses
+      // `.affectedRows` (and sets `.count` to 0), while pg leaves `.affectedRows` null and
+      // carries the count on `.count`. Prefer `.affectedRows`, falling back to `.count`.
+      const affected = res?.affectedRows ?? res?.count;
       return {
         rows,
         ...(affected != null ? { numAffectedRows: BigInt(affected) } : {}),
