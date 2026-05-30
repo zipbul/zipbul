@@ -1,7 +1,7 @@
 {
   "name": "@zipbul/mikro-orm",
   "version": "0.0.0",
-  "description": "MikroORM v7 integration for zipbul backed by Bun's native SQL (Bun.SQL) — Postgres, MySQL, SQLite drivers + zipbul-native DI/request-context DX",
+  "description": "MikroORM v7 integration for zipbul backed by Bun's native SQL (Bun.SQL) \u2014 Postgres, MySQL, SQLite drivers + zipbul-native DI/request-context DX",
   "license": "MIT",
   "author": "Junhyung Park (https://github.com/parkrevil)",
   "repository": {
@@ -59,20 +59,26 @@
     "kysely": "^0.29"
   },
   "peerDependenciesMeta": {
-    "@mikro-orm/postgresql": { "optional": true },
-    "@mikro-orm/mysql": { "optional": true },
-    "@mikro-orm/sqlite": { "optional": true }
+    "@mikro-orm/postgresql": {
+      "optional": true
+    },
+    "@mikro-orm/mysql": {
+      "optional": true
+    },
+    "@mikro-orm/sqlite": {
+      "optional": true
+    }
   },
   "dependencies": {
     "tinyglobby": "^0.2"
   },
   "devDependencies": {
-    "@mikro-orm/core": "^7",
-    "@mikro-orm/sql": "^7",
-    "@mikro-orm/postgresql": "^7",
-    "@mikro-orm/mysql": "^7",
-    "@mikro-orm/sqlite": "^7",
-    "@mikro-orm/decorators": "^7",
+    "@mikro-orm/core": "7.1.1",
+    "@mikro-orm/sql": "7.1.1",
+    "@mikro-orm/postgresql": "7.1.1",
+    "@mikro-orm/mysql": "7.1.1",
+    "@mikro-orm/sqlite": "7.1.1",
+    "@mikro-orm/decorators": "7.1.1",
     "kysely": "^0.29"
   },
   "sideEffects": false
