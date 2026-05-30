@@ -91,7 +91,7 @@ Codex가 죽어(턴 멈춤) 서브에이전트 3 + 재실행 2로 심층 리뷰.
 - **B1 `base-repository.ts:21` Proxy `then` 트랩**(재현됨): `'then' in target===false` → `await repo`/DI async-factory가 `then` 트랩→`EntityManagerResolver.resolve()`를 부작용으로 실행. 부팅 시점 미등록이면 **repo를 await만 해도 throw**. 수정: `if (prop==='then' || typeof prop==='symbol') return Reflect.get(target,prop,receiver);`. RED 케이스 추가: "subclass 인스턴스를 await해도 resolve 미호출".
 - **B2 `bun-sql-transaction.ts:33/37/41` savepoint 식별자 미이스케이프**(재현됨): `savepoint "${name}"` 따옴표 미중복 → 식별자 경계 탈출. 수정: `'"'+name.replace(/"/g,'""')+'"'` + 따옴표 포함 RED 케이스. (isolation/accessMode는 닫힌 enum이라 저위험이나, SQL이 enum에서 생성됨을 assert.)
 - **B3 `connection-registry.ts:13` 전역 Map 스펙 간 누수 + reset API 없음**(재현됨): registry를 만지는 모든 spec(resolver/runner/service/base-repo 전이 포함)이 같은 Map 공유 → 순서의존. 수정: test-only `static clear()` 추가, registry 만지는 모든 spec `afterEach`에서 호출, 가능하면 실Map 대신 `spyOn(ConnectionRegistry,'get')`.
-- **B4 sqlite 레인 과약속**: `BunSqlKyselyDriver.acquireConnection`(L34)이 `reserve()` 하드코딩 → Bun.SQL sqlite는 미지원이라 **MikroORM 부팅 불가**. ⇒ §3 "context/registry ALS"·§5 lane A를 **docker pg로 이전**. sqlite 트리아드는 **defer/삭제 권고**(feedback_no_patchwork: 테스트설정 우회가 필요한 플레이스홀더 dead code 금지) — no-reserve 경로 구현 전까지 드라이버 배럴에서 제외. (ARCHITECTURE의 sqlite 설계는 보존.) ※ 사용자 결정 대기.
+- **B4 sqlite는 포함한다 — no-reserve 분기를 RED로 구현**(사용자 확정): sqlite 기능은 스파이크서 실증됨(bun:sqlite 동기 + Bun.SQL sqlite 비동기 둘 다 라운드트립 성공). 못 도는 건 스캐폴드의 `BunSqlKyselyDriver.acquireConnection`(L34)이 `reserve()`를 **무조건** 호출하기 때문. **이게 RED의 대상**: "sqlite가 부팅+라운드트립한다"는 통합 테스트를 RED로 쓰고(현재 reserve 하드코딩이라 실패), no-reserve 분기를 구현해 GREEN. 설계 수정: **커넥션 획득을 per-DB 전략으로 분리** — pg/mysql은 `client.reserve()`, **sqlite는 reserve 없이 단일 커넥션 직접 사용**(sqlite는 단일연결이라 :memory: 상태도 쿼리 간 유지됨 → §5 lane A가 진짜 동작). `dialect/interfaces.ts`에 획득 전략 계약 추가, driver/<db>가 concrete 제공. sqlite는 pg/mysql과 **동일하게** 유닛+통합 테스트(coverage ignore·test.failing 없음).
 - **B5 reserve()/raw-begin 전제 미검증**: 설계의 load-bearing 가정("pg는 풀 커넥션 raw begin 금지")이 테스트로 안 박힘(스파이크서 ERR_POSTGRES_UNSAFE_TRANSACTION 실측했으나 회귀테스트 없음). §3에 (a) reserve()+savepoint 동작 (b) 비-reserve raw begin 실패를 회귀로 추가.
 - **B6 errno→예외가 pg 전용**: mysql normalizer 항등 스텁 + §8서 1062 정렬을 미결로 둠. ⇒ pg+mysql 파라메트릭 `instanceof UniqueConstraintViolationException` 통합테스트 커밋, 또는 mysql을 BLOCKING에서 descope. (mysql normalizer 구현 전엔 그 테스트 RED.)
 
@@ -112,9 +112,9 @@ Codex가 죽어(턴 멈춤) 서브에이전트 3 + 재실행 2로 심층 리뷰.
 1. **B1/B2/B3는 지금 RED**(버그 노출 케이스 먼저) → GREEN 단계서 코드 수정.
 2. 나머지 유닛 14 spec(§2) 작성 — S1/S4 가이드 적용, S1 4개 파일은 통합 확인 전 계약 lock 금지.
 3. `bunfig.toml` 작성(S2). 통합 spec(§3, B5/B6/S3 포함) — docker skip-guard(`const PG=env.DB_URL_PG; const d=PG?describe:describe.skip`). e2e(§4).
-4. sqlite 결정(B4) 반영 후 진행.
+4. sqlite no-reserve를 RED→GREEN으로 구현(B4): "sqlite 부팅+라운드트립" 통합 RED → per-DB 획득 전략 구현 → GREEN. sqlite 유닛/통합은 pg/mysql과 동형.
 
-### 9.5 미결 (사용자 결정)
-- **sqlite 트리아드**: (A) 지금 defer/삭제(드라이버 배럴서 제외, dead code·coverage 구멍 제거 — 권고) vs (B) no-reserve 경로를 지금 구현해 살림 vs (C) 플레이스홀더 유지 + `src/driver/sqlite/**` coverage ignore + `test.failing` 문서화. → 권고 A.
+### 9.5 결정/미결
+- **sqlite: 포함 확정**(사용자). no-reserve 분기를 RED→GREEN으로 구현(B4). per-DB 커넥션 획득 전략. sqlite도 pg/mysql과 동일 유닛+통합. coverage ignore·삭제 없음. ⇒ §2/§3에 sqlite 유닛·통합 케이스 pg/mysql과 동형으로 포함, §5 lane A(sqlite :memory)는 no-reserve 구현 후 진짜 무인프라 레인.
 - TCK 업그레이드 3건: 지금 `mikro-orm/test/helpers.ts` 로컬로 시작(R3: TCK를 @mikro-orm 의존으로 오염 금지) → 2번째 consumer 생기면 `@zipbul/tck-sql`로 승격. `assertConcurrentIsolation`만 ORM-agnostic이라 TCK 후보.
 - CI readiness: init 전 raw `select 1` backoff 프로브(init은 eager connect라 post-init 폴링은 늦음) + compose healthcheck.
