@@ -64,17 +64,63 @@ test('beginTransaction delegates: isolation SQL then begin reach the connection'
   expect(calls).toEqual(['set transaction isolation level serializable', 'begin']);
 });
 
-test('savepoint delegates a quoted savepoint statement to the connection', async () => {
-  const calls: string[] = [];
-  const connection = {
+function recordingConnection(calls: string[]): DatabaseConnection {
+  return {
     executeQuery: mock((q: { sql: string }) => {
       calls.push(q.sql);
       return Promise.resolve({ rows: [] });
     }),
   } as unknown as DatabaseConnection;
+}
+
+test('savepoint delegates a quoted savepoint statement to the connection', async () => {
+  const calls: string[] = [];
   const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => fakeClient());
-  await driver.savepoint(connection, 'sp');
+  await driver.savepoint(recordingConnection(calls), 'sp');
   expect(calls).toEqual(['savepoint "sp"']);
+});
+
+test('rollbackToSavepoint delegates a quoted "rollback to savepoint" statement', async () => {
+  const calls: string[] = [];
+  const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => fakeClient());
+  await driver.rollbackToSavepoint(recordingConnection(calls), 'sp');
+  expect(calls).toEqual(['rollback to savepoint "sp"']);
+});
+
+test('releaseSavepoint delegates a quoted "release savepoint" statement', async () => {
+  const calls: string[] = [];
+  const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => fakeClient());
+  await driver.releaseSavepoint(recordingConnection(calls), 'sp');
+  expect(calls).toEqual(['release savepoint "sp"']);
+});
+
+test('a savepoint name containing a double-quote is escaped by doubling it', async () => {
+  const calls: string[] = [];
+  const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => fakeClient());
+  await driver.savepoint(recordingConnection(calls), 'a"b');
+  expect(calls).toEqual(['savepoint "a""b"']);
+});
+
+test('commitTransaction delegates a "commit" statement to the connection', async () => {
+  const calls: string[] = [];
+  const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => fakeClient());
+  await driver.commitTransaction(recordingConnection(calls));
+  expect(calls).toEqual(['commit']);
+});
+
+test('rollbackTransaction delegates a "rollback" statement to the connection', async () => {
+  const calls: string[] = [];
+  const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => fakeClient());
+  await driver.rollbackTransaction(recordingConnection(calls));
+  expect(calls).toEqual(['rollback']);
+});
+
+test('releaseConnection releases the underlying reserved Bun.SQL connection', async () => {
+  const release = mock(() => {});
+  const connection = { release } as unknown as DatabaseConnection;
+  const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => fakeClient());
+  await driver.releaseConnection(connection);
+  expect(release).toHaveBeenCalled();
 });
 
 test('uses DEFAULT_POOL_MAX as the documented default when constructed without one', () => {

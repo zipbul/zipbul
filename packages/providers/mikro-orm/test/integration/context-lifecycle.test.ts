@@ -5,11 +5,21 @@ import { BunPostgreSqlDriver } from '../../src/driver';
 import { ConnectionRegistry, ConnectionNotRegisteredError, DEFAULT_CONNECTION } from '../../src/connection';
 import { EntityManagerResolver } from '../../src/context';
 import { PG_URL, describePg, makeOrm, freshSchema } from './helpers';
+import { Entity, PrimaryKey, Property } from '../../src/entity';
+
+@Entity()
+class CtxNote {
+  @PrimaryKey({ type: 'number', autoincrement: true })
+  id!: number;
+
+  @Property({ type: 'string' })
+  text!: string;
+}
 
 describePg('context + registry lifecycle (postgres)', () => {
   let orm: MikroORM;
   beforeAll(async () => {
-    orm = await makeOrm(BunPostgreSqlDriver, PG_URL!);
+    orm = await makeOrm(BunPostgreSqlDriver, PG_URL!, [CtxNote]);
     await freshSchema(orm);
   });
   afterAll(async () => {
@@ -57,7 +67,7 @@ describePg('context + registry lifecycle (postgres)', () => {
   });
 
   test('named connections coexist and resolve to their own global EM', async () => {
-    const second = await makeOrm(BunPostgreSqlDriver, PG_URL!);
+    const second = await makeOrm(BunPostgreSqlDriver, PG_URL!, [CtxNote]);
     try {
       ConnectionRegistry.set(DEFAULT_CONNECTION, orm);
       ConnectionRegistry.set('other', second);

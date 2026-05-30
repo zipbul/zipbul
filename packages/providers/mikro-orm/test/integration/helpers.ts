@@ -2,7 +2,6 @@ import { describe } from 'bun:test';
 import { MikroORM, type Options } from '@mikro-orm/core';
 import { SqlSchemaGenerator } from '@mikro-orm/sql';
 
-import { Entity, PrimaryKey, Property } from '../../src/entity';
 import { BunPostgreSqlDriver, BunMySqlDriver } from '../../src/driver';
 
 /**
@@ -10,23 +9,15 @@ import { BunPostgreSqlDriver, BunMySqlDriver } from '../../src/driver';
  * docker-less `bun test` (the default unit lane) stays green. Run with:
  *   DB_URL_PG=postgres://poc:poc@127.0.0.1:55401/pocdb \
  *   DB_URL_MYSQL=mysql://poc:poc@127.0.0.1:33401/pocdb bun test
+ *
+ * IMPORTANT: each test FILE must define its OWN entity classes with unique names. Sharing
+ * one entity class across multiple `MikroORM.init` calls in a single `bun test` process
+ * hangs MikroORM's global metadata processing — so there is no shared entity here.
  */
 export const PG_URL = process.env.DB_URL_PG;
 export const MYSQL_URL = process.env.DB_URL_MYSQL;
 export const describePg = PG_URL ? describe : describe.skip;
 export const describeMysql = MYSQL_URL ? describe : describe.skip;
-
-@Entity()
-export class Account {
-  @PrimaryKey({ type: 'number', autoincrement: true })
-  id!: number;
-
-  @Property({ type: 'string', unique: true })
-  email!: string;
-
-  @Property({ type: 'string' })
-  name!: string;
-}
 
 /** Schema generator surface via the `orm.schema` getter (wired by the SqlSchemaGenerator extension). */
 type SchemaGen = { drop(o?: { dropForeignKeys?: boolean }): Promise<void>; create(): Promise<void> };
@@ -35,7 +26,7 @@ const schemaGen = (orm: MikroORM): SchemaGen => (orm as unknown as { schema: Sch
 export async function makeOrm(
   driver: typeof BunPostgreSqlDriver | typeof BunMySqlDriver,
   clientUrl: string,
-  entities: Options['entities'] = [Account],
+  entities: Options['entities'],
 ): Promise<MikroORM> {
   return MikroORM.init({
     driver,
