@@ -80,3 +80,41 @@ TCK가 "프레임워크 개발자용 공용 테스팅 툴"이므로 **여러 pro
 - mysql/sqlite normalizer가 현재 항등 스텁: 유닛은 "항등"을 RED로 박고 통합서 errno/code 실제 정렬을 RED로 둘지.
 - sqlite no-reserve: 유닛/통합서 어디까지 RED로 표현할지(현재 비기능 플레이스홀더).
 - TCK 업그레이드 3건을 지금 넣을지 vs 로컬 헬퍼로 시작 후 승격할지.
+
+---
+
+## 9. 리뷰 반영 (확정) — 서브에이전트 심층 리뷰 2종(실측·재현)
+
+Codex가 죽어(턴 멈춤) 서브에이전트 3 + 재실행 2로 심층 리뷰. RED-first가 **실제 스캐폴드 버그 3건**을 드러냄 = TDD RED의 본분. 계약-고정 GREEN으로 박을 뻔한 것을 RED-now로 재분류.
+
+### 9.1 BLOCKING — RED-first가 잡은 실제 버그 (GREEN 아님, 지금 RED)
+- **B1 `base-repository.ts:21` Proxy `then` 트랩**(재현됨): `'then' in target===false` → `await repo`/DI async-factory가 `then` 트랩→`EntityManagerResolver.resolve()`를 부작용으로 실행. 부팅 시점 미등록이면 **repo를 await만 해도 throw**. 수정: `if (prop==='then' || typeof prop==='symbol') return Reflect.get(target,prop,receiver);`. RED 케이스 추가: "subclass 인스턴스를 await해도 resolve 미호출".
+- **B2 `bun-sql-transaction.ts:33/37/41` savepoint 식별자 미이스케이프**(재현됨): `savepoint "${name}"` 따옴표 미중복 → 식별자 경계 탈출. 수정: `'"'+name.replace(/"/g,'""')+'"'` + 따옴표 포함 RED 케이스. (isolation/accessMode는 닫힌 enum이라 저위험이나, SQL이 enum에서 생성됨을 assert.)
+- **B3 `connection-registry.ts:13` 전역 Map 스펙 간 누수 + reset API 없음**(재현됨): registry를 만지는 모든 spec(resolver/runner/service/base-repo 전이 포함)이 같은 Map 공유 → 순서의존. 수정: test-only `static clear()` 추가, registry 만지는 모든 spec `afterEach`에서 호출, 가능하면 실Map 대신 `spyOn(ConnectionRegistry,'get')`.
+- **B4 sqlite 레인 과약속**: `BunSqlKyselyDriver.acquireConnection`(L34)이 `reserve()` 하드코딩 → Bun.SQL sqlite는 미지원이라 **MikroORM 부팅 불가**. ⇒ §3 "context/registry ALS"·§5 lane A를 **docker pg로 이전**. sqlite 트리아드는 **defer/삭제 권고**(feedback_no_patchwork: 테스트설정 우회가 필요한 플레이스홀더 dead code 금지) — no-reserve 경로 구현 전까지 드라이버 배럴에서 제외. (ARCHITECTURE의 sqlite 설계는 보존.) ※ 사용자 결정 대기.
+- **B5 reserve()/raw-begin 전제 미검증**: 설계의 load-bearing 가정("pg는 풀 커넥션 raw begin 금지")이 테스트로 안 박힘(스파이크서 ERR_POSTGRES_UNSAFE_TRANSACTION 실측했으나 회귀테스트 없음). §3에 (a) reserve()+savepoint 동작 (b) 비-reserve raw begin 실패를 회귀로 추가.
+- **B6 errno→예외가 pg 전용**: mysql normalizer 항등 스텁 + §8서 1062 정렬을 미결로 둠. ⇒ pg+mysql 파라메트릭 `instanceof UniqueConstraintViolationException` 통합테스트 커밋, 또는 mysql을 BLOCKING에서 descope. (mysql normalizer 구현 전엔 그 테스트 RED.)
+
+### 9.2 SHOULD-FIX
+- **S1 `bun-sql-connection.ts:25` result-shape 가정 미검증**: `Array & {affectedRows,lastInsertRowid}`는 저자 멘탈모델 — 실제 Bun.SQL DML 반환 shape는 **통합(실 pg)만 검증 가능**. ⇒ 유닛 계약을 §3 라운드트립이 확인하기 전까지 lock 금지; 유닛 fixture는 캡처된 실결과의 미러로. **streamQuery 케이스는 이터레이터를 구동(`await gen.next()`)해야 함**(안 그러면 false-green).
+- **S2 coverage 전략(분모 모델 정정)**: Bun coverage는 **import-driven**(실측): 타입온리/미import 파일은 분모 미포함, 배럴/상수 자가커버. 진짜 위험 = 루트/driver 배럴이 9개 driver 런타임 파일을 미실행 로드. 전략 = (ii) 통합을 같은 `bun test`서 실행해 src 커버(core 선례: 통합테스트가 `../../src/...` import) + (i) `bunfig.toml`에 `dist/**`·`test/**`·`../../*/*/{dist,src}/**` ignore. 임계 0.95 **유지**(낮추기 금지). bunfig.toml 신규 작성(없음).
+- **S3 통합 누락 보강**: onDestroy 후 `ConnectionNotRegisteredError`+풀 드레인; named connection 2개 공존(`resolve('a')`≠`resolve('b')`).
+- **S4 목 가이드 정정**: `MikroORM.init`은 `spyOn(MikroORM,'init').mockResolvedValue(fakeOrm)`(named import이지만 MikroORM은 static init 가진 객체 — mock.module보다 가벼움·자동복원). tx spec은 `CompiledQuery` 객체 identity 아닌 `.sql`/`.parameters` 문자열 assert + begin은 순서 assert. onInit "schema 미호출"은 안전성 보장이라 부정-call assert 허용.
+
+### 9.3 확정된 NON-ISSUE (리뷰가 클리어)
+- `release()`가 sync void await — 무해, 버그 아님. param spread `[...parameters]` — 정상(호출자 상태 보호), 케이스 유지.
+- static 메서드 `spyOn`은 `mock.restore`로 신뢰성 있게 복원됨 — 문제는 spyOn이 아니라 전역 Map(B3).
+- tx controller "emitted SQL이 곧 behavior" → toHaveBeenCalled는 **정당한 예외**(반환·상태 없음).
+- abstract `MikroOrmService`를 in-file concrete 서브클래스로 테스트 — 규칙상 정상(서브클래스=동일모듈 fixture).
+- `BaseRepository` Proxy는 `EntityManagerResolver.resolve`만 목하면 유닛 가능(실EM 불필요); 트랩/Reflect/branch는 real.
+
+### 9.4 RED 실행 순서 (정정)
+1. **B1/B2/B3는 지금 RED**(버그 노출 케이스 먼저) → GREEN 단계서 코드 수정.
+2. 나머지 유닛 14 spec(§2) 작성 — S1/S4 가이드 적용, S1 4개 파일은 통합 확인 전 계약 lock 금지.
+3. `bunfig.toml` 작성(S2). 통합 spec(§3, B5/B6/S3 포함) — docker skip-guard(`const PG=env.DB_URL_PG; const d=PG?describe:describe.skip`). e2e(§4).
+4. sqlite 결정(B4) 반영 후 진행.
+
+### 9.5 미결 (사용자 결정)
+- **sqlite 트리아드**: (A) 지금 defer/삭제(드라이버 배럴서 제외, dead code·coverage 구멍 제거 — 권고) vs (B) no-reserve 경로를 지금 구현해 살림 vs (C) 플레이스홀더 유지 + `src/driver/sqlite/**` coverage ignore + `test.failing` 문서화. → 권고 A.
+- TCK 업그레이드 3건: 지금 `mikro-orm/test/helpers.ts` 로컬로 시작(R3: TCK를 @mikro-orm 의존으로 오염 금지) → 2번째 consumer 생기면 `@zipbul/tck-sql`로 승격. `assertConcurrentIsolation`만 ORM-agnostic이라 TCK 후보.
+- CI readiness: init 전 raw `select 1` backoff 프로브(init은 eager connect라 post-init 폴링은 늦음) + compose healthcheck.
