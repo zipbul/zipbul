@@ -28,7 +28,15 @@ integration test in `test/integration/`.
 | Embeddables (flattened columns, query by embedded prop) | `embeddable-hooks` |
 | Lifecycle hooks (@BeforeCreate) | `embeddable-hooks` |
 | Single-table inheritance (discriminator) | `inheritance-filters` |
+| **Class-table inheritance** (joined — each subclass its own table) | `table-inheritance` |
 | Filters / soft-delete (@Filter default) | `inheritance-filters` |
+| **Cascade** persist/remove + **orphan removal** | `cascade` |
+| **Full lifecycle hooks** (Before/After Create·Update·Delete, @OnLoad) | `lifecycle-hooks` |
+| **Event subscribers** (`EventSubscriber`, create/update/delete) | `subscriber` |
+| **Composite primary keys** (multi-column PK + uniqueness) | `composite-pk` |
+| **Custom `Type`** (convertToDatabaseValue / convertToJSValue) | `custom-type` |
+| **QueryBuilder joins** (leftJoinAndSelect, innerJoin+where), nested-relation subquery, **raw fragments** | `qb-advanced` |
+| **Cursor pagination** (`findByCursor`, keyset) + `em.execute` raw | `query-features` |
 | Identity map / UnitOfWork / per-request fork (RequestContext) | `context-lifecycle` |
 | Named connections (registry coexistence) | `context-lifecycle` |
 | Query logging (SQL + BEGIN/COMMIT reach the logger) | `logging` |
