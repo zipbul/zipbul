@@ -1,3 +1,4 @@
+/* eslint-disable jest/no-conditional-in-test -- property-based and data-driven tests assert outcomes from conditionals/try-catch in the test body */
 /**
  * Property-based fuzz testing of CookieParser invariants.
  * Each property is checked over many random inputs via fast-check.
@@ -136,7 +137,7 @@ describe('Property: HMAC tampering always fails verification', () => {
         const signed = cp.sign(new Cookie(name, value));
         const dot = signed.value.lastIndexOf('.');
         const sig = signed.value.slice(dot + 1);
-        if (sig.length === 0) return true;
+        if (sig.length === 0) {return true;}
         const i = idx % sig.length;
         const flipped = sig.slice(0, i) + (sig[i] === 'A' ? 'B' : 'A') + sig.slice(i + 1);
         const tampered = new Cookie(name, signed.value.slice(0, dot + 1) + flipped);
@@ -166,7 +167,7 @@ describe('Property: invalid name is rejected at every entry point', () => {
         for (const fn of checks) {
           let caught: unknown;
           try { await fn(); } catch (e) { caught = e; }
-          if (!(caught instanceof CookieError)) return false;
+          if (!(caught instanceof CookieError)) {return false;}
         }
         return true;
       }),

@@ -146,7 +146,7 @@ describe('validateCookieParserOptions', () => {
 
   it('should return InvalidAlgorithm when algorithm is unsupported', () => {
     const resolved = resolveCookieParserOptions();
-    resolved.algorithm = 'md5' as any;
+    resolved.algorithm = 'md5' as never;
     const result = validateCookieParserOptions(resolved);
     expect(isErr(result)).toBe(true);
     expect((result as Err<CookieErrorData>).data.reason).toBe(CookieErrorReason.InvalidAlgorithm);

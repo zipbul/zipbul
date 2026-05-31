@@ -14,6 +14,43 @@ interface OutboundEntry {
 
 type Step = 'decrypt' | 'unsign';
 
+/**
+ * Splits a raw Cookie header into name → raw-value pairs WITHOUT percent-decoding, mirroring
+ * `Bun.CookieMap`'s pair tokenisation (split on `;`, first `=` is the delimiter, trim OWS). Valid
+ * cookie names carry no `%`, so a kept entry's name matches Bun's decoded name. First occurrence wins.
+ * @internal
+ */
+function parseRawCookiePairs(header: string): Map<string, string> {
+  const pairs = new Map<string, string>();
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) {
+      continue;
+    }
+    const name = part.slice(0, eq).trim();
+    if (name === '' || pairs.has(name)) {
+      continue;
+    }
+    pairs.set(name, part.slice(eq + 1).trim());
+  }
+  return pairs;
+}
+
+/**
+ * Reports whether a raw percent-encoded segment decodes without error. `decodeURIComponent` throws on
+ * a malformed escape (`%XX`, a truncated UTF-8 sequence, a bare `%`) — exactly the inputs `Bun.CookieMap`
+ * silently turns into U+FFFD — while a legitimately-encoded U+FFFD (`%EF%BF%BD`) decodes cleanly.
+ * @internal
+ */
+function isStrictlyDecodable(raw: string): boolean {
+  try {
+    decodeURIComponent(raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export class CookieJar {
   private readonly inbound: ReadonlyMap<string, string>;
   private readonly outbound = new Map<string, OutboundEntry>();
@@ -34,11 +71,15 @@ export class CookieJar {
       // when a U+FFFD actually appears.
       let rawPairs: Map<string, string> | null = null;
       for (const [name, value] of map) {
-        if (name.includes('�')) continue;
+        if (name.includes('�')) {
+          continue;
+        }
         if (value.includes('�')) {
           rawPairs ??= parseRawCookiePairs(cookieHeader);
           const rawValue = rawPairs.get(name);
-          if (rawValue === undefined || !isStrictlyDecodable(rawValue)) continue;
+          if (rawValue === undefined || !isStrictlyDecodable(rawValue)) {
+            continue;
+          }
         }
         parsed.set(name, value);
       }
@@ -56,7 +97,9 @@ export class CookieJar {
 
   public async get(name: string): ResultAsync<string | null, CookieErrorData> {
     const raw = this.inbound.get(name);
-    if (raw === undefined) return null;
+    if (raw === undefined) {
+      return null;
+    }
 
     let cookie = new Cookie(name, raw);
 
@@ -156,38 +199,5 @@ export class CookieJar {
         : CookieErrorReason.SignatureVerificationFailed,
       message: thrown instanceof Error ? thrown.message : 'unknown cookie error',
     });
-  }
-}
-
-/**
- * Splits a raw Cookie header into name → raw-value pairs WITHOUT percent-decoding, mirroring
- * `Bun.CookieMap`'s pair tokenisation (split on `;`, first `=` is the delimiter, trim OWS). Valid
- * cookie names carry no `%`, so a kept entry's name matches Bun's decoded name. First occurrence wins.
- * @internal
- */
-function parseRawCookiePairs(header: string): Map<string, string> {
-  const pairs = new Map<string, string>();
-  for (const part of header.split(';')) {
-    const eq = part.indexOf('=');
-    if (eq === -1) continue;
-    const name = part.slice(0, eq).trim();
-    if (name === '' || pairs.has(name)) continue;
-    pairs.set(name, part.slice(eq + 1).trim());
-  }
-  return pairs;
-}
-
-/**
- * Reports whether a raw percent-encoded segment decodes without error. `decodeURIComponent` throws on
- * a malformed escape (`%XX`, a truncated UTF-8 sequence, a bare `%`) — exactly the inputs `Bun.CookieMap`
- * silently turns into U+FFFD — while a legitimately-encoded U+FFFD (`%EF%BF%BD`) decodes cleanly.
- * @internal
- */
-function isStrictlyDecodable(raw: string): boolean {
-  try {
-    decodeURIComponent(raw);
-    return true;
-  } catch {
-    return false;
   }
 }

@@ -1,3 +1,4 @@
+/* eslint-disable jest/no-conditional-in-test -- property-based and data-driven tests assert outcomes from conditionals/try-catch in the test body */
 import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
 

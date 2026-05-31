@@ -15,6 +15,55 @@ const DEFAULT_KDF_SALT = new TextEncoder().encode('@zipbul/cookie/2026');
 // 'abcdefgh'.repeat(4) yields exactly 96 bits → rejected at 128.
 const MIN_SECRET_ENTROPY_BITS = 128;
 
+// Shannon entropy of a byte string in bits: H = (-Σ p_i·log2(p_i)) × length.
+// This is a lower-bound proxy for actual min-entropy. A secret that fails this check is
+// definitely weak; passing does not prove cryptographic strength.
+function shannonEntropyBits(bytes: Uint8Array): number {
+  if (bytes.length === 0) {
+    return 0;
+  }
+  const counts = new Uint32Array(256);
+  for (let i = 0; i < bytes.length; i++) {
+    counts[bytes[i]!]! += 1;
+  }
+  let h = 0;
+  for (let i = 0; i < 256; i++) {
+    const c = counts[i]!;
+    if (c === 0) {
+      continue;
+    }
+    const p = c / bytes.length;
+    h -= p * Math.log2(p);
+  }
+  return h * bytes.length;
+}
+
+function validateSecretStrength(secret: string, label: string): Result<void, CookieErrorData> {
+  if (secret.trim().length === 0) {
+    return err<CookieErrorData>({
+      reason: label === 'encryptionSecret'
+        ? CookieErrorReason.InvalidEncryptionSecret
+        : CookieErrorReason.InvalidSecret,
+      message: `each ${label} must be a non-blank string`,
+    });
+  }
+  const bytes = new TextEncoder().encode(secret);
+  if (bytes.length < MIN_SECRET_BYTES) {
+    return err<CookieErrorData>({
+      reason: CookieErrorReason.WeakSecret,
+      message: `each ${label} must be at least ${MIN_SECRET_BYTES} bytes (UTF-8); got ${bytes.length}`,
+    });
+  }
+  const entropy = shannonEntropyBits(bytes);
+  if (entropy < MIN_SECRET_ENTROPY_BITS) {
+    return err<CookieErrorData>({
+      reason: CookieErrorReason.WeakSecret,
+      message: `${label} entropy too low: estimated ${entropy.toFixed(1)} bits, need ≥${MIN_SECRET_ENTROPY_BITS} bits (OWASP / NIST SP 800-131A). Supply uniform random bytes, e.g. Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url').`,
+    });
+  }
+  return undefined;
+}
+
 export function resolveCookieParserOptions(options?: CookieParserOptions): ResolvedCookieParserOptions {
   const defaults: ResolvedCookieDefaults = {
     httpOnly: options?.httpOnly ?? null,
@@ -52,49 +101,6 @@ export function resolveCookieParserOptions(options?: CookieParserOptions): Resol
   };
 }
 
-// Shannon entropy of a byte string in bits: H = (-Σ p_i·log2(p_i)) × length.
-// This is a lower-bound proxy for actual min-entropy. A secret that fails this check is
-// definitely weak; passing does not prove cryptographic strength.
-function shannonEntropyBits(bytes: Uint8Array): number {
-  if (bytes.length === 0) return 0;
-  const counts = new Uint32Array(256);
-  for (let i = 0; i < bytes.length; i++) counts[bytes[i]!]! += 1;
-  let h = 0;
-  for (let i = 0; i < 256; i++) {
-    const c = counts[i]!;
-    if (c === 0) continue;
-    const p = c / bytes.length;
-    h -= p * Math.log2(p);
-  }
-  return h * bytes.length;
-}
-
-function validateSecretStrength(secret: string, label: string): Result<void, CookieErrorData> {
-  if (secret.trim().length === 0) {
-    return err<CookieErrorData>({
-      reason: label === 'encryptionSecret'
-        ? CookieErrorReason.InvalidEncryptionSecret
-        : CookieErrorReason.InvalidSecret,
-      message: `each ${label} must be a non-blank string`,
-    });
-  }
-  const bytes = new TextEncoder().encode(secret);
-  if (bytes.length < MIN_SECRET_BYTES) {
-    return err<CookieErrorData>({
-      reason: CookieErrorReason.WeakSecret,
-      message: `each ${label} must be at least ${MIN_SECRET_BYTES} bytes (UTF-8); got ${bytes.length}`,
-    });
-  }
-  const entropy = shannonEntropyBits(bytes);
-  if (entropy < MIN_SECRET_ENTROPY_BITS) {
-    return err<CookieErrorData>({
-      reason: CookieErrorReason.WeakSecret,
-      message: `${label} entropy too low: estimated ${entropy.toFixed(1)} bits, need ≥${MIN_SECRET_ENTROPY_BITS} bits (OWASP / NIST SP 800-131A). Supply uniform random bytes, e.g. Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url').`,
-    });
-  }
-  return undefined;
-}
-
 export function validateCookieParserOptions(
   resolved: ResolvedCookieParserOptions,
 ): Result<void, CookieErrorData> {
@@ -107,7 +113,9 @@ export function validateCookieParserOptions(
     }
     for (const secret of resolved.secrets) {
       const r = validateSecretStrength(secret, 'signing secret');
-      if (r !== undefined) return r;
+      if (r !== undefined) {
+        return r;
+      }
     }
   }
 
@@ -120,7 +128,9 @@ export function validateCookieParserOptions(
     }
     for (const secret of resolved.encryptionSecrets) {
       const r = validateSecretStrength(secret, 'encryptionSecret');
-      if (r !== undefined) return r;
+      if (r !== undefined) {
+        return r;
+      }
     }
   }
 

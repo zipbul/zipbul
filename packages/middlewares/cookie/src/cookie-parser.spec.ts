@@ -585,7 +585,7 @@ describe('CookieParser', () => {
     it('should throw InvalidAlgorithm when algorithm is unsupported', () => {
       let caught: unknown;
       try {
-        CookieParser.create({ algorithm: 'md5' as any });
+        CookieParser.create({ algorithm: 'md5' as never });
       } catch (e) {
         caught = e;
       }
@@ -1117,7 +1117,7 @@ describe('CookieParser', () => {
     it('should throw InvalidMaxAge when maxAge is NaN via createCookie (N6)', () => {
       const cp = CookieParser.create();
       let caught: unknown;
-      try { cp.createCookie('n', 'v', { maxAge: NaN as any }); } catch (e) { caught = e; }
+      try { cp.createCookie('n', 'v', { maxAge: NaN as never }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
       expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidMaxAge);
     });
@@ -1125,7 +1125,7 @@ describe('CookieParser', () => {
     it('should throw InvalidMaxAge when maxAge is decimal 0.5 via createCookie (N7)', () => {
       const cp = CookieParser.create();
       let caught: unknown;
-      try { cp.createCookie('n', 'v', { maxAge: 0.5 as any }); } catch (e) { caught = e; }
+      try { cp.createCookie('n', 'v', { maxAge: 0.5 as never }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
       expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidMaxAge);
     });
@@ -1133,7 +1133,7 @@ describe('CookieParser', () => {
     it('should throw InvalidMaxAge when maxAge is Infinity via createCookie', () => {
       const cp = CookieParser.create();
       let caught: unknown;
-      try { cp.createCookie('n', 'v', { maxAge: Infinity as any }); } catch (e) { caught = e; }
+      try { cp.createCookie('n', 'v', { maxAge: Infinity as never }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
       expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidMaxAge);
     });
@@ -1141,7 +1141,7 @@ describe('CookieParser', () => {
     it('should throw InvalidMaxAge in serialize when raw Cookie has decimal maxAge', () => {
       const cp = CookieParser.create();
       let caught: unknown;
-      try { cp.serialize(new Cookie('n', 'v', { maxAge: 0.5 as any })); } catch (e) { caught = e; }
+      try { cp.serialize(new Cookie('n', 'v', { maxAge: 0.5 as never })); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
       expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidMaxAge);
     });
@@ -1239,7 +1239,7 @@ describe('CookieParser', () => {
     it('should throw CookieError(InvalidExpires) for invalid date string via createCookie', () => {
       const cp = CookieParser.create();
       let caught: unknown;
-      try { cp.createCookie('n', 'v', { expires: 'not-a-date' as any }); } catch (e) { caught = e; }
+      try { cp.createCookie('n', 'v', { expires: 'not-a-date' as never }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
       expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidExpires);
     });
@@ -1247,7 +1247,7 @@ describe('CookieParser', () => {
     it('should throw CookieError(InvalidExpires) for NaN expires', () => {
       const cp = CookieParser.create();
       let caught: unknown;
-      try { cp.createCookie('n', 'v', { expires: NaN as any }); } catch (e) { caught = e; }
+      try { cp.createCookie('n', 'v', { expires: NaN as never }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
       expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidExpires);
     });
@@ -1263,7 +1263,7 @@ describe('CookieParser', () => {
     it('should throw CookieError(InvalidExpires) for Infinity expires', () => {
       const cp = CookieParser.create();
       let caught: unknown;
-      try { cp.createCookie('n', 'v', { expires: Infinity as any }); } catch (e) { caught = e; }
+      try { cp.createCookie('n', 'v', { expires: Infinity as never }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
       expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidExpires);
     });
@@ -1287,7 +1287,7 @@ describe('CookieParser', () => {
     it('should wrap Bun ctor errors into CookieError (no TypeError leak)', () => {
       const cp = CookieParser.create();
       let caught: unknown;
-      try { cp.createCookie('n', 'v', { domain: 'evil; injected' as any }); } catch (e) { caught = e; }
+      try { cp.createCookie('n', 'v', { domain: 'evil; injected' as never }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
       expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidDomain);
     });
@@ -1295,7 +1295,7 @@ describe('CookieParser', () => {
     it('should wrap Bun path errors into CookieError', () => {
       const cp = CookieParser.create();
       let caught: unknown;
-      try { cp.createCookie('n', 'v', { path: '/x;injected' as any }); } catch (e) { caught = e; }
+      try { cp.createCookie('n', 'v', { path: '/x;injected' as never }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
       expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidPath);
     });
@@ -1309,7 +1309,7 @@ describe('CookieParser', () => {
       const encrypted = await cp.encrypt(new Cookie('n', 'topsecret'));
       const buf = Buffer.from(encrypted.value, 'base64url');
       // Corrupt the 4-byte KID prefix; the GCM body is left intact.
-      for (let i = 0; i < 4; i++) buf[i] = (buf[i]! ^ 0xff) & 0xff;
+      for (let i = 0; i < 4; i++) {buf[i] = (buf[i]! ^ 0xff) & 0xff;}
       let caught: unknown;
       try {
         await cp.decrypt(new Cookie('n', buf.toString('base64url')));
@@ -1326,7 +1326,7 @@ describe('CookieParser', () => {
       const cp = CookieParser.create();
       let caught: unknown;
       try {
-        cp.createCookie('s', 'v', { sameSite: 'bogus' as any, secure: true });
+        cp.createCookie('s', 'v', { sameSite: 'bogus' as never, secure: true });
       } catch (e) {
         caught = e;
       }
@@ -1336,7 +1336,7 @@ describe('CookieParser', () => {
 
     it('should normalize a Pascal-case sameSite to its lowercase token', () => {
       const cp = CookieParser.create();
-      const header = cp.serialize(cp.createCookie('s', 'v', { sameSite: 'Strict' as any }));
+      const header = cp.serialize(cp.createCookie('s', 'v', { sameSite: 'Strict' as never }));
       expect(header).toContain('SameSite=Strict');
     });
   });

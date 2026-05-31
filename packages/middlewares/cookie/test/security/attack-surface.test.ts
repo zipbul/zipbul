@@ -136,8 +136,8 @@ describe('Attack: prototype pollution via cookie names', () => {
     const jar = new CookieJar(cp, '__proto__=evil; constructor=evil; toString=evil');
     expect(jar.getRaw('__proto__')).toBe('evil');
     // verify Object.prototype is untouched
-    expect(({} as any).evil).toBeUndefined();
-    expect(({} as any).__proto__).not.toBe('evil');
+    expect(({} as never).evil).toBeUndefined();
+    expect(({} as never).__proto__).not.toBe('evil');
   });
   it('out-jar set with __proto__ does not pollute', async () => {
     const cp = CookieParser.create();
@@ -145,7 +145,7 @@ describe('Attack: prototype pollution via cookie names', () => {
     out.set('__proto__', 'evil');
     const headers = await out.getSetCookieHeaders();
     expect(headers[0]).toContain('__proto__=evil');
-    expect(({} as any).evil).toBeUndefined();
+    expect(({} as never).evil).toBeUndefined();
   });
 });
 
@@ -306,7 +306,7 @@ describe('CWE-117 defense: wrapBunError never echoes input in messages', () => {
 
   it('canonical fallback for unknown errors', () => {
     // Direct call to wrap with an unknown-shaped error.
-    const wrap = (cp as any).wrapBunError.bind(cp);
+    const wrap = (cp as never).wrapBunError.bind(cp);
     const err1 = wrap(new Error('mystery'));
     expect(err1).toBeInstanceOf(CookieError);
     expect(err1.message).toBe('cookie parser error');
@@ -328,7 +328,7 @@ describe('DX: sameSite case normalization', () => {
   const cp = CookieParser.create();
   for (const v of ['Lax', 'LAX', 'Strict', 'STRICT', 'None']) {
     it(`accepts "${v}" and normalizes to lowercase output`, () => {
-      const c = cp.createCookie('s', 'v', { sameSite: v as any, secure: true });
+      const c = cp.createCookie('s', 'v', { sameSite: v as never, secure: true });
       const h = cp.serialize(c);
       // Bun emits canonical title case in the header; the point is no crash and SameSite present.
       expect(h).toMatch(/SameSite=(Lax|Strict|None)/i);

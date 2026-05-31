@@ -65,6 +65,94 @@ interface CookieMeta {
   priority?: CookiePriority;
 }
 
+// --- key derivation ---
+
+async function deriveHmacKey(secret: string, hash: SubtleHash, salt: Uint8Array): Promise<{ key: CryptoKey; kid: Uint8Array }> {
+  const ikm = utf8.encode(secret);
+  const baseKey = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash, salt: salt as Uint8Array<ArrayBuffer>, info: HKDF_INFO_HMAC },
+    baseKey,
+    256,
+  );
+  const keyBytes = new Uint8Array(bits);
+  const key = await crypto.subtle.importKey(
+    'raw', keyBytes, { name: 'HMAC', hash }, false, ['verify'],
+  );
+  const kid = await deriveKid(keyBytes);
+  return { key, kid };
+}
+
+async function deriveAesKey(secret: string, salt: Uint8Array): Promise<{ key: CryptoKey; kid: Uint8Array }> {
+  const ikm = utf8.encode(secret);
+  const baseKey = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: salt as Uint8Array<ArrayBuffer>, info: HKDF_INFO_AES },
+    baseKey,
+    256,
+  );
+  const keyBytes = new Uint8Array(bits);
+  const key = await crypto.subtle.importKey(
+    'raw', keyBytes, 'AES-GCM', false, ['encrypt', 'decrypt'],
+  );
+  const kid = await deriveKid(keyBytes);
+  return { key, kid };
+}
+
+async function deriveKid(keyBytes: Uint8Array): Promise<Uint8Array> {
+  const h = await crypto.subtle.digest('SHA-256', keyBytes as Uint8Array<ArrayBuffer>);
+  return new Uint8Array(h, 0, KID_LENGTH);
+}
+
+function deriveHmacKeyBytesSync(secret: string, hash: SubtleHash, salt: Uint8Array): Uint8Array {
+  // Sync HKDF derivation that mirrors async deriveHmacKey output exactly.
+  const prk = hkdfExtract(secret, salt, hash);
+  return hkdfExpand(prk, HKDF_INFO_HMAC, 32, hash);
+}
+
+function hkdfExtract(ikm: string | Uint8Array, salt: Uint8Array, hash: SubtleHash): Uint8Array {
+  const algoName = HASHER_NAME_BY_SUBTLE[hash];
+  const h = new Bun.CryptoHasher(algoName, salt);
+  h.update(typeof ikm === 'string' ? utf8.encode(ikm) : ikm);
+  return new Uint8Array(h.digest());
+}
+
+function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number, hash: SubtleHash): Uint8Array {
+  const algoName = HASHER_NAME_BY_SUBTLE[hash];
+  const hashLen = HASH_LEN_BY_SUBTLE[hash];
+  const N = Math.ceil(length / hashLen);
+  const out = new Uint8Array(N * hashLen);
+  let prev = new Uint8Array(0);
+  for (let i = 1; i <= N; i++) {
+    const h = new Bun.CryptoHasher(algoName, prk);
+    h.update(prev);
+    h.update(info);
+    h.update(new Uint8Array([i]));
+    prev = new Uint8Array(h.digest());
+    out.set(prev, (i - 1) * hashLen);
+  }
+  return out.subarray(0, length);
+}
+
+function bufferFromB64Url(s: string): Uint8Array<ArrayBuffer> {
+  const buf = Buffer.from(s, 'base64url');
+  const ab = new ArrayBuffer(buf.byteLength);
+  const out = new Uint8Array(ab);
+  out.set(buf);
+  return out;
+}
+
+function bufferToB64Url(bytes: Uint8Array): string {
+  return Buffer.from(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength).toString('base64url');
+}
+
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) {return false;}
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {diff |= a[i]! ^ b[i]!;}
+  return diff === 0;
+}
+
 export class CookieParser {
   private readonly meta = new WeakMap<Cookie, CookieMeta>();
   private readonly hmacKeyPromises: Promise<{ key: CryptoKey; kid: Uint8Array }>[];
@@ -84,7 +172,7 @@ export class CookieParser {
   public static create(options?: CookieParserOptions): CookieParser {
     const resolved = resolveCookieParserOptions(options);
     const validation = validateCookieParserOptions(resolved);
-    if (isErr(validation)) throw new CookieError(validation.data);
+    if (isErr(validation)) {throw new CookieError(validation.data);}
     return new CookieParser(resolved);
   }
 
@@ -103,7 +191,7 @@ export class CookieParser {
     const explicit = new Set<keyof CookieAttributes>();
     if (options) {
       for (const k of Object.keys(options) as (keyof CookieAttributes)[]) {
-        if (options[k] !== undefined) explicit.add(k);
+        if (options[k] !== undefined) {explicit.add(k);}
       }
     }
 
@@ -166,8 +254,8 @@ export class CookieParser {
     if (target.maxAge != null) {
       this.assertValidMaxAge(target.maxAge);
     }
-    if (target.domain != null) this.assertValidDomain(target.domain);
-    if (target.path != null) this.assertValidPath(target.path);
+    if (target.domain != null) {this.assertValidDomain(target.domain);}
+    if (target.path != null) {this.assertValidPath(target.path);}
 
     if (this.options.prefixValidation) {
       this.validatePrefix(target);
@@ -372,7 +460,7 @@ export class CookieParser {
     const matchedKeys: CryptoKey[] = [];
     for (const entry of this.aesKeyPromises) {
       const { key, kid } = await entry;
-      if (constantTimeEqual(ctKid, kid)) matchedKeys.push(key);
+      if (constantTimeEqual(ctKid, kid)) {matchedKeys.push(key);}
     }
 
     for (const key of matchedKeys) {
@@ -445,28 +533,28 @@ export class CookieParser {
     // with HostPrefixForbidsDomain — only the inapplicable default is suppressed here.
     const isHostPrefix = name.toLowerCase().startsWith('__host-');
 
-    if (defaults.httpOnly !== null) merged.httpOnly = defaults.httpOnly;
-    if (defaults.secure !== null && defaults.secure !== 'auto') merged.secure = defaults.secure;
-    if (defaults.sameSite !== null) merged.sameSite = defaults.sameSite;
-    if (defaults.path !== null) merged.path = defaults.path;
-    if (defaults.domain !== null && !isHostPrefix) merged.domain = defaults.domain;
-    if (defaults.maxAge !== null) merged.maxAge = defaults.maxAge;
-    if (defaults.expires !== null) merged.expires = defaults.expires;
-    if (defaults.partitioned !== null) merged.partitioned = defaults.partitioned;
-    if (defaults.priority !== null) merged.priority = defaults.priority;
+    if (defaults.httpOnly !== null) {merged.httpOnly = defaults.httpOnly;}
+    if (defaults.secure !== null && defaults.secure !== 'auto') {merged.secure = defaults.secure;}
+    if (defaults.sameSite !== null) {merged.sameSite = defaults.sameSite;}
+    if (defaults.path !== null) {merged.path = defaults.path;}
+    if (defaults.domain !== null && !isHostPrefix) {merged.domain = defaults.domain;}
+    if (defaults.maxAge !== null) {merged.maxAge = defaults.maxAge;}
+    if (defaults.expires !== null) {merged.expires = defaults.expires;}
+    if (defaults.partitioned !== null) {merged.partitioned = defaults.partitioned;}
+    if (defaults.priority !== null) {merged.priority = defaults.priority;}
 
     // Explicit per-field overrides (typed, no dynamic-key widening). A nullish option leaves the
     // parser default in place; a present option wins.
     if (options) {
-      if (options.httpOnly != null) merged.httpOnly = options.httpOnly;
-      if (options.secure != null) merged.secure = options.secure;
-      if (options.sameSite != null) merged.sameSite = options.sameSite;
-      if (options.path != null) merged.path = options.path;
-      if (options.domain != null) merged.domain = options.domain;
-      if (options.maxAge != null) merged.maxAge = options.maxAge;
-      if (options.expires != null) merged.expires = options.expires;
-      if (options.partitioned != null) merged.partitioned = options.partitioned;
-      if (options.priority != null) merged.priority = options.priority;
+      if (options.httpOnly != null) {merged.httpOnly = options.httpOnly;}
+      if (options.secure != null) {merged.secure = options.secure;}
+      if (options.sameSite != null) {merged.sameSite = options.sameSite;}
+      if (options.path != null) {merged.path = options.path;}
+      if (options.domain != null) {merged.domain = options.domain;}
+      if (options.maxAge != null) {merged.maxAge = options.maxAge;}
+      if (options.expires != null) {merged.expires = options.expires;}
+      if (options.partitioned != null) {merged.partitioned = options.partitioned;}
+      if (options.priority != null) {merged.priority = options.priority;}
     }
 
     // Bun.Cookie throws on capitalized SameSite ('Lax'/'Strict'/'None'); normalize to lowercase so
@@ -575,7 +663,7 @@ export class CookieParser {
 
   private assertAttributeSizes(merged: CookieAttributes): void {
     const check = (label: string, val: string | undefined) => {
-      if (val === undefined) return;
+      if (val === undefined) {return;}
       const len = Buffer.byteLength(val, 'utf8');
       if (len > MAX_ATTRIBUTE_OCTETS) {
         throw new CookieError({
@@ -586,7 +674,7 @@ export class CookieParser {
     };
     check('Domain', merged.domain);
     check('Path', merged.path);
-    if (typeof merged.expires === 'string') check('Expires', merged.expires);
+    if (typeof merged.expires === 'string') {check('Expires', merged.expires);}
   }
 
   private assertValidMaxAge(maxAge: number): void {
@@ -623,6 +711,7 @@ export class CookieParser {
       });
     }
     // RFC 6265 §4.1.1: subdomain syntax forbids CTLs implicitly via LDH; explicit reject is defense-in-depth.
+    // eslint-disable-next-line no-control-regex -- the control-char class is the intended rejection set
     if (/[\x00-\x1F\x7F;]/.test(domain)) {
       throw new CookieError({
         reason: CookieErrorReason.InvalidDomain,
@@ -639,6 +728,7 @@ export class CookieParser {
 
   private assertValidPath(path: string): void {
     // RFC 6265 §4.1.1: path-value = *<any CHAR except CTLs or ";">. CTLs = %x00-1F / %x7F.
+    // eslint-disable-next-line no-control-regex -- the control-char class is the intended rejection set
     if (/[\x00-\x1F\x7F;]/.test(path)) {
       throw new CookieError({
         reason: CookieErrorReason.InvalidPath,
@@ -663,7 +753,7 @@ export class CookieParser {
   }
 
   private wrapBunError(e: unknown): CookieError {
-    if (e instanceof CookieError) return e;
+    if (e instanceof CookieError) {return e;}
     // Use the upstream message ONLY for routing — never re-emit it (defense against future Bun
     // error formats that might echo input bytes; CWE-117).
     const message = e instanceof Error ? e.message : String(e);
@@ -703,95 +793,7 @@ export class CookieParser {
       partitioned: source.partitioned,
     });
     const sourceMeta = this.meta.get(source);
-    if (sourceMeta) this.meta.set(cloned, sourceMeta);
+    if (sourceMeta) {this.meta.set(cloned, sourceMeta);}
     return cloned;
   }
-}
-
-// --- key derivation ---
-
-async function deriveHmacKey(secret: string, hash: SubtleHash, salt: Uint8Array): Promise<{ key: CryptoKey; kid: Uint8Array }> {
-  const ikm = utf8.encode(secret);
-  const baseKey = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'HKDF', hash, salt: salt as Uint8Array<ArrayBuffer>, info: HKDF_INFO_HMAC },
-    baseKey,
-    256,
-  );
-  const keyBytes = new Uint8Array(bits);
-  const key = await crypto.subtle.importKey(
-    'raw', keyBytes, { name: 'HMAC', hash }, false, ['verify'],
-  );
-  const kid = await deriveKid(keyBytes);
-  return { key, kid };
-}
-
-async function deriveAesKey(secret: string, salt: Uint8Array): Promise<{ key: CryptoKey; kid: Uint8Array }> {
-  const ikm = utf8.encode(secret);
-  const baseKey = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt: salt as Uint8Array<ArrayBuffer>, info: HKDF_INFO_AES },
-    baseKey,
-    256,
-  );
-  const keyBytes = new Uint8Array(bits);
-  const key = await crypto.subtle.importKey(
-    'raw', keyBytes, 'AES-GCM', false, ['encrypt', 'decrypt'],
-  );
-  const kid = await deriveKid(keyBytes);
-  return { key, kid };
-}
-
-async function deriveKid(keyBytes: Uint8Array): Promise<Uint8Array> {
-  const h = await crypto.subtle.digest('SHA-256', keyBytes as Uint8Array<ArrayBuffer>);
-  return new Uint8Array(h, 0, KID_LENGTH);
-}
-
-function deriveHmacKeyBytesSync(secret: string, hash: SubtleHash, salt: Uint8Array): Uint8Array {
-  // Sync HKDF derivation that mirrors async deriveHmacKey output exactly.
-  const prk = hkdfExtract(secret, salt, hash);
-  return hkdfExpand(prk, HKDF_INFO_HMAC, 32, hash);
-}
-
-function hkdfExtract(ikm: string | Uint8Array, salt: Uint8Array, hash: SubtleHash): Uint8Array {
-  const algoName = HASHER_NAME_BY_SUBTLE[hash];
-  const h = new Bun.CryptoHasher(algoName, salt);
-  h.update(typeof ikm === 'string' ? utf8.encode(ikm) : ikm);
-  return new Uint8Array(h.digest());
-}
-
-function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number, hash: SubtleHash): Uint8Array {
-  const algoName = HASHER_NAME_BY_SUBTLE[hash];
-  const hashLen = HASH_LEN_BY_SUBTLE[hash];
-  const N = Math.ceil(length / hashLen);
-  const out = new Uint8Array(N * hashLen);
-  let prev = new Uint8Array(0);
-  for (let i = 1; i <= N; i++) {
-    const h = new Bun.CryptoHasher(algoName, prk);
-    h.update(prev);
-    h.update(info);
-    h.update(new Uint8Array([i]));
-    prev = new Uint8Array(h.digest());
-    out.set(prev, (i - 1) * hashLen);
-  }
-  return out.subarray(0, length);
-}
-
-function bufferFromB64Url(s: string): Uint8Array<ArrayBuffer> {
-  const buf = Buffer.from(s, 'base64url');
-  const ab = new ArrayBuffer(buf.byteLength);
-  const out = new Uint8Array(ab);
-  out.set(buf);
-  return out;
-}
-
-function bufferToB64Url(bytes: Uint8Array): string {
-  return Buffer.from(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength).toString('base64url');
-}
-
-function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
-  return diff === 0;
 }

@@ -1,3 +1,4 @@
+/* eslint-disable jest/no-conditional-in-test -- property-based and data-driven tests assert outcomes from conditionals/try-catch in the test body */
 /**
  * RFC 6265bis / RFC 9110 / NIST SP 800-38D / FIPS 198-1 conformance matrix.
  * Each test maps to a specific clause and must remain green to claim conformance.
@@ -24,7 +25,7 @@ describe('RFC 9110 §5.6.2 — token grammar', () => {
       const name = `bad${ch}name`;
       let raw: Cookie | undefined;
       try { raw = new Cookie(name, 'v'); } catch { /* Bun rejected — already safe */ }
-      if (raw === undefined) return;
+      if (raw === undefined) {return;}
       let caught: unknown;
       try { cp.serialize(raw); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
@@ -292,7 +293,7 @@ describe('Priority attribute (2-D)', () => {
   });
   it('rejects invalid priority value', () => {
     let caught: unknown;
-    try { cp.createCookie('s', 'v', { priority: 'urgent' as any }); } catch (e) { caught = e; }
+    try { cp.createCookie('s', 'v', { priority: 'urgent' as never }); } catch (e) { caught = e; }
     expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidPriority);
   });
 });
