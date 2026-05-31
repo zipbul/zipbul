@@ -86,6 +86,18 @@ function createClassFileAnalysis(params: ClassFileAnalysisParams): FileAnalysis 
     reExports: [],
     exports: [],
     imports: {},
+    // Dependencies are expressed via inject() — surface each class's injected
+    // tokens as inject() calls so the graph resolves them through moduleInjectDeps
+    // (constructor injection does not exist; gildash supports only modern decorators).
+    injectCalls: classes.flatMap(cls =>
+      cls.constructorParams.map(param => ({
+        tokenKind: 'token' as const,
+        token: param.type,
+        callee: 'inject',
+        importSource: '@zipbul/core',
+        filePath,
+      })),
+    ),
   };
 
   if (exportedValues !== undefined) {

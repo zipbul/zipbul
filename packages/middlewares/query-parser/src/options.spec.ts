@@ -252,6 +252,30 @@ describe('validateQueryParserOptions', () => {
     expect(errResult.data.reason).toBe(QueryParserErrorReason.InvalidDuplicates);
   });
 
+  it('should return Err with InvalidNesting when nesting is not a boolean', () => {
+    // Arrange
+    const resolved = { ...resolveQueryParserOptions(), nesting: 'yes' } as unknown as ResolvedQueryParserOptions;
+
+    // Act & Assert
+    expect(assertErr(validateQueryParserOptions(resolved)).data.reason).toBe(QueryParserErrorReason.InvalidNesting);
+  });
+
+  it('should return Err with InvalidStrict when strict is not a boolean', () => {
+    // Arrange
+    const resolved = { ...resolveQueryParserOptions(), strict: 1 } as unknown as ResolvedQueryParserOptions;
+
+    // Act & Assert
+    expect(assertErr(validateQueryParserOptions(resolved)).data.reason).toBe(QueryParserErrorReason.InvalidStrict);
+  });
+
+  it('should return Err with InvalidUrlEncoded when urlEncoded is not a boolean', () => {
+    // Arrange
+    const resolved = { ...resolveQueryParserOptions(), urlEncoded: {} } as unknown as ResolvedQueryParserOptions;
+
+    // Act & Assert
+    expect(assertErr(validateQueryParserOptions(resolved)).data.reason).toBe(QueryParserErrorReason.InvalidUrlEncoded);
+  });
+
   it('should return first failing validation when multiple options are invalid', () => {
     // Arrange — depth (V1) and maxParams (V2) both invalid
     const resolved: ResolvedQueryParserOptions = {

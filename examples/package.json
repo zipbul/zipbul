@@ -16,7 +16,8 @@
     "@zipbul/cors": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
     "@zipbul/logger": "workspace:*",
-    "@zipbul/result": "workspace:*"
+    "@zipbul/result": "workspace:*",
+    "@zipbul/query-parser": "workspace:*"
   },
   "devDependencies": {
     "@zipbul/cli": "workspace:*",

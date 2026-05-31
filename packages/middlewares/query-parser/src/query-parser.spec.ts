@@ -454,6 +454,47 @@ describe('QueryParser', () => {
       // Assert
       expect(expectQueryArray(res.arr)).toEqual(['1', '2']);
     });
+
+    it('should keep first value for a duplicate explicit array index when duplicates is first', () => {
+      // Arrange — must be consistent with the object-key path (k[a]=1&k[a]=2 -> {k:{a:'1'}}).
+      const parser = QueryParser.create({ duplicates: 'first', nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('k[0]=1&k[0]=2')).toEqual({ k: ['1'] });
+    });
+
+    it('should keep last value for a duplicate explicit array index when duplicates is last', () => {
+      // Arrange
+      const parser = QueryParser.create({ duplicates: 'last', nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('k[0]=1&k[0]=2')).toEqual({ k: ['2'] });
+    });
+
+    it('should collect values for a duplicate explicit array index when duplicates is array', () => {
+      // Arrange — consistent with the object-key path (k[a] array -> {k:{a:['1','2']}}).
+      const parser = QueryParser.create({ duplicates: 'array', nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('k[0]=1&k[0]=2')).toEqual({ k: [['1', '2']] });
+    });
+
+    it('should apply the duplicates strategy to a duplicate index at a deeper position', () => {
+      // Arrange — the index-leaf fix must fire at any depth, not just the top level.
+      // Consistent with object path a[x][y]=1&a[x][y]=2 -> {a:{x:{y:'1'}}}.
+      const parser = QueryParser.create({ duplicates: 'first', nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[0][0]=1&a[0][0]=2')).toEqual({ a: [['1']] });
+    });
+
+    it('should apply the duplicates strategy when an explicit index duplicates a pushed element', () => {
+      // Arrange — arr[]=1 pushes to index 0; arr[0]=2 then duplicates that same index.
+      const parser = QueryParser.create({ duplicates: 'first', nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('arr[]=1&arr[0]=2')).toEqual({ arr: ['1'] });
+    });
   });
 
   // =========================================================================
@@ -762,6 +803,19 @@ describe('QueryParser', () => {
       // Assert — stays as object
       expect(res.data).toEqual({ name: 'a', '0': 'b' });
     });
+
+    it('should preserve the nested structure on a non-strict array-index structure-then-scalar conflict', () => {
+      // The object-key path keeps the structure (k[a][b]=1&k[a]=2 -> {k:{a:{b:'1'}}});
+      // the array-index path must not silently drop {b:'1'} for the later scalar.
+      expect(parser.parse('k[0][b]=1&k[0]=2')).toEqual({ k: [{ b: '1' }] });
+    });
+
+    it('should overwrite the nested structure with the scalar under duplicates:last on an array index', () => {
+      // Guard: the fix must route through the duplicates strategy, NOT hard-code keep-structure.
+      // Object path k[a][b]=1&k[a]=2 with last -> {k:{a:'2'}}.
+      const lastParser = QueryParser.create({ nesting: true, duplicates: 'last' });
+      expect(lastParser.parse('k[0][b]=1&k[0]=2')).toEqual({ k: ['2'] });
+    });
   });
 
   // =========================================================================
@@ -882,6 +936,29 @@ describe('QueryParser', () => {
       // Assert
       expect(roles).toEqual({ '0': 'admin', name: 'editor' });
     });
+
+    it('should throw ConflictingStructure on an array-index structure-then-scalar conflict when strict is true', () => {
+      // Arrange — symmetric with the object-key path (k[a][b]=1&k[a]=2). Asserting the
+      // reason discriminates from the /non-numeric key/ array-conversion conflict.
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act
+      const error = catchError(() => parser.parse('k[0][b]=1&k[0]=2'));
+
+      // Assert
+      expect(error.reason).toBe(QueryParserErrorReason.ConflictingStructure);
+    });
+
+    it('should throw ConflictingStructure on an array-index scalar-then-structure conflict when strict is true', () => {
+      // Arrange — symmetric with the object-key path (k[a]=1&k[a][b]=2).
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act
+      const error = catchError(() => parser.parse('k[0]=1&k[0][b]=2'));
+
+      // Assert
+      expect(error.reason).toBe(QueryParserErrorReason.ConflictingStructure);
+    });
   });
 
   // =========================================================================
@@ -925,6 +1002,41 @@ describe('QueryParser', () => {
       // Act & Assert
       expect(parser.parse('name=hello+world%21')).toEqual({ name: 'hello world!' });
       expect(parser.parse('q=%EC%84%9C%EC%9A%B8+%EC%8B%9C')).toEqual({ q: '서울 시' });
+    });
+
+    it('should still decode plus as space when the value also has a malformed percent escape', () => {
+      // '+'->space and percent-decoding are independent passes per WHATWG
+      // x-www-form-urlencoded / URLSearchParams: a failed percent-decode must NOT
+      // discard the already-applied '+'->space substitution.
+      expect(parser.parse('a=hello+world%ZZ')).toEqual({ a: 'hello world%ZZ' });
+      expect(parser.parse('a+b%ZZ=v')).toEqual({ 'a b%ZZ': 'v' });
+    });
+
+    it('should apply the plus-with-malformed-percent rule inside a nested bracket key', () => {
+      // Arrange — the fix is in safeDecode, which every key/value (incl. bracket segments) flows through.
+      const nestingParser = QueryParser.create({ urlEncoded: true, nesting: true });
+
+      // Act & Assert
+      expect(nestingParser.parse('user[full+name%ZZ]=alice')).toEqual({ user: { 'full name%ZZ': 'alice' } });
+    });
+
+    it('should keep the literal plus on a malformed percent when urlEncoded is false', () => {
+      // Negative control — '+'->space must only happen under urlEncoded; the raw fallback is unchanged.
+      const defaultParser = QueryParser.create();
+
+      // Act & Assert
+      expect(defaultParser.parse('name=a+b%ZZ')).toEqual({ name: 'a+b%ZZ' });
+    });
+
+    it('should still throw on a malformed percent in strict mode even with urlEncoded', () => {
+      // Negative control — the strict error must fire before the plus-substitution fallback.
+      const strictParser = QueryParser.create({ urlEncoded: true, strict: true });
+
+      // Act
+      const error = catchError(() => strictParser.parse('a=hello+world%ZZ'));
+
+      // Assert
+      expect(error.reason).toBe(QueryParserErrorReason.MalformedQueryString);
     });
 
     it('should decode multiple plus signs as multiple spaces when urlEncoded is true', () => {

@@ -1,3 +1,5 @@
+import { Recipe, Field, seal, validateSync, isBakerIssueSet } from '@zipbul/baker';
+import { isBoolean, isInt, isIn, min } from '@zipbul/baker/rules';
 import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
 
@@ -5,6 +7,20 @@ import { DEFAULT_QUERY_PARSER_OPTIONS } from './constants';
 import { QueryParserErrorReason } from './enums';
 import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
 import type { ResolvedQueryParserOptions } from './types';
+
+const DUPLICATE_MODES: string[] = ['first', 'last', 'array'];
+
+/**
+ * Lazy seal — baker requires a single `seal()` after every `@Recipe` class is
+ * imported. Deferring it to the first validation avoids seizing global baker
+ * config before the host app registers its own DTOs. Mirrors the cors middleware.
+ */
+let isSealed = false;
+function ensureSealed(): void {
+  if (isSealed) return;
+  seal();
+  isSealed = true;
+}
 
 /**
  * Resolves partial {@link QueryParserOptions} into a fully populated
@@ -22,48 +38,67 @@ export function resolveQueryParserOptions(options?: QueryParserOptions): Resolve
   };
 }
 
-const VALID_DUPLICATE_MODES: ReadonlySet<string> = new Set(['first', 'last', 'array']);
+/**
+ * Query-parser options as a baker-validated data class — the same schema-driven
+ * validation the sibling CORS middleware uses for its options. Field order
+ * matters: baker reports the first failing field, so depth precedes maxParams
+ * to keep the documented "first failure wins" ordering. Every field carries a
+ * `context.reason` so an invalid value surfaces as a typed {@link QueryParserError}
+ * rather than baker's internal-invariant error.
+ */
+@Recipe
+export class QueryParserOptionsSchema {
+  /** Maximum nesting depth — non-negative integer. */
+  @Field(isInt, min(0), { optional: true, context: { reason: QueryParserErrorReason.InvalidDepth } })
+  depth?: number;
+
+  /** Maximum number of parameters — positive integer. */
+  @Field(isInt, min(1), { optional: true, context: { reason: QueryParserErrorReason.InvalidMaxParams } })
+  maxParams?: number;
+
+  /** Whether bracket nesting is enabled. */
+  @Field(isBoolean, { optional: true, context: { reason: QueryParserErrorReason.InvalidNesting } })
+  nesting?: boolean;
+
+  /** Maximum array index — non-negative integer. */
+  @Field(isInt, min(0), { optional: true, context: { reason: QueryParserErrorReason.InvalidArrayLimit } })
+  arrayLimit?: number;
+
+  /** Duplicate-key strategy. */
+  @Field(isIn(DUPLICATE_MODES), { optional: true, context: { reason: QueryParserErrorReason.InvalidDuplicates } })
+  duplicates?: 'first' | 'last' | 'array';
+
+  /** Whether strict mode is enabled. */
+  @Field(isBoolean, { optional: true, context: { reason: QueryParserErrorReason.InvalidStrict } })
+  strict?: boolean;
+
+  /** Whether `+` is decoded as a space (application/x-www-form-urlencoded). */
+  @Field(isBoolean, { optional: true, context: { reason: QueryParserErrorReason.InvalidUrlEncoded } })
+  urlEncoded?: boolean;
+}
 
 /**
- * Validates resolved query-parser options.
+ * Validates resolved query-parser options against {@link QueryParserOptionsSchema}.
  *
- * - V1: `depth` must be a non-negative integer.
- * - V2: `maxParams` must be a positive integer (≥ 1).
- * - V3: `arrayLimit` must be a non-negative integer.
- * - V4: `duplicates` must be 'first', 'last', or 'array'.
- *
- * @returns `undefined` (void) if valid, or `Err<QueryParserErrorData>` on the first violated rule.
+ * @returns `undefined` (void) if valid, or `Err<QueryParserErrorData>` carrying the
+ *   first violated field's reason.
  */
 export function validateQueryParserOptions(resolved: ResolvedQueryParserOptions): Result<void, QueryParserErrorData> {
-  // V1 — depth: non-negative integer
-  if (!Number.isInteger(resolved.depth) || resolved.depth < 0) {
-    return err<QueryParserErrorData>({
-      reason: QueryParserErrorReason.InvalidDepth,
-      message: 'depth must be a non-negative integer',
-    });
-  }
+  ensureSealed();
 
-  // V2 — maxParams: positive integer (≥ 1)
-  if (!Number.isInteger(resolved.maxParams) || resolved.maxParams < 1) {
-    return err<QueryParserErrorData>({
-      reason: QueryParserErrorReason.InvalidMaxParams,
-      message: 'maxParams must be a positive integer (≥ 1)',
-    });
-  }
+  const result = validateSync(QueryParserOptionsSchema, resolved);
 
-  // V3 — arrayLimit: non-negative integer
-  if (!Number.isInteger(resolved.arrayLimit) || resolved.arrayLimit < 0) {
-    return err<QueryParserErrorData>({
-      reason: QueryParserErrorReason.InvalidArrayLimit,
-      message: 'arrayLimit must be a non-negative integer',
-    });
-  }
+  if (isBakerIssueSet(result)) {
+    const issue = result.errors[0]!;
+    const ctx = issue.context as { reason?: QueryParserErrorReason } | undefined;
 
-  // V4 — duplicates: valid value
-  if (!VALID_DUPLICATE_MODES.has(resolved.duplicates)) {
+    if (ctx?.reason === undefined) {
+      throw new Error(`internal: baker @Field for "${issue.path}" missing context.reason`);
+    }
+
     return err<QueryParserErrorData>({
-      reason: QueryParserErrorReason.InvalidDuplicates,
-      message: "duplicates must be 'first', 'last', or 'array'",
+      reason: ctx.reason,
+      message: `${issue.path}: ${issue.code}`,
     });
   }
 }

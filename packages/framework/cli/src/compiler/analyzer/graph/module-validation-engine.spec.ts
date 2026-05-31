@@ -69,6 +69,7 @@ function createProviderRef(params: {
   const ref: ProviderRef = {
     token: params.token,
     visibility: params.visibility ?? 'all',
+    filePath: params.filePath ?? `/app/src/${params.token}.service.ts`,
   };
 
   if (params.visibleTo !== undefined) {
@@ -88,6 +89,40 @@ function createProviderRef(params: {
   }
 
   return ref;
+}
+
+// Dependencies are expressed via inject(); surface each provider's injected
+// tokens (here modeled on its class metadata) as provider-scoped inject deps so
+// scope/visibility validation runs against them (constructor injection is gone).
+function injectDepsFrom(modules: Map<string, ModuleNode>): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+
+  for (const node of modules.values()) {
+    for (const provider of node.providers.values()) {
+      const meta = provider.metadata;
+
+      if (meta == null || typeof meta !== 'object' || !('constructorParams' in meta) || provider.filePath === undefined) {
+        continue;
+      }
+
+      const cps = (meta as ClassMetadata).constructorParams;
+
+      if (cps.length === 0) {
+        continue;
+      }
+
+      map.set(
+        provider.filePath,
+        cps.map(p => {
+          const t = p.type as unknown as { __zipbul_ref?: string };
+
+          return typeof t.__zipbul_ref === 'string' ? t.__zipbul_ref : '';
+        }),
+      );
+    }
+  }
+
+  return map;
 }
 
 interface MockGildashOptions {
@@ -149,7 +184,7 @@ describe('validateVisibilityAndScope', () => {
     const warnings: string[] = [];
 
     expect(() => {
-      validateVisibilityAndScope(modules, classMap, moduleInjectDeps, undefined, warnings);
+      validateVisibilityAndScope(modules, classMap, moduleInjectDeps, injectDepsFrom(modules), undefined, warnings);
     }).not.toThrow();
     expect(warnings).toHaveLength(0);
   });
@@ -183,7 +218,7 @@ describe('validateVisibilityAndScope', () => {
     const warnings: string[] = [];
 
     expect(() => {
-      validateVisibilityAndScope(modules, classMap, new Map(), undefined, warnings);
+      validateVisibilityAndScope(modules, classMap, new Map(), injectDepsFrom(modules), undefined, warnings);
     }).toThrow(/Scope Violation.*Singleton.*SingletonService.*Request-Scoped.*RequestService/);
   });
 
@@ -222,7 +257,7 @@ describe('validateVisibilityAndScope', () => {
     const warnings: string[] = [];
 
     expect(() => {
-      validateVisibilityAndScope(modules, classMap, new Map(), undefined, warnings);
+      validateVisibilityAndScope(modules, classMap, new Map(), injectDepsFrom(modules), undefined, warnings);
     }).toThrow(/Visibility Violation.*ServiceA.*ModuleA.*ServiceB.*ModuleB.*module-only/);
   });
 
@@ -262,7 +297,7 @@ describe('validateVisibilityAndScope', () => {
     const warnings: string[] = [];
 
     expect(() => {
-      validateVisibilityAndScope(modules, classMap, new Map(), undefined, warnings);
+      validateVisibilityAndScope(modules, classMap, new Map(), injectDepsFrom(modules), undefined, warnings);
     }).toThrow(/Visibility Violation.*ServiceA.*ModuleA.*ServiceB.*ModuleB.*not allowlisted/);
   });
 
@@ -302,7 +337,7 @@ describe('validateVisibilityAndScope', () => {
     const warnings: string[] = [];
 
     expect(() => {
-      validateVisibilityAndScope(modules, classMap, new Map(), undefined, warnings);
+      validateVisibilityAndScope(modules, classMap, new Map(), injectDepsFrom(modules), undefined, warnings);
     }).not.toThrow();
   });
 
@@ -319,7 +354,7 @@ describe('validateVisibilityAndScope', () => {
     const warnings: string[] = [];
 
     expect(() => {
-      validateVisibilityAndScope(modules, classMap, new Map(), undefined, warnings);
+      validateVisibilityAndScope(modules, classMap, new Map(), injectDepsFrom(modules), undefined, warnings);
     }).not.toThrow();
   });
 
@@ -353,7 +388,7 @@ describe('validateVisibilityAndScope', () => {
     const warnings: string[] = [];
 
     expect(() => {
-      validateVisibilityAndScope(modules, classMap, moduleInjectDeps, undefined, warnings);
+      validateVisibilityAndScope(modules, classMap, moduleInjectDeps, injectDepsFrom(modules), undefined, warnings);
     }).toThrow(/Visibility Violation/);
   });
 
@@ -363,7 +398,7 @@ describe('validateVisibilityAndScope', () => {
     const warnings: string[] = [];
 
     expect(() => {
-      validateVisibilityAndScope(modules, classMap, new Map(), undefined, warnings);
+      validateVisibilityAndScope(modules, classMap, new Map(), injectDepsFrom(modules), undefined, warnings);
     }).not.toThrow();
   });
 
@@ -396,7 +431,7 @@ describe('validateVisibilityAndScope', () => {
     const warnings: string[] = [];
 
     expect(() => {
-      validateVisibilityAndScope(modules, classMap, new Map(), undefined, warnings);
+      validateVisibilityAndScope(modules, classMap, new Map(), injectDepsFrom(modules), undefined, warnings);
     }).not.toThrow();
   });
 
@@ -418,7 +453,7 @@ describe('validateVisibilityAndScope', () => {
     const warnings: string[] = [];
 
     expect(() => {
-      validateVisibilityAndScope(modules, classMap, new Map(), undefined, warnings);
+      validateVisibilityAndScope(modules, classMap, new Map(), injectDepsFrom(modules), undefined, warnings);
     }).not.toThrow();
   });
 });

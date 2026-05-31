@@ -2,6 +2,7 @@ import { createApplication } from '@zipbul/core';
 import { corsMiddleware } from '@zipbul/cors';
 import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
 import { Logger } from '@zipbul/logger';
+import { queryParser } from '@zipbul/query-parser';
 
 import { requestTimingMiddleware } from './middleware/request-timing.middleware';
 import { appModule } from './module';
@@ -18,6 +19,7 @@ httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
   corsMiddleware({ origin: 'https://allowed.example' }),
   requestTimingMiddleware(),
 ]);
+httpAdapter.addMiddlewares(HttpAdapterPhase.BeforeValidate, [queryParser]);
 
 // Inline custom adapter — defined inside `src/tick/`, compiled by `zb build`
 // alongside the external HttpAdapter. Real periodic transport: a setInterval

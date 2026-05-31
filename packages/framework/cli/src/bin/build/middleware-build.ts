@@ -250,8 +250,22 @@ export async function runMiddlewareBuild(
       // ── tsc .d.ts emission into the same staging dir ──
       log.time('dts');
 
+      // Prefer the package's `tsconfig.build.json` when present: it scopes the
+      // emit to `index.ts` + `src/**` and excludes spec/test, so build-time
+      // artifacts (the staging `.js`, `*.spec.ts`, `test/**`, `bench/**`) never
+      // leak `.d.ts` into dist. Fall back to the default tsconfig otherwise.
+      //
+      // `--noEmit false` is required either way: the shared base tsconfig sets
+      // `noEmit: true` (type-check only), and `--emitDeclarationOnly` alone does
+      // NOT override it — tsc would exit 0 having written zero files, silently
+      // shipping a dist with no `.d.ts`. Forcing `noEmit` off restores emission.
+      const hasBuildTsconfig = await Bun.file(join(projectRoot, 'tsconfig.build.json')).exists();
+      const tscArgs = hasBuildTsconfig
+        ? ['bunx', 'tsc', '-p', 'tsconfig.build.json', '--emitDeclarationOnly', '--noEmit', 'false', '--outDir', stagingDir]
+        : ['bunx', 'tsc', '--declaration', '--emitDeclarationOnly', '--noEmit', 'false', '--outDir', stagingDir];
+
       const proc = Bun.spawn(
-        ['bunx', 'tsc', '--declaration', '--emitDeclarationOnly', '--outDir', stagingDir],
+        tscArgs,
         {
           cwd: projectRoot,
           stderr: 'pipe',
@@ -725,13 +739,32 @@ async function buildContextAugmentsDtsContent(params: {
       //    emitted `dist/context-augments.d.ts` can `import type` from the
       //    sibling `.d.ts` tsc emits for that same file.
       const classImports = new Map<string, string>();
+      const registerType = (identifier: string): void => {
+        if (classImports.has(identifier)) return;
+        const importPath = importMap.get(identifier);
+        if (importPath !== undefined) {
+          classImports.set(identifier, importPath);
+        } else if (localClasses.has(identifier)) {
+          classImports.set(identifier, fullPath);
+        }
+      };
       for (const aug of augResult.augments) {
         if (aug.rhs.kind === 'class') {
-          const importPath = importMap.get(aug.rhs.identifier);
-          if (importPath !== undefined) {
-            classImports.set(aug.rhs.identifier, importPath);
-          } else if (localClasses.has(aug.rhs.identifier)) {
-            classImports.set(aug.rhs.identifier, fullPath);
+          registerType(aug.rhs.identifier);
+        } else if (aug.rhs.kind === 'method') {
+          // Types referenced in a method-signature augment (type-param
+          // constraints, param types, return type) may be imported — e.g.
+          // `Class<T>` from `@zipbul/common`. Collect their imports so the
+          // emitted augments file imports them; that also turns the file into
+          // a module, so its `declare module` *augments* the target interface
+          // instead of replacing the whole module (ambient declaration).
+          const typeText = [
+            ...aug.rhs.typeParams,
+            ...aug.rhs.params.map(p => p.type ?? ''),
+            aug.rhs.returnType ?? '',
+          ].join(' ');
+          for (const identifier of typeText.match(/[A-Za-z_$][\w$]*/g) ?? []) {
+            registerType(identifier);
           }
         }
       }

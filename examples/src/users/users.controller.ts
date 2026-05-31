@@ -19,7 +19,7 @@ import { UsersService } from './users.service';
 export class UsersController {
   private readonly logger = new Logger('UsersController');
   private readonly auditService = inject(UsersAuditService);
-  constructor(private readonly usersService: UsersService) {}
+  private readonly usersService = inject(UsersService);
 
   @Get()
   getAll(): ReadonlyArray<User> {
