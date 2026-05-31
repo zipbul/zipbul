@@ -12,6 +12,8 @@
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
     "strictPropertyInitialization": false,
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noPropertyAccessFromIndexSignature": false,
@@ -21,12 +23,5 @@
     "noImplicitOverride": true,
     "verbatimModuleSyntax": true
   },
-  "exclude": [
-    "**/dist/**",
-    "**/.zipbul/**",
-    "**/.zipbul-temp/**",
-    "packages/adapters/http/benchmark/apps/nestjs-express/**",
-    "packages/adapters/http/benchmark/apps/nestjs-fastify/**",
-    "poc/**"
-  ]
+  "exclude": ["**/dist/**", "**/.zipbul/**", "**/.zipbul-temp/**"]
 }

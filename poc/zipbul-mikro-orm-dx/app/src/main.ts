@@ -1,0 +1,15 @@
+import { createApplication } from '@zipbul/core';
+import { HttpAdapter } from '@zipbul/http-adapter';
+import { appModule } from './module';
+import { Database } from './database/orm.service';
+import { User } from './entities/user.entity';
+const app = createApplication(appModule);
+app.attach(HttpAdapter, { port: 5100 });
+await app.start();
+const db = app.get(Database) as Database;
+await (db.orm as any).schema?.drop?.({ dropForeignKeys:true }).catch(()=>{});
+await (db.orm as any).schema?.create?.();
+const seed = db.orm.em.fork();
+seed.persist(seed.create(User,{name:'Ada',email:'ada@x.io'}));
+seed.persist(seed.create(User,{name:'Alan',email:'alan@x.io'}));
+await seed.flush();
