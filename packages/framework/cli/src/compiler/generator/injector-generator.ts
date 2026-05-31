@@ -16,7 +16,7 @@ import { buildDiagnostic } from '../../diagnostics';
 import { isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
 import {
   stableKey, asString, asRecord, getRefName,
-  serializeValue, resolveConstructorDeps,
+  serializeValue,
 } from './value-serializer';
 
 interface Replacement {
@@ -166,9 +166,8 @@ export class InjectorGenerator {
               }
 
               const alias = getAlias(clsDef.metadata.className, clsDef.filePath);
-              const deps = resolveConstructorDeps(clsDef.metadata, node, graph, allKeys);
 
-              return `new ${alias}(${deps.join(', ')})`;
+              return `new ${alias}()`;
             });
             const factoryBody = Array.isArray(useClass) ? `[${instances.join(', ')}]` : instances[0];
 
@@ -370,9 +369,8 @@ export class InjectorGenerator {
         if (isClassMetadata(ref.metadata)) {
           const clsMeta = ref.metadata;
           const alias = getAlias(clsMeta.className, ref.filePath);
-          const deps = resolveConstructorDeps(clsMeta, node, graph, allKeys);
 
-          factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => ${runInjectAlias}(c, () => new ${alias}(${deps.join(', ')})), ${opts});`);
+          factoryEntries.push(`  container.set('${node.name}${SCOPED_KEY_SEPARATOR}${token}', (c) => ${runInjectAlias}(c, () => new ${alias}()), ${opts});`);
         }
       });
     });

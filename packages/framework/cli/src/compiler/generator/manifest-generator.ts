@@ -95,33 +95,7 @@ export class ManifestGenerator {
 
         const alias = registry.getAlias(ctrlName, ctrlDef.filePath);
         const scopedKey = `${node.name}${SCOPED_KEY_SEPARATOR}${ctrlName}`;
-        const deps = ctrlDef.metadata.constructorParams.map(param => {
-          const refName = this.extractRefName(param.type);
-
-          if (typeof refName === 'string' && refName.length > 0) {
-            const targetModule = graph.classMap.get(refName);
-
-            if (targetModule) {
-              return `__container__.get('${targetModule.name}${SCOPED_KEY_SEPARATOR}${refName}')`;
-            }
-
-            return `__container__.get('${refName}')`;
-          }
-
-          if (typeof param.type === 'string' && param.type.length > 0) {
-            const targetModule = graph.classMap.get(param.type);
-
-            if (targetModule) {
-              return `__container__.get('${targetModule.name}${SCOPED_KEY_SEPARATOR}${param.type}')`;
-            }
-
-            return `__container__.get('${param.type}')`;
-          }
-
-          return 'undefined';
-        });
-
-        controllerEntries.push(`  factories.set('${scopedKey}', () => runInInjectionContext(__container__, () => new ${alias}(${deps.join(', ')})));`);
+        controllerEntries.push(`  factories.set('${scopedKey}', () => runInInjectionContext(__container__, () => new ${alias}()));`);
       });
     });
 
@@ -370,10 +344,10 @@ installRuntime();
         return [];
       }
 
+      // Class providers resolve dependencies via inject() in their own bodies,
+      // not constructor params — so they list no constructor-derived deps here.
       if (isClassMetadata(metadata)) {
-        return metadata.constructorParams
-          .map(param => extractTokenName(param.type))
-          .filter((value): value is string => typeof value === 'string');
+        return [];
       }
 
       const record = isRecordValue(metadata) ? metadata : null;

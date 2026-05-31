@@ -33,7 +33,7 @@ const prop = (name: string, decorators: DecoratorMetadata[], type: AnalyzerValue
 
 const entry = (className: string, properties: PropertyMetadata[], filePath = '/app/options.ts'): MetadataClassEntry => ({
   filePath,
-  metadata: { className, decorators: [], constructorParams: [], methods: [], properties, imports: {} },
+  metadata: { className, decorators: [], methods: [], properties, imports: {} },
 });
 
 const generate = (classes: MetadataClassEntry[]): { code: string; imports: string } => {

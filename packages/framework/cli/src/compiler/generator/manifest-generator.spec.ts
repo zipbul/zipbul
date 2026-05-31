@@ -91,7 +91,6 @@ function createInjectableClassMetadata(className: string): ClassMetadata {
         arguments: [{ visibleTo: 'all', scope: 'singleton' }],
       },
     ],
-    constructorParams: [],
     methods: [],
     properties: [],
     imports: {},

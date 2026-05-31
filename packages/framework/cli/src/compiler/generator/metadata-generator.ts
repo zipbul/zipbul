@@ -1,4 +1,4 @@
-import type { ConstructorParamMetadata, DecoratorMetadata } from '../analyzer/interfaces';
+import type { DecoratorMetadata } from '../analyzer/interfaces';
 import type { AnalyzerValue } from '../analyzer/types';
 import type { ImportRegistry } from './import-registry';
 import type { MetadataClassEntry } from './interfaces';
@@ -215,15 +215,6 @@ export class MetadataGenerator {
       return decorators.map(decorator => ({ name: decorator.name, arguments: decorator.arguments }));
     };
 
-    const normalizeConstructorParams = (params: ConstructorParamMetadata[]): AnalyzerValue[] => {
-      return params.map(param => ({
-        name: param.name,
-        type: param.type,
-        typeArgs: param.typeArgs,
-        decorators: normalizeDecorators(param.decorators),
-      }));
-    };
-
     sortedClasses.forEach(({ metadata, filePath }) => {
       const alias = registry.getAlias(metadata.className, filePath);
       const resolvedProperties = resolveMetadata(metadata.className);
@@ -327,7 +318,7 @@ export class MetadataGenerator {
       const metaFactoryCall = `_meta(
         '${metadata.className}',
         ${serializeValue(normalizeDecorators(metadata.decorators))},
-        ${serializeValue(normalizeConstructorParams(metadata.constructorParams))},
+        [],
         ${serializeMethods(metadata.methods)},
         [${props.join(',')}]
       )`;

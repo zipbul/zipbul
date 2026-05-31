@@ -118,8 +118,6 @@ export function convertClassSymbol(
     };
   });
 
-  // Constructor params
-  const constructorParams: ClassMetadata['constructorParams'] = [];
   const methods: ClassMetadata['methods'] = [];
   const properties: ClassMetadata['properties'] = [];
   let middlewares: ClassMetadata['middlewares'] = [];
@@ -130,31 +128,6 @@ export function convertClassSymbol(
 
   if (symbol.members) {
     for (const member of symbol.members) {
-      if (member.methodKind === 'constructor' && member.parameters) {
-        for (const param of member.parameters) {
-          const paramType = resolveParameterType(
-            param.type,
-            param.typeImportSource,
-            importMap,
-            context,
-          );
-          const paramDecorators = (param.decorators ?? []).map(decorator => {
-            const converted = convertDecorator(decorator);
-
-            return { ...converted, name: resolveOriginalName(converted.name, context.currentOriginalNames) };
-          });
-
-          constructorParams.push({
-            name: param.name,
-            type: paramType,
-            typeArgs: extractTypeArgs(param.type),
-            decorators: paramDecorators,
-          });
-        }
-
-        continue;
-      }
-
       if (member.kind === 'method' && member.methodKind === 'method') {
         const isStatic = member.modifiers.includes('static');
         const memberName = member.name;
@@ -351,7 +324,6 @@ export function convertClassSymbol(
     className,
     heritage,
     decorators,
-    constructorParams,
     methods,
     properties,
     imports: { ...currentImports },
