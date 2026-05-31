@@ -23,6 +23,7 @@ module.exports = {
         'helmet',
         'http-adapter',
         'logger',
+        'mikro-orm',
         'multipart',
         'query-parser',
         'rate-limiter',

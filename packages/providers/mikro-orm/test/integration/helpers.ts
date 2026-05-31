@@ -16,8 +16,12 @@ import { BunPostgreSqlDriver, BunMySqlDriver } from '../../src/driver';
  */
 export const PG_URL = process.env.DB_URL_PG;
 export const MYSQL_URL = process.env.DB_URL_MYSQL;
+/** A separate SSL/TLS-enabled postgres URL (e.g. `...?sslmode=require`). Absent in the
+ *  default lane — the SSL test skips cleanly unless an SSL endpoint is provided. */
+export const PG_SSL_URL = process.env.DB_URL_PG_SSL;
 export const describePg = PG_URL ? describe : describe.skip;
 export const describeMysql = MYSQL_URL ? describe : describe.skip;
+export const describePgSsl = PG_SSL_URL ? describe : describe.skip;
 
 /** Schema generator surface via the `orm.schema` getter (wired by the SqlSchemaGenerator extension). */
 type SchemaGen = { drop(o?: { dropForeignKeys?: boolean }): Promise<void>; create(): Promise<void> };
