@@ -6,7 +6,7 @@ let mockAdapterConfig: Record<string, unknown> | undefined;
 
 mock.module('@zipbul/baker', () => ({
   deserialize: async () => ({}),
-  isBakerError: () => false,
+  isBakerIssueSet: () => false,
 }));
 
 mock.module('../runtime/bootstrap-state', () => ({

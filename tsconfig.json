@@ -12,7 +12,7 @@
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
     "strictPropertyInitialization": false,
-    "experimentalDecorators": true,
+    "experimentalDecorators": false,
     "emitDecoratorMetadata": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -23,5 +23,11 @@
     "noImplicitOverride": true,
     "verbatimModuleSyntax": true
   },
-  "exclude": ["**/dist/**", "**/.zipbul/**", "**/.zipbul-temp/**"]
+  "exclude": [
+    "**/dist/**",
+    "**/.zipbul/**",
+    "**/.zipbul-temp/**",
+    "**/benchmark/**",
+    "poc/**"
+  ]
 }

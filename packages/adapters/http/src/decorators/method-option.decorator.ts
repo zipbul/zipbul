@@ -25,7 +25,7 @@ import type { RedirectStatus } from '../types';
  *
  * @public
  */
-export function RawBody(): MethodDecorator {
+export function RawBody(): (value: unknown, context: DecoratorContext) => void {
   return () => {};
 }
 
@@ -49,7 +49,7 @@ export function RawBody(): MethodDecorator {
  *
  * @public
  */
-export function Sse(): MethodDecorator {
+export function Sse(): (value: unknown, context: DecoratorContext) => void {
   return () => {};
 }
 
@@ -69,7 +69,7 @@ export function Sse(): MethodDecorator {
  *
  * @public
  */
-export function BodyLimit(_bytes: number): MethodDecorator {
+export function BodyLimit(_bytes: number): (value: unknown, context: DecoratorContext) => void {
   return () => {};
 }
 
@@ -89,7 +89,7 @@ export function BodyLimit(_bytes: number): MethodDecorator {
  *
  * @public
  */
-export function Status(_code: HttpStatus): MethodDecorator {
+export function Status(_code: HttpStatus): (value: unknown, context: DecoratorContext) => void {
   return () => {};
 }
 
@@ -110,7 +110,7 @@ export function Status(_code: HttpStatus): MethodDecorator {
  *
  * @public
  */
-export function Redirect(_url: string, _status?: RedirectStatus): MethodDecorator {
+export function Redirect(_url: string, _status?: RedirectStatus): (value: unknown, context: DecoratorContext) => void {
   return () => {};
 }
 
@@ -130,7 +130,7 @@ export function Redirect(_url: string, _status?: RedirectStatus): MethodDecorato
  *
  * @public
  */
-export function ContentType(_type: string): MethodDecorator {
+export function ContentType(_type: string): (value: unknown, context: DecoratorContext) => void {
   return () => {};
 }
 
@@ -151,6 +151,6 @@ export function ContentType(_type: string): MethodDecorator {
  *
  * @public
  */
-export function Header(_name: string, _value: string): MethodDecorator {
+export function Header(_name: string, _value: string): (value: unknown, context: DecoratorContext) => void {
   return () => {};
 }

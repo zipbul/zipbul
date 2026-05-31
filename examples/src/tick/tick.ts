@@ -124,10 +124,10 @@ export class TickContext implements AdapterContext {
 }
 
 /** Marks a class as a tick controller. AOT collects the class via this name. */
-export const TickController = (): ClassDecorator => () => {};
+export const TickController = (): ((value: unknown, context: DecoratorContext) => void) => () => {};
 
 /** Marks a method as a tick handler. AOT collects the method via this name. */
-export const OnTick = (): MethodDecorator => () => {};
+export const OnTick = (): ((value: unknown, context: DecoratorContext) => void) => () => {};
 
 const DEFAULT_INTERVAL_MS = 1000;
 

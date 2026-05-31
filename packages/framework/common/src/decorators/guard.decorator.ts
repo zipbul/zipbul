@@ -19,6 +19,6 @@ import type { GuardDefinition } from '../define-guard';
  *
  * @public
  */
-export function UseGuards(..._guards: readonly GuardDefinition[]): MethodDecorator & ClassDecorator {
+export function UseGuards(..._guards: readonly GuardDefinition[]): (value: unknown, context: DecoratorContext) => void {
   return () => {};
 }

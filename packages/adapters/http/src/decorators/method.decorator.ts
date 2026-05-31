@@ -1,25 +1,25 @@
 import type { HttpMethodDecoratorOptions } from './interfaces';
 
 export const Get =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions): (value: unknown, context: DecoratorContext) => void =>
   () => {};
 export const Post =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions): (value: unknown, context: DecoratorContext) => void =>
   () => {};
 export const Put =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions): (value: unknown, context: DecoratorContext) => void =>
   () => {};
 export const Delete =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions): (value: unknown, context: DecoratorContext) => void =>
   () => {};
 export const Patch =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions): (value: unknown, context: DecoratorContext) => void =>
   () => {};
 export const Options =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions): (value: unknown, context: DecoratorContext) => void =>
   () => {};
 export const Head =
-  (_pathOrOptions?: string | HttpMethodDecoratorOptions): MethodDecorator =>
+  (_pathOrOptions?: string | HttpMethodDecoratorOptions): (value: unknown, context: DecoratorContext) => void =>
   () => {};
 
 /**
@@ -55,5 +55,5 @@ export const Method =
   <const M extends string>(
     _method: Uppercase<M> extends `${typeof import('../constants').FORBIDDEN_HTTP_METHODS[number]}` ? never : M,
     _pathOrOptions?: string | HttpMethodDecoratorOptions,
-  ): MethodDecorator =>
+  ): (value: unknown, context: DecoratorContext) => void =>
   () => {};

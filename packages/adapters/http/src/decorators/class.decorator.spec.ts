@@ -46,9 +46,10 @@ describe('RestController', () => {
     // Arrange
     const decorator = RestController('test');
     class TestTarget {}
+    const context = { kind: 'class', name: 'TestTarget' } as ClassDecoratorContext;
 
     // Act & Assert
-    expect(() => decorator(TestTarget)).not.toThrow();
+    expect(() => decorator(TestTarget, context)).not.toThrow();
   });
 
   it('should return independent decorators on repeated calls', () => {

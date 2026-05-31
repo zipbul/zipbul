@@ -11,15 +11,15 @@ import type { ControllerOptions, RestControllerDecoratorOptions } from './interf
  *   @RestController('users')                   — string path
  *   @RestController('users', { adapterNames })  — string path + options
  */
-export function RestController(_options?: RestControllerDecoratorOptions): ClassDecorator;
-export function RestController(_path?: string, _options?: RestControllerDecoratorOptions): ClassDecorator;
+export function RestController(_options?: RestControllerDecoratorOptions): (value: unknown, context: DecoratorContext) => void;
+export function RestController(_path?: string, _options?: RestControllerDecoratorOptions): (value: unknown, context: DecoratorContext) => void;
 export function RestController(
   _pathOrOptions?: string | RestControllerDecoratorOptions,
   _options?: RestControllerDecoratorOptions,
-): ClassDecorator {
+): (value: unknown, context: DecoratorContext) => void {
   return () => {};
 }
 
-export function Controller(_prefixOrOptions?: string | ControllerOptions): ClassDecorator {
+export function Controller(_prefixOrOptions?: string | ControllerOptions): (value: unknown, context: DecoratorContext) => void {
   return () => {};
 }

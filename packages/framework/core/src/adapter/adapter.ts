@@ -1,6 +1,6 @@
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result, ResultAsync } from '@zipbul/result';
-import { deserialize, isBakerError } from '@zipbul/baker';
+import { deserialize, isBakerIssueSet } from '@zipbul/baker';
 import type { MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
 import type { GuardDefinition, GuardHandlerFn } from '@zipbul/common';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '@zipbul/common';
@@ -371,7 +371,7 @@ export abstract class Adapter implements AdapterContract {
       const input = validation.readInput(context);
       const result = await deserialize(validation.metatype, input);
 
-      if (isBakerError(result)) {
+      if (isBakerIssueSet(result)) {
         return this.wrapValidationError(validation, result);
       }
 

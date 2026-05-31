@@ -11,11 +11,10 @@ describe('Status decorator (H14)', () => {
     expect(typeof Status(HttpStatus.InternalServerError)).toBe('function');
   });
 
-  it('returns a no-op MethodDecorator (runtime is AOT-wired)', () => {
+  it('returns a no-op method decorator (runtime is AOT-wired)', () => {
     const dec = Status(HttpStatus.Created);
-    expect(() =>
-      dec({} as unknown as object, 'm', {} as unknown as PropertyDescriptor),
-    ).not.toThrow();
+    const context = { kind: 'method', name: 'm' } as ClassMethodDecoratorContext;
+    expect(() => dec((): void => {}, context)).not.toThrow();
   });
 
   // Type-level rejection of non-enum numbers is enforced by `bunx tsc --noEmit`
