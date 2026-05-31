@@ -28,8 +28,23 @@ const INVALID_TOKEN_CHARS = /[^\x21\x23\x24\x26\x27\x2A\x2B\x2D\x2E\x30-\x39\x41
 // RFC 1034/1123 subdomain LDH rule. Allows optional leading dot (RFC 6265 §4.1.2.3 — UA strips).
 const RFC1123_DOMAIN = /^\.?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i;
 
-const PRIORITY_VALUES: ReadonlySet<CookiePriority> = new Set(['low', 'medium', 'high']);
-const SAME_SITE_VALUES: ReadonlySet<string> = new Set(['strict', 'lax', 'none']);
+// The full set of CookieAttributes keys, used to detect which attributes a caller passed
+// explicitly. `satisfies` validates every entry against the interface, and the compile-time
+// exhaustiveness statement below fails to build if a new attribute is added without being listed
+// here — so a new attribute can never silently skip explicit-attribute tracking.
+const COOKIE_ATTRIBUTE_KEYS = [
+  'domain', 'path', 'secure', 'httpOnly', 'sameSite',
+  'maxAge', 'expires', 'partitioned', 'priority',
+] as const satisfies readonly (keyof CookieAttributes)[];
+true satisfies [Exclude<keyof CookieAttributes, (typeof COOKIE_ATTRIBUTE_KEYS)[number]>] extends [never] ? true : false;
+
+function isSameSite(value: string): value is 'strict' | 'lax' | 'none' {
+  return value === 'strict' || value === 'lax' || value === 'none';
+}
+
+function isCookiePriority(value: string): value is CookiePriority {
+  return value === 'low' || value === 'medium' || value === 'high';
+}
 
 // WebCrypto subtle hash name keyed by the configured signing algorithm. `satisfies` keeps the table
 // exhaustive over SigningAlgorithm — adding a 4th algorithm fails to compile until this table is
@@ -190,7 +205,7 @@ export class CookieParser {
 
     const explicit = new Set<keyof CookieAttributes>();
     if (options) {
-      for (const k of Object.keys(options) as (keyof CookieAttributes)[]) {
+      for (const k of COOKIE_ATTRIBUTE_KEYS) {
         if (options[k] !== undefined) {explicit.add(k);}
       }
     }
@@ -563,13 +578,13 @@ export class CookieParser {
     // than being asserted into the union and surfacing as an opaque Bun construction error.
     if (typeof merged.sameSite === 'string') {
       const lowered = merged.sameSite.toLowerCase();
-      if (!SAME_SITE_VALUES.has(lowered)) {
+      if (!isSameSite(lowered)) {
         throw new CookieError({
           reason: CookieErrorReason.InvalidAttribute,
           message: 'sameSite must be one of: strict, lax, none',
         });
       }
-      merged.sameSite = lowered as 'strict' | 'lax' | 'none';
+      merged.sameSite = lowered;
     }
 
     return merged;
@@ -744,7 +759,7 @@ export class CookieParser {
   }
 
   private assertValidPriority(p: string): void {
-    if (!PRIORITY_VALUES.has(p as CookiePriority)) {
+    if (!isCookiePriority(p)) {
       throw new CookieError({
         reason: CookieErrorReason.InvalidPriority,
         message: 'priority must be one of: low, medium, high',

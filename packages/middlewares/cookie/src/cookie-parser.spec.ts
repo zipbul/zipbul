@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { asCookieError } from '../test/support';
 import { Cookie } from 'bun';
 
 import { CookieErrorReason } from './enums';
@@ -35,7 +36,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.EmptySecrets);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.EmptySecrets);
     });
 
     it('should throw InvalidSecret when a secret is blank', () => {
@@ -46,7 +47,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidSecret);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidSecret);
     });
 
     it('should throw InvalidEncryptionSecret when encryptionSecret is blank', () => {
@@ -57,7 +58,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.InvalidEncryptionSecret,
       );
     });
@@ -70,7 +71,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.InvalidEncryptionSecret,
       );
     });
@@ -135,7 +136,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.SigningNotConfigured,
       );
     });
@@ -181,7 +182,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.SigningNotConfigured,
       );
     });
@@ -195,7 +196,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.InvalidSignature,
       );
     });
@@ -209,7 +210,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.SignatureVerificationFailed,
       );
     });
@@ -228,7 +229,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.SignatureVerificationFailed,
       );
     });
@@ -284,7 +285,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.EncryptionNotConfigured,
       );
     });
@@ -316,7 +317,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.EncryptionNotConfigured,
       );
     });
@@ -330,7 +331,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.InvalidCiphertext,
       );
     });
@@ -349,7 +350,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.DecryptionFailed,
       );
     });
@@ -365,7 +366,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.DecryptionFailed,
       );
     });
@@ -410,7 +411,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.HostPrefixRequiresSecure,
       );
     });
@@ -430,7 +431,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.HostPrefixForbidsDomain,
       );
     });
@@ -444,7 +445,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.HostPrefixRequiresRootPath,
       );
     });
@@ -458,7 +459,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.SecurePrefixRequiresSecure,
       );
     });
@@ -507,7 +508,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.EncryptionNotConfigured,
       );
     });
@@ -521,7 +522,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.SigningNotConfigured,
       );
     });
@@ -577,7 +578,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.SignatureVerificationFailed,
       );
     });
@@ -591,7 +592,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidAlgorithm);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidAlgorithm);
     });
   });
 
@@ -673,7 +674,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.serialize(cookie); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidAttribute);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidAttribute);
     });
 
     it('different kdfSalt produces signatures that do not cross-verify', async () => {
@@ -684,7 +685,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { await b.unsign(signed); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
     });
 
     it('throws when secure="auto" but context.isSecure is undefined', () => {
@@ -693,7 +694,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.serialize(cookie, {}); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidAttribute);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidAttribute);
     });
 
     it('should apply nullable defaults in serialize when cookie has no domain', () => {
@@ -730,7 +731,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.HostPrefixRequiresSecure,
       );
     });
@@ -772,7 +773,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.SecurePrefixRequiresSecure,
       );
     });
@@ -812,7 +813,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidCookieName);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidCookieName);
     });
 
     it('should throw InvalidCookieName when name contains spaces', () => {
@@ -824,7 +825,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidCookieName);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidCookieName);
     });
 
     it('should throw InvalidCookieName when name contains control chars', () => {
@@ -836,7 +837,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidCookieName);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidCookieName);
     });
 
     it('should throw InvalidCookieName when name contains separator chars', () => {
@@ -867,7 +868,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.CookieTooLarge);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.CookieTooLarge);
     });
 
     it('should not throw when serialized cookie is within 4096 bytes', () => {
@@ -920,7 +921,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.SameSiteNoneRequiresSecure,
       );
     });
@@ -965,7 +966,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.SameSiteNoneRequiresSecure,
       );
     });
@@ -979,7 +980,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(
+      expect(asCookieError(caught).reason).toBe(
         CookieErrorReason.PartitionedRequiresSecure,
       );
     });
@@ -1029,7 +1030,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { await cp.unsign(replayed); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
     });
 
     it('should reject AES-GCM ciphertext when cookie name differs (C2)', async () => {
@@ -1039,7 +1040,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { await cp.decrypt(replayed); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.DecryptionFailed);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.DecryptionFailed);
     });
 
     it('should sign and unsign successfully when cookie name matches', async () => {
@@ -1081,7 +1082,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { await cpB.decrypt(encrypted); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.DecryptionFailed);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.DecryptionFailed);
     });
   });
 
@@ -1090,14 +1091,14 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { CookieParser.create({ secrets: ['short'] }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.WeakSecret);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.WeakSecret);
     });
 
     it('should throw WeakSecret when encryption secret is shorter than 32 chars', () => {
       let caught: unknown;
       try { CookieParser.create({ encryptionSecret: 'short' }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.WeakSecret);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.WeakSecret);
     });
 
     it('should accept high-entropy secret with exactly 32 chars', () => {
@@ -1110,7 +1111,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { CookieParser.create({ secrets: ['a'.repeat(40)] }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.WeakSecret);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.WeakSecret);
     });
   });
 
@@ -1120,7 +1121,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.createCookie('n', 'v', { maxAge: NaN }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidMaxAge);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidMaxAge);
     });
 
     it('should throw InvalidMaxAge when maxAge is decimal 0.5 via createCookie (N7)', () => {
@@ -1128,7 +1129,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.createCookie('n', 'v', { maxAge: 0.5 }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidMaxAge);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidMaxAge);
     });
 
     it('should throw InvalidMaxAge when maxAge is Infinity via createCookie', () => {
@@ -1136,7 +1137,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.createCookie('n', 'v', { maxAge: Infinity }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidMaxAge);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidMaxAge);
     });
 
     it('should throw InvalidMaxAge in serialize when raw Cookie has decimal maxAge', () => {
@@ -1144,7 +1145,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.serialize(new Cookie('n', 'v', { maxAge: 0.5 })); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidMaxAge);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidMaxAge);
     });
 
     it('should accept negative integer maxAge per RFC 6265bis §5.4', () => {
@@ -1241,7 +1242,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.createCookie('n', 'v', { expires: 'not-a-date' }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidExpires);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidExpires);
     });
 
     it('should throw CookieError(InvalidExpires) for NaN expires', () => {
@@ -1249,7 +1250,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.createCookie('n', 'v', { expires: NaN }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidExpires);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidExpires);
     });
 
     it('should throw CookieError(InvalidExpires) for invalid Date object', () => {
@@ -1257,7 +1258,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.createCookie('n', 'v', { expires: new Date('invalid') }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidExpires);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidExpires);
     });
 
     it('should throw CookieError(InvalidExpires) for Infinity expires', () => {
@@ -1265,7 +1266,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.createCookie('n', 'v', { expires: Infinity }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidExpires);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidExpires);
     });
 
     it('should accept valid IMF-fixdate string', () => {
@@ -1289,7 +1290,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.createCookie('n', 'v', { domain: 'evil; injected' }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidDomain);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidDomain);
     });
 
     it('should wrap Bun path errors into CookieError', () => {
@@ -1297,7 +1298,7 @@ describe('CookieParser', () => {
       let caught: unknown;
       try { cp.createCookie('n', 'v', { path: '/x;injected' }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidPath);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidPath);
     });
   });
 
@@ -1317,7 +1318,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.DecryptionFailed);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.DecryptionFailed);
     });
   });
 
@@ -1332,7 +1333,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidAttribute);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidAttribute);
     });
 
     it('should normalize a Pascal-case sameSite to its lowercase token', () => {
@@ -1359,7 +1360,7 @@ describe('CookieParser', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.HostPrefixForbidsDomain);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.HostPrefixForbidsDomain);
     });
   });
 

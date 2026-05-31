@@ -32,7 +32,9 @@ describe('CookieParser + CookieJar scenarios', () => {
       // Browser sends cookie back
       const cookieValue = setCookieHeaders[0]!.split('=').slice(1).join('=').split(';')[0]!;
       const inJar = new CookieJar(parser, `session=${cookieValue}`);
-      const restored = JSON.parse((await inJar.get('session')) as string);
+      const raw = await inJar.get('session');
+      if (typeof raw !== 'string') { throw new Error('session cookie missing'); }
+      const restored = JSON.parse(raw);
       expect(restored.userId).toBe(42);
       expect(restored.role).toBe('admin');
     });

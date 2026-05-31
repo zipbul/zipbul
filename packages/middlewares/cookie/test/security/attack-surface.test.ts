@@ -137,8 +137,8 @@ describe('Attack: prototype pollution via cookie names', () => {
     const jar = new CookieJar(cp, '__proto__=evil; constructor=evil; toString=evil');
     expect(jar.getRaw('__proto__')).toBe('evil');
     // verify Object.prototype is untouched
-    expect(({} as Record<string, unknown>).evil).toBeUndefined();
-    expect(({} as Record<string, unknown>).__proto__).not.toBe('evil');
+    expect('evil' in {}).toBe(false);
+    expect(Object.getPrototypeOf({})).not.toBe('evil');
   });
   it('out-jar set with __proto__ does not pollute', async () => {
     const cp = CookieParser.create();
@@ -146,7 +146,7 @@ describe('Attack: prototype pollution via cookie names', () => {
     out.set('__proto__', 'evil');
     const headers = await out.getSetCookieHeaders();
     expect(headers[0]).toContain('__proto__=evil');
-    expect(({} as Record<string, unknown>).evil).toBeUndefined();
+    expect('evil' in {}).toBe(false);
   });
 });
 

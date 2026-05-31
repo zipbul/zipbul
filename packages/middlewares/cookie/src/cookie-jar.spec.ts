@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test';
+import { asCookieError, asErr } from '../test/support';
 import { isErr } from '@zipbul/result';
-import type { Err } from '@zipbul/result';
 
 import { CookieErrorReason } from './enums';
-import { CookieError, type CookieErrorData } from './interfaces';
+import { CookieError } from './interfaces';
 import { CookieParser } from './cookie-parser';
 import { CookieJar } from './cookie-jar';
 
@@ -92,7 +92,7 @@ describe('CookieJar', () => {
       const jar = new CookieJar(parser, 'session=tampered.invalidsig');
       const result = await jar.get('session');
       expect(isErr(result)).toBe(true);
-      expect((result as Err<CookieErrorData>).data.reason).toBe(
+      expect(asErr(result).data.reason).toBe(
         CookieErrorReason.SignatureVerificationFailed,
       );
     });
@@ -166,7 +166,7 @@ describe('CookieJar', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidCookieName);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidCookieName);
     });
 
     it('should overwrite previously set cookie with same name', async () => {
@@ -376,7 +376,7 @@ describe('CookieJar', () => {
         caught = e;
       }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.HostPrefixRequiresSecure);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.HostPrefixRequiresSecure);
     });
   });
 

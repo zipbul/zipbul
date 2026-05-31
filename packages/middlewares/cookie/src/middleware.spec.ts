@@ -8,6 +8,7 @@
  * `cookieJarKey` publication, `Set-Cookie` flushing via `appendHeader`, and `isSecure` derivation.
  */
 import { describe, expect, it } from 'bun:test';
+import { asCookieError } from '../test/support';
 import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
 import { mockContext } from '@zipbul/http-adapter/testing';
 
@@ -42,7 +43,7 @@ describe('cookieMiddleware factory — definition shape', () => {
       throw new Error('expected throw');
     } catch (e) {
       expect(e).toBeInstanceOf(CookieError);
-      expect((e as CookieError).reason).toBe(CookieErrorReason.WeakSecret);
+      expect(asCookieError(e).reason).toBe(CookieErrorReason.WeakSecret);
     }
   });
 });
