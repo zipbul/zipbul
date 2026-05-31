@@ -29,6 +29,7 @@ export function validateVisibilityAndScope(
   modules: ReadonlyMap<string, ModuleNode>,
   classMap: ReadonlyMap<string, ModuleNode>,
   moduleInjectDeps: ReadonlyMap<string, string[]>,
+  providerInjectDeps: ReadonlyMap<string, string[]>,
   gildash: Gildash | undefined,
   warnings: string[],
 ): void {
@@ -44,7 +45,13 @@ export function validateVisibilityAndScope(
         continue;
       }
 
-      const deps = extractDeps(provider, gildash, warnings);
+      // A provider's dependencies are its inject() tokens (modern decorators have
+      // no constructor injection) plus any useFactory deps; both must pass scope
+      // validation so a singleton can't depend on a request-scoped provider.
+      const deps = [
+        ...extractDeps(provider, gildash, warnings),
+        ...(provider.filePath !== undefined ? providerInjectDeps.get(provider.filePath) ?? [] : []),
+      ];
 
       for (const depToken of deps) {
         assertVisibility(node, depToken, provider.token, classMap);

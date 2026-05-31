@@ -325,9 +325,10 @@ export function extractDeps(
   }
 
   if (isClassMetadata(provider.metadata)) {
-    return provider.metadata.constructorParams
-      .map(p => extractTokenName(p.type, gildash, warnings))
-      .filter(v => v !== 'UNKNOWN');
+    // Class providers resolve dependencies via inject() in their own bodies
+    // (collected separately as module inject deps), not via constructor
+    // parameters — so they contribute no constructor-derived deps here.
+    return [];
   }
 
   const record = toRecord(provider.metadata);

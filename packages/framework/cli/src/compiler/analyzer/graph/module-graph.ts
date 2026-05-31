@@ -43,6 +43,8 @@ export class ModuleGraph {
   public moduleNameByPath: Map<string, string> = new Map();
   public moduleMarkerExports: Map<string, Set<string>> = new Map();
   public moduleInjectDeps: Map<string, string[]> = new Map();
+  /** Provider file path → its inject() dependency tokens (consumer-scoped, for scope validation). */
+  public providerInjectDeps: Map<string, string[]> = new Map();
   constructor(
     public readonly fileMap: Map<string, FileAnalysis>,
     public readonly moduleFileName: string,
@@ -65,6 +67,7 @@ export class ModuleGraph {
     this.moduleNameByPath.clear();
     this.moduleMarkerExports.clear();
     this.moduleInjectDeps.clear();
+    this.providerInjectDeps.clear();
 
     const sourceDir = this.sourceDir;
     const allFiles = Array.from(this.fileMap.keys())
@@ -154,6 +157,10 @@ export class ModuleGraph {
 
         injectDeps.push(...fileInjectDeps);
 
+        if (fileInjectDeps.length > 0) {
+          this.providerInjectDeps.set(filePath, fileInjectDeps);
+        }
+
         for (const cls of fileAnalysis.classes) {
           this.classMap.set(cls.className, node);
           this.classDefinitions.set(cls.className, { metadata: cls, filePath });
@@ -231,7 +238,7 @@ export class ModuleGraph {
    */
   validate(): void {
     validateModuleNameUniqueness(this.modules);
-    validateVisibilityAndScope(this.modules, this.classMap, this.moduleInjectDeps, this.gildash, this.warnings);
+    validateVisibilityAndScope(this.modules, this.classMap, this.moduleInjectDeps, this.providerInjectDeps, this.gildash, this.warnings);
 
     if (this.gildash) {
       validateProviderImplementations(this.modules, this.classDefinitions, this.gildash, this.warnings);
