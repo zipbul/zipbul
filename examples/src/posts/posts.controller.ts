@@ -1,4 +1,5 @@
 import { UseMiddlewares } from '@zipbul/common';
+import { inject } from '@zipbul/core';
 import { RestController, Delete, Get, Post, Put, type HttpContext } from '@zipbul/http-adapter';
 
 import { PostCommentInput } from './comments/interfaces';
@@ -12,7 +13,7 @@ import { PostsService } from './posts.service';
 
 @RestController('posts')
 export class PostsController {
-  constructor(private readonly postsService: PostsService) {}
+  private readonly postsService = inject(PostsService);
 
   @Get()
   getAll(): ReadonlyArray<PostEntity> {
