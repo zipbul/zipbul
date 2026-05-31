@@ -1,97 +1,76 @@
 /**
- * Unit spec for the `queryParserMiddleware` factory (colocated with the source).
- * Covers the adapter-integration contract — the `MiddlewareDefinition` shape,
- * fail-fast option validation, `ctx.to(HttpContext)`, reading
- * `request.queryString`, and assigning the parsed result to `request.query` —
- * exercised against a real `HttpContext` from `@zipbul/http-adapter/testing`.
+ * Unit spec for the `queryParser` middleware (canonical `export const … =
+ * defineMiddleware(…)` + context augment). Covers the adapter-integration
+ * contract — the `MiddlewareDefinition` shape and the typed
+ * `request.getQuery(dto)` accessor it installs — exercised against a real
+ * `HttpContext` from `@zipbul/http-adapter/testing`.
  *
- * The framework-agnostic parsing engine is verified separately in
- * `query-parser.spec.ts`; this file focuses on the middleware glue.
+ * Configurable parsing behavior (nesting, depth, duplicates, strict,
+ * urlEncoded, option validation) is verified in `query-parser.spec.ts` and
+ * `options.spec.ts` against `QueryParser.create(opts)`. The middleware uses
+ * default options, so this file focuses on the middleware glue + the augment.
  */
+import type { Class } from '@zipbul/common';
+
 import { HttpAdapter } from '@zipbul/http-adapter';
 import { mockContext } from '@zipbul/http-adapter/testing';
 import { describe, expect, it } from 'bun:test';
 
-import type { QueryParserOptions } from './interfaces';
+import { queryParser } from './middleware';
 
-import { QueryParserErrorReason } from './enums';
-import { QueryParserError } from './interfaces';
-import { queryParserMiddleware } from './middleware';
+class QueryDto {}
 
-const run = (path: string, opts?: QueryParserOptions): unknown => {
+/** Runs the middleware against `path` and reads back the installed accessor. */
+const getQuery = (path: string): unknown => {
   const ctx = mockContext({ url: `http://localhost${path}` });
-  const handler = queryParserMiddleware(opts).factory();
 
-  handler(ctx);
+  queryParser.factory()(ctx);
 
-  return ctx.request.query;
+  return (ctx.request as unknown as { getQuery<T>(dto: Class<T>): T }).getQuery(QueryDto);
 };
 
-describe('queryParserMiddleware — definition shape', () => {
-  it('should return a MiddlewareDefinition keyed to [HttpAdapter]', () => {
-    const def = queryParserMiddleware();
-
-    expect(def).toBeDefined();
-    expect(def.adapters).toEqual([HttpAdapter]);
-    expect(typeof def.factory).toBe('function');
+describe('queryParser — definition shape', () => {
+  it('should be a MiddlewareDefinition keyed to [HttpAdapter]', () => {
+    expect(queryParser).toBeDefined();
+    expect(queryParser.adapters).toEqual([HttpAdapter]);
+    expect(typeof queryParser.factory).toBe('function');
   });
 
-  it('should throw QueryParserError synchronously when options are invalid', () => {
-    expect(() => queryParserMiddleware({ depth: -1 })).toThrow(QueryParserError);
-  });
+  it('should install a getQuery accessor on the request', () => {
+    const ctx = mockContext({ url: 'http://localhost/p?q=1' });
 
-  it('should throw QueryParserError with InvalidDuplicates reason for an invalid option', () => {
-    try {
-      queryParserMiddleware({ duplicates: 'nope' as unknown as 'first' });
-      throw new Error('expected throw');
-    } catch (e) {
-      expect(e).toBeInstanceOf(QueryParserError);
-      expect((e as QueryParserError).reason).toBe(QueryParserErrorReason.InvalidDuplicates);
-    }
+    queryParser.factory()(ctx);
+
+    expect(typeof (ctx.request as unknown as { getQuery: unknown }).getQuery).toBe('function');
   });
 });
 
-describe('queryParserMiddleware — request.query assignment', () => {
-  it('should parse the query string and assign it to request.query', () => {
-    expect(run('/search?q=hello&city=seoul')).toEqual({ q: 'hello', city: 'seoul' });
+describe('queryParser — getQuery accessor (default options)', () => {
+  it('should parse a flat query string', () => {
+    expect(getQuery('/search?q=hello&city=seoul')).toEqual({ q: 'hello', city: 'seoul' });
   });
 
   it('should percent-decode values', () => {
-    expect(run('/p?q=hello%20world')).toEqual({ q: 'hello world' });
+    expect(getQuery('/p?q=hello%20world')).toEqual({ q: 'hello world' });
   });
 
-  it('should assign an empty object when the URL has no query string', () => {
-    expect(run('/no-query')).toEqual({});
+  it('should return an empty object when the URL has no query string', () => {
+    expect(getQuery('/no-query')).toEqual({});
   });
 
-  it('should assign an empty object for a bare "?"', () => {
-    expect(run('/edge?')).toEqual({});
+  it('should return an empty object for a bare "?"', () => {
+    expect(getQuery('/edge?')).toEqual({});
   });
 
-  it('should apply nesting when configured', () => {
-    expect(run('/n?user[name]=alice&user[age]=20', { nesting: true })).toEqual({
-      user: { name: 'alice', age: '20' },
-    });
+  it('should keep brackets literal under the default (nesting off)', () => {
+    expect(getQuery('/n?user[name]=alice')).toEqual({ 'user[name]': 'alice' });
   });
 
-  it('should apply the urlEncoded option (+ as space)', () => {
-    expect(run('/u?q=hello+world', { urlEncoded: true })).toEqual({ q: 'hello world' });
+  it('should keep + literal under the default (urlEncoded off)', () => {
+    expect(getQuery('/d?q=hello+world')).toEqual({ q: 'hello+world' });
   });
 
-  it('should keep + literal by default (urlEncoded off)', () => {
-    expect(run('/d?q=hello+world')).toEqual({ q: 'hello+world' });
-  });
-
-  it('should apply the duplicates strategy (first by default)', () => {
-    expect(run('/h?role=admin&role=user')).toEqual({ role: 'admin' });
-  });
-});
-
-describe('queryParserMiddleware — strict mode', () => {
-  it('should propagate QueryParserError on a malformed query in strict mode', () => {
-    const ctx = mockContext({ url: 'http://localhost/s?bad=%zz' });
-    const handler = queryParserMiddleware({ strict: true }).factory();
-
-    expect(() => handler(ctx)).toThrow(QueryParserError);
+  it('should keep the first value for duplicate keys (HPP-safe default)', () => {
+    expect(getQuery('/h?role=admin&role=user')).toEqual({ role: 'admin' });
   });
 });

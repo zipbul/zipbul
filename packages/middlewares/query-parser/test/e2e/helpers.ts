@@ -1,21 +1,26 @@
+import type { Class } from '@zipbul/common';
+
 import { afterAll, beforeAll } from 'bun:test';
 import { defineMiddleware } from '@zipbul/common';
 import { HttpAdapter, HttpAdapterPhase, HttpContext } from '@zipbul/http-adapter';
 import { Tck, type TestApplication } from '@zipbul/tck';
 
-import { queryParserMiddleware } from '../../index';
-import type { QueryParserOptions } from '../../index';
+import { queryParser } from '../../index';
+
+class QueryDto {}
 
 /**
- * Echoes the parsed `request.query` into the `x-parsed-query` response header
- * (JSON-encoded, so any control characters are escaped and never reach the wire
- * raw), then commits the response. Lets an HTTP-level test observe what the
- * query-parser middleware assigned without needing an AOT-compiled route.
+ * Echoes the parsed query — read via the typed `request.getQuery(dto)` accessor
+ * the `queryParser` middleware installs — into the `x-parsed-query` response
+ * header (JSON-encoded, so any control characters are escaped and never reach
+ * the wire raw), then commits the response. Lets an HTTP-level test observe what
+ * the middleware parsed without needing an AOT-compiled route.
  */
 const echoQuery = defineMiddleware([HttpAdapter], () => (ctx) => {
   const http = ctx.to(HttpContext);
+  const query = (http.request as unknown as { getQuery<T>(dto: Class<T>): T }).getQuery(QueryDto);
 
-  http.response.setHeader('x-parsed-query', JSON.stringify(http.request.query));
+  http.response.setHeader('x-parsed-query', JSON.stringify(query));
   http.response.send();
 });
 
@@ -25,14 +30,14 @@ export interface QpTestApp {
   close(): Promise<void>;
 }
 
-export async function bootQueryParserApp(opts?: QueryParserOptions): Promise<QpTestApp> {
+export async function bootQueryParserApp(): Promise<QpTestApp> {
   let captured: HttpAdapter | undefined;
 
   const testApp = await Tck.createApplication({
     register: (app) => {
       const http = app.attach(HttpAdapter, { port: 0 });
 
-      http.addMiddlewares(HttpAdapterPhase.OnRequest, [queryParserMiddleware(opts), echoQuery]);
+      http.addMiddlewares(HttpAdapterPhase.OnRequest, [queryParser, echoQuery]);
       captured = http;
     },
   });

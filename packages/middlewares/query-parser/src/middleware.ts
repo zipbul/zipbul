@@ -1,41 +1,36 @@
-import type { MiddlewareDefinition } from '@zipbul/common';
+import type { Class, MiddlewareDefinition } from '@zipbul/common';
 
 import { defineMiddleware } from '@zipbul/common';
 import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
 
-import type { QueryParserOptions } from './interfaces';
-
 import { QueryParser } from './query-parser';
 
 /**
- * Wraps the framework-agnostic {@link QueryParser} as a zipbul HTTP middleware.
+ * Query-parser HTTP middleware (canonical `export const … = defineMiddleware(…)`
+ * shape so `zb build middleware` can extract the context augment and emit the
+ * matching `context-augments.d.ts`).
  *
- * Options are resolved and validated at registration time (`QueryParser.create`)
- * so configuration errors fail fast at boot. At request time the raw query
- * string (`HttpRequest.queryString`) is parsed and assigned to
- * `HttpRequest.query` for downstream consumers.
- *
- * Register on `HttpAdapterPhase.BeforeValidate` so the parsed query is available
- * before validation runs:
+ * Parses the request query string once per request and augments the request
+ * with a typed `getQuery<T>(dto)` accessor — consistent with the framework's
+ * `getBody<T>(dto)` / `getParams<T>(dto)` accessors. Consumers read it as:
  *
  * ```ts
- * httpAdapter.addMiddlewares(HttpAdapterPhase.BeforeValidate, [
- *   queryParserMiddleware({ nesting: true }),
- * ]);
+ * @Get()
+ * search(ctx: HttpContext) {
+ *   const query = ctx.request.getQuery(SearchQueryDto); // typed
+ * }
  * ```
  *
- * In strict mode a malformed query string surfaces as a {@link QueryParserError}
- * that propagates to the pipeline's error handler.
- *
- * @throws {QueryParserError} when options fail validation (at registration).
+ * Register on `HttpAdapterPhase.BeforeValidate`.
  */
-export function queryParserMiddleware(opts?: QueryParserOptions): MiddlewareDefinition {
-  const parser = QueryParser.create(opts);
+export const queryParser: MiddlewareDefinition = defineMiddleware([HttpAdapter], () => {
+  const parser = QueryParser.create();
 
-  return defineMiddleware([HttpAdapter], () => (ctx) => {
+  return (ctx) => {
     const http = ctx.to(HttpContext);
     const queryString = http.request.queryString;
+    const parsed = queryString === null ? {} : parser.parse(queryString);
 
-    http.request.query = queryString === null ? {} : parser.parse(queryString);
-  });
-}
+    http.request.getQuery = <T>(_dto: Class<T>): T => parsed as T;
+  };
+});

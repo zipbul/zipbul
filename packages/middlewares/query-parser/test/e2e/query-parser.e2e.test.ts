@@ -2,65 +2,56 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { bootQueryParserApp, parsedQuery, silentLogger, type QpTestApp } from './helpers';
 
-describe('queryParserMiddleware e2e', () => {
+/**
+ * End-to-end test for the `queryParser` middleware over real HTTP (tck).
+ *
+ * The middleware is the canonical `export const … = defineMiddleware(…)` shape,
+ * so it runs with default options; `echoQuery` reads the parsed result back
+ * through the typed `request.getQuery(dto)` accessor it installs and echoes it
+ * into a response header. Configurable parsing (nesting, urlEncoded, strict,
+ * duplicates, depth) is verified against `QueryParser.create(opts)` in
+ * `query-parser.spec.ts` / `options.spec.ts`.
+ */
+describe('queryParser middleware e2e (default options)', () => {
   silentLogger();
 
-  describe('default options', () => {
-    let app: QpTestApp;
-    beforeAll(async () => { app = await bootQueryParserApp(); });
-    afterAll(async () => { await app.close(); });
+  let app: QpTestApp;
+  beforeAll(async () => { app = await bootQueryParserApp(); });
+  afterAll(async () => { await app.close(); });
 
-    it('should parse a flat query string into request.query', async () => {
-      const res = await app.fetch('/x?q=hello&city=seoul');
-      expect(parsedQuery(res)).toEqual({ q: 'hello', city: 'seoul' });
-    });
-
-    it('should percent-decode values', async () => {
-      const res = await app.fetch('/x?q=hello%20world');
-      expect(parsedQuery(res)).toEqual({ q: 'hello world' });
-    });
-
-    it('should assign an empty object when there is no query string', async () => {
-      const res = await app.fetch('/x');
-      expect(parsedQuery(res)).toEqual({});
-    });
-
-    it('should keep the first value for duplicate keys (HPP-safe default)', async () => {
-      const res = await app.fetch('/x?role=admin&role=user');
-      expect(parsedQuery(res)).toEqual({ role: 'admin' });
-    });
-
-    it('should keep + literal by default', async () => {
-      const res = await app.fetch('/x?q=a+b');
-      expect(parsedQuery(res)).toEqual({ q: 'a+b' });
-    });
+  it('should parse a flat query string', async () => {
+    const res = await app.fetch('/x?q=hello&city=seoul');
+    expect(parsedQuery(res)).toEqual({ q: 'hello', city: 'seoul' });
   });
 
-  describe('nesting + urlEncoded options', () => {
-    let app: QpTestApp;
-    beforeAll(async () => { app = await bootQueryParserApp({ nesting: true, urlEncoded: true }); });
-    afterAll(async () => { await app.close(); });
-
-    it('should build nested objects and decode + as space', async () => {
-      const res = await app.fetch('/x?user[name]=a+b&user[city]=seoul');
-      expect(parsedQuery(res)).toEqual({ user: { name: 'a b', city: 'seoul' } });
-    });
-
-    it('should build arrays from explicit indices', async () => {
-      const res = await app.fetch('/x?tags[0]=a&tags[1]=b');
-      expect(parsedQuery(res)).toEqual({ tags: ['a', 'b'] });
-    });
+  it('should percent-decode values', async () => {
+    const res = await app.fetch('/x?q=hello%20world');
+    expect(parsedQuery(res)).toEqual({ q: 'hello world' });
   });
 
-  describe('prototype-pollution safety end-to-end', () => {
-    let app: QpTestApp;
-    beforeAll(async () => { app = await bootQueryParserApp({ nesting: true }); });
-    afterAll(async () => { await app.close(); });
+  it('should return an empty object when there is no query string', async () => {
+    const res = await app.fetch('/x');
+    expect(parsedQuery(res)).toEqual({});
+  });
 
-    it('should drop a poisoned key and not pollute Object.prototype', async () => {
-      const res = await app.fetch('/x?__proto__[polluted]=1&safe=ok');
-      expect(parsedQuery(res)).toEqual({ safe: 'ok' });
-      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-    });
+  it('should keep the first value for duplicate keys (HPP-safe default)', async () => {
+    const res = await app.fetch('/x?role=admin&role=user');
+    expect(parsedQuery(res)).toEqual({ role: 'admin' });
+  });
+
+  it('should keep + literal by default (urlEncoded off)', async () => {
+    const res = await app.fetch('/x?q=a+b');
+    expect(parsedQuery(res)).toEqual({ q: 'a+b' });
+  });
+
+  it('should keep brackets literal by default (nesting off)', async () => {
+    const res = await app.fetch('/x?user[name]=alice');
+    expect(parsedQuery(res)).toEqual({ 'user[name]': 'alice' });
+  });
+
+  it('should drop a poisoned key and not pollute Object.prototype', async () => {
+    const res = await app.fetch('/x?__proto__=evil&safe=ok');
+    expect(parsedQuery(res)).toEqual({ safe: 'ok' });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });
