@@ -767,7 +767,14 @@ export class CookieParser {
     }
   }
 
-  private wrapBunError(e: unknown): CookieError {
+  /**
+   * Maps an unknown error thrown by Bun.Cookie construction to a canonical CookieError.
+   * Routes by the upstream message but never re-emits it (CWE-117 defense).
+   *
+   * @internal Public only so the package's own tests can call it directly without a cast;
+   * `stripInternal` removes it from the published .d.ts, so it is not part of the public API.
+   */
+  wrapBunError(e: unknown): CookieError {
     if (e instanceof CookieError) {return e;}
     // Use the upstream message ONLY for routing — never re-emit it (defense against future Bun
     // error formats that might echo input bytes; CWE-117).

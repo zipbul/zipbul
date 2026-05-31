@@ -307,7 +307,7 @@ describe('CWE-117 defense: wrapBunError never echoes input in messages', () => {
 
   it('canonical fallback for unknown errors', () => {
     // Direct call to wrap with an unknown-shaped error.
-    const wrap = (cp as unknown as { wrapBunError(e: unknown): CookieError }).wrapBunError.bind(cp);
+    const wrap = cp.wrapBunError.bind(cp);
     const err1 = wrap(new Error('mystery'));
     expect(err1).toBeInstanceOf(CookieError);
     expect(err1.message).toBe('cookie parser error');
