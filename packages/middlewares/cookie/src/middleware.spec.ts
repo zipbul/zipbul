@@ -121,6 +121,18 @@ describe('cookieMiddleware — beforeResponse', () => {
     expect(ctx.response.headers.get('set-cookie')).toBeNull();
   });
 
+  it('should swallow a serialize-time error so one bad cookie cannot break the response', async () => {
+    // SameSite=None over a plain-http request fails the Secure cross-field rule only at flush
+    // (serialize) time. The beforeResponse handler must contain it: no throw escapes the response
+    // pipeline, and no Set-Cookie is written for the offending cookie.
+    const ctx = mockContext({ url: 'http://example.com/x', headers: new Headers({ Cookie: '' }) });
+    const cm = cookieMiddleware();
+    cm.onRequest.factory()(ctx);
+    ctx.use(cookieJarKey).set('bad', 'v', { sameSite: 'none' });
+    await cm.beforeResponse.factory()(ctx);
+    expect(ctx.response.headers.get('set-cookie')).toBeNull();
+  });
+
   it('should sign the flushed cookie when secrets are configured', async () => {
     const ctx = mockContext({ headers: new Headers({ Cookie: '' }) });
     const cm = cookieMiddleware({ secrets: [SECRET] });

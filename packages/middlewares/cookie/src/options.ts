@@ -19,9 +19,6 @@ const MIN_SECRET_ENTROPY_BITS = 128;
 // This is a lower-bound proxy for actual min-entropy. A secret that fails this check is
 // definitely weak; passing does not prove cryptographic strength.
 function shannonEntropyBits(bytes: Uint8Array): number {
-  if (bytes.length === 0) {
-    return 0;
-  }
   const counts = new Uint32Array(256);
   for (let i = 0; i < bytes.length; i++) {
     counts[bytes[i]!]! += 1;

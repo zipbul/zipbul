@@ -8,7 +8,8 @@ coveragePathIgnorePatterns = [
   "dist/**",
   "../../libs/result/**",
   "../../framework/**",
-  "../../adapters/**"
+  "../../adapters/**",
+  "test/**"
 ]
 
 [test.reporter]
