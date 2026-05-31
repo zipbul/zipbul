@@ -60,7 +60,7 @@ export function cookieMiddleware(options?: CookieParserOptions): CookieMiddlewar
       if (raw === undefined) {
         return;
       }
-      // The request `Cookie` header (HttpHeader only models the response `Set-Cookie`).
+      // The request `Cookie` header (HttpHeader models only the response `Set-Cookie`).
       ctx.set(cookieJarKey, new CookieJar(parser, raw.headers.get('cookie') ?? ''));
     },
   });
@@ -72,12 +72,31 @@ export function cookieMiddleware(options?: CookieParserOptions): CookieMiddlewar
       return;
     }
 
-    const raw = http.rawRequest;
     // secure:'auto' resolves against the request channel. HttpContext exposes only the request URL,
-    // so derive the scheme from it; absent a raw request, fall back to insecure (no Secure emitted).
-    const isSecure = raw !== undefined && new URL(raw.url).protocol === 'https:';
+    // so derive the scheme from it; absent or unparseable, fall back to insecure (no Secure emitted)
+    // rather than letting a malformed URL throw out of the response-writing path.
+    let isSecure = false;
+    const raw = http.rawRequest;
+    if (raw !== undefined) {
+      try {
+        isSecure = new URL(raw.url).protocol === 'https:';
+      } catch {
+        /* relative / malformed url → treat as insecure */
+      }
+    }
 
-    const headers = await jar.getSetCookieHeaders({ isSecure });
+    // A malformed cookie surfaces its CookieError only at serialize time (cross-field Secure /
+    // SameSite / prefix / size rules, key exhaustion). Contain it here: a single bad cookie must not
+    // throw out of the response pipeline and break the whole response. The error is intentionally
+    // swallowed at this boundary — standalone callers that want the loud signal use
+    // jar.getSetCookieHeaders() directly, which still throws.
+    let headers: string[];
+    try {
+      headers = await jar.getSetCookieHeaders({ isSecure });
+    } catch {
+      return;
+    }
+
     for (const header of headers) {
       // One appendHeader per cookie — Set-Cookie must never be comma-folded (RFC 6265 §3).
       http.response.appendHeader(HttpHeader.SetCookie, header);
