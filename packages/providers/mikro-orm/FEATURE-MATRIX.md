@@ -49,12 +49,20 @@ integration test in `test/integration/`.
 | **MariaDB `JSON` columns** | MariaDB has no native JSON type (`JSON` is an alias for `LONGTEXT`), so Bun.SQL returns the **raw JSON string** instead of a parsed object. Use a custom JSON type/getter, or MySQL proper, for auto-parsed objects. (MySQL's native JSON parses correctly.) |
 
 ## 🚫 Not supported (Bun.SQL hard ceiling — documented, explicit error, NOT silent)
-| Feature | Reason |
+
+> **Sourced, not assumed.** The Bun.SQL API docs explicitly state: *"We haven't implemented
+> COPY / LISTEN / NOTIFY / LOAD DATA INFILE support."* Cursors/streaming and custom type
+> parsers are absent from the docs (unimplemented). Roadmap status (Bun tracking issue
+> [oven-sh/bun#15088](https://github.com/oven-sh/bun/issues/15088), checked 2026-05): the gaps
+> below are **planned but have no milestone, owner, linked PR, or committed timeline**.
+
+| Feature | Reason / roadmap |
 |---|---|
-| **Streaming** (`em.stream()` / `qb.stream()`) | Bun.SQL has no cursor (officially "not yet implemented"). Throws `StreamingUnsupportedError` — fail-fast, never a silent OOM fallback. |
-| **LISTEN / NOTIFY** pub-sub | Bun.SQL officially not implemented. (Not a MikroORM-core feature.) |
-| PostGIS / Point types, multi-dim & NULL-element arrays | Bun.SQL officially not implemented. |
-| Stored-procedure **refcursor OUT params** (`callRoutine` cursor results) | Needs cursor support Bun.SQL lacks. Plain `CALL`/`SELECT func()` DO work — see Supported. |
+| **Streaming** (`em.stream()` / `qb.stream()`) | No cursor in Bun.SQL. Throws `StreamingUnsupportedError` — fail-fast, never a silent OOM fallback. Roadmap: "Async iterators support" is an open checklist item in #15088; feature requests [#17181](https://github.com/oven-sh/bun/issues/17181) (cursor), [#25307](https://github.com/oven-sh/bun/issues/25307) (stream) — open, no commitment. **Most likely to land.** |
+| **LISTEN / NOTIFY** pub-sub | Docs: explicitly not implemented. Request [#18214](https://github.com/oven-sh/bun/issues/18214) — open, not on the #15088 checklist, no maintainer response. **Weakest roadmap signal.** |
+| PostGIS / Point types, multi-dim & NULL-element arrays | Open checklist item "Support Point & geo-related types" in #15088 — planned, no timeline. |
+| Stored-procedure **refcursor OUT params** (`callRoutine` cursor results) | Needs the same cursor support Bun.SQL lacks. Plain `CALL`/`SELECT func()` DO work — see Supported. |
+| Fine type-parser control (`TypeOverrides`) | Not documented / not on the roadmap — Bun.SQL owns coercion. (See the nuance table.) |
 
 > COPY bulk-load is "unsupported" in Bun.SQL but **not a gap** — MikroORM uses multi-row
 > INSERT, which works.
