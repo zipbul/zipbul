@@ -293,7 +293,7 @@ describe('Priority attribute (2-D)', () => {
   });
   it('rejects invalid priority value', () => {
     let caught: unknown;
-    try { cp.createCookie('s', 'v', { priority: 'urgent' as never }); } catch (e) { caught = e; }
+    try { cp.createCookie('s', 'v', { priority: 'urgent' }); } catch (e) { caught = e; }
     expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidPriority);
   });
 });
