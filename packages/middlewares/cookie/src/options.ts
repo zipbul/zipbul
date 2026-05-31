@@ -83,11 +83,11 @@ export function resolveCookieParserOptions(options?: CookieParserOptions): Resol
       ? options.encryptionSecret
       : [options.encryptionSecret];
 
-  let kdfSalt: Uint8Array = DEFAULT_KDF_SALT;
+  let kdfSalt: Uint8Array<ArrayBuffer> = DEFAULT_KDF_SALT;
   if (options?.kdfSalt !== undefined) {
     kdfSalt = typeof options.kdfSalt === 'string'
       ? new TextEncoder().encode(options.kdfSalt)
-      : options.kdfSalt;
+      : new Uint8Array(options.kdfSalt);
   }
 
   return {

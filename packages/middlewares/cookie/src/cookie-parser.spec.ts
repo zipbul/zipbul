@@ -585,6 +585,7 @@ describe('CookieParser', () => {
     it('should throw InvalidAlgorithm when algorithm is unsupported', () => {
       let caught: unknown;
       try {
+        // @ts-expect-error — intentionally out-of-union value; tests runtime rejection of an untyped caller
         CookieParser.create({ algorithm: 'md5' });
       } catch (e) {
         caught = e;
@@ -1177,16 +1178,15 @@ describe('CookieParser', () => {
     const SIGN_SECRET = 'mUGiDLrJDq7yYP8XCeTmvHFu6uUYzYLNhl03gLPfllA';
     const ENC_SECRET = 'weIQlNCq5MacmAUQsFI8EnM1NM4Dana95Mn48ResQYs';
 
-    function expectInvalidName(fn: () => unknown | Promise<unknown>): Promise<void> {
-      return Promise.resolve()
-        .then(fn)
-        .then(
-          () => { throw new Error('expected InvalidCookieName but no error thrown'); },
-          (e) => {
-            expect(e).toBeInstanceOf(CookieError);
-            expect((e as CookieError).reason).toBe(CookieErrorReason.InvalidCookieName);
-          },
-        );
+    async function expectInvalidName(fn: () => unknown | Promise<unknown>): Promise<void> {
+      try {
+        await fn();
+      } catch (e) {
+        if (!(e instanceof CookieError)) { throw e; }
+        expect(e.reason).toBe(CookieErrorReason.InvalidCookieName);
+        return;
+      }
+      throw new Error('expected InvalidCookieName but no error thrown');
     }
 
     it('should reject comma in name via serialize (RFC 9110 §5.6.2 token violation)', () => {
@@ -1326,6 +1326,7 @@ describe('CookieParser', () => {
       const cp = CookieParser.create();
       let caught: unknown;
       try {
+        // @ts-expect-error — intentionally out-of-union value; tests runtime rejection of an untyped caller
         cp.createCookie('s', 'v', { sameSite: 'bogus', secure: true });
       } catch (e) {
         caught = e;
@@ -1336,6 +1337,7 @@ describe('CookieParser', () => {
 
     it('should normalize a Pascal-case sameSite to its lowercase token', () => {
       const cp = CookieParser.create();
+      // @ts-expect-error — intentionally out-of-union value; tests runtime rejection of an untyped caller
       const header = cp.serialize(cp.createCookie('s', 'v', { sameSite: 'Strict' }));
       expect(header).toContain('SameSite=Strict');
     });

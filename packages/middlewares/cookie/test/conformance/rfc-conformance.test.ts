@@ -294,6 +294,7 @@ describe('Priority attribute (2-D)', () => {
   });
   it('rejects invalid priority value', () => {
     let caught: unknown;
+    // @ts-expect-error — intentionally out-of-union value; tests runtime rejection of an untyped caller
     try { cp.createCookie('s', 'v', { priority: 'urgent' }); } catch (e) { caught = e; }
     expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidPriority);
   });

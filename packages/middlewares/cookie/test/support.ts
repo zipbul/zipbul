@@ -10,7 +10,7 @@ export function asCookieError(value: unknown): CookieError {
 }
 
 export function asErr<E>(result: Result<unknown, E>): Err<E> {
-  if (!isErr(result)) {
+  if (!isErr<E>(result)) {
     throw new Error('expected an Err result, received an Ok');
   }
   return result;

@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'bun:test';
 import { Cookie } from 'bun';
 
-import { CookieParser, CookieJar, CookieError, CookieErrorReason } from '../../index';
+import { CookieParser, CookieJar, CookieError, CookieErrorReason, type CookieAttributes } from '../../index';
 import { asCookieError } from '../support';
 
 const SECRET = 'yiLuooc8t1iy7BDCaU2eExB60URL8zacnqb1mA66aIo';
@@ -329,6 +329,7 @@ describe('DX: sameSite case normalization', () => {
   const cp = CookieParser.create();
   for (const v of ['Lax', 'LAX', 'Strict', 'STRICT', 'None']) {
     it(`accepts "${v}" and normalizes to lowercase output`, () => {
+      // @ts-expect-error — intentionally out-of-union value; tests runtime rejection of an untyped caller
       const c = cp.createCookie('s', 'v', { sameSite: v, secure: true });
       const h = cp.serialize(c);
       // Bun emits canonical title case in the header; the point is no crash and SameSite present.

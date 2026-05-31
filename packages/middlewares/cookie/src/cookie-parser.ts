@@ -67,11 +67,11 @@ interface CookieMeta {
 
 // --- key derivation ---
 
-async function deriveHmacKey(secret: string, hash: SubtleHash, salt: Uint8Array): Promise<{ key: CryptoKey; kid: Uint8Array }> {
+async function deriveHmacKey(secret: string, hash: SubtleHash, salt: Uint8Array<ArrayBuffer>): Promise<{ key: CryptoKey; kid: Uint8Array }> {
   const ikm = utf8.encode(secret);
   const baseKey = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
-    { name: 'HKDF', hash, salt: salt as Uint8Array<ArrayBuffer>, info: HKDF_INFO_HMAC },
+    { name: 'HKDF', hash, salt, info: HKDF_INFO_HMAC },
     baseKey,
     256,
   );
@@ -83,11 +83,11 @@ async function deriveHmacKey(secret: string, hash: SubtleHash, salt: Uint8Array)
   return { key, kid };
 }
 
-async function deriveAesKey(secret: string, salt: Uint8Array): Promise<{ key: CryptoKey; kid: Uint8Array }> {
+async function deriveAesKey(secret: string, salt: Uint8Array<ArrayBuffer>): Promise<{ key: CryptoKey; kid: Uint8Array }> {
   const ikm = utf8.encode(secret);
   const baseKey = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt: salt as Uint8Array<ArrayBuffer>, info: HKDF_INFO_AES },
+    { name: 'HKDF', hash: 'SHA-256', salt, info: HKDF_INFO_AES },
     baseKey,
     256,
   );
@@ -99,8 +99,8 @@ async function deriveAesKey(secret: string, salt: Uint8Array): Promise<{ key: Cr
   return { key, kid };
 }
 
-async function deriveKid(keyBytes: Uint8Array): Promise<Uint8Array> {
-  const h = await crypto.subtle.digest('SHA-256', keyBytes as Uint8Array<ArrayBuffer>);
+async function deriveKid(keyBytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+  const h = await crypto.subtle.digest('SHA-256', keyBytes);
   return new Uint8Array(h, 0, KID_LENGTH);
 }
 
@@ -143,7 +143,7 @@ function bufferFromB64Url(s: string): Uint8Array<ArrayBuffer> {
 }
 
 function bufferToB64Url(bytes: Uint8Array): string {
-  return Buffer.from(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength).toString('base64url');
+  return Buffer.from(bytes).toString('base64url');
 }
 
 function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -337,7 +337,7 @@ export class CookieParser {
 
     const value = cookie.value.slice(0, dotIndex);
     const signature = cookie.value.slice(dotIndex + 1);
-    let sigBlob: Uint8Array;
+    let sigBlob: Uint8Array<ArrayBuffer>;
     try {
       sigBlob = bufferFromB64Url(signature);
     } catch {
@@ -364,7 +364,7 @@ export class CookieParser {
     for (const keyEntry of this.hmacKeyPromises) {
       const { key, kid } = await keyEntry;
       const kidMatches = constantTimeEqual(sigKid, kid);
-      const ok = await crypto.subtle.verify('HMAC', key, macBytes as Uint8Array<ArrayBuffer>, dataBytes);
+      const ok = await crypto.subtle.verify('HMAC', key, macBytes, dataBytes);
       valid = valid || (kidMatches && ok);
     }
 
@@ -432,7 +432,7 @@ export class CookieParser {
     }
     this.assertValidName(cookie.name);
 
-    let combined: Uint8Array;
+    let combined: Uint8Array<ArrayBuffer>;
     try {
       combined = bufferFromB64Url(cookie.value);
     } catch {
@@ -466,9 +466,9 @@ export class CookieParser {
     for (const key of matchedKeys) {
       try {
         const plaintext = await crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv: iv as Uint8Array<ArrayBuffer>, additionalData: aad, tagLength: AUTH_TAG_BITS },
+          { name: 'AES-GCM', iv, additionalData: aad, tagLength: AUTH_TAG_BITS },
           key,
-          ct as Uint8Array<ArrayBuffer>,
+          ct,
         );
         return this.cloneWithValue(cookie, new TextDecoder().decode(plaintext));
       } catch { /* try next */ }

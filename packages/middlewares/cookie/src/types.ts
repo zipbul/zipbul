@@ -8,7 +8,7 @@ export type ResolvedCookieParserOptions = {
   encryptionSecrets: string[] | null;
   prefixValidation: boolean;
   onEncrypt: ((info: { keyIndex: number; counter: number }) => void) | null;
-  kdfSalt: Uint8Array;
+  kdfSalt: Uint8Array<ArrayBuffer>;
   defaults: ResolvedCookieDefaults;
 };
 

@@ -146,6 +146,7 @@ describe('validateCookieParserOptions', () => {
 
   it('should return InvalidAlgorithm when algorithm is unsupported', () => {
     const resolved = resolveCookieParserOptions();
+    // @ts-expect-error — intentionally out-of-union value; tests runtime rejection of an untyped caller
     resolved.algorithm = 'md5';
     const result = validateCookieParserOptions(resolved);
     expect(isErr(result)).toBe(true);
@@ -173,10 +174,11 @@ describe('kdfSalt option (RFC 5869 §3.1)', () => {
     const r = resolveCookieParserOptions({ kdfSalt: 'my-deployment-salt-2026__padding' });
     expect(new TextDecoder().decode(r.kdfSalt)).toBe('my-deployment-salt-2026__padding');
   });
-  it('accepts Uint8Array salt', () => {
+  it('accepts Uint8Array salt (defensively copied)', () => {
     const bytes = new Uint8Array(20).fill(7);
     const r = resolveCookieParserOptions({ kdfSalt: bytes });
-    expect(r.kdfSalt).toBe(bytes);
+    expect(r.kdfSalt).toEqual(bytes);
+    expect(r.kdfSalt).not.toBe(bytes);
   });
   it('rejects salt shorter than 16 bytes', () => {
     const r = validateCookieParserOptions(resolveCookieParserOptions({ kdfSalt: 'short' }));
