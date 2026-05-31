@@ -16,6 +16,17 @@ class CtxNote {
   text!: string;
 }
 
+// A SECOND, distinctly-named entity for the second ORM instance — never share an entity
+// class across two MikroORM.init calls (the helper documents why that risks a metadata hang).
+@Entity()
+class CtxNote2 {
+  @PrimaryKey({ type: 'number', autoincrement: true })
+  id!: number;
+
+  @Property({ type: 'string' })
+  text!: string;
+}
+
 describePg('context + registry lifecycle (postgres)', () => {
   let orm: MikroORM;
   beforeAll(async () => {
@@ -67,7 +78,7 @@ describePg('context + registry lifecycle (postgres)', () => {
   });
 
   test('named connections coexist and resolve to their own global EM', async () => {
-    const second = await makeOrm(BunPostgreSqlDriver, PG_URL!, [CtxNote]);
+    const second = await makeOrm(BunPostgreSqlDriver, PG_URL!, [CtxNote2]);
     try {
       ConnectionRegistry.set(DEFAULT_CONNECTION, orm);
       ConnectionRegistry.set('other', second);

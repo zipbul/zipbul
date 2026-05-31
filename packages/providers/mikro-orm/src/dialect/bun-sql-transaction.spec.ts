@@ -17,40 +17,82 @@ function fakeConnection() {
   return { connection, calls };
 }
 
-const controller = new BunSqlTransactionController();
+const controller = new BunSqlTransactionController('postgres');
+const mysqlController = new BunSqlTransactionController('mysql');
+const sqliteController = new BunSqlTransactionController('sqlite');
 
-test('begin with an isolation level emits SET ISOLATION then begin, in order', async () => {
+// --- postgres: the mode must be part of BEGIN (SET TRANSACTION before BEGIN is silently
+// ignored by postgres, which would run the txn at the session default). ---
+test('postgres begin with an isolation level composes it into BEGIN', async () => {
   const { connection, calls } = fakeConnection();
   await controller.begin(connection, { isolationLevel: 'serializable' });
-  expect(calls).toEqual(['set transaction isolation level serializable', 'begin']);
+  expect(calls).toEqual(['begin isolation level serializable']);
 });
 
-test('begin with an access mode emits SET TRANSACTION <mode> then begin', async () => {
+test('postgres begin with an access mode composes it into BEGIN', async () => {
   const { connection, calls } = fakeConnection();
   await controller.begin(connection, { accessMode: 'read only' });
-  expect(calls).toEqual(['set transaction read only', 'begin']);
+  expect(calls).toEqual(['begin read only']);
 });
 
-test('begin with both emits isolation, then access mode, then begin, in order', async () => {
+test('postgres begin with both composes isolation then access mode into a single BEGIN', async () => {
   const { connection, calls } = fakeConnection();
   await controller.begin(connection, { isolationLevel: 'read committed', accessMode: 'read write' });
-  expect(calls).toEqual([
-    'set transaction isolation level read committed',
-    'set transaction read write',
-    'begin',
-  ]);
+  expect(calls).toEqual(['begin isolation level read committed read write']);
 });
 
-test('begin with no settings emits only begin', async () => {
+test('postgres begin with no settings emits only begin', async () => {
   const { connection, calls } = fakeConnection();
   await controller.begin(connection, {});
   expect(calls).toEqual(['begin']);
 });
 
-test('begin with an undefined isolation level skips the isolation statement', async () => {
+test('postgres begin with an undefined isolation level skips the mode', async () => {
   const { connection, calls } = fakeConnection();
   await controller.begin(connection, { isolationLevel: undefined } as unknown as TransactionSettings);
   expect(calls).toEqual(['begin']);
+});
+
+// --- mysql: SET TRANSACTION ISOLATION LEVEL must precede START TRANSACTION; the access
+// mode is supplied inline on START TRANSACTION. ---
+test('mysql begin with an isolation level emits SET ISOLATION before begin', async () => {
+  const { connection, calls } = fakeConnection();
+  await mysqlController.begin(connection, { isolationLevel: 'serializable' });
+  expect(calls).toEqual(['set transaction isolation level serializable', 'begin']);
+});
+
+test('mysql begin with an access mode emits START TRANSACTION <mode>', async () => {
+  const { connection, calls } = fakeConnection();
+  await mysqlController.begin(connection, { accessMode: 'read only' });
+  expect(calls).toEqual(['start transaction read only']);
+});
+
+test('mysql begin with both emits SET ISOLATION then START TRANSACTION <mode>', async () => {
+  const { connection, calls } = fakeConnection();
+  await mysqlController.begin(connection, { isolationLevel: 'repeatable read', accessMode: 'read write' });
+  expect(calls).toEqual(['set transaction isolation level repeatable read', 'start transaction read write']);
+});
+
+// --- sqlite: isolation level / access mode are not expressible; a plain BEGIN is opened. ---
+test('sqlite begin ignores isolation level and access mode, emitting a plain begin', async () => {
+  const { connection, calls } = fakeConnection();
+  await sqliteController.begin(connection, { isolationLevel: 'serializable', accessMode: 'read only' });
+  expect(calls).toEqual(['begin']);
+});
+
+// --- validation: an unknown isolation level / access mode is rejected before it reaches SQL. ---
+test('begin rejects an unknown isolation level', async () => {
+  const { connection } = fakeConnection();
+  await expect(
+    controller.begin(connection, { isolationLevel: 'snapshot' } as unknown as TransactionSettings),
+  ).rejects.toThrow('unsupported transaction isolation level');
+});
+
+test('begin rejects an unknown access mode', async () => {
+  const { connection } = fakeConnection();
+  await expect(
+    controller.begin(connection, { accessMode: 'read sideways' } as unknown as TransactionSettings),
+  ).rejects.toThrow('unsupported transaction access mode');
 });
 
 test('commit emits commit', async () => {

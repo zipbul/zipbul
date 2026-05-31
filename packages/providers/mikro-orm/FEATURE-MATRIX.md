@@ -15,7 +15,7 @@ integration test in `test/integration/`.
 | **Affected row count** (nativeUpdate/nativeDelete) | `affectedRows ?? count` — mysql uses `.affectedRows`, pg uses `.count` |
 | Transactions (commit/rollback) | `transaction`, `mysql`, `sqlite` |
 | Nested transactions / **savepoints** (rollback isolation) | quoted+escaped identifiers; `transaction`, `sqlite` |
-| Isolation levels / access mode | `bun-sql-transaction.spec` + `transaction` |
+| Isolation levels / access mode (engine-correct: pg composes into BEGIN, mysql SETs before START, sqlite n/a) | `bun-sql-transaction.spec` + `transaction` (asserts the level actually takes effect via `show transaction_isolation`) |
 | **Connection pooling** via `reserve()` (pg/mysql), 20 concurrent txns | `transaction` |
 | Schema generation (create/drop) + introspection/diff | `helpers` + spike |
 | Migrations (Migrator up/down) | needs `tinyglobby`; spike-verified |

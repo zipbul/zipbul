@@ -16,6 +16,6 @@ export class SqliteConnection extends AbstractSqlConnection {
   createKyselyDialect(): Dialect {
     const dbName = (this.config.get('dbName') as string | undefined) ?? ':memory:';
     const url = dbName.includes('://') ? dbName : `sqlite://${dbName}`;
-    return new BunSqlDialect(SQLITE_KYSELY_PARTS, new SqliteErrorNormalizer(), { url, pooled: false });
+    return new BunSqlDialect(SQLITE_KYSELY_PARTS, new SqliteErrorNormalizer(), { url, pooled: false, dialect: 'sqlite' });
   }
 }

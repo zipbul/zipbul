@@ -29,6 +29,13 @@ test('init creates the client with the configured url and pool size', async () =
   expect(createClient).toHaveBeenCalledWith('postgres://h/db', 7);
 });
 
+test('a pooled driver whose client lacks reserve() rejects acquireConnection with a clear error', async () => {
+  const clientWithoutReserve = { unsafe: mock(async () => []), close: mock(() => {}) } as unknown as BunSqlClient;
+  const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => clientWithoutReserve, true);
+  await driver.init();
+  await expect(driver.acquireConnection()).rejects.toThrow('requires a Bun.SQL client with reserve()');
+});
+
 test('acquireConnection reserves a connection and returns a BunSqlConnection', async () => {
   const client = fakeClient();
   const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => client);
@@ -51,7 +58,7 @@ test('destroy before init does not throw and closes nothing', async () => {
   await expect(driver.destroy()).resolves.toBeUndefined();
 });
 
-test('beginTransaction delegates: isolation SQL then begin reach the connection', async () => {
+test('beginTransaction delegates to the controller (postgres default composes a single BEGIN)', async () => {
   const calls: string[] = [];
   const connection = {
     executeQuery: mock((q: { sql: string }) => {
@@ -60,6 +67,19 @@ test('beginTransaction delegates: isolation SQL then begin reach the connection'
     }),
   } as unknown as DatabaseConnection;
   const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => fakeClient());
+  await driver.beginTransaction(connection, { isolationLevel: 'serializable' });
+  expect(calls).toEqual(['begin isolation level serializable']);
+});
+
+test('beginTransaction uses the mysql sequence when constructed with the mysql dialect', async () => {
+  const calls: string[] = [];
+  const connection = {
+    executeQuery: mock((q: { sql: string }) => {
+      calls.push(q.sql);
+      return Promise.resolve({ rows: [] });
+    }),
+  } as unknown as DatabaseConnection;
+  const driver = new BunSqlKyselyDriver('u', normalizer, 10, () => fakeClient(), true, 'mysql');
   await driver.beginTransaction(connection, { isolationLevel: 'serializable' });
   expect(calls).toEqual(['set transaction isolation level serializable', 'begin']);
 });

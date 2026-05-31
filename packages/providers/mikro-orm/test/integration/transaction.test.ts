@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
-import type { MikroORM } from '@mikro-orm/core';
+import { IsolationLevel, type MikroORM } from '@mikro-orm/core';
 
 import { BunPostgreSqlDriver } from '../../src/driver';
 import {PG_URL, describePg, makeOrm, freshSchema} from './helpers';
@@ -77,6 +77,44 @@ describePg('transactions (postgres)', () => {
     );
     expect(results.filter((r) => r.status === 'fulfilled').length).toBe(N);
     expect(await orm.em.fork().count(TxAccount, {})).toBe(N);
+  });
+
+  // Regression guard: a requested isolation level must ACTUALLY take effect. The original
+  // driver issued `SET TRANSACTION ISOLATION LEVEL x` BEFORE `BEGIN`, which postgres silently
+  // ignores — every transaction ran at the session default (read committed) regardless of the
+  // requested level. The fix composes the level into BEGIN; this proves it reaches the engine.
+  // The observation query must run ON the transaction's own connection, so the active
+  // transaction context is threaded into execute() — otherwise it borrows a fresh pooled
+  // connection and reports the session default, masking the in-transaction setting.
+  const showInTxn = async (
+    setting: 'transaction_isolation' | 'transaction_read_only',
+    options: Parameters<ReturnType<MikroORM['em']['fork']>['transactional']>[1],
+  ): Promise<string> => {
+    let observed = '';
+    await orm.em.fork().transactional(async (em) => {
+      const ctx = (em as unknown as { getTransactionContext(): unknown }).getTransactionContext();
+      const rows = (await em.getConnection().execute(`show ${setting}`, [], 'all', ctx)) as Array<
+        Record<string, string>
+      >;
+      observed = rows[0]?.[setting] ?? '';
+    }, options);
+    return observed;
+  };
+
+  test('a SERIALIZABLE transaction actually runs at serializable', async () => {
+    expect(await showInTxn('transaction_isolation', { isolationLevel: IsolationLevel.SERIALIZABLE })).toBe(
+      'serializable',
+    );
+  });
+
+  test('a REPEATABLE READ transaction actually runs at repeatable read', async () => {
+    expect(await showInTxn('transaction_isolation', { isolationLevel: IsolationLevel.REPEATABLE_READ })).toBe(
+      'repeatable read',
+    );
+  });
+
+  test('a read-only transaction actually marks the connection read-only', async () => {
+    expect(await showInTxn('transaction_read_only', { readOnly: true })).toBe('on');
   });
 
   // B5 invariant (why the driver reserves): issuing a raw `begin` on a NON-reserved pooled

@@ -1,4 +1,10 @@
 /**
+ * Which database the dialect is driving. Selects the correct transaction-control SQL
+ * (e.g. how an isolation level must be attached to BEGIN), which differs per engine.
+ */
+export type SqlDialectKind = 'postgres' | 'mysql' | 'sqlite';
+
+/**
  * Bun's global `SQL` client (postgres/mysql pool, or sqlite handle). Bun does not
  * ship a type for the constructed client, so we alias the structural surface we use.
  */

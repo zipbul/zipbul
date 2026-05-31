@@ -1,6 +1,6 @@
 import type { DialectAdapter, DatabaseIntrospector, QueryCompiler, Kysely } from 'kysely';
 
-import type { BunSqlClient } from './types';
+import type { BunSqlClient, SqlDialectKind } from './types';
 
 /**
  * Per-DB Kysely building blocks injected into {@link BunSqlDialect}. Each driver
@@ -28,6 +28,8 @@ export interface ErrorNormalizer {
 /** Configuration for a {@link BunSqlDialect} instance. */
 export interface BunSqlDialectOptions {
   readonly url: string;
+  /** Database engine — selects the correct transaction-control SQL in the driver. */
+  readonly dialect: SqlDialectKind;
   /** Connection pool size. Defaults to `DEFAULT_POOL_MAX`. */
   readonly poolMax?: number;
   /**

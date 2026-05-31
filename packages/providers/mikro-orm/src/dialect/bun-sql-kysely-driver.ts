@@ -4,7 +4,7 @@ import { BunSqlConnection } from './bun-sql-connection';
 import { BunSqlTransactionController } from './bun-sql-transaction';
 import { DEFAULT_POOL_MAX } from './constants';
 import type { ErrorNormalizer } from './interfaces';
-import type { BunSqlClient, ReservedConnection } from './types';
+import type { BunSqlClient, ReservedConnection, SqlDialectKind } from './types';
 
 /**
  * Kysely low-level `Driver` over Bun.SQL.
@@ -17,7 +17,7 @@ import type { BunSqlClient, ReservedConnection } from './types';
  */
 export class BunSqlKyselyDriver implements Driver {
   private client: BunSqlClient | undefined;
-  private readonly transactions = new BunSqlTransactionController();
+  private readonly transactions: BunSqlTransactionController;
 
   constructor(
     private readonly url: string,
@@ -25,7 +25,10 @@ export class BunSqlKyselyDriver implements Driver {
     private readonly poolMax: number = DEFAULT_POOL_MAX,
     private readonly createClient: (url: string, poolMax: number) => BunSqlClient,
     private readonly pooled: boolean = true,
-  ) {}
+    dialect: SqlDialectKind = 'postgres',
+  ) {
+    this.transactions = new BunSqlTransactionController(dialect);
+  }
 
   async init(): Promise<void> {
     this.client = this.createClient(this.url, this.poolMax);

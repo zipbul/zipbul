@@ -5,5 +5,5 @@ export { BunSqlKyselyDriver } from './bun-sql-kysely-driver';
 export { BunSqlTransactionController } from './bun-sql-transaction';
 export { StreamingUnsupportedError } from './errors';
 export type { KyselyDialectParts, BunSqlDialectOptions, ErrorNormalizer } from './interfaces';
-export type { BunSqlClient, ReservedConnection } from './types';
+export type { BunSqlClient, ReservedConnection, SqlDialectKind } from './types';
 // DEFAULT_POOL_MAX is intentionally internal (not re-exported).

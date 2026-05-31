@@ -107,7 +107,7 @@ packages/providers/mikro-orm/
     └── repository/
         ├── base-repository.ts           # abstract class BaseRepository<T extends object>
         │                                #   protected abstract readonly entity: EntityName<T>
-        │                                #   protected abstract readonly connection?: ConnectionName  (기본 'default')
+        │                                #   protected readonly connection: ConnectionName = 'default'  (overridable, not abstract)
         │                                #   constructor → Proxy: 사용자 정의 메서드 우선, 없으면 EntityManagerResolver.resolve(conn).getRepository(entity)로 위임
         └── index.ts                     # export { BaseRepository }  (interfaces.ts 없음 — 빈 버킷 금지)
 ```

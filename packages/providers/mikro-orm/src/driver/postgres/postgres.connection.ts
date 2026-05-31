@@ -13,6 +13,6 @@ import { PostgresErrorNormalizer } from './postgres.error-normalizer';
 export class PostgresConnection extends AbstractSqlConnection {
   createKyselyDialect(): Dialect {
     const url = this.config.get('clientUrl') as string;
-    return new BunSqlDialect(POSTGRES_KYSELY_PARTS, new PostgresErrorNormalizer(), { url });
+    return new BunSqlDialect(POSTGRES_KYSELY_PARTS, new PostgresErrorNormalizer(), { url, dialect: 'postgres' });
   }
 }

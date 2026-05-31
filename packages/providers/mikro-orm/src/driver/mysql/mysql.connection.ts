@@ -9,6 +9,6 @@ import { MySqlErrorNormalizer } from './mysql.error-normalizer';
 export class MySqlConnection extends AbstractSqlConnection {
   createKyselyDialect(): Dialect {
     const url = this.config.get('clientUrl') as string;
-    return new BunSqlDialect(MYSQL_KYSELY_PARTS, new MySqlErrorNormalizer(), { url });
+    return new BunSqlDialect(MYSQL_KYSELY_PARTS, new MySqlErrorNormalizer(), { url, dialect: 'mysql' });
   }
 }
