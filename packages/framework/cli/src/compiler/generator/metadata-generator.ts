@@ -152,13 +152,14 @@ export class MetadataGenerator {
         if (typeof record[ZIPBUL_REF] === 'string') {
           const refName = record[ZIPBUL_REF];
 
-          // Only import as a runtime value if it's a known class.
-          // Interfaces and type aliases don't exist at runtime —
-          // emit them as string literals to avoid bundler resolution errors.
-          if (availableClasses.has(refName)) {
-            if (typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
-              registry.addImport(refName, record[ZIPBUL_IMPORT_SOURCE]);
-            }
+          // A reference to a runtime value — a baker rule (`isBoolean`), an enum,
+          // a class, etc. Import it whenever its source is known so it is emitted
+          // as an identifier; an unsourced ref (a local symbol the generated file
+          // cannot import) falls back to a string literal. Property TYPES that
+          // resolve to interfaces/type aliases (no runtime value) are filtered
+          // to string literals by the caller before reaching here.
+          if (typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
+            registry.addImport(refName, record[ZIPBUL_IMPORT_SOURCE]);
 
             return refName;
           }
@@ -229,7 +230,12 @@ export class MetadataGenerator {
       const props = resolvedProperties.map(prop => {
         const propTypeName = getRefName(prop.type);
         const isClassRef = isNonEmptyString(propTypeName) && availableClasses.has(propTypeName);
-        let typeValue = serializeValue(prop.type);
+        // A type ref that is not a known runtime class is an interface/type alias
+        // (no runtime value) — emit it as a string literal. Known classes fall
+        // through to the `() => alias` lazy reference below.
+        let typeValue = isNonEmptyString(propTypeName) && !isClassRef
+          ? JSON.stringify(propTypeName)
+          : serializeValue(prop.type);
 
         if (isClassRef) {
           const filePath = classFilePathMap.get(propTypeName);
