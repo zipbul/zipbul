@@ -8,6 +8,7 @@ import { Cookie } from 'bun';
 import * as fc from 'fast-check';
 
 import { CookieParser, CookieError, CookieErrorReason } from '../../index';
+import { asCookieError } from '../support';
 
 const RUNS = 200;
 
@@ -202,7 +203,7 @@ describe('Property: 4096-octet boundary is honored', () => {
       fc.property(fc.integer({ min: 4097, max: 8192 }), (size) => {
         let caught: unknown;
         try { cp.serialize(new Cookie('s', 'x'.repeat(size))); } catch (e) { caught = e; }
-        return caught instanceof CookieError && (caught as CookieError).reason === CookieErrorReason.CookieTooLarge;
+        return caught instanceof CookieError && asCookieError(caught).reason === CookieErrorReason.CookieTooLarge;
       }),
       { numRuns: 50 },
     );

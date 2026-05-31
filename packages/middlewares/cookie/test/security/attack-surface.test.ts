@@ -6,6 +6,7 @@ import { describe, expect, it } from 'bun:test';
 import { Cookie } from 'bun';
 
 import { CookieParser, CookieJar, CookieError, CookieErrorReason } from '../../index';
+import { asCookieError } from '../support';
 
 const SECRET = 'yiLuooc8t1iy7BDCaU2eExB60URL8zacnqb1mA66aIo';
 const ENC = 'v3MALRP-T0CO2gZ46D5As25K-U1D74PDhsdQJGjk4QQ';
@@ -50,7 +51,7 @@ describe('Attack: cross-name signature replay (C1 fix)', () => {
     const signed = cp.sign(new Cookie('admin', 'true'));
     let caught: unknown;
     try { await cp.unsign(new Cookie('user', signed.value)); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
   });
 });
 
@@ -60,7 +61,7 @@ describe('Attack: cross-name ciphertext replay (C2 fix)', () => {
     const enc = await cp.encrypt(new Cookie('admin', 'true'));
     let caught: unknown;
     try { await cp.decrypt(new Cookie('user', enc.value)); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.DecryptionFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.DecryptionFailed);
   });
 });
 
@@ -71,7 +72,7 @@ describe('Attack: algorithm confusion', () => {
     const signed = a.sign(new Cookie('s', 'v'));
     let caught: unknown;
     try { await b.unsign(signed); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
   });
   it('SHA-512 signature does not validate as SHA-256', async () => {
     const a = CookieParser.create({ secrets: [SECRET], algorithm: 'sha512' });
@@ -79,7 +80,7 @@ describe('Attack: algorithm confusion', () => {
     const signed = a.sign(new Cookie('s', 'v'));
     let caught: unknown;
     try { await b.unsign(signed); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
   });
 });
 
@@ -88,7 +89,7 @@ describe('Attack: ciphertext truncation', () => {
     const cp = CookieParser.create({ encryptionSecret: ENC });
     let caught: unknown;
     try { await cp.decrypt(new Cookie('s', Buffer.from(new Uint8Array(20)).toString('base64url'))); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidCiphertext);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidCiphertext);
   });
   it('rejects ciphertext with corrupted tag', async () => {
     const cp = CookieParser.create({ encryptionSecret: ENC });
@@ -97,7 +98,7 @@ describe('Attack: ciphertext truncation', () => {
     buf[buf.length - 1] = (buf[buf.length - 1]! ^ 0xff) & 0xff;
     let caught: unknown;
     try { await cp.decrypt(new Cookie('s', buf.toString('base64url'))); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.DecryptionFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.DecryptionFailed);
   });
   it('rejects ciphertext with corrupted IV', async () => {
     const cp = CookieParser.create({ encryptionSecret: ENC });
@@ -107,7 +108,7 @@ describe('Attack: ciphertext truncation', () => {
     buf[4] = (buf[4]! ^ 0xff) & 0xff;
     let caught: unknown;
     try { await cp.decrypt(new Cookie('s', buf.toString('base64url'))); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.DecryptionFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.DecryptionFailed);
   });
 });
 
@@ -116,17 +117,17 @@ describe('Attack: signature malformation', () => {
   it('rejects value without dot separator', async () => {
     let caught: unknown;
     try { await cp.unsign(new Cookie('s', 'nodot')); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidSignature);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidSignature);
   });
   it('rejects value with empty signature', async () => {
     let caught: unknown;
     try { await cp.unsign(new Cookie('s', 'value.')); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
   });
   it('rejects value with garbage signature', async () => {
     let caught: unknown;
     try { await cp.unsign(new Cookie('s', 'value.NotABase64UrlString!!!')); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
   });
 });
 
@@ -154,22 +155,22 @@ describe('Attack: secret-less encrypt/sign attempts', () => {
   it('sign() throws SigningNotConfigured', () => {
     let caught: unknown;
     try { cp.sign(new Cookie('s', 'v')); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SigningNotConfigured);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SigningNotConfigured);
   });
   it('unsign() throws SigningNotConfigured', async () => {
     let caught: unknown;
     try { await cp.unsign(new Cookie('s', 'v.sig')); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SigningNotConfigured);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SigningNotConfigured);
   });
   it('encrypt() throws EncryptionNotConfigured', async () => {
     let caught: unknown;
     try { await cp.encrypt(new Cookie('s', 'v')); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.EncryptionNotConfigured);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.EncryptionNotConfigured);
   });
   it('decrypt() throws EncryptionNotConfigured', async () => {
     let caught: unknown;
     try { await cp.decrypt(new Cookie('s', 'cipher')); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.EncryptionNotConfigured);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.EncryptionNotConfigured);
   });
 });
 
@@ -177,22 +178,22 @@ describe('Attack: weak/short secrets', () => {
   it('rejects 31-char signing secret', () => {
     let caught: unknown;
     try { CookieParser.create({ secrets: ['x'.repeat(31)] }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.WeakSecret);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.WeakSecret);
   });
   it('rejects 31-char encryption secret', () => {
     let caught: unknown;
     try { CookieParser.create({ encryptionSecret: 'x'.repeat(31) }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.WeakSecret);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.WeakSecret);
   });
   it('rejects empty secrets array', () => {
     let caught: unknown;
     try { CookieParser.create({ secrets: [] }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.EmptySecrets);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.EmptySecrets);
   });
   it('rejects whitespace-only secret', () => {
     let caught: unknown;
     try { CookieParser.create({ secrets: ['                                  '.padEnd(40)] }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidSecret);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidSecret);
   });
 });
 
@@ -201,7 +202,7 @@ describe('Attack: oversized payloads', () => {
     const cp = CookieParser.create();
     let caught: unknown;
     try { cp.serialize(new Cookie('s', 'x'.repeat(5000))); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.CookieTooLarge);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.CookieTooLarge);
   });
 });
 
@@ -236,7 +237,7 @@ describe('Attack: empty / blank cookie name', () => {
   it('rejects empty name', () => {
     let caught: unknown;
     try { cp.createCookie('', 'v'); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidCookieName);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidCookieName);
   });
 });
 
@@ -245,7 +246,7 @@ describe('Attack: percent in name (Bun.CookieMap interop)', () => {
   it('rejects "%" in cookie name to guarantee Bun round-trip safety', () => {
     let caught: unknown;
     try { cp.createCookie('bad%name', 'v'); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidCookieName);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidCookieName);
   });
 });
 
@@ -277,13 +278,13 @@ describe('Attack: control characters in Path/Domain (RFC 6265 §4.1.1)', () => {
       let caught: unknown;
       try { cp.createCookie('s', 'v', { path: '/foo' + ch + 'bar' }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidPath);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidPath);
     });
     it(`rejects domain containing CTL byte 0x${hex}`, () => {
       let caught: unknown;
       try { cp.createCookie('s', 'v', { domain: 'ex' + ch + 'ample.com' }); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidDomain);
+      expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidDomain);
     });
   }
 });
@@ -299,8 +300,8 @@ describe('CWE-117 defense: wrapBunError never echoes input in messages', () => {
       let caught: unknown;
       try { cp.createCookie('s', 'v', c.opts); } catch (e) { caught = e; }
       expect(caught).toBeInstanceOf(CookieError);
-      expect((caught as CookieError).reason).toBe(c.reason);
-      expect((caught as CookieError).message).not.toContain(secretMarker);
+      expect(asCookieError(caught).reason).toBe(c.reason);
+      expect(asCookieError(caught).message).not.toContain(secretMarker);
     });
   }
 
@@ -343,7 +344,7 @@ describe('Attack: AES-GCM key invocation cap (NIST SP 800-38D §8.3)', () => {
     let caught: unknown;
     try { await cp.encrypt(cp.createCookie('s', 'v')); } catch (e) { caught = e; }
     expect(caught).toBeInstanceOf(CookieError);
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.EncryptionKeyExhausted);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.EncryptionKeyExhausted);
   });
   it('still encrypts at 2^32 - 1 then refuses on the next call', async () => {
     const cp = CookieParser.create({ secrets: [SECRET], encryptionSecret: ENC });
@@ -352,6 +353,6 @@ describe('Attack: AES-GCM key invocation cap (NIST SP 800-38D §8.3)', () => {
     expect(enc.value).toBeTypeOf('string');
     let caught: unknown;
     try { await cp.encrypt(cp.createCookie('s', 'v')); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.EncryptionKeyExhausted);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.EncryptionKeyExhausted);
   });
 });

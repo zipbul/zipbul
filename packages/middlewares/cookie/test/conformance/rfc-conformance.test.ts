@@ -7,6 +7,7 @@ import { describe, expect, it } from 'bun:test';
 import { Cookie } from 'bun';
 
 import { CookieParser, CookieJar, CookieError, CookieErrorReason } from '../../index';
+import { asCookieError } from '../support';
 
 const SECRET = 'yiLuooc8t1iy7BDCaU2eExB60URL8zacnqb1mA66aIo';
 const ENC = 'v3MALRP-T0CO2gZ46D5As25K-U1D74PDhsdQJGjk4QQ';
@@ -63,7 +64,7 @@ describe('RFC 6265bis §4.1.2.1 — Expires attribute', () => {
     let caught: unknown;
     try { cp.createCookie('s', 'v', { expires: 'definitely not a date' }); } catch (e) { caught = e; }
     expect(caught).toBeInstanceOf(CookieError);
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidExpires);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidExpires);
   });
   it('accepts IMF-fixdate per RFC 7231', () => {
     expect(() => cp.createCookie('s', 'v', { expires: 'Sun, 06 Nov 1994 08:49:37 GMT' })).not.toThrow();
@@ -75,12 +76,12 @@ describe('RFC 6265bis §4.1.2.2 — Max-Age attribute', () => {
   it('rejects non-integer Max-Age (NaN)', () => {
     let caught: unknown;
     try { cp.createCookie('s', 'v', { maxAge: NaN }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidMaxAge);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidMaxAge);
   });
   it('rejects non-integer Max-Age (decimal)', () => {
     let caught: unknown;
     try { cp.createCookie('s', 'v', { maxAge: 1.5 }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidMaxAge);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidMaxAge);
   });
   it('accepts negative integer Max-Age (immediate expiry)', () => {
     expect(() => cp.serialize(cp.createCookie('s', 'v', { maxAge: -1 }))).not.toThrow();
@@ -92,7 +93,7 @@ describe('RFC 6265bis §4.1.2.7 — SameSite=None requires Secure', () => {
   it('rejects SameSite=None without Secure', () => {
     let caught: unknown;
     try { cp.serialize(new Cookie('s', 'v', { sameSite: 'none' })); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SameSiteNoneRequiresSecure);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SameSiteNoneRequiresSecure);
   });
 });
 
@@ -101,7 +102,7 @@ describe('RFC 6265bis §4.1.3.1 — __Secure- prefix', () => {
   it('requires Secure attribute', () => {
     let caught: unknown;
     try { cp.validatePrefix(new Cookie('__Secure-x', 'v')); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SecurePrefixRequiresSecure);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SecurePrefixRequiresSecure);
   });
 });
 
@@ -110,17 +111,17 @@ describe('RFC 6265bis §4.1.3.2 — __Host- prefix', () => {
   it('requires Secure', () => {
     let caught: unknown;
     try { cp.validatePrefix(new Cookie('__Host-x', 'v', { path: '/' })); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.HostPrefixRequiresSecure);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.HostPrefixRequiresSecure);
   });
   it('forbids Domain', () => {
     let caught: unknown;
     try { cp.validatePrefix(new Cookie('__Host-x', 'v', { secure: true, domain: 'example.com', path: '/' })); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.HostPrefixForbidsDomain);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.HostPrefixForbidsDomain);
   });
   it('requires Path=/', () => {
     let caught: unknown;
     try { cp.validatePrefix(new Cookie('__Host-x', 'v', { secure: true, path: '/admin' })); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.HostPrefixRequiresRootPath);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.HostPrefixRequiresRootPath);
   });
 });
 
@@ -129,7 +130,7 @@ describe('CHIPS — Partitioned requires Secure', () => {
   it('rejects Partitioned without Secure', () => {
     let caught: unknown;
     try { cp.serialize(new Cookie('s', 'v', { partitioned: true })); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.PartitionedRequiresSecure);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.PartitionedRequiresSecure);
   });
 });
 
@@ -138,7 +139,7 @@ describe('RFC 6265 §6.1 — 4096 octet limit', () => {
   it('rejects serialized header > 4096 octets', () => {
     let caught: unknown;
     try { cp.serialize(new Cookie('s', 'x'.repeat(4096))); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.CookieTooLarge);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.CookieTooLarge);
   });
 });
 
@@ -171,7 +172,7 @@ describe('NIST SP 800-38D — AES-256-GCM parameters', () => {
     const enc = await cp.encrypt(new Cookie('admin', 'true'));
     let caught: unknown;
     try { await cp.decrypt(new Cookie('user', enc.value)); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.DecryptionFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.DecryptionFailed);
   });
 });
 
@@ -182,7 +183,7 @@ describe('FIPS 198-1 §A — HMAC key minimum length L/2', () => {
   it('rejects key shorter than 32 (configured minimum)', () => {
     let caught: unknown;
     try { CookieParser.create({ secrets: ['x'.repeat(31)] }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.WeakSecret);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.WeakSecret);
   });
 });
 
@@ -208,7 +209,7 @@ describe('Cross-instance isolation guarantees', () => {
     const enc = await a.encrypt(new Cookie('s', 'secret'));
     let caught: unknown;
     try { await b.decrypt(enc); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.DecryptionFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.DecryptionFailed);
   });
   it('signed cookie from instance A cannot be unsigned by instance B with different key', async () => {
     const a = CookieParser.create({ secrets: ['yiLuooc8t1iy7BDCaU2eExB60URL8zacnqb1mA66aIo'] });
@@ -216,7 +217,7 @@ describe('Cross-instance isolation guarantees', () => {
     const signed = a.sign(new Cookie('s', 'v'));
     let caught: unknown;
     try { await b.unsign(signed); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
   });
   it('algorithm confusion: sha256-signed cannot be unsigned with sha512', async () => {
     const a = CookieParser.create({ secrets: [SECRET], algorithm: 'sha256' });
@@ -224,7 +225,7 @@ describe('Cross-instance isolation guarantees', () => {
     const signed = a.sign(new Cookie('s', 'v'));
     let caught: unknown;
     try { await b.unsign(signed); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
   });
 });
 
@@ -236,7 +237,7 @@ describe('RFC 6265bis §5.6 — name+value 4096 cap (R1)', () => {
   it('rejects name+value 4097 octets', () => {
     let caught: unknown;
     try { cp.createCookie('s', 'x'.repeat(4096)); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.CookieTooLarge);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.CookieTooLarge);
   });
 });
 
@@ -245,7 +246,7 @@ describe('RFC 6265bis §5.6 — attribute-value 1024 cap (R2)', () => {
   it('rejects Path > 1024 octets', () => {
     let caught: unknown;
     try { cp.createCookie('s', 'v', { path: '/' + 'a'.repeat(1024) }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.AttributeTooLarge);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.AttributeTooLarge);
   });
 });
 
@@ -254,12 +255,12 @@ describe('RFC 6265bis §5.7 — case-insensitive prefix matching (R3)', () => {
   it('detects __host- (lowercase) as host-prefixed', () => {
     let caught: unknown;
     try { cp.serialize(new Cookie('__host-x', 'v', { domain: 'example.com', secure: true, path: '/' })); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.HostPrefixForbidsDomain);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.HostPrefixForbidsDomain);
   });
   it('detects __SECURE- (uppercase) as secure-prefixed', () => {
     let caught: unknown;
     try { cp.serialize(new Cookie('__SECURE-x', 'v')); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SecurePrefixRequiresSecure);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SecurePrefixRequiresSecure);
   });
 });
 
@@ -268,17 +269,17 @@ describe('RFC 1123 Domain syntax (NEW-4)', () => {
   it('rejects consecutive-dot domain', () => {
     let caught: unknown;
     try { cp.createCookie('s', 'v', { domain: 'a..b.com' }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidDomain);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidDomain);
   });
   it('rejects leading-hyphen label', () => {
     let caught: unknown;
     try { cp.createCookie('s', 'v', { domain: '-bad.com' }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidDomain);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidDomain);
   });
   it('rejects trailing-hyphen label', () => {
     let caught: unknown;
     try { cp.createCookie('s', 'v', { domain: 'bad-.com' }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidDomain);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidDomain);
   });
   it('accepts valid two-label domain', () => {
     expect(() => cp.createCookie('s', 'v', { domain: 'example.com' })).not.toThrow();
@@ -294,7 +295,7 @@ describe('Priority attribute (2-D)', () => {
   it('rejects invalid priority value', () => {
     let caught: unknown;
     try { cp.createCookie('s', 'v', { priority: 'urgent' }); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.InvalidPriority);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.InvalidPriority);
   });
 });
 
@@ -332,7 +333,7 @@ describe('HKDF key derivation + KID (1-A, 1-B)', () => {
     const tampered = `${signed.value.split('.').slice(0, -1).join('.')}.${buf.toString('base64url')}`;
     let caught: unknown;
     try { await cp.unsign(new Cookie('s', tampered)); } catch (e) { caught = e; }
-    expect((caught as CookieError).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
+    expect(asCookieError(caught).reason).toBe(CookieErrorReason.SignatureVerificationFailed);
   });
 });
 
