@@ -52,14 +52,8 @@ export interface DecoratorMetadata {
   readonly arguments?: readonly DecoratorArgument[];
 }
 
-export interface ConstructorParamMetadata {
-  readonly type?: ProviderToken | TokenRecord;
-  readonly decorators?: readonly DecoratorMetadata[];
-}
-
 export interface ClassMetadata {
   readonly decorators?: readonly DecoratorMetadata[];
-  readonly constructorParams?: readonly ConstructorParamMetadata[];
 }
 
 export interface ControllerWrapperBase<TController extends Class = Class> {
