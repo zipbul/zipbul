@@ -318,7 +318,6 @@ export class MetadataGenerator {
       const metaFactoryCall = `_meta(
         '${metadata.className}',
         ${serializeValue(normalizeDecorators(metadata.decorators))},
-        [],
         ${serializeMethods(metadata.methods)},
         [${props.join(',')}]
       )`;

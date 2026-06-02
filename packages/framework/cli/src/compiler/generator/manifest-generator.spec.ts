@@ -271,7 +271,6 @@ describe('ManifestGenerator', () => {
     const sample: AnalyzerValueRecord = {
       className: 'A',
       decorators: [{ name: 'X', arguments: [] }],
-      constructorParams: [],
       methods: [],
       properties: [],
     };

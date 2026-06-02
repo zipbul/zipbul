@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
 import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import { isErr, err } from '@zipbul/result';
+import { ZIPBUL_CALL, ZIPBUL_IMPORT_SOURCE, ZIPBUL_REF } from '@zipbul/common';
 
 import type { ClassMetadata } from '../interfaces';
 import { buildImportMap } from '../expression-converter';
@@ -318,6 +319,37 @@ describe('convertClassSymbol', () => {
     const metadata = result as ClassMetadata;
 
     expect(metadata.properties[0]?.initializer).toBe('localhost');
+  });
+
+  it('should extract an inject() call as a property initializer IR (inject()-only DI)', () => {
+    const code = [
+      "import { inject } from '@zipbul/core';",
+      "import { MyService } from './my-service';",
+      '',
+      'export class Consumer {',
+      '  private readonly dep = inject(MyService);',
+      '}',
+    ].join('\n');
+    const { parsed, symbols, importMap } = parseFixture(code);
+    const symbol = findClassSymbol(symbols, 'Consumer');
+
+    const result = convertClassSymbol(
+      symbol, parsed, {}, importMap,
+      createDefaultContext(), createRealAstLocators(),
+      createNoopMethodCallbacks(), createDefaultAnonymousCheck(),
+    );
+
+    expect(isErr(result)).toBe(false);
+
+    const metadata = result as ClassMetadata;
+    const initializer = metadata.properties[0]?.initializer as Record<string, unknown>;
+
+    expect(initializer?.[ZIPBUL_CALL]).toBe('inject');
+    expect(initializer?.[ZIPBUL_IMPORT_SOURCE]).toBe('@zipbul/core');
+
+    const args = initializer?.args as Record<string, unknown>[] | undefined;
+
+    expect(args?.[0]?.[ZIPBUL_REF]).toBe('MyService');
   });
 
   it('should set isOptional for protected property', () => {

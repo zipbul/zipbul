@@ -84,4 +84,10 @@ describe('MetadataGenerator — baker @Field rule serialization', () => {
 
     expect(code).toMatch(/\bNestedDto\b/);
   });
+
+  it('should not emit a constructorParams field (DI is inject()-only)', () => {
+    const { code } = generate([entry('CorsOptions', [prop('credentials', [field([ruleRef('isBoolean')])])])]);
+
+    expect(code).not.toContain('constructorParams');
+  });
 });

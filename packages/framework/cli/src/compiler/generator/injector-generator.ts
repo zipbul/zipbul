@@ -10,10 +10,10 @@ import {
   SCOPED_KEY_SEPARATOR,
   SCOPE_SINGLETON, VISIBILITY_ALL, VISIBILITY_ALLOWLIST, VISIBILITY_MODULE,
 } from '@zipbul/common';
-import { type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
+import { ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint } from '../../common';
 import { buildDiagnostic } from '../../diagnostics';
-import { isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
+import { isAnalyzerValueArray, isClassMetadata, isNonEmptyString } from '../analyzer/type-guards';
 import {
   stableKey, asString, asRecord, getRefName,
   serializeValue,
@@ -24,40 +24,6 @@ interface Replacement {
   end: number;
   content: string;
 }
-
-const isClassMetadata = (value: AnalyzerValue | ClassMetadata): value is ClassMetadata => {
-  const record = asRecord(value);
-
-  if (record === null) {
-    return false;
-  }
-
-  if (typeof record.className !== 'string') {
-    return false;
-  }
-
-  if (!Array.isArray(record.constructorParams)) {
-    return false;
-  }
-
-  if (!Array.isArray(record.decorators)) {
-    return false;
-  }
-
-  if (!Array.isArray(record.methods)) {
-    return false;
-  }
-
-  if (!Array.isArray(record.properties)) {
-    return false;
-  }
-
-  if (record.imports === undefined || typeof record.imports !== 'object') {
-    return false;
-  }
-
-  return true;
-};
 
 export class InjectorGenerator {
   generate(graph: ModuleGraph, registry: ImportRegistry): Result<string, Diagnostic> {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { ZIPBUL_REF, ZIPBUL_UNRESOLVABLE } from '@zipbul/common';
 
-import { isUnresolvable } from './type-guards';
+import { isClassMetadata, isUnresolvable } from './type-guards';
 
 describe('isUnresolvable', () => {
   it('should return true when value is a valid UnresolvableExpression object', () => {
@@ -60,5 +60,49 @@ describe('isUnresolvable', () => {
     };
 
     expect(isUnresolvable(value)).toBe(false);
+  });
+});
+
+describe('isClassMetadata', () => {
+  // DI is inject()-only; `constructorParams` was removed from ClassMetadata, so
+  // the guard must accept a class that never carried that field.
+  const base = { className: 'Service', decorators: [], methods: [], properties: [], imports: {} };
+
+  it('should return true for a minimal valid ClassMetadata without constructorParams', () => {
+    expect(isClassMetadata(base)).toBe(true);
+  });
+
+  it('should return true when an unrelated extra field is present', () => {
+    expect(isClassMetadata({ ...base, heritage: { typeName: 'Base' } })).toBe(true);
+  });
+
+  it('should return false when className is not a string', () => {
+    expect(isClassMetadata({ ...base, className: 42 })).toBe(false);
+  });
+
+  it('should return false when decorators is not an array', () => {
+    expect(isClassMetadata({ ...base, decorators: {} })).toBe(false);
+  });
+
+  it('should return false when methods is not an array', () => {
+    expect(isClassMetadata({ ...base, methods: 'oops' })).toBe(false);
+  });
+
+  it('should return false when properties is not an array', () => {
+    expect(isClassMetadata({ ...base, properties: undefined })).toBe(false);
+  });
+
+  it('should return false when imports is missing', () => {
+    const { imports: _imports, ...withoutImports } = base;
+
+    expect(isClassMetadata(withoutImports)).toBe(false);
+  });
+
+  it('should return false when value is null', () => {
+    expect(isClassMetadata(null)).toBe(false);
+  });
+
+  it('should return false when value is not a record', () => {
+    expect(isClassMetadata('Service')).toBe(false);
   });
 });

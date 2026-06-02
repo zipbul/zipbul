@@ -21,7 +21,7 @@ import {
 } from '@zipbul/common';
 import { type AdapterStaticSchema, type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint, PathResolver } from '../../common';
-import { isRecordValue, isAnalyzerValueArray } from '../analyzer/type-guards';
+import { isRecordValue, isAnalyzerValueArray, isClassMetadata } from '../analyzer/type-guards';
 import { ImportRegistry } from './import-registry';
 import { InjectorGenerator } from './injector-generator';
 import { MetadataGenerator } from './metadata-generator';
@@ -153,19 +153,16 @@ const sealMap = <K, V>(map: Map<K, V>): Map<K, V> => {
 const _meta = (
   className: string,
   decorators: readonly unknown[],
-  params: readonly unknown[],
   methods: readonly unknown[],
   props: readonly unknown[],
 ): {
   className: string;
   decorators: readonly unknown[];
-  constructorParams: readonly unknown[];
   methods: readonly unknown[];
   properties: readonly unknown[];
 } => ({
   className,
   decorators,
-  constructorParams: params,
   methods,
   properties: props
 });
@@ -327,16 +324,6 @@ installRuntime();
       }
 
       return undefined;
-    };
-
-    const isClassMetadata = (value: AnalyzerValue | ClassMetadata): value is ClassMetadata => {
-      if (!isRecordValue(value)) {
-        return false;
-      }
-
-      const constructorParams = value.constructorParams;
-
-      return Array.isArray(constructorParams);
     };
 
     const extractDeps = (metadata: AnalyzerValue | ClassMetadata | undefined): string[] => {
