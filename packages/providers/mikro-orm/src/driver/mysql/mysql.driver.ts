@@ -1,6 +1,8 @@
 import { AbstractSqlDriver } from '@mikro-orm/sql';
-import { MySqlPlatform } from '@mikro-orm/mysql';
+import type { MySqlPlatform } from '@mikro-orm/mysql';
 import { Utils } from '@mikro-orm/core';
+
+import { BunMySqlPlatform } from './mysql.platform';
 import type {
   Configuration,
   EntityDictionary,
@@ -16,7 +18,8 @@ import { MySqlConnection } from './mysql.connection';
 
 /**
  * MikroORM MySQL driver backed by Bun's native Bun.SQL (zero `mysql2` dependency).
- * Reuses the official {@link MySqlPlatform}.
+ * Uses {@link BunMySqlPlatform} (the official {@link MySqlPlatform} with JSON auto-parsing
+ * disabled, since Bun.SQL returns JSON columns as raw strings).
  *
  * MySQL has no RETURNING, so a multi-row INSERT reports only the first auto-increment id.
  * `nativeInsertMany`/`nativeUpdateMany` are overridden (mirroring the official MySqlDriver)
@@ -27,7 +30,7 @@ export class BunMySqlDriver extends AbstractSqlDriver<MySqlConnection, MySqlPlat
   private autoIncrementIncrement?: number;
 
   constructor(config: Configuration) {
-    super(config, new MySqlPlatform(), MySqlConnection, ['kysely']);
+    super(config, new BunMySqlPlatform(), MySqlConnection, ['kysely']);
   }
 
   private async getAutoIncrementIncrement(ctx?: Transaction): Promise<number> {

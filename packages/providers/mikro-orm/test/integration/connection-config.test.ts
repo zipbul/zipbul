@@ -36,6 +36,23 @@ describePg('connection config (postgres)', () => {
     expect(rows[0]?.ok).toBe(1);
   });
 
+  test('merges driverOptions into the dialect (a custom createClient is used)', async () => {
+    let called = 0;
+    orm = await MikroORM.init({
+      driver: BunPostgreSqlDriver,
+      clientUrl: PG_URL,
+      entities: [CfgRow],
+      driverOptions: {
+        createClient: (url: string, max: number) => {
+          called += 1;
+          return new (Bun as unknown as { SQL: new (u: string, o: { max: number }) => unknown }).SQL(url, { max });
+        },
+      },
+    } as unknown as Options);
+    await orm.em.getConnection().execute('select 1');
+    expect(called).toBeGreaterThan(0);
+  });
+
   test('honours the configured pool size (pool.max)', async () => {
     orm = await MikroORM.init({
       driver: BunPostgreSqlDriver,
