@@ -51,7 +51,8 @@ integration test in `test/integration/`.
 | **SSL / TLS** (sslmode pass-through; backend connection actually encrypted) | `ssl` (gated on `DB_URL_PG_SSL`; verified via `pg_stat_ssl`) |
 | **Graceful shutdown** — `close(true)` drains in-flight work before teardown | `graceful-shutdown` |
 | **MariaDB** (via the MySQL protocol/driver) | `mysql` lane run against MariaDB 11 — CRUD/tx/unique-exception/Date/decimal/**json** all pass |
-| **MySQL / MariaDB `JSON` columns → parsed objects** | Bun.SQL returns MySQL/MariaDB JSON as a raw string (unlike `mysql2`); `BunMySqlPlatform.convertsJsonAutomatically()` returns `false` so MikroORM parses it. Round-trips as an object on both MySQL 8 and MariaDB 11. | `mysql` |
+| **MySQL / MariaDB `JSON` columns → parsed objects** | Bun.SQL returns MySQL/MariaDB JSON as a raw string (unlike `mysql2`); `BunMySqlPlatform.convertsJsonAutomatically()` returns `false` so MikroORM parses it. Round-trips as an object — verified live on **MySQL 9.7** and **MariaDB 11**. | `mysql` |
+| **Exception mapping — all constraint subtypes** | Unique / NotNull / Check / ForeignKey / TableNotFound each map to their typed MikroORM exception, verified live on **postgres**, **MySQL 9.7**, and **SQLite** (no-docker `:memory:` lane). pg: SQLSTATE on `.errno`→copied to `.code`; mysql: native `.errno`; sqlite: message-substring. | `error-normalization` |
 
 ## ⚠️ Supported with a documented nuance
 | Feature | Nuance |
@@ -87,7 +88,7 @@ integration test in `test/integration/`.
 |---|---|---|---|---|
 | CRUD / tx / savepoint | ✅ | ✅ | ✅ | ✅ |
 | Connection model | pooled (reserve) | pooled (reserve) | pooled (reserve) | single connection (no reserve) |
-| Unique → exception | ✅ | ✅ | ✅ | ✅ |
+| Constraint → typed exception (Unique/NotNull/Check/FK/TableNotFound) | ✅ | ✅ | ✅ (MariaDB) | ✅ |
 | JSON columns | ✅ object | ✅ object | ✅ object | ✅ object |
 | `em.callRoutine` | ✅ fn + proc + OUT + refcursor | ✅ fn + proc + `@var` OUT | ✅ (same as MySQL) | 🚫 no UDF API (explicit error) |
 | Streaming | 🚫 | 🚫 | 🚫 | 🚫 |
