@@ -25,7 +25,7 @@ export class BunSqlKyselyDriver implements Driver {
     private readonly poolMax: number = DEFAULT_POOL_MAX,
     private readonly createClient: (url: string, poolMax: number) => BunSqlClient,
     private readonly pooled: boolean = true,
-    dialect: SqlDialectKind = 'postgres',
+    private readonly dialect: SqlDialectKind = 'postgres',
   ) {
     this.transactions = new BunSqlTransactionController(dialect);
   }
@@ -44,7 +44,12 @@ export class BunSqlKyselyDriver implements Driver {
       }
       return new BunSqlConnection(await this.client.reserve(), this.errorNormalizer);
     }
-    return new BunSqlConnection(this.directConnection(this.client), this.errorNormalizer);
+    // SQLite runs with Bun.SQL `safeIntegers`, so its rows need bigint normalization.
+    return new BunSqlConnection(
+      this.directConnection(this.client),
+      this.errorNormalizer,
+      this.dialect === 'sqlite',
+    );
   }
 
   /** Single-connection (sqlite) path: run on the client directly; release is a no-op. */

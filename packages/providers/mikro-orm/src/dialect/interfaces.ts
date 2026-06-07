@@ -38,6 +38,12 @@ export interface BunSqlDialectOptions {
    * Defaults to `true`.
    */
   readonly pooled?: boolean;
+  /**
+   * Construct the Bun.SQL client with `safeIntegers` so integers past 2^53 keep full precision
+   * (SQLite only — its INTEGER columns are otherwise coerced to lossy JS numbers). Bun.SQL then
+   * returns every integer as a `bigint`; {@link BunSqlConnection} normalizes them back.
+   */
+  readonly safeIntegers?: boolean;
   /** Factory for the underlying Bun.SQL client (override for testing). */
   readonly createClient?: (url: string, poolMax: number) => BunSqlClient;
 }

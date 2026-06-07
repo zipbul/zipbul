@@ -15,6 +15,15 @@ export class BunSqlConnection implements DatabaseConnection {
   constructor(
     private readonly reserved: ReservedConnection,
     private readonly errorNormalizer: ErrorNormalizer,
+    /**
+     * Normalize `bigint` cells in result rows. Enabled for SQLite, where the client runs with
+     * Bun.SQL's `safeIntegers` (the only way to avoid precision loss on INTEGER columns past 2^53),
+     * which returns EVERY integer as a `bigint`. We collapse safe-range bigints back to `number`
+     * (so plain int / PK columns stay numbers) and render out-of-range ones as a decimal `string`
+     * (so MikroORM's BigIntType — which stringifies anyway — keeps full precision). No-op for the
+     * pooled adapters, whose results carry no bigints.
+     */
+    private readonly normalizeBigInts = false,
   ) {}
 
   async executeQuery<R>(compiled: CompiledQuery): Promise<QueryResult<R>> {
@@ -22,7 +31,7 @@ export class BunSqlConnection implements DatabaseConnection {
       const res = (await this.reserved.unsafe(compiled.sql, [...compiled.parameters])) as
         | (Array<R> & { count?: number | null; affectedRows?: number | null; lastInsertRowid?: number | null })
         | undefined;
-      const rows = Array.isArray(res) ? (res as R[]) : [];
+      const rows = Array.isArray(res) ? (this.normalizeBigInts ? res.map((r) => this.coerceBigInts(r)) : (res as R[])) : [];
       // Bun.SQL reports the affected row count differently per adapter: mysql uses
       // `.affectedRows` (and sets `.count` to 0), while pg leaves `.affectedRows` null and
       // carries the count on `.count`. Prefer `.affectedRows`, falling back to `.count`.
@@ -35,6 +44,24 @@ export class BunSqlConnection implements DatabaseConnection {
     } catch (error) {
       throw this.errorNormalizer.normalize(error);
     }
+  }
+
+  /** Collapse `bigint` cells: safe-range → `number`, out-of-range → decimal `string`. */
+  private coerceBigInts<R>(row: R): R {
+    if (row === null || typeof row !== 'object') {
+      return row;
+    }
+    let mutated: Record<string, unknown> | undefined;
+    for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
+      if (typeof value === 'bigint') {
+        mutated ??= { ...(row as Record<string, unknown>) };
+        mutated[key] =
+          value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER)
+            ? Number(value)
+            : value.toString();
+      }
+    }
+    return (mutated ?? row) as R;
   }
 
   // eslint-disable-next-line require-yield

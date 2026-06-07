@@ -25,6 +25,7 @@ export class SqliteConnection extends BaseSqliteConnection {
       url,
       ...overrides,
       pooled: false,
+      safeIntegers: true,
       dialect: 'sqlite',
     });
   }

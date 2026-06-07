@@ -1,8 +1,10 @@
 import { AbstractSqlDriver } from '@mikro-orm/sql';
-import { PostgreSqlPlatform, BasePostgreSqlEntityManager } from '@mikro-orm/postgresql';
+import { BasePostgreSqlEntityManager } from '@mikro-orm/postgresql';
+import type { PostgreSqlPlatform } from '@mikro-orm/postgresql';
 import { EntityManagerType, type Configuration } from '@mikro-orm/core';
 
 import { PostgresConnection } from './postgres.connection';
+import { BunPostgreSqlPlatform } from './postgres.platform';
 
 /**
  * MikroORM PostgreSQL driver backed by Bun's native Bun.SQL (zero `pg` dependency).
@@ -14,7 +16,7 @@ import { PostgresConnection } from './postgres.connection';
  */
 export class BunPostgreSqlDriver extends AbstractSqlDriver<PostgresConnection, PostgreSqlPlatform> {
   constructor(config: Configuration) {
-    super(config, new PostgreSqlPlatform(), PostgresConnection, ['kysely']);
+    super(config, new BunPostgreSqlPlatform(), PostgresConnection, ['kysely']);
   }
 
   override createEntityManager(useContext?: boolean): this[typeof EntityManagerType] {
