@@ -41,6 +41,8 @@ integration test in `test/integration/`.
 | Named connections (registry coexistence) | `context-lifecycle` |
 | Query logging (SQL + BEGIN/COMMIT reach the logger) | `logging` |
 | Types: Date, json, bigint(no precision loss), decimal, boolean, **string[]**, uuid, enum, **bytea/Buffer** | `types`, `types-edge`, `mysql` |
+| **Type fidelity vs the official driver** — `timestamp`/`datetime` (no tz) round-trip the exact UTC instant regardless of host process timezone; pg `date` reads back as a `YYYY-MM-DD` string; SQLite `BIGINT` > 2^53 keeps full precision. Corrects Bun.SQL's protocol-level coercion (no type-parser API) via the Bun platforms + `safeIntegers`. Verified under a forced non-UTC (`TZ=Asia/Seoul`) process. | `type-fidelity` |
+| **Per-transaction isolation level** (read uncommitted → serializable) actually applied — pg via `BEGIN ISOLATION LEVEL`, mysql via `SET TRANSACTION ISOLATION LEVEL` + `START TRANSACTION` (behavioral dirty-read proof) | `transaction`, `mysql-isolation` |
 | MySQL: tinyint(1) boolean, datetime, json, decimal | `mysql` |
 | **Multiple schemas** (entity bound to a non-public schema) | `multi-schema` |
 | **Read replicas** (write→primary, read→replica on a distinct connection) | `replica` — MikroORM opens one connection per replica; the driver makes a Bun.SQL client per connection |
@@ -59,7 +61,7 @@ integration test in `test/integration/`.
 | Feature | Nuance |
 |---|---|
 | `integer[]` arrays | Values round-trip intact, but MikroORM's default ArrayType yields **string elements** (`["1","2","3"]`) over Bun.SQL (no OID type-parser control). Use a typed ArrayType for native number elements. Driver passes the array correctly. `types-edge` |
-| pg fine type-parser control | Bun.SQL does its own coercion; MikroORM's `createPostgreSqlTypeParsers`/TypeOverrides are not applied. Common types verified; exotic types fall back to Bun's coercion. |
+| pg fine type-parser control | Bun.SQL does its own coercion; MikroORM's `createPostgreSqlTypeParsers`/TypeOverrides are not applied. The cases where Bun's coercion diverges from the official driver and silently corrupts data are corrected by the Bun platforms (see the type-fidelity row in Supported); remaining exotic/uncommon types fall back to Bun's coercion. |
 
 ## 🚫 Not supported (Bun.SQL hard ceiling — documented, explicit error, NOT silent)
 
@@ -91,6 +93,8 @@ integration test in `test/integration/`.
 | Connection model | pooled (reserve) | pooled (reserve) | pooled (reserve) | single connection (no reserve) |
 | Constraint → typed exception (Unique/NotNull/Check/FK/TableNotFound) | ✅ | ✅ | ✅ (MariaDB) | ✅ |
 | JSON columns | ✅ object | ✅ object | ✅ object | ✅ object |
+| Temporal (no-tz) UTC fidelity | ✅ `timestamp` | ✅ `datetime` | ✅ `datetime` | ✅ |
+| BIGINT > 2^53 precision | ✅ (string) | ✅ | ✅ | ✅ (`safeIntegers`) |
 | `em.callRoutine` | ✅ fn + proc + OUT + refcursor | ✅ fn + proc + `@var` OUT | ✅ (same as MySQL) | 🚫 no UDF API (explicit error) |
 | Streaming | 🚫 | 🚫 | 🚫 | 🚫 |
 
