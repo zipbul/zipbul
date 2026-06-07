@@ -25,6 +25,7 @@ import { isRecordValue, isAnalyzerValueArray, isClassMetadata } from '../analyze
 import { ImportRegistry } from './import-registry';
 import { InjectorGenerator } from './injector-generator';
 import { MetadataGenerator } from './metadata-generator';
+import { selectRegistryClasses } from './registry-class-selector';
 
 export class ManifestGenerator {
   private injectorGen = new InjectorGenerator();
@@ -33,7 +34,11 @@ export class ManifestGenerator {
 
   generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string, handlerIndex: readonly HandlerIndexEntry[] = [], routeRegistrations: readonly RouteRegistration[] = [], projectSrcDir?: string): Result<string, Diagnostic> {
     const registry = new ImportRegistry(outputDir, projectSrcDir);
-    const sortedClasses = [...classes].sort((a, b) => {
+    // The metadata registry is a className→constructor lookup for the router only
+    // (controllers + handler DTOs). Everything else — providers, baker @Recipe DTOs
+    // not referenced by a handler, scanned services — is never resolved through it.
+    const registryClasses = selectRegistryClasses(classes, graph, handlerIndex);
+    const sortedClasses = [...registryClasses].sort((a, b) => {
       const nameDiff = compareCodePoint(a.metadata.className, b.metadata.className);
 
       if (nameDiff !== 0) {
@@ -54,7 +59,7 @@ export class ManifestGenerator {
     }
 
     const injectorCode = injectorResult;
-    const metadataCode = this.metadataGen.generate(classes, registry);
+    const metadataCode = this.metadataGen.generate(registryClasses, registry);
     const scopedKeysEntries: string[] = [];
     const sortedNodes = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));
 
@@ -153,18 +158,12 @@ const sealMap = <K, V>(map: Map<K, V>): Map<K, V> => {
 const _meta = (
   className: string,
   decorators: readonly unknown[],
-  methods: readonly unknown[],
-  props: readonly unknown[],
 ): {
   className: string;
   decorators: readonly unknown[];
-  methods: readonly unknown[];
-  properties: readonly unknown[];
 } => ({
   className,
-  decorators,
-  methods,
-  properties: props
+  decorators
 });
 
 ${injectorCode}

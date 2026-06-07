@@ -3,15 +3,25 @@ import type { AnalyzerValue } from '../analyzer/types';
 import type { ImportRegistry } from './import-registry';
 import type { MetadataClassEntry } from './interfaces';
 
-import { type ClassMetadata } from '../analyzer';
 import {
   ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
   ZIPBUL_FACTORY_CODE,
-  TS_UTILITY_TYPES,
 } from '@zipbul/common';
 import { compareCodePoint } from '../../common';
 import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
 
+/**
+ * Emits `createMetadataRegistry()` — a `className → constructor` lookup the
+ * router uses to resolve controllers (for the `@Controller` prefix) and handler
+ * DTOs (by `metatypeKey`, to hand to `baker.deserialize`).
+ *
+ * Only `className` and the class-level `decorators` are emitted. Property/method
+ * metadata is NOT emitted: the router never reads it, and a class's `@Field`
+ * schema is owned entirely by baker via `Class[Symbol.metadata]` (baker seals
+ * nested DTOs by recursion). Emitting `@Field` rules here would force the
+ * compiler to serialize baker rule expressions — a responsibility it must not
+ * take on.
+ */
 export class MetadataGenerator {
   generate(classes: MetadataClassEntry[], registry: ImportRegistry): string {
     const sortedClasses = [...classes].sort((a, b) => {
@@ -24,110 +34,6 @@ export class MetadataGenerator {
       return compareCodePoint(a.filePath, b.filePath);
     });
     const registryEntries: string[] = [];
-    const availableClasses = new Set(sortedClasses.map(c => c.metadata.className));
-    const classMap = new Map<string, ClassMetadata>();
-    const classFilePathMap = new Map<string, string>();
-
-    sortedClasses.forEach(c => {
-      classMap.set(c.metadata.className, c.metadata);
-      classFilePathMap.set(c.metadata.className, c.filePath);
-    });
-
-    const getRefName = (value: AnalyzerValue): string | null => {
-      if (typeof value === 'string') {
-        return value;
-      }
-
-      if (!isRecordValue(value)) {
-        return null;
-      }
-
-      if (typeof value[ZIPBUL_REF] === 'string') {
-        return value[ZIPBUL_REF];
-      }
-
-      return null;
-    };
-
-    const cloneAnalyzerValue = (value: AnalyzerValue | undefined): AnalyzerValue | undefined => {
-      if (value === undefined || value === null) {
-        return value;
-      }
-
-      if (isAnalyzerValueArray(value)) {
-        return value.map(entry => entry);
-      }
-
-      if (isRecordValue(value)) {
-        return { ...value };
-      }
-
-      return value;
-    };
-
-    const cloneProps = (props: ClassMetadata['properties']): ClassMetadata['properties'] =>
-      props.map(p => ({
-        ...p,
-        decorators: [...p.decorators],
-        items: cloneAnalyzerValue(p.items),
-      }));
-
-    const resolveMetadata = (className: string, visited = new Set<string>()): ClassMetadata['properties'] => {
-      if (visited.has(className)) {
-        return [];
-      }
-
-      visited.add(className);
-
-      const meta = classMap.get(className);
-
-      if (!meta) {
-        return [];
-      }
-
-      let properties: ClassMetadata['properties'] = cloneProps(meta.properties);
-
-      if (meta.heritage) {
-        const h = meta.heritage;
-        const parentProps = resolveMetadata(h.typeName, new Set(visited));
-
-        if (h.typeName) {
-          if (
-            TS_UTILITY_TYPES.includes(h.typeName) &&
-            Array.isArray(h.typeArgs) &&
-            h.typeArgs.length > 0
-          ) {
-            const baseDtoName = h.typeArgs[0];
-
-            if (!isNonEmptyString(baseDtoName)) {
-              return properties;
-            }
-
-            const baseProps = resolveMetadata(baseDtoName, new Set(visited));
-
-            if (h.typeName === 'Partial') {
-              baseProps.forEach(p => {
-                p.isOptional = true;
-              });
-
-              properties = [...baseProps, ...properties];
-            } else if (h.typeName === 'Pick') {
-              properties = [...baseProps, ...properties];
-            } else if (h.typeName === 'Omit') {
-              properties = [...baseProps, ...properties];
-            }
-          } else {
-            const parentMap = new Map(parentProps.map(p => [p.name, p]));
-
-            properties.forEach(p => parentMap.set(p.name, p));
-
-            properties = Array.from(parentMap.values());
-          }
-        }
-      }
-
-      return properties;
-    };
 
     const serializeValue = (value: AnalyzerValue): string => {
       if (value === null) {
@@ -152,12 +58,9 @@ export class MetadataGenerator {
         if (typeof record[ZIPBUL_REF] === 'string') {
           const refName = record[ZIPBUL_REF];
 
-          // A reference to a runtime value — a baker rule (`isBoolean`), an enum,
-          // a class, etc. Import it whenever its source is known so it is emitted
-          // as an identifier; an unsourced ref (a local symbol the generated file
-          // cannot import) falls back to a string literal. Property TYPES that
-          // resolve to interfaces/type aliases (no runtime value) are filtered
-          // to string literals by the caller before reaching here.
+          // A reference to a runtime value (enum, class, …). Import it whenever
+          // its source is known so it emits as an identifier; an unsourced ref
+          // falls back to a string literal.
           if (typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
             registry.addImport(refName, record[ZIPBUL_IMPORT_SOURCE]);
 
@@ -217,109 +120,9 @@ export class MetadataGenerator {
 
     sortedClasses.forEach(({ metadata, filePath }) => {
       const alias = registry.getAlias(metadata.className, filePath);
-      const resolvedProperties = resolveMetadata(metadata.className);
-      const props = resolvedProperties.map(prop => {
-        const propTypeName = getRefName(prop.type);
-        const isClassRef = isNonEmptyString(propTypeName) && availableClasses.has(propTypeName);
-        // A type ref that is not a known runtime class is an interface/type alias
-        // (no runtime value) — emit it as a string literal. Known classes fall
-        // through to the `() => alias` lazy reference below.
-        let typeValue = isNonEmptyString(propTypeName) && !isClassRef
-          ? JSON.stringify(propTypeName)
-          : serializeValue(prop.type);
-
-        if (isClassRef) {
-          const filePath = classFilePathMap.get(propTypeName);
-
-          if (filePath !== undefined) {
-            const alias = registry.getAlias(propTypeName, filePath);
-
-            if (alias.length > 0) {
-              typeValue = `() => ${alias}`;
-            }
-          }
-        }
-
-        let itemsStr = 'undefined';
-
-        if (prop.items !== undefined) {
-          const itemRecord = isRecordValue(prop.items) ? prop.items : null;
-          const itemTypeName = itemRecord && typeof itemRecord.typeName === 'string' ? itemRecord.typeName : 'Unknown';
-          let itemTypeVal = `'${itemTypeName}'`;
-
-          if (availableClasses.has(itemTypeName)) {
-            const filePath = classFilePathMap.get(itemTypeName);
-
-            if (filePath !== undefined) {
-              const alias = registry.getAlias(itemTypeName, filePath);
-
-              itemTypeVal = `() => ${alias}`;
-            }
-          }
-
-          itemsStr = `{ typeName: ${itemTypeVal} }`;
-        }
-
-        return `{
-          name: '${prop.name}',
-          type: ${typeValue},
-          isClass: ${isClassRef},
-          typeArgs: ${JSON.stringify(prop.typeArgs)},
-          decorators: ${serializeValue(normalizeDecorators(prop.decorators))},
-          isOptional: ${prop.isOptional},
-          isArray: ${prop.isArray},
-          isEnum: ${prop.isEnum},
-          items: ${itemsStr},
-          literals: ${JSON.stringify(prop.literals)}
-        }`;
-      });
-
-      const serializeMethods = (methods: ClassMetadata['methods']): string => {
-        if (methods.length === 0) {
-          return '[]';
-        }
-
-        return `[${methods
-          .map(m => {
-            const params = m.parameters
-              .map(p => {
-                let typeVal = serializeValue(p.type);
-                const typeName = getRefName(p.type);
-
-                if (isNonEmptyString(typeName) && availableClasses.has(typeName)) {
-                  const filePath = classFilePathMap.get(typeName);
-
-                  if (filePath !== undefined) {
-                    const alias = registry.getAlias(typeName, filePath);
-
-                    typeVal = `() => ${alias}`;
-                  }
-                }
-
-                return `{
-                      name: '${p.name}',
-                      type: ${typeVal},
-                      typeArgs: ${JSON.stringify(p.typeArgs)},
-                      decorators: ${serializeValue(normalizeDecorators(p.decorators))},
-                      index: ${p.index}
-                  }`;
-              })
-              .join(',');
-
-            return `{
-                  name: '${m.name}',
-                  decorators: ${serializeValue(normalizeDecorators(m.decorators))},
-                  parameters: [${params}]
-              }`;
-          })
-          .join(',')}]`;
-      };
-
       const metaFactoryCall = `_meta(
         '${metadata.className}',
-        ${serializeValue(normalizeDecorators(metadata.decorators))},
-        ${serializeMethods(metadata.methods)},
-        [${props.join(',')}]
+        ${serializeValue(normalizeDecorators(metadata.decorators))}
       )`;
 
       registryEntries.push(`  registry.set(${alias}, ${metaFactoryCall});`);
@@ -329,7 +132,7 @@ export class MetadataGenerator {
 export function createMetadataRegistry() {
   const registry = new Map();
 ${registryEntries.join('\n')}
-  
+
   registry.forEach(v => deepFreeze(v));
   return sealMap(registry);
 }
