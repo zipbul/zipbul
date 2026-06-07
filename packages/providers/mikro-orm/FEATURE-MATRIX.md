@@ -50,6 +50,7 @@ integration test in `test/integration/`.
 | **PostgreSQL-flavoured EntityManager** (`orm.em` is a `PostgreSqlEntityManager`; pg-only helpers like `refreshMaterializedView`) | `materialized-view` |
 | **SSL / TLS** (sslmode pass-through; backend connection actually encrypted) | `ssl` (gated on `DB_URL_PG_SSL`; verified via `pg_stat_ssl`) |
 | **Graceful shutdown** — `close(true)` drains in-flight work before teardown | `graceful-shutdown` |
+| **Request-scoped EM over real HTTP (e2e)** — TCK-booted zipbul app: a write in one request is read by a later request; 20 concurrent requests each get a distinct forked EM (AsyncLocalStorage) and see only their own data | `e2e/request-isolation` |
 | **MariaDB** (via the MySQL protocol/driver) | `mysql` lane run against MariaDB 11 — CRUD/tx/unique-exception/Date/decimal/**json** all pass |
 | **MySQL / MariaDB `JSON` columns → parsed objects** | Bun.SQL returns MySQL/MariaDB JSON as a raw string (unlike `mysql2`); `BunMySqlPlatform.convertsJsonAutomatically()` returns `false` so MikroORM parses it. Round-trips as an object — verified live on **MySQL 9.7** and **MariaDB 11**. | `mysql` |
 | **Exception mapping — all constraint subtypes** | Unique / NotNull / Check / ForeignKey / TableNotFound each map to their typed MikroORM exception, verified live on **postgres**, **MySQL 9.7**, and **SQLite** (no-docker `:memory:` lane). pg: SQLSTATE on `.errno`→copied to `.code`; mysql: native `.errno`; sqlite: message-substring. | `error-normalization` |

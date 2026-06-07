@@ -79,6 +79,10 @@
     "@mikro-orm/mysql": "7.1.1",
     "@mikro-orm/sqlite": "7.1.1",
     "@mikro-orm/decorators": "7.1.1",
+    "@zipbul/common": "workspace:*",
+    "@zipbul/http-adapter": "workspace:*",
+    "@zipbul/result": "workspace:*",
+    "@zipbul/tck": "workspace:*",
     "kysely": "^0.29"
   },
   "sideEffects": false
