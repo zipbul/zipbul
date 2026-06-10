@@ -22,7 +22,8 @@ describePg('stored functions / procedures (postgres)', () => {
   afterAll(async () => {
     const c = orm.em.getConnection();
     await c.execute('drop function if exists add_two(int, int)').catch(() => undefined);
-    await c.execute('drop procedure if exists touch_noop()').catch(() => undefined);
+    await c.execute('drop procedure if exists record_marker()').catch(() => undefined);
+    await c.execute('drop table if exists sp_marker').catch(() => undefined);
     await orm.close(true);
   });
 
@@ -33,9 +34,15 @@ describePg('stored functions / procedures (postgres)', () => {
     expect(rows[0]?.sum).toBe(7);
   });
 
-  test('a stored procedure is invokable via CALL', async () => {
+  test('a stored procedure invoked via CALL actually runs its body (observable side effect)', async () => {
     const c = orm.em.getConnection();
-    await c.execute('create or replace procedure touch_noop() language plpgsql as $$ begin perform 1; end $$');
-    await expect(c.execute('call touch_noop()')).resolves.toBeDefined();
+    await c.execute('drop table if exists sp_marker');
+    await c.execute('create table sp_marker (id serial primary key, note text not null)');
+    await c.execute(
+      `create or replace procedure record_marker() language plpgsql as $$ begin insert into sp_marker (note) values ('called'); end $$`,
+    );
+    await c.execute('call record_marker()');
+    const rows = (await c.execute('select note from sp_marker')) as Array<{ note: string }>;
+    expect(rows.map((r) => r.note)).toEqual(['called']);
   });
 });

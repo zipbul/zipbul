@@ -127,8 +127,35 @@ test('releaseSavepoint emits a quoted release statement', async () => {
 
 // RED (B2): a savepoint name containing a double-quote must be escaped (quote-doubled)
 // so the identifier boundary cannot be broken. Current scaffold interpolates raw.
-test('escapes a double-quote in a savepoint name', async () => {
+test('escapes a double-quote in a savepoint name (postgres/sqlite)', async () => {
   const { connection, calls } = fakeConnection();
   await controller.savepoint(connection, 'sp"x');
   expect(calls).toEqual(['savepoint "sp""x"']);
+});
+
+// --- mysql/mariadb: savepoint identifiers MUST be backtick-quoted. A double-quoted token is a
+// string literal under the default sql_mode (no ANSI_QUOTES), so `SAVEPOINT "x"` is ER_PARSE_ERROR
+// — this is what silently broke every MySQL/MariaDB nested transaction before the dialect fix. ---
+test('mysql savepoint uses backticks, not double quotes', async () => {
+  const { connection, calls } = fakeConnection();
+  await mysqlController.savepoint(connection, 'sp1');
+  expect(calls).toEqual(['savepoint `sp1`']);
+});
+
+test('mysql rollbackToSavepoint uses backticks', async () => {
+  const { connection, calls } = fakeConnection();
+  await mysqlController.rollbackToSavepoint(connection, 'sp1');
+  expect(calls).toEqual(['rollback to savepoint `sp1`']);
+});
+
+test('mysql releaseSavepoint uses backticks', async () => {
+  const { connection, calls } = fakeConnection();
+  await mysqlController.releaseSavepoint(connection, 'sp1');
+  expect(calls).toEqual(['release savepoint `sp1`']);
+});
+
+test('mysql savepoint escapes an embedded backtick by doubling it', async () => {
+  const { connection, calls } = fakeConnection();
+  await mysqlController.savepoint(connection, 'sp`x');
+  expect(calls).toEqual(['savepoint `sp``x`']);
 });

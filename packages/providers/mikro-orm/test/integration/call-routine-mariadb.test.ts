@@ -65,6 +65,6 @@ describeMariadb('callRoutine (mariadb)', () => {
   test('invokes a procedure and writes back the OUT param via @vars', async () => {
     const out = new ScalarReference<number>(null as unknown as number, false);
     await orm.em.callRoutine(SumProc, { a: 10, b: 5, out_total: out } as never);
-    expect(Number(out.unwrap())).toBe(15);
+    expect(out.unwrap()).toBe(15); // a real number (not '15') — the OUT-param type round-trip
   });
 });
