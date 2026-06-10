@@ -22,7 +22,7 @@ type ConvertingDriver = { execute(sql: string): Promise<unknown> };
 // Bun.SQL error to MikroORM's official ExceptionConverter in the shape it expects, so EVERY
 // constraint subtype becomes its typed MikroORM exception — not just the unique case.
 //   - pg: Bun.SQL puts the SQLSTATE on `.errno` (23505/23502/23514/23503/42P01) and a generic
-//         `ERR_POSTGRES_SERVER_ERROR` on `.code`; PostgresErrorNormalizer copies errno→code so
+//         `ERR_POSTGRES_SERVER_ERROR` on `.code`; BunPostgreSqlErrorNormalizer copies errno→code so
 //         the converter (which switches on `.code`) fires. (verified live)
 //   - mysql: Bun.SQL surfaces the native `.errno` (1062/1364/3819/1452/1146); the converter
 //            switches on `.errno`, so the identity normalizer is correct. (verified live)

@@ -3,8 +3,8 @@ import type { Routine, Transaction } from '@mikro-orm/core';
 import type { Dialect } from 'kysely';
 
 import { BunSqlDialect, type BunSqlDialectOptions } from '../../bun-sql';
-import { SQLITE_KYSELY_PARTS } from './kysely-parts';
-import { SqliteErrorNormalizer } from './sqlite.error-normalizer';
+import { SQLITE_KYSELY_PARTS } from './sqlite.kysely-parts';
+import { BunSqliteErrorNormalizer } from './sqlite.error-normalizer';
 
 /**
  * MikroORM SQL connection for SQLite backed by Bun.SQL.
@@ -17,11 +17,11 @@ import { SqliteErrorNormalizer } from './sqlite.error-normalizer';
  * Extends {@link BaseSqliteConnection} (not AbstractSqlConnection) so its `connect()` enables
  * `pragma foreign_keys = on` (SQLite defaults it OFF) and honours `attachDatabases`.
  */
-export class SqliteConnection extends BaseSqliteConnection {
+export class BunSqliteConnection extends BaseSqliteConnection {
   override createKyselyDialect(overrides?: Partial<BunSqlDialectOptions>): Dialect {
     const dbName = (this.config.get('dbName') as string | undefined) ?? ':memory:';
     const url = dbName.includes('://') ? dbName : `sqlite://${dbName}`;
-    return new BunSqlDialect(SQLITE_KYSELY_PARTS, new SqliteErrorNormalizer(), {
+    return new BunSqlDialect(SQLITE_KYSELY_PARTS, new BunSqliteErrorNormalizer(), {
       url,
       ...overrides,
       pooled: false,

@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { MysqlAdapter, MysqlIntrospector, MysqlQueryCompiler, type Kysely } from 'kysely';
 
-import { MYSQL_KYSELY_PARTS } from './kysely-parts';
+import { MYSQL_KYSELY_PARTS } from './mysql.kysely-parts';
 
 // Locks the per-DB variation point: the MySQL trio must hand BunSqlDialect the
 // MySQL-flavoured Kysely adapter/compiler/introspector (not another dialect's).

@@ -8,20 +8,20 @@ import {
   type BunSqlDialectOptions,
   type ConnectionComponents,
 } from '../../bun-sql';
-import { MYSQL_KYSELY_PARTS } from './kysely-parts';
-import { MySqlErrorNormalizer } from './mysql.error-normalizer';
+import { MYSQL_KYSELY_PARTS } from './mysql.kysely-parts';
+import { BunMySqlErrorNormalizer } from './mysql.error-normalizer';
 
 /**
  * MikroORM SQL connection for MySQL/MariaDB backed by Bun.SQL. Accepts a full `clientUrl`
  * or discrete `host`/`port`/`user`/`password`/`dbName` config; `pool.max` sets the pool size.
  * `driverOptions` (the `overrides`) are merged on top.
  */
-export class MySqlConnection extends AbstractSqlConnection {
+export class BunMySqlConnection extends AbstractSqlConnection {
   override createKyselyDialect(overrides?: Partial<BunSqlDialectOptions>): Dialect {
     const clientUrl = this.config.get('clientUrl') as string | undefined;
     const url = resolveBunSqlUrl('mysql', clientUrl, this.getConnectionOptions() as ConnectionComponents);
     const poolMax = (this.config.get('pool') as { max?: number } | undefined)?.max;
-    return new BunSqlDialect(MYSQL_KYSELY_PARTS, new MySqlErrorNormalizer(), {
+    return new BunSqlDialect(MYSQL_KYSELY_PARTS, new BunMySqlErrorNormalizer(), {
       url,
       ...(poolMax != null ? { poolMax } : {}),
       ...overrides,

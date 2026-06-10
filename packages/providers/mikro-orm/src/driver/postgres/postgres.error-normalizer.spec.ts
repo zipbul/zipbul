@@ -1,8 +1,8 @@
 import { test, expect } from 'bun:test';
 
-import { PostgresErrorNormalizer } from './postgres.error-normalizer';
+import { BunPostgreSqlErrorNormalizer } from './postgres.error-normalizer';
 
-const normalizer = new PostgresErrorNormalizer();
+const normalizer = new BunPostgreSqlErrorNormalizer();
 
 test('copies a string errno into code when code is a generic ERR_ string', () => {
   const result = normalizer.normalize({ errno: '23505', code: 'ERR_POSTGRES_UNIQUE_VIOLATION' });

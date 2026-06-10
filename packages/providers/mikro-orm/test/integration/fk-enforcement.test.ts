@@ -6,7 +6,7 @@ import { Entity, PrimaryKey, Property, ManyToOne, OneToMany } from '../../src/en
 import { BunSqliteDriver } from '../../src/driver';
 
 // RED (gap I): SQLite disables foreign keys by default — the official BaseSqliteConnection
-// runs `pragma foreign_keys = on` on connect. Our SqliteConnection extended AbstractSqlConnection
+// runs `pragma foreign_keys = on` on connect. Our BunSqliteConnection extended AbstractSqlConnection
 // directly and skipped it, so FK constraints were silently NOT enforced. These prove enforcement.
 @Entity()
 class FkParent {

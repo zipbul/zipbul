@@ -13,7 +13,7 @@ import type { ErrorNormalizer } from '../../bun-sql';
  *
  * @internal
  */
-export class SqliteErrorNormalizer implements ErrorNormalizer {
+export class BunSqliteErrorNormalizer implements ErrorNormalizer {
   normalize(error: unknown): unknown {
     return error;
   }

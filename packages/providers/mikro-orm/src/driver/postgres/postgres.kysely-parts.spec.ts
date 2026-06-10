@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler, type Kysely } from 'kysely';
 
-import { POSTGRES_KYSELY_PARTS } from './kysely-parts';
+import { POSTGRES_KYSELY_PARTS } from './postgres.kysely-parts';
 
 // Locks the per-DB variation point: the Postgres trio must hand BunSqlDialect the
 // Postgres-flavoured Kysely adapter/compiler/introspector (not another dialect's).

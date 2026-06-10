@@ -8,8 +8,8 @@ import {
   type BunSqlDialectOptions,
   type ConnectionComponents,
 } from '../../bun-sql';
-import { POSTGRES_KYSELY_PARTS } from './kysely-parts';
-import { PostgresErrorNormalizer } from './postgres.error-normalizer';
+import { POSTGRES_KYSELY_PARTS } from './postgres.kysely-parts';
+import { BunPostgreSqlErrorNormalizer } from './postgres.error-normalizer';
 
 /**
  * MikroORM SQL connection for PostgreSQL backed by Bun.SQL. Its only job is to
@@ -21,12 +21,12 @@ import { PostgresErrorNormalizer } from './postgres.error-normalizer';
  * `driverOptions` (the `overrides`) are merged on top, so a consumer can override `poolMax`,
  * `pooled`, the `createClient` factory, or the `url`.
  */
-export class PostgresConnection extends AbstractSqlConnection {
+export class BunPostgreSqlConnection extends AbstractSqlConnection {
   override createKyselyDialect(overrides?: Partial<BunSqlDialectOptions>): Dialect {
     const clientUrl = this.config.get('clientUrl') as string | undefined;
     const url = resolveBunSqlUrl('postgres', clientUrl, this.getConnectionOptions() as ConnectionComponents);
     const poolMax = (this.config.get('pool') as { max?: number } | undefined)?.max;
-    return new BunSqlDialect(POSTGRES_KYSELY_PARTS, new PostgresErrorNormalizer(), {
+    return new BunSqlDialect(POSTGRES_KYSELY_PARTS, new BunPostgreSqlErrorNormalizer(), {
       url,
       ...(poolMax != null ? { poolMax } : {}),
       ...overrides,

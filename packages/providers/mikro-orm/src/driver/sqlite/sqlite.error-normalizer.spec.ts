@@ -1,8 +1,8 @@
 import { test, expect } from 'bun:test';
 
-import { SqliteErrorNormalizer } from './sqlite.error-normalizer';
+import { BunSqliteErrorNormalizer } from './sqlite.error-normalizer';
 
-const normalizer = new SqliteErrorNormalizer();
+const normalizer = new BunSqliteErrorNormalizer();
 
 // NOTE: current scaffold is an identity stub. Integration (SQLITE_CONSTRAINT_*) drives
 // whether a remap is needed; these lock the current pass-through contract.

@@ -12,7 +12,7 @@ import type { ErrorNormalizer } from '../../bun-sql';
  *
  * @internal
  */
-export class MySqlErrorNormalizer implements ErrorNormalizer {
+export class BunMySqlErrorNormalizer implements ErrorNormalizer {
   normalize(error: unknown): unknown {
     return error;
   }

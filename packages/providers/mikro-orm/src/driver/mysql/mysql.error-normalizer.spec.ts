@@ -1,8 +1,8 @@
 import { test, expect } from 'bun:test';
 
-import { MySqlErrorNormalizer } from './mysql.error-normalizer';
+import { BunMySqlErrorNormalizer } from './mysql.error-normalizer';
 
-const normalizer = new MySqlErrorNormalizer();
+const normalizer = new BunMySqlErrorNormalizer();
 
 // NOTE: current scaffold is an identity stub. Integration (errno 1062 ->
 // UniqueConstraintViolationException) drives whether a remap is actually needed;

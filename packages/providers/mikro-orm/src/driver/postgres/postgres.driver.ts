@@ -3,7 +3,7 @@ import { BasePostgreSqlEntityManager } from '@mikro-orm/postgresql';
 import type { PostgreSqlPlatform } from '@mikro-orm/postgresql';
 import { EntityManagerType, type Configuration } from '@mikro-orm/core';
 
-import { PostgresConnection } from './postgres.connection';
+import { BunPostgreSqlConnection } from './postgres.connection';
 import { BunPostgreSqlPlatform } from './postgres.platform';
 
 /**
@@ -14,9 +14,9 @@ import { BunPostgreSqlPlatform } from './postgres.platform';
  * Overrides createEntityManager so `orm.em` is a PostgreSQL-flavoured EntityManager (as the
  * official driver does), exposing pg-only helpers such as `refreshMaterializedView()`.
  */
-export class BunPostgreSqlDriver extends AbstractSqlDriver<PostgresConnection, PostgreSqlPlatform> {
+export class BunPostgreSqlDriver extends AbstractSqlDriver<BunPostgreSqlConnection, PostgreSqlPlatform> {
   constructor(config: Configuration) {
-    super(config, new BunPostgreSqlPlatform(), PostgresConnection, ['kysely']);
+    super(config, new BunPostgreSqlPlatform(), BunPostgreSqlConnection, ['kysely']);
   }
 
   override createEntityManager(useContext?: boolean): this[typeof EntityManagerType] {

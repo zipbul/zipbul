@@ -14,7 +14,7 @@ import type {
   UpsertManyOptions,
 } from '@mikro-orm/core';
 
-import { MySqlConnection } from './mysql.connection';
+import { BunMySqlConnection } from './mysql.connection';
 
 /**
  * MikroORM MySQL driver backed by Bun's native Bun.SQL (zero `mysql2` dependency).
@@ -26,11 +26,11 @@ import { MySqlConnection } from './mysql.connection';
  * to reconstruct each row's PK from `insertId + idx * auto_increment_increment`, so a batch
  * flush of several new entities assigns each its own id instead of throwing.
  */
-export class BunMySqlDriver extends AbstractSqlDriver<MySqlConnection, MySqlPlatform> {
+export class BunMySqlDriver extends AbstractSqlDriver<BunMySqlConnection, MySqlPlatform> {
   private autoIncrementIncrement?: number;
 
   constructor(config: Configuration) {
-    super(config, new BunMySqlPlatform(), MySqlConnection, ['kysely']);
+    super(config, new BunMySqlPlatform(), BunMySqlConnection, ['kysely']);
   }
 
   private async getAutoIncrementIncrement(ctx?: Transaction): Promise<number> {
