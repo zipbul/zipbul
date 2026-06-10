@@ -20,7 +20,14 @@ export abstract class MikroOrmService {
   }
 
   async onInit(): Promise<void> {
-    this.orm = await MikroORM.init(this.options);
+    // Bind MikroORM's RequestContext key (contextName) to our logical connection name. MikroORM
+    // stores the per-request fork in AsyncLocalStorage keyed by `em.name` (= contextName), and
+    // EntityManagerResolver looks it up by the connection name — without this, every non-default
+    // connection forks under 'default', so its scoped lookup misses and silently falls back to the
+    // shared global EM (cross-request identity-map leak). `connection` is our own option, not a
+    // MikroORM one, so it is stripped before init.
+    const { connection: _connection, ...mikroOptions } = this.options;
+    this.orm = await MikroORM.init({ ...mikroOptions, contextName: this.connection });
     ConnectionRegistry.set(this.connection, this.orm);
   }
 

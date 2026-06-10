@@ -69,8 +69,16 @@ export class BunSqlTransactionController {
     await connection.executeQuery(CompiledQuery.raw(`release savepoint ${this.quoteIdentifier(name)}`));
   }
 
-  /** Quote a savepoint identifier, doubling embedded quotes so the identifier boundary holds. */
+  /**
+   * Quote a savepoint identifier per dialect, doubling the embedded quote char so the identifier
+   * boundary holds. MySQL/MariaDB parse a double-quoted token as a string literal under the default
+   * `sql_mode` (no `ANSI_QUOTES`), so `SAVEPOINT "x"` is a syntax error — they require backticks.
+   * Postgres/SQLite use standard double quotes.
+   */
   private quoteIdentifier(name: string): string {
+    if (this.dialect === 'mysql') {
+      return `\`${name.replace(/`/g, '``')}\``;
+    }
     return `"${name.replace(/"/g, '""')}"`;
   }
 
