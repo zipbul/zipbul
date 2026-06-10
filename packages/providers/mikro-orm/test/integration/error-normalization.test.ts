@@ -10,8 +10,8 @@ import {
 } from '@mikro-orm/core';
 import { SqlSchemaGenerator } from '@mikro-orm/sql';
 
-import { BunPostgreSqlDriver, BunMySqlDriver, BunSqliteDriver } from '../../src/driver';
-import { PG_URL, MYSQL_URL, describePg, describeMysql, makeOrm } from './helpers';
+import { BunPostgreSqlDriver, BunMySqlDriver, BunMariaDbDriver, BunSqliteDriver } from '../../src/driver';
+import { PG_URL, MYSQL_URL, MARIADB_URL, describePg, describeMysql, describeMariadb, makeOrm } from './helpers';
 import { Entity, PrimaryKey, Property } from '../../src/entity';
 
 /** The converting execute lives on the SQL driver (`rethrow(connection.execute())`), not on the
@@ -91,6 +91,8 @@ function exceptionParitySuite(label: string, gate: typeof describe, init: () => 
 
 exceptionParitySuite('postgres', describePg, () => makeOrm(BunPostgreSqlDriver, PG_URL!, [EnAccount]));
 exceptionParitySuite('mysql', describeMysql, () => makeOrm(BunMySqlDriver, MYSQL_URL!, [EnAccount]));
+// MariaDB maps CHECK to errno 4025 (vs MySQL's 3819); the shared MySqlExceptionConverter handles both.
+exceptionParitySuite('mariadb', describeMariadb, () => makeOrm(BunMariaDbDriver, MARIADB_URL!, [EnAccount]));
 // SQLite runs in the default no-docker lane (`:memory:`), so the exception-mapping contract is
 // always exercised even without a DB container. FK enforcement relies on BaseSqliteConnection's
 // `pragma foreign_keys = on`.
