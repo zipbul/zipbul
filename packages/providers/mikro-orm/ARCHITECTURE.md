@@ -84,11 +84,13 @@ packages/providers/mikro-orm/
     │   │   └── index.ts                      # export { BunMySqlDriver }
     │   │
     │   ├── mariadb/                          # 신규. 공식과 동일하게 MariaDB = MySQL의 자식(공식 MariaDbPlatform extends MySqlPlatform, MariaDbDriver extends MySqlDriver)
-    │   │   ├── mariadb.platform.ts           # class BunMariaDbPlatform = withBunMySqlFixes(MariaDbPlatform)  (@mikro-orm/mariadb; schemaHelper+JSON 특수화 보존)
-    │   │   ├── mariadb.query-builder.ts      # class BunMariaDbQueryBuilder (공식 MariaDbQueryBuilder 기반; wrapPaginateSubQuery json_arrayagg/json_contains 우회 — MariaDB는 WHERE IN (서브쿼리)에 LIMIT 불가)
-    │   │   ├── mariadb.connection.ts         # class BunMariaDbConnection extends BunMySqlConnection (kysely-parts·normalizer는 mysql 것 재사용)
-    │   │   ├── mariadb.driver.ts             # class BunMariaDbDriver extends BunMySqlDriver — back-fill 유지(공식과 동일, RETURNING 안 씀). override만: createQueryBuilder(→BunMariaDbQueryBuilder), this.platform=new BunMariaDbPlatform(), getORMClass 등가
+    │   │   ├── mariadb.platform.ts           # class BunMariaDbPlatform = withBunMySqlFixes(MariaDbPlatform)  (@mikro-orm/mariadb; schemaHelper+JSON 특수화 보존, datetime 보정 추가)
+    │   │   ├── mariadb.platform.spec.ts      # 유닛: instanceof MariaDbPlatform, JSON off, datetime→BunUtcDateTimeType
+    │   │   ├── mariadb.driver.ts             # class BunMariaDbDriver extends BunMySqlDriver — back-fill·BunMySqlConnection·mysql kysely-parts/normalizer 그대로 상속(RETURNING 안 씀). override만: this.platform=new BunMariaDbPlatform(), createQueryBuilder
     │   │   └── index.ts                      # export { BunMariaDbDriver }
+    │   │   # NOTE: 별도 connection/query-builder 파일 없음 — BunMySqlConnection 재사용, createQueryBuilder는
+    │   │   #   공식 MariaDbDriver.prototype.createQueryBuilder(=MariaDbQueryBuilder 클로저)를 그대로 재사용
+    │   │   #   (@mikro-orm/mariadb가 QueryBuilder를 export 안 해서 재구현 대신 메서드 재사용; 드리프트 0)
     │   │
     │   ├── sqlite/
     │   │   ├── sqlite.connection.ts          # class BunSqliteConnection extends AbstractSqlConnection (pooled:false 단일커넥션, reserve 없음)
@@ -156,7 +158,7 @@ MySqlDriver                                (@mikro-orm/mysql; insertId+idx*auto_
 | **1** | 순수 리팩터(행동 불변): `dialect/`→`bun-sql/` 개명, `driver/shared/` 신설 + `bun-utc-datetime` 이전 + `withBunMySqlFixes` 추출, 네이밍 전면 통일. **테스트 먼저 통과 확인 후 리네임, 매 커밋 GREEN 유지** | 기존 전체 테스트 0 fail |
 | **1.5** | MariaDB 테스트 레인 하니스 선행: `helpers.ts`에 `MARIADB_URL=env.DB_URL_MARIADB` + `describeMariadb`(없으면 skip), `makeOrm` driver union에 `BunMariaDbDriver`(+`BunSqliteDriver`) 추가 | docker 없이 clean skip |
 | **2** | MariaDB 발산 조사 → **RED 먼저**: 공식 mariadb vs mysql 라인별 diff, 각 차이를 Bun.SQL 하에서 검증할 실패 테스트 작성. 발산 = **JSON**(convertJsonToDatabaseValue/convertsJsonAutomatically) · **introspection**(MariaDbSchemaHelper) · **createQueryBuilder**(MariaDbQueryBuilder, 관계+페이지네이션 쿼리) · **errno**(4025 vs 3819, 공용 컨버터). **back-fill PK 복구(insertId+increment)도 MariaDB에서 RED로 고정** — RETURNING 아님. `describeMariadb` 레인 | RED 재현 |
-| **3** | `driver/mariadb/` 구현(platform=mixin, driver=BunMySqlDriver 상속+createQueryBuilder/platform override, query-builder, connection) → barrel·root index 연결 → RED를 GREEN으로 | MariaDB lane GREEN |
+| **3** | `driver/mariadb/` 구현(platform=mixin, driver=BunMySqlDriver 상속 + this.platform·createQueryBuilder override; connection/QB는 재사용) → barrel·root index 연결 → RED를 GREEN으로 | MariaDB lane GREEN |
 | **4** | 문서/정의 정정: CLAUDE.md 4종, FEATURE-MATRIX·CONFORMANCE MariaDB 1급화(JSON은 공식 동등으로 기록), package.json keywords/description, `mysql.driver.ts` "zero mysql2" 주석을 "런타임 미import"로 정정 | — |
 | **5** | 최종 게이트: `bun test`(pg+mysql+mariadb+sqlite) 0 fail, `tsc` EXIT=0, 커버리지 임계 | 통과 |
 
