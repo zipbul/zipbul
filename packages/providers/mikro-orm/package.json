@@ -54,6 +54,7 @@
     "@mikro-orm/sql": "^7",
     "@mikro-orm/postgresql": "^7",
     "@mikro-orm/mysql": "^7",
+    "@mikro-orm/mariadb": "^7",
     "@mikro-orm/sqlite": "^7",
     "@mikro-orm/decorators": "^7",
     "kysely": "^0.29"
@@ -63,6 +64,9 @@
       "optional": true
     },
     "@mikro-orm/mysql": {
+      "optional": true
+    },
+    "@mikro-orm/mariadb": {
       "optional": true
     },
     "@mikro-orm/sqlite": {
@@ -77,6 +81,7 @@
     "@mikro-orm/sql": "7.1.1",
     "@mikro-orm/postgresql": "7.1.1",
     "@mikro-orm/mysql": "7.1.1",
+    "@mikro-orm/mariadb": "7.1.1",
     "@mikro-orm/sqlite": "7.1.1",
     "@mikro-orm/decorators": "7.1.1",
     "@zipbul/common": "workspace:*",
