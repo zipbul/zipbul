@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import type { MikroORM } from '@mikro-orm/core';
 
 import { BunPostgreSqlDriver } from '../../src/driver';
-import { StreamingUnsupportedError } from '../../src/dialect';
+import { StreamingUnsupportedError } from '../../src/bun-sql';
 import {PG_URL, describePg, makeOrm, freshSchema} from './helpers';
 import { Entity, PrimaryKey, Property } from '../../src/entity';
 

@@ -5,7 +5,7 @@ import {
   type Kysely,
 } from 'kysely';
 
-import type { KyselyDialectParts } from '../../dialect';
+import type { KyselyDialectParts } from '../../bun-sql';
 
 /**
  * The PostgreSQL Kysely trio (adapter / query-compiler / introspector) plugged into

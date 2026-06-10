@@ -7,7 +7,7 @@ import {
   resolveBunSqlUrl,
   type BunSqlDialectOptions,
   type ConnectionComponents,
-} from '../../dialect';
+} from '../../bun-sql';
 import { MYSQL_KYSELY_PARTS } from './kysely-parts';
 import { MySqlErrorNormalizer } from './mysql.error-normalizer';
 

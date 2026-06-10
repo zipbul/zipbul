@@ -1,4 +1,4 @@
-import type { ErrorNormalizer } from '../../dialect';
+import type { ErrorNormalizer } from '../../bun-sql';
 
 /**
  * Normalizes Bun.SQL SQLite errors for MikroORM's official `SqliteExceptionConverter`, which

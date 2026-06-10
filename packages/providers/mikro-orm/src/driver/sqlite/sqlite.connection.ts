@@ -2,7 +2,7 @@ import { BaseSqliteConnection } from '@mikro-orm/sql';
 import type { Routine, Transaction } from '@mikro-orm/core';
 import type { Dialect } from 'kysely';
 
-import { BunSqlDialect, type BunSqlDialectOptions } from '../../dialect';
+import { BunSqlDialect, type BunSqlDialectOptions } from '../../bun-sql';
 import { SQLITE_KYSELY_PARTS } from './kysely-parts';
 import { SqliteErrorNormalizer } from './sqlite.error-normalizer';
 

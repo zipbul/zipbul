@@ -5,7 +5,7 @@ import {
   type Kysely,
 } from 'kysely';
 
-import type { KyselyDialectParts } from '../../dialect';
+import type { KyselyDialectParts } from '../../bun-sql';
 
 /**
  * The MySQL Kysely trio plugged into {@link BunSqlDialect}.

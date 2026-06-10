@@ -7,7 +7,7 @@ import {
   resolveBunSqlUrl,
   type BunSqlDialectOptions,
   type ConnectionComponents,
-} from '../../dialect';
+} from '../../bun-sql';
 import { POSTGRES_KYSELY_PARTS } from './kysely-parts';
 import { PostgresErrorNormalizer } from './postgres.error-normalizer';
 
