@@ -1,11 +1,8 @@
 import { Glob } from 'bun';
 
-import { AstParser, AdapterDefinitionResolver } from '../../compiler/analyzer';
-import { ConfigLoader } from '../../config';
-import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
 import { installCancellation, scanGlobSorted } from '../../common';
 
-import type { BuildCommandDeps } from './interfaces';
+import type { MiddlewareBuildDeps } from './middleware-build';
 import { runMiddlewareBuild } from './middleware-build';
 
 /**
@@ -16,17 +13,8 @@ import { runMiddlewareBuild } from './middleware-build';
  * @public
  */
 export async function buildMiddleware(): Promise<void> {
-  const deps: BuildCommandDeps = {
-    loadConfig: async () => {
-      const result = await ConfigLoader.load();
-      return { config: result.config, source: result.source };
-    },
-    createParser: () => new AstParser(),
-    createManifestGenerator: () => new ManifestGenerator(),
-    createEntryGenerator: () => new EntryGenerator(),
-    createAdapterDefinitionResolver: () => new AdapterDefinitionResolver(),
+  const deps: MiddlewareBuildDeps = {
     scanFiles: ({ glob, baseDir }: { glob: Glob; baseDir: string }) => scanGlobSorted({ glob, baseDir }),
-    resolveImport: (specifier: string, fromDir: string) => Bun.resolveSync(specifier, fromDir),
     buildBundle: (...args: Parameters<typeof Bun.build>) => Bun.build(...args),
   };
 
