@@ -1,7 +1,7 @@
 import { PostgreSqlPlatform } from '@mikro-orm/postgresql';
 import { Type } from '@mikro-orm/core';
 
-import { BunUtcDateTimeType } from '../bun-utc-datetime.type';
+import { BunUtcDateTimeType } from '../shared';
 
 /**
  * PostgreSQL platform for the Bun.SQL backend. Corrects two places where Bun.SQL's protocol-level
