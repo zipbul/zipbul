@@ -18,7 +18,12 @@ import { BunUtcDateTimeType } from '../shared';
  */
 export class BunPostgreSqlPlatform extends PostgreSqlPlatform {
   override getMappedType(type: string): Type<unknown> {
-    if (this.extractSimpleType(type) === 'timestamp') {
+    const simple = this.extractSimpleType(type);
+    // No-tz timestamp in BOTH spellings: the short `timestamp` and the canonical
+    // `timestamp without time zone` that introspection / EntityGenerator emit. `timestamptz`
+    // and `timestamp with time zone` are returned as a correct absolute instant by Bun.SQL and
+    // are intentionally excluded.
+    if (simple === 'timestamp' || simple === 'timestamp without time zone') {
       return Type.getType(BunUtcDateTimeType);
     }
     return super.getMappedType(type);

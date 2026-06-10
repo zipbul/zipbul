@@ -74,9 +74,7 @@
       "optional": true
     }
   },
-  "dependencies": {
-    "tinyglobby": "^0.2"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@mikro-orm/core": "7.1.1",
     "@mikro-orm/sql": "7.1.1",
