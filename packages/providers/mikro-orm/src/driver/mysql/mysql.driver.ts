@@ -41,7 +41,7 @@ export class BunMySqlDriver extends AbstractSqlDriver<BunMySqlConnection, MySqlP
         [],
         'get',
         ctx,
-        { enabled: false } as never,
+        { enabled: false },
       )) as { Value?: string } | undefined;
       this.autoIncrementIncrement = res?.Value ? +res.Value : 1;
     }

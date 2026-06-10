@@ -95,16 +95,27 @@ describePg('lifecycle hooks (postgres)', () => {
     deleteOrder.length = 0;
   });
 
-  test('@BeforeUpdate fires and its mutation is persisted', async () => {
+  test('@BeforeCreate and @AfterCreate both fire around insert', async () => {
+    const em = orm.em.fork();
+    const t = em.create(Tracked, { name: 'create-trail', revision: 0 });
+    em.persist(t);
+    await em.flush();
+    // @BeforeCreate set 'bc' (persisted), @AfterCreate appended ',ac' on the live entity post-insert.
+    expect(t.trail).toBe('bc,ac');
+  });
+
+  test('@BeforeUpdate and @AfterUpdate fire around update; before-update mutation is persisted', async () => {
     const em = orm.em.fork();
     const t = em.create(Tracked, { name: 'n', revision: 0 });
     em.persist(t);
     await em.flush();
 
     const em2 = orm.em.fork();
-    const loaded = await em2.findOneOrFail(Tracked, { name: 'n' });
+    const loaded = await em2.findOneOrFail(Tracked, { name: 'n' }); // trail hydrated as 'bc'
     loaded.name = 'n2';
     await em2.flush();
+    // @AfterUpdate appended ',au' to the loaded trail ('bc') on the live entity.
+    expect(loaded.trail).toBe('bc,au');
 
     const fresh = await orm.em.fork().findOneOrFail(Tracked, { name: 'n2' });
     expect(fresh.revision).toBe(1); // bumped by @BeforeUpdate, written to the row

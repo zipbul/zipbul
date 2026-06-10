@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
-import { MikroORM, LockMode, type Options } from '@mikro-orm/core';
+import { MikroORM, LockMode, OptimisticLockError, type Options } from '@mikro-orm/core';
 
 import { Entity, PrimaryKey, Property } from '../../src/entity';
 import { BunPostgreSqlDriver } from '../../src/driver';
@@ -66,6 +66,6 @@ describePg('locking (postgres)', () => {
     rowA.value = 10;
     await a.flush(); // version -> 2
     rowB.value = 20; // still thinks version is 1 -> stale
-    await expect(b.flush()).rejects.toThrow();
+    await expect(b.flush()).rejects.toBeInstanceOf(OptimisticLockError);
   });
 });

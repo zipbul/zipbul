@@ -1,6 +1,8 @@
 import { test, expect, describe } from 'bun:test';
 import { Configuration } from '@mikro-orm/core';
 
+import { MariaDbDriver } from '@mikro-orm/mariadb';
+
 import { BunMariaDbDriver, BunMySqlDriver } from '../index';
 import { BunMariaDbPlatform } from './mariadb.platform';
 
@@ -18,7 +20,10 @@ describe('BunMariaDbDriver wiring', () => {
     expect((driver as unknown as { platform: unknown }).platform).toBeInstanceOf(BunMariaDbPlatform);
   });
 
-  test('owns a createQueryBuilder override (the MariaDB json_arrayagg pagination builder)', () => {
+  test('owns the official MariaDbDriver.createQueryBuilder (the json_arrayagg pagination builder)', () => {
     expect(Object.prototype.hasOwnProperty.call(driver, 'createQueryBuilder')).toBe(true);
+    expect((driver as unknown as { createQueryBuilder: unknown }).createQueryBuilder).toBe(
+      MariaDbDriver.prototype.createQueryBuilder,
+    );
   });
 });

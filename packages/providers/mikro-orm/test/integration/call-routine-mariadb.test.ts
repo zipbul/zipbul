@@ -59,7 +59,7 @@ describeMariadb('callRoutine (mariadb)', () => {
 
   test('invokes a scalar function via select fn(...)', async () => {
     const result = await orm.em.callRoutine(AddFn, { a: 3, b: 4 });
-    expect(Number(result)).toBe(7);
+    expect(result).toBe(7); // a real number (not '7') — the type round-trip is the point
   });
 
   test('invokes a procedure and writes back the OUT param via @vars', async () => {

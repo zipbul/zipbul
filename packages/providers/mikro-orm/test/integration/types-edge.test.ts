@@ -49,7 +49,10 @@ describePg('edge type conversion (postgres)', () => {
     em.persist(r);
     await em.flush();
     const found = await orm.em.fork().findOneOrFail(EdgeRow, { id: r.id });
-    expect(found.nums.map(Number)).toEqual([1, 2, 3]);
+    // Bun.SQL exposes no type-parser hook, so an `integer[]` column hydrates as STRING elements
+    // (values intact). This is a documented Bun.SQL divergence from the official pg driver (which
+    // parses to numbers) — assert the actual string shape rather than coercing it away with Number().
+    expect(found.nums as unknown as string[]).toEqual(['1', '2', '3']);
   });
 
   test('enum round-trips as its value', async () => {
