@@ -100,6 +100,23 @@ integration test in `test/integration/`.
 
 ## Verification lanes
 All ✅ have a passing test in `test/integration/`. Docker-backed lanes skip cleanly when
-their env is absent: `DB_URL_PG`, `DB_URL_MYSQL` (point at MySQL or MariaDB),
-`DB_URL_PG_SSL` (an SSL-enabled postgres, e.g. `...?sslmode=require`). Verified against
-Postgres 18/16, MySQL 9, MariaDB 11, in-memory SQLite.
+their env is absent: `DB_URL_PG`, `DB_URL_MYSQL`, `DB_URL_MARIADB`, `DB_URL_PG_SSL`
+(an SSL-enabled postgres, e.g. `...?sslmode=require`). Verified against Postgres 18, MySQL
+9.7, MariaDB 11.8, in-memory SQLite.
+
+**The per-DB behavioral guarantees above are only verified when the matching container is
+provisioned.** A green `bun test` with the env vars unset has skipped every Postgres/MySQL/
+MariaDB integration lane — it is NOT proof of driver parity. Provision the DBs (see each
+test file's header) before treating the matrix as verified.
+
+## Known limitations / honest gaps (vs the official drivers)
+- **MySQL/MariaDB discrete connection options** `timezone`, `forceUtcTimezone`,
+  `multipleStatements` are not read from the option keys — pass them via `clientUrl` query
+  params or `driverOptions`. (The official `mapOptions` reads the discrete keys.)
+- **Multi-schema** is verified on Postgres only. The MySQL family models a "schema" as a
+  separate database; that cross-database path is not implemented/verified (nor is it for the
+  official MySQL driver in this package's scope).
+- **SSL/TLS** is verified on Postgres only (`DB_URL_PG_SSL`); MySQL/MariaDB TLS is untested
+  (no endpoint), though `sslmode`-style params pass through the URL.
+- **Hard Bun.SQL ceilings** (explicit errors, not bugs): cursor streaming, LISTEN/NOTIFY,
+  PostGIS, pg refcursor OUT, SQLite UDF registration.
