@@ -25,7 +25,12 @@ type AbstractPlatformCtor<T extends AbstractSqlPlatform> = abstract new (...args
  * `convertsJsonAutomatically() === false`, so it would be a no-op for MariaDB. Only `MySqlPlatform`
  * inherits `true`, so that override lives in {@link BunMySqlPlatform} alone.
  */
-export function withBunMySqlFixes<TBase extends AbstractPlatformCtor<AbstractSqlPlatform>>(Base: TBase) {
+// Return type is annotated as the named `TBase` (not the anonymous mixin subclass): declaration
+// emit (`.d.ts`) cannot express an anonymous class that inherits protected members from
+// AbstractSqlPlatform (TS4094). The returned class is the real subclass at runtime — the override
+// keeps the same `getMappedType` signature as the base, so collapsing the static type to `TBase`
+// loses nothing for consumers.
+export function withBunMySqlFixes<TBase extends AbstractPlatformCtor<AbstractSqlPlatform>>(Base: TBase): TBase {
   abstract class BunMySqlFixedPlatform extends Base {
     override getMappedType(type: string): Type<unknown> {
       if (this.extractSimpleType(type) === 'datetime') {
@@ -35,5 +40,5 @@ export function withBunMySqlFixes<TBase extends AbstractPlatformCtor<AbstractSql
     }
   }
 
-  return BunMySqlFixedPlatform;
+  return BunMySqlFixedPlatform as unknown as TBase;
 }
