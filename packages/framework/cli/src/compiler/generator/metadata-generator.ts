@@ -4,11 +4,11 @@ import type { ImportRegistry } from './import-registry';
 import type { MetadataClassEntry } from './interfaces';
 
 import {
-  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_NEW,
+  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_CALL, ZIPBUL_NEW,
   ZIPBUL_FACTORY_CODE,
 } from '@zipbul/common';
 import { compareCodePoint } from '../../common';
-import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
+import { isRecordValue, isAnalyzerValueArray } from '../analyzer/type-guards';
 
 /**
  * Emits `createMetadataRegistry()` — a `className → constructor` lookup the
@@ -18,9 +18,14 @@ import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from '../analyz
  * Only `className` and the class-level `decorators` are emitted. Property/method
  * metadata is NOT emitted: the router never reads it, and a class's `@Field`
  * schema is owned entirely by baker via `Class[Symbol.metadata]` (baker seals
- * nested DTOs by recursion). Emitting `@Field` rules here would force the
- * compiler to serialize baker rule expressions — a responsibility it must not
- * take on.
+ * nested DTOs by recursion).
+ *
+ * Registry entries are PURE DATA. Decorator arguments serialize to literals;
+ * a reference to a runtime value (a middleware fn in `@UseMiddlewares`, a
+ * guard, a class) serializes to its NAME as a string — never to an imported
+ * identifier. Runtime wiring is the injector's job (`__route_mw__` keys,
+ * provider factories); importing source modules from the registry would drag
+ * arbitrary files into the runtime module graph for data nobody executes.
  */
 export class MetadataGenerator {
   generate(classes: MetadataClassEntry[], registry: ImportRegistry): string {
@@ -56,52 +61,23 @@ export class MetadataGenerator {
         const record = value;
 
         if (typeof record[ZIPBUL_REF] === 'string') {
-          const refName = record[ZIPBUL_REF];
-
-          // A reference to a runtime value (enum, class, …). Import it whenever
-          // its source is known so it emits as an identifier; an unsourced ref
-          // falls back to a string literal.
-          if (typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
-            registry.addImport(refName, record[ZIPBUL_IMPORT_SOURCE]);
-
-            return refName;
-          }
-
-          return JSON.stringify(refName);
-        }
-
-        if (typeof record[ZIPBUL_FACTORY_CODE] === 'string') {
-          return record[ZIPBUL_FACTORY_CODE];
-        }
-
-        if (typeof record[ZIPBUL_CALL] === 'string') {
-          if (typeof record[ZIPBUL_IMPORT_SOURCE] === 'string') {
-            const root = record[ZIPBUL_CALL].split('.')[0];
-
-            if (!isNonEmptyString(root)) {
-              return record[ZIPBUL_CALL];
-            }
-
-            if (root !== record[ZIPBUL_CALL]) {
-              registry.addImport(root, record[ZIPBUL_IMPORT_SOURCE]);
-            } else {
-              registry.addImport(record[ZIPBUL_CALL], record[ZIPBUL_IMPORT_SOURCE]);
-            }
-          }
-
-          const args = (isAnalyzerValueArray(record.args) ? record.args : []).map(a => serializeValue(a)).join(', ');
-
-          return `${record[ZIPBUL_CALL]}(${args})`;
-        }
-
-        if (typeof record[ZIPBUL_NEW] === 'string') {
-          const args = (isAnalyzerValueArray(record.args) ? record.args : []).map(a => serializeValue(a)).join(', ');
-
-          return `new ${record[ZIPBUL_NEW]}(${args})`;
+          return JSON.stringify(record[ZIPBUL_REF]);
         }
 
         if (typeof record[ZIPBUL_LAZY_REF] === 'string') {
-          return `lazy(() => ${record[ZIPBUL_LAZY_REF]})`;
+          return JSON.stringify(record[ZIPBUL_LAZY_REF]);
+        }
+
+        if (typeof record[ZIPBUL_CALL] === 'string') {
+          return JSON.stringify(record[ZIPBUL_CALL]);
+        }
+
+        if (typeof record[ZIPBUL_NEW] === 'string') {
+          return JSON.stringify(record[ZIPBUL_NEW]);
+        }
+
+        if (typeof record[ZIPBUL_FACTORY_CODE] === 'string') {
+          return JSON.stringify(record[ZIPBUL_FACTORY_CODE]);
         }
 
         const entries = Object.entries(record).map(([k, v]) => {
