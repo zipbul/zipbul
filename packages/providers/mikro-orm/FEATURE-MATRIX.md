@@ -28,7 +28,7 @@ integration test in `test/integration/`.
 | Embeddables (flattened columns, query by embedded prop) | `embeddable-hooks` |
 | Lifecycle hooks (@BeforeCreate) | `embeddable-hooks` |
 | Single-table inheritance (discriminator) | `inheritance-filters` |
-| **Class-table inheritance** (joined — each subclass its own table) | `table-inheritance` |
+| **Table-per-concrete-class inheritance** (each concrete subclass = standalone table, inherited columns copied, no join — MikroORM v7 has no joined/class-table strategy) | `table-inheritance` |
 | Filters / soft-delete (@Filter default) | `inheritance-filters` |
 | **Cascade** persist/remove + **orphan removal** | `cascade` |
 | **Full lifecycle hooks** (Before/After Create·Update·Delete, @OnLoad) | `lifecycle-hooks` |
