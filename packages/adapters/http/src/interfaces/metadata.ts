@@ -1,5 +1,4 @@
 import type { ProviderToken } from '@zipbul/common';
-import type { ConstructorParamMetadata } from '@zipbul/core';
 
 import type { DecoratorArgument } from '../types';
 
@@ -21,5 +20,4 @@ export interface ClassMetadata {
   readonly className?: string;
   readonly decorators?: readonly DecoratorMetadata[];
   readonly methods?: readonly MethodMetadata[];
-  readonly constructorParams?: readonly ConstructorParamMetadata[];
 }

@@ -332,7 +332,12 @@ function invertProducerMap(byName: ReadonlyMap<string, ReadonlySet<string>>): Ma
   return byKey;
 }
 
-function buildKeyToRefName(registrations: readonly RouteRegistration[]): Map<string, string> {
+/**
+ * Translates handler binding container keys (`__route_mw__:...`) to middleware
+ * export names via the route registrations' `ZIPBUL_REF`. Shared with the
+ * context-usage validator so both compare middleware *names*, not raw keys.
+ */
+export function buildKeyToRefName(registrations: readonly RouteRegistration[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const reg of registrations) {
     if (reg.kind !== 'ref') continue;

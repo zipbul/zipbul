@@ -2,13 +2,12 @@ import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
 import type { ImportRegistry } from './import-registry';
 
 import {
-  ZIPBUL_REF, ZIPBUL_LAZY_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL,
   ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
-  SCOPED_KEY_SEPARATOR,
 } from '@zipbul/common';
-import { type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
+import { type ClassMetadata } from '../analyzer';
 import { compareCodePoint } from '../../common';
-import { isRecordValue, isAnalyzerValueArray, isNonEmptyString, isUnresolvable } from '../analyzer/type-guards';
+import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
 
 type RecordValue = AnalyzerValueRecord;
 
@@ -128,26 +127,6 @@ export const getRefName = (value: AnalyzerValue): string | null => {
 };
 
 /**
- * Extracts a lazy reference name from an AnalyzerValue record.
- *
- * @param value - The analyzer value to extract a lazy ref name from.
- * @returns The lazy reference name string, or null if not found.
- */
-const getLazyRefName = (value: AnalyzerValue): string | null => {
-  const record = asRecord(value);
-
-  if (record === null) {
-    return null;
-  }
-
-  if (typeof record[ZIPBUL_LAZY_REF] === 'string') {
-    return record[ZIPBUL_LAZY_REF];
-  }
-
-  return null;
-};
-
-/**
  * Serializes an analyzer value to a generated code string.
  * Recursively handles primitives, arrays, records, references, and call expressions.
  *
@@ -229,66 +208,7 @@ export const serializeValue = (value: AnalyzerValue, registry: ImportRegistry): 
   return `{ ${props.join(', ')} }`;
 };
 
-/**
- * Resolves constructor dependency injection tokens for a class and generates
- * container.get() call expressions for each parameter.
- *
- * @param meta - Class metadata containing constructor parameter information.
- * @param node - The module node the class belongs to.
- * @param graph - The module dependency graph for token resolution.
- * @param allKeys - Set of all registered scoped keys across all modules.
- * @returns Array of generated code strings for each constructor parameter.
- */
-export const resolveConstructorDeps = (meta: ClassMetadata, node: ModuleNode, graph: ModuleGraph, allKeys: Set<string>): string[] => {
-  return meta.constructorParams.map(param => {
-    let token: AnalyzerValue = param.type;
-
-    if (isUnresolvable(token)) {
-      throw new Error(`Constructor parameter '${param.name}' of '${meta.className}': dependency type must be a statically resolvable class reference. Found: ${token.nodeType ?? token.sourceText ?? 'unknown'} expression.`);
-    }
-
-    const refName = getRefName(token);
-    const lazyRefName = getLazyRefName(token);
-
-    if (isNonEmptyString(refName)) {
-      token = refName;
-    } else if (isNonEmptyString(lazyRefName)) {
-      token = lazyRefName;
-    }
-
-    if (typeof token !== 'string') {
-      throw new Error(`Constructor parameter '${param.name}' of '${meta.className}': dependency type cannot be statically determined. Ensure the parameter has an explicit class type annotation.`);
-    }
-
-    const resolvedToken = graph.resolveToken(node.name, token);
-
-    if (isNonEmptyString(resolvedToken)) {
-      // A-1/H-2: Validate constructor dep token exists (class-based tokens only)
-      if (graph.classDefinitions.has(token) && !allKeys.has(resolvedToken)) {
-        throw new Error(`inject() token '${token}' in '${meta.className}' is not registered in any module.`);
-      }
-
-      return `c.get('${resolvedToken}')`;
-    }
-
-    const targetModule = graph.classMap.get(token);
-
-    if (targetModule) {
-      const scopedKey = `${targetModule.name}${SCOPED_KEY_SEPARATOR}${token}`;
-
-      // A-1/H-2: Validate constructor dep token exists (class-based tokens only)
-      if (graph.classDefinitions.has(token) && !allKeys.has(scopedKey)) {
-        throw new Error(`inject() token '${token}' in '${meta.className}' is not registered in any module.`);
-      }
-
-      return `c.get('${scopedKey}')`;
-    }
-
-    // A-1/H-2: Validate bare token if it's a known class reference
-    if (graph.classDefinitions.has(token) && !allKeys.has(token)) {
-      throw new Error(`inject() token '${token}' in '${meta.className}' is not registered in any module.`);
-    }
-
-    return `c.get('${token}')`;
-  });
-};
+// Constructor-injection dependency resolution removed: DI is performed via
+// inject() (gildash supports only modern decorators — no parameter decorators),
+// so classes are instantiated with no-arg `new Class()` and resolve their
+// dependencies through inject() in their own bodies.

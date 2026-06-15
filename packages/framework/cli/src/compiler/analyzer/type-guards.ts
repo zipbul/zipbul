@@ -72,7 +72,6 @@ export function isClassMetadata(value: unknown): value is ClassMetadata {
   return (
     typeof record.className === 'string' &&
     Array.isArray(record.decorators) &&
-    Array.isArray(record.constructorParams) &&
     Array.isArray(record.methods) &&
     Array.isArray(record.properties) &&
     typeof record.imports === 'object'

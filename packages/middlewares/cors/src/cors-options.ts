@@ -1,4 +1,6 @@
-import { Recipe, Field, createRule } from '@zipbul/baker';
+import { Field, createRule } from '@zipbul/baker';
+
+import { corsBaker } from './baker';
 import {
   oneOf,
   arrayEvery,
@@ -38,7 +40,7 @@ const isMethodsWildcard = createRule('isMethodsWildcard', (v) => v === '*');
  * Cross-field semantics (`credentials` + wildcard origin/methods) and array
  * normalization/cloning/freezing live in `Cors.create`, not the schema.
  */
-@Recipe
+@corsBaker.Recipe
 export class CorsOptions {
   /**
    * Allowed origin(s).

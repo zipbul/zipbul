@@ -1,4 +1,5 @@
 import { describe, it, mock, expect } from 'bun:test';
+import { join } from 'node:path';
 import type { ZipbulContainer, CompiledHandlerEntry } from '@zipbul/common';
 
 import { loggerMockModule } from '@zipbul/logger/testing';
@@ -11,7 +12,7 @@ mock.module('@zipbul/core', () => ({
   getBootstrapState: () => ({ isAotRuntime: false, metadataRegistry: new Map() }),
 }));
 
-const HTTP_SRC = '/home/revil/projects/zipbul/zipbul/packages/http-adapter/src';
+const HTTP_SRC = join(import.meta.dir, '../../src');
 const { HttpAdapter } = await import(`${HTTP_SRC}/http-adapter`);
 const { HttpServer } = await import(`${HTTP_SRC}/http-server`);
 // HttpContext not needed; controllers use raw handlers.

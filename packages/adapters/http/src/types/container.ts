@@ -24,8 +24,6 @@ export type ControllerConstructor = Class<ControllerInstance>;
 
 export type MetadataRegistryKey = ClassToken;
 
-export type ParamTypeReference = ProviderToken;
-
 export type DecoratorArgument =
   | ProviderToken
   | TokenRecord

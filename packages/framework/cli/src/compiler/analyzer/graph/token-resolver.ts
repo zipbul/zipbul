@@ -305,7 +305,6 @@ export function collectInjectDeps(
  */
 export function collectReferencedTokens(
   node: import('./module-node').ModuleNode,
-  classDefinitions: ReadonlyMap<string, import('./interfaces').ClassDefinition>,
   moduleInjectDeps: ReadonlyMap<string, string[]>,
   gildash: Gildash | undefined,
   warnings: string[],
@@ -345,21 +344,9 @@ export function collectReferencedTokens(
     }
   }
 
-  for (const ctrlName of node.controllers) {
-    const classDef = classDefinitions.get(ctrlName);
-
-    if (classDef === undefined) {
-      continue;
-    }
-
-    for (const param of classDef.metadata.constructorParams) {
-      const tokenName = extractTokenName(param.type, gildash, warnings);
-
-      if (tokenName !== 'UNKNOWN') {
-        referenced.add(tokenName);
-      }
-    }
-  }
+  // Controller dependencies are inject()-only and already counted above via
+  // moduleInjectDeps (each controller file's inject() tokens) — modern
+  // decorators have no constructor injection.
 
   return referenced;
 }

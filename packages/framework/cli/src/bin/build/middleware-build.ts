@@ -1,8 +1,14 @@
-import { mkdir, readdir, readFile, writeFile } from 'fs/promises';
+import { readdir, readFile, writeFile } from 'fs/promises';
 import { Glob } from 'bun';
 import { dirname, join, resolve, relative } from 'path';
 
 import type { BuildCommandDeps } from './interfaces';
+
+/**
+ * The dependencies `zb build middleware` actually uses — a narrow slice of
+ * {@link BuildCommandDeps} so callers and tests wire exactly what runs.
+ */
+export type MiddlewareBuildDeps = Pick<BuildCommandDeps, 'scanFiles' | 'buildBundle'>;
 
 import { extractSymbols, parseSource, is } from '@zipbul/gildash';
 import type { Node as AstNode } from '@zipbul/gildash';
@@ -18,7 +24,7 @@ import {
 } from '../../compiler/generator/middleware-augment-injector';
 import { extractMiddlewareAugments } from '../../compiler/analyzer/parser/middleware-augment-extractor';
 import type { MiddlewareContextAugment } from '../../compiler/analyzer/adapter/middleware-context-types';
-import { ContextTypesGenerator, type ContextAdapterMap } from '../../compiler/generator/context-types-generator';
+import { ContextTypesGenerator, type AugmentTargetEntry, type AugmentTargetMap } from '../../compiler/generator/context-types-generator';
 import { ImportRegistry } from '../../compiler/generator/import-registry';
 
 /**
@@ -43,9 +49,15 @@ interface SkippedMiddlewareReport {
 
 /**
  * Resolved middleware-library build configuration from package.json.
+ *
+ * The build source set is `entryFile + srcDir/**` — the exact set
+ * `tsconfig.build.json` compiles (`include: ["index.ts", "src/**"]`), so the
+ * JS bundle and the `.d.ts` emit always describe the same package surface.
  */
 interface MiddlewareBuildConfig {
   readonly packageName: string;
+  /** Package entry (projectRoot-relative, e.g. `index.ts`) — the file package.json `exports`/`module` is built from. */
+  readonly entryFile: string;
   readonly srcDir: string;
   readonly outDir: string;
   readonly projectRoot: string;
@@ -67,7 +79,7 @@ const log = new Logger('build/middleware');
  * @public
  */
 export async function runMiddlewareBuild(
-  deps: BuildCommandDeps,
+  deps: MiddlewareBuildDeps,
   cancel?: CancellationScope,
 ): Promise<void> {
   const projectRoot = process.cwd();
@@ -75,36 +87,37 @@ export async function runMiddlewareBuild(
   // ── 1. Read package.json ────────────────────────────────────
   const config = await resolveMiddlewareBuildConfig(projectRoot);
 
-  log.info('package=%s source=%s output=%s',
+  log.info('package=%s entry=%s source=%s output=%s',
     config.packageName,
+    config.entryFile,
     relative(projectRoot, config.srcDir) || '.',
     relative(projectRoot, config.outDir) || '.');
 
   // ── 2. Scan source files ────────────────────────────────────
+  // The source set is entryFile + srcDir/** — exactly what tsconfig.build.json
+  // compiles — so the JS bundle and `.d.ts` emit cover the same files. All
+  // paths are projectRoot-relative from here on.
   log.time('scan');
 
   const glob = new Glob('**/*.ts');
+  const srcDirRelative = relative(projectRoot, config.srcDir);
   const allFiles = await deps.scanFiles({ glob, baseDir: config.srcDir });
-  const tsFiles = allFiles.filter(
-    f => !f.endsWith('.d.ts') && !f.endsWith('.spec.ts') && !f.endsWith('.test.ts'),
-  );
+  const sourceFiles = [
+    config.entryFile,
+    ...allFiles
+      .filter(f => !f.endsWith('.d.ts') && !f.endsWith('.spec.ts') && !f.endsWith('.test.ts'))
+      .map(f => join(srcDirRelative, f)),
+  ].filter((file, index, files) => files.indexOf(file) === index);
 
-  if (tsFiles.length === 0) {
-    throw new DiagnosticError(buildDiagnostic({
-      reason: `No TypeScript source files found in ${relative(projectRoot, config.srcDir) || '.'}.`,
-      how: 'Ensure your middleware package has `.ts` files under `src/` (or set `package.json#source` to point at the entry). Spec/test files (`*.spec.ts`, `*.test.ts`, `*.d.ts`) are excluded by the scanner.',
-    }));
-  }
-
-  log.info('scanned %d source files', tsFiles.length);
+  log.info('scanned %d source files', sourceFiles.length);
   log.timeEnd('scan');
 
   // Validate that every `defineX` call in the package follows the
   // `export const X = defineX(...)` shape — single normative rule, no other
   // call site is allowed. Runs before augment extraction so the extractor can
   // assume the well-formed shape.
-  const shapeInputs = await Promise.all(tsFiles.map(async file => {
-    const fullPath = join(config.srcDir, file);
+  const shapeInputs = await Promise.all(sourceFiles.map(async file => {
+    const fullPath = join(projectRoot, file);
     const sourceText = await Bun.file(fullPath).text();
     const parsed = parseSource(fullPath, sourceText);
     if (isErr(parsed)) {
@@ -114,7 +127,7 @@ export async function runMiddlewareBuild(
         how: 'Fix the TypeScript syntax error reported above. Run `bunx tsc --noEmit` for the full type-checker output.',
       }));
     }
-    return { filePath: relative(projectRoot, fullPath) || fullPath, parsed };
+    return { filePath: file, parsed };
   }));
   validateDefineCallShape(shapeInputs);
 
@@ -126,8 +139,8 @@ export async function runMiddlewareBuild(
   let totalAugments = 0;
   let totalSkipped = 0;
 
-  for (const file of tsFiles) {
-    const fullPath = join(config.srcDir, file);
+  for (const file of sourceFiles) {
+    const fullPath = join(projectRoot, file);
     const sourceText = await Bun.file(fullPath).text();
     const { entries, skipped } = extractAndDetectSkipped(fullPath, sourceText);
 
@@ -185,7 +198,7 @@ export async function runMiddlewareBuild(
   const augmentsInSrc = totalAugments > 0
     ? await prepareContextAugmentsForTsc({
       projectRoot,
-      tsFiles,
+      sourceFiles,
       srcDir: config.srcDir,
       cancel,
     })
@@ -195,7 +208,15 @@ export async function runMiddlewareBuild(
   // Both stages write into a staging dir; on success, staging atomically
   // replaces config.outDir. On any failure the prior dist/ is preserved.
   log.time('compile');
-  const { rm } = await import('fs/promises');
+
+  // Bundling runs against the REAL package tree (so non-TS imports like
+  // `./package.json` resolve naturally); the augment-injected sources are
+  // served via an onLoad overlay instead of a copied temp tree.
+  const transformedByAbsPath = new Map<string, string>();
+
+  for (const [file, content] of transformedFiles) {
+    transformedByAbsPath.set(join(projectRoot, file), content);
+  }
 
   await withAtomicEmit(
     {
@@ -204,48 +225,43 @@ export async function runMiddlewareBuild(
       ...(cancel !== undefined ? { registerCleanup: cancel.registerCleanup } : {}),
     },
     async (stagingDir) => {
-      // Transformed source goes into a temp dir alongside staging (siblings,
-      // not nested) so tempSrc removal cannot affect staging contents.
-      const tempSrcDir = `${config.outDir}.middleware-build-tmp`;
-      await rm(tempSrcDir, { recursive: true, force: true });
-      await mkdir(tempSrcDir, { recursive: true });
+      // Single entry: the package surface is what `entryFile` re-exports —
+      // exactly what package.json `exports`/`module` point at (`dist/index.js`).
+      // `splitting` factors shared `src/` modules into chunks.
+      const buildResult = await deps.buildBundle({
+        entrypoints: [join(projectRoot, config.entryFile)],
+        outdir: stagingDir,
+        root: projectRoot,
+        target: 'bun',
+        format: 'esm',
+        packages: 'external',
+        minify: { whitespace: true, syntax: true },
+        splitting: true,
+        plugins: [{
+          name: 'zipbul-middleware-augment-overlay',
+          setup(build) {
+            build.onLoad({ filter: /\.ts$/ }, args => {
+              const contents = transformedByAbsPath.get(args.path);
 
-      try {
-        for (const [file, content] of transformedFiles) {
-          const outPath = join(tempSrcDir, file);
-          await mkdir(dirname(outPath), { recursive: true });
-          await Bun.write(outPath, content);
-        }
+              return contents === undefined ? undefined : { contents, loader: 'ts' };
+            });
+          },
+        }],
+      });
 
-        const entrypoints = resolveEntrypoints(tsFiles, tempSrcDir);
-
-        const buildResult = await deps.buildBundle({
-          entrypoints,
-          outdir: stagingDir,
-          root: tempSrcDir,
-          target: 'bun',
-          format: 'esm',
-          packages: 'external',
-          minify: { whitespace: true, syntax: true },
-          splitting: true,
-        });
-
-        if (!buildResult.success) {
-          const errors = buildResult.logs
-            .filter(l => l.level === 'error')
-            .map(l => l.message)
-            .join('\n');
-          throw new DiagnosticError(buildDiagnostic({
-            reason: `JavaScript compilation failed:\n${errors}`,
-            how: 'Resolve the bundler errors above. Common causes: unresolved imports, syntax errors, or missing peer dependencies.',
-          }));
-        }
-
-        log.info('compiled %d file(s)', buildResult.outputs.length);
-        log.timeEnd('compile');
-      } finally {
-        await rm(tempSrcDir, { recursive: true, force: true }).catch(() => {});
+      if (!buildResult.success) {
+        const errors = buildResult.logs
+          .filter(l => l.level === 'error')
+          .map(l => l.message)
+          .join('\n');
+        throw new DiagnosticError(buildDiagnostic({
+          reason: `JavaScript compilation failed:\n${errors}`,
+          how: 'Resolve the bundler errors above. Common causes: unresolved imports, syntax errors, or missing peer dependencies.',
+        }));
       }
+
+      log.info('compiled %d file(s)', buildResult.outputs.length);
+      log.timeEnd('compile');
 
       // ── tsc .d.ts emission into the same staging dir ──
       log.time('dts');
@@ -349,7 +365,7 @@ async function resolveMiddlewareBuildConfig(projectRoot: string): Promise<Middle
     }));
   }
 
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+  if (!isJsonObject(parsed)) {
     throw new DiagnosticError(buildDiagnostic({
       reason: 'package.json must contain a JSON object at the top level.',
       file: packageJsonPath,
@@ -357,7 +373,7 @@ async function resolveMiddlewareBuildConfig(projectRoot: string): Promise<Middle
     }));
   }
 
-  const packageJson = parsed as Record<string, unknown>;
+  const packageJson = parsed;
 
   const packageName = packageJson.name;
 
@@ -373,9 +389,57 @@ async function resolveMiddlewareBuildConfig(projectRoot: string): Promise<Middle
 
   // Resolve source directory: package.json "source" field > "src/" > root
   const srcDir = await resolveSourceDir(projectRoot, packageJson);
+  const entryFile = await resolveEntryFile(projectRoot, packageJson, srcDir);
   const outDir = resolve(projectRoot, 'dist');
 
-  return { packageName, srcDir, outDir, projectRoot };
+  return { packageName, entryFile, srcDir, outDir, projectRoot };
+}
+
+/**
+ * Narrows a parsed JSON value to a plain object record.
+ */
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Resolves the package entry file (projectRoot-relative) — the source that
+ * package.json `exports`/`module` is built from, and the single Bun.build
+ * entrypoint.
+ *
+ * Priority:
+ * 1. `package.json#source` field (explicit entry file)
+ * 2. `index.ts` at the package root (convention; all zipbul middleware packages)
+ * 3. `index.ts` inside the source directory
+ */
+async function resolveEntryFile(
+  projectRoot: string,
+  packageJson: Record<string, unknown>,
+  srcDir: string,
+): Promise<string> {
+  const sourceField = packageJson.source;
+
+  if (typeof sourceField === 'string') {
+    // Existence is already validated by resolveSourceDir.
+    return relative(projectRoot, resolve(projectRoot, sourceField));
+  }
+
+  const rootEntry = 'index.ts';
+
+  if (await Bun.file(join(projectRoot, rootEntry)).exists()) {
+    return rootEntry;
+  }
+
+  const srcEntry = relative(projectRoot, join(srcDir, 'index.ts'));
+
+  if (await Bun.file(join(projectRoot, srcEntry)).exists()) {
+    return srcEntry;
+  }
+
+  throw new DiagnosticError(buildDiagnostic({
+    reason: 'Cannot determine the package entry file.',
+    how: 'Add an `index.ts` at the package root (or inside the source directory), or set `package.json#source` to the entry file path. The entry is what `exports`/`module` (`dist/index.js`) is built from.',
+  }));
 }
 
 /**
@@ -386,9 +450,7 @@ async function resolveMiddlewareBuildConfig(projectRoot: string): Promise<Middle
  */
 function validateMiddlewareKind(packageJson: Record<string, unknown>, packageJsonPath: string): void {
   const zipbul = packageJson.zipbul;
-  const kind = (zipbul !== null && typeof zipbul === 'object' && !Array.isArray(zipbul))
-    ? (zipbul as { kind?: unknown }).kind
-    : undefined;
+  const kind = isJsonObject(zipbul) ? zipbul.kind : undefined;
 
   if (kind === 'middleware') return;
 
@@ -492,14 +554,6 @@ function extractAndDetectSkipped(
 }
 
 /**
- * Resolves entry points for Bun.build.
- * Uses all .ts files as entry points for unbundled library output.
- */
-function resolveEntrypoints(tsFiles: readonly string[], srcDir: string): string[] {
-  return tsFiles.map(file => join(srcDir, file));
-}
-
-/**
  * Collects locally declared class names from a file's top-level statements
  * (handles both `class Foo {}` and `export class Foo {}`). Used so that
  * `new Foo(...)` augments where `Foo` is defined in the same file resolve
@@ -596,12 +650,12 @@ async function loadAdapterNamespaces(
     const file = Bun.file(candidate);
     if (!(await file.exists())) continue;
     try {
-      const json = await file.json() as { contextType?: unknown; namespaces?: readonly { name?: unknown; type?: unknown }[] };
-      if (typeof json.contextType !== 'string') continue;
+      const json: unknown = await file.json();
+      if (!isJsonObject(json) || typeof json.contextType !== 'string') continue;
       const namespaceMap: Record<string, string> = {};
       if (Array.isArray(json.namespaces)) {
         for (const entry of json.namespaces) {
-          if (typeof entry?.name === 'string' && typeof entry?.type === 'string') {
+          if (isJsonObject(entry) && typeof entry.name === 'string' && typeof entry.type === 'string') {
             namespaceMap[entry.name] = entry.type;
           }
         }
@@ -627,12 +681,12 @@ const ZIPBUL_AUGMENTS_FILE = '__zipbul_context_augments__.d.ts';
  */
 async function prepareContextAugmentsForTsc(params: {
   projectRoot: string;
-  tsFiles: readonly string[];
+  sourceFiles: readonly string[];
   srcDir: string;
   cancel: CancellationScope | undefined;
 }): Promise<{ path: string; cleanup: () => Promise<void> } | null> {
-  const { projectRoot, tsFiles, srcDir, cancel } = params;
-  const dtsContent = await buildContextAugmentsDtsContent({ projectRoot, tsFiles, srcDir });
+  const { projectRoot, sourceFiles, srcDir, cancel } = params;
+  const dtsContent = await buildContextAugmentsDtsContent({ projectRoot, sourceFiles });
   if (dtsContent === null) return null;
 
   const augmentsPath = join(srcDir, ZIPBUL_AUGMENTS_FILE);
@@ -682,24 +736,22 @@ async function finalizeContextAugmentsDts(params: {
 
 /**
  * Constructs the `context-augments.d.ts` source string by extracting augments
- * from each `.ts` file under `srcDir` and resolving the target adapter's
- * namespace map from the published manifest in node_modules. Returns `null`
- * when there is nothing to emit (no augments OR adapter manifest unresolvable
- * for every contextType).
+ * from each source file and resolving the target adapter's namespace map from
+ * the published manifest in node_modules. Returns `null` when there is nothing
+ * to emit (no augments OR adapter manifest unresolvable for every contextType).
  */
 async function buildContextAugmentsDtsContent(params: {
   projectRoot: string;
-  tsFiles: readonly string[];
-  srcDir: string;
+  sourceFiles: readonly string[];
 }): Promise<string | null> {
-  const { projectRoot, tsFiles, srcDir } = params;
+  const { projectRoot, sourceFiles } = params;
 
   const allAugments: MiddlewareContextAugment[] = [];
-  const adapterMap: ContextAdapterMap = {};
+  const adapterMap: Record<string, AugmentTargetMap> = {};
   const unresolvedAdapters = new Set<string>();
 
-  for (const file of tsFiles) {
-    const fullPath = join(srcDir, file);
+  for (const file of sourceFiles) {
+    const fullPath = join(projectRoot, file);
     const sourceText = await readFile(fullPath, 'utf-8');
     const parseResult = parseSource(fullPath, sourceText);
     if (isErr(parseResult)) continue;
@@ -726,11 +778,11 @@ async function buildContextAugmentsDtsContent(params: {
           unresolvedAdapters.add(contextModule);
           continue;
         }
-        const targets: Record<string, { interface: string; module: string }> = {};
+        const targets: Record<string, AugmentTargetEntry> = {};
         for (const [getter, ifaceName] of Object.entries(ns.namespaces)) {
           targets[getter] = { interface: ifaceName, module: contextModule };
         }
-        (adapterMap as Record<string, typeof targets>)[entry.contextType] = targets;
+        adapterMap[entry.contextType] = targets;
       }
 
       // Resolve `new X(...)` augment classes:
@@ -796,7 +848,7 @@ async function buildContextAugmentsDtsContent(params: {
   // module specifiers (e.g. './cookie-jar' relative to src/index.ts), so the
   // exact outputDir value here does not affect the final import statements
   // emitted by `getImportStatements()` — they pass through as-is.
-  const registry = new ImportRegistry(srcDir);
+  const registry = new ImportRegistry(projectRoot);
   return generator.generate(allAugments, registry, adapterMap);
 }
 

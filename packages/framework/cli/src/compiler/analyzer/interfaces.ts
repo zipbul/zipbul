@@ -48,13 +48,6 @@ export interface HeritageMetadata {
   typeArgs?: string[] | undefined;
 }
 
-export interface ConstructorParamMetadata {
-  name: string;
-  type: AnalyzerValue;
-  typeArgs?: string[] | undefined;
-  decorators: DecoratorMetadata[];
-}
-
 export interface MethodParameterMetadata {
   name: string;
   type: AnalyzerValue;
@@ -99,7 +92,6 @@ export interface ClassMetadata {
   className: string;
   heritage?: HeritageMetadata | undefined;
   decorators: DecoratorMetadata[];
-  constructorParams: ConstructorParamMetadata[];
   methods: MethodMetadata[];
   properties: PropertyMetadata[];
   imports: Record<string, string>;

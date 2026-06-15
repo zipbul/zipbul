@@ -127,7 +127,6 @@ export class ModuleGraph {
         className: moduleName,
         heritage: undefined,
         decorators: [],
-        constructorParams: [],
         methods: [],
         properties: [],
         imports: moduleFile.imports ?? {},
@@ -296,7 +295,7 @@ export class ModuleGraph {
     const depsExtractor = (provider: ProviderRef): string[] => extractDeps(provider, this.gildash, this.warnings);
 
     validateUnusedProviders(
-      this.modules, this.classDefinitions, this.moduleInjectDeps,
+      this.modules, this.moduleInjectDeps,
       this.gildash, this.warnings, depsExtractor,
     );
   }

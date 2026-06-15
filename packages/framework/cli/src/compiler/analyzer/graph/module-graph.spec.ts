@@ -3,6 +3,7 @@ import { describe, expect, it } from 'bun:test';
 // MUST: MUST-4 (module boundary resolution deterministic)
 
 import type { ClassMetadata } from '../interfaces';
+import type { AnalyzerValue } from '../types';
 import type { FileAnalysis } from './interfaces';
 import type { ModuleNode } from './module-node';
 import type {
@@ -24,13 +25,14 @@ const requireNode = (node: ModuleNode | undefined): ModuleNode => {
 
 function createInjectableClassMetadata(params: InjectableClassParams): ClassMetadata {
   const { className, injectedTokens, visibleTo, scope } = params;
-  const constructorParams = (injectedTokens ?? []).map((token, index) => {
-    return {
-      name: `p${index}`,
-      type: { __zipbul_ref: token },
-      decorators: [],
-    };
-  });
+  // Dependencies are expressed via inject() property initializers (modern
+  // decorators have no constructor injection).
+  const properties = (injectedTokens ?? []).map((token, index) => ({
+    name: `dep${index}`,
+    type: 'unknown',
+    decorators: [],
+    initializer: { __zipbul_call: 'inject', __zipbul_import_source: '@zipbul/core', args: [{ __zipbul_ref: token }] },
+  }));
 
   return {
     className,
@@ -41,9 +43,8 @@ function createInjectableClassMetadata(params: InjectableClassParams): ClassMeta
         arguments: [{ visibleTo: visibleTo ?? 'all', scope: scope ?? 'singleton' }],
       },
     ],
-    constructorParams,
     methods: [],
-    properties: [],
+    properties,
     imports: {},
   };
 }
@@ -90,13 +91,13 @@ function createClassFileAnalysis(params: ClassFileAnalysisParams): FileAnalysis 
     // tokens as inject() calls so the graph resolves them through moduleInjectDeps
     // (constructor injection does not exist; gildash supports only modern decorators).
     injectCalls: classes.flatMap(cls =>
-      cls.constructorParams.map(param => ({
-        tokenKind: 'token' as const,
-        token: param.type,
-        callee: 'inject',
-        importSource: '@zipbul/core',
-        filePath,
-      })),
+      cls.properties.flatMap(prop => {
+        const init = prop.initializer as { __zipbul_call?: string; args?: AnalyzerValue[] } | undefined;
+
+        return init?.__zipbul_call === 'inject' && init.args?.[0] !== undefined
+          ? [{ tokenKind: 'token' as const, token: init.args[0], callee: 'inject', importSource: '@zipbul/core', filePath }]
+          : [];
+      }),
     ),
   };
 
@@ -1395,7 +1396,6 @@ describe('ModuleGraph', () => {
         className: 'PlainClass',
         heritage: undefined,
         decorators: [],
-        constructorParams: [],
         methods: [],
         properties: [],
         imports: {},
@@ -1478,9 +1478,8 @@ describe('ModuleGraph', () => {
         className: 'AController',
         heritage: undefined,
         decorators: [{ name: 'RestController', arguments: [] }],
-        constructorParams: [{ name: 'service', type: { __zipbul_ref: 'AService' }, decorators: [] }],
         methods: [],
-        properties: [],
+        properties: [{ name: 'service', type: 'unknown', decorators: [], initializer: { __zipbul_call: 'inject', __zipbul_import_source: '@zipbul/core', args: [{ __zipbul_ref: 'AService' }] } }],
         imports: {},
       };
 
@@ -1509,7 +1508,6 @@ describe('ModuleGraph', () => {
         className: 'AController',
         heritage: undefined,
         decorators: [{ name: 'RestController', arguments: [] }, { name: 'Injectable', arguments: [{ visibleTo: 'all', scope: 'singleton' }] }],
-        constructorParams: [],
         methods: [],
         properties: [],
         imports: {},

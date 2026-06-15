@@ -91,7 +91,6 @@ function createInjectableClassMetadata(className: string): ClassMetadata {
         arguments: [{ visibleTo: 'all', scope: 'singleton' }],
       },
     ],
-    constructorParams: [],
     methods: [],
     properties: [],
     imports: {},
@@ -272,7 +271,6 @@ describe('ManifestGenerator', () => {
     const sample: AnalyzerValueRecord = {
       className: 'A',
       decorators: [{ name: 'X', arguments: [] }],
-      constructorParams: [],
       methods: [],
       properties: [],
     };
