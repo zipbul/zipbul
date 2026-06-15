@@ -17,6 +17,7 @@ export type { ResolvedMiddleware, ResolvedGuard, ResolvedExceptionFilter, Resolv
 export { handlerResultKey } from './src/adapter/adapter';
 export { CoreStep } from './src/adapter/enums';
 export { inject, lazy, runInInjectionContext } from './src/injection-context';
+export { Recipe } from './src/baker';
 export { getAdapterContext, runInAdapterContext } from './src/adapter-context';
 
 export {

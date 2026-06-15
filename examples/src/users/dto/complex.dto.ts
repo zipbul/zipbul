@@ -1,9 +1,11 @@
 import { Field } from '@zipbul/baker';
 import { isString, isArray, min, max } from '@zipbul/baker/rules';
+import { Recipe } from '@zipbul/core';
 
 import { AddressDto } from './address.dto';
 import { SocialDto } from './social.dto';
 
+@Recipe
 export class CreateUserComplexDto {
   @Field(isString)
   name: string;

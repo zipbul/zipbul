@@ -1,6 +1,6 @@
 import type { ResultAsync } from '@zipbul/result';
 
-import { validateSync, isBakerIssueSet, seal } from '@zipbul/baker';
+import { validateSync, isBakerIssueSet } from '@zipbul/baker';
 import { isErr, safe } from '@zipbul/result';
 import { HttpHeader } from '@zipbul/http-adapter';
 import type { HttpStatus } from '@zipbul/http-adapter';
@@ -10,21 +10,22 @@ import type { CorsResult, OriginResult, ResolvedCorsOptions } from './types';
 
 import { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
 import { CorsError } from './interfaces';
+import { corsBaker } from './baker';
 import { CORS_DEFAULTS, CorsOptions, type CorsOptionsInput } from './cors-options';
 
 /**
- * Lazy seal — `Cors.create` triggers `baker.seal()` once on first call.
+ * Lazy seal — `Cors.create` seals {@link corsBaker} once on first call.
  *
- * baker requires a single `seal()` after every `@Recipe` class has been
- * imported. Calling it eagerly in cors's package entry would seize global
- * baker config before the host app finishes registering its own DTOs, so we
- * defer until the first `Cors.create`. `seal()` itself is idempotent — the
- * boolean only avoids the second call's cost.
+ * baker requires `seal()` after every `@corsBaker.Recipe` class is imported.
+ * Only {@link CorsOptions} registers with this baker, so a single seal on first
+ * `Cors.create` suffices; we defer (rather than sealing at module load) so the
+ * seal runs after the class import has settled. The boolean guard makes repeat
+ * `Cors.create` calls skip the redundant seal.
  */
 let isSealed = false;
 function ensureSealed(): void {
   if (isSealed) return;
-  seal();
+  corsBaker.seal();
   isSealed = true;
 }
 

@@ -1,5 +1,6 @@
 import { Field } from '@zipbul/baker';
 import { isString } from '@zipbul/baker/rules';
+import { Recipe } from '@zipbul/core';
 
 export interface PostComment {
   id: number;
@@ -7,6 +8,7 @@ export interface PostComment {
   content: string;
 }
 
+@Recipe
 export class PostCommentInput {
   @Field(isString)
   content: string;

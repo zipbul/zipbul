@@ -1,4 +1,4 @@
-import { Recipe, Field, seal, validateSync, isBakerIssueSet } from '@zipbul/baker';
+import { Baker, Field, validateSync, isBakerIssueSet } from '@zipbul/baker';
 import { isBoolean, isInt, isIn, min } from '@zipbul/baker/rules';
 import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
@@ -11,14 +11,22 @@ import type { ResolvedQueryParserOptions } from './types';
 const DUPLICATE_MODES: string[] = ['first', 'last', 'array'];
 
 /**
- * Lazy seal — baker requires a single `seal()` after every `@Recipe` class is
- * imported. Deferring it to the first validation avoids seizing global baker
- * config before the host app registers its own DTOs. Mirrors the cors middleware.
+ * Query-parser-owned baker. baker 5.x scopes registration to an instance, so
+ * only {@link QueryParserOptionsSchema} registers here (`@queryParserBaker.Recipe`).
+ * `validateSync` stays global and reads the sealed executor off the class.
+ * Mirrors the cors middleware's package-private baker.
+ */
+const queryParserBaker = new Baker();
+
+/**
+ * Lazy seal — defer sealing {@link queryParserBaker} to the first validation so
+ * the seal runs after the schema import has settled. The boolean guard makes
+ * repeat validations skip the redundant seal.
  */
 let isSealed = false;
 function ensureSealed(): void {
   if (isSealed) return;
-  seal();
+  queryParserBaker.seal();
   isSealed = true;
 }
 
@@ -46,7 +54,7 @@ export function resolveQueryParserOptions(options?: QueryParserOptions): Resolve
  * `context.reason` so an invalid value surfaces as a typed {@link QueryParserError}
  * rather than baker's internal-invariant error.
  */
-@Recipe
+@queryParserBaker.Recipe
 export class QueryParserOptionsSchema {
   /** Maximum nesting depth — non-negative integer. */
   @Field(isInt, min(0), { optional: true, context: { reason: QueryParserErrorReason.InvalidDepth } })
