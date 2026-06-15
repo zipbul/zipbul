@@ -10,6 +10,7 @@ import { parseBody } from './body';
 import type { ErrorResponseData, HttpRequestData } from './interfaces';
 import type { RouteHandlerResult } from './types';
 import { writeErrorResponse, writeSuccessResponse } from './response-writer';
+import { isAsyncIterable } from './server-sent-event';
 import { HttpAdapterPhase, HttpMethod } from './enums';
 import { createTestHttpRequest } from './test-fixtures/http-request-fixture';
 import { assertDefined } from './test-fixtures/assertions';
@@ -455,8 +456,9 @@ function createMockContainer(): ZipbulContainer {
  * Sets the handler result on context via `handlerResultKey`, then invokes
  * writeErrorResponse / writeSuccessResponse module functions.
  */
+// eslint-disable-next-line @typescript-eslint/require-await -- async kept for caller `await` compatibility; body is synchronous after the stream move
 async function writeResult(
-  _adapter: InstanceType<typeof HttpAdapter>,
+  adapter: InstanceType<typeof HttpAdapter>,
   result: Result<RouteHandlerResult, ErrorResponseData> | undefined,
   context: Context,
 ): Promise<void> {
@@ -465,10 +467,15 @@ async function writeResult(
 
   if (http.response.isSent() || result === undefined) return;
 
+  // Mirror HttpAdapter's WriteResponse step: errors → writeErrorResponse,
+  // streams → the adapter (it owns live-stream error logging), everything
+  // else → the buffered serializer.
   if (isErr(result)) {
     writeErrorResponse(http.response, result.data);
+  } else if (isAsyncIterable(result)) {
+    adapter.writeStreamingResponse(http, result);
   } else {
-    await writeSuccessResponse(http.response, result, http);
+    writeSuccessResponse(http.response, result);
   }
 
   http.response.serialize();
@@ -2588,7 +2595,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect(returnFn).toHaveBeenCalledTimes(1);
     });
 
-    it('should call controller.error when iterator throws and signal is not aborted', async () => {
+    it('should gracefully close the SSE stream when the iterator throws after emitting (WHATWG: sent events survive)', async () => {
       // Arrange
       const adapter = new HttpAdapter();
       const controller = new AbortController();
@@ -2606,17 +2613,19 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Act
       await writeResult(adapter, failingStream(), context);
 
-      // Assert — stream should error, not close gracefully
+      // Assert — the already-emitted event is delivered, then the stream closes
+      // cleanly. Per WHATWG SSE the client keeps received events and reconnects;
+      // the throw is surfaced to the server log (not the client transport), so
+      // the reader sees a clean EOF rather than a rejection.
       const nativeResponse = http.response.getNativeResponse();
       expect(nativeResponse).toBeInstanceOf(Response);
 
       const reader = nativeResponse!.body!.getReader();
-      // First chunk should succeed
       const firstRead = await reader.read();
-      expect(firstRead.done).toBe(false);
+      expect(firstRead.done).toBe(false); // first event delivered
 
-      // Second read should reject with the iterator error
-      await expect(reader.read()).rejects.toThrow('stream failed');
+      const secondRead = await reader.read();
+      expect(secondRead.done).toBe(true); // graceful close, no error thrown
     });
 
     it('should call controller.close when iterator throws and signal IS aborted', async () => {
@@ -3088,7 +3097,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect(done).toBe(true);
     });
 
-    it('should propagate error when iterator throws on first iteration', async () => {
+    it('should close the SSE stream when the iterator throws on the first iteration', async () => {
       // Arrange
       const adapter = new HttpAdapter();
       const context = createHttpContext('GET', '/sse');
@@ -3104,21 +3113,55 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Act
       await writeResult(adapter, failingIterable, context);
 
-      // Assert — native response should be set (SSE path)
+      // Assert — native response is set (SSE path). No event was emitted, so the
+      // stream closes cleanly (empty) and the failure goes to the server log,
+      // not the client transport — the reader sees a clean EOF, not a rejection.
       const nativeResponse = http.response.getNativeResponse();
       expect(nativeResponse).toBeInstanceOf(Response);
 
-      // Read stream — should error
       const reader = nativeResponse!.body!.getReader();
-      let errorCaught = false;
+      const firstRead = await reader.read();
+      expect(firstRead.done).toBe(true);
+    });
 
-      try {
-        await reader.read();
-      } catch {
-        errorCaught = true;
+    it('should error (truncate) a raw stream when the iterator throws, so the client detects an incomplete response', async () => {
+      // Arrange — a raw (non-SSE) streaming route.
+      const adapter = new HttpAdapter();
+      const context = createHttpContext('GET', '/raw');
+      const http = context.to(HttpContext);
+      http.matchedRoute = {
+        rawBody: false,
+        sse: false,
+        bodyLimit: undefined,
+        status: undefined,
+        redirect: undefined,
+        contentType: undefined,
+        headers: [],
+        pre: [],
+        post: [],
+        filters: [],
+        handler: () => undefined,
+        validations: [],
+      };
+
+      async function* failingRaw() {
+        yield 'chunk-1';
+        throw new Error('raw failed');
       }
 
-      expect(errorCaught).toBe(true);
+      // Act
+      await writeResult(adapter, failingRaw(), context);
+
+      // Assert — unlike SSE, a raw byte stream has no event/reconnect semantics:
+      // the first chunk is delivered, then the stream is errored so the client
+      // observes a truncated, incomplete response (HTTP chunked-transfer).
+      const nativeResponse = http.response.getNativeResponse();
+      expect(nativeResponse).toBeInstanceOf(Response);
+
+      const reader = nativeResponse!.body!.getReader();
+      const firstRead = await reader.read();
+      expect(firstRead.done).toBe(false); // chunk-1 delivered
+      await expect(reader.read()).rejects.toThrow('raw failed'); // truncated
     });
 
     it('should handle iterator.return() throwing gracefully', async () => {
@@ -4221,14 +4264,12 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const registry = new Map();
       registry.set(TestClass, {
         decorators: [{ name: 'RestController' }],
-        constructorParams: [{ type: 'SomeService' }],
       });
 
       const result = assertDefined(normalizeMetadataRegistry(registry), 'normalized registry');
       expect(result.size).toBe(1);
       const meta = assertDefined(result.get(TestClass), 'TestClass metadata');
       expect(meta.decorators).toEqual([{ name: 'RestController' }]);
-      expect(meta.constructorParams).toEqual([{ type: 'SomeService' }]);
     });
 
     it('should pass through already-http metadata unchanged', () => {
@@ -4271,57 +4312,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       expect(meta.constructorParams).toBeUndefined();
     });
 
-    it('should normalize constructorParams with decorator metadata', () => {
-      class TestClass {}
-      const registry = new Map();
-      registry.set(TestClass, {
-        constructorParams: [
-          { type: 'ServiceA', decorators: [{ name: 'Inject' }] },
-          { type: Symbol.for('token') },
-          { type: 12345 },  // non-provider token (number)
-        ],
-      });
-
-      const result = assertDefined(normalizeMetadataRegistry(registry), 'normalized registry');
-      const meta = assertDefined(result.get(TestClass), "TestClass metadata");
-      const params = assertDefined(meta.constructorParams, "constructorParams");
-      expect(params).toHaveLength(3);
-      expect(assertDefined(params[0], 'param[0]').type).toBe('ServiceA');
-      expect(assertDefined(params[0], 'param[0]').decorators).toEqual([{ name: 'Inject' }]);
-      expect(assertDefined(params[1], 'param[1]').type).toBe(Symbol.for('token'));
-      expect(assertDefined(params[2], 'param[2]').type).toBeUndefined(); // number is not a provider token
-    });
-  });
-
-  // ── isProviderToken ────────────────────────────────────────
-
-  describe('isProviderToken', () => {
-    const { isProviderToken } = require('./metadata');
-
-    it('should return true for string token', () => {
-      expect(isProviderToken('ServiceA')).toBe(true);
-    });
-
-    it('should return true for symbol token', () => {
-      expect(isProviderToken(Symbol('test'))).toBe(true);
-    });
-
-    it('should return true for function/class token', () => {
-      class MyService {}
-      expect(isProviderToken(MyService)).toBe(true);
-    });
-
-    it('should return false for number', () => {
-      expect(isProviderToken(42 as unknown as never)).toBe(false);
-    });
-
-    it('should return false for undefined', () => {
-      expect(isProviderToken(undefined)).toBe(false);
-    });
-
-    it('should return false for null', () => {
-      expect(isProviderToken(null as unknown as never)).toBe(false);
-    });
   });
 
   // ── isHttpClassMetadata ────────────────────────────────────

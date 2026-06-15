@@ -33,9 +33,10 @@ import { RestController } from './decorators/class.decorator';
 import { Get, Post, Put, Delete, Patch, Options, Head, Method } from './decorators/method.decorator';
 import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
 import type { RouteHandler, ResolvedRoutePipeline } from './route-handler';
-import { DEFAULT_BODY_LIMIT_BYTES, DEFAULT_HTTP_PORT } from './constants';
-import { HttpHeader, HttpStatus, HttpAdapterPhase, HttpAdapterStep } from './enums';
+import { DEFAULT_BODY_LIMIT_BYTES, DEFAULT_HTTP_PORT, TEXT_ENCODER, CACHE_CONTROL_NO_CACHE, CONNECTION_KEEP_ALIVE, X_ACCEL_BUFFERING_OFF } from './constants';
+import { HttpHeader, HttpStatus, HttpAdapterPhase, HttpAdapterStep, ContentType } from './enums';
 import { parseBody } from './body';
+import { isAsyncIterable, formatSSEChunk } from './server-sent-event';
 import { writeErrorResponse, writeSuccessResponse } from './response-writer';
 import { normalizeMetadataRegistry } from './metadata';
 
@@ -275,7 +276,7 @@ export class HttpAdapter extends Adapter {
       [HttpAdapterStep.ParseBody, (context: AdapterContext) =>
         parseBody(context.to(HttpContext), this.options.bodyLimit!, this.textMediaTypes),
       ],
-      [HttpAdapterStep.WriteResponse, async (context: AdapterContext) => {
+      [HttpAdapterStep.WriteResponse, (context: AdapterContext) => {
         const http = context.to(HttpContext);
         const result = context.get(handlerResultKey);
 
@@ -283,8 +284,12 @@ export class HttpAdapter extends Adapter {
 
         if (isErr(result)) {
           writeErrorResponse(http.response, result.data as ErrorResponseData);
+        } else if (isAsyncIterable(result)) {
+          // Streaming (SSE / raw): the adapter owns the live stream because a
+          // throw during consumption must be logged via this.logger.
+          this.writeStreamingResponse(http, result);
         } else {
-          await writeSuccessResponse(http.response, result as RouteHandlerResult, http);
+          writeSuccessResponse(http.response, result as RouteHandlerResult);
         }
       }],
       [HttpAdapterStep.Serialize, (context: AdapterContext) => {
@@ -439,6 +444,105 @@ export class HttpAdapter extends Adapter {
       res.setStatus(HttpStatus.InternalServerError);
       res.setContentType('text/plain');
       res.setBody('Internal Server Error');
+    }
+  }
+
+  /**
+   * Builds and attaches the streaming response for an `AsyncIterable` handler
+   * result — Server-Sent Events when the route is `@Sse`, otherwise a raw byte
+   * stream. The adapter owns this (rather than the pure `writeSuccessResponse`
+   * util) because a throw during stream consumption can only be surfaced via the
+   * adapter's own logger.
+   *
+   * A throw from the handler's iterator surfaces inside the response
+   * `ReadableStream`'s `pull`, which the server drives AFTER the request
+   * pipeline finished and its adapter/logger `AsyncLocalStorage` scope unwound.
+   * The pipeline's {@link emergencyTeardown} therefore cannot run (status and
+   * headers are already committed to the wire), and mutating the response would
+   * cancel the in-flight stream. So the failure is surfaced the only way still
+   * possible — the adapter's logger, captured directly (no context re-entry).
+   * The stream is then terminated per transport semantics:
+   * - SSE: `close()` — WHATWG lets the EventSource client keep already-received
+   *   events and reconnect; `error()` would truncate the response.
+   *   https://html.spec.whatwg.org/multipage/server-sent-events.html
+   * - raw: `error()` — signals a truncated, incomplete response per HTTP
+   *   chunked-transfer semantics (the bytes are not all there).
+   *
+   * @param http - The HTTP context for the request.
+   * @param iterable - The async-iterable handler result to stream.
+   * @internal
+   */
+  writeStreamingResponse(http: HttpContext, iterable: AsyncIterable<unknown>): void {
+    const signal = http.request.signal;
+    const isSse = http.matchedRoute?.sse === true;
+    const iterator = iterable[Symbol.asyncIterator]();
+    const logger = this.logger;
+
+    const stream = new ReadableStream({
+      async pull(controller) {
+        if (signal.aborted) {
+          controller.close();
+          return;
+        }
+
+        try {
+          const { done, value } = await iterator.next();
+          if (done || signal.aborted) {
+            controller.close();
+            return;
+          }
+
+          if (isSse) {
+            controller.enqueue(formatSSEChunk(value));
+          } else if (typeof value === 'string') {
+            controller.enqueue(TEXT_ENCODER.encode(value));
+          } else if (value instanceof Uint8Array) {
+            controller.enqueue(value);
+          } else {
+            controller.enqueue(TEXT_ENCODER.encode(String(value)));
+          }
+        } catch (error) {
+          if (signal.aborted) {
+            // Client went away — normal cancellation, not a handler failure.
+            controller.close();
+            return;
+          }
+
+          if (error instanceof Error) {
+            logger.error(`stream handler threw: ${error.message}`, error);
+          } else {
+            logger.error(`stream handler threw: ${formatUnknownError(error)}`);
+          }
+
+          if (isSse) {
+            controller.close();
+          } else {
+            controller.error(error);
+          }
+        }
+      },
+      async cancel() {
+        try {
+          await iterator.return?.();
+        } catch { /* swallow — cleanup best-effort */ }
+      },
+    });
+
+    if (isSse) {
+      // Bun: disable idle timeout for SSE so gaps between events don't drop the
+      // connection.
+      http.setTimeout(0);
+      http.response.setNativeResponse(new Response(stream, {
+        headers: {
+          [HttpHeader.ContentType]: ContentType.EventStream,
+          [HttpHeader.CacheControl]: CACHE_CONTROL_NO_CACHE,
+          [HttpHeader.Connection]: CONNECTION_KEEP_ALIVE,
+          [HttpHeader.XAccelBuffering]: X_ACCEL_BUFFERING_OFF,
+        },
+      }));
+    } else {
+      // Raw streaming — Content-Type from @ContentType or imperative setContentType.
+      http.response.setNativeResponse(new Response(stream));
     }
   }
 
