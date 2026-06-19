@@ -6,7 +6,7 @@ import type {
   ZipbulValue,
   ModuleMarker,
 } from '@zipbul/common';
-import { seal } from '@zipbul/baker';
+import { appBaker } from '../baker';
 import { ClusterStrategy } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 
@@ -284,11 +284,15 @@ export class Application {
       }
     }
 
+    // App DTOs are sealed BEFORE pipeline init: initializePipeline runs middleware
+    // factories that may deserialize/validate, and baker rejects deserialize before
+    // seal. The AOT runtime entry imports every @Recipe app DTO, so appBaker's
+    // registry is complete here. (Middleware libraries seal their own baker.)
+    appBaker.seal();
+
     for (const entry of this.startOrder) {
       entry.adapter.initializePipeline(this.container);
     }
-
-    seal();
 
     const started: AdapterEntry[] = [];
 

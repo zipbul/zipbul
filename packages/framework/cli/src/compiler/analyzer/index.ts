@@ -7,7 +7,6 @@ export type {
   ExceptionFilterUsage,
   DecoratorMetadata,
   HeritageMetadata,
-  ConstructorParamMetadata,
   MethodParameterMetadata,
   MethodMetadata,
   PropertyMetadata,

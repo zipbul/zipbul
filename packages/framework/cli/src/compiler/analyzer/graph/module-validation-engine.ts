@@ -400,14 +400,13 @@ export async function validateInheritedScopes(
  */
 export function validateUnusedProviders(
   modules: ReadonlyMap<string, ModuleNode>,
-  classDefinitions: ReadonlyMap<string, ClassDefinition>,
   moduleInjectDeps: ReadonlyMap<string, string[]>,
   gildash: Gildash | undefined,
   warnings: string[],
   extractDepsFromProvider: (provider: ProviderRef) => string[],
 ): void {
   for (const node of modules.values()) {
-    const referencedTokens = collectReferencedTokens(node, classDefinitions, moduleInjectDeps, gildash, warnings, extractDepsFromProvider);
+    const referencedTokens = collectReferencedTokens(node, moduleInjectDeps, gildash, warnings, extractDepsFromProvider);
 
     for (const token of node.providers.keys()) {
       if (node.controllers.has(token)) {

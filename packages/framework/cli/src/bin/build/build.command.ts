@@ -162,6 +162,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
             adapterResolution.handlerIndex,
             adapterResolution.handlerContextUsages,
             augmentResult.augments,
+            adapterResolution.routeRegistrations,
           );
           for (const w of usageWarnings) {
             graph.warnings.push(

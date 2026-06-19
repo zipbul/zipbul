@@ -229,6 +229,7 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
       adapterResolution.handlerIndex,
       adapterResolution.handlerContextUsages,
       augmentResult.augments,
+      adapterResolution.routeRegistrations,
     );
 
     for (const warning of usageWarnings) {

@@ -1,8 +1,9 @@
 /**
  * Leak/soak test for the zipbul Bun HTTP adapter.
- * Runs via `bun test --timeout 0` from inside packages/http-adapter.
+ * Runs via `bun test --timeout 0`.
  */
 import { describe, it, mock } from 'bun:test';
+import { join } from 'node:path';
 import type { ZipbulContainer, CompiledHandlerEntry } from '@zipbul/common';
 
 type ProcessInternals = NodeJS.Process & {
@@ -22,7 +23,7 @@ mock.module('@zipbul/core', () => ({
   getBootstrapState: () => ({ isAotRuntime: false, metadataRegistry: new Map() }),
 }));
 
-const HTTP_SRC = '/home/revil/projects/zipbul/zipbul/packages/http-adapter/src';
+const HTTP_SRC = join(import.meta.dir, '../../src');
 const { HttpAdapter } = await import(`${HTTP_SRC}/http-adapter`);
 const { HttpServer } = await import(`${HTTP_SRC}/http-server`);
 const { HttpContext } = await import(`${HTTP_SRC}/http-context`);

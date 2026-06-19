@@ -1,1 +1,1 @@
-export { normalizeMetadataRegistry, isHttpClassMetadata, isProviderToken } from './normalize';
+export { normalizeMetadataRegistry, isHttpClassMetadata } from './normalize';

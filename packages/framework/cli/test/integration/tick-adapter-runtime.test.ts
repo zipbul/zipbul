@@ -19,7 +19,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 
-const examplesRoot = join(import.meta.dir, '../../../../examples');
+const examplesRoot = join(import.meta.dir, '../../../../../examples');
 const entryFile = join(examplesRoot, 'dist/entry.js');
 
 async function ensureBuilt(): Promise<void> {
@@ -31,7 +31,10 @@ async function ensureBuilt(): Promise<void> {
   await rm(join(examplesRoot, '.zipbul'), { recursive: true, force: true });
   await rm(join(examplesRoot, '.zipbul-temp'), { recursive: true, force: true });
 
-  const proc = Bun.spawn(['./node_modules/.bin/zb', 'build'], {
+  // Absolute executable path: Bun.spawn resolves a relative argv[0] against
+  // the parent process cwd, not the `cwd` option — a relative path here is
+  // ENOENT whenever the test runner starts outside examplesRoot.
+  const proc = Bun.spawn([join(examplesRoot, 'node_modules/.bin/zb'), 'build'], {
     cwd: examplesRoot,
     stderr: 'pipe',
     stdout: 'pipe',
@@ -92,11 +95,15 @@ afterAll(async () => {
 });
 
 describe('examples — inline TickAdapter coexisting with external HttpAdapter', () => {
-  it('HttpAdapter serves HTTP requests with stamp middleware applied', async () => {
+  it('HttpAdapter serves HTTP requests with global middleware applied', async () => {
     const res = await fetch('http://localhost:5000/users');
     expect(res.status).toBe(200);
-    expect(res.headers.get('X-Stamp')).toBe('tested');
+    // request-timing middleware (registered globally in examples main.ts)
+    // writes X-Response-Time — proves the middleware → handler chain ran.
     expect(res.headers.get('X-Response-Time')).toMatch(/^\d+(\.\d+)?ms$/);
+
+    const users: unknown = await res.json();
+    expect(Array.isArray(users)).toBe(true);
   });
 
   it('TickAdapter scheduler fires periodic rounds with middleware → handler chain', async () => {

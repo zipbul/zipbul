@@ -4,7 +4,7 @@ export { createApplication, Application, type AdapterEntry, type AdapterOptions,
 export { defineModule, type DefineModuleOptions } from './src/module';
 export { getBootstrapState, registerBootstrapState, resetBootstrapState, clearMetadataRegistry } from './src/runtime/bootstrap-state';
 export { Container } from './src/injector/container';
-export type { ClassMetadata, ConstructorParamMetadata, DecoratorMetadata, TokenRecord } from './src/injector/types';
+export type { ClassMetadata, DecoratorMetadata, TokenRecord } from './src/injector/types';
 export { ClusterManager } from './src/cluster/cluster-manager';
 export { ClusterBaseWorker } from './src/cluster/cluster-base-worker';
 export { WorkerState, ClusterStrategy } from './src/cluster/enums';
@@ -17,6 +17,7 @@ export type { ResolvedMiddleware, ResolvedGuard, ResolvedExceptionFilter, Resolv
 export { handlerResultKey } from './src/adapter/adapter';
 export { CoreStep } from './src/adapter/enums';
 export { inject, lazy, runInInjectionContext } from './src/injection-context';
+export { Recipe } from './src/baker';
 export { getAdapterContext, runInAdapterContext } from './src/adapter-context';
 
 export {

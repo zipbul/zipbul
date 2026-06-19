@@ -44,11 +44,11 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "build": "zb build middleware",
     "test": "bun test",
     "coverage": "bun test --coverage",
     "bench": "bun run bench/query-parser.bench.ts",
-    "build:middleware": "bun ../../framework/cli/src/bin/zb.ts build middleware"
+    "build:middleware": "zb build middleware"
   },
   "dependencies": {
     "@zipbul/baker": "catalog:",
@@ -59,6 +59,7 @@
     "@zipbul/http-adapter": "workspace:*"
   },
   "devDependencies": {
+    "@zipbul/cli": "workspace:*",
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
     "@zipbul/tck": "workspace:*",

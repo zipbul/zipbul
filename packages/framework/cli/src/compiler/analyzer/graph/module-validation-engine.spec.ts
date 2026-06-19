@@ -24,13 +24,13 @@ function createClassMetadata(className: string, constructorTokens?: string[]): C
     className,
     heritage: undefined,
     decorators: [],
-    constructorParams: (constructorTokens ?? []).map((token, index) => ({
-      name: `p${index}`,
-      type: { __zipbul_ref: token },
-      decorators: [],
-    })),
     methods: [],
-    properties: [],
+    properties: (constructorTokens ?? []).map((token, index) => ({
+      name: `dep${index}`,
+      type: 'unknown',
+      decorators: [],
+      initializer: { __zipbul_call: 'inject', __zipbul_import_source: '@zipbul/core', args: [{ __zipbul_ref: token }] },
+    })),
     imports: {},
   };
 }
@@ -101,24 +101,23 @@ function injectDepsFrom(modules: Map<string, ModuleNode>): Map<string, string[]>
     for (const provider of node.providers.values()) {
       const meta = provider.metadata;
 
-      if (meta == null || typeof meta !== 'object' || !('constructorParams' in meta) || provider.filePath === undefined) {
+      if (meta == null || typeof meta !== 'object' || !('properties' in meta) || provider.filePath === undefined) {
         continue;
       }
 
-      const cps = (meta as ClassMetadata).constructorParams;
+      const tokens = (meta as ClassMetadata).properties.flatMap(p => {
+        const init = p.initializer as { __zipbul_call?: string; args?: { __zipbul_ref?: string }[] } | undefined;
 
-      if (cps.length === 0) {
+        return init?.__zipbul_call === 'inject' && typeof init.args?.[0]?.__zipbul_ref === 'string'
+          ? [init.args[0].__zipbul_ref]
+          : [];
+      });
+
+      if (tokens.length === 0) {
         continue;
       }
 
-      map.set(
-        provider.filePath,
-        cps.map(p => {
-          const t = p.type as unknown as { __zipbul_ref?: string };
-
-          return typeof t.__zipbul_ref === 'string' ? t.__zipbul_ref : '';
-        }),
-      );
+      map.set(provider.filePath, tokens);
     }
   }
 
@@ -1484,12 +1483,11 @@ describe('validateUnusedProviders', () => {
     });
 
     const modules = new Map([[node.filePath, node]]);
-    const classDefinitions = new Map<string, ClassDefinition>();
     const moduleInjectDeps = new Map<string, string[]>();
     const warnings: string[] = [];
     const extractDepsFromProvider = (): string[] => [];
 
-    validateUnusedProviders(modules, classDefinitions, moduleInjectDeps, undefined, warnings, extractDepsFromProvider);
+    validateUnusedProviders(modules, moduleInjectDeps, undefined, warnings, extractDepsFromProvider);
 
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("Provider 'UnusedService'");
@@ -1516,7 +1514,6 @@ describe('validateUnusedProviders', () => {
     });
 
     const modules = new Map([[node.filePath, node]]);
-    const classDefinitions = new Map<string, ClassDefinition>();
     const moduleInjectDeps = new Map<string, string[]>();
     const warnings: string[] = [];
     const extractDepsFromProvider = (provider: ProviderRef): string[] => {
@@ -1527,7 +1524,7 @@ describe('validateUnusedProviders', () => {
       return [];
     };
 
-    validateUnusedProviders(modules, classDefinitions, moduleInjectDeps, undefined, warnings, extractDepsFromProvider);
+    validateUnusedProviders(modules, moduleInjectDeps, undefined, warnings, extractDepsFromProvider);
 
     expect(warnings.some(w => w.includes('DepService') && w.includes('never referenced'))).toBe(false);
   });
@@ -1549,7 +1546,7 @@ describe('validateUnusedProviders', () => {
     const warnings: string[] = [];
     const extractDepsFromProvider = (): string[] => [];
 
-    validateUnusedProviders(modules, new Map(), new Map(), undefined, warnings, extractDepsFromProvider);
+    validateUnusedProviders(modules, new Map(), undefined, warnings, extractDepsFromProvider);
 
     expect(warnings).toHaveLength(0);
   });
@@ -1573,7 +1570,7 @@ describe('validateUnusedProviders', () => {
     const warnings: string[] = [];
     const extractDepsFromProvider = (): string[] => [];
 
-    validateUnusedProviders(modules, new Map(), moduleInjectDeps, undefined, warnings, extractDepsFromProvider);
+    validateUnusedProviders(modules, moduleInjectDeps, undefined, warnings, extractDepsFromProvider);
 
     expect(warnings).toHaveLength(0);
   });
@@ -1581,7 +1578,7 @@ describe('validateUnusedProviders', () => {
   it('should handle empty modules', () => {
     const warnings: string[] = [];
 
-    validateUnusedProviders(new Map(), new Map(), new Map(), undefined, warnings, () => []);
+    validateUnusedProviders(new Map(), new Map(), undefined, warnings, () => []);
 
     expect(warnings).toHaveLength(0);
   });
@@ -1595,7 +1592,7 @@ describe('validateUnusedProviders', () => {
     const modules = new Map([[node.filePath, node]]);
     const warnings: string[] = [];
 
-    validateUnusedProviders(modules, new Map(), new Map(), undefined, warnings, () => []);
+    validateUnusedProviders(modules, new Map(), undefined, warnings, () => []);
 
     expect(warnings).toHaveLength(0);
   });
@@ -1622,7 +1619,7 @@ describe('validateUnusedProviders', () => {
     const modules = new Map([[node.filePath, node]]);
     const warnings: string[] = [];
 
-    validateUnusedProviders(modules, new Map(), new Map(), undefined, warnings, () => []);
+    validateUnusedProviders(modules, new Map(), undefined, warnings, () => []);
 
     expect(warnings).toHaveLength(2);
     expect(warnings.some(w => w.includes('UnusedA'))).toBe(true);

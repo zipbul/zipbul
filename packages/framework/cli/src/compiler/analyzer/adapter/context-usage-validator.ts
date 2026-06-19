@@ -1,6 +1,7 @@
 import type { ContextUsage } from '../parser/handler-context-usage-extractor';
-import type { HandlerIndexEntry } from '../interfaces';
+import type { HandlerIndexEntry, RouteRegistration } from '../interfaces';
 import type { MiddlewareContextAugment } from './middleware-context-types';
+import { buildKeyToRefName } from './context-dependency-validator';
 
 /**
  * Build-time validation result for a handler's context usages.
@@ -33,6 +34,7 @@ export function validateHandlerContextUsages(
   handlerIndex: readonly HandlerIndexEntry[],
   handlerContextUsages: ReadonlyMap<string, readonly ContextUsage[]>,
   augments: readonly MiddlewareContextAugment[],
+  routeRegistrations: readonly RouteRegistration[] = [],
 ): readonly ContextUsageWarning[] {
   if (augments.length === 0) {
     return [];
@@ -45,8 +47,11 @@ export function validateHandlerContextUsages(
     return [];
   }
 
-  // Build handler → registered middleware refs index
-  const handlerMiddlewareIndex = buildHandlerMiddlewareIndex(handlerIndex);
+  // Build handler → registered middleware NAME index. Bindings carry container
+  // keys (`__route_mw__:...`), so translate them to export names via the route
+  // registrations — the augment index is keyed by middleware name too.
+  const keyToRefName = buildKeyToRefName(routeRegistrations);
+  const handlerMiddlewareIndex = buildHandlerMiddlewareIndex(handlerIndex, keyToRefName);
 
   const warnings: ContextUsageWarning[] = [];
 
@@ -107,33 +112,40 @@ function buildAugmentIndex(
  */
 function buildHandlerMiddlewareIndex(
   handlerIndex: readonly HandlerIndexEntry[],
+  keyToRefName: Map<string, string>,
 ): Map<string, Set<string>> {
   const index = new Map<string, Set<string>>();
 
   for (const entry of handlerIndex) {
-    const refs = new Set<string>();
+    const names = new Set<string>();
+    const addKey = (key: string): void => {
+      const name = keyToRefName.get(key);
+      if (name !== undefined) {
+        names.add(name);
+      }
+    };
 
     if (entry.middlewareBindings !== undefined) {
       for (const binding of entry.middlewareBindings) {
-        refs.add(binding.key);
+        addKey(binding.key);
       }
     }
 
     if (entry.middlewareKeys !== undefined) {
       for (const key of entry.middlewareKeys) {
-        refs.add(key);
+        addKey(key);
       }
     }
 
     if (entry.mergedPhaseMiddlewareKeys !== undefined) {
       for (const keys of Object.values(entry.mergedPhaseMiddlewareKeys)) {
         for (const key of keys) {
-          refs.add(key);
+          addKey(key);
         }
       }
     }
 
-    index.set(entry.id, refs);
+    index.set(entry.id, names);
   }
 
   return index;

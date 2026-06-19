@@ -20,6 +20,5 @@ export type {
   ControllerInstance,
   DecoratorArgument,
   MetadataRegistryKey,
-  ParamTypeReference,
 } from './container';
 export type { HttpTlsOptions, TrustProxyConfig } from './server';

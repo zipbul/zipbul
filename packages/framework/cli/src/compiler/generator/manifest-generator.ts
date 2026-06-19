@@ -21,10 +21,11 @@ import {
 } from '@zipbul/common';
 import { type AdapterStaticSchema, type ClassMetadata, ModuleGraph, type ModuleNode } from '../analyzer';
 import { compareCodePoint, PathResolver } from '../../common';
-import { isRecordValue, isAnalyzerValueArray } from '../analyzer/type-guards';
+import { isRecordValue, isAnalyzerValueArray, isClassMetadata } from '../analyzer/type-guards';
 import { ImportRegistry } from './import-registry';
 import { InjectorGenerator } from './injector-generator';
 import { MetadataGenerator } from './metadata-generator';
+import { selectRegistryClasses } from './registry-class-selector';
 
 export class ManifestGenerator {
   private injectorGen = new InjectorGenerator();
@@ -33,7 +34,11 @@ export class ManifestGenerator {
 
   generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string, handlerIndex: readonly HandlerIndexEntry[] = [], routeRegistrations: readonly RouteRegistration[] = [], projectSrcDir?: string): Result<string, Diagnostic> {
     const registry = new ImportRegistry(outputDir, projectSrcDir);
-    const sortedClasses = [...classes].sort((a, b) => {
+    // The metadata registry is a className→constructor lookup for the router only
+    // (controllers + handler DTOs). Everything else — providers, baker @Recipe DTOs
+    // not referenced by a handler, scanned services — is never resolved through it.
+    const registryClasses = selectRegistryClasses(classes, graph, handlerIndex);
+    const sortedClasses = [...registryClasses].sort((a, b) => {
       const nameDiff = compareCodePoint(a.metadata.className, b.metadata.className);
 
       if (nameDiff !== 0) {
@@ -54,7 +59,7 @@ export class ManifestGenerator {
     }
 
     const injectorCode = injectorResult;
-    const metadataCode = this.metadataGen.generate(classes, registry);
+    const metadataCode = this.metadataGen.generate(registryClasses, registry);
     const scopedKeysEntries: string[] = [];
     const sortedNodes = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));
 
@@ -95,33 +100,7 @@ export class ManifestGenerator {
 
         const alias = registry.getAlias(ctrlName, ctrlDef.filePath);
         const scopedKey = `${node.name}${SCOPED_KEY_SEPARATOR}${ctrlName}`;
-        const deps = ctrlDef.metadata.constructorParams.map(param => {
-          const refName = this.extractRefName(param.type);
-
-          if (typeof refName === 'string' && refName.length > 0) {
-            const targetModule = graph.classMap.get(refName);
-
-            if (targetModule) {
-              return `__container__.get('${targetModule.name}${SCOPED_KEY_SEPARATOR}${refName}')`;
-            }
-
-            return `__container__.get('${refName}')`;
-          }
-
-          if (typeof param.type === 'string' && param.type.length > 0) {
-            const targetModule = graph.classMap.get(param.type);
-
-            if (targetModule) {
-              return `__container__.get('${targetModule.name}${SCOPED_KEY_SEPARATOR}${param.type}')`;
-            }
-
-            return `__container__.get('${param.type}')`;
-          }
-
-          return 'undefined';
-        });
-
-        controllerEntries.push(`  factories.set('${scopedKey}', () => runInInjectionContext(__container__, () => new ${alias}(${deps.join(', ')})));`);
+        controllerEntries.push(`  factories.set('${scopedKey}', () => runInInjectionContext(__container__, () => new ${alias}()));`);
       });
     });
 
@@ -179,21 +158,12 @@ const sealMap = <K, V>(map: Map<K, V>): Map<K, V> => {
 const _meta = (
   className: string,
   decorators: readonly unknown[],
-  params: readonly unknown[],
-  methods: readonly unknown[],
-  props: readonly unknown[],
 ): {
   className: string;
   decorators: readonly unknown[];
-  constructorParams: readonly unknown[];
-  methods: readonly unknown[];
-  properties: readonly unknown[];
 } => ({
   className,
-  decorators,
-  constructorParams: params,
-  methods,
-  properties: props
+  decorators
 });
 
 ${injectorCode}
@@ -355,25 +325,15 @@ installRuntime();
       return undefined;
     };
 
-    const isClassMetadata = (value: AnalyzerValue | ClassMetadata): value is ClassMetadata => {
-      if (!isRecordValue(value)) {
-        return false;
-      }
-
-      const constructorParams = value.constructorParams;
-
-      return Array.isArray(constructorParams);
-    };
-
     const extractDeps = (metadata: AnalyzerValue | ClassMetadata | undefined): string[] => {
       if (metadata === undefined) {
         return [];
       }
 
+      // Class providers resolve dependencies via inject() in their own bodies,
+      // not constructor params — so they list no constructor-derived deps here.
       if (isClassMetadata(metadata)) {
-        return metadata.constructorParams
-          .map(param => extractTokenName(param.type))
-          .filter((value): value is string => typeof value === 'string');
+        return [];
       }
 
       const record = isRecordValue(metadata) ? metadata : null;

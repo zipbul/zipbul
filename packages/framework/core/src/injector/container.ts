@@ -15,7 +15,6 @@ import type {
 
 import type {
   ContainerValue,
-  ConstructorParamMetadata,
   FactoryFn,
   ModuleObject,
   ProviderRegistration,
@@ -23,11 +22,9 @@ import type {
   Token,
 } from './types';
 
-import { getBootstrapState } from '../runtime/bootstrap-state';
 import {
   normalizeToken,
   formatToken,
-  resolveTokenRecord,
 } from './token-resolver';
 import { RequestScopeContainer } from './request-scope-container';
 
@@ -36,7 +33,6 @@ export class Container implements ZipbulContainer {
   private singletons = new Map<Token, ContainerValue>();
   private registrationOrder: Token[] = [];
   private scopedKeys?: Map<ProviderToken, string>;
-  private readonly constructorParamsCache = new Map<Class, readonly ConstructorParamMetadata[]>();
   private _hasRequestScope = false;
 
   constructor(initialFactories?: Map<Token, FactoryFn>) {
@@ -208,17 +204,15 @@ export class Container implements ZipbulContainer {
       let factory: FactoryFn | undefined;
 
       if (this.isClassProvider(provider)) {
-        this.cacheConstructorParams(provider);
         token = provider;
-        factory = _c => new provider(...this.resolveDepsFor(provider, scope));
+        factory = () => new provider();
       } else if (this.isProviderRecord(provider)) {
         token = provider.provide;
 
         if (this.isProviderUseValue(provider)) {
           factory = () => provider.useValue;
         } else if (this.isProviderUseClass(provider)) {
-          this.cacheConstructorParams(provider.useClass);
-          factory = _c => new provider.useClass(...this.resolveDepsFor(provider.useClass, scope));
+          factory = () => new provider.useClass();
         } else if (this.isProviderUseExisting(provider)) {
           factory = c => {
             const existingKey = normalizeToken(provider.useExisting);
@@ -256,61 +250,6 @@ export class Container implements ZipbulContainer {
         this.set(keyStr, factory);
       }
     }
-  }
-
-  private cacheConstructorParams(ctor: Class): void {
-    if (this.constructorParamsCache.has(ctor)) {
-      return;
-    }
-
-    const registry = getBootstrapState().metadataRegistry;
-
-    if (!registry?.has(ctor)) {
-      return;
-    }
-
-    const meta = registry.get(ctor);
-
-    if (meta?.constructorParams) {
-      this.constructorParamsCache.set(ctor, meta.constructorParams);
-    }
-  }
-
-  private resolveDepsFor(ctor: Class, scope: string): ContainerValue[] {
-    const params = this.constructorParamsCache.get(ctor);
-
-    if (!params) {
-      return [];
-    }
-
-    return params.map((param: ConstructorParamMetadata) => {
-      let token = param.type;
-
-      token = resolveTokenRecord(token);
-
-      const tokenName = normalizeToken(token);
-      const key = tokenName !== undefined ? `${scope}::${tokenName}` : '';
-
-      if (key.length > 0 && this.has(key)) {
-        return this.get(key);
-      }
-
-      if (tokenName === undefined) {
-        throw new Error(
-          `[Zipbul DI] Cannot resolve constructor parameter of '${ctor.name}': token could not be normalized. ` +
-          `Ensure the parameter type is a class, string, or symbol registered in the container.`,
-        );
-      }
-
-      try {
-        return this.get(tokenName);
-      } catch {
-        throw new Error(
-          `[Zipbul DI] Cannot resolve constructor parameter of '${ctor.name}': no provider for '${tokenName}'. ` +
-          `Register a provider for this token in the module or check the import path.`,
-        );
-      }
-    });
   }
 
   private isClassProvider(provider: Provider): provider is Class {

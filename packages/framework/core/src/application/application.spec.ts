@@ -5,9 +5,15 @@ import { defineMiddleware, defineGuard } from '@zipbul/common';
 let mockAdapterConfig: Record<string, unknown> | undefined;
 
 mock.module('@zipbul/baker', () => ({
+  // baker 5.x: app DTOs register via a `new Baker()` instance (see src/baker.ts),
+  // sealed by `appBaker.seal()` at startup. The stub instance only needs the two
+  // members application code touches: the `Recipe` decorator and `seal`.
+  Baker: class {
+    Recipe = (target: unknown) => target;
+    seal = () => {};
+  },
   deserialize: async () => ({}),
   isBakerIssueSet: () => false,
-  seal: () => {},
 }));
 
 mock.module('../runtime/bootstrap-state', () => ({

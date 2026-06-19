@@ -2,7 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
 import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import { isErr, err } from '@zipbul/result';
-import { ZIPBUL_REF } from '@zipbul/common';
+import { ZIPBUL_CALL, ZIPBUL_IMPORT_SOURCE, ZIPBUL_REF } from '@zipbul/common';
 
 import type { ClassMetadata } from '../interfaces';
 import { buildImportMap } from '../expression-converter';
@@ -100,7 +100,6 @@ describe('convertClassSymbol', () => {
 
     expect(metadata.className).toBe('SimpleService');
     expect(metadata.decorators).toEqual([]);
-    expect(metadata.constructorParams).toEqual([]);
     expect(metadata.methods).toEqual([]);
     expect(metadata.properties).toEqual([]);
     expect(metadata.heritage).toBeUndefined();
@@ -156,78 +155,6 @@ describe('convertClassSymbol', () => {
     const metadata = result as ClassMetadata;
 
     expect(metadata.decorators[0]?.name).toBe('Injectable');
-  });
-
-  it('should populate constructorParams when class has constructor with typed parameters', () => {
-    const code = [
-      "import { ConfigService } from './config.service';",
-      '',
-      'export class MyService {',
-      '  constructor(private config: ConfigService) {}',
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'MyService');
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      createDefaultContext(), createRealAstLocators(),
-      createNoopMethodCallbacks(), createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(false);
-
-    const metadata = result as ClassMetadata;
-
-    expect(metadata.constructorParams).toHaveLength(1);
-    expect(metadata.constructorParams[0]?.name).toBe('config');
-  });
-
-  it('should return type as any when constructor param has no type annotation', () => {
-    const code = [
-      'export class MyService {',
-      '  constructor(private value) {}',
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'MyService');
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      createDefaultContext(), createRealAstLocators(),
-      createNoopMethodCallbacks(), createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(false);
-
-    const metadata = result as ClassMetadata;
-
-    expect(metadata.constructorParams).toHaveLength(1);
-    expect(metadata.constructorParams[0]?.type).toBe('any');
-  });
-
-  it('should extract typeArgs from generic constructor param type', () => {
-    const code = [
-      "import { Map } from './map';",
-      '',
-      'export class MyService {',
-      '  constructor(private data: Map<string, number>) {}',
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'MyService');
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      createDefaultContext(), createRealAstLocators(),
-      createNoopMethodCallbacks(), createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(false);
-
-    const metadata = result as ClassMetadata;
-
-    expect(metadata.constructorParams[0]?.typeArgs).toEqual(['string', 'number']);
   });
 
   it('should populate methods when class has decorated method', () => {
@@ -394,6 +321,37 @@ describe('convertClassSymbol', () => {
     expect(metadata.properties[0]?.initializer).toBe('localhost');
   });
 
+  it('should extract an inject() call as a property initializer IR (inject()-only DI)', () => {
+    const code = [
+      "import { inject } from '@zipbul/core';",
+      "import { MyService } from './my-service';",
+      '',
+      'export class Consumer {',
+      '  private readonly dep = inject(MyService);',
+      '}',
+    ].join('\n');
+    const { parsed, symbols, importMap } = parseFixture(code);
+    const symbol = findClassSymbol(symbols, 'Consumer');
+
+    const result = convertClassSymbol(
+      symbol, parsed, {}, importMap,
+      createDefaultContext(), createRealAstLocators(),
+      createNoopMethodCallbacks(), createDefaultAnonymousCheck(),
+    );
+
+    expect(isErr(result)).toBe(false);
+
+    const metadata = result as ClassMetadata;
+    const initializer = metadata.properties[0]?.initializer as Record<string, unknown>;
+
+    expect(initializer?.[ZIPBUL_CALL]).toBe('inject');
+    expect(initializer?.[ZIPBUL_IMPORT_SOURCE]).toBe('@zipbul/core');
+
+    const args = initializer?.args as Record<string, unknown>[] | undefined;
+
+    expect(args?.[0]?.[ZIPBUL_REF]).toBe('MyService');
+  });
+
   it('should set isOptional for protected property', () => {
     const code = [
       "import { Column } from './decorators';",
@@ -540,40 +498,6 @@ describe('convertClassSymbol', () => {
     const metadata = result as ClassMetadata;
 
     expect(metadata.exceptionFilters).toEqual(filterResult);
-  });
-
-  it('should resolve constructor param type with typeImportSource to ref object', () => {
-    const code = [
-      "import { ConfigService } from './config.service';",
-      '',
-      'export class MyService {',
-      '  constructor(private config: ConfigService) {}',
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'MyService');
-    const context = createDefaultContext();
-
-    context.resolvePath = (_sourcePath: string, importPath: string) => `/resolved${importPath}`;
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      context, createRealAstLocators(),
-      createNoopMethodCallbacks(), createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(false);
-
-    const metadata = result as ClassMetadata;
-    const paramType = metadata.constructorParams[0]?.type;
-
-    expect(typeof paramType).toBe('object');
-
-    if (typeof paramType === 'object' && paramType !== null) {
-      const record = paramType as Record<string, unknown>;
-
-      expect(record[ZIPBUL_REF]).toBe('ConfigService');
-    }
   });
 
   it('should return err diagnostic for anonymous class with empty name', () => {
@@ -729,7 +653,6 @@ describe('convertClassSymbol', () => {
 
     const metadata = result as ClassMetadata;
 
-    expect(metadata.constructorParams).toEqual([]);
     expect(metadata.methods).toEqual([]);
     expect(metadata.properties).toEqual([]);
   });
@@ -948,40 +871,6 @@ describe('convertClassSymbol', () => {
     expect(metadata.heritage?.typeArgs).toEqual(['PartialConfig']);
   });
 
-  it('should resolve aliased constructor param type through importMap originalName', () => {
-    const code = [
-      "import { OriginalService as Alias } from './service';",
-      '',
-      'export class MyService {',
-      '  constructor(private dep: Alias) {}',
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'MyService');
-    const context = createDefaultContext();
-
-    context.resolvePath = (_sourcePath: string, importPath: string) => `/resolved${importPath}`;
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      context, createRealAstLocators(),
-      createNoopMethodCallbacks(), createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(false);
-
-    const metadata = result as ClassMetadata;
-    const paramType = metadata.constructorParams[0]?.type;
-
-    expect(typeof paramType).toBe('object');
-
-    if (typeof paramType === 'object' && paramType !== null) {
-      const record = paramType as Record<string, unknown>;
-
-      expect(record[ZIPBUL_REF]).toBe('OriginalService');
-    }
-  });
-
   it('should handle heritage with non-utility type having no typeArgs', () => {
     const code = [
       "import { BaseService } from './base';",
@@ -1025,33 +914,6 @@ describe('convertClassSymbol', () => {
 
     expect(metadata.heritage).toBeDefined();
     expect(metadata.heritage?.typeName).toBe('Configurable');
-  });
-
-  it('should resolve constructor param decorator alias through currentOriginalNames', () => {
-    const code = [
-      "import { Inject as Inj } from '@zipbul/common';",
-      '',
-      'export class MyService {',
-      "  constructor(@Inj('TOKEN') private dep: string) {}",
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'MyService');
-    const context = createDefaultContext();
-
-    context.currentOriginalNames = { Inj: 'Inject' };
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      context, createRealAstLocators(),
-      createNoopMethodCallbacks(), createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(false);
-
-    const metadata = result as ClassMetadata;
-
-    expect(metadata.constructorParams[0]?.decorators[0]?.name).toBe('Inject');
   });
 
   it('should include methods only when they have decorators or decorated params', () => {
