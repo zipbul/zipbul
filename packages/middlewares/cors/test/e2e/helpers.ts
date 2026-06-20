@@ -22,13 +22,18 @@ export async function bootCorsApp(opts: CorsOptions, extras: BootCorsAppExtras =
   let captured: HttpAdapter | undefined;
 
   const testApp = await Tck.createApplication({
+    adapterConfig: {
+      HttpAdapter: {
+        middlewares: {
+          [HttpAdapterPhase.OnRequest]: [
+            ...(extras.priorMiddlewares ?? []),
+            corsMiddleware(opts),
+          ],
+        },
+      },
+    },
     register: (app) => {
-      const http = app.attach(HttpAdapter, { port: 0 });
-      http.addMiddlewares(HttpAdapterPhase.OnRequest, [
-        ...(extras.priorMiddlewares ?? []),
-        corsMiddleware(opts),
-      ]);
-      captured = http;
+      captured = app.attach(HttpAdapter, { port: 0 });
     },
   });
 

@@ -8,16 +8,13 @@
  * middleware → getQuery → handler flow over real HTTP, with the middleware's
  * default options (nesting off, urlEncoded off, first-duplicate).
  *
- * NOTE: currently blocked by a pre-existing AOT-compiler bug that serializes
- * baker `@Field(oneOf(...))` rule arguments as string literals, which breaks
- * every baker `@Recipe` (cors included) in a compiled app. See the cors e2e,
- * which fails for the same root cause.
+ * queryParser is registered controller-scoped via `@UseMiddlewares` on
+ * `SearchController`, so the test attaches only the transport.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
-import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+import { HttpAdapter } from '@zipbul/http-adapter';
 import { createHttpClient, type HttpClient } from '@zipbul/http-adapter/testing';
-import { queryParser } from '@zipbul/query-parser';
 import { Test, type TestApplication } from '@zipbul/testing';
 
 import { appModule } from '../../src/module';
@@ -29,9 +26,10 @@ describe('examples — query-parser e2e', () => {
   beforeAll(async () => {
     app = await Test.create(appModule, {
       projectRoot: import.meta.dir.replace(/\/test\/e2e$/, ''),
+      // queryParser is registered controller-scoped via @UseMiddlewares on
+      // SearchController (GET /search), so the transport only needs attaching.
       attach: (recorder) => {
-        const httpAdapter = recorder.attach(HttpAdapter, { port: 0 });
-        httpAdapter.addMiddlewares(HttpAdapterPhase.BeforeValidate, [queryParser]);
+        recorder.attach(HttpAdapter, { port: 0 });
       },
     });
 

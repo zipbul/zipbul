@@ -524,8 +524,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => () => { order.push('global:OnReceive'); })] });
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => () => { order.push('global:OnComplete'); })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -562,10 +562,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [
         defineMiddleware(() => () => { order.push('OnReceive:1'); }),
         defineMiddleware(() => () => { order.push('OnReceive:2'); }),
-      ]);
+      ] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -624,8 +624,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeMw = mock((_ctx: Context) => {});
       const handlerFn = mock(() => 'ok');
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => err({ status: 429 }))]);
-      adapter.addMiddlewares(HttpAdapterPhase.BeforeValidate, [defineMiddleware(() => () => { throw new Error('should not run'); })]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => () => err({ status: 429 }))] });
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.BeforeValidate]: [defineMiddleware(() => () => { throw new Error('should not run'); })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -646,7 +646,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => () => { order.push('OnReceive'); })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeMw = mock((_ctx: Context) => {});
@@ -766,8 +766,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const guardFn = mock((_ctx: Context) => { order.push('guard'); });
       const handlerFn = mock(() => { order.push('handler'); return 'ok'; });
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('global:OnReceive'); })]);
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => () => { order.push('global:OnComplete'); })]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => () => { order.push('global:OnReceive'); })] });
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => () => { order.push('global:OnComplete'); })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -799,7 +799,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => onCompleteFn)] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -818,8 +818,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addGuards([defineGuard(() => () => err({ status: 403 }))]);
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.applyGuardConfig([defineGuard(() => () => err({ status: 403 }))]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => onCompleteFn)] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({});
@@ -884,7 +884,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const globalFilter = mock((_error: unknown, _ctx: Context) => err({ source: 'filter' }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilter)]);
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => globalFilter)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route-filter' }));
@@ -906,7 +906,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const globalFilter = mock((_error: unknown, _ctx: Context) => err({ source: 'filter' }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilter)]);
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => globalFilter)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -934,7 +934,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
       const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route', status: 422 }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => globalFilterHandler)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1114,8 +1114,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const contexts: Context[] = [];
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => (ctx) => { contexts.push(ctx); })]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => (ctx) => { contexts.push(ctx); })] });
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => (ctx) => { contexts.push(ctx); })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1196,8 +1196,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => () => { order.push('OnReceive'); })] });
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => () => { order.push('OnComplete'); })] });
       adapter.initializePipeline(createMockContainer());
 
       const noMatchRouteHandler = {
@@ -1239,7 +1239,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('global'); })]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => () => { order.push('global'); })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1324,8 +1324,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
         return err({ caught: true });
       };
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('OnReceive'); })]);
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => () => { order.push('OnComplete'); })]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => () => { order.push('OnReceive'); })] });
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => () => { order.push('OnComplete'); })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1481,9 +1481,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should not affect request result when OnComplete middleware throws', async () => {
       // Arrange
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [
         defineMiddleware(() => () => { throw new Error('OnComplete crash'); }),
-      ]);
+      ] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1503,9 +1503,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should not affect request result when OnComplete middleware returns Err', async () => {
       // Arrange
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [
         defineMiddleware(() => () => err({ reason: 'OnComplete err' })),
-      ]);
+      ] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1536,7 +1536,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const globalSpecificHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global-specific' }));
       const routeCatchAllHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route-catch-all' }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([SpecificError], () => globalSpecificHandler)]);
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([SpecificError], () => globalSpecificHandler)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1593,7 +1593,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const filterB = mock((_error: unknown, _ctx: Context) => err({ source: 'B' }));
       const globalFilter = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilter)]);
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => globalFilter)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1627,7 +1627,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route' }));
       const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => globalFilterHandler)]);
       adapter.initializePipeline(createMockContainer());
 
       // Err path — should NOT trigger any exception filter
@@ -1650,7 +1650,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route' }));
       const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => globalFilterHandler)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1692,7 +1692,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route' }));
       const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => globalFilterHandler)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1715,7 +1715,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       const routeFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'route-filter' }));
       const globalFilterHandler = mock((_error: unknown, _ctx: Context) => err({ source: 'global' }));
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalFilterHandler)]);
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => globalFilterHandler)]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1783,7 +1783,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => onCompleteFn)] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1802,7 +1802,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => onCompleteFn)] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1821,8 +1821,8 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
-      adapter.addExceptionFilters([defineExceptionFilter([], () => (_error, _ctx) => err({ caught: true }))]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => onCompleteFn)] });
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => (_error, _ctx) => err({ caught: true }))]);
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -1841,7 +1841,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const onCompleteFn = mock((_ctx: Context) => {});
 
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => onCompleteFn)]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => onCompleteFn)] });
       adapter.initializePipeline(createMockContainer());
       (adapter as any).emergencyTeardown = mock(() => {});
 
@@ -2862,15 +2862,15 @@ describe('HttpAdapter route-level middleware pipeline', () => {
     });
   });
 
-  // ── addMiddlewares convenience method ──────────────────────────
+  // ── Phase middleware application (applyMiddlewareConfig) ───────
 
-  describe('addMiddlewares', () => {
+  describe('applyMiddlewareConfig', () => {
     it('should register middlewares for a given phase', async () => {
       // Arrange
       const adapter = new HttpAdapter();
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => { order.push('mw1'); })]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => () => { order.push('mw1'); })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({
@@ -2883,14 +2883,6 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       // Assert
       expect(order).toEqual(['mw1', 'handler']);
-    });
-
-    it('should return this for chaining', () => {
-      // Arrange
-      const adapter = new HttpAdapter();
-
-      // Act & Assert
-      expect(adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [])).toBe(adapter);
     });
   });
 
@@ -2969,10 +2961,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpAdapterPhase.BeforeParse, [defineMiddleware(() => () => { order.push('BeforeParse'); })]);
-      adapter.addMiddlewares(HttpAdapterPhase.BeforeValidate, [defineMiddleware(() => () => { order.push('BeforeValidate'); })]);
-      adapter.addMiddlewares(HttpAdapterPhase.BeforeHandle, [defineMiddleware(() => () => { order.push('BeforeHandle'); })]);
-      adapter.addMiddlewares(HttpAdapterPhase.AfterResponse, [defineMiddleware(() => () => { order.push('AfterResponse'); })]);
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.BeforeParse]: [defineMiddleware(() => () => { order.push('BeforeParse'); })] });
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.BeforeValidate]: [defineMiddleware(() => () => { order.push('BeforeValidate'); })] });
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.BeforeHandle]: [defineMiddleware(() => () => { order.push('BeforeHandle'); })] });
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [defineMiddleware(() => () => { order.push('AfterResponse'); })] });
       adapter.initializePipeline(createMockContainer());
 
       const mockRouteHandler = {
@@ -3333,10 +3325,10 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const order: string[] = [];
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => (ctx) => {
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => (ctx) => {
         order.push('OnRequest');
         ctx.to(HttpContext).pipelineError = { status: 501, message: 'Not Implemented' };
-      })]);
+      })] });
       adapter.initializePipeline(createMockContainer());
 
       const handlerFn = mock(() => 'ok');
@@ -3357,11 +3349,11 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should include OnRequest MW headers in pipelineError response', async () => {
       // Arrange
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => (ctx) => {
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => (ctx) => {
         const http = ctx.to(HttpContext);
         http.response.setHeader('access-control-allow-origin', '*');
         http.pipelineError = { status: 400, message: 'Bad Request' };
-      })]);
+      })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({});
@@ -3380,9 +3372,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should return 501 status for pipelineError with 501', async () => {
       // Arrange
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => (ctx) => {
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => (ctx) => {
         ctx.to(HttpContext).pipelineError = { status: 501, message: 'Not Implemented' };
-      })]);
+      })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({});
@@ -3400,9 +3392,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
     it('should return 400 status for pipelineError with 400', async () => {
       // Arrange
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => (ctx) => {
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => (ctx) => {
         ctx.to(HttpContext).pipelineError = { status: 400, message: 'Bad Request' };
-      })]);
+      })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({});
@@ -3422,9 +3414,9 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Arrange
       const handlerFn = mock(() => ({ data: 'success' }));
 
-      adapter.addMiddlewares(HttpAdapterPhase.OnRequest, [defineMiddleware(() => () => {
+      adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [defineMiddleware(() => () => {
         // OnRequest MW runs but does NOT set pipelineError
-      })]);
+      })] });
       adapter.initializePipeline(createMockContainer());
 
       const routeHandler = createMockRouteHandler({ handler: handlerFn });

@@ -33,11 +33,16 @@ export async function bootCookieApp(
   const cm = cookieMiddleware(options);
 
   const testApp = await Tck.createApplication({
+    adapterConfig: {
+      HttpAdapter: {
+        middlewares: {
+          [HttpAdapterPhase.OnRequest]: [cm.onRequest, ...(extras.onRequest ?? [])],
+          [HttpAdapterPhase.BeforeResponse]: [cm.beforeResponse],
+        },
+      },
+    },
     register: (app) => {
-      const http = app.attach(HttpAdapter, { port: 0 });
-      http.addMiddlewares(HttpAdapterPhase.OnRequest, [cm.onRequest, ...(extras.onRequest ?? [])]);
-      http.addMiddlewares(HttpAdapterPhase.BeforeResponse, [cm.beforeResponse]);
-      captured = http;
+      captured = app.attach(HttpAdapter, { port: 0 });
     },
   });
 
