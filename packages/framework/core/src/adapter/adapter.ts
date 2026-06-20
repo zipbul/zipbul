@@ -223,20 +223,6 @@ export abstract class Adapter implements AdapterContract {
   // ── Middleware registry ─────────────────────────────────────
 
   /**
-   * Stores middleware definitions for a given phase.
-   *
-   * @param phase - Phase key.
-   * @param middlewares - Middleware definitions to append.
-   * @public
-   */
-  protected registerMiddleware(phase: string, middlewares: readonly MiddlewareDefinition[]): void {
-    this.validatePhase(phase);
-    this.validateAdapterCompatibility(middlewares, 'Middleware');
-    const existing = this.middlewareRegistry.get(phase) ?? [];
-    this.middlewareRegistry.set(phase, [...existing, ...middlewares]);
-  }
-
-  /**
    * Returns resolved middlewares for a given phase.
    *
    * @param phase - Phase key.
@@ -245,29 +231,6 @@ export abstract class Adapter implements AdapterContract {
    */
   protected getPhaseMiddlewares(phase: string): readonly ResolvedMiddleware[] {
     return this.resolvedMiddlewareRegistry.get(phase) ?? [];
-  }
-
-  /**
-   * Registers exception filter definitions.
-   *
-   * @param definitions - Exception filter definitions to append.
-   * @public
-   */
-  addExceptionFilters(definitions: readonly ExceptionFilterDefinition[]): this {
-    this.exceptionFilterDefs = [...this.exceptionFilterDefs, ...definitions];
-    return this;
-  }
-
-  /**
-   * Registers guard definitions.
-   *
-   * @param guards - Guard definitions to append.
-   * @public
-   */
-  addGuards(guards: readonly GuardDefinition[]): this {
-    this.validateAdapterCompatibility(guards, 'Guard');
-    this.guardDefs = [...this.guardDefs, ...guards];
-    return this;
   }
 
   // ── Pipeline initialization ────────────────────────────────

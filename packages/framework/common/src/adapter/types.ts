@@ -141,22 +141,6 @@ export interface Adapter {
   applyExceptionFilterConfig(filters: readonly ExceptionFilterDefinition[]): void;
 
   /**
-   * Registers exception filter definitions.
-   *
-   * @param definitions - Exception filter definitions to append.
-   * @public
-   */
-  addExceptionFilters(definitions: readonly ExceptionFilterDefinition[]): this;
-
-  /**
-   * Registers guard definitions.
-   *
-   * @param guards - Guard definitions to append.
-   * @public
-   */
-  addGuards(guards: readonly GuardDefinition[]): this;
-
-  /**
    * Resolves all definition factories within the given DI container.
    *
    * @param container - The application DI container.

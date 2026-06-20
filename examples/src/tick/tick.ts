@@ -38,7 +38,6 @@ import {
   type ClassToken,
   type CompiledHandlerEntry,
   type ContextKey,
-  type MiddlewareDefinition,
 } from '@zipbul/common';
 import { isErr } from '@zipbul/result';
 import { Logger } from '@zipbul/logger';
@@ -180,24 +179,6 @@ export class TickAdapter extends Adapter {
     }
     this.intervalMs = intervalMs;
     this.maxRounds = maxRounds;
-  }
-
-  /**
-   * Public wrapper around `Adapter.registerMiddleware` for the OnTick phase.
-   *
-   * **Lifecycle constraint** — must be called BEFORE `app.start()`. The base
-   * `Adapter` resolves `middlewareRegistry` → `resolvedMiddlewareRegistry`
-   * once during `initializePipeline` (called by `Application.start` before
-   * `adapter.start`), and `TickAdapter.start` snapshots handler pipelines at
-   * boot. Late registration would write into a registry the dispatch path no
-   * longer reads. Calls after `start()` throw rather than silently no-op.
-   */
-  addMiddlewares(phase: TickPhaseValue, middlewares: readonly MiddlewareDefinition[]): this {
-    if (this.cachedHandlers !== null) {
-      throw new Error(`[TickAdapter] addMiddlewares() must be called before app.start(); the adapter has already booted (${String(this.cachedHandlers.length)} handlers cached).`);
-    }
-    this.registerMiddleware(phase, middlewares);
-    return this;
   }
 
   protected async executePipeline(context: AdapterContext): Promise<void> {

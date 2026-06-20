@@ -3,7 +3,6 @@ import type {
   ApplicationContext,
   AdapterEntryDecorators,
   CompiledHandlerEntry,
-  MiddlewareDefinition,
 } from '@zipbul/common';
 import { err, isErr } from '@zipbul/result';
 import type { Result, Err } from '@zipbul/result';
@@ -97,22 +96,6 @@ export class HttpAdapter extends Adapter {
   registerInternalRoute(method: InternalRouteEntry['method'], path: string, handler: InternalRouteHandler): void {
     this.internalRoutes.push({ method, path, handler });
   }
-
-  // ── Middleware configuration ─────────────────────────────────
-
-  /**
-   * Typed programmatic middleware registration for HTTP phases.
-   *
-   * @param phase - The HTTP pipeline phase.
-   * @param middlewares - Middleware definitions to append.
-   * @returns `this` for chaining.
-   * @public
-   */
-  addMiddlewares(phase: HttpAdapterPhase, middlewares: readonly MiddlewareDefinition[]): this {
-    this.registerMiddleware(phase, middlewares);
-    return this;
-  }
-
 
   // ── Finalize middlewares ─────────────────────────────────────
 
