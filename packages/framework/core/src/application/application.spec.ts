@@ -938,16 +938,16 @@ describe('Application', () => {
       const startFn = mock(() => Promise.resolve());
       const stopFn = mock(() => Promise.resolve());
 
-      const addGuardsFn = mock(function (this: object) { return this; });
-      const addExceptionFiltersFn = mock(function (this: object) { return this; });
+      const applyGuardConfigFn = mock(function () {});
+      const applyExceptionFilterConfigFn = mock(function () {});
       const applyMiddlewareConfigFn = mock(function () {});
       const initializePipelineFn = mock(function () {});
 
       class GuardWirableMockAdapter {
         start = startFn;
         stop = stopFn;
-        addGuards = addGuardsFn;
-        addExceptionFilters = addExceptionFiltersFn;
+        applyGuardConfig = applyGuardConfigFn;
+        applyExceptionFilterConfig = applyExceptionFilterConfigFn;
         applyMiddlewareConfig = applyMiddlewareConfigFn;
         initializePipeline = initializePipelineFn;
       }
@@ -956,14 +956,14 @@ describe('Application', () => {
         AdapterClass: GuardWirableMockAdapter as unknown as AdapterClass,
         startFn,
         stopFn,
-        addGuardsFn,
-        addExceptionFiltersFn,
+        applyGuardConfigFn,
+        applyExceptionFilterConfigFn,
         applyMiddlewareConfigFn,
         initializePipelineFn,
       };
     }
 
-    it('should call adapter.addGuards when config.guards is non-empty', async () => {
+    it('should call adapter.applyGuardConfig when config.guards is non-empty', async () => {
       const adapter = createGuardWirableAdapterClass();
       const guard = createGuard();
       mockAdapterConfig = {
@@ -973,11 +973,11 @@ describe('Application', () => {
       app.attach(adapter.AdapterClass);
       await app.start();
 
-      expect(adapter.addGuardsFn).toHaveBeenCalledTimes(1);
-      expect(adapter.addGuardsFn).toHaveBeenCalledWith([guard]);
+      expect(adapter.applyGuardConfigFn).toHaveBeenCalledTimes(1);
+      expect(adapter.applyGuardConfigFn).toHaveBeenCalledWith([guard]);
     });
 
-    it('should not call adapter.addGuards when config.guards is empty array', async () => {
+    it('should not call adapter.applyGuardConfig when config.guards is empty array', async () => {
       const adapter = createGuardWirableAdapterClass();
       mockAdapterConfig = {
         [adapter.AdapterClass.name]: { guards: [] },
@@ -986,10 +986,10 @@ describe('Application', () => {
       app.attach(adapter.AdapterClass);
       await app.start();
 
-      expect(adapter.addGuardsFn).not.toHaveBeenCalled();
+      expect(adapter.applyGuardConfigFn).not.toHaveBeenCalled();
     });
 
-    it('should not call adapter.addGuards when config.guards is undefined', async () => {
+    it('should not call adapter.applyGuardConfig when config.guards is undefined', async () => {
       const adapter = createGuardWirableAdapterClass();
       mockAdapterConfig = {
         [adapter.AdapterClass.name]: {},
@@ -998,26 +998,24 @@ describe('Application', () => {
       app.attach(adapter.AdapterClass);
       await app.start();
 
-      expect(adapter.addGuardsFn).not.toHaveBeenCalled();
+      expect(adapter.applyGuardConfigFn).not.toHaveBeenCalled();
     });
 
     it('should wire guards after exceptionFilters', async () => {
       const wireOrder: string[] = [];
       const adapter = createGuardWirableAdapterClass();
-      adapter.addExceptionFiltersFn.mockImplementation(function (this: object) {
+      adapter.applyExceptionFilterConfigFn.mockImplementation(function () {
         wireOrder.push('exceptionFilters');
-        return this;
       });
-      adapter.addGuardsFn.mockImplementation(function (this: object) {
+      adapter.applyGuardConfigFn.mockImplementation(function () {
         wireOrder.push('guards');
-        return this;
       });
 
       class OrderTrackingAdapter {
         start = adapter.startFn;
         stop = adapter.stopFn;
-        addGuards = adapter.addGuardsFn;
-        addExceptionFilters = adapter.addExceptionFiltersFn;
+        applyGuardConfig = adapter.applyGuardConfigFn;
+        applyExceptionFilterConfig = adapter.applyExceptionFilterConfigFn;
         applyMiddlewareConfig = adapter.applyMiddlewareConfigFn;
         initializePipeline = adapter.initializePipelineFn;
       }
@@ -1047,8 +1045,8 @@ describe('Application', () => {
       app.attach(adapter.AdapterClass, { name: 'custom-name' });
       await app.start();
 
-      expect(adapter.addGuardsFn).toHaveBeenCalledTimes(1);
-      expect(adapter.addGuardsFn).toHaveBeenCalledWith([guard]);
+      expect(adapter.applyGuardConfigFn).toHaveBeenCalledTimes(1);
+      expect(adapter.applyGuardConfigFn).toHaveBeenCalledWith([guard]);
     });
   });
 });

@@ -33,7 +33,7 @@ import { buildImportState, buildExportState, collectExportNames, resolveExportDe
 import type { ImportTrackingState } from './import-export-extractor';
 import { convertClassSymbol } from './class-metadata-extractor';
 import type { AstNodeLocatorCallbacks, MethodMetadataCallbacks, AnonymousClassCallback, ClassMetadataContext } from './class-metadata-extractor';
-import { enrichFactoryValues, detectFrameworkCallsFromInitializer, convertModuleDefinition, upsertDefineModuleCall, parsePatternCaptureArgs, resolveExportDefaultDefineModule } from './framework-call-detector';
+import { enrichFactoryValues, detectFrameworkCallsFromInitializer, convertModuleDefinition, moduleDefinitionFromDefineModuleArg, upsertDefineModuleCall, parsePatternCaptureArgs, resolveExportDefaultDefineModule } from './framework-call-detector';
 import { resolveInjectCallee, findImportSourceForCallee, buildInjectCallFromCapture } from './inject-call-analyzer';
 import { extractExceptionFiltersFromConfigure, extractMiddlewaresFromConfigure } from './method-metadata-extractor';
 import { extractHandlerContextUsages } from './handler-context-usage-extractor';
@@ -414,6 +414,16 @@ export class AstParser {
 
         if (symbol.name === 'module' && symbol.initializer.kind === 'object') {
           moduleDefinition = convertModuleDefinition(symbol.initializer, importMap, this.currentImports);
+        } else if (symbol.initializer.kind === 'call') {
+          // The canonical form `export const appModule = defineModule({ name, providers, adapters })`.
+          // detectFrameworkCallsFromInitializer (above) already classified this call and captured its
+          // converted arguments; build the ModuleDefinition from the config object so adapters/providers
+          // reach codegen. (The bare-object branch above is the legacy `const module = {...}` shape.)
+          const moduleCall = defineModuleCalls.find(call => call.localName === symbol.name);
+
+          if (moduleCall !== undefined) {
+            moduleDefinition = moduleDefinitionFromDefineModuleArg(moduleCall.args[0], this.currentImports);
+          }
         }
       }
 

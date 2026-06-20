@@ -341,6 +341,11 @@ describe('Adapter', () => {
       const noPhase = new NoPhaseAdapter();
       expect(() => noPhase.applyMiddlewareConfig({ X: [] })).toThrow(/must declare static validPhases/);
     });
+
+    it('should throw when a middleware declares an incompatible adapter class', () => {
+      const incompatibleMw = defineMiddleware([AnotherAdapter], () => (_ctx: Context) => {});
+      expect(() => adapter.applyMiddlewareConfig({ TestPhase: [incompatibleMw] })).toThrow(/AnotherAdapter.*TestAdapter/);
+    });
   });
 
   describe('getPhaseMiddlewares', () => {
@@ -440,6 +445,59 @@ describe('Adapter', () => {
 
     it('should return this for chaining', () => {
       expect(adapter.addGuards([])).toBe(adapter);
+    });
+  });
+
+  describe('applyGuardConfig', () => {
+    it('should append guard definitions', () => {
+      const guard = defineGuard(() => (_ctx: Context) => {});
+      adapter.applyGuardConfig([guard]);
+      expect(adapter['guardDefs']).toHaveLength(1);
+    });
+
+    it('should accumulate across multiple calls', () => {
+      adapter.applyGuardConfig([defineGuard(() => (_ctx: Context) => {})]);
+      adapter.applyGuardConfig([defineGuard(() => (_ctx: Context) => {})]);
+      expect(adapter['guardDefs']).toHaveLength(2);
+    });
+
+    it('should accept a guard whose declared adapter class matches', () => {
+      const guard = defineGuard([TestAdapter], () => (_ctx: Context) => {});
+      expect(() => adapter.applyGuardConfig([guard])).not.toThrow();
+    });
+
+    it('should throw when a guard declares an incompatible adapter class', () => {
+      const guard = defineGuard([AnotherAdapter], () => (_ctx: Context) => {});
+      expect(() => adapter.applyGuardConfig([guard])).toThrow(/AnotherAdapter.*TestAdapter/);
+    });
+
+    it('should accept a guard on a child adapter when the parent class is declared', () => {
+      const child = new ChildAdapter();
+      const guard = defineGuard([TestAdapter], () => (_ctx: Context) => {});
+      expect(() => child.applyGuardConfig([guard])).not.toThrow();
+    });
+  });
+
+  describe('applyExceptionFilterConfig', () => {
+    it('should append exception filter definitions', () => {
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => mock(() => err({ caught: true })))]);
+      expect(adapter['exceptionFilterDefs']).toHaveLength(1);
+    });
+
+    it('should accumulate across multiple calls', () => {
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => mock(() => err({ caught: true })))]);
+      adapter.applyExceptionFilterConfig([defineExceptionFilter([], () => mock(() => err({ caught: true })))]);
+      expect(adapter['exceptionFilterDefs']).toHaveLength(2);
+    });
+
+    it('should accept a filter whose declared adapter class matches', () => {
+      const filter = defineExceptionFilter([], [TestAdapter], () => mock(() => err({ caught: true })));
+      expect(() => adapter.applyExceptionFilterConfig([filter])).not.toThrow();
+    });
+
+    it('should throw when a filter declares an incompatible adapter class', () => {
+      const filter = defineExceptionFilter([], [AnotherAdapter], () => mock(() => err({ caught: true })));
+      expect(() => adapter.applyExceptionFilterConfig([filter])).toThrow(/AnotherAdapter.*TestAdapter/);
     });
   });
 

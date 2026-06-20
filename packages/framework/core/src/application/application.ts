@@ -276,11 +276,11 @@ export class Application {
       }
 
       if (config?.exceptionFilters !== undefined && config.exceptionFilters.length > 0) {
-        entry.adapter.addExceptionFilters(config.exceptionFilters);
+        entry.adapter.applyExceptionFilterConfig(config.exceptionFilters);
       }
 
       if (config?.guards !== undefined && config.guards.length > 0) {
-        entry.adapter.addGuards(config.guards);
+        entry.adapter.applyGuardConfig(config.guards);
       }
     }
 

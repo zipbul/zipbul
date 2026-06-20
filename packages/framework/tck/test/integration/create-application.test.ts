@@ -19,9 +19,11 @@ describe('Tck.createApplication PoC', () => {
 
   it('boots, listens on dynamic port, and OnRequest header survives 404', async () => {
     testApp = await Tck.createApplication({
+      adapterConfig: {
+        HttpAdapter: { middlewares: { [HttpAdapterPhase.OnRequest]: [stampMw] } },
+      },
       register: (app) => {
         httpAdapter = app.attach(HttpAdapter, { port: 0 });
-        httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [stampMw]);
       },
     });
 

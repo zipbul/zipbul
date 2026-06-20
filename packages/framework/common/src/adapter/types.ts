@@ -117,12 +117,28 @@ export interface Adapter {
   dispatchRequest(context: AdapterContext): Promise<void>;
 
   /**
-   * Receives AOT-generated middleware configuration.
+   * Receives AOT-generated, phase-keyed middleware configuration.
    *
    * @param config - Phase-keyed middleware definitions.
    * @public
    */
   applyMiddlewareConfig(config: Readonly<Record<string, readonly MiddlewareDefinition[]>>): void;
+
+  /**
+   * Receives AOT-generated guard configuration.
+   *
+   * @param guards - Guard definitions to append.
+   * @public
+   */
+  applyGuardConfig(guards: readonly GuardDefinition[]): void;
+
+  /**
+   * Receives AOT-generated exception filter configuration.
+   *
+   * @param filters - Exception filter definitions to append.
+   * @public
+   */
+  applyExceptionFilterConfig(filters: readonly ExceptionFilterDefinition[]): void;
 
   /**
    * Registers exception filter definitions.

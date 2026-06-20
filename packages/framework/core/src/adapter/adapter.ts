@@ -1,6 +1,6 @@
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result, ResultAsync } from '@zipbul/result';
-import { deserialize, isBakerIssueSet } from '@zipbul/baker';
+import { isBakerIssueSet } from '@zipbul/baker';
 import type { MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
 import type { GuardDefinition, GuardHandlerFn } from '@zipbul/common';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '@zipbul/common';
@@ -10,6 +10,7 @@ import type { ZipbulContainer } from '@zipbul/common';
 import { contextKey } from '@zipbul/common';
 import { runInInjectionContext } from '../injection-context';
 import { runInAdapterContext } from '../adapter-context';
+import { appBaker } from '../baker';
 import { CoreStep } from './enums';
 
 /**
@@ -173,10 +174,15 @@ export abstract class Adapter implements AdapterContract {
     await this.stop();
   }
 
-  // ── Middleware registry ─────────────────────────────────────
+  // ── Declarative config application (AOT bootstrap) ──────────
+  //
+  // The module-config compiler emits one config record per adapter; the application
+  // bootstrap hands each slice to the matching method below. Every definition is
+  // validated for adapter compatibility before being stored, then resolved against
+  // the DI container in initializePipeline.
 
   /**
-   * Receives AOT-generated middleware configuration.
+   * Receives AOT-generated, phase-keyed middleware configuration.
    *
    * @param config - Phase-keyed middleware definitions.
    * @public
@@ -186,10 +192,35 @@ export abstract class Adapter implements AdapterContract {
   ): void {
     for (const [phase, definitions] of Object.entries(config)) {
       this.validatePhase(phase);
+      this.validateAdapterCompatibility(definitions, 'Middleware');
       const existing = this.middlewareRegistry.get(phase) ?? [];
       this.middlewareRegistry.set(phase, [...existing, ...definitions]);
     }
   }
+
+  /**
+   * Receives AOT-generated guard configuration.
+   *
+   * @param guards - Guard definitions to append.
+   * @public
+   */
+  applyGuardConfig(guards: readonly GuardDefinition[]): void {
+    this.validateAdapterCompatibility(guards, 'Guard');
+    this.guardDefs = [...this.guardDefs, ...guards];
+  }
+
+  /**
+   * Receives AOT-generated exception filter configuration.
+   *
+   * @param filters - Exception filter definitions to append.
+   * @public
+   */
+  applyExceptionFilterConfig(filters: readonly ExceptionFilterDefinition[]): void {
+    this.validateAdapterCompatibility(filters, 'ExceptionFilter');
+    this.exceptionFilterDefs = [...this.exceptionFilterDefs, ...filters];
+  }
+
+  // ── Middleware registry ─────────────────────────────────────
 
   /**
    * Stores middleware definitions for a given phase.
@@ -369,7 +400,7 @@ export abstract class Adapter implements AdapterContract {
   ): ResultAsync<void, unknown> {
     for (const validation of validations) {
       const input = validation.readInput(context);
-      const result = await deserialize(validation.metatype, input);
+      const result = await appBaker.deserialize(validation.metatype, input);
 
       if (isBakerIssueSet(result)) {
         return this.wrapValidationError(validation, result);
