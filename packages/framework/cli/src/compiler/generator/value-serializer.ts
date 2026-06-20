@@ -2,7 +2,7 @@ import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
 import type { ImportRegistry } from './import-registry';
 
 import {
-  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_UNRESOLVABLE,
   ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
 } from '@zipbul/common';
 import { type ClassMetadata } from '../analyzer';
@@ -190,6 +190,14 @@ export const serializeValue = (value: AnalyzerValue, registry: ImportRegistry): 
     const args = (isAnalyzerValueArray(record.args) ? record.args : []).map(a => serializeValue(a, registry)).join(', ');
 
     return `${callName}(${args})`;
+  }
+
+  // Statically-unevaluable expressions (literals nested in call args, template
+  // strings, complex expressions) are captured as their original source text;
+  // re-emit it verbatim so the generated code reproduces the author's value
+  // rather than the internal marker record.
+  if (record[ZIPBUL_UNRESOLVABLE] === true) {
+    return asString(record.sourceText) ?? 'undefined';
   }
 
   const entries = Object.entries(record).sort(([a], [b]) => compareCodePoint(a, b));
