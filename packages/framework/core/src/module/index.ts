@@ -1,2 +1,2 @@
 export { defineModule } from './module';
-export type { DefineModuleOptions } from './interfaces';
+export type { DefineModuleOptions, AdapterModuleConfig } from './interfaces';

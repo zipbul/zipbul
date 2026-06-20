@@ -48,7 +48,12 @@ import { Logger } from '@zipbul/logger';
 const TICK_CONTEXT_TYPE = 'zipbul.examples.tick';
 
 export const TickPhase = {
-  OnTick: 'TickOnTick',
+  // Phase value matches the member name, the framework convention (cf.
+  // HttpAdapterPhase.OnRequest, CoreStep.Handler). The compiler keys an
+  // adapter's valid phases by the enum member name read from the
+  // `defineAdapter({ pipeline })` schema, while the runtime keys them by the
+  // enum value; they must agree for declarative module config to apply.
+  OnTick: 'OnTick',
 } as const;
 
 /** Type alias for the phase value union — single source of truth. */

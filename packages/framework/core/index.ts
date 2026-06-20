@@ -1,7 +1,7 @@
 import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
 
 export { createApplication, Application, type AdapterEntry, type AdapterOptions, type AttachOptions } from './src/application';
-export { defineModule, type DefineModuleOptions } from './src/module';
+export { defineModule, type DefineModuleOptions, type AdapterModuleConfig } from './src/module';
 export { getBootstrapState, registerBootstrapState, resetBootstrapState, clearMetadataRegistry } from './src/runtime/bootstrap-state';
 export type { AdapterMiddlewareConfig } from './src/runtime/interfaces';
 export { Container } from './src/injector/container';
