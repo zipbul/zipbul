@@ -47,9 +47,11 @@
   "scripts": {
     "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
     "test": "bun test",
-    "coverage": "bun test --coverage"
+    "coverage": "bun test --coverage",
+    "bench": "bun run benchmark/cookie.bench.ts"
   },
   "dependencies": {
+    "@zipbul/baker": "catalog:",
     "@zipbul/result": "workspace:*"
   },
   "peerDependencies": {
@@ -61,6 +63,7 @@
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
     "@zipbul/tck": "workspace:*",
-    "fast-check": "^4.7.0"
+    "fast-check": "^4.7.0",
+    "mitata": "^1.0.34"
   }
 }

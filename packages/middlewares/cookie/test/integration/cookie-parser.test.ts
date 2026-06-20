@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
 
-import { CookieParser, CookieJar } from '../../index';
+import { CookieParser } from '../../src/cookie-parser';
+import { CookieJar } from '../../src/cookie-jar';
+import { SameSite, SigningAlgorithm } from '../../src/enums';
 
 describe('CookieParser Integration', () => {
   const SECRETS = ['td3qCKaEjHcSFiD6qbiC5HxGf0HsATsAzh3GKQN1l_w', 'CsstQ4zof6e0zBASss4tkPquUbhzIhA-Nl6OG1EyOxk'];
@@ -99,7 +101,7 @@ describe('CookieParser Integration', () => {
       const parser = CookieParser.create({
         httpOnly: true,
         secure: true,
-        sameSite: 'strict',
+        sameSite: SameSite.Strict,
         path: '/',
         domain: 'example.com',
       });
@@ -122,8 +124,10 @@ describe('CookieParser Integration', () => {
       const headers = await jar.getSetCookieHeaders();
       expect(headers).toHaveLength(1);
       expect(headers[0]).toContain('old-session=');
-      expect(headers[0]).toContain('Max-Age=0');
+      expect(headers[0]).toContain('Expires=Thu, 01 Jan 1970 00:00:00 GMT');
+      expect(headers[0]).not.toContain('Max-Age=0');
     });
+
   });
 
   describe('jar with secure auto', () => {
@@ -145,7 +149,7 @@ describe('CookieParser Integration', () => {
       const parser = CookieParser.create({
         secrets: ['gHBB3MwkPytgNA9vApSMJRDqJIPMNXgLrHUKSJZy1Kg'],
         encryptionSecret: '9v7BAwKpXHWZnoKZIHV2XWch22HvF8bleOM6t4nc-A4',
-        algorithm: 'sha512',
+        algorithm: SigningAlgorithm.Sha512,
       });
 
       const outJar = new CookieJar(parser, '');

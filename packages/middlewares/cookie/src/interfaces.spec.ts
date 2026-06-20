@@ -21,8 +21,8 @@ describe('interfaces', () => {
     });
 
     it('should set the reason from the data', () => {
-      const error = new CookieError({ reason: CookieErrorReason.WeakSecret, message: 'test' });
-      expect(error.reason).toBe(CookieErrorReason.WeakSecret);
+      const error = new CookieError({ reason: CookieErrorReason.InvalidSecret, message: 'test' });
+      expect(error.reason).toBe(CookieErrorReason.InvalidSecret);
     });
 
     it('should set the message from the data', () => {

@@ -46,7 +46,7 @@ export interface CookieMiddleware {
  * jar.set('session', 'value', { httpOnly: true });
  * ```
  *
- * @throws {CookieError} when options fail validation (weak secret, invalid algorithm, etc.).
+ * @throws {CookieError} when options fail validation (blank secret, empty secrets array, invalid algorithm).
  */
 export function cookieMiddleware(options?: CookieParserOptions): CookieMiddleware {
   const parser = CookieParser.create(options);
@@ -85,20 +85,13 @@ export function cookieMiddleware(options?: CookieParserOptions): CookieMiddlewar
       }
     }
 
-    // A malformed cookie surfaces its CookieError only at serialize time (cross-field Secure /
-    // SameSite / prefix / size rules, key exhaustion). Contain it here: a single bad cookie must not
-    // throw out of the response pipeline and break the whole response. The error is intentionally
-    // swallowed at this boundary — standalone callers that want the loud signal use
-    // jar.getSetCookieHeaders() directly, which still throws.
-    let headers: string[];
-    try {
-      headers = await jar.getSetCookieHeaders({ isSecure });
-    } catch {
-      return;
-    }
+    // getSetCookieHeaders serializes each queued cookie independently and returns only the lines that
+    // could be emitted on this channel; a cookie that is unsettable here is skipped, never throws. So
+    // there is nothing to catch — one bad cookie cannot drop the others or break the response.
+    const headers = await jar.getSetCookieHeaders({ isSecure });
 
     for (const header of headers) {
-      // One appendHeader per cookie — Set-Cookie must never be comma-folded (RFC 6265 §3).
+      // One appendHeader per cookie — Set-Cookie must never be comma-folded (RFC 9110 §5.3).
       http.response.appendHeader(HttpHeader.SetCookie, header);
     }
   });

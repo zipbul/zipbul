@@ -1,15 +1,12 @@
 # @zipbul/cookie
 
-**English** | [한국어](./README.ko.md)
-
 [![npm](https://img.shields.io/npm/v/@zipbul/cookie)](https://www.npmjs.com/package/@zipbul/cookie)
 
 An RFC 6265bis cookie **parser, signer, and jar** with strict security defaults for Bun.
 
 It owns the whole server-side cookie lifecycle: parsing the inbound `Cookie` header,
 HMAC signing, AES-256-GCM encryption, and RFC-conformant `Set-Cookie` serialization —
-with key rotation, secret-strength gating, and the cookie-prefix / `SameSite` / size
-invariants enforced for you.
+with key rotation and the cookie-prefix / `SameSite` / size invariants enforced for you.
 
 > Built on Bun's native `Cookie` / `CookieMap` primitives. Zero `node:crypto` dependency
 > (signing and encryption go through Web Crypto + `Bun.CryptoHasher`).
@@ -52,16 +49,16 @@ HTTP pipeline. Each layer is independently usable.
 ### As a `@zipbul` middleware
 
 ```typescript
-import { cookieMiddleware, cookieJarKey } from '@zipbul/cookie';
+import { cookieMiddleware, cookieJarKey, SameSite } from '@zipbul/cookie';
 import { HttpAdapter, HttpAdapterPhase, HttpContext } from '@zipbul/http-adapter';
 import { defineMiddleware } from '@zipbul/common';
 
-// One parser, validated at registration (throws CookieError on a weak secret, etc.)
+// One parser, validated at registration (throws CookieError on invalid config, e.g. a blank secret)
 const cookies = cookieMiddleware({
-  secrets: [process.env.COOKIE_SECRET!], // >= 32 bytes, >= 128 bits entropy
+  secrets: [process.env.COOKIE_SECRET!], // must be non-blank; pick a strong, high-entropy value
   httpOnly: true,
-  secure: 'auto', // resolves to the request scheme
-  sameSite: 'lax',
+  secure: 'auto',          // resolves to the request scheme
+  sameSite: SameSite.Lax,  // SameSite.Strict | SameSite.Lax | SameSite.None
 });
 
 httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [cookies.onRequest]);
@@ -112,9 +109,11 @@ for (const header of setCookies) {
 ### Signing — `secrets`, `algorithm`
 
 ```typescript
+import { CookieParser, SigningAlgorithm } from '@zipbul/cookie';
+
 CookieParser.create({
-  secrets: [currentKey, previousKey], // rotation: sign with [0], verify against all
-  algorithm: 'sha256',                // 'sha256' | 'sha384' | 'sha512' (default 'sha256')
+  secrets: [currentKey, previousKey],     // rotation: sign with [0], verify against all
+  algorithm: SigningAlgorithm.Sha256,     // .Sha256 | .Sha384 | .Sha512 (default .Sha256)
 });
 ```
 
@@ -123,8 +122,9 @@ cross-name replay). Each key is derived via HKDF and tagged with a 4-byte KID; v
 is **KID-strict** — a signature whose KID matches no configured key is rejected outright.
 Rotate by **prepending** the new key.
 
-Each secret must be **≥ 32 UTF-8 bytes** and carry **≥ 128 bits of Shannon entropy**
-(OWASP / NIST SP 800-131A); weak secrets throw `CookieError(WeakSecret)` at `create()`.
+Each secret must be **non-blank** — that is the only gate `create()` enforces. Strength and
+length are the **operator's responsibility** (as with every other cookie/session library); the
+middleware does not judge entropy or length. Use a high-entropy value (e.g. 32+ random bytes).
 
 ### Encryption — `encryptionSecret`
 
@@ -136,51 +136,61 @@ CookieParser.create({
 
 AES-256-GCM via Web Crypto: a 12-byte random IV, a 128-bit tag, and the cookie name bound
 as AAD. The key is HKDF-derived (distinct `info` from the signing key) and KID-tagged;
-`decrypt()` is KID-strict like `unsign()`. Same entropy gate as `secrets`.
+`decrypt()` is KID-strict like `unsign()`. Each encryption secret must be non-blank (same
+rule as `secrets`); strength is the operator's responsibility.
+
+AES-GCM's IV-uniqueness bound (NIST SP 800-38D §8.3) is **per-key across the whole fleet**, not
+observable from one process, so there is no in-process invocation counter — rotate the encryption
+secret on a schedule.
 
 ### `kdfSalt`
 
 ```typescript
-CookieParser.create({ kdfSalt: process.env.COOKIE_KDF_SALT }); // string | Uint8Array, >= 16 bytes
+CookieParser.create({ kdfSalt: process.env.COOKIE_KDF_SALT }); // string | Uint8Array
 ```
 
-Per-deployment HKDF salt (RFC 5869 §3.1). Two installations that share a secret but use
-different salts derive independent keys. Defaults to a fixed library value.
+Per-deployment HKDF salt (RFC 5869 §3.1). Any provided salt is accepted (no length requirement);
+when omitted a fixed library default is used. Two installations that share a secret but use
+different salts derive independent keys.
 
 ### `prefixValidation`
 
 `true` by default. When on, `serialize()` enforces the `__Host-` / `__Secure-` invariants
 (RFC 6265bis §4.1.3): `__Secure-` ⇒ `Secure`; `__Host-` ⇒ `Secure` + `Path=/` + no `Domain`.
 
+### `maxInboundCookieBytes`
+
+`16384` (16 KiB) by default. The maximum byte length of an inbound `Cookie` header the `CookieJar`
+will parse; a request whose header exceeds this is treated as carrying no cookies, bounding the
+per-request parsing cost (DoS amplification guard). Raise it for apps that legitimately send very
+large cookie sets.
+
 ### Cookie defaults
 
-`httpOnly`, `secure` (`boolean | 'auto'`), `sameSite` (`'strict' | 'lax' | 'none'`), `path`,
-`domain`, `maxAge`, `expires` (`number | Date | string`), `partitioned`, `priority`
-(`'low' | 'medium' | 'high'`). Applied to every cookie the parser produces; overridable
-per cookie. `secure: 'auto'` requires a `SerializeContext.isSecure` at serialize time (the
-middleware supplies it from the request scheme) — it never silently downgrades to insecure.
+`httpOnly`, `secure` (`boolean | 'auto'`), `sameSite` (`SameSite` enum), `path`, `domain`,
+`maxAge`, `expires` (`number | Date | string`), `partitioned`, `priority` (`CookiePriority` enum).
+Applied to every cookie the parser produces; overridable per cookie. `secure: 'auto'` requires a
+`SerializeContext.isSecure` at serialize time (the middleware supplies it from the request scheme) —
+it never silently downgrades to insecure.
 
-### `onEncrypt`
-
-```typescript
-CookieParser.create({
-  encryptionSecret: key,
-  onEncrypt: ({ keyIndex, counter }) => metrics.gauge('gcm.invocations', counter),
-});
-```
-
-Per-encryption hook for AES-GCM IV-usage telemetry (NIST SP 800-38D §8.3). The invocation
-cap is a **per-process best-effort backstop**, not a fleet-wide guarantee — rotate the
-encryption secret on a schedule.
+The closed-set option values are TS enums (import from `@zipbul/cookie`): `SameSite.{Strict,Lax,None}`,
+`CookiePriority.{Low,Medium,High}`, `SigningAlgorithm.{Sha256,Sha384,Sha512}`.
 
 <br>
 
-## 📤 Reading cookies — `CookieJar.get()`
+## 📤 Error model — `Result`, not exceptions
 
-`get()` returns a Result-typed value so a tampered or undecryptable cookie is a value, not a throw:
+Every runtime method — `jar.get` / `jar.set` / `jar.delete` and the parser's `createCookie` /
+`serialize` / `sign` / `unsign` / `encrypt` / `decrypt` — returns a `Result<T, CookieErrorData>`
+(re-exported from `@zipbul/result`). A tampered, oversized, or undecryptable cookie is a value you
+narrow with `isErr`, never a throw. The **only** method that throws is `CookieParser.create` (and
+`cookieMiddleware`), at boot, for invalid configuration. Both `isErr` and the `CookieErrorData`
+type are re-exported from this package, so no separate `@zipbul/result` import is needed.
+
+`get()` makes this concrete:
 
 ```typescript
-import { isErr } from '@zipbul/result';
+import { isErr } from '@zipbul/cookie';
 
 const result = await jar.get('session');
 if (result === null) {
@@ -193,7 +203,15 @@ if (result === null) {
 ```
 
 Inbound order is the inverse of outbound: **decrypt → unsign**. `getRaw(name)` returns the
-undecoded wire value, and `has(name)` checks presence without processing.
+percent-decoded inbound value without unsigning/decrypting, and `has(name)` checks presence without
+processing. Inbound cookies whose name is not a valid RFC 9110 token, or whose value is silently
+corrupted by Bun's lenient percent-decoding (U+FFFD), are dropped at parse time — so `has`/`getRaw`/`get`
+all report such an entry as absent.
+
+Outbound flushing is **per-cookie**: `getSetCookieHeaders()` serializes each queued cookie into its
+own `Set-Cookie` line, and a cookie that cannot be emitted on the current channel is simply skipped
+— it never throws or drops the rest of the batch (actionable validation errors already surfaced at
+`set()` / `delete()`).
 
 <br>
 
@@ -237,8 +255,10 @@ legitimately-encoded U+FFFD — those are kept.
 | `CookieJar` | `new CookieJar(parser, cookieHeader)`; `get`, `getRaw`, `has`, `set`, `delete`, `getSetCookieHeaders`. |
 | `cookieMiddleware` | `(options?) => { onRequest, beforeResponse }` — register at `OnRequest` + `BeforeResponse`. |
 | `cookieJarKey` | `contextKey<CookieJar>` — read the jar via `ctx.use(cookieJarKey)`. |
-| `CookieError` / `CookieErrorReason` | Error class + kebab-case reason enum. |
-| Types | `CookieParserOptions`, `CookieAttributes`, `SerializeContext`, `SigningAlgorithm`, `CookieMiddleware`. |
+| `CookieError` / `CookieErrorReason` | Error class (thrown only by `create`) + kebab-case reason enum. |
+| `SameSite` / `CookiePriority` / `SigningAlgorithm` | Enums for the closed-set option values. |
+| `isErr` | Result narrowing helper, re-exported from `@zipbul/result`. |
+| Types | `CookieParserOptions`, `CookieAttributes`, `CookieErrorData`, `SerializeContext`, `CookieMiddleware`. |
 
 <br>
 

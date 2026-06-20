@@ -13,7 +13,7 @@ import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
 import { mockContext } from '@zipbul/http-adapter/testing';
 
 import { CookieError } from './interfaces';
-import { CookieErrorReason } from './enums';
+import { CookieErrorReason, SameSite } from './enums';
 import { cookieMiddleware } from './middleware';
 import { cookieJarKey } from './context-keys';
 
@@ -34,16 +34,20 @@ describe('cookieMiddleware factory — definition shape', () => {
   });
 
   it('should throw CookieError synchronously when options are invalid', () => {
-    expect(() => cookieMiddleware({ secrets: ['short'] })).toThrow(CookieError);
+    expect(() => cookieMiddleware({ secrets: ['  '] })).toThrow(CookieError);
   });
 
-  it('should throw CookieError with WeakSecret reason for a weak secret', () => {
+  it('should not throw for a short secret (strength is the operator\'s responsibility)', () => {
+    expect(() => cookieMiddleware({ secrets: ['short'] })).not.toThrow();
+  });
+
+  it('should throw CookieError with InvalidSecret reason for a blank secret', () => {
     try {
-      cookieMiddleware({ secrets: ['short'] });
+      cookieMiddleware({ secrets: ['  '] });
       throw new Error('expected throw');
     } catch (e) {
       expect(e).toBeInstanceOf(CookieError);
-      expect(asCookieError(e).reason).toBe(CookieErrorReason.WeakSecret);
+      expect(asCookieError(e).reason).toBe(CookieErrorReason.InvalidSecret);
     }
   });
 });
@@ -121,16 +125,25 @@ describe('cookieMiddleware — beforeResponse', () => {
     expect(ctx.response.headers.get('set-cookie')).toBeNull();
   });
 
-  it('should swallow a serialize-time error so one bad cookie cannot break the response', async () => {
+  it('emits valid cookies and skips only the sibling that fails to serialize (per-cookie isolation)', async () => {
     // SameSite=None over a plain-http request fails the Secure cross-field rule only at flush
-    // (serialize) time. The beforeResponse handler must contain it: no throw escapes the response
-    // pipeline, and no Set-Cookie is written for the offending cookie.
+    // (serialize) time. One un-emittable cookie must not drop the others, and must not throw out of
+    // the response pipeline — each cookie is its own Set-Cookie line (RFC 9110 §5.3), serialized
+    // independently; a cookie that cannot be emitted on this channel is simply skipped.
     const ctx = mockContext({ url: 'http://example.com/x', headers: new Headers({ Cookie: '' }) });
-    const cm = cookieMiddleware();
+    const cm = cookieMiddleware({ secure: 'auto' });
     cm.onRequest.factory()(ctx);
-    ctx.use(cookieJarKey).set('bad', 'v', { sameSite: 'none' });
-    await cm.beforeResponse.factory()(ctx);
-    expect(ctx.response.headers.get('set-cookie')).toBeNull();
+    ctx.use(cookieJarKey).set('good', 'ok');
+    ctx.use(cookieJarKey).set('bad', 'v', { sameSite: SameSite.None });
+    let caught: unknown;
+    try { await cm.beforeResponse.factory()(ctx); } catch (e) { caught = e; }
+    expect(caught).toBeUndefined();
+    const all = ctx.response.headers.getSetCookie();
+    // POSITIVE: exactly the one settable cookie is emitted (count == settable cookies), and its full
+    // line is present — guarding against a regression that drops the whole batch.
+    expect(all).toHaveLength(1);
+    expect(all.some((h) => h.startsWith('good=ok'))).toBe(true);
+    expect(all.some((h) => h.startsWith('bad='))).toBe(false);
   });
 
   it('should sign the flushed cookie when secrets are configured', async () => {

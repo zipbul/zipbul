@@ -10,6 +10,7 @@ import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
 import { cookieJarKey, CookieParser } from '../../index';
 import { Cookie } from 'bun';
 import { bootCookieApp, setupSilentLogger, type CookieTestApp } from './helpers';
+import { expectOk } from '../support';
 
 /** Echoes the RAW (undecoded-by-jar) value of `name` into the `x-raw` response header. */
 const echoRaw = (name: string) =>
@@ -49,6 +50,20 @@ describe('cookie e2e / inbound parse', () => {
       const res = await app.fetch('/x', { headers: { Cookie: 'other=1' } });
       expect(res.headers.get('x-raw')).toBeNull();
     });
+
+    it('must not let a malformed same-name duplicate corrupt the valid value', async () => {
+      const res = await app.fetch('/x', { headers: { Cookie: 'sid=valid123; sid=%ff' } });
+      expect(res.headers.get('x-raw')).toBe('valid123');
+    });
+
+    it('tolerates multiple Cookie request headers (RFC 6265bis §4.2.1)', async () => {
+      // Two distinct Cookie header lines; the runtime joins them with "; " before the parser sees them.
+      const headers = new Headers();
+      headers.append('cookie', 'theme=dark');
+      headers.append('cookie', 'sid=fromSecondHeader');
+      const res = await app.fetch('/x', { headers });
+      expect(res.headers.get('x-raw')).toBe('fromSecondHeader');
+    });
   });
 
   describe('signed cookie round-trip', () => {
@@ -57,7 +72,7 @@ describe('cookie e2e / inbound parse', () => {
     afterAll(async () => { await app.close(); });
 
     it('should unsign a validly-signed inbound cookie', async () => {
-      const signed = CookieParser.create({ secrets: [SECRET] }).sign(new Cookie('session', 'user:42'));
+      const signed = expectOk(CookieParser.create({ secrets: [SECRET] }).sign(new Cookie('session', 'user:42')));
       const res = await app.fetch('/x', { headers: { Cookie: `session=${signed.value}` } });
       expect(res.headers.get('x-get')).toBe('user:42');
     });
@@ -74,7 +89,7 @@ describe('cookie e2e / inbound parse', () => {
     afterAll(async () => { await app.close(); });
 
     it('should decrypt a validly-encrypted inbound cookie', async () => {
-      const enc = await CookieParser.create({ encryptionSecret: ENC }).encrypt(new Cookie('secret', 'classified'));
+      const enc = expectOk(await CookieParser.create({ encryptionSecret: ENC }).encrypt(new Cookie('secret', 'classified')));
       const res = await app.fetch('/x', { headers: { Cookie: `secret=${enc.value}` } });
       expect(res.headers.get('x-get')).toBe('classified');
     });

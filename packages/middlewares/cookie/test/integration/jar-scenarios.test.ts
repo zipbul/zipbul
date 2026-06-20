@@ -2,7 +2,9 @@
 import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
 
-import { CookieParser, CookieJar } from '../../index';
+import { CookieParser } from '../../src/cookie-parser';
+import { CookieJar } from '../../src/cookie-jar';
+import { SameSite } from '../../src/enums';
 
 describe('CookieParser + CookieJar scenarios', () => {
   describe('simulated HTTP request/response cycle via jar', () => {
@@ -12,7 +14,7 @@ describe('CookieParser + CookieJar scenarios', () => {
         encryptionSecret: 'BKHMtM44ThZwG0Ihx3UzQ8bcsn9iUNVW1QcdzozALfQ',
         httpOnly: true,
         secure: true,
-        sameSite: 'strict',
+        sameSite: SameSite.Strict,
         path: '/',
       });
 
@@ -70,7 +72,7 @@ describe('CookieParser + CookieJar scenarios', () => {
         httpOnly: true,
         secure: true,
         path: '/',
-        sameSite: 'lax',
+        sameSite: SameSite.Lax,
       });
 
       async function handleRequest(cookieHeader: string): Promise<{
@@ -145,7 +147,7 @@ describe('CookieParser + CookieJar scenarios', () => {
         encryptionSecret: '9v7BAwKpXHWZnoKZIHV2XWch22HvF8bleOM6t4nc-A4',
         httpOnly: true,
         secure: 'auto',
-        sameSite: 'lax',
+        sameSite: SameSite.Lax,
         path: '/',
         prefixValidation: true,
       });
@@ -174,7 +176,8 @@ describe('CookieParser + CookieJar scenarios', () => {
       expect(headers).toHaveLength(2);
       expect(headers[0]).toContain('Secure');
       expect(headers[0]).toContain('HttpOnly');
-      expect(headers[1]).toContain('Max-Age=0');
+      expect(headers[1]).not.toContain('Max-Age=0');
+      expect(headers[1]).toContain('Expires=Thu, 01 Jan 1970 00:00:00 GMT');
     });
   });
 });
