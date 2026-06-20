@@ -44,7 +44,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build ./src/bin/zb.ts --outdir dist --target bun --format esm --packages external --production --banner='#!/usr/bin/env bun' && bun build ./compiler.ts --outdir dist --target bun --format esm --packages external --production && bunx tsc --emitDeclarationOnly --declaration --outDir dist compiler.ts",
+    "build": "bun build ./src/bin/zb.ts --outdir dist --target bun --format esm --packages external --production --banner='#!/usr/bin/env bun' && bun build ./compiler.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },
