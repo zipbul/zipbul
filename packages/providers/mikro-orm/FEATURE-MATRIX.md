@@ -73,7 +73,7 @@ integration test in `test/integration/`.
 
 | Feature | Reason / roadmap |
 |---|---|
-| **Streaming** (`em.stream()` / `qb.stream()`) | No cursor in Bun.SQL. Throws `StreamingUnsupportedError` — fail-fast, never a silent OOM fallback. Roadmap: "Async iterators support" is an open checklist item in #15088; feature requests [#17181](https://github.com/oven-sh/bun/issues/17181) (cursor), [#25307](https://github.com/oven-sh/bun/issues/25307) (stream) — open, no commitment. **Most likely to land.** |
+| **Streaming** (`em.stream()` / `qb.stream()`) | No cursor in Bun.SQL. Throws `MikroOrmError` with `reason: StreamingUnsupported` — fail-fast, never a silent OOM fallback. Roadmap: "Async iterators support" is an open checklist item in #15088; feature requests [#17181](https://github.com/oven-sh/bun/issues/17181) (cursor), [#25307](https://github.com/oven-sh/bun/issues/25307) (stream) — open, no commitment. **Most likely to land.** |
 | **LISTEN / NOTIFY** pub-sub | Docs: explicitly not implemented. Request [#18214](https://github.com/oven-sh/bun/issues/18214) — open, not on the #15088 checklist, no maintainer response. **Weakest roadmap signal.** |
 | PostGIS / Point types, multi-dim & NULL-element arrays | Open checklist item "Support Point & geo-related types" in #15088 — planned, no timeline. |
 | SQLite **`em.callRoutine` functions** (UDF bridge via `bodyJs`) | The official SQLite driver registers `bodyJs` as a UDF through better-sqlite3's `database.function()`. Bun.SQL exposes **no UDF-registration API** (verified: the sqlite client has no `.function`/`.loadExtension`). `callRoutine` throws an explicit, actionable error. SQLite procedures are unsupported on every driver (SQLite has none). |

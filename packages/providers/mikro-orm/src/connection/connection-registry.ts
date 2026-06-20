@@ -1,6 +1,6 @@
 import type { MikroORM } from '@mikro-orm/core';
 
-import { ConnectionNotRegisteredError } from './errors';
+import { MikroOrmError, MikroOrmErrorReason } from '../error';
 import type { ConnectionName } from './types';
 
 /**
@@ -19,7 +19,10 @@ export class ConnectionRegistry {
   static get(name: ConnectionName): MikroORM {
     const orm = ConnectionRegistry.instances.get(name);
     if (!orm) {
-      throw new ConnectionNotRegisteredError(name);
+      throw new MikroOrmError({
+        reason: MikroOrmErrorReason.ConnectionNotRegistered,
+        message: `connection '${name}' is not registered (did its MikroOrmService init run?).`,
+      });
     }
     return orm;
   }

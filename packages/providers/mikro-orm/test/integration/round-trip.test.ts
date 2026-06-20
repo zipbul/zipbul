@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import type { MikroORM } from '@mikro-orm/core';
 
 import { BunPostgreSqlDriver } from '../../src/driver';
-import { StreamingUnsupportedError } from '../../src/bun-sql';
+import { MikroOrmError } from '../../src/error';
 import {PG_URL, describePg, makeOrm, freshSchema} from './helpers';
 import { Entity, PrimaryKey, Property } from '../../src/entity';
 
@@ -62,7 +62,7 @@ describePg('round-trip (postgres)', () => {
   // MikroORM v7 DOES expose streaming (qb.stream / connection.stream, pg cursor-based).
   // Bun.SQL has no cursor, so driving it must surface the typed unsupported error end-to-end
   // (fast — verified ~250ms, not a hang), proving the explicit-unsupported contract.
-  test('streaming through MikroORM surfaces StreamingUnsupportedError', async () => {
+  test('streaming through MikroORM surfaces MikroOrmError (StreamingUnsupported)', async () => {
     const conn = orm.em.getConnection() as unknown as {
       stream(query: string, params?: readonly unknown[]): AsyncIterableIterator<unknown>;
     };
@@ -72,6 +72,6 @@ describePg('round-trip (postgres)', () => {
           /* drive the iterator */
         }
       })(),
-    ).rejects.toThrow(StreamingUnsupportedError);
+    ).rejects.toThrow(MikroOrmError);
   });
 });

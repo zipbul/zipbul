@@ -8,13 +8,14 @@
 - **4-버킷 파일**(`interfaces.ts`/`types.ts`/`enums.ts`/`constants.ts`): 그 문법이 **실제로 존재하는 도메인 안에만** 둔다. 전역 버킷 디렉토리 금지. **내용 없으면 만들지 않는다**(빈 버킷 금지).
 - **배럴 `index.ts` 도메인마다 필수**. 크로스 도메인 import는 **대상 도메인 배럴 경유**. 파일 직접 import 금지.
 - **클래스 베이스**: 클래스 우선, 함수 최소화. 함수 예외 = `entity/`의 데코레이터 재export, 그리고 `driver/shared/`의 mixin 팩토리(아래 §6 근거).
-- **enums.ts 0개**(확정): DB는 드라이버 **클래스**로 구분(discriminant 값 없음). IsolationLevel/AccessMode는 upstream 타입을 **소비**(로컬 재정의 금지).
+- **enums는 의미 있는 discriminant에만**: DB는 드라이버 **클래스**로 구분(DB용 enum 없음). IsolationLevel/AccessMode는 upstream 타입을 **소비**(로컬 재정의 금지). 유일한 enum은 `error/enums.ts`의 `MikroOrmErrorReason` — 단일 `MikroOrmError`의 사유를 **코드화**(형제 패키지 규약: 한 패키지=에러 클래스 1개 + `*ErrorReason` enum). DB·격리수준처럼 클래스/upstream로 표현되는 축에는 여전히 enum을 만들지 않는다.
 - **네이밍 규약**(전면 통일): 우리 클래스는 전부 `Bun` 접두, 파일은 `<db>.` 접두. 공식 클래스(`MySqlPlatform`, `MariaDbPlatform` …)와 우리 래퍼(`BunMySqlPlatform` …)를 한눈에 구분.
 - **공식 동등성**: 각 `driver/<db>` 는 공식 `@mikro-orm/<db>` 클래스를 **상속**하고, Bun.SQL이 공식 네이티브 드라이버(pg/mysql2/...)와 **다르게 동작하는 지점만** override. 임의 재구현 금지.
 
-## 1. 도메인 목록 (7개)
+## 1. 도메인 목록 (8개)
 | 도메인 | 책임 | 의존(배럴 경유) |
 |---|---|---|
+| `error/` | 패키지 전용 에러 표면 (`MikroOrmError` + `MikroOrmErrorReason`) | (leaf) |
 | `entity/` | 모던 ES 엔티티 데코레이터 단일 import 표면 | (leaf) |
 | `bun-sql/` | Bun.SQL ↔ Kysely 글루 (DB 무관; per-DB parts·normalizer 주입) | (leaf, kysely) |
 | `driver/<db>/` | MikroORM 드라이버 레이어 (DB별; 공식 Platform 상속). `driver/shared/`에 크로스-DB Bun.SQL 타입 보정 | `bun-sql` |
@@ -25,15 +26,16 @@
 
 ## 2. 의존성 DAG (acyclic)
 ```
+error             (leaf)
 entity            (leaf)
-bun-sql           (leaf; kysely)
+bun-sql         ─▶ error
 driver/shared     (leaf; @mikro-orm/core type-helpers)
-driver/<db>     ─▶ bun-sql, driver/shared
-connection        (leaf; @mikro-orm/core)
+driver/<db>     ─▶ bun-sql, driver/shared, error
+connection      ─▶ error                     (@mikro-orm/core type-only)
 context         ─▶ connection
 orm             ─▶ connection, context
 repository      ─▶ context, connection      (DEFAULT_CONNECTION 값 import)
-root index      ─▶ entity, bun-sql, driver, connection, context, orm, repository   (배럴만)
+root index      ─▶ error, entity, bun-sql, driver, connection, context, orm, repository   (배럴만) + @mikro-orm/core DB 예외 재export
 ```
 사이클 없음. 각 크로스 도메인 엣지는 대상 배럴 1개로만 연결.
 
@@ -42,15 +44,22 @@ root index      ─▶ entity, bun-sql, driver, connection, context, orm, reposi
 packages/providers/mikro-orm/
 ├── package.json / tsconfig.json / tsconfig.build.json
 ├── ARCHITECTURE.md / CONFORMANCE.md / FEATURE-MATRIX.md / RED-PLAN.md / CLAUDE.md
-├── index.ts                             # ROOT 배럴: export * from './src/<domain>' ×7 + ZIPBUL_PACKAGE
+├── index.ts                             # ROOT 배럴: export * from './src/<domain>' ×8 + MikroORM DB 예외 재export(UniqueConstraintViolationException 등; instanceof 보존 위해 미래핑) + ZIPBUL_PACKAGE
 └── src/
+    ├── error/                           # 패키지 전용 에러 도메인 (형제 규약: 클래스 1개 + reason enum)
+    │   ├── errors.ts                    # class MikroOrmError extends Error { readonly reason } — 모든 raw throw가 이 타입. message는 '@zipbul/mikro-orm: ' 접두
+    │   ├── enums.ts                     # enum MikroOrmErrorReason (connection_not_registered/streaming_unsupported/... 9개 사유 코드화)
+    │   ├── interfaces.ts                # MikroOrmErrorData { reason, message }
+    │   └── index.ts                     # export { MikroOrmError, MikroOrmErrorReason, type MikroOrmErrorData }
+    │   # NOTE: per-request DB 제약위반은 MikroORM 자체 typed 예외(ExceptionConverter 산출)라 여기서 안 만들고 root 배럴에서 재export만.
+    │
     ├── entity/
     │   └── index.ts                     # export * from '@mikro-orm/decorators/es'  (함수 예외; 큐레이션 안 함)
     │
     ├── bun-sql/                         # (구 dialect/ — Kysely Dialect와의 용어 혼동 제거 위해 개명)
     │   ├── bun-sql-connection.ts        # class BunSqlConnection implements kysely DatabaseConnection
     │   │                                #   executeQuery: Bun.SQL 결과→{rows, numAffectedRows, insertId}; bigint 정규화; catch→ErrorNormalizer→rethrow
-    │   │                                #   streamQuery: StreamingUnsupportedError (하드실링)
+    │   │                                #   streamQuery: throw MikroOrmError(StreamingUnsupported) (하드실링)
     │   ├── bun-sql-transaction.ts       # class BunSqlTransactionController (dialect-aware begin/isolation/accessMode/savepoint)
     │   ├── bun-sql-kysely-driver.ts     # class BunSqlKyselyDriver implements kysely Driver (커넥션 수명 + tx 위임)
     │   ├── bun-sql-dialect.ts           # class BunSqlDialect implements kysely Dialect (주입된 KyselyDialectParts·ErrorNormalizer 사용)
@@ -58,7 +67,6 @@ packages/providers/mikro-orm/
     │   ├── interfaces.ts                # KyselyDialectParts, BunSqlDialectOptions, ErrorNormalizer(계약)
     │   ├── types.ts                     # BunSqlClient, ReservedConnection, SqlDialectKind
     │   ├── constants.ts                 # DEFAULT_POOL_MAX (internal)
-    │   ├── errors.ts                    # StreamingUnsupportedError
     │   └── index.ts                     # 배럴(크로스도메인 표면)
     │
     ├── driver/
@@ -101,7 +109,7 @@ packages/providers/mikro-orm/
     │   │
     │   └── index.ts                          # 배럴: export { BunPostgreSqlDriver, BunMySqlDriver, BunMariaDbDriver, BunSqliteDriver } (서브배럴 경유)
     │
-    ├── connection/   # ConnectionRegistry(static Map), ConnectionNotRegisteredError, ConnectionName, DEFAULT_CONNECTION
+    ├── connection/   # ConnectionRegistry(static Map; 미등록 get→throw MikroOrmError(ConnectionNotRegistered)), ConnectionName, DEFAULT_CONNECTION
     ├── context/      # EntityManagerResolver(static), RequestContextRunner(static, ALS enterWith)
     ├── orm/          # MikroOrmService(abstract base: onInit/onDestroy/em/enter), ZipbulMikroOrmOptions
     └── repository/   # BaseRepository(abstract base: Proxy 위임)
@@ -127,6 +135,14 @@ export class Database extends MikroOrmService {
 @Injectable({ visibleTo:'all' })
 export class UserRepository extends BaseRepository<User> { protected readonly entity = User; }
 ```
+
+## 5.5 에러/예외 계약 (외부 사용자가 정확히 분기하는 표면)
+두 채널, 절대 안 섞임. 둘 다 **이 패키지가 보장하는 타입**으로 노출돼 외부가 `instanceof`로 정확히 잡는다.
+
+- **`throw MikroOrmError`** (단일 클래스 + `MikroOrmErrorReason`): 요청 입력 없이 발견되는 실패 — 설정/부트 불변 위반, Bun.SQL 하드실링(streaming·SQLite UDF), 트랜잭션/드라이버 사용 오류, 함수형 자격증명. 모든 raw throw가 이 타입 하나. 사유는 `reason` 필드로 코드화(형제 패키지 규약: 한 패키지=에러 클래스 1개 + `*ErrorReason` enum). message는 `@zipbul/mikro-orm: ` 접두로 출처 명확. 사유 9개: connection_not_registered · streaming_unsupported · function_credential_unsupported · unsupported_transaction_mode · sqlite_routine_unsupported · refcursor_requires_transaction · driver_not_initialized · pooled_driver_requires_reserve · batch_single_column_primary_key.
+- **MikroORM 자체 typed 예외** (per-request DB 제약위반): `UniqueConstraintViolationException`/`ForeignKeyConstraintViolationException`/`NotNullConstraintViolationException`/`CheckConstraintViolationException`. 우리 `ErrorNormalizer`가 SQLSTATE/errno를 정규화 → MikroORM `ExceptionConverter`가 산출. **여기서 만들지도 래핑하지도 않고** root 배럴에서 그대로 재export(래핑하면 MikroORM의 `instanceof`가 깨짐). 요청 입력으로 결정되는 기대 가능한 실패라 throw 채널과 분리.
+- **Result 채널 없음**(근거): 옵션 검증은 MikroORM `Configuration.validateOptions()`가 부트에서 담당 → 로컬 `validateOptions(): Result` 중복 제거. throw 기준은 "요청 입력 없이 발견되는가" 하나로 충분.
+- **상태 매핑은 앱 정책**: throw→HTTP status(또는 다른 어댑터 렌더)는 앱의 exception filter가 결정. 패키지는 자동 활성 필터를 소유하지 않는다(등록은 앱 주도).
 
 ## 6. mixin 근거 (`withBunMySqlFixes`)
 공식 계층은 `MariaDbPlatform extends MySqlPlatform`(자식). 그러나 우리 보정(`BunMySqlPlatform`)도 `MySqlPlatform`을 상속하므로, MariaDB를 `BunMySqlPlatform`의 자식으로 만들면 공식 MariaDB 고유 로직(SchemaHelper/QueryBuilder/JSON)을 잃는다. 따라서:

@@ -1,3 +1,4 @@
+import { MikroOrmError, MikroOrmErrorReason } from '../error';
 import type { SqlDialectKind } from './types';
 
 /**
@@ -23,9 +24,10 @@ const SCHEME: Record<SqlDialectKind, string> = { postgres: 'postgres', mysql: 'm
  */
 function requireStringCredential(value: string | (() => unknown) | undefined, kind: string): string | undefined {
   if (typeof value === 'function') {
-    throw new Error(
-      `@zipbul/mikro-orm: a function/async ${kind} is not supported on the Bun.SQL backend — the connection URL is built synchronously. Pre-resolve it to a string before passing it to MikroORM.init.`,
-    );
+    throw new MikroOrmError({
+      reason: MikroOrmErrorReason.FunctionCredentialUnsupported,
+      message: `a function/async ${kind} is not supported on the Bun.SQL backend — the connection URL is built synchronously. Pre-resolve it to a string before passing it to MikroORM.init.`,
+    });
   }
   return value;
 }

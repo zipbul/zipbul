@@ -1,5 +1,6 @@
 import type { Driver, DatabaseConnection, TransactionSettings } from 'kysely';
 
+import { MikroOrmError, MikroOrmErrorReason } from '../error';
 import { BunSqlConnection } from './bun-sql-connection';
 import { BunSqlTransactionController } from './bun-sql-transaction';
 import { DEFAULT_POOL_MAX } from './constants';
@@ -36,11 +37,17 @@ export class BunSqlKyselyDriver implements Driver {
 
   async acquireConnection(): Promise<DatabaseConnection> {
     if (!this.client) {
-      throw new Error('@zipbul/mikro-orm: BunSqlKyselyDriver used before init().');
+      throw new MikroOrmError({
+        reason: MikroOrmErrorReason.DriverNotInitialized,
+        message: 'BunSqlKyselyDriver used before init().',
+      });
     }
     if (this.pooled) {
       if (!this.client.reserve) {
-        throw new Error('@zipbul/mikro-orm: pooled driver requires a Bun.SQL client with reserve().');
+        throw new MikroOrmError({
+          reason: MikroOrmErrorReason.PooledDriverRequiresReserve,
+          message: 'pooled driver requires a Bun.SQL client with reserve().',
+        });
       }
       return new BunSqlConnection(await this.client.reserve(), this.errorNormalizer);
     }

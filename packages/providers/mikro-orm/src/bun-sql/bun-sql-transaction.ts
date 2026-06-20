@@ -1,5 +1,6 @@
 import { CompiledQuery, type DatabaseConnection, type TransactionSettings } from 'kysely';
 
+import { MikroOrmError, MikroOrmErrorReason } from '../error';
 import type { SqlDialectKind } from './types';
 
 const ISOLATION_LEVELS = new Set(['read uncommitted', 'read committed', 'repeatable read', 'serializable']);
@@ -91,7 +92,10 @@ export class BunSqlTransactionController {
     if (!value) return undefined;
     const normalized = value.toLowerCase();
     if (!allowed.has(normalized)) {
-      throw new Error(`@zipbul/mikro-orm: unsupported transaction ${label} "${value}".`);
+      throw new MikroOrmError({
+        reason: MikroOrmErrorReason.UnsupportedTransactionMode,
+        message: `unsupported transaction ${label} "${value}".`,
+      });
     }
     return normalized;
   }

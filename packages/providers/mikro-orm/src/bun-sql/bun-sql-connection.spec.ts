@@ -2,7 +2,7 @@ import { test, expect, mock } from 'bun:test';
 import type { CompiledQuery } from 'kysely';
 
 import { BunSqlConnection } from './bun-sql-connection';
-import { StreamingUnsupportedError } from './errors';
+import { MikroOrmError, MikroOrmErrorReason } from '../error';
 import type { ErrorNormalizer } from './interfaces';
 import type { ReservedConnection } from './types';
 
@@ -125,9 +125,12 @@ test('rethrows exactly the normalized error when the driver rejects', async () =
   await expect(connection.executeQuery(cq('select 1'))).rejects.toBe(sentinel);
 });
 
-test('streamQuery rejects with StreamingUnsupportedError when the iterator is driven', async () => {
+test('streamQuery rejects with MikroOrmError (StreamingUnsupported) when the iterator is driven', async () => {
   const { connection } = setup([]);
-  await expect(connection.streamQuery().next()).rejects.toThrow(StreamingUnsupportedError);
+  await expect(connection.streamQuery().next()).rejects.toThrow(MikroOrmError);
+  await expect(connection.streamQuery().next()).rejects.toMatchObject({
+    reason: MikroOrmErrorReason.StreamingUnsupported,
+  });
 });
 
 test('release releases the reserved connection', async () => {

@@ -8,6 +8,7 @@ import {
   type BunSqlDialectOptions,
   type ConnectionComponents,
 } from '../../bun-sql';
+import { MikroOrmError, MikroOrmErrorReason } from '../../error';
 import { POSTGRES_KYSELY_PARTS } from './postgres.kysely-parts';
 import { BunPostgreSqlErrorNormalizer } from './postgres.error-normalizer';
 
@@ -55,9 +56,10 @@ export class BunPostgreSqlConnection extends AbstractSqlConnection {
       (p) => p.direction !== 'in' && typeof p.type === 'string' && /^refcursor$/i.test(p.type),
     );
     if (refcursorParams.length > 0 && !ctx) {
-      throw new Error(
-        `Routine ${routine.name} declares refcursor OUT params on PostgreSQL but was not called inside a transaction. Wrap the call in 'em.transactional(...)' so the refcursor OUT params remain valid for FETCH.`,
-      );
+      throw new MikroOrmError({
+        reason: MikroOrmErrorReason.RefcursorRequiresTransaction,
+        message: `Routine ${routine.name} declares refcursor OUT params on PostgreSQL but was not called inside a transaction. Wrap the call in 'em.transactional(...)' so the refcursor OUT params remain valid for FETCH.`,
+      });
     }
     const placeholders = routine.params.map(() => '?').join(', ');
     const positional = routine.params.map((p) => this.convertRoutineInbound(args[p.name], p));

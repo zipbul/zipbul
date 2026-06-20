@@ -2,6 +2,7 @@ import { BaseSqliteConnection } from '@mikro-orm/sql';
 import type { Routine, Transaction } from '@mikro-orm/core';
 import type { Dialect } from 'kysely';
 
+import { MikroOrmError, MikroOrmErrorReason } from '../../error';
 import { BunSqlDialect, type BunSqlDialectOptions } from '../../bun-sql';
 import { SQLITE_KYSELY_PARTS } from './sqlite.kysely-parts';
 import { BunSqliteErrorNormalizer } from './sqlite.error-normalizer';
@@ -39,12 +40,14 @@ export class BunSqliteConnection extends BaseSqliteConnection {
    */
   override async callRoutine<T>(routine: Routine, _args?: Record<string, unknown>, _ctx?: Transaction): Promise<T> {
     if (routine.type === 'procedure') {
-      throw new Error(
-        `Stored procedures are not supported on SQLite. Routine ${routine.name} cannot be invoked here — define a separate code path for SQLite or call it only against a server-side database.`,
-      );
+      throw new MikroOrmError({
+        reason: MikroOrmErrorReason.SqliteRoutineUnsupported,
+        message: `Stored procedures are not supported on SQLite. Routine ${routine.name} cannot be invoked here — define a separate code path for SQLite or call it only against a server-side database.`,
+      });
     }
-    throw new Error(
-      `Function ${routine.name} cannot be invoked on the Bun.SQL SQLite backend: Bun.SQL exposes no user-defined-function registration API (unlike better-sqlite3's database.function()), so the official 'bodyJs' UDF bridge is unavailable. Call this routine against postgres/mysql, or use bun:sqlite directly for SQLite-only UDFs.`,
-    );
+    throw new MikroOrmError({
+      reason: MikroOrmErrorReason.SqliteRoutineUnsupported,
+      message: `Function ${routine.name} cannot be invoked on the Bun.SQL SQLite backend: Bun.SQL exposes no user-defined-function registration API (unlike better-sqlite3's database.function()), so the official 'bodyJs' UDF bridge is unavailable. Call this routine against postgres/mysql, or use bun:sqlite directly for SQLite-only UDFs.`,
+    });
   }
 }

@@ -1,6 +1,6 @@
 import type { DatabaseConnection, QueryResult, CompiledQuery } from 'kysely';
 
-import { StreamingUnsupportedError } from './errors';
+import { MikroOrmError, MikroOrmErrorReason } from '../error';
 import type { ErrorNormalizer } from './interfaces';
 import type { ReservedConnection } from './types';
 
@@ -66,7 +66,10 @@ export class BunSqlConnection implements DatabaseConnection {
 
   // eslint-disable-next-line require-yield
   async *streamQuery<R>(): AsyncIterableIterator<QueryResult<R>> {
-    throw new StreamingUnsupportedError();
+    throw new MikroOrmError({
+      reason: MikroOrmErrorReason.StreamingUnsupported,
+      message: 'cursor streaming is unsupported on the Bun.SQL backend (no cursor protocol).',
+    });
   }
 
   async release(): Promise<void> {

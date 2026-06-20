@@ -21,16 +21,15 @@
 
 | spec 파일 | SUT | 핵심 케이스(요약) |
 |---|---|---|
-| `dialect/bun-sql-connection.spec.ts` | `BunSqlConnection` executeQuery/streamQuery/release | EP: rows/numAffectedRows(BigInt)/insertId 매핑; BVA: affectedRows=0·lastInsertRowid=0 키 포함; EP-inv: undefined/비배열→rows=[]; exception: normalize된 에러 그대로 rethrow(toBe sentinel), streamQuery→StreamingUnsupportedError; param 새 배열로 전달 |
+| `dialect/bun-sql-connection.spec.ts` | `BunSqlConnection` executeQuery/streamQuery/release | EP: rows/numAffectedRows(BigInt)/insertId 매핑; BVA: affectedRows=0·lastInsertRowid=0 키 포함; EP-inv: undefined/비배열→rows=[]; exception: normalize된 에러 그대로 rethrow(toBe sentinel), streamQuery→MikroOrmError(StreamingUnsupported); param 새 배열로 전달 |
 | `dialect/bun-sql-transaction.spec.ts` | `BunSqlTransactionController` | EP: isolation→`set transaction isolation level X`+`begin`; accessMode; 둘다 순서; EP-inv: {}→`begin`만; BVA: undefined→skip; commit/rollback/savepoint/rollbackTo/release SQL |
 | `dialect/bun-sql-kysely-driver.spec.ts` | `BunSqlKyselyDriver` | exception: init 전 acquire→throw 'used before init()'; EP: init→createClient(url,poolMax); acquire→reserve()+instanceof BunSqlConnection; destroy→close(); BVA: client undefined일 때 destroy no-throw; tx 위임 관찰 |
 | `dialect/bun-sql-dialect.spec.ts` | `BunSqlDialect` | EP: create* 델리게이션(sentinel toBe), introspector(db) 인자 패스스루; createClient 주입 시 init서 호출; BVA: poolMax 생략→DEFAULT_POOL_MAX; fallback Bun.SQL 스텁 |
-| `dialect/errors.spec.ts` | `StreamingUnsupportedError` | instanceof Error, name, message |
+| `error/errors.spec.ts` | `MikroOrmError` + `MikroOrmErrorReason` | instanceof Error/MikroOrmError, name='MikroOrmError', reason discriminant, '@zipbul/mikro-orm: ' 접두 message, cause 전달 (구 `dialect/errors.spec.ts`·`connection/errors.spec.ts` 통합) |
 | `driver/postgres/postgres.error-normalizer.spec.ts` | `PostgresErrorNormalizer.normalize` | EP: errno+code ERR_*→code=String(errno); 이미 SQLSTATE→무변경; detail/constraint/table 보존+동일참조; BVA: 'ERR_' 경계 vs 'ERRX'; exception: frozen 에러 no-throw |
 | `driver/mysql/mysql.error-normalizer.spec.ts` | `MySqlErrorNormalizer.normalize` | EP: 항등 반환(현 스텁) — ※ 통합서 errno 1062 정렬 검증 후 RED 확장 |
 | `driver/sqlite/sqlite.error-normalizer.spec.ts` | `SqliteErrorNormalizer.normalize` | EP: 항등(현 스텁) — ※ SQLITE_* 매핑 구현 시 RED 확장 |
-| `connection/connection-registry.spec.ts` | `ConnectionRegistry` static | exception: 미등록 get→ConnectionNotRegisteredError; EP: set/get/has/delete/overwrite; BVA: 미등록 delete no-op. **afterEach 전역 Map 리셋** |
-| `connection/errors.spec.ts` | `ConnectionNotRegisteredError` | instanceof, name, message에 이름 보간 |
+| `connection/connection-registry.spec.ts` | `ConnectionRegistry` static | exception: 미등록 get→MikroOrmError(ConnectionNotRegistered); EP: set/get/has/delete/overwrite; BVA: 미등록 delete no-op. **afterEach 전역 Map 리셋** |
 | `context/entity-manager-resolver.spec.ts` | `EntityManagerResolver.resolve` | EP: scoped fork 있으면 그것; 없으면 registry.em; BVA: null도 ?? 폴백; exception: registry throw 전파 |
 | `context/request-context-runner.spec.ts` | `RequestContextRunner.enter` | EP: registry.em으로 RequestContext.enter(side-effect가 behavior→toHaveBeenCalledWith em); exception: registry throw |
 | `orm/mikro-orm.service.spec.ts` | `MikroOrmService`(in-file 서브클래스) | EP: onInit→MikroORM.init+registry.set('default'/named); **비파괴: schema API 절대 호출 안 함**; onDestroy→registry.delete+orm.close; BVA: onInit 전 onDestroy no-throw; em getter/enter 위임; exception: init reject→registry.set 안 됨 |
@@ -43,7 +42,7 @@
 
 | 타깃 | DB | RED 내용 |
 |---|---|---|
-| dialect 라운드트립 | docker **pg** (reserve 필요) | EM/QB로 select/insert/update/delete → rows·numAffectedRows·insertId(lastInsertRowid) 매핑; `BunSqlConnection` 직접 구성해 result-shape; streamQuery→StreamingUnsupportedError |
+| dialect 라운드트립 | docker **pg** (reserve 필요) | EM/QB로 select/insert/update/delete → rows·numAffectedRows·insertId(lastInsertRowid) 매핑; `BunSqlConnection` 직접 구성해 result-shape; streamQuery→MikroOrmError(StreamingUnsupported) |
 | 에러정규화→예외 | docker **pg + mysql** | UNIQUE 중복 insert→`instanceof UniqueConstraintViolationException`; NotNull/FK/Check도; pg(23505)·mysql(1062) 동일 파라메트릭 |
 | 트랜잭션+savepoint | docker **pg** | `em.transactional` 중첩→SAVEPOINT/ROLLBACK TO; 내부 롤백 격리; read-only txn서 write 실패(isolation/accessMode SQL); **~20 동시 txn 전부 커밋·distinct**(reserve 풀) |
 | 스키마생성+마이그레이터 | schema=**sqlite :memory** / migrator=docker **pg** | `getCreateSchemaSQL()` DDL 스냅샷; 실 Migrator(tinyglobby+savepoint) up()/down(); 온디스크 glob 발견 검증 |
@@ -98,7 +97,7 @@ Codex가 죽어(턴 멈춤) 서브에이전트 3 + 재실행 2로 심층 리뷰.
 ### 9.2 SHOULD-FIX
 - **S1 `bun-sql-connection.ts:25` result-shape 가정 미검증**: `Array & {affectedRows,lastInsertRowid}`는 저자 멘탈모델 — 실제 Bun.SQL DML 반환 shape는 **통합(실 pg)만 검증 가능**. ⇒ 유닛 계약을 §3 라운드트립이 확인하기 전까지 lock 금지; 유닛 fixture는 캡처된 실결과의 미러로. **streamQuery 케이스는 이터레이터를 구동(`await gen.next()`)해야 함**(안 그러면 false-green).
 - **S2 coverage 전략(분모 모델 정정)**: Bun coverage는 **import-driven**(실측): 타입온리/미import 파일은 분모 미포함, 배럴/상수 자가커버. 진짜 위험 = 루트/driver 배럴이 9개 driver 런타임 파일을 미실행 로드. 전략 = (ii) 통합을 같은 `bun test`서 실행해 src 커버(core 선례: 통합테스트가 `../../src/...` import) + (i) `bunfig.toml`에 `dist/**`·`test/**`·`../../*/*/{dist,src}/**` ignore. 임계 0.95 **유지**(낮추기 금지). bunfig.toml 신규 작성(없음).
-- **S3 통합 누락 보강**: onDestroy 후 `ConnectionNotRegisteredError`+풀 드레인; named connection 2개 공존(`resolve('a')`≠`resolve('b')`).
+- **S3 통합 누락 보강**: onDestroy 후 `MikroOrmError(ConnectionNotRegistered)`+풀 드레인; named connection 2개 공존(`resolve('a')`≠`resolve('b')`).
 - **S4 목 가이드 정정**: `MikroORM.init`은 `spyOn(MikroORM,'init').mockResolvedValue(fakeOrm)`(named import이지만 MikroORM은 static init 가진 객체 — mock.module보다 가벼움·자동복원). tx spec은 `CompiledQuery` 객체 identity 아닌 `.sql`/`.parameters` 문자열 assert + begin은 순서 assert. onInit "schema 미호출"은 안전성 보장이라 부정-call assert 허용.
 
 ### 9.3 확정된 NON-ISSUE (리뷰가 클리어)

@@ -2,7 +2,8 @@ import { test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { RequestContext, type EntityManager, type MikroORM } from '@mikro-orm/core';
 
 import { BunPostgreSqlDriver } from '../../src/driver';
-import { ConnectionRegistry, ConnectionNotRegisteredError, DEFAULT_CONNECTION } from '../../src/connection';
+import { ConnectionRegistry, DEFAULT_CONNECTION } from '../../src/connection';
+import { MikroOrmError } from '../../src/error';
 import { EntityManagerResolver } from '../../src/context';
 import { PG_URL, describePg, makeOrm, freshSchema } from './helpers';
 import { Entity, PrimaryKey, Property } from '../../src/entity';
@@ -74,7 +75,7 @@ describePg('context + registry lifecycle (postgres)', () => {
   test('a deregistered connection is no longer resolvable', () => {
     ConnectionRegistry.set(DEFAULT_CONNECTION, orm);
     ConnectionRegistry.delete(DEFAULT_CONNECTION);
-    expect(() => EntityManagerResolver.resolve(DEFAULT_CONNECTION)).toThrow(ConnectionNotRegisteredError);
+    expect(() => EntityManagerResolver.resolve(DEFAULT_CONNECTION)).toThrow(MikroOrmError);
   });
 
   test('named connections coexist and resolve to their own global EM', async () => {

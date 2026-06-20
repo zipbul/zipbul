@@ -2,6 +2,7 @@ import { AbstractSqlDriver } from '@mikro-orm/sql';
 import type { MySqlPlatform } from '@mikro-orm/mysql';
 import { Utils } from '@mikro-orm/core';
 
+import { MikroOrmError, MikroOrmErrorReason } from '../../error';
 import { BunMySqlPlatform } from './mysql.platform';
 import type {
   Configuration,
@@ -103,7 +104,10 @@ export class BunMySqlDriver extends AbstractSqlDriver<BunMySqlConnection, MySqlP
     const pk = this.getPrimaryKeyFields(meta)[0];
     /* v8 ignore next */
     if (pk == null) {
-      throw new Error('@zipbul/mikro-orm: BunMySqlDriver batch ops require a single-column primary key.');
+      throw new MikroOrmError({
+        reason: MikroOrmErrorReason.BatchSingleColumnPrimaryKey,
+        message: 'BunMySqlDriver batch ops require a single-column primary key.',
+      });
     }
     return pk;
   }
