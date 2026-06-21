@@ -58,4 +58,9 @@ describe('serializeValue', () => {
     const value = { [ZIPBUL_REF]: 'HttpAdapter', [ZIPBUL_IMPORT_SOURCE]: '@zipbul/http-adapter' } as unknown as AnalyzerValue;
     expect(serializeValue(value, registry())).toBe('HttpAdapter');
   });
+
+  it('should throw on a local (non-imported) ref instead of leaking the marker record', () => {
+    const value = { [ZIPBUL_REF]: 'localCors' } as unknown as AnalyzerValue;
+    expect(() => serializeValue(value, registry())).toThrow(/localCors/);
+  });
 });
