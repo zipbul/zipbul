@@ -124,8 +124,8 @@ export interface Adapter {
    * incremental/imperative registration — the compiler is the single source of
    * truth, the bootstrap hands each adapter its slice exactly once.
    *
-   * @param config - The adapter's compiled config (phase-keyed middleware plus
-   *   optional guards and exception filters).
+   * @param config - The adapter's compiled config: optional phase-keyed
+   *   middleware, guards, and exception filters (every slice may be omitted).
    * @public
    */
   applyConfig(config: AdapterConfig): void;

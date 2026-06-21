@@ -1,6 +1,8 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import type { Context, ZipbulContainer } from '@zipbul/common';
 import { defineMiddleware, defineGuard, defineExceptionFilter } from '@zipbul/common';
+import type { RequestOverrideMap } from '../../../framework/core/src/testing/request-overrides-context';
+import { TEST_SURFACE } from '../../../framework/core/src/testing/test-surface-symbol';
 import { err, isErr } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
 import { HttpRequest } from './http-request';
@@ -35,9 +37,19 @@ mock.module('@zipbul/core', () => ({
   runInInjectionContext,
   ClusterManager: class {},
   getBootstrapState: mockGetBootstrapState,
-  runWithRequestOverrides: <T>(_overrides: unknown, run: () => T) => run(),
-  currentRequestOverrides: () => undefined,
-  TEST_SURFACE: Symbol.for('@zipbul/testing/surface'),
+  // Import-graph completeness stubs: the SUT graph statically imports these
+  // from @zipbul/core (test-surface.ts → runWithRequestOverrides,
+  // http-server.ts → currentRequestOverrides, http-adapter.ts → TEST_SURFACE),
+  // so mock.module must provide them or the named imports resolve to undefined.
+  // They intentionally neutralize the request-override path (currentRequestOverrides
+  // → undefined is the production "no harness" default); a future test that
+  // depends on override behavior must replace these stubs.
+  runWithRequestOverrides: <T>(_overrides: RequestOverrideMap, fn: () => Promise<T>): Promise<T> => fn(),
+  currentRequestOverrides: (): RequestOverrideMap | undefined => undefined,
+  // Re-export the real symbol (a leaf module, not @zipbul/core, so the mock
+  // doesn't shadow it) rather than re-deriving the literal key — keeps the
+  // `unique symbol` identity bound to its single source of truth.
+  TEST_SURFACE,
 }));
 
 import { loggerMockModule } from '@zipbul/logger/testing';

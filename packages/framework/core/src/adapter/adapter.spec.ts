@@ -461,6 +461,78 @@ describe('Adapter', () => {
     });
   });
 
+  // ── applyConfig set-once semantics (overwrite, not merge) ──
+  // The slimming refactor replaced the accumulating apply* trio with a
+  // set-once applyConfig. These pin that a second call REPLACES (not merges)
+  // a slice, that an unset slice is left untouched, and that an empty/partial
+  // config is a no-op — so a regression back to append/merge fails here.
+
+  describe('applyConfig — set-once semantics', () => {
+    it('should replace, not append, middleware for a phase on a second call', async () => {
+      const order: string[] = [];
+      const first = mock((_ctx: Context) => { order.push('first'); });
+      const second = mock((_ctx: Context) => { order.push('second'); });
+
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(first)] } });
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(second)] } });
+      adapter.initializePipeline(createMockContainer());
+
+      expect(adapter['getPhaseMiddlewares']('TestPhase')).toHaveLength(1);
+      await adapter['runMiddlewares'](
+        adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
+      );
+      expect(order).toEqual(['second']);
+      expect(first).not.toHaveBeenCalled();
+    });
+
+    it('should replace, not append, guards on a second call', () => {
+      adapter.applyConfig({ guards: [defineGuard(() => (_ctx: Context) => {})] });
+      adapter.applyConfig({ guards: [defineGuard(() => (_ctx: Context) => {})] });
+
+      expect(adapter['guardDefs']).toHaveLength(1);
+    });
+
+    it('should replace, not append, exception filters on a second call', () => {
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([], () => mock(() => err({ caught: true })))] });
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([], () => mock(() => err({ caught: true })))] });
+
+      expect(adapter['exceptionFilterDefs']).toHaveLength(1);
+    });
+
+    it('should leave previously-set slices untouched when a later config carries only one slice', () => {
+      const guard = defineGuard(() => (_ctx: Context) => {});
+      const filter = defineExceptionFilter([], () => mock(() => err({ caught: true })));
+      adapter.applyConfig({
+        middlewares: { TestPhase: [mw(() => {})] },
+        guards: [guard],
+        exceptionFilters: [filter],
+      });
+
+      adapter.applyConfig({ guards: [defineGuard(() => (_ctx: Context) => {})] });
+      adapter.initializePipeline(createMockContainer());
+
+      // guards replaced, the untouched slices survive
+      expect(adapter['guardDefs']).toHaveLength(1);
+      expect(adapter['getPhaseMiddlewares']('TestPhase')).toHaveLength(1);
+      expect(adapter['exceptionFilterDefs']).toHaveLength(1);
+    });
+
+    it('should no-op without throwing for an empty config (all slices undefined)', () => {
+      expect(() => adapter.applyConfig({})).not.toThrow();
+      adapter.initializePipeline(createMockContainer());
+
+      expect(adapter['guardDefs']).toHaveLength(0);
+      expect(adapter['exceptionFilterDefs']).toHaveLength(0);
+    });
+
+    it('should set-once an empty guards/exceptionFilters array without throwing', () => {
+      expect(() => adapter.applyConfig({ guards: [], exceptionFilters: [] })).not.toThrow();
+
+      expect(adapter['guardDefs']).toHaveLength(0);
+      expect(adapter['exceptionFilterDefs']).toHaveLength(0);
+    });
+  });
+
   // ── dispatchRequest — pipeline + finalize ──────────────────
 
   describe('dispatchRequest', () => {

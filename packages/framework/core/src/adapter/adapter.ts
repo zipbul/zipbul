@@ -104,11 +104,11 @@ export abstract class Adapter implements AdapterContract {
    */
   readonly clusterStrategy: ClusterStrategy = ClusterStrategy.Shared;
 
-  private middlewareRegistry = new Map<string, MiddlewareDefinition[]>();
+  private middlewareRegistry = new Map<string, readonly MiddlewareDefinition[]>();
   private resolvedMiddlewareRegistry = new Map<string, ResolvedMiddleware[]>();
 
-  protected exceptionFilterDefs: ExceptionFilterDefinition[] = [];
-  protected guardDefs: GuardDefinition[] = [];
+  protected exceptionFilterDefs: readonly ExceptionFilterDefinition[] = [];
+  protected guardDefs: readonly GuardDefinition[] = [];
 
   protected resolvedExceptionFilters: ResolvedExceptionFilter[] = [];
   protected resolvedGuards: ResolvedGuard[] = [];
@@ -193,18 +193,18 @@ export abstract class Adapter implements AdapterContract {
       for (const [phase, definitions] of Object.entries(config.middlewares)) {
         this.validatePhase(phase);
         this.validateAdapterCompatibility(definitions, 'Middleware');
-        this.middlewareRegistry.set(phase, [...definitions]);
+        this.middlewareRegistry.set(phase, definitions);
       }
     }
 
     if (config.guards !== undefined) {
       this.validateAdapterCompatibility(config.guards, 'Guard');
-      this.guardDefs = [...config.guards];
+      this.guardDefs = config.guards;
     }
 
     if (config.exceptionFilters !== undefined) {
       this.validateAdapterCompatibility(config.exceptionFilters, 'ExceptionFilter');
-      this.exceptionFilterDefs = [...config.exceptionFilters];
+      this.exceptionFilterDefs = config.exceptionFilters;
     }
   }
 
