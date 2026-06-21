@@ -8,7 +8,7 @@ import type { Result } from '@zipbul/result';
 import type { Diagnostic } from '../../../diagnostics';
 
 import { err, isErr } from '@zipbul/result';
-import { ZIPBUL_REF, ZIPBUL_COMPUTED_PREFIX } from '@zipbul/common';
+import { ZIPBUL_REF } from '@zipbul/common';
 
 /** All IR sentinel keys start with this prefix. */
 const SENTINEL_PREFIX = '__zipbul_';
@@ -117,13 +117,9 @@ function collectModuleMiddlewarePhaseIds(fileMap: Map<string, FileAnalysis>, ada
       }
 
       for (const key of Object.keys(middlewares)) {
-        if (key.startsWith(ZIPBUL_COMPUTED_PREFIX)) {
-          return err(buildDiagnostic({
-            reason: `Middleware phase keys must be string literals for '${adapterId}'.`,
-            file: analysis.filePath,
-            symbol: adapterId,
-          }));
-        }
+        // Enum/computed phase keys are resolved to plain strings by the phase-key
+        // normalization pass before validation runs, so any key reaching here is
+        // already a phase string.
 
         // Skip IR sentinel keys (__zipbul_ref, __zipbul_import_source, etc.)
         if (key.startsWith(SENTINEL_PREFIX)) continue;
@@ -256,11 +252,8 @@ function extractPhaseIdsFromDecorator(decorator: DecoratorArguments, adapterId: 
     const keys: string[] = [];
 
     for (const key of Object.keys(mapping)) {
-      if (key.startsWith(ZIPBUL_COMPUTED_PREFIX)) {
-        return err(buildDiagnostic({
-          reason: `@UseMiddlewares phaseId must be a string literal for '${adapterId}'.`,
-        }));
-      }
+      // Enum/computed phase keys are resolved to plain strings by the phase-key
+      // normalization pass before validation runs.
 
       // Skip IR sentinel keys (__zipbul_ref, __zipbul_import_source, etc.)
       if (key.startsWith(SENTINEL_PREFIX)) continue;
