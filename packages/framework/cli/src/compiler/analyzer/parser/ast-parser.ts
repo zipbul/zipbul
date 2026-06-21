@@ -578,6 +578,20 @@ export class AstParser {
     return this.currentOriginalNames[localName] ?? localName;
   }
 
+  /**
+   * Resolves an import specifier (bare package name or relative path) seen in
+   * `sourcePath` to an absolute TypeScript source path, mapping dist outputs
+   * back to source. Public wrapper over the internal resolver so analysis
+   * passes (e.g. phase-key normalization) can resolve decorator-argument import
+   * sources, which are captured as raw specifiers, to a path the enum resolver
+   * can read.
+   *
+   * @public
+   */
+  resolveModuleSpecifier(sourcePath: string, importPath: string): string {
+    return this.resolvePath(sourcePath, importPath);
+  }
+
   private resolvePath(sourcePath: string, importPath: string): string {
     if (importPath.startsWith('.')) {
       const absolute = resolve(dirname(sourcePath), importPath);
