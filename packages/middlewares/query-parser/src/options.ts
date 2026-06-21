@@ -1,4 +1,4 @@
-import { Baker, Field, validateSync, isBakerIssueSet } from '@zipbul/baker';
+import { Baker, Field, isBakerIssueSet } from '@zipbul/baker';
 import { isBoolean, isInt, isIn, min } from '@zipbul/baker/rules';
 import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
@@ -94,7 +94,7 @@ export class QueryParserOptionsSchema {
 export function validateQueryParserOptions(resolved: ResolvedQueryParserOptions): Result<void, QueryParserErrorData> {
   ensureSealed();
 
-  const result = validateSync(QueryParserOptionsSchema, resolved);
+  const result = queryParserBaker.validateSync(QueryParserOptionsSchema, resolved);
 
   if (isBakerIssueSet(result)) {
     const issue = result.errors[0]!;

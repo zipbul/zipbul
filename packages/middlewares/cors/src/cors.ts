@@ -1,6 +1,6 @@
 import type { ResultAsync } from '@zipbul/result';
 
-import { validateSync, isBakerIssueSet } from '@zipbul/baker';
+import { isBakerIssueSet } from '@zipbul/baker';
 import { isErr, safe } from '@zipbul/result';
 import { HttpHeader } from '@zipbul/http-adapter';
 import type { HttpStatus } from '@zipbul/http-adapter';
@@ -56,7 +56,7 @@ export class Cors {
     ensureSealed();
     const merged: ResolvedCorsOptions = { ...CORS_DEFAULTS, ...(options ?? {}) };
 
-    const result = validateSync(CorsOptions, merged);
+    const result = corsBaker.validateSync(CorsOptions, merged);
     if (isBakerIssueSet(result)) {
       const issue = result.errors[0]!;
       const ctx = issue.context as { reason?: CorsErrorReason } | undefined;
