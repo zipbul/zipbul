@@ -10,7 +10,6 @@ import {
   findClassAstNode,
   findMethodBodyAstNode,
   findPropertyAstNode,
-  getCalleeMethodName,
 } from './ast-node-locator';
 
 function parse(code: string, filePath = 'test.ts'): ParsedFile {
@@ -399,41 +398,3 @@ describe('findPropertyAstNode', () => {
 // getMethodAstMeta 는 gildash 0.25 의 ExtractedSymbol.keyKind 도입 이후
 // dead code 가 되어 제거됨. computed/private 메서드 감지는
 // class-metadata-extractor 가 ExtractedSymbol.keyKind 를 직접 사용한다.
-
-describe('getCalleeMethodName', () => {
-  it('should extract method name from this.method() call', () => {
-    const code = 'class Svc { run() { this.execute(); } }';
-    const parsed = parse(code);
-    const classNode = findClassAstNode(parsed, 'Svc')!;
-    const methodBody = findMethodBodyAstNode(classNode, 'run')!;
-    const block = (methodBody as unknown as Record<string, unknown>).body as Record<string, unknown>;
-    const exprStmt = (block.body as Array<Record<string, unknown>>)[0]!;
-    const callExpr = exprStmt.expression as Node;
-
-    expect(getCalleeMethodName(callExpr)).toBe('execute');
-  });
-
-  it('should return null for a plain function call', () => {
-    const code = 'function test() { doSomething(); }';
-    const parsed = parse(code);
-    const funcDecl = parsed.program.body[0] as unknown as Record<string, unknown>;
-    const body = funcDecl.body as Record<string, unknown>;
-    const bodyStatements = body.body as Array<Record<string, unknown>>;
-    const exprStmt = bodyStatements[0]!;
-    const callExpr = exprStmt.expression as Node;
-
-    expect(getCalleeMethodName(callExpr)).toBeNull();
-  });
-
-  it('should return null for computed member call', () => {
-    const code = 'class Svc { run() { this["execute"](); } }';
-    const parsed = parse(code);
-    const classNode = findClassAstNode(parsed, 'Svc')!;
-    const methodBody = findMethodBodyAstNode(classNode, 'run')!;
-    const block = (methodBody as unknown as Record<string, unknown>).body as Record<string, unknown>;
-    const exprStmt = (block.body as Array<Record<string, unknown>>)[0]!;
-    const callExpr = exprStmt.expression as Node;
-
-    expect(getCalleeMethodName(callExpr)).toBeNull();
-  });
-});

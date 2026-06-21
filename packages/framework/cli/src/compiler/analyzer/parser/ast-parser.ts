@@ -35,7 +35,6 @@ import { convertClassSymbol } from './class-metadata-extractor';
 import type { AstNodeLocatorCallbacks, MethodMetadataCallbacks, AnonymousClassCallback, ClassMetadataContext } from './class-metadata-extractor';
 import { enrichFactoryValues, detectFrameworkCallsFromInitializer, convertModuleDefinition, moduleDefinitionFromDefineModuleArg, upsertDefineModuleCall, parsePatternCaptureArgs, resolveExportDefaultDefineModule } from './framework-call-detector';
 import { resolveInjectCallee, findImportSourceForCallee, buildInjectCallFromCapture } from './inject-call-analyzer';
-import { extractExceptionFiltersFromConfigure, extractMiddlewaresFromConfigure } from './method-metadata-extractor';
 import { extractHandlerContextUsages } from './handler-context-usage-extractor';
 import { extractHandlerContextOps } from './context-operation-extractor';
 import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, isAnonymousClassSymbol, extractFunctionSourceText } from './ast-node-locator';
@@ -307,8 +306,6 @@ export class AstParser {
     };
 
     const methodCallbacks: MethodMetadataCallbacks = {
-      extractMiddlewaresFromConfigure,
-      extractExceptionFiltersFromConfigure,
       extractHandlerContextUsages: (funcNode) => extractHandlerContextUsages(funcNode)?.usages,
       extractHandlerContextOps: (funcNode) => {
         const ops = extractHandlerContextOps(funcNode);

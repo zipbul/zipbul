@@ -1,13 +1,12 @@
 import { describe, expect, it, mock } from 'bun:test';
 import { parseSource, extractSymbols, extractRelations } from '@zipbul/gildash';
 import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
-import { isErr, err } from '@zipbul/result';
+import { isErr } from '@zipbul/result';
 import { ZIPBUL_CALL, ZIPBUL_IMPORT_SOURCE, ZIPBUL_REF } from '@zipbul/common';
 
 import type { ClassMetadata } from '../interfaces';
 import { buildImportMap } from '../expression-converter';
 import type { ImportMap } from '../expression-converter';
-import { buildDiagnostic } from '../../../diagnostics';
 
 import {
   convertClassSymbol,
@@ -69,8 +68,6 @@ function createRealAstLocators(): AstNodeLocatorCallbacks {
 
 function createNoopMethodCallbacks(): MethodMetadataCallbacks {
   return {
-    extractMiddlewaresFromConfigure: mock(() => []),
-    extractExceptionFiltersFromConfigure: mock(() => []),
     extractHandlerContextUsages: mock(() => undefined),
     extractHandlerContextOps: mock(() => undefined),
   };
@@ -103,8 +100,6 @@ describe('convertClassSymbol', () => {
     expect(metadata.methods).toEqual([]);
     expect(metadata.properties).toEqual([]);
     expect(metadata.heritage).toBeUndefined();
-    expect(metadata.middlewares).toEqual([]);
-    expect(metadata.exceptionFilters).toEqual([]);
   });
 
   it('should populate decorators when class has @Injectable decorator', () => {
@@ -442,64 +437,6 @@ describe('convertClassSymbol', () => {
     expect(metadata.imports).toEqual({ ConfigService: './config.service' });
   });
 
-  it('should extract middlewares from configure method', () => {
-    const code = [
-      "import { Module } from '@zipbul/common';",
-      '',
-      '@Module()',
-      'export class AppModule {',
-      '  configure() {}',
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'AppModule');
-    const methodCallbacks = createNoopMethodCallbacks();
-    const middlewareResult = [{ name: 'LoggerMiddleware', index: 0 }];
-
-    (methodCallbacks.extractMiddlewaresFromConfigure as ReturnType<typeof mock>).mockReturnValue(middlewareResult);
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      createDefaultContext(), createRealAstLocators(),
-      methodCallbacks, createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(false);
-
-    const metadata = result as ClassMetadata;
-
-    expect(metadata.middlewares).toEqual(middlewareResult);
-  });
-
-  it('should extract exceptionFilters from configure method', () => {
-    const code = [
-      "import { Module } from '@zipbul/common';",
-      '',
-      '@Module()',
-      'export class AppModule {',
-      '  configure() {}',
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'AppModule');
-    const methodCallbacks = createNoopMethodCallbacks();
-    const filterResult = [{ name: 'HttpExceptionFilter', index: 0 }];
-
-    (methodCallbacks.extractExceptionFiltersFromConfigure as ReturnType<typeof mock>).mockReturnValue(filterResult);
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      createDefaultContext(), createRealAstLocators(),
-      methodCallbacks, createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(false);
-
-    const metadata = result as ClassMetadata;
-
-    expect(metadata.exceptionFilters).toEqual(filterResult);
-  });
-
   it('should return err diagnostic for anonymous class with empty name', () => {
     const code = 'export class SimpleService {}';
     const { parsed, symbols, importMap } = parseFixture(code);
@@ -578,64 +515,6 @@ describe('convertClassSymbol', () => {
     const metadata = result as ClassMetadata;
 
     expect(metadata.methods).toEqual([]);
-  });
-
-  it('should propagate middleware extraction error from configure method', () => {
-    const code = [
-      "import { Module } from '@zipbul/common';",
-      '',
-      '@Module()',
-      'export class AppModule {',
-      '  configure() {}',
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'AppModule');
-    const methodCallbacks = createNoopMethodCallbacks();
-    const diagnostic = buildDiagnostic({ reason: 'middleware error', file: '/app/src/test.ts' });
-
-    (methodCallbacks.extractMiddlewaresFromConfigure as ReturnType<typeof mock>).mockReturnValue(err(diagnostic));
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      createDefaultContext(), createRealAstLocators(),
-      methodCallbacks, createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(true);
-
-    if (isErr(result)) {
-      expect(result.data.why).toBe('middleware error');
-    }
-  });
-
-  it('should propagate exceptionFilter extraction error from configure method', () => {
-    const code = [
-      "import { Module } from '@zipbul/common';",
-      '',
-      '@Module()',
-      'export class AppModule {',
-      '  configure() {}',
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'AppModule');
-    const methodCallbacks = createNoopMethodCallbacks();
-    const diagnostic = buildDiagnostic({ reason: 'filter error', file: '/app/src/test.ts' });
-
-    (methodCallbacks.extractExceptionFiltersFromConfigure as ReturnType<typeof mock>).mockReturnValue(err(diagnostic));
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      createDefaultContext(), createRealAstLocators(),
-      methodCallbacks, createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(true);
-
-    if (isErr(result)) {
-      expect(result.data.why).toBe('filter error');
-    }
   });
 
   it('should return empty arrays when class has no members', () => {
@@ -812,39 +691,6 @@ describe('convertClassSymbol', () => {
     const metadata = result as ClassMetadata;
 
     expect(metadata.methods).toEqual([]);
-  });
-
-  it('should not extract configure when rawClassNode is null', () => {
-    const code = [
-      "import { Module } from '@zipbul/common';",
-      '',
-      '@Module()',
-      'export class AppModule {',
-      '  configure() {}',
-      '}',
-    ].join('\n');
-    const { parsed, symbols, importMap } = parseFixture(code);
-    const symbol = findClassSymbol(symbols, 'AppModule');
-    const methodCallbacks = createNoopMethodCallbacks();
-    const astLocators: AstNodeLocatorCallbacks = {
-      findClassAstNode: mock(() => null),
-      findMethodBodyAstNode: mock(() => null),
-      findPropertyAstNode: mock(() => null),
-    };
-
-    const result = convertClassSymbol(
-      symbol, parsed, {}, importMap,
-      createDefaultContext(), astLocators,
-      methodCallbacks, createDefaultAnonymousCheck(),
-    );
-
-    expect(isErr(result)).toBe(false);
-
-    const metadata = result as ClassMetadata;
-
-    expect(metadata.middlewares).toEqual([]);
-    expect(metadata.exceptionFilters).toEqual([]);
-    expect(methodCallbacks.extractMiddlewaresFromConfigure).not.toHaveBeenCalled();
   });
 
   it('should extract heritage typeArgs for implements TS utility type', () => {

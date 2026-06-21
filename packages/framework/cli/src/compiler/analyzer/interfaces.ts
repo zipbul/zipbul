@@ -26,17 +26,6 @@ export interface TypeMetadata {
   properties: TypeMetadataProperty[];
 }
 
-export interface MiddlewareUsage {
-  name: string;
-  lifecycle?: string;
-  index: number;
-}
-
-export interface ExceptionFilterUsage {
-  name: string;
-  index: number;
-}
-
 export interface DecoratorMetadata {
   name: string;
   arguments: AnalyzerValue[];
@@ -95,8 +84,6 @@ export interface ClassMetadata {
   methods: MethodMetadata[];
   properties: PropertyMetadata[];
   imports: Record<string, string>;
-  middlewares?: MiddlewareUsage[] | undefined;
-  exceptionFilters?: ExceptionFilterUsage[] | undefined;
 }
 
 export interface ImportEntry {

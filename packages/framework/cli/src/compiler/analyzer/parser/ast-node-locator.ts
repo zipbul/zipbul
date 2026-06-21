@@ -22,33 +22,6 @@ function getPropertyKeyName(key: Node): string | null {
 }
 
 /**
- * Extracts the method name from a `CallExpression` callee that is a
- * static `MemberExpression` (e.g., `this.addMiddlewares(...)`).
- *
- * Returns `null` if `node` is not a `CallExpression` or its callee is not
- * a static member expression.
- */
-export function getCalleeMethodName(node: Node): string | null {
-  if (!is.CallExpression(node)) {
-    return null;
-  }
-
-  const callee = node.callee;
-
-  if (is.MemberExpression(callee) && !callee.computed) {
-    if (is.Identifier(callee.property)) {
-      return callee.property.name;
-    }
-
-    if (is.PrivateIdentifier(callee.property)) {
-      return callee.property.name;
-    }
-  }
-
-  return null;
-}
-
-/**
  * Extracts a `VariableDeclaration` from a statement, unwrapping export wrappers.
  * Returns the variable declaration node, or `null` if the statement is not one.
  */
