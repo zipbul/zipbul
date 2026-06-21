@@ -23,6 +23,7 @@ import { ConfigLoader } from '../../config';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { validateDefineCallShape } from '../../compiler/define-call-shape';
 import { EntryGenerator, ManifestGenerator } from '../../compiler/generator';
+import { normalizeModuleConfigPhaseKeys } from '../../compiler/analyzer/adapter/phase-key-normalizer';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
 import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
 import {
@@ -104,6 +105,9 @@ export function createBuildCommand(deps: BuildCommandDeps) {
         const graph = new ModuleGraph(fileMap, moduleFileName, srcDir, ledger);
         graph.build();
         await graph.validateInheritedScopes();
+
+        const phaseKeysResult = await normalizeModuleConfigPhaseKeys(graph, fileMap, parser);
+        if (isErr(phaseKeysResult)) throw new DiagnosticError(phaseKeysResult.data);
 
         const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot, graph });
         if (isErr(adapterResolution)) throw new DiagnosticError(adapterResolution.data);
