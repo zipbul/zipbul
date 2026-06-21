@@ -306,7 +306,7 @@ describe('HttpAdapter E2E', () => {
     adapter = new HttpAdapter({ port: TEST_PORT, bodyLimit: 1024 });
 
     // OnRequest CORS middleware
-    adapter.applyMiddlewareConfig({ [HttpAdapterPhase.OnRequest]: [
+    adapter.applyConfig({ middlewares: { [HttpAdapterPhase.OnRequest]: [
       defineMiddleware(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         http.response.setHeader('access-control-allow-origin', '*');
@@ -316,36 +316,45 @@ describe('HttpAdapter E2E', () => {
         ctx.set(RequestCount, 42);
         return undefined;
       }),
-    ] });
+    ] } });
 
-    // BeforeResponse middleware
-    adapter.applyMiddlewareConfig({ [HttpAdapterPhase.BeforeResponse]: [
+    // BeforeResponse middleware — set the marker header, plus a second that
+    // conditionally throws for the emergency-teardown test. A phase's
+    // middleware is a single compiled list, so both are applied in one config.
+    adapter.applyConfig({ middlewares: { [HttpAdapterPhase.BeforeResponse]: [
       defineMiddleware(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         http.response.setHeader('x-before-response', 'applied');
         return undefined;
       }),
-    ] });
+      defineMiddleware(() => (ctx: Context) => {
+        const http = ctx.to(HttpContext);
+        if (http.request.path === '/trigger-emergency') {
+          throw new Error('BeforeResponse crash');
+        }
+        return undefined;
+      }),
+    ] } });
 
     // Cleanup middleware
-    adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterResponse]: [
+    adapter.applyConfig({ middlewares: { [HttpAdapterPhase.AfterResponse]: [
       defineMiddleware(() => (_ctx: Context) => {
         cleanupMiddlewareCalls.push('cleanup-ran');
         return undefined;
       }),
-    ] });
+    ] } });
 
     // BeforeParsing middleware
-    adapter.applyMiddlewareConfig({ [HttpAdapterPhase.BeforeParse]: [
+    adapter.applyConfig({ middlewares: { [HttpAdapterPhase.BeforeParse]: [
       defineMiddleware(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         http.response.setHeader('x-before-parsing', 'applied');
         return undefined;
       }),
-    ] });
+    ] } });
 
     // AfterHandle middleware — envelope wrapper for /envelope/* routes only
-    adapter.applyMiddlewareConfig({ [HttpAdapterPhase.AfterHandle]: [
+    adapter.applyConfig({ middlewares: { [HttpAdapterPhase.AfterHandle]: [
       defineMiddleware(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         if (!http.request.path.startsWith('/envelope')) return undefined;
@@ -356,10 +365,10 @@ describe('HttpAdapter E2E', () => {
         http.response.setHeader('x-after-handle', 'applied');
         return undefined;
       }),
-    ] });
+    ] } });
 
     // Global guard that rejects /guarded path
-    adapter.applyGuardConfig([
+    adapter.applyConfig({ guards: [
       defineGuard(() => (ctx: Context) => {
         const http = ctx.to(HttpContext);
         if (http.request.path === '/guarded') {
@@ -367,23 +376,12 @@ describe('HttpAdapter E2E', () => {
         }
         return undefined;
       }),
-    ]);
+    ] });
 
     // No HttpError exception filter needed — framework philosophy is
     // that request-level errors flow as `Err<ErrorResponseData>` via the
     // `httpError()` factory. `throw` is reserved for invariants and is
     // handled by the dispatcher's generic-500 emergency teardown.
-
-    // BeforeResponse middleware that conditionally throws for emergency teardown test
-    adapter.applyMiddlewareConfig({ [HttpAdapterPhase.BeforeResponse]: [
-      defineMiddleware(() => (ctx: Context) => {
-        const http = ctx.to(HttpContext);
-        if (http.request.path === '/trigger-emergency') {
-          throw new Error('BeforeResponse crash');
-        }
-        return undefined;
-      }),
-    ] });
 
     const container = createMockContainer();
     adapter.initializePipeline(container);

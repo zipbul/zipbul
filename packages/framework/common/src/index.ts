@@ -12,6 +12,7 @@ export type {
   DecoratorRef,
   AdapterEntryDecorators,
   AdapterClass,
+  AdapterConfig,
 } from './adapter/types';
 export type {
   CompiledHandlerEntry,

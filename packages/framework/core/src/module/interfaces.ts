@@ -12,7 +12,7 @@ import type {
  * `adapter` identifies the transport class; the remaining fields mirror the
  * AOT-applied adapter config — phase-keyed middleware plus optional guards and
  * exception filters — and are applied at bootstrap via the adapter's
- * `applyMiddlewareConfig` / `applyGuardConfig` / `applyExceptionFilterConfig`.
+ * `applyConfig`.
  *
  * Middleware phase keys are the adapter's phase string values
  * (e.g. `'OnRequest'`), not the phase enum members.

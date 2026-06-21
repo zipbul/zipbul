@@ -1,4 +1,4 @@
-import type { AdapterMiddlewareConfig } from '@zipbul/core';
+import type { AdapterConfig } from '@zipbul/core';
 
 import {
   Application,
@@ -21,10 +21,9 @@ export interface TckApplicationOptions {
    * adapter's resolved config key (its `name` if attached with one, otherwise
    * its class name). This is the declarative equivalent of the AOT-generated
    * `adapterConfig`: the application bootstrap hands each slice to the matching
-   * adapter via `applyMiddlewareConfig` / `applyGuardConfig` /
-   * `applyExceptionFilterConfig`, exactly as a compiled app would.
+   * adapter via `applyConfig`, exactly as a compiled app would.
    */
-  adapterConfig?: Record<string, AdapterMiddlewareConfig>;
+  adapterConfig?: Record<string, AdapterConfig>;
 }
 
 export class TestApplication {

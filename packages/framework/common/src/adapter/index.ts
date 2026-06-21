@@ -4,4 +4,5 @@ export type {
   DecoratorRef,
   AdapterEntryDecorators,
   AdapterClass,
+  AdapterConfig,
 } from './types';

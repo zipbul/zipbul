@@ -4,7 +4,7 @@ import { isBakerIssueSet } from '@zipbul/baker';
 import type { MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
 import type { GuardDefinition, GuardHandlerFn } from '@zipbul/common';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '@zipbul/common';
-import type { Adapter as AdapterContract, AdapterClass, AdapterEntryDecorators, AdapterContext, ApplicationContext } from '@zipbul/common';
+import type { Adapter as AdapterContract, AdapterClass, AdapterConfig, AdapterEntryDecorators, AdapterContext, ApplicationContext } from '@zipbul/common';
 import { ClusterStrategy } from '@zipbul/common';
 import type { ZipbulContainer } from '@zipbul/common';
 import { contextKey } from '@zipbul/common';
@@ -175,49 +175,37 @@ export abstract class Adapter implements AdapterContract {
   }
 
   // ── Declarative config application (AOT bootstrap) ──────────
-  //
-  // The module-config compiler emits one config record per adapter; the application
-  // bootstrap hands each slice to the matching method below. Every definition is
-  // validated for adapter compatibility before being stored, then resolved against
-  // the DI container in initializePipeline.
 
   /**
-   * Receives AOT-generated, phase-keyed middleware configuration.
+   * Receives the adapter's complete AOT-compiled configuration slice and
+   * applies it once. The compiler is the single source of truth and the
+   * bootstrap calls this exactly once per adapter, so each field is a
+   * straight set (not an append): the slice fully describes the adapter's
+   * middleware/guard/exception-filter wiring. Every definition is validated
+   * for adapter compatibility before being stored; resolution against the DI
+   * container happens later in {@link initializePipeline}.
    *
-   * @param config - Phase-keyed middleware definitions.
+   * @param config - The adapter's compiled config slice.
    * @public
    */
-  applyMiddlewareConfig(
-    config: Readonly<Record<string, readonly MiddlewareDefinition[]>>,
-  ): void {
-    for (const [phase, definitions] of Object.entries(config)) {
-      this.validatePhase(phase);
-      this.validateAdapterCompatibility(definitions, 'Middleware');
-      const existing = this.middlewareRegistry.get(phase) ?? [];
-      this.middlewareRegistry.set(phase, [...existing, ...definitions]);
+  applyConfig(config: AdapterConfig): void {
+    if (config.middlewares !== undefined) {
+      for (const [phase, definitions] of Object.entries(config.middlewares)) {
+        this.validatePhase(phase);
+        this.validateAdapterCompatibility(definitions, 'Middleware');
+        this.middlewareRegistry.set(phase, [...definitions]);
+      }
     }
-  }
 
-  /**
-   * Receives AOT-generated guard configuration.
-   *
-   * @param guards - Guard definitions to append.
-   * @public
-   */
-  applyGuardConfig(guards: readonly GuardDefinition[]): void {
-    this.validateAdapterCompatibility(guards, 'Guard');
-    this.guardDefs = [...this.guardDefs, ...guards];
-  }
+    if (config.guards !== undefined) {
+      this.validateAdapterCompatibility(config.guards, 'Guard');
+      this.guardDefs = [...config.guards];
+    }
 
-  /**
-   * Receives AOT-generated exception filter configuration.
-   *
-   * @param filters - Exception filter definitions to append.
-   * @public
-   */
-  applyExceptionFilterConfig(filters: readonly ExceptionFilterDefinition[]): void {
-    this.validateAdapterCompatibility(filters, 'ExceptionFilter');
-    this.exceptionFilterDefs = [...this.exceptionFilterDefs, ...filters];
+    if (config.exceptionFilters !== undefined) {
+      this.validateAdapterCompatibility(config.exceptionFilters, 'ExceptionFilter');
+      this.exceptionFilterDefs = [...config.exceptionFilters];
+    }
   }
 
   // ── Middleware registry ─────────────────────────────────────
