@@ -485,6 +485,17 @@ describe('CookieJar', () => {
       expect(new CookieJar(parser, 'sid=%ff; sid=valid123').getRaw('sid')).toBe('valid123');
     });
 
+    it('keeps a legit %EF%BF%BD duplicate when an earlier malformed duplicate also decodes to U+FFFD', () => {
+      // Both occurrences decode to a value containing U+FFFD: the first ('bad%ZZ') is silent corruption,
+      // the second ('%EF%BF%BD') is a genuine U+FFFD. The raw lookup must consult the SECOND occurrence's
+      // raw, not the first, or the legit value is wrongly dropped.
+      const parser = CookieParser.create();
+      const jar = new CookieJar(parser, 'sid=bad%ZZ; sid=%EF%BF%BD; good=ok');
+      expect(jar.has('sid')).toBe(true);
+      expect(jar.getRaw('sid')).toBe('�');
+      expect(jar.getRaw('good')).toBe('ok');
+    });
+
     it('resolves duplicate valid cookies first-occurrence-wins (parity with Bun.CookieMap.get)', () => {
       const parser = CookieParser.create();
       expect(new CookieJar(parser, 'a=1; a=2').getRaw('a')).toBe('1');

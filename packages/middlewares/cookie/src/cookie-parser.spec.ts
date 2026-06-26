@@ -7,6 +7,8 @@ import type { Result } from '@zipbul/result';
 import { CookieErrorReason, CookiePriority, SameSite, SigningAlgorithm } from './enums';
 import { CookieError, type CookieErrorData } from './interfaces';
 import { CookieParser } from './cookie-parser';
+import { bufferFromB64Url, bufferToB64Url } from './cookie-crypto';
+import { KID_LENGTH } from './constants';
 
 describe('CookieParser', () => {
   describe('create', () => {
@@ -332,6 +334,24 @@ describe('CookieParser', () => {
       const cpNew = CookieParser.create({ secrets: ['xM8Em3o_YBlUuk66TuXhAUgxC2E4fMk-OAOUl4KV02A', 'c-BonY3Jbzq2IWbz7U92BtJtQVDGl9wnoudjt9RkihY'] });
       const unsigned = expectOk(await cpNew.unsign(signed));
       expect(unsigned.value).toBe('data');
+    });
+
+    it('rejects a cross-slot signature: a KID identifying one key but a MAC produced by another', async () => {
+      // The security-load-bearing invariant in unsign is `valid ||= kidMatches && macOk` — KID and MAC
+      // must match the SAME configured key. A blob carrying key B's KID but key A's MAC must be rejected;
+      // a future refactor to OR them apart would silently accept it while every matching-slot test stays green.
+      const A = 'A-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const B = 'B-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+      const pAB = CookieParser.create({ secrets: [A, B] }); // slot 0 = A → signs with A
+      const pBA = CookieParser.create({ secrets: [B, A] }); // slot 0 = B → signs with B
+      const sigA = bufferFromB64Url(expectOk(pAB.sign(new Cookie('sid', 'val'))).value.split('.').pop()!);
+      const kidB = bufferFromB64Url(expectOk(pBA.sign(new Cookie('sid', 'val'))).value.split('.').pop()!).subarray(0, KID_LENGTH);
+      const macA = sigA.subarray(KID_LENGTH);
+      const forged = new Uint8Array(KID_LENGTH + macA.length);
+      forged.set(kidB, 0);
+      forged.set(macA, KID_LENGTH);
+      const result = await pAB.unsign(new Cookie('sid', `val.${bufferToB64Url(forged)}`));
+      expect(asErr(result).data.reason).toBe(CookieErrorReason.SignatureVerificationFailed);
     });
 
     it('should throw SigningNotConfigured when unsigning without secrets', async () => {

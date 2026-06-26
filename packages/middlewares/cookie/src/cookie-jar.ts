@@ -13,15 +13,16 @@ interface OutboundEntry {
 }
 
 /**
- * Splits a raw Cookie header into decoded-name → RAW-value pairs, mirroring `Bun.CookieMap`'s pair
- * tokenisation (split on `;`, first `=` is the delimiter, trim OWS, first occurrence wins). The NAME is
- * percent-decoded so the key matches `Bun.CookieMap`'s decoded name even when the wire name is itself
- * percent-encoded (e.g. `n%41` → `nA`); the VALUE is kept raw so the caller can strict-decode it to tell
- * a silently-corrupted value from a genuine U+FFFD.
+ * Splits a raw Cookie header into decoded-name → RAW-value-LIST pairs, mirroring `Bun.CookieMap`'s pair
+ * tokenisation (split on `;`, first `=` is the delimiter, trim OWS). The NAME is percent-decoded so the
+ * key matches `Bun.CookieMap`'s decoded name even when the wire name is itself percent-encoded (e.g.
+ * `n%41` → `nA`); each VALUE is kept raw so the caller can strict-decode it to tell a silently-corrupted
+ * value from a genuine U+FFFD. ALL occurrences are kept (in wire order): a name may appear more than once,
+ * and a corrupt earlier duplicate must not hide a valid later one, so the lookup needs every raw segment.
  * @internal
  */
-function parseRawCookiePairs(header: string): Map<string, string> {
-  const pairs = new Map<string, string>();
+function parseRawCookiePairs(header: string): Map<string, string[]> {
+  const pairs = new Map<string, string[]>();
   for (const part of header.split(';')) {
     const eq = part.indexOf('=');
     if (eq === -1) {
@@ -41,26 +42,29 @@ function parseRawCookiePairs(header: string): Map<string, string> {
     } catch {
       continue;
     }
-    if (pairs.has(name)) {
-      continue;
+    const raw = part.slice(eq + 1).trim();
+    const existing = pairs.get(name);
+    if (existing === undefined) {
+      pairs.set(name, [raw]);
+    } else {
+      existing.push(raw);
     }
-    pairs.set(name, part.slice(eq + 1).trim());
   }
   return pairs;
 }
 
 /**
- * Reports whether a raw percent-encoded segment decodes without error. `decodeURIComponent` throws on
- * a malformed escape (`%XX`, a truncated UTF-8 sequence, a bare `%`) — exactly the inputs `Bun.CookieMap`
- * silently turns into U+FFFD — while a legitimately-encoded U+FFFD (`%EF%BF%BD`) decodes cleanly.
+ * Strict-decodes a raw percent-encoded segment, returning the decoded string or `undefined` when it is
+ * malformed. `decodeURIComponent` throws on a malformed escape (`%XX`, a truncated UTF-8 sequence, a bare
+ * `%`) — exactly the inputs `Bun.CookieMap` silently turns into U+FFFD — while a legitimately-encoded
+ * U+FFFD (`%EF%BF%BD`) decodes cleanly to the same character Bun produced.
  * @internal
  */
-function isStrictlyDecodable(raw: string): boolean {
+function strictDecode(raw: string): string | undefined {
   try {
-    decodeURIComponent(raw);
-    return true;
+    return decodeURIComponent(raw);
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -85,11 +89,10 @@ export class CookieJar {
       // decoding the RAW wire segment: only entries whose decoded form contains U+FFFD AND whose raw
       // segment is NOT strictly decodable are dropped as corrupt. The raw map is parsed lazily, only
       // when a U+FFFD actually appears.
-      let rawPairs: Map<string, string> | null = null;
+      let rawPairs: Map<string, string[]> | null = null;
       for (const [name, value] of map) {
-        // First-occurrence wins (parity with Bun.CookieMap.get). Crucially, this also prevents a later
-        // malformed same-name duplicate from overwriting an already-stored valid value: once a name is
-        // kept, every later pair for that name is skipped before the U+FFFD check can mis-fire.
+        // First VALID occurrence wins (parity with Bun.CookieMap.get for clean values). Once a name is
+        // kept, every later duplicate is skipped — a later malformed duplicate can't overwrite it.
         if (parsed.has(name)) {
           continue;
         }
@@ -101,9 +104,13 @@ export class CookieJar {
           continue;
         }
         if (value.includes('�')) {
+          // Bun decoded this occurrence to a value containing U+FFFD. It's legitimate only if one of this
+          // name's raw wire segments strict-decodes to exactly this value (a real `%EF%BF%BD`); otherwise
+          // it's silent corruption. Checking ALL raw segments (not just the first) is what lets a valid
+          // later duplicate survive a corrupt earlier one that also decoded to U+FFFD.
           rawPairs ??= parseRawCookiePairs(cookieHeader);
-          const rawValue = rawPairs.get(name);
-          if (rawValue === undefined || !isStrictlyDecodable(rawValue)) {
+          const raws = rawPairs.get(name);
+          if (raws === undefined || !raws.some((raw) => strictDecode(raw) === value)) {
             continue;
           }
         }
