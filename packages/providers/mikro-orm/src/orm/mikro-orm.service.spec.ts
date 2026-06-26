@@ -3,6 +3,7 @@ import { MikroORM, type EntityManager } from '@mikro-orm/core';
 
 import { ConnectionRegistry } from '../connection';
 import { EntityManagerResolver, RequestContextRunner } from '../context';
+import { MikroOrmErrorReason } from '../error';
 import { MikroOrmService } from './mikro-orm.service';
 import type { ZipbulMikroOrmOptions } from './interfaces';
 
@@ -45,6 +46,22 @@ test('onInit registers under a named connection when one is configured', async (
   expect(ConnectionRegistry.get('analytics')).toBe(orm);
 });
 
+test('onInit binds MikroORM contextName to the logical connection and strips the custom `connection` option', async () => {
+  const init = spyOn(MikroORM, 'init').mockResolvedValue(fakeOrm());
+  await new Database(opts({ connection: 'analytics' })).onInit();
+  const passed = init.mock.calls[0]![0] as Record<string, unknown>;
+  // contextName is what MikroORM keys the RequestContext fork by; without this a named connection
+  // forks under 'default' and silently falls back to the shared global EM (cross-request leak).
+  expect(passed['contextName']).toBe('analytics');
+  expect('connection' in passed).toBe(false);
+});
+
+test('onInit defaults contextName to the default connection name', async () => {
+  const init = spyOn(MikroORM, 'init').mockResolvedValue(fakeOrm());
+  await new Database(opts()).onInit();
+  expect((init.mock.calls[0]![0] as Record<string, unknown>)['contextName']).toBe('default');
+});
+
 test('onInit performs no destructive schema work (only MikroORM.init creates the orm)', async () => {
   const orm = fakeOrm();
   const init = spyOn(MikroORM, 'init').mockResolvedValue(orm);
@@ -83,6 +100,16 @@ test('enter delegates to the RequestContextRunner for the connection', () => {
   const service = new Database(opts());
   service.enter();
   expect(enter).toHaveBeenCalledWith('default');
+});
+
+test('a second onInit on an already-registered connection throws ConnectionAlreadyRegistered and builds no second orm', async () => {
+  const init = spyOn(MikroORM, 'init').mockResolvedValue(fakeOrm());
+  await new Database(opts()).onInit();
+  expect(init).toHaveBeenCalledTimes(1);
+  await expect(new Database(opts()).onInit()).rejects.toMatchObject({
+    reason: MikroOrmErrorReason.ConnectionAlreadyRegistered,
+  });
+  expect(init).toHaveBeenCalledTimes(1); // no second pool was built
 });
 
 test('a failed MikroORM.init rejects onInit and registers nothing', async () => {

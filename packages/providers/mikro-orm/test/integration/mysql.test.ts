@@ -1,3 +1,7 @@
+// bun:test pins TZ=UTC, which would MASK any no-tz `datetime` coercion offset — force a non-UTC
+// zone so the Date value assertion below actually proves the instant survives. Must precede imports.
+process.env.TZ = 'Asia/Seoul';
+
 import { test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import { MikroORM, type Options } from '@mikro-orm/core';
 
@@ -68,6 +72,7 @@ describeMysql('mysql round-trip + types + transactions', () => {
     await em.flush();
     const found = await orm.em.fork().findOneOrFail(Record, { code: 'C' });
     expect(found.at).toBeInstanceOf(Date);
+    expect(found.at.toISOString()).toBe(AT.toISOString()); // exact instant, under a non-UTC process
     expect(found.meta).toEqual({ k: 'hi' });
     expect(found.price).toBe('99.99');
   });

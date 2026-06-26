@@ -1,0 +1,1 @@
+`@zipbul/mikro-orm` 은 MikroORM v7 을 Bun 런타임 위에서 동작시키는 데이터베이스 드라이버다. ORM 이 생성한 SQL 을 Bun.SQL 만으로 각 데이터베이스에 실행하고 그 결과를 ORM 이 기대하는 형태로 되돌리는 변환 계층으로서, PostgreSQL·MySQL·MariaDB·SQLite 를 하나의 동일한 인터페이스로 다룬다. 공식 `@mikro-orm` 드라이버가 보장하는 정확성 — 결과 형태, 예외 정규화, 타입 왕복, 트랜잭션과 격리수준 — 을 Bun 네이티브 구현으로 그대로 재현하는 것이 이 패키지의 정체성이다.

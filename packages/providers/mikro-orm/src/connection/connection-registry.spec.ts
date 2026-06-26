@@ -2,7 +2,7 @@ import { test, expect, afterEach } from 'bun:test';
 import type { MikroORM } from '@mikro-orm/core';
 
 import { ConnectionRegistry } from './connection-registry';
-import { ConnectionNotRegisteredError } from './errors';
+import { MikroOrmError, MikroOrmErrorReason } from '../error';
 
 // ConnectionRegistry is a process-global static Map. Reset the keys this spec sets so
 // state never leaks into other specs in the same `bun test` run.
@@ -15,8 +15,13 @@ afterEach(() => {
 
 const orm = (tag: string) => ({ tag }) as unknown as MikroORM;
 
-test('get on an unregistered name throws ConnectionNotRegisteredError', () => {
-  expect(() => ConnectionRegistry.get('default')).toThrow(ConnectionNotRegisteredError);
+test('get on an unregistered name throws MikroOrmError with the ConnectionNotRegistered reason', () => {
+  expect(() => ConnectionRegistry.get('default')).toThrow(MikroOrmError);
+  try {
+    ConnectionRegistry.get('default');
+  } catch (e) {
+    expect((e as MikroOrmError).reason).toBe(MikroOrmErrorReason.ConnectionNotRegistered);
+  }
 });
 
 test('get returns the exact instance that was set', () => {
@@ -38,7 +43,7 @@ test('delete removes the entry', () => {
   ConnectionRegistry.set('a', orm('o1'));
   ConnectionRegistry.delete('a');
   expect(ConnectionRegistry.has('a')).toBe(false);
-  expect(() => ConnectionRegistry.get('a')).toThrow(ConnectionNotRegisteredError);
+  expect(() => ConnectionRegistry.get('a')).toThrow(MikroOrmError);
 });
 
 test('delete on a never-set name is a no-op', () => {

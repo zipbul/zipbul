@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
-import { MikroORM, PrimaryKeyProp } from '@mikro-orm/core';
+import { MikroORM, PrimaryKeyProp, UniqueConstraintViolationException } from '@mikro-orm/core';
 
 import { Entity, PrimaryKey, Property } from '../../src/entity';
 import { BunPostgreSqlDriver } from '../../src/driver';
@@ -51,6 +51,6 @@ describePg('composite primary key (postgres)', () => {
 
     const em2 = orm.em.fork();
     em2.persist(em2.create(Enrollment, { studentId: 2, courseId: 30, grade: 'D' }));
-    await expect(em2.flush()).rejects.toBeDefined();
+    await expect(em2.flush()).rejects.toBeInstanceOf(UniqueConstraintViolationException);
   });
 });

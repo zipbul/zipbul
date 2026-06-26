@@ -17,6 +17,15 @@ test('enters a MikroORM RequestContext bound to the connection global EM', () =>
   expect(enter).toHaveBeenCalledWith(globalEm);
 });
 
+test('looks up the EM by the GIVEN connection name (not a hardcoded default)', () => {
+  const get = spyOn(ConnectionRegistry, 'get').mockReturnValue({
+    em: { tag: 'analytics-em' } as unknown as EntityManager,
+  } as unknown as MikroORM);
+  spyOn(RequestContext, 'enter').mockImplementation(() => {});
+  RequestContextRunner.enter('analytics');
+  expect(get).toHaveBeenCalledWith('analytics');
+});
+
 test('propagates a registry error and does not enter a context', () => {
   spyOn(ConnectionRegistry, 'get').mockImplementation(() => {
     throw new Error('not registered');

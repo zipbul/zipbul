@@ -1,4 +1,4 @@
-import type { ErrorNormalizer } from '../../dialect';
+import type { ErrorNormalizer } from '../../bun-sql';
 
 /**
  * Normalizes Bun.SQL PostgreSQL errors so MikroORM's official
@@ -8,7 +8,7 @@ import type { ErrorNormalizer } from '../../dialect';
  *
  * @internal
  */
-export class PostgresErrorNormalizer implements ErrorNormalizer {
+export class BunPostgreSqlErrorNormalizer implements ErrorNormalizer {
   normalize(error: unknown): unknown {
     const e = error as { errno?: unknown; code?: unknown } | null;
     if (e && typeof e.errno !== 'undefined' && (typeof e.code !== 'string' || e.code.startsWith('ERR_'))) {

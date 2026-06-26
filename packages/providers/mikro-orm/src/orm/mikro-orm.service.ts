@@ -2,6 +2,7 @@ import { MikroORM, type EntityManager } from '@mikro-orm/core';
 
 import { ConnectionRegistry, DEFAULT_CONNECTION, type ConnectionName } from '../connection';
 import { EntityManagerResolver, RequestContextRunner } from '../context';
+import { MikroOrmError, MikroOrmErrorReason } from '../error';
 import type { ZipbulMikroOrmOptions } from './interfaces';
 
 /**
@@ -20,7 +21,22 @@ export abstract class MikroOrmService {
   }
 
   async onInit(): Promise<void> {
-    this.orm = await MikroORM.init(this.options);
+    // Bind MikroORM's RequestContext key (contextName) to our logical connection name. MikroORM
+    // stores the per-request fork in AsyncLocalStorage keyed by `em.name` (= contextName), and
+    // EntityManagerResolver looks it up by the connection name — without this, every non-default
+    // connection forks under 'default', so its scoped lookup misses and silently falls back to the
+    // shared global EM (cross-request identity-map leak). `connection` is our own option, not a
+    // MikroORM one, so it is stripped before init.
+    // Fail fast on a duplicate connection name BEFORE building a second MikroORM — otherwise the
+    // registry would silently drop (and leak) the previously-registered instance's pool.
+    if (ConnectionRegistry.has(this.connection)) {
+      throw new MikroOrmError({
+        reason: MikroOrmErrorReason.ConnectionAlreadyRegistered,
+        message: `connection '${this.connection}' is already registered — each connection name must have a single MikroOrmService.`,
+      });
+    }
+    const { connection: _connection, ...mikroOptions } = this.options;
+    this.orm = await MikroORM.init({ ...mikroOptions, contextName: this.connection });
     ConnectionRegistry.set(this.connection, this.orm);
   }
 

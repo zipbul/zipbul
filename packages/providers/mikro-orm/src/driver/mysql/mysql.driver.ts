@@ -1,6 +1,9 @@
 import { AbstractSqlDriver } from '@mikro-orm/sql';
-import { MySqlPlatform } from '@mikro-orm/mysql';
+import type { MySqlPlatform } from '@mikro-orm/mysql';
 import { Utils } from '@mikro-orm/core';
+
+import { MikroOrmError, MikroOrmErrorReason } from '../../error';
+import { BunMySqlPlatform } from './mysql.platform';
 import type {
   Configuration,
   EntityDictionary,
@@ -12,22 +15,25 @@ import type {
   UpsertManyOptions,
 } from '@mikro-orm/core';
 
-import { MySqlConnection } from './mysql.connection';
+import { BunMySqlConnection } from './mysql.connection';
+import type { MutableResult } from './interfaces';
 
 /**
- * MikroORM MySQL driver backed by Bun's native Bun.SQL (zero `mysql2` dependency).
- * Reuses the official {@link MySqlPlatform}.
+ * MikroORM MySQL driver backed by Bun's native Bun.SQL (`mysql2` is never imported at runtime —
+ * it may be pulled transitively by `@mikro-orm/mysql`, but Bun.SQL replaces it).
+ * Uses {@link BunMySqlPlatform} (the official {@link MySqlPlatform} with JSON auto-parsing
+ * disabled, since Bun.SQL returns JSON columns as raw strings).
  *
  * MySQL has no RETURNING, so a multi-row INSERT reports only the first auto-increment id.
  * `nativeInsertMany`/`nativeUpdateMany` are overridden (mirroring the official MySqlDriver)
  * to reconstruct each row's PK from `insertId + idx * auto_increment_increment`, so a batch
  * flush of several new entities assigns each its own id instead of throwing.
  */
-export class BunMySqlDriver extends AbstractSqlDriver<MySqlConnection, MySqlPlatform> {
+export class BunMySqlDriver extends AbstractSqlDriver<BunMySqlConnection, MySqlPlatform> {
   private autoIncrementIncrement?: number;
 
   constructor(config: Configuration) {
-    super(config, new MySqlPlatform(), MySqlConnection, ['kysely']);
+    super(config, new BunMySqlPlatform(), BunMySqlConnection, ['kysely']);
   }
 
   private async getAutoIncrementIncrement(ctx?: Transaction): Promise<number> {
@@ -38,7 +44,7 @@ export class BunMySqlDriver extends AbstractSqlDriver<MySqlConnection, MySqlPlat
         [],
         'get',
         ctx,
-        { enabled: false } as never,
+        { enabled: false },
       )) as { Value?: string } | undefined;
       this.autoIncrementIncrement = res?.Value ? +res.Value : 1;
     }
@@ -100,15 +106,11 @@ export class BunMySqlDriver extends AbstractSqlDriver<MySqlConnection, MySqlPlat
     const pk = this.getPrimaryKeyFields(meta)[0];
     /* v8 ignore next */
     if (pk == null) {
-      throw new Error('@zipbul/mikro-orm: BunMySqlDriver batch ops require a single-column primary key.');
+      throw new MikroOrmError({
+        reason: MikroOrmErrorReason.BatchSingleColumnPrimaryKey,
+        message: 'BunMySqlDriver batch ops require a single-column primary key.',
+      });
     }
     return pk;
   }
-}
-
-/** Loose view of the inherited `QueryResult` for the post-insert PK back-fill mutation. */
-interface MutableResult {
-  rows: Record<string, unknown>[] | undefined;
-  row: Record<string, unknown> | undefined;
-  insertId: number | bigint | undefined;
 }

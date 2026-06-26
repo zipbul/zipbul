@@ -5,14 +5,15 @@ import { Entity, PrimaryKey, Property } from '../../src/entity';
 import { BunPostgreSqlDriver } from '../../src/driver';
 import { PG_URL, describePg, makeOrm, freshSchema } from './helpers';
 
-// A custom MikroORM Type: converts the value on the way to/from the database. Proves the
-// driver honours MikroORM's own value conversion layer (which runs before/after SQL).
-class UpperCaseType extends Type<string, string> {
+// A custom MikroORM Type that converts in BOTH directions so each is independently provable:
+// uppercased on the way to the DB, lowercased on the way back. Proves the driver honours
+// MikroORM's value-conversion layer (which runs before/after SQL) in both directions.
+class CaseFoldType extends Type<string, string> {
   override convertToDatabaseValue(value: string): string {
     return value.toUpperCase();
   }
   override convertToJSValue(value: string): string {
-    return value;
+    return value.toLowerCase();
   }
   override getColumnType(): string {
     return 'varchar(64)';
@@ -24,7 +25,7 @@ class TaggedRow {
   @PrimaryKey({ type: 'number', autoincrement: true })
   id!: number;
 
-  @Property({ type: UpperCaseType })
+  @Property({ type: CaseFoldType })
   code!: string;
 }
 
@@ -40,17 +41,18 @@ describePg('custom MikroORM Type (postgres)', () => {
     await freshSchema(orm);
   });
 
-  test('the custom type converts the value on the way into the database', async () => {
+  test('the custom type converts the value in BOTH directions through the driver', async () => {
     const em = orm.em.fork();
     em.persist(em.create(TaggedRow, { code: 'abc' }));
     await em.flush();
 
-    // raw read proves the stored value went through convertToDatabaseValue (uppercased)
+    // raw read proves the WRITE direction (convertToDatabaseValue uppercased it)
     const rows = (await orm.em.getConnection().execute('select code from tagged_row')) as Array<{ code: string }>;
     expect(rows[0]?.code).toBe('ABC');
 
-    // querying by the lowercase value also goes through convertToDatabaseValue → matches
+    // querying by the lowercase value goes through convertToDatabaseValue → matches the stored 'ABC';
+    // the hydrated value proves the READ direction (convertToJSValue lowercased it back).
     const found = await orm.em.fork().findOneOrFail(TaggedRow, { code: 'abc' });
-    expect(found.code).toBe('ABC');
+    expect(found.code).toBe('abc');
   });
 });
