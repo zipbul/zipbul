@@ -1,4 +1,4 @@
-import { Baker, Field, validateSync, isBakerIssueSet } from '@zipbul/baker';
+import { Baker, Field, isBakerIssueSet } from '@zipbul/baker';
 import { isBoolean, isInt, isIn, min } from '@zipbul/baker/rules';
 import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
@@ -12,8 +12,8 @@ const DUPLICATE_MODES: string[] = ['first', 'last', 'array'];
 
 /**
  * Query-parser-owned baker. baker 5.x scopes registration to an instance, so
- * only {@link QueryParserOptionsSchema} registers here (`@queryParserBaker.Recipe`).
- * `validateSync` stays global and reads the sealed executor off the class.
+ * only {@link QueryParserOptionsSchema} registers here (`@queryParserBaker.Recipe`),
+ * and `queryParserBaker.validateSync` runs against the executor this baker sealed.
  * Mirrors the cors middleware's package-private baker.
  */
 const queryParserBaker = new Baker();
@@ -94,7 +94,7 @@ export class QueryParserOptionsSchema {
 export function validateQueryParserOptions(resolved: ResolvedQueryParserOptions): Result<void, QueryParserErrorData> {
   ensureSealed();
 
-  const result = validateSync(QueryParserOptionsSchema, resolved);
+  const result = queryParserBaker.validateSync(QueryParserOptionsSchema, resolved);
 
   if (isBakerIssueSet(result)) {
     const issue = result.errors[0]!;

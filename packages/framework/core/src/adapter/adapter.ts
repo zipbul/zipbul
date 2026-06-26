@@ -1,6 +1,6 @@
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result, ResultAsync } from '@zipbul/result';
-import { deserialize, isBakerIssueSet } from '@zipbul/baker';
+import { isBakerIssueSet } from '@zipbul/baker';
 import type { MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
 import type { GuardDefinition, GuardHandlerFn } from '@zipbul/common';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '@zipbul/common';
@@ -8,6 +8,7 @@ import type { Adapter as AdapterContract, AdapterClass, AdapterEntryDecorators, 
 import { ClusterStrategy } from '@zipbul/common';
 import type { ZipbulContainer } from '@zipbul/common';
 import { contextKey } from '@zipbul/common';
+import { appBaker } from '../baker';
 import { runInInjectionContext } from '../injection-context';
 import { runInAdapterContext } from '../adapter-context';
 import { CoreStep } from './enums';
@@ -369,7 +370,7 @@ export abstract class Adapter implements AdapterContract {
   ): ResultAsync<void, unknown> {
     for (const validation of validations) {
       const input = validation.readInput(context);
-      const result = await deserialize(validation.metatype, input);
+      const result = await appBaker.deserialize(validation.metatype, input);
 
       if (isBakerIssueSet(result)) {
         return this.wrapValidationError(validation, result);

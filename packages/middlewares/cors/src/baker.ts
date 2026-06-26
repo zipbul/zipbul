@@ -5,7 +5,6 @@ import { Baker } from '@zipbul/baker';
  * middleware owns the one that {@link CorsOptions} registers with (`@corsBaker.Recipe`)
  * and that {@link Cors.create} seals once on first use. Keeping it private to
  * the package means the app baker and other middlewares never collide with it;
- * `validateSync`/`deserialize` stay global and read the sealed executor off the
- * class regardless of which baker sealed it.
+ * `corsBaker.validateSync` runs against the executor this baker sealed.
  */
 export const corsBaker = new Baker();
