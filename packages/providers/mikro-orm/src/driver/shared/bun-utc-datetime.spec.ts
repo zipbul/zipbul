@@ -4,7 +4,7 @@ process.env.TZ = 'Asia/Seoul';
 
 import { test, expect, describe } from 'bun:test';
 
-import { BunUtcDateTimeType } from './bun-utc-datetime.type';
+import { BunUtcDateTimeType } from './bun-utc-datetime';
 
 // No-DB unit coverage for the flagship C5 type-fidelity fix: Bun.SQL hands a Date built from the
 // stored wall-clock parsed in the PROCESS timezone; this type reinterprets those local calendar

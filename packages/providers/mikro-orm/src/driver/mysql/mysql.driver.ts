@@ -16,9 +16,11 @@ import type {
 } from '@mikro-orm/core';
 
 import { BunMySqlConnection } from './mysql.connection';
+import type { MutableResult } from './interfaces';
 
 /**
- * MikroORM MySQL driver backed by Bun's native Bun.SQL (zero `mysql2` dependency).
+ * MikroORM MySQL driver backed by Bun's native Bun.SQL (`mysql2` is never imported at runtime —
+ * it may be pulled transitively by `@mikro-orm/mysql`, but Bun.SQL replaces it).
  * Uses {@link BunMySqlPlatform} (the official {@link MySqlPlatform} with JSON auto-parsing
  * disabled, since Bun.SQL returns JSON columns as raw strings).
  *
@@ -111,11 +113,4 @@ export class BunMySqlDriver extends AbstractSqlDriver<BunMySqlConnection, MySqlP
     }
     return pk;
   }
-}
-
-/** Loose view of the inherited `QueryResult` for the post-insert PK back-fill mutation. */
-interface MutableResult {
-  rows: Record<string, unknown>[] | undefined;
-  row: Record<string, unknown> | undefined;
-  insertId: number | bigint | undefined;
 }

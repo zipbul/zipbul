@@ -6,6 +6,8 @@
 export enum MikroOrmErrorReason {
   /** An EntityManager was resolved for a connection name that was never registered. */
   ConnectionNotRegistered = 'connection_not_registered',
+  /** A second `MikroOrmService` tried to initialize a connection name that is already registered. */
+  ConnectionAlreadyRegistered = 'connection_already_registered',
   /** Cursor streaming was requested — a hard Bun.SQL ceiling (no cursor protocol). */
   StreamingUnsupported = 'streaming_unsupported',
   /** A function/async `user`/`password` was supplied — the URL is built synchronously. */

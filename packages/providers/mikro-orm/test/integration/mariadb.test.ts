@@ -1,6 +1,6 @@
 // MariaDB runs through BunMariaDbDriver (extends BunMySqlDriver). bun:test forces TZ=UTC, which
 // would MASK the no-tz datetime coercion bug — force a non-UTC zone so the BunUtcDateTimeType fix
-// (shared via withBunMySqlFixes) is actually exercised. Must precede any Date construction.
+// (shared via withBunMySqlTypeFixes) is actually exercised. Must precede any Date construction.
 process.env.TZ = 'Asia/Seoul';
 
 import { test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';

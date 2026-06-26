@@ -12,7 +12,7 @@ import { MikroOrmService } from '../../src/orm';
 import { BaseRepository } from '../../src/repository';
 import type { ZipbulMikroOrmOptions } from '../../src/orm/interfaces';
 
-// E2E (RED-PLAN §4): a TCK-booted zipbul HTTP app exercising the provider's framework
+// E2E: a TCK-booted zipbul HTTP app exercising the provider's framework
 // integration over real HTTP — the per-request EntityManager fork (AsyncLocalStorage) and the
 // DI-style `MikroOrmService` / `BaseRepository`. The load-bearing claim re-proved here, that the
 // unit tests can only assert with a mocked ALS, is: under concurrent HTTP requests, each request

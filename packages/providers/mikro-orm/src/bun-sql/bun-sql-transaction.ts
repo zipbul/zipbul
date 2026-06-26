@@ -1,10 +1,8 @@
 import { CompiledQuery, type DatabaseConnection, type TransactionSettings } from 'kysely';
 
 import { MikroOrmError, MikroOrmErrorReason } from '../error';
+import { ACCESS_MODES, ISOLATION_LEVELS } from './constants';
 import type { SqlDialectKind } from './types';
-
-const ISOLATION_LEVELS = new Set(['read uncommitted', 'read committed', 'repeatable read', 'serializable']);
-const ACCESS_MODES = new Set(['read only', 'read write']);
 
 /**
  * Owns transaction + savepoint semantics for the Bun.SQL Kysely driver.

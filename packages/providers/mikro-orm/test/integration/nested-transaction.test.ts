@@ -64,3 +64,36 @@ function nestedTxnSuite(label: string, gate: typeof describe, driver: NonNullabl
 nestedTxnSuite('postgres', describePg, BunPostgreSqlDriver, PG_URL);
 nestedTxnSuite('mysql', describeMysql, BunMySqlDriver, MYSQL_URL);
 nestedTxnSuite('mariadb', describeMariadb, BunMariaDbDriver, MARIADB_URL);
+
+// MySQL/MariaDB only: DDL inside a transaction triggers an implicit COMMIT (no transactional DDL),
+// which silently drops the open savepoint. Committing the nested transaction then issues
+// `RELEASE SAVEPOINT` on a vanished savepoint → errno 1305. The official MySqlConnection swallows
+// exactly 1305 (knex#805); BunMySqlConnection must match (else the nested commit throws).
+function ddlDropsSavepointSuite(label: string, gate: typeof describe, driver: NonNullable<Options['driver']>, url: string | undefined): void {
+  gate(`nested commit after DDL drops the savepoint (${label})`, () => {
+    let orm: MikroORM;
+    beforeAll(async () => {
+      orm = await MikroORM.init({ driver, clientUrl: url, entities: [NtRow], extensions: [SqlSchemaGenerator] } as unknown as Options);
+    });
+    afterAll(async () => {
+      await orm.em.getConnection().execute('drop table if exists nt_ddl_marker').catch(() => undefined);
+      await orm.close(true);
+    });
+
+    test('committing the nested tx does not throw when DDL dropped its savepoint (errno 1305 swallowed)', async () => {
+      await orm.em.getConnection().execute('drop table if exists nt_ddl_marker');
+      await expect(
+        orm.em.fork().transactional(async (em) => {
+          await em.transactional(async (inner) => {
+            // DDL → implicit COMMIT → the inner savepoint vanishes. Run it on the inner tx connection.
+            await inner.getConnection().execute('create table nt_ddl_marker (a int)', [], 'run', inner.getTransactionContext());
+          });
+          // leaving the inner block issues RELEASE SAVEPOINT on the vanished savepoint
+        }),
+      ).resolves.toBeUndefined();
+    });
+  });
+}
+
+ddlDropsSavepointSuite('mysql', describeMysql, BunMySqlDriver, MYSQL_URL);
+ddlDropsSavepointSuite('mariadb', describeMariadb, BunMariaDbDriver, MARIADB_URL);

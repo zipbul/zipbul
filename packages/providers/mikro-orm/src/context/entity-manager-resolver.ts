@@ -9,7 +9,7 @@ import { ConnectionRegistry, type ConnectionName } from '../connection';
  */
 export class EntityManagerResolver {
   static resolve(name: ConnectionName): EntityManager {
-    const scoped = MikroRequestContext.getEntityManager(name) as EntityManager | undefined;
+    const scoped = MikroRequestContext.getEntityManager(name);
     return scoped ?? ConnectionRegistry.get(name).em;
   }
 }

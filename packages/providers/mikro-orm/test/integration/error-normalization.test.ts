@@ -18,7 +18,7 @@ import { Entity, PrimaryKey, Property } from '../../src/entity';
  *  narrower `IDatabaseDriver` interface — structural type to reach it without an `any` cast. */
 type ConvertingDriver = { execute(sql: string): Promise<unknown> };
 
-// The driver-correctness bar (RED-PLAN §3): the per-DB error normalizer must hand the raw
+// The driver-correctness bar: the per-DB error normalizer must hand the raw
 // Bun.SQL error to MikroORM's official ExceptionConverter in the shape it expects, so EVERY
 // constraint subtype becomes its typed MikroORM exception — not just the unique case.
 //   - pg: Bun.SQL puts the SQLSTATE on `.errno` (23505/23502/23514/23503/42P01) and a generic

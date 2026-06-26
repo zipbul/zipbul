@@ -36,7 +36,7 @@ export class BunSqliteConnection extends BaseSqliteConnection {
    * the routine's `bodyJs` as a UDF through better-sqlite3's `database.function()`. Bun.SQL
    * exposes no UDF-registration API (verified: the sqlite client has no `.function`), so neither
    * path is reachable here. We throw accurate, actionable errors rather than the generic core
-   * "not supported" message — this is a hard Bun.SQL ceiling, documented in FEATURE-MATRIX.md.
+   * "not supported" message — this is a hard Bun.SQL ceiling (no UDF-registration API).
    */
   override async callRoutine<T>(routine: Routine, _args?: Record<string, unknown>, _ctx?: Transaction): Promise<T> {
     if (routine.type === 'procedure') {

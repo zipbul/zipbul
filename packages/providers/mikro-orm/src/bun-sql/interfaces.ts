@@ -25,6 +25,20 @@ export interface ErrorNormalizer {
   normalize(error: unknown): unknown;
 }
 
+/**
+ * Connection components MikroORM resolves (via `getConnectionOptions()`) from EITHER a `clientUrl`
+ * OR discrete `host`/`port`/`user`/`password`/`dbName` config. `user`/`password` may be a function
+ * in MikroORM's contract (e.g. IAM token rotation); {@link resolveBunSqlUrl} rejects those loudly
+ * because the Bun.SQL URL is assembled synchronously.
+ */
+export interface ConnectionComponents {
+  readonly host?: string;
+  readonly port?: number;
+  readonly user?: string | (() => unknown);
+  readonly password?: string | (() => unknown);
+  readonly database?: string;
+}
+
 /** Configuration for a {@link BunSqlDialect} instance. */
 export interface BunSqlDialectOptions {
   readonly url: string;

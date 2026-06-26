@@ -23,6 +23,10 @@ export class BunUtcDateTimeType extends DateTimeType {
     if (!(v instanceof Date)) {
       return v as Date;
     }
+    // NOTE: a year 0–99 is already collapsed to 1900–1999 by Bun.SQL's protocol parser BEFORE it
+    // reaches us (it hands over a `Date`, not the raw string, and exposes no type-parser hook), so
+    // ancient timestamps cannot be recovered here — a documented Bun.SQL ceiling, not fixable in this
+    // type. For all in-range years this faithfully reinterprets the local wall-clock as UTC.
     return new Date(
       Date.UTC(
         v.getFullYear(),

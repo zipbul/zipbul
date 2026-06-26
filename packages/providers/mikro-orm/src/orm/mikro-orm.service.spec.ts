@@ -3,6 +3,7 @@ import { MikroORM, type EntityManager } from '@mikro-orm/core';
 
 import { ConnectionRegistry } from '../connection';
 import { EntityManagerResolver, RequestContextRunner } from '../context';
+import { MikroOrmErrorReason } from '../error';
 import { MikroOrmService } from './mikro-orm.service';
 import type { ZipbulMikroOrmOptions } from './interfaces';
 
@@ -99,6 +100,16 @@ test('enter delegates to the RequestContextRunner for the connection', () => {
   const service = new Database(opts());
   service.enter();
   expect(enter).toHaveBeenCalledWith('default');
+});
+
+test('a second onInit on an already-registered connection throws ConnectionAlreadyRegistered and builds no second orm', async () => {
+  const init = spyOn(MikroORM, 'init').mockResolvedValue(fakeOrm());
+  await new Database(opts()).onInit();
+  expect(init).toHaveBeenCalledTimes(1);
+  await expect(new Database(opts()).onInit()).rejects.toMatchObject({
+    reason: MikroOrmErrorReason.ConnectionAlreadyRegistered,
+  });
+  expect(init).toHaveBeenCalledTimes(1); // no second pool was built
 });
 
 test('a failed MikroORM.init rejects onInit and registers nothing', async () => {

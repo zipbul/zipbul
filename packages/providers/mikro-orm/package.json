@@ -1,7 +1,7 @@
 {
   "name": "@zipbul/mikro-orm",
   "version": "0.0.0",
-  "description": "MikroORM v7 integration for zipbul backed by Bun's native SQL (Bun.SQL) \u2014 Postgres, MySQL, MariaDB, SQLite drivers + zipbul-native DI/request-context DX",
+  "description": "MikroORM v7 integration for zipbul backed by Bun's native SQL (Bun.SQL) — Postgres, MySQL, MariaDB, SQLite drivers + zipbul-native DI/request-context DX",
   "license": "MIT",
   "author": "Junhyung Park (https://github.com/parkrevil)",
   "repository": {
@@ -16,16 +16,22 @@
   "keywords": [
     "mikro-orm",
     "orm",
+    "data-mapper",
     "bun",
     "bun-sql",
+    "sql",
+    "database",
     "postgres",
+    "postgresql",
     "mysql",
     "mariadb",
     "sqlite",
     "kysely",
-    "database",
-    "zipbul",
-    "typescript"
+    "entity",
+    "repository",
+    "query-builder",
+    "typescript",
+    "zipbul"
   ],
   "engines": {
     "bun": ">=1.3.0"
@@ -37,7 +43,24 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./postgresql": {
+      "types": "./dist/src/driver/postgres/index.d.ts",
+      "default": "./dist/src/driver/postgres/index.js"
+    },
+    "./mysql": {
+      "types": "./dist/src/driver/mysql/index.d.ts",
+      "default": "./dist/src/driver/mysql/index.js"
+    },
+    "./mariadb": {
+      "types": "./dist/src/driver/mariadb/index.d.ts",
+      "default": "./dist/src/driver/mariadb/index.js"
+    },
+    "./sqlite": {
+      "types": "./dist/src/driver/sqlite/index.d.ts",
+      "default": "./dist/src/driver/sqlite/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
@@ -46,7 +69,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "build": "tsdown",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },
@@ -77,17 +100,17 @@
   "dependencies": {},
   "devDependencies": {
     "@mikro-orm/core": "7.1.1",
-    "@mikro-orm/sql": "7.1.1",
-    "@mikro-orm/postgresql": "7.1.1",
-    "@mikro-orm/mysql": "7.1.1",
-    "@mikro-orm/mariadb": "7.1.1",
-    "@mikro-orm/sqlite": "7.1.1",
     "@mikro-orm/decorators": "7.1.1",
+    "@mikro-orm/mariadb": "7.1.1",
+    "@mikro-orm/mysql": "7.1.1",
+    "@mikro-orm/postgresql": "7.1.1",
+    "@mikro-orm/sql": "7.1.1",
+    "@mikro-orm/sqlite": "7.1.1",
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
     "@zipbul/result": "workspace:*",
     "@zipbul/tck": "workspace:*",
-    "kysely": "^0.29"
-  },
-  "sideEffects": false
+    "kysely": "^0.29",
+    "tsdown": "^0.22.3"
+  }
 }

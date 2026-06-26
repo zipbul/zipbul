@@ -1,20 +1,7 @@
 import { MikroOrmError, MikroOrmErrorReason } from '../error';
+import { SCHEME } from './constants';
+import type { ConnectionComponents } from './interfaces';
 import type { SqlDialectKind } from './types';
-
-/**
- * Connection components MikroORM resolves (via `getConnectionOptions()`) from EITHER a
- * `clientUrl` OR discrete `host`/`port`/`user`/`password`/`dbName` config. `user`/`password` may be
- * a function in MikroORM's contract (e.g. IAM token rotation) — see {@link requireStringCredential}.
- */
-export interface ConnectionComponents {
-  readonly host?: string;
-  readonly port?: number;
-  readonly user?: string | (() => unknown);
-  readonly password?: string | (() => unknown);
-  readonly database?: string;
-}
-
-const SCHEME: Record<SqlDialectKind, string> = { postgres: 'postgres', mysql: 'mysql', sqlite: 'sqlite' };
 
 /**
  * MikroORM allows a function `user`/`password` (async credential, e.g. IAM token rotation). The

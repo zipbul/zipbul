@@ -1,7 +1,7 @@
 import { PostgreSqlPlatform } from '@mikro-orm/postgresql';
 import { Type } from '@mikro-orm/core';
 
-import { BunUtcDateTimeType } from '../shared';
+import { BunUtcDateTimeType, bunDateToYmd } from '../shared';
 
 /**
  * PostgreSQL platform for the Bun.SQL backend. Corrects two places where Bun.SQL's protocol-level
@@ -30,12 +30,6 @@ export class BunPostgreSqlPlatform extends PostgreSqlPlatform {
   }
 
   override convertDateToJSValue(value: string | Date): string {
-    if (value instanceof Date) {
-      const y = value.getUTCFullYear().toString().padStart(4, '0');
-      const m = (value.getUTCMonth() + 1).toString().padStart(2, '0');
-      const d = value.getUTCDate().toString().padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    }
-    return value;
+    return bunDateToYmd(value);
   }
 }

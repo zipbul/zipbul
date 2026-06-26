@@ -100,4 +100,32 @@ export class BunMySqlConnection extends AbstractSqlConnection {
     }
     return runSteps(ctx);
   }
+
+  /**
+   * Mirrors the official `MySqlConnection.commit`. A savepoint can vanish before its release — e.g.
+   * DDL inside the transaction triggers an implicit COMMIT (MySQL has no transactional DDL) — and
+   * `RELEASE SAVEPOINT` then fails with errno 1305. MySQL treats that nested release as a no-op
+   * success, so we swallow ONLY 1305 (knex#805). Like the official driver, the savepoint path logs
+   * the release and returns WITHOUT dispatching transaction-commit events (the base `commit` fires
+   * those only for top-level commits); a real top-level commit is delegated entirely to `super`.
+   */
+  override async commit(ctx: Transaction, eventBroadcaster?: Parameters<AbstractSqlConnection['commit']>[1]): Promise<void> {
+    const trx = ctx as Transaction & {
+      isRolledBack?: boolean;
+      savepointName?: string;
+      releaseSavepoint(name: string): { execute(): Promise<unknown> };
+    };
+    if (!trx.isRolledBack && 'savepointName' in trx) {
+      try {
+        await trx.releaseSavepoint(trx.savepointName!).execute();
+      } catch (e) {
+        if ((e as { errno?: number }).errno !== 1305) {
+          throw e;
+        }
+      }
+      this.logQuery(this.platform.getReleaseSavepointSQL(trx.savepointName!));
+      return;
+    }
+    await super.commit(ctx, eventBroadcaster);
+  }
 }
