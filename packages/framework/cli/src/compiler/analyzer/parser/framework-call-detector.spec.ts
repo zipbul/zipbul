@@ -12,6 +12,7 @@ import {
   upsertDefineModuleCall,
   parsePatternCaptureArgs,
   convertModuleDefinition,
+  moduleDefinitionFromDefineModuleArg,
   detectFrameworkCallsFromInitializer,
   enrichFactoryValues,
   resolveExportDefaultDefineModule,
@@ -500,6 +501,85 @@ describe('convertModuleDefinition', () => {
     expect(result.nameDeclared).toBe(true);
     expect(result.providers).toHaveLength(1);
     expect(result.adapters).toBeDefined();
+  });
+});
+
+describe('moduleDefinitionFromDefineModuleArg', () => {
+  it('should build a ModuleDefinition from a converted config record', () => {
+    const config: AnalyzerValueRecord = {
+      name: 'AppModule',
+      providers: [],
+      adapters: [{ adapter: { [ZIPBUL_REF]: 'HttpAdapter', [ZIPBUL_IMPORT_SOURCE]: '@zipbul/http-adapter' }, middlewares: { OnRequest: [{ [ZIPBUL_REF]: 'fooMw', [ZIPBUL_IMPORT_SOURCE]: './foo' }] } }],
+    };
+
+    const result = moduleDefinitionFromDefineModuleArg(config, {});
+
+    expect(result).toBeDefined();
+    expect(result?.name).toBe('AppModule');
+    expect(result?.nameDeclared).toBe(true);
+    expect(result?.adapters).toEqual(config.adapters);
+  });
+
+  it('should return undefined when no argument is given (defineModule())', () => {
+    const result = moduleDefinitionFromDefineModuleArg(undefined, {});
+
+    expect(result).toBeUndefined();
+  });
+
+  it('should return undefined when the argument is an array, not a config object', () => {
+    const result = moduleDefinitionFromDefineModuleArg([1, 2, 3] as unknown as AnalyzerValue, {});
+
+    expect(result).toBeUndefined();
+  });
+
+  it('should return undefined when the argument is a primitive', () => {
+    const result = moduleDefinitionFromDefineModuleArg('AppModule' as unknown as AnalyzerValue, {});
+
+    expect(result).toBeUndefined();
+  });
+
+  it('should mark nameDeclared false and name undefined when the name key is absent', () => {
+    const config: AnalyzerValueRecord = { providers: [] };
+
+    const result = moduleDefinitionFromDefineModuleArg(config, {});
+
+    expect(result?.name).toBeUndefined();
+    expect(result?.nameDeclared).toBe(false);
+  });
+
+  it('should mark nameDeclared true but name undefined when name is not a string', () => {
+    const config: AnalyzerValueRecord = { name: 42 };
+
+    const result = moduleDefinitionFromDefineModuleArg(config, {});
+
+    expect(result?.name).toBeUndefined();
+    expect(result?.nameDeclared).toBe(true);
+  });
+
+  it('should default providers to an empty array when providers is not an array', () => {
+    const config: AnalyzerValueRecord = { providers: { [ZIPBUL_REF]: 'NotAnArray', [ZIPBUL_IMPORT_SOURCE]: './x' } };
+
+    const result = moduleDefinitionFromDefineModuleArg(config, {});
+
+    expect(result?.providers).toEqual([]);
+  });
+
+  it('should leave adapters undefined when the adapters key is absent', () => {
+    const config: AnalyzerValueRecord = { name: 'AppModule', providers: [] };
+
+    const result = moduleDefinitionFromDefineModuleArg(config, {});
+
+    expect(result?.adapters).toBeUndefined();
+  });
+
+  it('should copy currentImports into the result without sharing the reference', () => {
+    const config: AnalyzerValueRecord = { name: 'AppModule' };
+    const currentImports = { HttpAdapter: '@zipbul/http-adapter' };
+
+    const result = moduleDefinitionFromDefineModuleArg(config, currentImports);
+
+    expect(result?.imports).toEqual(currentImports);
+    expect(result?.imports).not.toBe(currentImports);
   });
 });
 

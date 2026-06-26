@@ -73,6 +73,39 @@ describe('AstParser', () => {
     expect(calls.every(call => call.importSource === '@zipbul/core')).toBe(true);
   });
 
+  it('should wire defineModule({ adapters }) into moduleDefinition.adapters', async () => {
+    const source = [
+      "import { defineModule } from '@zipbul/core';",
+      "import { HttpAdapter } from '@zipbul/http-adapter';",
+      "import { fooMw } from './foo';",
+      '',
+      'export const appModule = defineModule({',
+      "  name: 'AppModule',",
+      '  providers: [],',
+      '  adapters: [{ adapter: HttpAdapter, middlewares: { OnRequest: [fooMw] } }],',
+      '});',
+    ].join('\n');
+    const parser = new AstParser();
+    const result = await parseOrFail(parser, '/app/src/__module__.ts', source);
+
+    expect(result.moduleDefinition).toBeDefined();
+    expect(result.moduleDefinition?.name).toBe('AppModule');
+    expect(Array.isArray(result.moduleDefinition?.adapters)).toBe(true);
+    expect(result.moduleDefinition?.adapters).toHaveLength(1);
+  });
+
+  it('should leave moduleDefinition unset for defineModule() with no config argument', async () => {
+    const source = [
+      "import { defineModule } from '@zipbul/core';",
+      '',
+      'export const appModule = defineModule();',
+    ].join('\n');
+    const parser = new AstParser();
+    const result = await parseOrFail(parser, '/app/src/__module__.ts', source);
+
+    expect(result.moduleDefinition).toBeUndefined();
+  });
+
   it('should collect inject calls when inject is imported from @zipbul/common', async () => {
     const source = [
       "import { inject } from '@zipbul/common';",

@@ -1,26 +1,14 @@
-import type { Class, CompiledHandlerEntry, MiddlewareDefinition, ProviderToken, ExceptionFilterDefinition } from '@zipbul/common';
-import type { GuardDefinition } from '@zipbul/common';
+import type { Class, CompiledHandlerEntry, ProviderToken, AdapterConfig } from '@zipbul/common';
 
 import type { Container } from '../injector/container';
 import type { ClassMetadata } from '../injector/types';
-
-/**
- * Per-adapter configuration produced by AOT.
- *
- * @public
- */
-export interface AdapterMiddlewareConfig {
-  middlewares?: Readonly<Record<string, readonly MiddlewareDefinition[]>>;
-  exceptionFilters?: readonly ExceptionFilterDefinition[];
-  guards?: readonly GuardDefinition[];
-}
 
 export interface BootstrapState {
   metadataRegistry?: Map<Class, ClassMetadata> | undefined;
   scopedKeys?: Map<ProviderToken, string>;
   container?: Container;
   isAotRuntime?: boolean;
-  adapterConfig?: Record<string, AdapterMiddlewareConfig>;
+  adapterConfig?: Record<string, AdapterConfig>;
   handlerIndex?: readonly CompiledHandlerEntry[];
   /**
    * Lazy controller factories produced by the AOT runtime. Each entry maps

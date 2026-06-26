@@ -33,9 +33,8 @@ import { buildImportState, buildExportState, collectExportNames, resolveExportDe
 import type { ImportTrackingState } from './import-export-extractor';
 import { convertClassSymbol } from './class-metadata-extractor';
 import type { AstNodeLocatorCallbacks, MethodMetadataCallbacks, AnonymousClassCallback, ClassMetadataContext } from './class-metadata-extractor';
-import { enrichFactoryValues, detectFrameworkCallsFromInitializer, convertModuleDefinition, upsertDefineModuleCall, parsePatternCaptureArgs, resolveExportDefaultDefineModule } from './framework-call-detector';
+import { enrichFactoryValues, detectFrameworkCallsFromInitializer, convertModuleDefinition, moduleDefinitionFromDefineModuleArg, upsertDefineModuleCall, parsePatternCaptureArgs, resolveExportDefaultDefineModule } from './framework-call-detector';
 import { resolveInjectCallee, findImportSourceForCallee, buildInjectCallFromCapture } from './inject-call-analyzer';
-import { extractExceptionFiltersFromConfigure, extractMiddlewaresFromConfigure } from './method-metadata-extractor';
 import { extractHandlerContextUsages } from './handler-context-usage-extractor';
 import { extractHandlerContextOps } from './context-operation-extractor';
 import { findClassAstNode, findMethodBodyAstNode, findPropertyAstNode, isAnonymousClassSymbol, extractFunctionSourceText } from './ast-node-locator';
@@ -307,8 +306,6 @@ export class AstParser {
     };
 
     const methodCallbacks: MethodMetadataCallbacks = {
-      extractMiddlewaresFromConfigure,
-      extractExceptionFiltersFromConfigure,
       extractHandlerContextUsages: (funcNode) => extractHandlerContextUsages(funcNode)?.usages,
       extractHandlerContextOps: (funcNode) => {
         const ops = extractHandlerContextOps(funcNode);
@@ -414,6 +411,16 @@ export class AstParser {
 
         if (symbol.name === 'module' && symbol.initializer.kind === 'object') {
           moduleDefinition = convertModuleDefinition(symbol.initializer, importMap, this.currentImports);
+        } else if (symbol.initializer.kind === 'call') {
+          // The canonical form `export const appModule = defineModule({ name, providers, adapters })`.
+          // detectFrameworkCallsFromInitializer (above) already classified this call and captured its
+          // converted arguments; build the ModuleDefinition from the config object so adapters/providers
+          // reach codegen. (The bare-object branch above is the legacy `const module = {...}` shape.)
+          const moduleCall = defineModuleCalls.find(call => call.localName === symbol.name);
+
+          if (moduleCall !== undefined) {
+            moduleDefinition = moduleDefinitionFromDefineModuleArg(moduleCall.args[0], this.currentImports);
+          }
         }
       }
 
@@ -569,6 +576,20 @@ export class AstParser {
 
   private resolveOriginalName(localName: string): string {
     return this.currentOriginalNames[localName] ?? localName;
+  }
+
+  /**
+   * Resolves an import specifier (bare package name or relative path) seen in
+   * `sourcePath` to an absolute TypeScript source path, mapping dist outputs
+   * back to source. Public wrapper over the internal resolver so analysis
+   * passes (e.g. phase-key normalization) can resolve decorator-argument import
+   * sources, which are captured as raw specifiers, to a path the enum resolver
+   * can read.
+   *
+   * @public
+   */
+  resolveModuleSpecifier(sourcePath: string, importPath: string): string {
+    return this.resolvePath(sourcePath, importPath);
   }
 
   private resolvePath(sourcePath: string, importPath: string): string {

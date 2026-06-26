@@ -34,11 +34,15 @@ export async function bootQueryParserApp(): Promise<QpTestApp> {
   let captured: HttpAdapter | undefined;
 
   const testApp = await Tck.createApplication({
+    adapterConfig: {
+      HttpAdapter: {
+        middlewares: {
+          [HttpAdapterPhase.OnRequest]: [queryParser, echoQuery],
+        },
+      },
+    },
     register: (app) => {
-      const http = app.attach(HttpAdapter, { port: 0 });
-
-      http.addMiddlewares(HttpAdapterPhase.OnRequest, [queryParser, echoQuery]);
-      captured = http;
+      captured = app.attach(HttpAdapter, { port: 0 });
     },
   });
 

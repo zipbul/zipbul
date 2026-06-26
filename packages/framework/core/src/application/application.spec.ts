@@ -51,15 +51,14 @@ function createWirableAdapterClass() {
   const startFn = mock(() => Promise.resolve());
   const stopFn = mock(() => Promise.resolve());
 
-
-  const applyMiddlewareConfigFn = mock(function () {});
+  const applyConfigFn = mock(function () {});
   const initializePipelineFn = mock(function () {});
 
   class WirableMockAdapter {
     constructor() {}
     start = startFn;
     stop = stopFn;
-    applyMiddlewareConfig = applyMiddlewareConfigFn;
+    applyConfig = applyConfigFn;
     initializePipeline = initializePipelineFn;
   }
 
@@ -67,7 +66,7 @@ function createWirableAdapterClass() {
     AdapterClass: WirableMockAdapter as unknown as AdapterClass,
     startFn,
     stopFn,
-    applyMiddlewareConfigFn,
+    applyConfigFn,
     initializePipelineFn,
   };
 }
@@ -731,144 +730,100 @@ describe('Application', () => {
     });
   });
 
-  describe('middleware wiring', () => {
+  describe('adapter config wiring', () => {
     function createMiddleware() {
       return defineMiddleware(() => () => undefined);
     }
+    function createGuard(): GuardDefinition {
+      return defineGuard(() => () => undefined);
+    }
 
-    it('should call applyMiddlewareConfig on adapter when adapterConfig has matching middleware', async () => {
+    it('should call applyConfig with the adapter slice when adapterConfig has a matching entry', async () => {
       const adapter = createWirableAdapterClass();
-      const middlewareDef = createMiddleware();
-      const middlewareConfig = { OnReceive: [middlewareDef] };
-      mockAdapterConfig = {
-        [adapter.AdapterClass.name]: {
-          middlewares: middlewareConfig,
-        },
-      };
+      const slice = { middlewares: { OnReceive: [createMiddleware()] } };
+      mockAdapterConfig = { [adapter.AdapterClass.name]: slice };
       app.attach(adapter.AdapterClass);
       await app.start();
-      expect(adapter.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
-      expect(adapter.applyMiddlewareConfigFn).toHaveBeenCalledWith(middlewareConfig);
+      expect(adapter.applyConfigFn).toHaveBeenCalledTimes(1);
+      expect(adapter.applyConfigFn).toHaveBeenCalledWith(slice);
     });
 
-    it('should call applyMiddlewareConfig once even when adapter has multiple phases in config', async () => {
+    it('should call applyConfig once with a combined middleware, guard, and filter slice', async () => {
       const adapter = createWirableAdapterClass();
-      const mwOnReceive = createMiddleware();
-      const mwPreHandle = createMiddleware();
-      const middlewareConfig = { OnReceive: [mwOnReceive], PreHandle: [mwPreHandle] };
-      mockAdapterConfig = {
-        [adapter.AdapterClass.name]: {
-          middlewares: middlewareConfig,
-        },
+      const slice = {
+        middlewares: { OnReceive: [createMiddleware()], PreHandle: [createMiddleware()] },
+        guards: [createGuard()],
+        exceptionFilters: [{ factory: () => () => {}, catchTypes: [] }],
       };
+      mockAdapterConfig = { [adapter.AdapterClass.name]: slice };
       app.attach(adapter.AdapterClass);
       await app.start();
-      expect(adapter.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
+      expect(adapter.applyConfigFn).toHaveBeenCalledTimes(1);
+      expect(adapter.applyConfigFn).toHaveBeenCalledWith(slice);
     });
 
-    it('should wire adapter by name when name is provided', async () => {
+    it('should resolve the config key by adapter name when provided', async () => {
       const adapter = createWirableAdapterClass();
-      const mwDef = createMiddleware();
-      mockAdapterConfig = {
-        myhttp: { middlewares: { OnReceive: [mwDef] } },
-      };
-      app.attach(adapter.AdapterClass, { name: 'myhttp' });
+      const slice = { guards: [createGuard()] };
+      mockAdapterConfig = { 'custom-name': slice };
+      app.attach(adapter.AdapterClass, { name: 'custom-name' });
       await app.start();
-      expect(adapter.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
+      expect(adapter.applyConfigFn).toHaveBeenCalledWith(slice);
     });
 
-    it('should wire both adapters when adapterConfig has entries for each', async () => {
+    it('should wire each attached adapter with its own slice', async () => {
       const httpAdapter = createWirableAdapterClass();
       const wsAdapter = createWirableAdapterClass();
-      const httpMw = createMiddleware();
-      const wsMw = createMiddleware();
       mockAdapterConfig = {
-        http: { middlewares: { OnReceive: [httpMw] } },
-        ws: { middlewares: { OnReceive: [wsMw] } },
+        http: { middlewares: { OnReceive: [createMiddleware()] } },
+        ws: { middlewares: { OnReceive: [createMiddleware()] } },
       };
       app.attach(httpAdapter.AdapterClass, { name: 'http' });
       app.attach(wsAdapter.AdapterClass, { name: 'ws' });
       await app.start();
-      expect(httpAdapter.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
-      expect(wsAdapter.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
+      expect(httpAdapter.applyConfigFn).toHaveBeenCalledTimes(1);
+      expect(wsAdapter.applyConfigFn).toHaveBeenCalledTimes(1);
     });
 
-    it('should start without wiring when adapterConfig is undefined', async () => {
+    it('should not call applyConfig when adapterConfig is undefined', async () => {
       const adapter = createWirableAdapterClass();
       mockAdapterConfig = undefined;
       app.attach(adapter.AdapterClass);
       await app.start();
-      expect(adapter.applyMiddlewareConfigFn).not.toHaveBeenCalled();
+      expect(adapter.applyConfigFn).not.toHaveBeenCalled();
       expect(adapter.startFn).toHaveBeenCalledTimes(1);
     });
 
-    it('should skip adapter when its config key is not in adapterConfig', async () => {
-      const adapter = createWirableAdapterClass();
-      mockAdapterConfig = {
-        ws: { middlewares: { OnReceive: [createMiddleware()] } },
-      };
-      app.attach(adapter.AdapterClass, { name: 'http' });
-      await app.start();
-      expect(adapter.applyMiddlewareConfigFn).not.toHaveBeenCalled();
-    });
-
-    it('should call applyMiddlewareConfig even when middleware array is empty (adapter handles it)', async () => {
-      const adapter = createWirableAdapterClass();
-      mockAdapterConfig = {
-        http: { middlewares: { OnReceive: [] } },
-      };
-      app.attach(adapter.AdapterClass, { name: 'http' });
-      await app.start();
-      expect(adapter.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
-    });
-
-    it('should skip middleware field when it is undefined in config', async () => {
-      const adapter = createWirableAdapterClass();
-      mockAdapterConfig = {
-        http: {},
-      };
-      app.attach(adapter.AdapterClass, { name: 'http' });
-      await app.start();
-      expect(adapter.applyMiddlewareConfigFn).not.toHaveBeenCalled();
-    });
-
-    it('should not wire when no adapters registered and config exists', async () => {
-      mockAdapterConfig = {
-        http: { middlewares: { OnReceive: [createMiddleware()] } },
-      };
-      await expect(app.start()).resolves.toBeUndefined();
-    });
-
-    it('should call applyMiddlewareConfig even when middlewares is empty object', async () => {
-      const adapter = createWirableAdapterClass();
-      mockAdapterConfig = {
-        http: { middlewares: {} },
-      };
-      app.attach(adapter.AdapterClass, { name: 'http' });
-      await app.start();
-      expect(adapter.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
-    });
-
-    it('should wire only matching adapter when one matches config and another does not', async () => {
+    it('should not call applyConfig for an adapter with no matching config entry', async () => {
       const httpAdapter = createWirableAdapterClass();
       const wsAdapter = createWirableAdapterClass();
-      mockAdapterConfig = {
-        http: { middlewares: { OnReceive: [createMiddleware()] } },
-      };
+      mockAdapterConfig = { http: { middlewares: { OnReceive: [createMiddleware()] } } };
       app.attach(httpAdapter.AdapterClass, { name: 'http' });
       app.attach(wsAdapter.AdapterClass, { name: 'ws' });
       await app.start();
-      expect(httpAdapter.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
-      expect(wsAdapter.applyMiddlewareConfigFn).not.toHaveBeenCalled();
+      expect(httpAdapter.applyConfigFn).toHaveBeenCalledTimes(1);
+      expect(wsAdapter.applyConfigFn).not.toHaveBeenCalled();
+    });
+
+    it('should call applyConfig even for an empty config entry (adapter no-ops internally)', async () => {
+      const adapter = createWirableAdapterClass();
+      mockAdapterConfig = { http: {} };
+      app.attach(adapter.AdapterClass, { name: 'http' });
+      await app.start();
+      expect(adapter.applyConfigFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should start without error when config exists but no adapters are attached', async () => {
+      mockAdapterConfig = { http: { middlewares: { OnReceive: [createMiddleware()] } } };
+      await expect(app.start()).resolves.toBeUndefined();
     });
 
     it('should wire adapters in topological order', async () => {
       const wireOrder: string[] = [];
       const classA = createWirableAdapterClass();
-      classA.applyMiddlewareConfigFn.mockImplementation(function () { wireOrder.push('A'); });
+      classA.applyConfigFn.mockImplementation(function () { wireOrder.push('A'); });
       const classB = createWirableAdapterClass();
-      classB.applyMiddlewareConfigFn.mockImplementation(function () { wireOrder.push('B'); });
-
+      classB.applyConfigFn.mockImplementation(function () { wireOrder.push('B'); });
       mockAdapterConfig = {
         a: { middlewares: { OnReceive: [createMiddleware()] } },
         b: { middlewares: { OnReceive: [createMiddleware()] } },
@@ -882,34 +837,26 @@ describe('Application', () => {
     it('should complete all wiring before any adapter.start is called', async () => {
       const timeline: string[] = [];
       const adapter = createWirableAdapterClass();
-      adapter.applyMiddlewareConfigFn.mockImplementation(function () { timeline.push('wire'); });
+      adapter.applyConfigFn.mockImplementation(function () { timeline.push('wire'); });
       adapter.startFn.mockImplementation(async () => { timeline.push('start'); });
-
-      mockAdapterConfig = {
-        http: { middlewares: { OnReceive: [createMiddleware()] } },
-      };
+      mockAdapterConfig = { http: { middlewares: { OnReceive: [createMiddleware()] } } };
       app.attach(adapter.AdapterClass, { name: 'http' });
       await app.start();
-
-      expect(adapter.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
-      expect(timeline).toContain('wire');
       expect(timeline.indexOf('wire')).toBeLessThan(timeline.indexOf('start'));
     });
 
-    it('should complete full lifecycle when wiring succeeds', async () => {
+    it('should complete the full lifecycle when wiring succeeds', async () => {
       const adapter = createWirableAdapterClass();
-      mockAdapterConfig = {
-        http: { middlewares: { OnReceive: [createMiddleware()] } },
-      };
+      mockAdapterConfig = { http: { middlewares: { OnReceive: [createMiddleware()] } } };
       app.attach(adapter.AdapterClass, { name: 'http' });
       await app.start();
       await app.stop();
-      expect(adapter.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
+      expect(adapter.applyConfigFn).toHaveBeenCalledTimes(1);
       expect(adapter.startFn).toHaveBeenCalledTimes(1);
       expect(adapter.stopFn).toHaveBeenCalledTimes(1);
     });
 
-    it('should cleanup already-started adapters when start fails after wiring', async () => {
+    it('should clean up already-started adapters when a later start fails', async () => {
       const classA = createWirableAdapterClass();
       const classB = createWirableAdapterClass();
       classB.startFn.mockImplementation(async () => { throw new Error('B failed'); });
@@ -919,136 +866,10 @@ describe('Application', () => {
       };
       app.attach(classA.AdapterClass, { name: 'a' });
       app.attach(classB.AdapterClass, { name: 'b', dependsOn: [classA.AdapterClass] });
-
       await expect(app.start()).rejects.toThrow('B failed');
-
       expect(classA.startFn).toHaveBeenCalledTimes(1);
       expect(classA.stopFn).toHaveBeenCalledTimes(1);
-      expect(classA.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
-      expect(classB.applyMiddlewareConfigFn).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('guard wiring', () => {
-    function createGuard(): GuardDefinition {
-      return defineGuard(() => () => undefined);
-    }
-
-    function createGuardWirableAdapterClass() {
-      const startFn = mock(() => Promise.resolve());
-      const stopFn = mock(() => Promise.resolve());
-
-      const addGuardsFn = mock(function (this: object) { return this; });
-      const addExceptionFiltersFn = mock(function (this: object) { return this; });
-      const applyMiddlewareConfigFn = mock(function () {});
-      const initializePipelineFn = mock(function () {});
-
-      class GuardWirableMockAdapter {
-        start = startFn;
-        stop = stopFn;
-        addGuards = addGuardsFn;
-        addExceptionFilters = addExceptionFiltersFn;
-        applyMiddlewareConfig = applyMiddlewareConfigFn;
-        initializePipeline = initializePipelineFn;
-      }
-
-      return {
-        AdapterClass: GuardWirableMockAdapter as unknown as AdapterClass,
-        startFn,
-        stopFn,
-        addGuardsFn,
-        addExceptionFiltersFn,
-        applyMiddlewareConfigFn,
-        initializePipelineFn,
-      };
-    }
-
-    it('should call adapter.addGuards when config.guards is non-empty', async () => {
-      const adapter = createGuardWirableAdapterClass();
-      const guard = createGuard();
-      mockAdapterConfig = {
-        [adapter.AdapterClass.name]: { guards: [guard] },
-      };
-
-      app.attach(adapter.AdapterClass);
-      await app.start();
-
-      expect(adapter.addGuardsFn).toHaveBeenCalledTimes(1);
-      expect(adapter.addGuardsFn).toHaveBeenCalledWith([guard]);
-    });
-
-    it('should not call adapter.addGuards when config.guards is empty array', async () => {
-      const adapter = createGuardWirableAdapterClass();
-      mockAdapterConfig = {
-        [adapter.AdapterClass.name]: { guards: [] },
-      };
-
-      app.attach(adapter.AdapterClass);
-      await app.start();
-
-      expect(adapter.addGuardsFn).not.toHaveBeenCalled();
-    });
-
-    it('should not call adapter.addGuards when config.guards is undefined', async () => {
-      const adapter = createGuardWirableAdapterClass();
-      mockAdapterConfig = {
-        [adapter.AdapterClass.name]: {},
-      };
-
-      app.attach(adapter.AdapterClass);
-      await app.start();
-
-      expect(adapter.addGuardsFn).not.toHaveBeenCalled();
-    });
-
-    it('should wire guards after exceptionFilters', async () => {
-      const wireOrder: string[] = [];
-      const adapter = createGuardWirableAdapterClass();
-      adapter.addExceptionFiltersFn.mockImplementation(function (this: object) {
-        wireOrder.push('exceptionFilters');
-        return this;
-      });
-      adapter.addGuardsFn.mockImplementation(function (this: object) {
-        wireOrder.push('guards');
-        return this;
-      });
-
-      class OrderTrackingAdapter {
-        start = adapter.startFn;
-        stop = adapter.stopFn;
-        addGuards = adapter.addGuardsFn;
-        addExceptionFilters = adapter.addExceptionFiltersFn;
-        applyMiddlewareConfig = adapter.applyMiddlewareConfigFn;
-        initializePipeline = adapter.initializePipelineFn;
-      }
-
-      const guard = createGuard();
-      const exceptionFilter = { factory: () => () => {}, catchTypes: [] };
-      mockAdapterConfig = {
-        [OrderTrackingAdapter.name]: {
-          guards: [guard],
-          exceptionFilters: [exceptionFilter],
-        },
-      };
-
-      app.attach(OrderTrackingAdapter as unknown as AdapterClass);
-      await app.start();
-
-      expect(wireOrder).toEqual(['exceptionFilters', 'guards']);
-    });
-
-    it('should resolve config key using adapter name when name is set', async () => {
-      const adapter = createGuardWirableAdapterClass();
-      const guard = createGuard();
-      mockAdapterConfig = {
-        'custom-name': { guards: [guard] },
-      };
-
-      app.attach(adapter.AdapterClass, { name: 'custom-name' });
-      await app.start();
-
-      expect(adapter.addGuardsFn).toHaveBeenCalledTimes(1);
-      expect(adapter.addGuardsFn).toHaveBeenCalledWith([guard]);
+      expect(classA.applyConfigFn).toHaveBeenCalledTimes(1);
     });
   });
 });

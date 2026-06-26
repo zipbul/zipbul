@@ -2,10 +2,11 @@ import type { AnalyzerValue, AnalyzerValueRecord } from '../analyzer/types';
 import type { ImportRegistry } from './import-registry';
 
 import {
-  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_UNRESOLVABLE,
   ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
 } from '@zipbul/common';
 import { type ClassMetadata } from '../analyzer';
+import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { compareCodePoint } from '../../common';
 import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
 
@@ -190,6 +191,24 @@ export const serializeValue = (value: AnalyzerValue, registry: ImportRegistry): 
     const args = (isAnalyzerValueArray(record.args) ? record.args : []).map(a => serializeValue(a, registry)).join(', ');
 
     return `${callName}(${args})`;
+  }
+
+  // Statically-unevaluable expressions (literals nested in call args, template
+  // strings, complex expressions) are captured as their original source text;
+  // re-emit it verbatim so the generated code reproduces the author's value
+  // rather than the internal marker record.
+  if (record[ZIPBUL_UNRESOLVABLE] === true) {
+    return asString(record.sourceText) ?? 'undefined';
+  }
+
+  // A ZIPBUL_REF without an import source is a same-file local binding. The
+  // generated file lives elsewhere and cannot reach it, so emitting anything
+  // would leak the internal marker; fail loudly instead.
+  if (typeof record[ZIPBUL_REF] === 'string') {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `Cannot serialize a reference to the local binding \`${record[ZIPBUL_REF]}\` — it is not an imported symbol.`,
+      how: `Move \`${record[ZIPBUL_REF]}\` into its own module and import it, or inline the value at its use site.`,
+    }));
   }
 
   const entries = Object.entries(record).sort(([a], [b]) => compareCodePoint(a, b));

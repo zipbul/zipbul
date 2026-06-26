@@ -11,10 +11,9 @@ import { Baker } from '@zipbul/baker';
  * deserializes.
  *
  * Middleware libraries do NOT use this — each owns its own `new Baker()` and
- * seals its own option DTOs. Runtime calls (`deserialize`/`validate`) are baker
- * instance methods in baker 5.2+, so each schema is run through the same baker
- * that sealed it: app DTOs via `appBaker.deserialize`, middleware DTOs via their
- * own baker instance.
+ * seals its own option DTOs. baker 5.1 scopes `deserialize`/`validate` to the
+ * instance too, so app handler DTOs run through `appBaker.deserialize` (in the
+ * adapter) while each middleware runs its own schema through its own baker.
  */
 export const appBaker = new Baker();
 

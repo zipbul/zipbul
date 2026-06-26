@@ -1,9 +1,12 @@
+/* eslint-disable jest/no-conditional-in-test -- property-based and data-driven tests assert outcomes from conditionals/try-catch in the test body */
 import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
 
-import { CookieParser, CookieJar } from '../../index';
+import { CookieParser } from '../../src/cookie-parser';
+import { CookieJar } from '../../src/cookie-jar';
+import { SameSite } from '../../src/enums';
 
-describe('CookieParser E2E', () => {
+describe('CookieParser + CookieJar scenarios', () => {
   describe('simulated HTTP request/response cycle via jar', () => {
     it('should handle server setting signed+encrypted cookies and reading them back', async () => {
       const parser = CookieParser.create({
@@ -11,7 +14,7 @@ describe('CookieParser E2E', () => {
         encryptionSecret: 'BKHMtM44ThZwG0Ihx3UzQ8bcsn9iUNVW1QcdzozALfQ',
         httpOnly: true,
         secure: true,
-        sameSite: 'strict',
+        sameSite: SameSite.Strict,
         path: '/',
       });
 
@@ -31,7 +34,9 @@ describe('CookieParser E2E', () => {
       // Browser sends cookie back
       const cookieValue = setCookieHeaders[0]!.split('=').slice(1).join('=').split(';')[0]!;
       const inJar = new CookieJar(parser, `session=${cookieValue}`);
-      const restored = JSON.parse((await inJar.get('session')) as string);
+      const raw = await inJar.get('session');
+      if (typeof raw !== 'string') { throw new Error('session cookie missing'); }
+      const restored = JSON.parse(raw);
       expect(restored.userId).toBe(42);
       expect(restored.role).toBe('admin');
     });
@@ -67,7 +72,7 @@ describe('CookieParser E2E', () => {
         httpOnly: true,
         secure: true,
         path: '/',
-        sameSite: 'lax',
+        sameSite: SameSite.Lax,
       });
 
       async function handleRequest(cookieHeader: string): Promise<{
@@ -142,7 +147,7 @@ describe('CookieParser E2E', () => {
         encryptionSecret: '9v7BAwKpXHWZnoKZIHV2XWch22HvF8bleOM6t4nc-A4',
         httpOnly: true,
         secure: 'auto',
-        sameSite: 'lax',
+        sameSite: SameSite.Lax,
         path: '/',
         prefixValidation: true,
       });
@@ -171,7 +176,8 @@ describe('CookieParser E2E', () => {
       expect(headers).toHaveLength(2);
       expect(headers[0]).toContain('Secure');
       expect(headers[0]).toContain('HttpOnly');
-      expect(headers[1]).toContain('Max-Age=0');
+      expect(headers[1]).not.toContain('Max-Age=0');
+      expect(headers[1]).toContain('Expires=Thu, 01 Jan 1970 00:00:00 GMT');
     });
   });
 });

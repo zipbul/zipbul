@@ -1,5 +1,8 @@
+import { join } from 'node:path';
+
 import type { FileAnalysis } from '../graph/interfaces';
 import type { AnalyzerValue } from '../types';
+import type { ReExport } from '../parser-models';
 import type { CompiledValidationEntry } from '@zipbul/common';
 
 import { ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE } from '@zipbul/common';
@@ -8,8 +11,100 @@ import { toRecord, isAnalyzerValueArray } from '../type-guards';
 import { getFileAnalysis } from './config-extractor';
 
 /**
- * Looks up enum member values by resolving the enum from file analyses.
- * Falls back to scanning all file analyses if import source is not available.
+ * Resolves an enum to its name→value map, following the imported file and —
+ * when that file merely re-exports the enum (a barrel) — chasing `reExports`
+ * recursively to the file that actually declares it. Handles named re-exports
+ * (with `as` aliases), `export *`, directory-style targets resolving to
+ * `index.ts`, and import cycles.
+ */
+async function findEnumMemberMap(
+  enumName: string,
+  filePath: string | null,
+  fileMap: Map<string, FileAnalysis>,
+  parser: AstParser,
+  visited: Set<string>,
+): Promise<Map<string, string> | undefined> {
+  if (filePath === null) {
+    return scanAllForEnum(enumName, fileMap);
+  }
+
+  const normalizedPath = filePath.endsWith('.ts') ? filePath : `${filePath}.ts`;
+
+  if (visited.has(normalizedPath)) {
+    return undefined;
+  }
+  visited.add(normalizedPath);
+
+  // `from './dir'` resolves to `./dir/index.ts` when `./dir.ts` is absent.
+  let analysis = await getFileAnalysis(normalizedPath, fileMap, parser);
+
+  if (analysis === null && !filePath.endsWith('.ts')) {
+    analysis = await getFileAnalysis(join(filePath, 'index.ts'), fileMap, parser);
+  }
+
+  if (analysis === null) {
+    return undefined;
+  }
+
+  const direct = getEnumMembers(analysis, enumName);
+
+  if (direct !== undefined) {
+    return direct;
+  }
+
+  for (const reExport of analysis.reExports) {
+    const localName = reExportLocalName(reExport, enumName);
+
+    if (localName === null) {
+      continue;
+    }
+
+    // `reExport.module` is already resolved to an absolute path by the parser.
+    const found = await findEnumMemberMap(localName, reExport.module, fileMap, parser, visited);
+
+    if (found !== undefined) {
+      return found;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * The name the enum is known by in `reExport`'s target module, or `null` when
+ * the re-export does not forward `enumName`. `export *` forwards every name
+ * unchanged; `export { Local as Exported }` forwards `Exported`, declared as
+ * `Local` in the target.
+ */
+function reExportLocalName(reExport: ReExport, enumName: string): string | null {
+  if (reExport.exportAll) {
+    return enumName;
+  }
+
+  const match = (reExport.names ?? []).find(name => name.exported === enumName);
+
+  return match !== undefined ? match.local : null;
+}
+
+/**
+ * Last-resort lookup over every already-loaded file analysis, used when no
+ * import source anchors the search.
+ */
+function scanAllForEnum(enumName: string, fileMap: Map<string, FileAnalysis>): Map<string, string> | undefined {
+  for (const analysis of fileMap.values()) {
+    const members = getEnumMembers(analysis, enumName);
+
+    if (members !== undefined) {
+      return members;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Looks up enum member values by resolving the enum from file analyses,
+ * chasing barrel re-exports to the declaring file.
  *
  * @param enumName - The enum identifier name.
  * @param importSource - The import source file path (if available).
@@ -24,37 +119,9 @@ export async function resolveEnumValues(
   fileMap: Map<string, FileAnalysis>,
   parser: AstParser,
 ): Promise<Set<string> | undefined> {
-  if (importSource !== null) {
-    const normalizedPath = importSource.endsWith('.ts') ? importSource : `${importSource}.ts`;
-    const analysis = await getFileAnalysis(normalizedPath, fileMap, parser);
-    const enumMembers = getEnumMembers(analysis, enumName);
+  const members = await resolveEnumMemberMap(enumName, importSource, fileMap, parser);
 
-    if (enumMembers !== undefined) {
-      return new Set(enumMembers.values());
-    }
-
-    // Try index.ts fallback
-    if (!importSource.endsWith('.ts')) {
-      const indexPath = `${importSource}/index.ts`;
-      const indexAnalysis = await getFileAnalysis(indexPath, fileMap, parser);
-      const indexEnumMembers = getEnumMembers(indexAnalysis, enumName);
-
-      if (indexEnumMembers !== undefined) {
-        return new Set(indexEnumMembers.values());
-      }
-    }
-  }
-
-  // Fallback: scan all files
-  for (const analysis of fileMap.values()) {
-    const enumMembers = getEnumMembers(analysis, enumName);
-
-    if (enumMembers !== undefined) {
-      return new Set(enumMembers.values());
-    }
-  }
-
-  return undefined;
+  return members !== undefined ? new Set(members.values()) : undefined;
 }
 
 /**
@@ -109,17 +176,7 @@ export async function resolvePipelineArray(
     let members = enumCache.get(enumName);
 
     if (members === undefined) {
-      const resolved = await resolveEnumValues(enumName, importSource, fileMap, parser);
-
-      if (resolved !== undefined) {
-        // resolveEnumValues returns Set<string> (values). We need name->value mapping.
-        // Re-resolve to get the Map directly.
-        const memberMap = await resolveEnumMemberMap(enumName, importSource, fileMap, parser);
-        members = memberMap ?? new Map();
-      } else {
-        members = new Map();
-      }
-
+      members = await resolveEnumMemberMap(enumName, importSource, fileMap, parser) ?? new Map();
       enumCache.set(enumName, members);
     }
 
@@ -131,49 +188,26 @@ export async function resolvePipelineArray(
 }
 
 /**
- * Resolves an enum to a name-to-value Map.
+ * Resolves an enum to its name→value Map, chasing barrel re-exports to the
+ * declaring file (see {@link findEnumMemberMap}). Falls back to scanning every
+ * already-loaded file analysis when no source path leads to the declaration.
  *
  * @param enumName - The enum identifier name.
  * @param importSource - The import source file path (if available).
  * @param fileMap - Map of file paths to their analysis results.
  * @param parser - AST parser instance for on-demand file parsing.
  * @returns Map of enum member names to their string values, or undefined if not found.
+ * @public
  */
-async function resolveEnumMemberMap(
+export async function resolveEnumMemberMap(
   enumName: string,
   importSource: string | null,
   fileMap: Map<string, FileAnalysis>,
   parser: AstParser,
 ): Promise<Map<string, string> | undefined> {
-  if (importSource !== null) {
-    const normalizedPath = importSource.endsWith('.ts') ? importSource : `${importSource}.ts`;
-    const analysis = await getFileAnalysis(normalizedPath, fileMap, parser);
-    const enumMembers = getEnumMembers(analysis, enumName);
+  const viaSource = await findEnumMemberMap(enumName, importSource, fileMap, parser, new Set());
 
-    if (enumMembers !== undefined) {
-      return enumMembers;
-    }
-
-    if (!importSource.endsWith('.ts')) {
-      const indexPath = `${importSource}/index.ts`;
-      const indexAnalysis = await getFileAnalysis(indexPath, fileMap, parser);
-      const indexEnumMembers = getEnumMembers(indexAnalysis, enumName);
-
-      if (indexEnumMembers !== undefined) {
-        return indexEnumMembers;
-      }
-    }
-  }
-
-  for (const analysis of fileMap.values()) {
-    const enumMembers = getEnumMembers(analysis, enumName);
-
-    if (enumMembers !== undefined) {
-      return enumMembers;
-    }
-  }
-
-  return undefined;
+  return viaSource ?? scanAllForEnum(enumName, fileMap);
 }
 
 /**

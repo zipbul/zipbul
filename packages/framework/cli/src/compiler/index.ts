@@ -3,8 +3,6 @@ export type {
   CompiledPipelineScope,
   TypeMetadataProperty,
   TypeMetadata,
-  MiddlewareUsage,
-  ExceptionFilterUsage,
   DecoratorMetadata,
   HeritageMetadata,
   MethodParameterMetadata,

@@ -8,6 +8,7 @@ import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { writeIfChanged } from '../../common';
 import { buildFileAnalysis } from '../build/build-analysis';
 import { writeInterfaceCatalog, writeRuntimeReport } from '../build/build-artifact-writer';
+import { normalizePhaseKeys } from '../../compiler/analyzer/adapter/phase-key-normalizer';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
 import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
 import {
@@ -105,6 +106,7 @@ interface AnalyzeFileContext {
  */
 export async function rebuild(context: RebuildContext, options?: RebuildOptions): Promise<RebuildResult> {
   const {
+    parser,
     adapterDefinitionResolver,
     manifestGen,
     entryGen,
@@ -153,6 +155,9 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
       how: 'Check the offending @Injectable() / module visibility settings. A scope is inherited only if every parent module in the import chain permits it.',
     }));
   }
+
+  const phaseKeysResult = await normalizePhaseKeys(graph, fileMap, parser);
+  if (isErr(phaseKeysResult)) throw new DiagnosticError(phaseKeysResult.data);
 
   const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot, graph });
 

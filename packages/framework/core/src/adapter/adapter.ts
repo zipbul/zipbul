@@ -4,7 +4,7 @@ import { isBakerIssueSet } from '@zipbul/baker';
 import type { MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
 import type { GuardDefinition, GuardHandlerFn } from '@zipbul/common';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '@zipbul/common';
-import type { Adapter as AdapterContract, AdapterClass, AdapterEntryDecorators, AdapterContext, ApplicationContext } from '@zipbul/common';
+import type { Adapter as AdapterContract, AdapterClass, AdapterConfig, AdapterEntryDecorators, AdapterContext, ApplicationContext } from '@zipbul/common';
 import { ClusterStrategy } from '@zipbul/common';
 import type { ZipbulContainer } from '@zipbul/common';
 import { contextKey } from '@zipbul/common';
@@ -104,11 +104,11 @@ export abstract class Adapter implements AdapterContract {
    */
   readonly clusterStrategy: ClusterStrategy = ClusterStrategy.Shared;
 
-  private middlewareRegistry = new Map<string, MiddlewareDefinition[]>();
+  private middlewareRegistry = new Map<string, readonly MiddlewareDefinition[]>();
   private resolvedMiddlewareRegistry = new Map<string, ResolvedMiddleware[]>();
 
-  protected exceptionFilterDefs: ExceptionFilterDefinition[] = [];
-  protected guardDefs: GuardDefinition[] = [];
+  protected exceptionFilterDefs: readonly ExceptionFilterDefinition[] = [];
+  protected guardDefs: readonly GuardDefinition[] = [];
 
   protected resolvedExceptionFilters: ResolvedExceptionFilter[] = [];
   protected resolvedGuards: ResolvedGuard[] = [];
@@ -174,37 +174,41 @@ export abstract class Adapter implements AdapterContract {
     await this.stop();
   }
 
-  // ── Middleware registry ─────────────────────────────────────
+  // ── Declarative config application (AOT bootstrap) ──────────
 
   /**
-   * Receives AOT-generated middleware configuration.
+   * Receives the adapter's complete AOT-compiled configuration slice and
+   * applies it once. The compiler is the single source of truth and the
+   * bootstrap calls this exactly once per adapter, so each field is a
+   * straight set (not an append): the slice fully describes the adapter's
+   * middleware/guard/exception-filter wiring. Every definition is validated
+   * for adapter compatibility before being stored; resolution against the DI
+   * container happens later in {@link initializePipeline}.
    *
-   * @param config - Phase-keyed middleware definitions.
+   * @param config - The adapter's compiled config slice.
    * @public
    */
-  applyMiddlewareConfig(
-    config: Readonly<Record<string, readonly MiddlewareDefinition[]>>,
-  ): void {
-    for (const [phase, definitions] of Object.entries(config)) {
-      this.validatePhase(phase);
-      const existing = this.middlewareRegistry.get(phase) ?? [];
-      this.middlewareRegistry.set(phase, [...existing, ...definitions]);
+  applyConfig(config: AdapterConfig): void {
+    if (config.middlewares !== undefined) {
+      for (const [phase, definitions] of Object.entries(config.middlewares)) {
+        this.validatePhase(phase);
+        this.validateAdapterCompatibility(definitions, 'Middleware');
+        this.middlewareRegistry.set(phase, definitions);
+      }
+    }
+
+    if (config.guards !== undefined) {
+      this.validateAdapterCompatibility(config.guards, 'Guard');
+      this.guardDefs = config.guards;
+    }
+
+    if (config.exceptionFilters !== undefined) {
+      this.validateAdapterCompatibility(config.exceptionFilters, 'ExceptionFilter');
+      this.exceptionFilterDefs = config.exceptionFilters;
     }
   }
 
-  /**
-   * Stores middleware definitions for a given phase.
-   *
-   * @param phase - Phase key.
-   * @param middlewares - Middleware definitions to append.
-   * @public
-   */
-  protected registerMiddleware(phase: string, middlewares: readonly MiddlewareDefinition[]): void {
-    this.validatePhase(phase);
-    this.validateAdapterCompatibility(middlewares, 'Middleware');
-    const existing = this.middlewareRegistry.get(phase) ?? [];
-    this.middlewareRegistry.set(phase, [...existing, ...middlewares]);
-  }
+  // ── Middleware registry ─────────────────────────────────────
 
   /**
    * Returns resolved middlewares for a given phase.
@@ -215,29 +219,6 @@ export abstract class Adapter implements AdapterContract {
    */
   protected getPhaseMiddlewares(phase: string): readonly ResolvedMiddleware[] {
     return this.resolvedMiddlewareRegistry.get(phase) ?? [];
-  }
-
-  /**
-   * Registers exception filter definitions.
-   *
-   * @param definitions - Exception filter definitions to append.
-   * @public
-   */
-  addExceptionFilters(definitions: readonly ExceptionFilterDefinition[]): this {
-    this.exceptionFilterDefs = [...this.exceptionFilterDefs, ...definitions];
-    return this;
-  }
-
-  /**
-   * Registers guard definitions.
-   *
-   * @param guards - Guard definitions to append.
-   * @public
-   */
-  addGuards(guards: readonly GuardDefinition[]): this {
-    this.validateAdapterCompatibility(guards, 'Guard');
-    this.guardDefs = [...this.guardDefs, ...guards];
-    return this;
   }
 
   // ── Pipeline initialization ────────────────────────────────

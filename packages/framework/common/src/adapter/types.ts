@@ -117,28 +117,18 @@ export interface Adapter {
   dispatchRequest(context: AdapterContext): Promise<void>;
 
   /**
-   * Receives AOT-generated middleware configuration.
+   * Receives the adapter's complete AOT-compiled configuration as a single
+   * slice and applies it once. The adapter is a passive consumer: it stores the
+   * compiled middleware/guard/exception-filter definitions and resolves them
+   * against the DI container in {@link Adapter.initializePipeline}. There is no
+   * incremental/imperative registration — the compiler is the single source of
+   * truth, the bootstrap hands each adapter its slice exactly once.
    *
-   * @param config - Phase-keyed middleware definitions.
+   * @param config - The adapter's compiled config: optional phase-keyed
+   *   middleware, guards, and exception filters (every slice may be omitted).
    * @public
    */
-  applyMiddlewareConfig(config: Readonly<Record<string, readonly MiddlewareDefinition[]>>): void;
-
-  /**
-   * Registers exception filter definitions.
-   *
-   * @param definitions - Exception filter definitions to append.
-   * @public
-   */
-  addExceptionFilters(definitions: readonly ExceptionFilterDefinition[]): this;
-
-  /**
-   * Registers guard definitions.
-   *
-   * @param guards - Guard definitions to append.
-   * @public
-   */
-  addGuards(guards: readonly GuardDefinition[]): this;
+  applyConfig(config: AdapterConfig): void;
 
   /**
    * Resolves all definition factories within the given DI container.
@@ -148,6 +138,19 @@ export interface Adapter {
    */
   initializePipeline(container: ZipbulContainer): void;
 
+}
+
+/**
+ * The compiled, per-adapter configuration slice produced by the AOT compiler
+ * and handed to {@link Adapter.applyConfig} at bootstrap. All fields optional;
+ * middleware is keyed by pipeline phase.
+ *
+ * @public
+ */
+export interface AdapterConfig {
+  middlewares?: Readonly<Record<string, readonly MiddlewareDefinition[]>>;
+  guards?: readonly GuardDefinition[];
+  exceptionFilters?: readonly ExceptionFilterDefinition[];
 }
 
 /** Adapter class constructor type. Produces an instance satisfying the {@link Adapter} contract. */

@@ -120,10 +120,15 @@ function requestIsolationSuite(
 
       let captured: HttpAdapter | undefined;
       const app = await Tck.createApplication({
+        adapterConfig: {
+          HttpAdapter: {
+            middlewares: {
+              [HttpAdapterPhase.OnRequest]: [api],
+            },
+          },
+        },
         register: (a) => {
-          const http = a.attach(HttpAdapter, { port: 0 });
-          http.addMiddlewares(HttpAdapterPhase.OnRequest, [api]);
-          captured = http;
+          captured = a.attach(HttpAdapter, { port: 0 });
         },
       });
       const port = captured?.getServer()?.port;

@@ -7,16 +7,16 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 
-import { corsMiddleware } from '@zipbul/cors';
-import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+import { HttpAdapter } from '@zipbul/http-adapter';
 import { createHttpClient, type HttpClient } from '@zipbul/http-adapter/testing';
 import { Test, type TestApplication } from '@zipbul/testing';
 
-import { requestTimingMiddleware } from '../../src/middleware/request-timing.middleware';
 import { appModule } from '../../src/module';
-import { TickAdapter, TickPhase } from '../../src/tick/tick';
-import { tickAuditMiddleware } from '../../src/tick/tick.middleware';
+import { TickAdapter } from '../../src/tick/tick';
 
+// CORS + request-timing + tick-audit middleware are declared on appModule
+// (see src/module). Test.create compiles the project and applies that
+// adapterConfig at startTest, so the test only attaches the transports.
 const ALLOWED_ORIGIN = 'https://allowed.example';
 
 describe('examples — CORS e2e', () => {
@@ -27,13 +27,8 @@ describe('examples — CORS e2e', () => {
     app = await Test.create(appModule, {
       projectRoot: import.meta.dir.replace(/\/test\/e2e$/, ''),
       attach: (recorder) => {
-        const httpAdapter = recorder.attach(HttpAdapter, { port: 0 });
-        httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
-          corsMiddleware({ origin: ALLOWED_ORIGIN }),
-          requestTimingMiddleware(),
-        ]);
-        const tick = recorder.attach(TickAdapter, { intervalMs: 60_000 });
-        tick.addMiddlewares(TickPhase.OnTick, [tickAuditMiddleware]);
+        recorder.attach(HttpAdapter, { port: 0 });
+        recorder.attach(TickAdapter, { intervalMs: 60_000 });
       },
     });
 

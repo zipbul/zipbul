@@ -11,15 +11,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 
 import { defineGuard } from '@zipbul/common';
-import { corsMiddleware } from '@zipbul/cors';
-import { HttpAdapter, HttpAdapterPhase, type HttpTestSurface } from '@zipbul/http-adapter';
+import { HttpAdapter, type HttpTestSurface } from '@zipbul/http-adapter';
 import { Test, type TestApplication } from '@zipbul/testing';
 
-import { requestTimingMiddleware } from '../../src/middleware/request-timing.middleware';
 import { UsersController } from '../../src/users/users.controller';
 import { appModule } from '../../src/module';
-import { TickAdapter, TickPhase } from '../../src/tick/tick';
-import { tickAuditMiddleware } from '../../src/tick/tick.middleware';
+import { TickAdapter } from '../../src/tick/tick';
 
 const ALLOWED_ORIGIN = 'https://allowed.example';
 const passThroughGuard = defineGuard(() => () => undefined);
@@ -31,14 +28,12 @@ describe('examples — di.guard(...).use(...) typed override (handlerIndex-drive
   beforeAll(async () => {
     app = await Test.create(appModule, {
       projectRoot: import.meta.dir.replace(/\/test\/e2e$/, ''),
+      // CORS + request-timing + tick-audit middleware come from appModule's
+      // declarative config; this test only attaches transports and overrides
+      // the UsersController.delete guard.
       attach: (recorder) => {
-        const httpAdapter = recorder.attach(HttpAdapter, { port: 0 });
-        httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
-          corsMiddleware({ origin: ALLOWED_ORIGIN }),
-          requestTimingMiddleware(),
-        ]);
-        const tick = recorder.attach(TickAdapter, { intervalMs: 60_000 });
-        tick.addMiddlewares(TickPhase.OnTick, [tickAuditMiddleware]);
+        recorder.attach(HttpAdapter, { port: 0 });
+        recorder.attach(TickAdapter, { intervalMs: 60_000 });
       },
       override: (di) => {
         di.guard(UsersController, 'delete').use(passThroughGuard);

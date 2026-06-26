@@ -1,3 +1,5 @@
+import type { AdapterConfig } from '@zipbul/core';
+
 import {
   Application,
   Container,
@@ -7,7 +9,21 @@ import {
 } from '@zipbul/core';
 
 export interface TckApplicationOptions {
+  /**
+   * Attaches adapters to the application before it starts. Use this to wire the
+   * transport(s) under test; declarative middleware/guard/filter registration
+   * belongs in {@link TckApplicationOptions.adapterConfig}, not here.
+   */
   register: (app: Application) => void | Promise<void>;
+
+  /**
+   * Per-adapter middleware/guard/exception-filter configuration, keyed by the
+   * adapter's resolved config key (its `name` if attached with one, otherwise
+   * its class name). This is the declarative equivalent of the AOT-generated
+   * `adapterConfig`: the application bootstrap hands each slice to the matching
+   * adapter via `applyConfig`, exactly as a compiled app would.
+   */
+  adapterConfig?: Record<string, AdapterConfig>;
 }
 
 export class TestApplication {
@@ -18,7 +34,7 @@ export class TestApplication {
   static async create(opts: TckApplicationOptions): Promise<TestApplication> {
     registerBootstrapState({
       container: new Container(),
-      adapterConfig: {},
+      adapterConfig: opts.adapterConfig ?? {},
     });
 
     const app = createApplication(defineModule());

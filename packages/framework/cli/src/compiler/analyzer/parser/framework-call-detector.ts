@@ -279,6 +279,40 @@ export function convertModuleDefinition(
 }
 
 /**
+ * Builds a {@link ModuleDefinition} from the (already-converted) config object handed to a
+ * `defineModule(...)` call — the canonical `export const appModule = defineModule({ name, providers,
+ * adapters })` form. `detectFrameworkCallsFromInitializer` captures the call's converted arguments
+ * (via `convertExpressionDeep`), so `name`/`providers`/`adapters` are read straight off the converted
+ * record here, producing the same shape `convertModuleDefinition` yields for the bare-object form.
+ * Returns `undefined` for `defineModule()` with no (or a non-object) argument.
+ *
+ * @param configArg - The first (converted) argument of the `defineModule(...)` call.
+ * @param currentImports - Import source map (localName -> module path).
+ * @returns The ModuleDefinition, or `undefined` when there is no config object.
+ */
+export function moduleDefinitionFromDefineModuleArg(
+  configArg: AnalyzerValue | undefined,
+  currentImports: Record<string, string>,
+): ModuleDefinition | undefined {
+  const config = isRecordValue(configArg) ? configArg : null;
+
+  if (config === null) {
+    return undefined;
+  }
+
+  const nameVal = config.name;
+  const providersVal = config.providers;
+
+  return {
+    name: typeof nameVal === 'string' ? nameVal : undefined,
+    nameDeclared: 'name' in config,
+    providers: Array.isArray(providersVal) ? providersVal as AnalyzerValue[] : [],
+    adapters: 'adapters' in config ? config.adapters : undefined,
+    imports: { ...currentImports },
+  };
+}
+
+/**
  * Inserts or updates a `DefineModuleCall` entry in the calls array.
  *
  * If a call with the same `start`/`end` offsets already exists, merges

@@ -1,7 +1,7 @@
 import { is } from '@zipbul/gildash';
 import type { Node, ParsedFile, ExtractedSymbol } from '@zipbul/gildash';
 import type { Result } from '@zipbul/result';
-import { err, isErr } from '@zipbul/result';
+import { err } from '@zipbul/result';
 import { ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, TS_UTILITY_TYPES } from '@zipbul/common';
 
 import type { ClassMetadata, DecoratorMetadata } from '../interfaces';
@@ -39,10 +39,6 @@ export interface AstNodeLocatorCallbacks {
  * to extract metadata from method bodies.
  */
 export interface MethodMetadataCallbacks {
-  /** Extracts middleware usages from a `configure` method body. */
-  extractMiddlewaresFromConfigure(funcNode: Node, filePath: string): Result<ClassMetadata['middlewares'], Diagnostic>;
-  /** Extracts exception filter usages from a `configure` method body. */
-  extractExceptionFiltersFromConfigure(funcNode: Node, filePath: string): Result<ClassMetadata['exceptionFilters'], Diagnostic>;
   /** Extracts context member-access chains from a handler method body. */
   extractHandlerContextUsages(funcNode: Node): ClassMetadata['methods'][number]['contextUsages'];
   /** Extracts producer/consumer ops (`ctx.set/use/get`) from a handler method body. */
@@ -120,8 +116,6 @@ export function convertClassSymbol(
 
   const methods: ClassMetadata['methods'] = [];
   const properties: ClassMetadata['properties'] = [];
-  let middlewares: ClassMetadata['middlewares'] = [];
-  let exceptionFilters: ClassMetadata['exceptionFilters'] = [];
 
   // Find the raw class AST node for body access
   const rawClassNode = astLocators.findClassAstNode(parsed, className);
@@ -198,28 +192,6 @@ export function convertClassSymbol(
         }
 
         methodParams.sort((a, b) => a.index - b.index);
-
-        if (methodName === 'configure' && rawClassNode !== null) {
-          const funcNode = astLocators.findMethodBodyAstNode(rawClassNode, 'configure');
-
-          if (funcNode !== null) {
-            const mwResult = methodCallbacks.extractMiddlewaresFromConfigure(funcNode, context.currentFilePath);
-
-            if (isErr(mwResult)) {
-              return mwResult;
-            }
-
-            middlewares = mwResult;
-
-            const efResult = methodCallbacks.extractExceptionFiltersFromConfigure(funcNode, context.currentFilePath);
-
-            if (isErr(efResult)) {
-              return efResult;
-            }
-
-            exceptionFilters = efResult;
-          }
-        }
 
         if (methodDecorators.length > 0 || methodParams.some(param => param.decorators.length > 0)) {
           let contextUsages: ClassMetadata['methods'][number]['contextUsages'] | undefined;
@@ -327,8 +299,6 @@ export function convertClassSymbol(
     methods,
     properties,
     imports: { ...currentImports },
-    middlewares,
-    exceptionFilters,
   };
 }
 

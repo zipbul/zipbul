@@ -3,20 +3,16 @@
  * added in response to adversarial review:
  *
  *   1. `intervalMs` constructor validation rejects 0/negative/NaN.
- *   2. `addMiddlewares()` after `start()` throws (silent no-op was the
- *      footgun: cachedHandlers are resolved at boot and never re-checked).
- *   3. `drain(timeoutMs)` returns within the deadline even when an in-flight
+ *   2. `drain(timeoutMs)` returns within the deadline even when an in-flight
  *      tick handler hangs — the indefinite `await this.inflight` in `stop()`
  *      is unsuitable for production shutdown.
  *
- * The Adapter base requires a wired pipeline container to register
- * middleware (validateAdapterCompatibility runs through `instanceof`); we
- * stub that with a minimal container fake.
+ * Middleware is registered declaratively on the module (see ../module), not
+ * through a runtime method, so there is no late-registration footgun to guard.
  */
 import { describe, expect, it, mock } from 'bun:test';
-import type { ApplicationContext } from '@zipbul/common';
 
-import { TickAdapter, TickPhase } from './tick';
+import { TickAdapter } from './tick';
 
 describe('TickAdapter — constructor validation', () => {
   it('rejects intervalMs <= 0', () => {
@@ -36,47 +32,6 @@ describe('TickAdapter — constructor validation', () => {
 
   it('accepts default options (no args)', () => {
     expect(() => new TickAdapter()).not.toThrow();
-  });
-});
-
-describe('TickAdapter — addMiddlewares lifecycle guard', () => {
-  it('throws when addMiddlewares is called after start() (cachedHandlers populated)', async () => {
-    const adapter = new TickAdapter({ intervalMs: 1_000_000 });
-
-    // Force `cachedHandlers` non-null without scheduling a real timer by
-    // calling start() with no handlers — the empty path returns early but
-    // does not populate cachedHandlers. So we pre-seed via the contract
-    // path: attach a fake bootstrap with one (synthetic) handler entry.
-    // For the lifecycle guard we don't need actual ticks to fire — only
-    // that the post-start guard throws.
-
-    // Lazy hack: invoke the same code path by directly setting a
-    // cachedHandlers value via `start()` with the assumption that the
-    // empty-handler short-circuit returns *before* cache population.
-    // Instead, test the guard explicitly using a fake bootstrap state.
-    const { registerBootstrapState } = await import('@zipbul/core');
-    registerBootstrapState({ handlerIndex: [], controllerFactories: new Map() });
-
-    const fakeAppCtx = {} as ApplicationContext;
-    await adapter.start(fakeAppCtx);
-    // start() with empty handlers logs idle and returns *without*
-    // populating cachedHandlers — so the guard does NOT trip in that path.
-    // That's correct: idle adapter accepts late MW registrations because
-    // the dispatch path won't read from cachedHandlers.
-
-    // Now seed cachedHandlers indirectly to simulate a populated boot.
-    // The guard fires when the adapter has booted with handlers.
-    (adapter as unknown as { cachedHandlers: readonly unknown[] }).cachedHandlers = [{}];
-
-    expect(() => adapter.addMiddlewares(TickPhase.OnTick, [])).toThrow(
-      /addMiddlewares\(\) must be called before app\.start\(\)/,
-    );
-  });
-
-  it('allows addMiddlewares before start()', () => {
-    const adapter = new TickAdapter({ intervalMs: 1_000_000 });
-    // Cached handlers null at construction.
-    expect(() => adapter.addMiddlewares(TickPhase.OnTick, [])).not.toThrow();
   });
 });
 

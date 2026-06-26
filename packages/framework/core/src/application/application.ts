@@ -271,16 +271,8 @@ export class Application {
       const configKey = this.resolveAdapterConfigKey(entry);
       const config = bootstrapState.adapterConfig?.[configKey];
 
-      if (config?.middlewares !== undefined) {
-        entry.adapter.applyMiddlewareConfig(config.middlewares);
-      }
-
-      if (config?.exceptionFilters !== undefined && config.exceptionFilters.length > 0) {
-        entry.adapter.addExceptionFilters(config.exceptionFilters);
-      }
-
-      if (config?.guards !== undefined && config.guards.length > 0) {
-        entry.adapter.addGuards(config.guards);
+      if (config !== undefined) {
+        entry.adapter.applyConfig(config);
       }
     }
 

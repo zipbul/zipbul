@@ -11,7 +11,7 @@ import type {
 } from '@zipbul/common';
 
 import {
-  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_COMPUTED_PREFIX,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE,
 } from '@zipbul/common';
 import type { AnalyzerValueRecord } from '../types';
 import { toRecord, isAnalyzerValueArray, isUnresolvable } from '../type-guards';
@@ -124,7 +124,9 @@ export function extractMiddlewaresDecoratorRefKeys(
       }
 
       for (const phaseKey of Object.keys(mapping)) {
-        if (phaseKey.startsWith(ZIPBUL_COMPUTED_PREFIX) || phaseKey.startsWith('__zipbul')) {
+        // Skip internal IR keys; enum/computed phase keys are already resolved
+        // to plain phase strings by the phase-key normalization pass.
+        if (phaseKey.startsWith('__zipbul')) {
           continue;
         }
 
@@ -227,7 +229,8 @@ export function extractGlobalPipelineBindings(
 
       if (middlewares !== null) {
         for (const phase of Object.keys(middlewares)) {
-          if (phase.startsWith(ZIPBUL_COMPUTED_PREFIX) || phase.startsWith('__zipbul')) {
+          // Skip internal IR keys; phase keys are resolved upstream.
+          if (phase.startsWith('__zipbul')) {
             continue;
           }
 

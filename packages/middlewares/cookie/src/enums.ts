@@ -1,3 +1,21 @@
+export enum SameSite {
+  Strict = 'strict',
+  Lax = 'lax',
+  None = 'none',
+}
+
+export enum CookiePriority {
+  Low = 'low',
+  Medium = 'medium',
+  High = 'high',
+}
+
+export enum SigningAlgorithm {
+  Sha256 = 'sha256',
+  Sha384 = 'sha384',
+  Sha512 = 'sha512',
+}
+
 export enum CookieErrorReason {
   EmptySecrets = 'empty-secrets',
   InvalidSecret = 'invalid-secret',
@@ -11,7 +29,6 @@ export enum CookieErrorReason {
   HostPrefixForbidsDomain = 'host-prefix-forbids-domain',
   HostPrefixRequiresRootPath = 'host-prefix-requires-root-path',
   SigningNotConfigured = 'signing-not-configured',
-  EncryptionKeyExhausted = 'encryption-key-exhausted',
   EncryptionNotConfigured = 'encryption-not-configured',
   InvalidAlgorithm = 'invalid-algorithm',
   InvalidCookieName = 'invalid-cookie-name',
@@ -22,10 +39,14 @@ export enum CookieErrorReason {
   InvalidDomain = 'invalid-domain',
   InvalidPath = 'invalid-path',
   InvalidPriority = 'invalid-priority',
-  WeakSecret = 'weak-secret',
   InvalidMaxAge = 'invalid-max-age',
   InvalidExpires = 'invalid-expires',
-  InvalidCookieValue = 'invalid-cookie-value',
+  InvalidSameSite = 'invalid-same-site',
+  InvalidSecure = 'invalid-secure',
+  InvalidHttpOnly = 'invalid-http-only',
+  InvalidPartitioned = 'invalid-partitioned',
+  InvalidPrefixValidation = 'invalid-prefix-validation',
+  InvalidKdfSalt = 'invalid-kdf-salt',
+  InvalidMaxInboundCookieBytes = 'invalid-max-inbound-cookie-bytes',
   InvalidAttribute = 'invalid-attribute',
-  CookieParserError = 'cookie-parser-error',
 }

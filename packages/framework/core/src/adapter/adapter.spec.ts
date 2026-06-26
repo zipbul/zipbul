@@ -175,7 +175,7 @@ describe('Adapter', () => {
   describe('runMiddlewares', () => {
     it('should return void when single middleware returns void', async () => {
       const handler = mock((_ctx: Context) => {});
-      adapter.applyMiddlewareConfig({ TestPhase: [mw(handler)] });
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(handler)] } });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter['runMiddlewares'](
@@ -192,7 +192,7 @@ describe('Adapter', () => {
       const h1 = mock((_ctx: Context) => { order.push('1'); });
       const h2 = mock((_ctx: Context) => { order.push('2'); });
       const h3 = mock((_ctx: Context) => { order.push('3'); });
-      adapter.applyMiddlewareConfig({ TestPhase: [mw(h1), mw(h2), mw(h3)] });
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(h1), mw(h2), mw(h3)] } });
       adapter.initializePipeline(createMockContainer());
 
       await adapter['runMiddlewares'](
@@ -204,7 +204,7 @@ describe('Adapter', () => {
 
     it('should return Err when middleware returns err', async () => {
       const handler = mock((_ctx: Context) => err({ reason: 'test_halt' }));
-      adapter.applyMiddlewareConfig({ TestPhase: [mw(handler)] });
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(handler)] } });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter['runMiddlewares'](
@@ -217,7 +217,7 @@ describe('Adapter', () => {
     it('should skip second middleware when first returns err', async () => {
       const h1 = mock((_ctx: Context) => err({ reason: 'halt' }));
       const h2 = mock((_ctx: Context) => {});
-      adapter.applyMiddlewareConfig({ TestPhase: [mw(h1), mw(h2)] });
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(h1), mw(h2)] } });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter['runMiddlewares'](
@@ -233,7 +233,7 @@ describe('Adapter', () => {
       const handler = mock((_ctx: Context) => {
         throw new Error('middleware crash');
       });
-      adapter.applyMiddlewareConfig({ TestPhase: [mw(handler)] });
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(handler)] } });
       adapter.initializePipeline(createMockContainer());
 
       await expect(
@@ -256,7 +256,7 @@ describe('Adapter', () => {
           ? mock((_ctx: Context) => err({ reason: `halt_at_${index}` }))
           : mock((_ctx: Context) => {}),
       );
-      adapter.applyMiddlewareConfig({ TestPhase: handlers.map(handler => mw(handler)) });
+      adapter.applyConfig({ middlewares: { TestPhase: handlers.map(handler => mw(handler)) } });
       adapter.initializePipeline(createMockContainer());
 
       await adapter['runMiddlewares'](
@@ -270,13 +270,12 @@ describe('Adapter', () => {
       expect(handlers[4]).not.toHaveBeenCalled();
     });
 
-    it('should preserve combined order when applyMiddlewareConfig called twice', async () => {
+    it('should run middlewares in their configured order', async () => {
       const order: string[] = [];
       const hA = mock((_ctx: Context) => { order.push('A'); });
       const hB = mock((_ctx: Context) => { order.push('B'); });
       const hC = mock((_ctx: Context) => { order.push('C'); });
-      adapter.applyMiddlewareConfig({ TestPhase: [mw(hA), mw(hB)] });
-      adapter.applyMiddlewareConfig({ TestPhase: [mw(hC)] });
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(hA), mw(hB), mw(hC)] } });
       adapter.initializePipeline(createMockContainer());
 
       await adapter['runMiddlewares'](
@@ -289,7 +288,7 @@ describe('Adapter', () => {
     it('should pass same context object reference to every middleware', async () => {
       const h1 = mock((_ctx: Context) => {});
       const h2 = mock((_ctx: Context) => {});
-      adapter.applyMiddlewareConfig({ TestPhase: [mw(h1), mw(h2)] });
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(h1), mw(h2)] } });
       adapter.initializePipeline(createMockContainer());
       const ctx = createContext();
 
@@ -302,11 +301,11 @@ describe('Adapter', () => {
     });
   });
 
-  describe('applyMiddlewareConfig', () => {
+  describe('applyConfig — middlewares', () => {
     it('should store middleware definitions by phase key', () => {
       const def = defineMiddleware(() => (_ctx: Context) => {});
 
-      adapter.applyMiddlewareConfig({ TestPhase: [def] });
+      adapter.applyConfig({ middlewares: { TestPhase: [def] } });
       adapter.initializePipeline(createMockContainer());
 
       expect(adapter['getPhaseMiddlewares']('TestPhase')).toHaveLength(1);
@@ -314,15 +313,14 @@ describe('Adapter', () => {
 
     it('should throw on invalid phase key', () => {
       const def = defineMiddleware(() => (_ctx: Context) => {});
-      expect(() => adapter.applyMiddlewareConfig({ InvalidPhase: [def] })).toThrow(/Invalid middleware phase 'InvalidPhase'/);
+      expect(() => adapter.applyConfig({ middlewares: { InvalidPhase: [def] } })).toThrow(/Invalid middleware phase 'InvalidPhase'/);
     });
 
-    it('should accumulate across multiple calls', () => {
+    it('should store every middleware definition for a phase from one config', () => {
       const def1 = defineMiddleware(() => (_ctx: Context) => {});
       const def2 = defineMiddleware(() => (_ctx: Context) => {});
 
-      adapter.applyMiddlewareConfig({ TestPhase: [def1] });
-      adapter.applyMiddlewareConfig({ TestPhase: [def2] });
+      adapter.applyConfig({ middlewares: { TestPhase: [def1, def2] } });
       adapter.initializePipeline(createMockContainer());
 
       expect(adapter['getPhaseMiddlewares']('TestPhase')).toHaveLength(2);
@@ -339,7 +337,12 @@ describe('Adapter', () => {
         async stop() {}
       }
       const noPhase = new NoPhaseAdapter();
-      expect(() => noPhase.applyMiddlewareConfig({ X: [] })).toThrow(/must declare static validPhases/);
+      expect(() => noPhase.applyConfig({ middlewares: { X: [] } })).toThrow(/must declare static validPhases/);
+    });
+
+    it('should throw when a middleware declares an incompatible adapter class', () => {
+      const incompatibleMw = defineMiddleware([AnotherAdapter], () => (_ctx: Context) => {});
+      expect(() => adapter.applyConfig({ middlewares: { TestPhase: [incompatibleMw] } })).toThrow(/AnotherAdapter.*TestAdapter/);
     });
   });
 
@@ -347,18 +350,6 @@ describe('Adapter', () => {
     it('should return empty array for unregistered phase', () => {
       adapter.initializePipeline(createMockContainer());
       expect(adapter['getPhaseMiddlewares']('TestPhase')).toEqual([]);
-    });
-  });
-
-  describe('registerMiddleware', () => {
-    it('should validate adapter compatibility', () => {
-      const incompatibleMw = defineMiddleware([AnotherAdapter], () => (_ctx: Context) => {});
-      expect(() => adapter['registerMiddleware']('TestPhase', [incompatibleMw])).toThrow(/AnotherAdapter.*TestAdapter/);
-    });
-
-    it('should throw on invalid phase', () => {
-      const def = defineMiddleware(() => (_ctx: Context) => {});
-      expect(() => adapter['registerMiddleware']('BadPhase', [def])).toThrow(/Invalid middleware phase/);
     });
   });
 
@@ -416,30 +407,129 @@ describe('Adapter', () => {
     });
   });
 
-  describe('addGuards - adapter compatibility', () => {
-    it('should accept guard without adapters field (universal)', () => {
+  describe('applyConfig — guards', () => {
+    it('should store guard definitions', () => {
       const guard = defineGuard(() => (_ctx: Context) => {});
-      expect(() => adapter.addGuards([guard])).not.toThrow();
+      adapter.applyConfig({ guards: [guard] });
+      expect(adapter['guardDefs']).toHaveLength(1);
     });
 
-    it('should accept guard when adapter class matches', () => {
+    it('should store every guard definition from one config', () => {
+      adapter.applyConfig({ guards: [defineGuard(() => (_ctx: Context) => {}), defineGuard(() => (_ctx: Context) => {})] });
+      expect(adapter['guardDefs']).toHaveLength(2);
+    });
+
+    it('should accept a guard whose declared adapter class matches', () => {
       const guard = defineGuard([TestAdapter], () => (_ctx: Context) => {});
-      expect(() => adapter.addGuards([guard])).not.toThrow();
+      expect(() => adapter.applyConfig({ guards: [guard] })).not.toThrow();
     });
 
-    it('should throw when guard declares incompatible adapter class', () => {
+    it('should throw when a guard declares an incompatible adapter class', () => {
       const guard = defineGuard([AnotherAdapter], () => (_ctx: Context) => {});
-      expect(() => adapter.addGuards([guard])).toThrow(/AnotherAdapter.*TestAdapter/);
+      expect(() => adapter.applyConfig({ guards: [guard] })).toThrow(/AnotherAdapter.*TestAdapter/);
     });
 
-    it('should accept guard on child adapter when parent class is declared', () => {
+    it('should accept a guard on a child adapter when the parent class is declared', () => {
       const child = new ChildAdapter();
       const guard = defineGuard([TestAdapter], () => (_ctx: Context) => {});
-      expect(() => child.addGuards([guard])).not.toThrow();
+      expect(() => child.applyConfig({ guards: [guard] })).not.toThrow();
+    });
+  });
+
+  describe('applyConfig — exception filters', () => {
+    it('should store exception filter definitions', () => {
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([], () => mock(() => err({ caught: true })))] });
+      expect(adapter['exceptionFilterDefs']).toHaveLength(1);
     });
 
-    it('should return this for chaining', () => {
-      expect(adapter.addGuards([])).toBe(adapter);
+    it('should store every exception filter definition from one config', () => {
+      adapter.applyConfig({ exceptionFilters: [
+        defineExceptionFilter([], () => mock(() => err({ caught: true }))),
+        defineExceptionFilter([], () => mock(() => err({ caught: true }))),
+      ] });
+      expect(adapter['exceptionFilterDefs']).toHaveLength(2);
+    });
+
+    it('should accept a filter whose declared adapter class matches', () => {
+      const filter = defineExceptionFilter([], [TestAdapter], () => mock(() => err({ caught: true })));
+      expect(() => adapter.applyConfig({ exceptionFilters: [filter] })).not.toThrow();
+    });
+
+    it('should throw when a filter declares an incompatible adapter class', () => {
+      const filter = defineExceptionFilter([], [AnotherAdapter], () => mock(() => err({ caught: true })));
+      expect(() => adapter.applyConfig({ exceptionFilters: [filter] })).toThrow(/AnotherAdapter.*TestAdapter/);
+    });
+  });
+
+  // ── applyConfig set-once semantics (overwrite, not merge) ──
+  // The slimming refactor replaced the accumulating apply* trio with a
+  // set-once applyConfig. These pin that a second call REPLACES (not merges)
+  // a slice, that an unset slice is left untouched, and that an empty/partial
+  // config is a no-op — so a regression back to append/merge fails here.
+
+  describe('applyConfig — set-once semantics', () => {
+    it('should replace, not append, middleware for a phase on a second call', async () => {
+      const order: string[] = [];
+      const first = mock((_ctx: Context) => { order.push('first'); });
+      const second = mock((_ctx: Context) => { order.push('second'); });
+
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(first)] } });
+      adapter.applyConfig({ middlewares: { TestPhase: [mw(second)] } });
+      adapter.initializePipeline(createMockContainer());
+
+      expect(adapter['getPhaseMiddlewares']('TestPhase')).toHaveLength(1);
+      await adapter['runMiddlewares'](
+        adapter['getPhaseMiddlewares']('TestPhase'), createContext(),
+      );
+      expect(order).toEqual(['second']);
+      expect(first).not.toHaveBeenCalled();
+    });
+
+    it('should replace, not append, guards on a second call', () => {
+      adapter.applyConfig({ guards: [defineGuard(() => (_ctx: Context) => {})] });
+      adapter.applyConfig({ guards: [defineGuard(() => (_ctx: Context) => {})] });
+
+      expect(adapter['guardDefs']).toHaveLength(1);
+    });
+
+    it('should replace, not append, exception filters on a second call', () => {
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([], () => mock(() => err({ caught: true })))] });
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([], () => mock(() => err({ caught: true })))] });
+
+      expect(adapter['exceptionFilterDefs']).toHaveLength(1);
+    });
+
+    it('should leave previously-set slices untouched when a later config carries only one slice', () => {
+      const guard = defineGuard(() => (_ctx: Context) => {});
+      const filter = defineExceptionFilter([], () => mock(() => err({ caught: true })));
+      adapter.applyConfig({
+        middlewares: { TestPhase: [mw(() => {})] },
+        guards: [guard],
+        exceptionFilters: [filter],
+      });
+
+      adapter.applyConfig({ guards: [defineGuard(() => (_ctx: Context) => {})] });
+      adapter.initializePipeline(createMockContainer());
+
+      // guards replaced, the untouched slices survive
+      expect(adapter['guardDefs']).toHaveLength(1);
+      expect(adapter['getPhaseMiddlewares']('TestPhase')).toHaveLength(1);
+      expect(adapter['exceptionFilterDefs']).toHaveLength(1);
+    });
+
+    it('should no-op without throwing for an empty config (all slices undefined)', () => {
+      expect(() => adapter.applyConfig({})).not.toThrow();
+      adapter.initializePipeline(createMockContainer());
+
+      expect(adapter['guardDefs']).toHaveLength(0);
+      expect(adapter['exceptionFilterDefs']).toHaveLength(0);
+    });
+
+    it('should set-once an empty guards/exceptionFilters array without throwing', () => {
+      expect(() => adapter.applyConfig({ guards: [], exceptionFilters: [] })).not.toThrow();
+
+      expect(adapter['guardDefs']).toHaveLength(0);
+      expect(adapter['exceptionFilterDefs']).toHaveLength(0);
     });
   });
 
@@ -542,7 +632,7 @@ describe('Adapter', () => {
         return err({ status: 503, message: 'db down' });
       });
 
-      adapter.addExceptionFilters([defineExceptionFilter([DbError], () => filterHandler)]);
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([DbError], () => filterHandler)] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter.exposeExecuteExceptionFilterChain(adapter['resolvedExceptionFilters'], new DbError(), createContext());
@@ -554,7 +644,7 @@ describe('Adapter', () => {
     it('should skip filter when error type does not match', async () => {
       class SpecificError extends Error {}
 
-      adapter.addExceptionFilters([defineExceptionFilter([SpecificError], () => mock(() => err({ caught: true })))]);
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([SpecificError], () => mock(() => err({ caught: true })))] });
       adapter.initializePipeline(createMockContainer());
       const originalError = new Error('generic');
 
@@ -569,7 +659,7 @@ describe('Adapter', () => {
         return err({ status: 500, message: 'caught all' });
       });
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => filterHandler)]);
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([], () => filterHandler)] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter.exposeExecuteExceptionFilterChain(adapter['resolvedExceptionFilters'], new Error('anything'), createContext());
@@ -582,7 +672,7 @@ describe('Adapter', () => {
         return undefined as unknown as Err<unknown>;
       });
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => badFilter)]);
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([], () => badFilter)] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter.exposeExecuteExceptionFilterChain(adapter['resolvedExceptionFilters'], new Error('test'), createContext());
@@ -610,7 +700,7 @@ describe('Adapter', () => {
         return err({ matched: 'multi' });
       });
 
-      adapter.addExceptionFilters([defineExceptionFilter([ErrorA, ErrorB], () => filterHandler)]);
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([ErrorA, ErrorB], () => filterHandler)] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter.exposeExecuteExceptionFilterChain(adapter['resolvedExceptionFilters'], new ErrorB(), createContext());
@@ -633,10 +723,10 @@ describe('Adapter', () => {
         return err({ matched: 'second' });
       });
 
-      adapter.addExceptionFilters([
+      adapter.applyConfig({ exceptionFilters: [
         defineExceptionFilter([AppError], () => firstHandler),
         defineExceptionFilter([AppError], () => secondHandler),
-      ]);
+      ] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter.exposeExecuteExceptionFilterChain(adapter['resolvedExceptionFilters'], new AppError(), createContext());
@@ -652,7 +742,7 @@ describe('Adapter', () => {
         return err({ source: 'global' });
       });
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => globalHandler)]);
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([], () => globalHandler)] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter.exposeExecuteExceptionFilterChain(adapter['resolvedExceptionFilters'], new Error('test'), createContext());
@@ -661,31 +751,29 @@ describe('Adapter', () => {
     });
   });
 
-  // ── addExceptionFilters ──────────────────────────────────
+  // ── applyExceptionFilterConfig — resolution & dispatch ────
 
-  describe('addExceptionFilters', () => {
+  describe('applyConfig — exception filter resolution & dispatch', () => {
     it('should register and resolve exception filter definitions', async () => {
       const filterHandler = mock((_error: unknown, _context: Context): Err<unknown> => {
         return err({ caught: true });
       });
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => filterHandler)]);
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([], () => filterHandler)] });
       adapter.initializePipeline(createMockContainer());
       const result = await adapter.exposeExecuteExceptionFilterChain(adapter['resolvedExceptionFilters'], new Error('test'), createContext());
 
       expect(result.data).toEqual({ caught: true });
     });
 
-    it('should return this for chaining', () => {
-      expect(adapter.addExceptionFilters([])).toBe(adapter);
-    });
-
-    it('should accumulate definitions across multiple calls', async () => {
+    it('should dispatch to the matching filter among several in one config', async () => {
       class FirstError extends Error {}
       class SecondError extends Error {}
 
-      adapter.addExceptionFilters([defineExceptionFilter([FirstError], () => mock(() => err({ matched: 'first' })))]);
-      adapter.addExceptionFilters([defineExceptionFilter([SecondError], () => mock(() => err({ matched: 'second' })))]);
+      adapter.applyConfig({ exceptionFilters: [
+        defineExceptionFilter([FirstError], () => mock(() => err({ matched: 'first' }))),
+        defineExceptionFilter([SecondError], () => mock(() => err({ matched: 'second' }))),
+      ] });
       adapter.initializePipeline(createMockContainer());
 
       const firstResult = await adapter.exposeExecuteExceptionFilterChain(adapter['resolvedExceptionFilters'], new FirstError(), createContext());
@@ -706,7 +794,7 @@ describe('Adapter', () => {
         order.push('async-mw');
       });
 
-      adapter.applyMiddlewareConfig({ TestPhase: [asyncMw] });
+      adapter.applyConfig({ middlewares: { TestPhase: [asyncMw] } });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter['runMiddlewares'](
@@ -723,7 +811,7 @@ describe('Adapter', () => {
         return err({ halted: true });
       });
 
-      adapter.applyMiddlewareConfig({ TestPhase: [asyncMw] });
+      adapter.applyConfig({ middlewares: { TestPhase: [asyncMw] } });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter['runMiddlewares'](
@@ -740,7 +828,7 @@ describe('Adapter', () => {
         await Promise.resolve();
       });
 
-      adapter.addGuards([asyncGuard]);
+      adapter.applyConfig({ guards: [asyncGuard] });
       adapter.initializePipeline(createMockContainer());
       adapter.setPipelineImpl(async (ctx) => {
         const guardResult = await adapter['runGuards'](adapter['resolvedGuards'], ctx);
@@ -761,7 +849,7 @@ describe('Adapter', () => {
         return err({ status: 403 });
       });
 
-      adapter.addGuards([asyncGuard]);
+      adapter.applyConfig({ guards: [asyncGuard] });
       adapter.initializePipeline(createMockContainer());
 
       const context = createContext();
@@ -776,7 +864,7 @@ describe('Adapter', () => {
         return err({ async: true });
       });
 
-      adapter.addExceptionFilters([defineExceptionFilter([], () => asyncHandler)]);
+      adapter.applyConfig({ exceptionFilters: [defineExceptionFilter([], () => asyncHandler)] });
       adapter.initializePipeline(createMockContainer());
 
       const result = await adapter.exposeExecuteExceptionFilterChain(adapter['resolvedExceptionFilters'], new Error('test'), createContext());
