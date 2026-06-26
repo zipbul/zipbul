@@ -36,6 +36,14 @@ describe('CookieJar', () => {
       expect(jar.has('s')).toBe(false);
       expect(jar.getRaw('s')).toBeUndefined();
     });
+
+    it('measures the inbound byte cap in UTF-8 octets, not characters', () => {
+      const parser = CookieParser.create({ maxInboundCookieBytes: 64 });
+      // 21 '€' = 63 octets, + 's=' = 65 octets but only 23 chars: a char-length cap would wrongly keep it.
+      expect(new CookieJar(parser, `s=${'€'.repeat(21)}`).has('s')).toBe(false);
+      // 20 '€' = 60 octets, + 's=' = 62 octets <= 64: kept.
+      expect(new CookieJar(parser, `s=${'€'.repeat(20)}`).has('s')).toBe(true);
+    });
   });
 
   describe('getRaw', () => {
@@ -94,6 +102,18 @@ describe('CookieJar', () => {
       const jar = new CookieJar(parser, `session=${encrypted.value}`);
       const result = await jar.get('session');
       expect(result).toBe('user:42');
+    });
+
+    it('should propagate the signing failure when decrypt succeeds but the plaintext is unsigned', async () => {
+      // Both configured, but the value was encrypted WITHOUT being signed first: decrypt succeeds, then
+      // unsign rejects the dot-less plaintext. The signing error must surface, not the decrypted value.
+      const parser = CookieParser.create({ secrets: ['gHBB3MwkPytgNA9vApSMJRDqJIPMNXgLrHUKSJZy1Kg'], encryptionSecret: '9v7BAwKpXHWZnoKZIHV2XWch22HvF8bleOM6t4nc-A4' });
+      const { Cookie } = await import('bun');
+      const encrypted = expectOk(await parser.encrypt(new Cookie('session', 'rawplaintext')));
+      const jar = new CookieJar(parser, `session=${encrypted.value}`);
+      const result = await jar.get('session');
+      expect(isErr(result)).toBe(true);
+      expect(asErr(result).data.reason).toBe(CookieErrorReason.InvalidSignature);
     });
 
     it('should return Err when signature verification fails', async () => {

@@ -38,6 +38,24 @@ describe('HKDF (RFC 5869) known-answer vectors', () => {
       '8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8',
     );
   });
+
+  // The package only ever derives 256-bit keys, so the SHA-384/512 expand paths run single-block in
+  // production. Exercise the multi-block loop directly (OKM length > hashLen ⇒ N >= 2) and pin it
+  // byte-for-byte against crypto.subtle, so a regression in the T(n) chaining can't slip through.
+  for (const [algorithm, subtleHash, length] of [
+    [SigningAlgorithm.Sha384, 'SHA-384', 80] as const,  // 80 > 48 ⇒ 2 blocks
+    [SigningAlgorithm.Sha512, 'SHA-512', 130] as const, // 130 > 64 ⇒ 3 blocks
+  ]) {
+    it(`multi-block expand (N>=2) is byte-identical to crypto.subtle HKDF for ${subtleHash}`, async () => {
+      const ikm = 'multi-block-ikm-value';
+      const salt = new TextEncoder().encode('mb-salt');
+      const info = new TextEncoder().encode('mb-info');
+      const sync = hkdfExpand(hkdfExtract(ikm, salt, algorithm), info, length, algorithm);
+      const baseKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(ikm), 'HKDF', false, ['deriveBits']);
+      const bits = await crypto.subtle.deriveBits({ name: 'HKDF', hash: subtleHash, salt, info }, baseKey, length * 8);
+      expect(toHex(sync)).toBe(toHex(new Uint8Array(bits)));
+    });
+  }
 });
 
 describe('deriveHmacKeyBytesSync (sync HKDF) equals the platform WebCrypto HKDF', () => {

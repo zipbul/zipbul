@@ -474,6 +474,15 @@ describe('CookieParser', () => {
       );
     });
 
+    it('should throw InvalidCiphertext when decrypting a non-base64url value (strict-decode rejects it)', async () => {
+      // Long enough to pass the length floor, but the spaces/`!` are not base64url alphabet — the
+      // strict b64url decode must reject it as InvalidCiphertext, distinct from a too-short blob.
+      const cp = CookieParser.create({ encryptionSecret: '9v7BAwKpXHWZnoKZIHV2XWch22HvF8bleOM6t4nc-A4' });
+      expect(asErr(await cp.decrypt(new Cookie('n', 'not valid base64url !!!'))).data.reason).toBe(
+        CookieErrorReason.InvalidCiphertext,
+      );
+    });
+
     it('should throw DecryptionFailed when decrypting tampered ciphertext', async () => {
       const cp = CookieParser.create({ encryptionSecret: '9v7BAwKpXHWZnoKZIHV2XWch22HvF8bleOM6t4nc-A4' });
       const encrypted = expectOk(await cp.encrypt(new Cookie('n', 'v')));
