@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/shared#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/libs/shared#readme",
   "keywords": [
     "enum",
     "constants",

@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/cors#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/middlewares/cors#readme",
   "keywords": [
     "cors",
     "cross-origin",

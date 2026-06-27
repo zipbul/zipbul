@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/cli#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/framework/cli#readme",
   "keywords": [
     "zipbul",
     "cli",

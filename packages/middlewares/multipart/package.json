@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/multipart#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/middlewares/multipart#readme",
   "keywords": [
     "multipart",
     "form-data",

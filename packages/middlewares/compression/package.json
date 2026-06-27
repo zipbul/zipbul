@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/compression#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/middlewares/compression#readme",
   "keywords": [
     "compression",
     "gzip",

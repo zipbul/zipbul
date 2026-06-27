@@ -50,7 +50,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/core#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/framework/core#readme",
   "keywords": [
     "di",
     "dependency-injection",

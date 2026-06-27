@@ -45,7 +45,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/logger#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/framework/logger#readme",
   "keywords": [
     "logger",
     "logging",

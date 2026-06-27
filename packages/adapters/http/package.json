@@ -69,7 +69,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/http-adapter#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/adapters/http#readme",
   "keywords": [
     "http",
     "server",
