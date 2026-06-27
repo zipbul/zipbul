@@ -1,8 +1,11 @@
 name: Release
 
+# Auto-publish on push to main is DISABLED until the packages are ready to
+# release. Several packages are unpublished (cookie, mikro-orm, helmet,
+# compression, testing) and release:publish would create them on npm. Run this
+# workflow manually (workflow_dispatch) only when an intentional release is wanted.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
