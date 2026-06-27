@@ -4,21 +4,24 @@
   "type": "module",
   "module": "src/main.ts",
   "scripts": {
-    "build": "(cd ../packages/http-adapter && bun run build) && bun ../packages/cli/src/bin/zb.ts build",
-    "dev": "(cd ../packages/http-adapter && bun run build) && bun ../packages/cli/src/bin/zb.ts dev",
-    "start": "bun dist/entry.js"
+    "build": "(cd ../packages/adapters/http && bun run build) && bun ../packages/framework/cli/src/bin/zb.ts build",
+    "dev": "(cd ../packages/adapters/http && bun run build) && bun ../packages/framework/cli/src/bin/zb.ts dev",
+    "start": "bun dist/entry.js",
+    "test:e2e": "bun test test/e2e"
   },
   "dependencies": {
     "@zipbul/baker": "catalog:",
     "@zipbul/common": "workspace:*",
     "@zipbul/core": "workspace:*",
+    "@zipbul/cors": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
-    "@zipbul/example-stamp-middleware": "workspace:*",
     "@zipbul/logger": "workspace:*",
-    "@zipbul/result": "catalog:"
+    "@zipbul/result": "workspace:*",
+    "@zipbul/query-parser": "workspace:*"
   },
   "devDependencies": {
     "@zipbul/cli": "workspace:*",
+    "@zipbul/testing": "workspace:*",
     "@types/bun": "catalog:",
     "typescript": "catalog:"
   }

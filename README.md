@@ -1,7 +1,5 @@
 # Zipbul
 
-**[한국어](./docs/90_REFERENCE/README.ko.md)** | English
-
 A blazing-fast, Bun-native web server framework with Ahead-of-Time (AOT) compilation.
 
 [![Bun](https://img.shields.io/badge/Bun-v1.0%2B-000?logo=bun)](https://bun.sh)
@@ -145,8 +143,6 @@ export class SharedService {}
 
 ## Documentation
 
-- **[Documentation Index (SSOT)](./docs/00_INDEX.md)** — Start here for all guides and rules
-- [Architecture](./docs/20_ARCHITECTURE/ARCHITECTURE.md) — System design and package structure
 - [Contributing](.github/CONTRIBUTING.md) — How to contribute
 - [Security](.github/SECURITY.md) — Security policy and reporting
 

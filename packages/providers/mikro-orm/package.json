@@ -1,0 +1,116 @@
+{
+  "name": "@zipbul/mikro-orm",
+  "version": "0.0.0",
+  "description": "MikroORM v7 integration for zipbul backed by Bun's native SQL (Bun.SQL) — Postgres, MySQL, MariaDB, SQLite drivers + zipbul-native DI/request-context DX",
+  "license": "MIT",
+  "author": "Junhyung Park (https://github.com/parkrevil)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zipbul/zipbul",
+    "directory": "packages/providers/mikro-orm"
+  },
+  "bugs": {
+    "url": "https://github.com/zipbul/zipbul/issues"
+  },
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/providers/mikro-orm#readme",
+  "keywords": [
+    "mikro-orm",
+    "orm",
+    "data-mapper",
+    "bun",
+    "bun-sql",
+    "sql",
+    "database",
+    "postgres",
+    "postgresql",
+    "mysql",
+    "mariadb",
+    "sqlite",
+    "kysely",
+    "entity",
+    "repository",
+    "query-builder",
+    "typescript",
+    "zipbul"
+  ],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "type": "module",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./postgresql": {
+      "types": "./dist/src/driver/postgres/index.d.ts",
+      "default": "./dist/src/driver/postgres/index.js"
+    },
+    "./mysql": {
+      "types": "./dist/src/driver/mysql/index.d.ts",
+      "default": "./dist/src/driver/mysql/index.js"
+    },
+    "./mariadb": {
+      "types": "./dist/src/driver/mariadb/index.d.ts",
+      "default": "./dist/src/driver/mariadb/index.js"
+    },
+    "./sqlite": {
+      "types": "./dist/src/driver/sqlite/index.d.ts",
+      "default": "./dist/src/driver/sqlite/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "bun test",
+    "coverage": "bun test --coverage"
+  },
+  "peerDependencies": {
+    "@mikro-orm/core": "^7",
+    "@mikro-orm/sql": "^7",
+    "@mikro-orm/postgresql": "^7",
+    "@mikro-orm/mysql": "^7",
+    "@mikro-orm/mariadb": "^7",
+    "@mikro-orm/sqlite": "^7",
+    "@mikro-orm/decorators": "^7",
+    "kysely": "^0.29"
+  },
+  "peerDependenciesMeta": {
+    "@mikro-orm/postgresql": {
+      "optional": true
+    },
+    "@mikro-orm/mysql": {
+      "optional": true
+    },
+    "@mikro-orm/mariadb": {
+      "optional": true
+    },
+    "@mikro-orm/sqlite": {
+      "optional": true
+    }
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@mikro-orm/core": "7.1.1",
+    "@mikro-orm/decorators": "7.1.1",
+    "@mikro-orm/mariadb": "7.1.1",
+    "@mikro-orm/mysql": "7.1.1",
+    "@mikro-orm/postgresql": "7.1.1",
+    "@mikro-orm/sql": "7.1.1",
+    "@mikro-orm/sqlite": "7.1.1",
+    "@zipbul/common": "workspace:*",
+    "@zipbul/http-adapter": "workspace:*",
+    "@zipbul/result": "workspace:*",
+    "@zipbul/tck": "workspace:*",
+    "kysely": "^0.29",
+    "tsdown": "^0.22.3"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "isolatedDeclarations": true,
+    "stripInternal": true
+  },
+  "include": ["index.ts", "src/**/*.ts"],
+  "exclude": ["**/*.spec.ts", "**/*.test.ts", "test"]
+}

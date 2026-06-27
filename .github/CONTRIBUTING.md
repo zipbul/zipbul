@@ -18,10 +18,6 @@
 - 다만, 프로젝트가 외부 기여를 받을 준비가 되면 적극적으로 받을 계획이다.
 - 제출된 PR은 병합을 보장하지 않으며, 모든 변경은 내부 기준에 따라 평가된다.
 
-## 기본 원칙
-
-- 문서 위계/정본(SSOT) 규칙: [SSOT_HIERARCHY.md](../docs/10_FOUNDATION/SSOT_HIERARCHY.md)
-
 ## 로컬 검증
 
 - 검증은 루트 `package.json`의 `verify`로만 수행한다.
@@ -30,7 +26,7 @@
 
 ## 커밋 규칙
 
-- 커밋 메시지 규칙은 [COMMITS.md](../docs/50_GOVERNANCE/COMMITS.md)를 따른다.
+- 커밋 메시지는 Conventional Commits를 따른다 (commitlint로 강제).
 
 ## PR 기준(요약)
 

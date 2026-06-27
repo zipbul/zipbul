@@ -1,43 +1,50 @@
 /** @type {import('@commitlint/types').UserConfig} */
 module.exports = {
   extends: ['@commitlint/config-conventional'],
-  plugins: [
-    {
-      rules: {
-        'scope-no-multi': (parsed, when) => {
-          const scope = parsed.scope;
-
-          if (scope === undefined || scope.length === 0) {
-            return [true];
-          }
-
-          const hasComma = scope.includes(',');
-
-          if (when === 'always') {
-            return [!hasComma, 'scope must be a single value (no commas)'];
-          }
-
-          if (when === 'never') {
-            return [hasComma, 'scope must contain a comma'];
-          }
-
-          return [true];
-        },
-      },
-    },
-  ],
   rules: {
+    'header-max-length': [2, 'always', 100],
+    'body-leading-blank': [2, 'always'],
     'body-max-line-length': [2, 'always', 100],
+    'footer-leading-blank': [2, 'always'],
     'footer-max-line-length': [2, 'always', 100],
+    'subject-case': [2, 'never', ['pascal-case', 'upper-case']],
+    'subject-full-stop': [2, 'never', '.'],
     'scope-case': [2, 'always', ['kebab-case']],
-    'scope-no-multi': [2, 'always'],
     'scope-enum': [
       2,
       'always',
-      ['cli', 'common', 'core', 'http-adapter', 'logger', 'examples', 'repo', 'config', 'plan', 'eslint', 'scripts', 'emberdeck'],
+      [
+        'cli',
+        'common',
+        'compression',
+        'cookie',
+        'core',
+        'cors',
+        'helmet',
+        'http-adapter',
+        'logger',
+        'mikro-orm',
+        'multipart',
+        'query-parser',
+        'rate-limiter',
+        'result',
+        'router',
+        'shared',
+        'conformance',
+        'testing',
+        'examples',
+        'benchmark',
+        'repo',
+        'config',
+        'ci',
+        'deps',
+        'release',
+      ],
     ],
-    'type-enum': [2, 'always', ['build', 'chore', 'ci', 'docs', 'feat', 'fix', 'perf', 'refactor', 'revert', 'style', 'test']],
-    'subject-case': [2, 'never', ['pascal-case', 'upper-case']],
-    'subject-full-stop': [2, 'never', '.'],
+    'type-enum': [
+      2,
+      'always',
+      ['build', 'chore', 'ci', 'docs', 'feat', 'fix', 'perf', 'refactor', 'revert', 'style', 'test'],
+    ],
   },
 };

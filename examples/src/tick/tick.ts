@@ -38,7 +38,6 @@ import {
   type ClassToken,
   type CompiledHandlerEntry,
   type ContextKey,
-  type MiddlewareDefinition,
 } from '@zipbul/common';
 import { isErr } from '@zipbul/result';
 import { Logger } from '@zipbul/logger';
@@ -48,7 +47,12 @@ import { Logger } from '@zipbul/logger';
 const TICK_CONTEXT_TYPE = 'zipbul.examples.tick';
 
 export const TickPhase = {
-  OnTick: 'TickOnTick',
+  // Phase value matches the member name, the framework convention (cf.
+  // HttpAdapterPhase.OnRequest, CoreStep.Handler). The compiler keys an
+  // adapter's valid phases by the enum member name read from the
+  // `defineAdapter({ pipeline })` schema, while the runtime keys them by the
+  // enum value; they must agree for declarative module config to apply.
+  OnTick: 'OnTick',
 } as const;
 
 /** Type alias for the phase value union — single source of truth. */
@@ -124,10 +128,20 @@ export class TickContext implements AdapterContext {
 }
 
 /** Marks a class as a tick controller. AOT collects the class via this name. */
-export const TickController = (): ClassDecorator => () => {};
+export const TickController =
+  () =>
+  <T extends abstract new (...args: any) => any>(
+    _value: T,
+    _context: ClassDecoratorContext<T>,
+  ): void => {};
 
 /** Marks a method as a tick handler. AOT collects the method via this name. */
-export const OnTick = (): MethodDecorator => () => {};
+export const OnTick =
+  () =>
+  <This, Args extends any[], Return>(
+    _value: (this: This, ...args: Args) => Return,
+    _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  ): void => {};
 
 const DEFAULT_INTERVAL_MS = 1000;
 
@@ -165,24 +179,6 @@ export class TickAdapter extends Adapter {
     }
     this.intervalMs = intervalMs;
     this.maxRounds = maxRounds;
-  }
-
-  /**
-   * Public wrapper around `Adapter.registerMiddleware` for the OnTick phase.
-   *
-   * **Lifecycle constraint** — must be called BEFORE `app.start()`. The base
-   * `Adapter` resolves `middlewareRegistry` → `resolvedMiddlewareRegistry`
-   * once during `initializePipeline` (called by `Application.start` before
-   * `adapter.start`), and `TickAdapter.start` snapshots handler pipelines at
-   * boot. Late registration would write into a registry the dispatch path no
-   * longer reads. Calls after `start()` throw rather than silently no-op.
-   */
-  addMiddlewares(phase: TickPhaseValue, middlewares: readonly MiddlewareDefinition[]): this {
-    if (this.cachedHandlers !== null) {
-      throw new Error(`[TickAdapter] addMiddlewares() must be called before app.start(); the adapter has already booted (${String(this.cachedHandlers.length)} handlers cached).`);
-    }
-    this.registerMiddleware(phase, middlewares);
-    return this;
   }
 
   protected async executePipeline(context: AdapterContext): Promise<void> {
@@ -331,12 +327,20 @@ export class TickAdapter extends Adapter {
     const entries = (state.handlerIndex ?? []).filter(h => h.adapterId === 'TickAdapter');
     const out: Array<{ entry: CompiledHandlerEntry; instance: object; pipeline: ResolvedRoutePipeline }> = [];
 
+    const controllerCache = new Map<string, object>();
     for (const entry of entries) {
-      const instance = state.controllerInstances?.get(entry.controllerKey);
-      if (instance === undefined) continue;
+      let instance = controllerCache.get(entry.controllerKey);
+      if (instance === undefined) {
+        const factory = state.controllerFactories?.get(entry.controllerKey);
+        if (factory === undefined) continue;
+        const created = factory();
+        if (created === null || typeof created !== 'object') continue;
+        instance = created;
+        controllerCache.set(entry.controllerKey, instance);
+      }
       out.push({
         entry,
-        instance: instance as object,
+        instance,
         pipeline: this.buildHandlerPipeline(entry),
       });
     }

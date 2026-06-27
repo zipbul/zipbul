@@ -1,0 +1,65 @@
+{
+  "name": "@zipbul/core",
+  "version": "0.3.1",
+  "description": "DI container, application bootstrap and module system for Zipbul",
+  "license": "MIT",
+  "type": "module",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./worker": {
+      "bun": "./src/cluster/application-worker.ts",
+      "default": "./dist/src/cluster/application-worker.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun build index.ts src/cluster/application-worker.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "test": "bun test",
+    "coverage": "bun test --coverage"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zipbul/zipbul",
+    "directory": "packages/framework/core"
+  },
+  "dependencies": {
+    "@zipbul/baker": "catalog:",
+    "@zipbul/common": "workspace:*",
+    "@zipbul/logger": "workspace:*",
+    "@zipbul/result": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  },
+  "sideEffects": false,
+  "author": "Junhyung Park (https://github.com/parkrevil)",
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "bugs": {
+    "url": "https://github.com/zipbul/zipbul/issues"
+  },
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/core#readme",
+  "keywords": [
+    "di",
+    "dependency-injection",
+    "container",
+    "application",
+    "module",
+    "framework",
+    "bun",
+    "typescript",
+    "zipbul"
+  ]
+}

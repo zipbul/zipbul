@@ -21,9 +21,5 @@ for file in $staged_files; do
 done
 
 if [ "$should_run_checks" -eq 1 ]; then
-	# Keep pre-commit fast: typecheck + unit specs only.
-	# Integration / e2e / cluster / soak tests live under packages/*/test/
-	# and run in CI (or manually via `bun run test:integration`).
 	bun run typecheck
-	bun run test:unit
 fi

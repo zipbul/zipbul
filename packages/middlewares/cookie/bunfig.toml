@@ -1,0 +1,21 @@
+[test]
+onlyFailures = true
+coverage = true
+coverageReporter = ["text", "lcov"]
+coverageThreshold = 1.0
+coveragePathIgnorePatterns = [
+  "node_modules/**",
+  "dist/**",
+  "../../libs/result/**",
+  "../../framework/**",
+  "../../adapters/**",
+  "test/**",
+  # src/cookie-options.ts is a declarative baker @Recipe schema: bun's coverage cannot instrument a
+  # decorated class's field declarations or its implicit constructor, so it structurally cannot reach
+  # 100%. Its validation BEHAVIOR is covered by the boot-validation tests in cookie-parser.spec.ts;
+  # every other source file stays under the full 1.0 line/func/statement gate.
+  "src/cookie-options.ts"
+]
+
+[test.reporter]
+dots = true

@@ -19,25 +19,17 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - name: Build common
-        run: bun run build
-        working-directory: packages/common
+      - name: Build all publishable packages
+        run: bun run --filter '@zipbul/*' build
 
-      - name: Build logger
-        run: bun run build
-        working-directory: packages/logger
+      - name: Typecheck
+        run: bun run typecheck
 
-      - name: Build core
-        run: bun run build
-        working-directory: packages/core
-
-      - name: Build http-adapter
-        run: bun run build
-        working-directory: packages/http-adapter
-
-      - name: Build cli
-        run: bun run build
-        working-directory: packages/cli
+      - name: Test
+        run: bun run test
 
       - name: Lint
-        run: bunx oxlint@1.48.0
+        run: bun run lint
+
+      - name: Knip
+        run: bun run knip

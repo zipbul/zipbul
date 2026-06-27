@@ -1,0 +1,70 @@
+{
+  "name": "@zipbul/testing",
+  "version": "0.0.1",
+  "description": "User-facing test toolkit for zipbul: builder, DI overrides, multi-adapter in-process inject",
+  "license": "MIT",
+  "author": "Junhyung Park (https://github.com/parkrevil)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zipbul/zipbul",
+    "directory": "packages/framework/testing"
+  },
+  "bugs": {
+    "url": "https://github.com/zipbul/zipbul/issues"
+  },
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/framework/testing#readme",
+  "keywords": [
+    "testing",
+    "test",
+    "test-toolkit",
+    "di",
+    "mock",
+    "supertest",
+    "bun",
+    "typescript",
+    "zipbul"
+  ],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "type": "module",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "test": "bun test",
+    "coverage": "bun test --coverage"
+  },
+  "dependencies": {
+    "@zipbul/cli": "workspace:*",
+    "@zipbul/common": "workspace:*",
+    "@zipbul/core": "workspace:*",
+    "@zipbul/result": "workspace:*"
+  },
+  "peerDependencies": {
+    "@zipbul/http-adapter": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@zipbul/http-adapter": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@zipbul/http-adapter": "workspace:*",
+    "typescript": "catalog:"
+  },
+  "sideEffects": false
+}

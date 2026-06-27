@@ -2,7 +2,7 @@ import { Injectable } from '@zipbul/common';
 import { Logger } from '@zipbul/logger';
 
 @Injectable()
-export class AuditService {
+export class BillingAuditService {
   private readonly logger = new Logger('BillingAuditService');
 
   logAction(action: string, detail: string): string {

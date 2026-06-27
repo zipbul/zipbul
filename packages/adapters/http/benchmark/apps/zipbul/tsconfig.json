@@ -1,0 +1,10 @@
+{
+  "extends": "../../../../../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@zipbul/http-adapter": [
+        "../../../../../packages/http-adapter/index.ts"
+      ]
+    }
+  }
+}
