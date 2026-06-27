@@ -44,14 +44,17 @@
     "bench": "bun run bench/multipart.bench.ts"
   },
   "dependencies": {
-    "@zipbul/result": "workspace:*",
-    "@zipbul/shared": "workspace:*"
+    "@zipbul/result": "workspace:*"
   },
   "devDependencies": {
+    "@zipbul/http-adapter": "workspace:*",
     "mitata": "catalog:"
   },
   "sideEffects": false,
   "publishConfig": {
     "provenance": true
+  },
+  "peerDependencies": {
+    "@zipbul/http-adapter": "workspace:*"
   }
 }

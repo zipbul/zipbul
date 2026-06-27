@@ -1,4 +1,4 @@
-import { HttpHeader } from '@zipbul/shared';
+import { HttpHeader } from '@zipbul/http-adapter';
 
 import { HelmetErrorReason, HelmetWarningReason } from '../enums';
 import type { ClearSiteDataDirective, ClearSiteDataOptions } from '../interfaces';

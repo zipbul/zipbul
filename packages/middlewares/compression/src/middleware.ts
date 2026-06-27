@@ -3,7 +3,7 @@ import type { MiddlewareDefinition } from '@zipbul/common';
 import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
 import { err, isErr } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
-import { HttpHeader, HttpStatus } from '@zipbul/shared';
+import { HttpHeader, HttpStatus } from '@zipbul/http-adapter';
 
 import { BUFFER_COMPRESSORS } from './compressors.ts';
 import { CompressionCodec } from './enums.ts';

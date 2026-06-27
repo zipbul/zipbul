@@ -56,8 +56,13 @@
     "coverage": "bun test --coverage"
   },
   "dependencies": {
-    "@zipbul/result": "workspace:*",
-    "@zipbul/shared": "workspace:*"
+    "@zipbul/result": "workspace:*"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "devDependencies": {
+    "@zipbul/http-adapter": "workspace:*"
+  },
+  "peerDependencies": {
+    "@zipbul/http-adapter": "workspace:*"
+  }
 }

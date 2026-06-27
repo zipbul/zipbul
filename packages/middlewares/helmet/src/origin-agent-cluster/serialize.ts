@@ -1,4 +1,4 @@
-import { HttpHeader } from '@zipbul/shared';
+import { HttpHeader } from '@zipbul/http-adapter';
 
 import type { HeaderEntry } from '../header-entry';
 import { serializeBoolean } from '../structured-fields/serialize';

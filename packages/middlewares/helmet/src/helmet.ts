@@ -45,7 +45,7 @@ import { serializeXPermittedCrossDomainPolicies } from './x-permitted-cross-doma
 import { serializeXRobotsTag } from './x-robots-tag/serialize';
 import { serializeXXssProtection } from './x-xss-protection/serialize';
 
-import { HttpHeader } from '@zipbul/shared';
+import { HttpHeader } from '@zipbul/http-adapter';
 
 import type { HeaderEntry } from './header-entry';
 

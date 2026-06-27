@@ -1,4 +1,4 @@
-import { HttpHeader } from '@zipbul/shared';
+import { HttpHeader } from '@zipbul/http-adapter';
 
 import { HSTS_DEFAULT_MAX_AGE, HSTS_PRELOAD_MIN_MAX_AGE } from '../constants';
 import { HelmetErrorReason } from '../enums';

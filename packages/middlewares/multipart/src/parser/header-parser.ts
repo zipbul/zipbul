@@ -1,6 +1,6 @@
 import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
-import { HttpHeader } from '@zipbul/shared';
+import { HttpHeader } from '@zipbul/http-adapter';
 
 import { MultipartErrorReason } from '../enums';
 import type { MultipartErrorData } from '../interfaces';

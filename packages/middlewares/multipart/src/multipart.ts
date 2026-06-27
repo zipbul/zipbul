@@ -1,5 +1,5 @@
 import { isErr } from '@zipbul/result';
-import { HttpHeader } from '@zipbul/shared';
+import { HttpHeader } from '@zipbul/http-adapter';
 
 import { MultipartErrorReason } from './enums';
 import { MultipartError } from './interfaces';
