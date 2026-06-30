@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { CompressionCodec } from './enums.ts';
+import { CompressionCodec } from './enums';
 import { isErr } from '@zipbul/result';
-import { resolveCompressionOptions, validateCompressionOptions } from './options.ts';
-import { DEFAULT_ENCODINGS, DEFAULT_FILTER, DEFAULT_LEVELS, DEFAULT_THRESHOLD } from './constants.ts';
-import { CompressionErrorReason } from './enums.ts';
-import type { CompressionOptions } from './interfaces.ts';
-import type { ResolvedCompressionOptions } from './types.ts';
+import { resolveCompressionOptions, validateCompressionOptions } from './options';
+import { DEFAULT_ENCODINGS, DEFAULT_FILTER, DEFAULT_LEVELS, DEFAULT_THRESHOLD } from './constants';
+import { CompressionErrorReason } from './enums';
+import type { CompressionOptions } from './interfaces';
+import type { ResolvedCompressionOptions } from './types';
 
 function makeResolved(overrides?: Partial<ResolvedCompressionOptions>): ResolvedCompressionOptions {
   return {

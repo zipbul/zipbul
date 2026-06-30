@@ -246,6 +246,7 @@ export function createBuildCommand(deps: BuildCommandDeps) {
               minify: false,
               sourcemap: 'external',
               naming: '[name].js',
+              external: ['@zipbul/*'],
             });
 
             if (!buildResult.success) {

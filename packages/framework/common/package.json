@@ -16,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },
@@ -44,7 +44,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/common#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/framework/common#readme",
   "keywords": [
     "common",
     "decorators",

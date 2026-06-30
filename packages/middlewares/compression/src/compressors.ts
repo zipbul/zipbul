@@ -1,6 +1,6 @@
 import { brotliCompressSync, deflateSync, constants as zlibConstants } from 'node:zlib';
-import type { BufferCompressFn } from './types.ts';
-import { CompressionCodec } from './enums.ts';
+import type { BufferCompressFn } from './types';
+import { CompressionCodec } from './enums';
 
 // Bun native APIs require Uint8Array<ArrayBuffer> (excludes SharedArrayBuffer)
 type BunSafeArray = Uint8Array<ArrayBuffer>;

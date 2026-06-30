@@ -12,7 +12,7 @@
       "default": "./dist/index.js"
     },
     "./worker": {
-      "bun": "./src/cluster/application-worker.ts",
+      "types": "./dist/src/cluster/application-worker.d.ts",
       "default": "./dist/src/cluster/application-worker.js"
     }
   },
@@ -20,7 +20,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build index.ts src/cluster/application-worker.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },
@@ -50,7 +50,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/core#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/framework/core#readme",
   "keywords": [
     "di",
     "dependency-injection",

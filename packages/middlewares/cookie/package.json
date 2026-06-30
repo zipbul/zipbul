@@ -45,7 +45,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage",
     "bench": "bun run benchmark/cookie.bench.ts"
@@ -58,7 +58,9 @@
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*"
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "**/cookie-options.js"
+  ],
   "devDependencies": {
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",

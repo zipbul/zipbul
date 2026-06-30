@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/result#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/libs/result#readme",
   "keywords": [
     "result",
     "result-type",
@@ -44,7 +44,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --production && tsc -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },

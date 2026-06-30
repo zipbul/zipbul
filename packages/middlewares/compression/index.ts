@@ -1,11 +1,7 @@
-import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
-
-export { compressionMiddleware } from './src/middleware.ts';
-export { CompressionError } from './src/interfaces.ts';
-export type { CompressionOptions, CompressionErrorData, BreachOptions } from './src/interfaces.ts';
-export { CompressionErrorReason } from './src/enums.ts';
+export { compressionMiddleware } from './src/middleware';
+export { CompressionError } from './src/interfaces';
+export type { CompressionOptions, CompressionErrorData, BreachOptions } from './src/interfaces';
+export { CompressionErrorReason } from './src/enums';
 export { ContentEncoding } from '@zipbul/http-adapter';
-export { parseAcceptEncoding, negotiateEncoding } from './src/encoding.ts';
-export type { EncodingPreference } from './src/encoding.ts';
-
-export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;
+export { parseAcceptEncoding, negotiateEncoding } from './src/encoding';
+export type { EncodingPreference } from './src/encoding';

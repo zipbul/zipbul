@@ -69,7 +69,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },
@@ -110,7 +110,7 @@
     "@zipbul/http-adapter": "workspace:*",
     "@zipbul/result": "workspace:*",
     "@zipbul/tck": "workspace:*",
-    "kysely": "^0.29",
-    "tsdown": "^0.22.3"
-  }
+    "kysely": "^0.29"
+  },
+  "sideEffects": false
 }

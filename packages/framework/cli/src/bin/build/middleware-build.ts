@@ -8,18 +8,17 @@ import type { BuildCommandDeps } from './interfaces';
  * The dependencies `zb build middleware` actually uses — a narrow slice of
  * {@link BuildCommandDeps} so callers and tests wire exactly what runs.
  */
-export type MiddlewareBuildDeps = Pick<BuildCommandDeps, 'scanFiles' | 'buildBundle'>;
+export type MiddlewareBuildDeps = Pick<BuildCommandDeps, 'scanFiles'>;
 
 import { extractSymbols, parseSource, is } from '@zipbul/gildash';
 import type { Node as AstNode } from '@zipbul/gildash';
 import { isErr } from '@zipbul/result';
 import { Logger } from '@zipbul/logger';
 import { validateDefineCallShape } from '../../compiler/define-call-shape';
-import { withAtomicEmit, type CancellationScope } from '../../common';
+import { withAtomicEmit, runTsgo, type CancellationScope } from '../../common';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import {
   extractMiddlewareAugmentEntries,
-  injectAugmentsIntoSource,
   type MiddlewareAugmentEntry,
 } from '../../compiler/generator/middleware-augment-injector';
 import { extractMiddlewareAugments } from '../../compiler/analyzer/parser/middleware-augment-extractor';
@@ -131,11 +130,13 @@ export async function runMiddlewareBuild(
   }));
   validateDefineCallShape(shapeInputs);
 
-  // ── 3. Extract augments and inject ──────────────────────────
+  // ── 3. Extract augments (for context-augments.d.ts emission) ─
+  // The augment metadata drives the consumer-facing `context-augments.d.ts`
+  // (declaration merging) emitted below. The runtime assignment itself lives
+  // in the middleware factory source as-is; nothing is injected into the JS.
   log.time('extract');
 
   const reports: FileAugmentReport[] = [];
-  const transformedFiles = new Map<string, string>();
   let totalAugments = 0;
   let totalSkipped = 0;
 
@@ -158,22 +159,6 @@ export async function runMiddlewareBuild(
 
     totalAugments += entries.length;
     totalSkipped += skipped.length;
-
-    const transformed = injectAugmentsIntoSource(sourceText, entries);
-
-    // Validate the transformed source parses correctly
-    if (entries.length > 0) {
-      const parseCheck = parseSource(fullPath, transformed);
-
-      if (isErr(parseCheck)) {
-        throw new DiagnosticError(buildDiagnostic({
-          reason: `Augment injection produced invalid syntax in ${file}. This is a Zipbul compiler bug — please report it.`,
-          file: fullPath,
-        }));
-      }
-    }
-
-    transformedFiles.set(file, transformed);
   }
 
   log.info('extracted augments from %d middleware export(s)', totalAugments);
@@ -204,18 +189,23 @@ export async function runMiddlewareBuild(
     })
     : null;
 
-  // ── 4·5. Atomic emit: Bun.build (JS) + tsc (.d.ts) → staging → swap ──
-  // Both stages write into a staging dir; on success, staging atomically
-  // replaces config.outDir. On any failure the prior dist/ is preserved.
+  // ── 4. Atomic emit: tsgo (JS + .d.ts) → staging → swap ──
+  // tsgo compiles JS and `.d.ts` in one type-checked per-file pass (no bundle),
+  // driven by the package's `tsconfig.build.json`. Unbundled per-file output
+  // avoids Bun's bundler corrupting `export *` re-export barrels and loads in
+  // Bun at runtime as-is. The augment `.d.ts` pre-emitted into `srcDir` above
+  // makes the middleware's own context assignments (`http.request.cookie = …`)
+  // type-check; it is moved to `dist/context-augments.d.ts` afterward.
   log.time('compile');
 
-  // Bundling runs against the REAL package tree (so non-TS imports like
-  // `./package.json` resolve naturally); the augment-injected sources are
-  // served via an onLoad overlay instead of a copied temp tree.
-  const transformedByAbsPath = new Map<string, string>();
+  const tsconfigBuildPath = join(projectRoot, 'tsconfig.build.json');
 
-  for (const [file, content] of transformedFiles) {
-    transformedByAbsPath.set(join(projectRoot, file), content);
+  if (!(await Bun.file(tsconfigBuildPath).exists())) {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: 'Middleware build requires a `tsconfig.build.json` at the package root.',
+      file: tsconfigBuildPath,
+      how: 'Add a `tsconfig.build.json` extending the repo-root build config (see `packages/middlewares/query-parser/tsconfig.build.json`).',
+    }));
   }
 
   await withAtomicEmit(
@@ -225,91 +215,22 @@ export async function runMiddlewareBuild(
       ...(cancel !== undefined ? { registerCleanup: cancel.registerCleanup } : {}),
     },
     async (stagingDir) => {
-      // Single entry: the package surface is what `entryFile` re-exports —
-      // exactly what package.json `exports`/`module` point at (`dist/index.js`).
-      // `splitting` factors shared `src/` modules into chunks.
-      const buildResult = await deps.buildBundle({
-        entrypoints: [join(projectRoot, config.entryFile)],
-        outdir: stagingDir,
-        root: projectRoot,
-        target: 'bun',
-        format: 'esm',
-        packages: 'external',
-        minify: { whitespace: true, syntax: true },
-        splitting: true,
-        plugins: [{
-          name: 'zipbul-middleware-augment-overlay',
-          setup(build) {
-            build.onLoad({ filter: /\.ts$/ }, args => {
-              const contents = transformedByAbsPath.get(args.path);
-
-              return contents === undefined ? undefined : { contents, loader: 'ts' };
-            });
-          },
-        }],
-      });
-
-      if (!buildResult.success) {
-        const errors = buildResult.logs
-          .filter(l => l.level === 'error')
-          .map(l => l.message)
-          .join('\n');
+      try {
+        await runTsgo(projectRoot, tsconfigBuildPath, stagingDir, cancel?.signal);
+      } catch (error) {
         throw new DiagnosticError(buildDiagnostic({
-          reason: `JavaScript compilation failed:\n${errors}`,
-          how: 'Resolve the bundler errors above. Common causes: unresolved imports, syntax errors, or missing peer dependencies.',
+          reason: error instanceof Error ? error.message : String(error),
+          how: 'Run `bunx tsgo -p tsconfig.build.json` directly to see the full type errors and fix them, then retry `zb build middleware`.',
         }));
       }
 
-      log.info('compiled %d file(s)', buildResult.outputs.length);
+      log.info('compiled JS + type declarations (tsgo)');
       log.timeEnd('compile');
-
-      // ── tsc .d.ts emission into the same staging dir ──
-      log.time('dts');
-
-      // Prefer the package's `tsconfig.build.json` when present: it scopes the
-      // emit to `index.ts` + `src/**` and excludes spec/test, so build-time
-      // artifacts (the staging `.js`, `*.spec.ts`, `test/**`, `bench/**`) never
-      // leak `.d.ts` into dist. Fall back to the default tsconfig otherwise.
-      //
-      // `--noEmit false` is required either way: the shared base tsconfig sets
-      // `noEmit: true` (type-check only), and `--emitDeclarationOnly` alone does
-      // NOT override it — tsc would exit 0 having written zero files, silently
-      // shipping a dist with no `.d.ts`. Forcing `noEmit` off restores emission.
-      const hasBuildTsconfig = await Bun.file(join(projectRoot, 'tsconfig.build.json')).exists();
-      const tscArgs = hasBuildTsconfig
-        ? ['bunx', 'tsc', '-p', 'tsconfig.build.json', '--emitDeclarationOnly', '--noEmit', 'false', '--outDir', stagingDir]
-        : ['bunx', 'tsc', '--declaration', '--emitDeclarationOnly', '--noEmit', 'false', '--outDir', stagingDir];
-
-      const proc = Bun.spawn(
-        tscArgs,
-        {
-          cwd: projectRoot,
-          stderr: 'pipe',
-          stdout: 'pipe',
-          ...(cancel !== undefined ? { signal: cancel.signal } : {}),
-        },
-      );
-
-      const exitCode = await proc.exited;
-
-      if (exitCode !== 0) {
-        const stderrText = proc.stderr ? await new Response(proc.stderr).text() : '';
-        const reason = exitCode === null
-          ? `tsc terminated by signal.`
-          : `Type declaration generation failed (tsc exit code ${String(exitCode)}):\n${stderrText.trim().slice(0, 1000)}`;
-        throw new DiagnosticError(buildDiagnostic({
-          reason,
-          how: 'Run `bunx tsc --noEmit` directly to see the full type errors and fix them, then retry `zb build middleware`.',
-        }));
-      }
-
-      log.info('type declarations generated');
-      log.timeEnd('dts');
 
       // ── Context augmentation .d.ts (declaration merging) ──
       // Move the pre-emitted augments file from `srcDir` to staging as
       // `context-augments.d.ts` and prepend `/// <reference path>` to every
-      // `.d.ts` file tsc just emitted. Consumers importing the middleware
+      // `.d.ts` file tsgo just emitted. Consumers importing the middleware
       // pick up the augmentation automatically — no consumer tsconfig
       // modification.
       if (augmentsInSrc !== null) {

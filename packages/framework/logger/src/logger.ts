@@ -13,7 +13,7 @@ import type {
   Transport,
 } from './interfaces';
 
-import { RequestContext } from './async-storage';
+import { RequestContext } from "@zipbul/request-context";
 import { ConsoleTransport } from './transports/console';
 
 declare global {
@@ -203,7 +203,7 @@ export class Logger {
     }
 
     // 1. ALS context (lowest priority)
-    const alsContext = RequestContext.getContext();
+    const alsContext = RequestContext.get();
 
     if (alsContext) {
       Object.assign(logMessage, alsContext);

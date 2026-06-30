@@ -1,4 +1,4 @@
-import { HttpHeader } from '@zipbul/shared';
+import { HttpHeader } from '@zipbul/http-adapter';
 
 import { LIMITS, NONCE_PLACEHOLDER } from '../constants';
 import { checkReservedKey } from '../internal/reserved-key-guard';

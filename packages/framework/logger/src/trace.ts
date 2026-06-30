@@ -1,4 +1,4 @@
-import { RequestContext } from './async-storage';
+import { RequestContext } from "@zipbul/request-context";
 
 export function Trace() {
   return function <This, Args extends any[], Return>(

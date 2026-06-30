@@ -1,11 +1,11 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "../../../tsconfig.build.json",
   "compilerOptions": {
-    "noEmit": false,
-    "declaration": true,
-    "emitDeclarationOnly": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    "rootDir": "."
   },
-  "include": ["index.ts", "src/**/*.ts"],
-  "exclude": ["**/*.spec.ts", "**/*.test.ts", "test"]
+  "include": [
+    "index.ts",
+    "src"
+  ]
 }

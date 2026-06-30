@@ -20,7 +20,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build index.ts src/testing.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },
@@ -32,7 +32,8 @@
   "devDependencies": {
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "@zipbul/request-context": "workspace:*"
   },
   "sideEffects": false,
   "author": "Junhyung Park (https://github.com/parkrevil)",
@@ -45,7 +46,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/logger#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/framework/logger#readme",
   "keywords": [
     "logger",
     "logging",
@@ -55,5 +56,8 @@
     "bun",
     "typescript",
     "zipbul"
-  ]
+  ],
+  "peerDependencies": {
+    "@zipbul/request-context": "workspace:*"
+  }
 }

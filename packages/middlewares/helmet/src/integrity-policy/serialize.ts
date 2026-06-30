@@ -1,4 +1,4 @@
-import { HttpHeader } from '@zipbul/shared';
+import { HttpHeader } from '@zipbul/http-adapter';
 
 import { HelmetErrorReason } from '../enums';
 import type { IntegrityPolicyOptions, ViolationDetail } from '../interfaces';

@@ -1,5 +1,3 @@
-import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
-
 export { createApplication, Application, type AdapterEntry, type AdapterOptions, type AttachOptions } from './src/application';
 export { defineModule, type DefineModuleOptions, type AdapterModuleConfig } from './src/module';
 export { getBootstrapState, registerBootstrapState, resetBootstrapState, clearMetadataRegistry } from './src/runtime/bootstrap-state';
@@ -27,5 +25,3 @@ export {
   type RequestOverrideMap,
 } from './src/testing/request-overrides-context';
 export { TEST_SURFACE } from './src/testing/test-surface-symbol';
-
-export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;

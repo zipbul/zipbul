@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/helmet#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/middlewares/helmet#readme",
   "keywords": [
     "helmet",
     "security",
@@ -51,13 +51,18 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },
   "dependencies": {
-    "@zipbul/result": "workspace:*",
-    "@zipbul/shared": "workspace:*"
+    "@zipbul/result": "workspace:*"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "devDependencies": {
+    "@zipbul/http-adapter": "workspace:*"
+  },
+  "peerDependencies": {
+    "@zipbul/http-adapter": "workspace:*"
+  }
 }

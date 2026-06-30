@@ -1,8 +1,8 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 import * as zlib from 'node:zlib';
 
-import { BUFFER_COMPRESSORS } from './compressors.ts';
-import { CompressionCodec } from './enums.ts';
+import { BUFFER_COMPRESSORS } from './compressors';
+import { CompressionCodec } from './enums';
 
 describe('BUFFER_COMPRESSORS', () => {
   it('should call Bun.gzipSync with data and level when compressing with gzip', () => {

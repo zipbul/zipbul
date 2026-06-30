@@ -3,7 +3,7 @@ import type { MiddlewareDefinition } from '@zipbul/common';
 import { defineMiddleware } from '@zipbul/common';
 import { HttpAdapter, HttpContext, HttpHeader } from '@zipbul/http-adapter';
 
-import type { CorsOptionsInput } from './cors-options';
+import type { CorsOptionsInput } from './options';
 
 import { Cors } from './cors';
 import { CorsAction } from './enums';

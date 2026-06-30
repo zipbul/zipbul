@@ -1,5 +1,5 @@
-import { CompressionCodec } from './enums.ts';
-import type { CompressionErrorReason } from './enums.ts';
+import { CompressionCodec } from './enums';
+import type { CompressionErrorReason } from './enums';
 
 export interface BreachOptions {
   maxPadding: number;

@@ -410,7 +410,12 @@ export class Application {
       return new URL(`file://${entryDir}/worker.js`);
     }
 
-    return new URL('../cluster/application-worker.ts', import.meta.url);
+    // Match this module's own extension: `.ts` when core runs from source
+    // (tests / non-built workspace), `.js` when it runs from the compiled
+    // dist (published, non-AOT) — the worker file is a sibling either way.
+    const ext = import.meta.url.endsWith('.ts') ? '.ts' : '.js';
+
+    return new URL(`../cluster/application-worker${ext}`, import.meta.url);
   }
 
   private resolveManifestPath(): string {

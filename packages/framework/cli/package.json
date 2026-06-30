@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/cli#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/framework/cli#readme",
   "keywords": [
     "zipbul",
     "cli",
@@ -29,7 +29,7 @@
   },
   "type": "module",
   "bin": {
-    "zb": "dist/zb.js"
+    "zb": "dist/src/bin/zb.js"
   },
   "exports": {
     "./compiler": {
@@ -44,7 +44,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build ./src/bin/zb.ts --outdir dist --target bun --format esm --packages external --production --banner='#!/usr/bin/env bun' && bun build ./compiler.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json && bun -e \"const fs=require('fs');const f='dist/src/bin/zb.js';fs.writeFileSync(f,'#!/usr/bin/env bun\\n'+fs.readFileSync(f,'utf8'));fs.chmodSync(f,0o755)\"",
     "test": "bun test",
     "coverage": "bun test --coverage"
   },
@@ -57,5 +57,6 @@
   "devDependencies": {
     "@types/bun": "catalog:",
     "typescript": "catalog:"
-  }
+  },
+  "sideEffects": false
 }

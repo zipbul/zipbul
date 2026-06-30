@@ -1,5 +1,3 @@
-import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
-
 export { CookieParser } from './src/cookie-parser';
 export { CookieJar } from './src/cookie-jar';
 export { CookieError } from './src/interfaces';
@@ -13,5 +11,3 @@ export { cookieJarKey } from './src/context-keys';
 // method (jar.get/set/delete, parser.*) without a separate @zipbul/result import.
 export { isErr } from '@zipbul/result';
 export type { Result, ResultAsync, Err } from '@zipbul/result';
-
-export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;

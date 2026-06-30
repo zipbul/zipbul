@@ -1,4 +1,4 @@
-import { CompressionCodec } from './enums.ts';
+import { CompressionCodec } from './enums';
 
 export interface EncodingPreference {
   encoding: string;

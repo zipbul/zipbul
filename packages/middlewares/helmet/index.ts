@@ -1,5 +1,3 @@
-import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
-
 export { Helmet } from './src/helmet';
 export { Csp } from './src/constants';
 export { lintCsp } from './src/lint';
@@ -52,5 +50,3 @@ export type {
   PermissionsPolicyFeature,
   ResolvedHelmetOptions,
 } from './src/types';
-
-export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { parseAcceptEncoding, negotiateEncoding } from './encoding.ts';
-import { CompressionCodec } from './enums.ts';
+import { parseAcceptEncoding, negotiateEncoding } from './encoding';
+import { CompressionCodec } from './enums';
 
 describe('parseAcceptEncoding', () => {
   it('should parse single encoding without quality as quality 1.0 when given plain encoding', () => {

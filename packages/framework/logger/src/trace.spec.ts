@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { Logger } from './logger';
-import { RequestContext } from './async-storage';
+import { RequestContext } from "@zipbul/request-context";
 import { TestTransport } from './transports/test';
 import { Trace } from './trace';
 
@@ -132,7 +132,7 @@ describe('Trace', () => {
     class Svc {
       @Trace()
       doWork() {
-        const ctx = RequestContext.getContext();
+        const ctx = RequestContext.get();
 
         return ctx?.fn;
       }

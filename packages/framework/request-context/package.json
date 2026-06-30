@@ -1,26 +1,23 @@
 {
-  "name": "@zipbul/shared",
+  "name": "@zipbul/request-context",
   "version": "0.1.0",
-  "description": "Type-safe HTTP enums and constants (methods, headers, status codes) for TypeScript",
+  "description": "Request-scoped context (AsyncLocalStorage) for Zipbul",
   "license": "MIT",
   "author": "Junhyung Park (https://github.com/parkrevil)",
   "repository": {
     "type": "git",
     "url": "https://github.com/zipbul/zipbul",
-    "directory": "packages/libs/shared"
+    "directory": "packages/framework/request-context"
   },
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/shared#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/framework/request-context#readme",
   "keywords": [
-    "enum",
-    "constants",
-    "shared",
-    "http",
-    "http-header",
-    "http-status",
-    "http-method",
+    "request-context",
+    "async-local-storage",
+    "als",
+    "context",
     "bun",
     "typescript",
     "zipbul"
@@ -44,9 +41,14 @@
     "provenance": true
   },
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --production && tsc -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
   },
   "sideEffects": false
 }

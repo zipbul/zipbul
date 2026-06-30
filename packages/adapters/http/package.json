@@ -8,13 +8,12 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "bun": "./index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
     "./testing": {
-      "types": "./testing.ts",
-      "default": "./testing.ts"
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
     }
   },
   "files": [
@@ -69,7 +68,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/http-adapter#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/adapters/http#readme",
   "keywords": [
     "http",
     "server",

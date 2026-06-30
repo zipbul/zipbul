@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Loggable } from './interfaces';
 
 import { Logger } from './logger';
-import { RequestContext } from './async-storage';
+import { RequestContext } from "@zipbul/request-context";
 import { TestTransport } from './transports/test';
 
 describe('Logger', () => {

@@ -12,7 +12,7 @@
   "bugs": {
     "url": "https://github.com/zipbul/zipbul/issues"
   },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/multipart#readme",
+  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/middlewares/multipart#readme",
   "keywords": [
     "multipart",
     "form-data",
@@ -38,20 +38,23 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build index.ts --outdir dist --target bun --format esm --packages external --production && tsc -p tsconfig.build.json",
+    "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
     "coverage": "bun test --coverage",
     "bench": "bun run bench/multipart.bench.ts"
   },
   "dependencies": {
-    "@zipbul/result": "workspace:*",
-    "@zipbul/shared": "workspace:*"
+    "@zipbul/result": "workspace:*"
   },
   "devDependencies": {
+    "@zipbul/http-adapter": "workspace:*",
     "mitata": "catalog:"
   },
   "sideEffects": false,
   "publishConfig": {
     "provenance": true
+  },
+  "peerDependencies": {
+    "@zipbul/http-adapter": "workspace:*"
   }
 }
