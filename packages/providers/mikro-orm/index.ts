@@ -1,5 +1,3 @@
-import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
-
 // Root barrel — re-exports ONLY from domain barrels (no direct-file re-exports).
 export * from './src/error';
 export * from './src/entity';
@@ -18,8 +16,3 @@ export {
   NotNullConstraintViolationException,
   CheckConstraintViolationException,
 } from '@mikro-orm/core';
-
-export const ZIPBUL_PACKAGE: { readonly name: string; readonly version: string } = {
-  name: __pkgName,
-  version: __pkgVersion,
-};

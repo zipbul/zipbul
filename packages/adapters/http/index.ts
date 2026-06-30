@@ -1,5 +1,3 @@
-import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
-
 export { HttpAdapter } from './src/http-adapter';
 export { adapterDefinition } from './src/adapter-definition';
 
@@ -64,5 +62,3 @@ export { Delete, Get, Head, Method, Options, Patch, Post, Put } from './src/deco
 export { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './src/decorators/method-option.decorator';
 
 export type { HttpTestSurface, HttpInjectInput } from './src/test-surface';
-
-export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;

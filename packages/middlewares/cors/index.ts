@@ -1,5 +1,3 @@
-import { name as __pkgName, version as __pkgVersion } from './package.json' with { type: 'json' };
-
 import './src/cors-options';
 
 export { Cors } from './src/cors';
@@ -13,5 +11,3 @@ export type {
   CorsRejectResult,
 } from './src/interfaces';
 export type { CorsResult, OriginFn, OriginOptions } from './src/types';
-
-export const ZIPBUL_PACKAGE = { name: __pkgName, version: __pkgVersion } as const;

@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowJs": false,
+    "emitDeclarationOnly": false,
+    "declaration": true,
+    "stripInternal": true,
+    "noEmitOnError": true,
+    "allowImportingTsExtensions": false
+  }
+}
