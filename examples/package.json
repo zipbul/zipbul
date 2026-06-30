@@ -7,6 +7,7 @@
     "build": "(cd ../packages/adapters/http && bun run build) && bun ../packages/framework/cli/src/bin/zb.ts build",
     "dev": "(cd ../packages/adapters/http && bun run build) && bun ../packages/framework/cli/src/bin/zb.ts dev",
     "start": "bun dist/entry.js",
+    "test": "bun test",
     "test:e2e": "bun test test/e2e"
   },
   "dependencies": {
