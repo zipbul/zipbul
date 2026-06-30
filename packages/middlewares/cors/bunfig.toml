@@ -1,14 +1,17 @@
 [test]
 preload = ["./test/setup.ts"]
-onlyFailures = true
-coverage = true
 coverageReporter = ["text", "lcov"]
 coverageThreshold = 0.95
+coverageSkipTestFiles = true
 coveragePathIgnorePatterns = [
   "node_modules/**",
   "dist/**",
-  "../../libs/shared/**",
-  "../../libs/result/**"
+  "../*/**",
+  "../../*/*/**",
+  "test/**",
+  # src/cors-options.ts is a baker @Recipe schema: bun cannot instrument a decorated
+  # class's field declarations, so it structurally cannot reach the gate.
+  "src/cors-options.ts",
 ]
 
 [test.reporter]
