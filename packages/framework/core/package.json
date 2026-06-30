@@ -12,7 +12,7 @@
       "default": "./dist/index.js"
     },
     "./worker": {
-      "bun": "./src/cluster/application-worker.ts",
+      "types": "./dist/src/cluster/application-worker.d.ts",
       "default": "./dist/src/cluster/application-worker.js"
     }
   },
