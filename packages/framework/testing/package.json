@@ -43,9 +43,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo -p tsconfig.build.json",
-    "test": "bun test",
-    "coverage": "bun test --coverage"
+    "build": "tsgo -p tsconfig.build.json"
   },
   "dependencies": {
     "@zipbul/cli": "workspace:*",
