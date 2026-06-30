@@ -58,7 +58,9 @@
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*"
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "**/cookie-options.js"
+  ],
   "devDependencies": {
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",

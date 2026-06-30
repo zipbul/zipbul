@@ -111,5 +111,6 @@
     "@zipbul/result": "workspace:*",
     "@zipbul/tck": "workspace:*",
     "kysely": "^0.29"
-  }
+  },
+  "sideEffects": false
 }
