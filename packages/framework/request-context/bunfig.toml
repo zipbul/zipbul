@@ -5,6 +5,9 @@ coverageSkipTestFiles = true
 coveragePathIgnorePatterns = [
   "node_modules/**",
   "dist/**",
+  "../*/**",
+  "../../*/*/**",
+  "test/**",
 ]
 
 [test.reporter]

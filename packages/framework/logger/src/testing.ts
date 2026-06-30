@@ -61,11 +61,6 @@ export function loggerMockModule(spies?: LoggerMockSpies): () => Record<string, 
       timeEnd(): void {}
     },
     Trace: () => () => {},
-    RequestContext: {
-      run: <T>(_args: unknown, fn: () => T): T => fn(),
-      getContext: () => undefined,
-      getRequestId: () => undefined,
-    },
     TestTransport: class {},
     ConsoleTransport: class {},
   });

@@ -9,9 +9,9 @@ coveragePathIgnorePatterns = [
   "../*/**",
   "../../*/*/**",
   "test/**",
-  # src/cors-options.ts is a baker @Recipe schema: bun cannot instrument a decorated
+  # src/options.ts is a baker @Recipe schema: bun cannot instrument a decorated
   # class's field declarations, so it structurally cannot reach the gate.
-  "src/cors-options.ts",
+  "src/options.ts",
 ]
 
 [test.reporter]
