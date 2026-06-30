@@ -110,6 +110,19 @@ async function writeMiddlewarePackage(pkgRoot: string, params: {
       include: ['index.ts', 'src'],
     }),
   );
+  // tsgo build config — `zb build middleware` compiles JS + .d.ts via tsgo
+  // driven by tsconfig.build.json (it requires this file to exist).
+  await Bun.write(
+    join(pkgRoot, 'tsconfig.build.json'),
+    JSON.stringify({
+      extends: './tsconfig.json',
+      compilerOptions: {
+        noEmit: false, declaration: true, emitDeclarationOnly: false,
+        outDir: 'dist', rootDir: '.',
+      },
+      include: ['index.ts', 'src'],
+    }),
+  );
 }
 
 let pkgRoot: string;
@@ -128,7 +141,6 @@ afterEach(async () => {
 
 const deps: MiddlewareBuildDeps = {
   scanFiles: ({ glob, baseDir }: { glob: Glob; baseDir: string }) => scanGlobSorted({ glob, baseDir }),
-  buildBundle: (...args: Parameters<typeof Bun.build>) => Bun.build(...args),
 };
 
 const realRun = (cwd: string) => {
@@ -223,7 +235,7 @@ describe('zb build middleware — JS entry emission', () => {
    * its absence breaks every app that imports the middleware. Guarded by
    * actually importing the built file.
    */
-  it('emits an importable dist/index.js for the package entry with __augments injected', async () => {
+  it('emits an importable dist/index.js + .d.ts for the package entry', async () => {
     await writeAdapterStub(pkgRoot, {
       packageName: '@zipbul/http-adapter',
       adapterClass: 'HttpAdapter', contextClass: 'HttpContext',
@@ -264,11 +276,9 @@ describe('zb build middleware — JS entry emission', () => {
     expect(typeof mod.cookieMiddleware).toBe('object');
     expect(typeof mod.CookieJar).toBe('function');
 
-    // 3) The augment metadata survived bundling (injected into the define call).
-    const entryJsContent = await Bun.file(entryJsPath).text();
-    expect(entryJsContent).toContain('__augments');
-
-    // 4) The matching type entry exists alongside.
+    // 3) The matching type entry exists alongside (tsgo emits JS + .d.ts in one
+    //    pass; augment metadata is no longer injected into the JS — the augment
+    //    contract lives in dist/context-augments.d.ts, covered below).
     expect(await Bun.file(join(pkgRoot, 'dist', 'index.d.ts')).exists()).toBe(true);
   });
 });

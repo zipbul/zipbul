@@ -11,6 +11,7 @@ export {
 } from './paths';
 export { PathResolver, distToSourceCandidates } from './path-resolver';
 export { pathExists } from './path-exists';
+export { runTsgo } from './run-tsgo';
 export { writeIfChanged } from './write-if-changed';
 export { withAtomicEmit } from './atomic-emit';
 export type { AtomicEmitOptions } from './atomic-emit';

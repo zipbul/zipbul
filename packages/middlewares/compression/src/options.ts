@@ -6,10 +6,10 @@ import {
   DEFAULT_FILTER,
   DEFAULT_LEVELS,
   DEFAULT_THRESHOLD,
-} from './constants.ts';
-import { CompressionCodec, CompressionErrorReason } from './enums.ts';
-import type { BreachOptions, CompressionErrorData, CompressionOptions } from './interfaces.ts';
-import type { ResolvedCompressionOptions } from './types.ts';
+} from './constants';
+import { CompressionCodec, CompressionErrorReason } from './enums';
+import type { BreachOptions, CompressionErrorData, CompressionOptions } from './interfaces';
+import type { ResolvedCompressionOptions } from './types';
 
 const VALID_ENCODINGS = new Set<string>(Object.values(CompressionCodec));
 

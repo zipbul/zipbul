@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { injectGzipPadding, injectZstdPadding } from './htb.ts';
+import { injectGzipPadding, injectZstdPadding } from './htb';
 
 function at(arr: Uint8Array, i: number): number {
   const v = arr[i];

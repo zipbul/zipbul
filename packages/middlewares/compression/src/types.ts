@@ -1,4 +1,4 @@
-import type { CompressionCodec } from './enums.ts';
+import type { CompressionCodec } from './enums';
 
 export type ResolvedCompressionOptions = {
   encodings: CompressionCodec[];

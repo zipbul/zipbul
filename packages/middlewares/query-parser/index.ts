@@ -1,3 +1,4 @@
+import './src/augments';
 import './src/options';
 
 export { QueryParser } from './src/query-parser';

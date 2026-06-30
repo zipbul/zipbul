@@ -8,5 +8,11 @@
     "stripInternal": true,
     "noEmitOnError": true,
     "allowImportingTsExtensions": false
-  }
+  },
+  "exclude": [
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/test/**",
+    "**/dist/**"
+  ]
 }

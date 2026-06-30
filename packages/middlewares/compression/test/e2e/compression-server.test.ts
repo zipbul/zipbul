@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
-import { compressionMiddleware } from '../../index.ts';
-import { CompressionCodec } from '../../src/enums.ts';
+import { compressionMiddleware } from '../../index';
+import { CompressionCodec } from '../../src/enums';
 import {
   HttpRequest,
   HttpResponse,

@@ -8,8 +8,8 @@ import {
   compressionMiddleware,
 
   CompressionErrorReason,
-} from '../../index.ts';
-import { CompressionCodec } from '../../src/enums.ts';
+} from '../../index';
+import { CompressionCodec } from '../../src/enums';
 
 interface MockHeaders {
   get(name: string): string | null;

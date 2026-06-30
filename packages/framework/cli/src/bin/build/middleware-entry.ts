@@ -15,7 +15,6 @@ import { runMiddlewareBuild } from './middleware-build';
 export async function buildMiddleware(): Promise<void> {
   const deps: MiddlewareBuildDeps = {
     scanFiles: ({ glob, baseDir }: { glob: Glob; baseDir: string }) => scanGlobSorted({ glob, baseDir }),
-    buildBundle: (...args: Parameters<typeof Bun.build>) => Bun.build(...args),
   };
 
   const cancel = installCancellation();

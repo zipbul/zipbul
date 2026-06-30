@@ -1,7 +1,7 @@
 import { HttpMethod } from '@zipbul/http-adapter';
 import { describe, expect, it } from 'bun:test';
 
-import type { CorsOptionsInput } from './cors-options';
+import type { CorsOptionsInput } from './options';
 
 import { Cors } from './cors';
 import { CORS_DEFAULT_METHODS } from './constants';

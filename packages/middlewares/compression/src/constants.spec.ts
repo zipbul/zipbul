@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { DEFAULT_FILTER } from './constants.ts';
+import { DEFAULT_FILTER } from './constants';
 
 describe('DEFAULT_FILTER', () => {
   it('should return true for text/html when given text/html', () => {

@@ -1,4 +1,4 @@
-import { CompressionCodec } from './enums.ts';
+import { CompressionCodec } from './enums';
 
 export const DEFAULT_THRESHOLD = 1024;
 

@@ -11,7 +11,7 @@ import type { CorsResult, OriginResult, ResolvedCorsOptions } from './types';
 import { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
 import { CorsError } from './interfaces';
 import { corsBaker } from './baker';
-import { CORS_DEFAULTS, CorsOptions, type CorsOptionsInput } from './cors-options';
+import { CORS_DEFAULTS, CorsOptions, type CorsOptionsInput } from './options';
 
 /**
  * Lazy seal — `Cors.create` seals {@link corsBaker} once on first call.

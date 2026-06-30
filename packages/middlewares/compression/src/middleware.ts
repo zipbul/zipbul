@@ -5,12 +5,12 @@ import { err, isErr } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
 import { HttpHeader, HttpStatus } from '@zipbul/http-adapter';
 
-import { BUFFER_COMPRESSORS } from './compressors.ts';
-import { CompressionCodec } from './enums.ts';
-import { injectGzipPadding, injectZstdPadding } from './htb.ts';
-import type { BreachOptions, CompressionErrorData, CompressionOptions } from './interfaces.ts';
-import { BREACH_SAFE_ENCODINGS, resolveCompressionOptions, validateCompressionOptions } from './options.ts';
-import { negotiateEncoding, parseAcceptEncoding } from './encoding.ts';
+import { BUFFER_COMPRESSORS } from './compressors';
+import { CompressionCodec } from './enums';
+import { injectGzipPadding, injectZstdPadding } from './htb';
+import type { BreachOptions, CompressionErrorData, CompressionOptions } from './interfaces';
+import { BREACH_SAFE_ENCODINGS, resolveCompressionOptions, validateCompressionOptions } from './options';
+import { negotiateEncoding, parseAcceptEncoding } from './encoding';
 
 const encoder = new TextEncoder();
 
