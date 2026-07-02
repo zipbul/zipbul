@@ -4,6 +4,8 @@
 
 이 문서는 **규칙만** 담는다. 구현 분담은 `CLAUDE.md`, 런타임 동작은 `probe/`의 소관이다.
 
+**대조 기준일 2026-07-02** — 전 규범 문장을 rfc-editor.org 원문(verified errata 포함) 및 WHATWG HTML(living standard, 동일 기준일 스냅숏)과 전수 대조 완료. RFC 인용은 불변이나, WHATWG SSE(§6)와 RFC 10008(신규 표준, errata 추가 가능)은 재대조 시 이 기준일 이후 변경분만 보면 된다.
+
 ## 적용 범위 · 프로토콜별 지배 표준
 
 이 어댑터는 `Bun.serve` 위의 **HTTP/1.1 요청/응답 의미론만** 담당한다. 프로토콜이 다르면 별도 어댑터로 분리한다.
@@ -26,9 +28,9 @@ obsolete RFC(2616 / 7230–7235 / 6874)는 인용하지 않는다.
 
 ## 1. 메시지 수신·framing
 
-- **§1.1.1** [MUST] 메서드 토큰은 tchar로 구성된다(method = token = 1*tchar) [RFC 9110 §5.6.2·§9.1]. [SHOULD] 유효하지 않은 request-line은 400 또는 301로 응답한다 [RFC 9112 §3.2]. [SHOULD NOT] 유효하지 않은 request-line을 자동교정한 뒤 redirect 없이 그대로 처리하지 않는다 [RFC 9112 §3.2].
+- **§1.1.1** [MUST] 메서드 토큰은 tchar로 구성된다(method = token = 1*tchar) [RFC 9110 §5.6.2·§9.1]. [MUST] 메서드 토큰은 case-sensitive하게 취급한다 — 대소문자를 정규화하거나 접어서 매칭하지 않는다(`get`은 `GET`이 아니다) [RFC 9110 §9.1]. [SHOULD] 유효하지 않은 request-line은 400 또는 301로 응답한다 [RFC 9112 §3.2]. [SHOULD NOT] 유효하지 않은 request-line을 자동교정한 뒤 redirect 없이 그대로 처리하지 않는다 [RFC 9112 §3.2].
 - **§1.1.2** [MUST] 상이값·비숫자·음수·유효하지 않은 `Content-Length`는 400으로 응답하고 연결을 닫는다(동일값 중복 CL은 복구 가능) [RFC 9112 §6.3]. [MAY] `Transfer-Encoding`+`Content-Length` 동시 요청은 거부하거나 TE만으로 처리하되, 어느 경우든 응답 후 연결을 닫는다(MUST) [RFC 9112 §6.1].
-- **§1.1.3** [MUST] obs-fold는 거부(400)하거나 SP로 치환한다 [RFC 9112 §5.2]; field value의 CR·LF·NUL은 거부하거나 SP로 치환한다(그 외 CTL은 안전한 맥락에서 보존 MAY) [RFC 9110 §5.5]. [MUST] bare CR는 거부하거나 SP로 치환한다(bare LF는 종결자로 수용 가능) [RFC 9112 §2.2]. field-name은 token이어야 한다 [RFC 9110 §5.1]. [MUST] field value를 평가하기 전에 선행·후행 whitespace(OWS)를 제외한다 [RFC 9110 §5.5]. [MUST] BWS(bad whitespace)를 파싱해 프로토콜 요소 해석 전에 제거한다 [RFC 9110 §5.6.3].
+- **§1.1.3** [MUST] obs-fold는 거부(400)하거나 SP로 치환한다 [RFC 9112 §5.2]; field value의 CR·LF·NUL은 거부하거나 SP로 치환한다(그 외 CTL은 안전한 맥락에서 보존 MAY) [RFC 9110 §5.5]. [MUST] bare CR는 거부하거나 SP로 치환한다(bare LF는 종결자로 수용 가능) [RFC 9112 §2.2]. field-name은 token이어야 한다 [RFC 9110 §5.1]. [MUST] field value를 평가하기 전에 선행·후행 whitespace(OWS)를 제외한다 [RFC 9110 §5.5]. [MUST] BWS(bad whitespace)를 파싱해 프로토콜 요소 해석 전에 제거한다 [RFC 9110 §5.6.3]. [SHOULD] field content의 그 외 허용 octet(obs-text, %x80–FF)은 opaque data로 취급한다 [RFC 9110 §5.5].
 - **§1.1.4** [MUST] chunked transfer coding을 파싱·디코딩하고 incomplete body를 처리한다 [RFC 9112 §6·§7.1]. [MUST] 유효한 `Content-Length`가 있고 `Transfer-Encoding`이 없는 요청에서 표시된 octet 수를 받기 전에 연결이 닫히거나 timeout되면 메시지를 incomplete로 간주하고 연결을 닫는다 [RFC 9112 §6.3].
 - **§1.1.5** [MUST] request-line/헤더 필드 크기 한계를 강제한다 — 과대 request-target은 414 [RFC 9112 §3; RFC 9110 §15.5.15], 과대 헤더 필드는 적절한 4xx(431) [RFC 9110 §5.4; RFC 6585 §5]. [SHOULD] 단일 헤더 필드가 한계를 초과해 431을 반환하면 응답 representation에 어느 헤더 필드가 과대했는지 명시한다 [RFC 6585 §5]. [SHOULD] 자신이 구현하는 어떤 메서드보다 긴 method 토큰을 수신하면 `501`로 응답한다 [RFC 9112 §3]. [SHOULD] request-line 길이를 최소 8000 octet까지 지원한다 [RFC 9112 §3].
 - **§1.1.6** [MUST] clock이 있으면 2xx/3xx/4xx 응답에 `Date`를 생성한다 [RFC 9110 §6.6.1]. [MAY] clock이 있는 origin server는 1xx·5xx 응답에 `Date`를 생성할 수 있다 [RFC 9110 §6.6.1]. [MUST NOT] clock이 없는 origin server는 `Date`를 생성하지 않는다 [RFC 9110 §6.6.1]. [SHOULD] `Date`를 생성하면 그 값은 메시지 생성 시각의 가능한 최선의 근사로 만든다 [RFC 9110 §6.6.1]. [MUST] HTTP-date를 담는 응답 필드(`Date`·`Last-Modified`·`Expires`·`Retry-After` 등)는 IMF-fixdate 형식으로 생성하고 rfc850·asctime 형식으로 생성하지 않는다 [RFC 9110 §5.6.7].
@@ -47,7 +49,7 @@ obsolete RFC(2616 / 7230–7235 / 6874)는 인용하지 않는다.
 - **§2.3** [MUST] `Content-Length`를 보낸다면 그 값은 전송 본문 octet 수와 일치한다; HEAD/304는 동일 GET이 보냈을 본문 octet 수와 일치한다 [RFC 9112 §6.3; RFC 9110 §8.6]. [SHOULD] 금지 예외(§2.2)·별도 규칙(HEAD/304)에 해당하지 않는 한, `Transfer-Encoding`이 없고 content 크기를 완전한 header section 송신 전에 알 수 있으면 `Content-Length`를 생성한다 [RFC 9110 §8.6].
 - **§2.4** [MUST NOT] HEAD 응답에 content를 포함하지 않는다. [SHOULD] 헤더 필드는 동일 GET이 생성했을 값과 같다(content 생성 시점에만 정해지는 필드는 생략 가능 MAY) [RFC 9110 §9.3.2].
 - **§2.5** [MUST NOT] `Transfer-Encoding`이 있는 메시지에 `Content-Length`를 함께 보내지 않는다 [RFC 9112 §6.2].
-- **§2.6** [MUST] 출력 응답 헤더를 검증한다 — field-name은 유효 token [RFC 9110 §5.1], 값에 CR/LF/NUL 금지 [RFC 9110 §5.5], singleton 필드는 중복 생성하지 않는다(list-valued·`Set-Cookie` 예외) [RFC 9110 §5.3]. [MUST NOT] list 구조(#-construct)를 쓰는 어떤 출력 응답 헤더도 빈 list 요소를 생성하지 않는다 [RFC 9110 §5.6.1.1]. [MUST NOT] 출력 응답 메시지에 BWS를 생성하지 않는다 [RFC 9110 §5.6.3]. [SHOULD] OWS를 생성한다면 단일 SP로, RWS가 필요하면 단일 SP로 생성한다 [RFC 9110 §5.6.3]. [MUST NOT] start-line과 첫 header field 사이에 whitespace를 생성하지 않는다 [RFC 9112 §2.2]. [MUST NOT] content를 제외한 어떤 protocol element 안에도 bare CR(뒤에 LF가 없는 CR)을 생성하지 않는다 [RFC 9112 §2.2]. [MUST NOT] message/http 컨테이너로 패키징할 의도가 아니면 obs-fold(line folding)를 포함한 메시지를 생성하지 않는다 [RFC 9112 §5.2]. [MUST NOT] qvalue를 생성할 때 소수점 이하 3자리를 초과하여 생성하지 않는다 [RFC 9110 §12.4.2].
+- **§2.6** [MUST] 출력 응답 헤더를 검증한다 — field-name은 유효 token [RFC 9110 §5.1], 값에 CR/LF/NUL 금지 [RFC 9110 §5.5], singleton 필드는 중복 생성하지 않는다(list-valued·`Set-Cookie` 예외) [RFC 9110 §5.3]. [MUST NOT] list 구조(#-construct)를 쓰는 어떤 출력 응답 헤더도 빈 list 요소를 생성하지 않는다 [RFC 9110 §5.6.1.1]. [MUST NOT] 출력 응답 메시지에 BWS를 생성하지 않는다 [RFC 9110 §5.6.3]. [SHOULD] OWS를 생성한다면 단일 SP로, RWS가 필요하면 단일 SP로 생성한다 [RFC 9110 §5.6.3]. [MUST NOT] start-line과 첫 header field 사이에 whitespace를 생성하지 않는다 [RFC 9112 §2.2]. [MUST NOT] content를 제외한 어떤 protocol element 안에도 bare CR(뒤에 LF가 없는 CR)을 생성하지 않는다 [RFC 9112 §2.2]. [MUST NOT] message/http 컨테이너로 패키징할 의도가 아니면 obs-fold(line folding)를 포함한 메시지를 생성하지 않는다 [RFC 9112 §5.2]. [MUST NOT] qvalue를 생성할 때 소수점 이하 3자리를 초과하여 생성하지 않는다 [RFC 9110 §12.4.2]. [SHOULD] 응답 필드에 media-range와 weight를 함께 생성한다면 `q` 파라미터는 모든 media-range 파라미터 뒤 마지막에 생성한다 [RFC 9110 §12.5.1].
 - **§2.7** [MAY] origin server는 응답에 `Server` 헤더 필드를 생성할 수 있다 [RFC 9110 §10.2.4]. [SHOULD NOT] `Server` 헤더에 과도하게 세부적인 정보를 넣지 않는다. [SHOULD] third party가 추가하는 subproduct를 제한한다 [RFC 9110 §10.2.4].
 - **§2.8** 정상 응답 경로의 final status는 유효한 3자리 코드(2xx–5xx)다; 1xx는 정상 경로 밖이다(§9.1) [RFC 9110 §15].
 - **§2.9** [MUST NOT] message framing·routing·인증·request modifier·response control·content format 범주의 필드를 trailer로 생성하지 않는다(해당 필드 정의가 trailer 전송을 허용하는 경우에 한해서만 생성). [SHOULD NOT] user agent가 반드시 수신해야 한다고 보는 필드를 trailer로 생성하지 않는다 [RFC 9110 §6.5.1]. [SHOULD] 하나 이상의 trailer 필드를 생성할 의사가 있으면 header section에 `Trailer` 헤더 필드를 생성한다 [RFC 9110 §6.6.2].
@@ -63,14 +65,14 @@ obsolete RFC(2616 / 7230–7235 / 6874)는 인용하지 않는다.
 - **§3.2** [SHOULD] 메서드 불허는 405, 리소스 부재는 404로 응답한다 [RFC 9110 §9.1·§15.5.5].
 - **§3.3** [SHOULD] 인지되지 않은/미구현 메서드 토큰은 501로 응답한다 [RFC 9110 §9.1·§15.6.2]. 표준 메서드는 GET/HEAD/POST/PUT/DELETE/CONNECT/OPTIONS/TRACE 8개 [RFC 9110 §9.3.1–§9.3.8]; 그 외 PATCH [RFC 5789], QUERY [RFC 10008]를 인지한다.
 - **§3.4** [MUST] HEAD 응답은 GET에서 content만 제거한 것과 같다(헤더 parity는 §2.4) [RFC 9110 §9.3.2].
-- **§3.5** [SHOULD] OPTIONS 성공 응답은 지원 메서드를 나타내는 `Allow`를 보낸다 [RFC 9110 §9.3.7]. [MUST] OPTIONS 응답에 content가 없으면 값 `"0"`인 `Content-Length` 필드를 생성한다 [RFC 9110 §9.3.7].
-- **§3.6** [MUST] QUERY 요청은 `Content-Type`이 없거나 content와 불일치하면 실패시키고 content를 sniffing해 media type을 추론하지 않는다 [RFC 10008 §2·§2.1].
-- **§3.7** [MAY] TRACE는 지원하지 않을 수 있다. [SHOULD] final recipient가 반사한다면 민감 필드를 제외하고 수신 message를 200의 content로 반사한다 [RFC 9110 §9.3.8].
+- **§3.5** [SHOULD] OPTIONS 성공 응답은 지원 메서드를 나타내는 `Allow`를 보낸다 [RFC 9110 §9.3.7].
+- **§3.6** [MUST] QUERY 요청은 `Content-Type`이 없거나 content와 불일치하면 실패시키고 content를 sniffing해 media type을 추론하지 않는다 [RFC 10008 §2·§2.1]. [SHOULD] QUERY 결과를 나타내는 임시 리소스에 URI를 할당해 `Location`/`Content-Location`에 쓸 때, 요청 content에 로깅 불가한 민감 정보가 있으면 그 URI는 원본 요청 content의 민감 부분을 포함하지 않게 선택한다 [RFC 10008 §4].
+- **§3.7** [MAY] TRACE는 지원하지 않을 수 있다(GET·HEAD 외 메서드는 OPTIONAL) [RFC 9110 §9.1]. [SHOULD] final recipient가 반사한다면 민감 필드를 제외하고 수신 message를 200의 content로 반사한다 [RFC 9110 §9.3.8].
 - **§3.8** [MUST] general-purpose server는 GET·HEAD를 지원한다(그 외 메서드는 OPTIONAL) [RFC 9110 §9.1].
 - **§3.9** [MUST] PUT이 표현을 새로 생성하면 `201`, 기존 표현을 수정하면 `200` 또는 `204`로 응답한다. [MUST NOT] 요청 표현이 변환 없이 저장되고 validator가 그 새 표현을 반영하는 경우가 아니면 PUT 성공 응답에 validator를 보내지 않는다. [MUST] 변경을 다른 리소스에 적용하려면 적절한 `3xx`로 응답한다. [SHOULD] PUT 표현이 대상 리소스의 구성 제약과 불일치하면 정합화하거나 적절한 오류로 응답한다(권고 `409`, `Content-Type` 제약 위반이면 `415`) [RFC 9110 §9.3.4].
 - **§3.10** [SHOULD] DELETE 성공은 `202`·`204`·`200` 중으로 응답한다 [RFC 9110 §9.3.5]. [SHOULD] POST가 리소스를 새로 생성하면 `201`과 `Location`을 보낸다 [RFC 9110 §9.3.3].
 - **§3.11** [MUST] CONNECT 요청의 빈/유효하지 않은 port는 거부한다(보통 400) [RFC 9110 §9.3.6].
-- **§3.12** [MUST] PATCH는 patch 전체를 atomic하게 적용하고 부분 적용된 표현을 노출하지 않으며, 전체 적용이 불가하면 어떤 변경도 적용하지 않는다 [RFC 5789 §2]. [MUST] 받은 patch 문서가 대상 리소스 타입에 적합한지 보장한다 [RFC 5789 §2]. [MUST NOT] 요청에 담긴 entity-header는 포함된 patch 문서에만 적용하고 수정 대상 리소스에 적용하지 않는다 [RFC 5789 §2]. [SHOULD] PATCH를 지원하는 리소스의 OPTIONS 응답과 미지원 patch media type의 `415` 응답에 `Accept-Patch`를 보낸다 [RFC 5789 §3.1·§2.2].
+- **§3.12** [MUST] PATCH는 patch 전체를 atomic하게 적용하고 부분 적용된 표현을 노출하지 않으며, 전체 적용이 불가하면 어떤 변경도 적용하지 않는다 [RFC 5789 §2]. [MUST] 받은 patch 문서가 대상 리소스 타입에 적합한지 보장한다 [RFC 5789 §2]. [MUST NOT] 요청에 담긴 entity-header는 포함된 patch 문서에만 적용하고 수정 대상 리소스에 적용하지 않는다 [RFC 5789 §2]. [SHOULD] PATCH를 지원하는 리소스의 OPTIONS 응답과 미지원 patch media type의 `415` 응답에 `Accept-Patch`를 보낸다 [RFC 5789 §3.1·§2.2]. [MUST] 악의적 클라이언트가 PATCH 사용으로 과도한 서버 자원(CPU·디스크 I/O 등)을 소비하지 못하도록 적절한 예방조치를 취한다 [RFC 5789 §5].
 - **§3.13** [MAY] origin server는 금지 리소스의 현재 존재를 숨기려 할 때 `403` 대신 `404`로 응답할 수 있다 [RFC 9110 §15.5.4].
 
 ## 4. 요청 해석·신뢰
@@ -78,12 +80,13 @@ obsolete RFC(2616 / 7230–7235 / 6874)는 인용하지 않는다.
 - **§4.1** [MUST] origin-form과 absolute-form request-target을 받아들인다 [RFC 9112 §3.2]. authority-form은 CONNECT 전용이며, CONNECT 미지원 시 미구현 메서드로 처리한다(§3.3) [RFC 9112 §3.2]. asterisk-form(`OPTIONS *`)은 서버 전체에 대한 OPTIONS 요청이다 [RFC 9110 §9.3.7].
 - **§4.2** [MUST] origin server는 absolute-form request-target 요청을 받으면 수신한 `Host`(있어도)를 무시하고 request-target의 host 정보를 권위로 사용한다 [RFC 9112 §3.2.2].
 - **§4.3** [MUST] HTTP/1.1 요청은 정확히 하나의 유효한 `Host`를 가져야 한다; 없거나 둘 이상이거나 comma로 결합되었거나 유효하지 않으면 400 [RFC 9112 §3.2].
-- **§4.4** 신뢰된 intermediary가 아니면 `Forwarded`/`X-Forwarded-*`는 client 주소·scheme·host의 권위로 신뢰할 수 없다(RFC 7239 §8.1은 규범 키워드 없는 보안 함의로 규정 — 무표기) [RFC 7239 §8.1]. [SHOULD NOT] origin server는 `Forwarded`를 응답에 copy하지 않는다 [RFC 7239 §8.2].
-- **§4.5** [MAY] 이 서버가 서비스하도록 구성되지 않은 authority는 421로 응답할 수 있다 [RFC 9110 §15.5.20].
+- **§4.4** 신뢰된 intermediary가 아니면 `Forwarded`/`X-Forwarded-*`는 client 주소·scheme·host의 권위로 신뢰할 수 없다(RFC 7239 §8.1은 규범 키워드 없는 보안 함의로 규정 — 무표기) [RFC 7239 §8.1]. origin server는 `Forwarded`를 응답에 copy하지 않는다(§8.2는 소문자 should — 규범 키워드 없는 보안 권고, 무표기) [RFC 7239 §8.2].
+- **§4.5** 이 서버가 서비스하도록 구성되지 않은 authority의 거부에는 421을 사용한다(§15.5.20은 규범 키워드 없는 정의 — 무표기) [RFC 9110 §15.5.20].
 - **§4.6** [MAY] 처리 의사를 넘는 크기의 요청 content는 413으로 거부할 수 있다 [RFC 9110 §15.5.14]. [MAY] 413 응답 시 프로토콜 버전이 허용하면 요청을 중단할 수 있고, 그렇지 않으면 연결을 닫을 수 있다 [RFC 9110 §15.5.14]. [MAY] message body는 있으나 `Content-Length`가 없는 요청은 411 (Length Required)로 거부할 수 있다 [RFC 9112 §6.3].
-- **§4.7** [SHOULD] 요청 해석 오류는 400으로 응답한다 [RFC 9110 §15.5.1].
+- **§4.7** [SHOULD] robustness 예외에 해당하지 않는 한, HTTP-message 문법에 맞지 않는 octet 시퀀스를 수신하면 400으로 응답하고 연결을 닫는다 [RFC 9112 §2.2]. (400의 의미 정의는 RFC 9110 §15.5.1 — 무표기.)
 - **§4.8** [SHOULD] 미인지 요청 헤더/트레일러를 무시한다 [RFC 9110 §5.1]; GET/HEAD/DELETE 요청 본문을 라우팅·의미 입력으로 쓰지 않는다 [RFC 9110 §9.3.1·§9.3.2·§9.3.5].
 - **§4.9** [MUST] 신뢰된 gateway 연결이 아니면 target URI의 scheme 요건을 충족하지 못하는 요청을 거부한다; 특히 `https` 리소스 요청은 그 origin에 유효한 인증서로 보안된 연결에서 받지 않았으면 거부한다 [RFC 9110 §7.4].
+- **§4.10** [SHOULD NOT] `From` 헤더 필드를 access control이나 인증에 사용하지 않는다(그 값은 요청 경로상 누구에게나 보이며 로그에 남는다) [RFC 9110 §10.1.2].
 
 ## 5. 인코딩·redirection
 
@@ -94,10 +97,11 @@ obsolete RFC(2616 / 7230–7235 / 6874)는 인용하지 않는다.
 - **§5.5** [SHOULD] 생성하는 4xx/5xx 오류 응답은 오류 상황을 설명하는 representation을 포함한다(HEAD 제외) [RFC 9110 §15.5·§15.6].
 - **§5.6** [SHOULD] proactive content negotiation으로 수용 가능한 표현이 없고 기본 표현 제공도 거부하면 `406`을 생성하며, 응답 content에 가용 표현 특성과 대응 resource identifier 목록을 담는다 [RFC 9110 §15.5.7·§12.1].
 - **§5.7** [SHOULD] `409 (Conflict)`를 생성하면 사용자가 충돌의 출처를 인지하기에 충분한 정보를 담은 content를 생성한다 [RFC 9110 §15.5.10].
+- **§5.8** [MUST NOT] content coding과 무관한 이유로 `415`를 생성할 때 `Accept-Encoding` 헤더 필드를 포함하지 않는다(미지원 content coding으로 인한 415에는 포함 MAY) [RFC 9110 §12.5.3]. [SHOULD] 요청에 non-empty `Accept-Encoding`이 있고 가용 표현 중 acceptable한 content coding이 없으면, identity coding이 unacceptable로 표시되지 않은 한 content coding 없는 응답을 보낸다 [RFC 9110 §12.5.3].
 
 ## 6. 스트리밍 (SSE) [WHATWG HTML §9.2 — Server-Sent Events]
 
-- **§6.1** [MUST] SSE 응답의 `Content-Type`은 `text/event-stream`이다 [WHATWG HTML §9.2.5].
+- **§6.1** SSE 응답의 `Content-Type`은 `text/event-stream`으로 보낸다 — EventSource 클라이언트는 `Content-Type`이 `text/event-stream`이 아니면 연결을 실패시키므로(§9.2.3 처리 모델) 파생되는 상호운용 요건이다(§9.2.5의 MIME 타입 서술은 정의 — 무표기) [WHATWG HTML §9.2.3·§9.2.5].
 - **§6.2** [MUST] event stream은 UTF-8로 인코딩한다 [WHATWG HTML §9.2.5].
 - **§6.3** [MUST] 라인 구분자는 CRLF·LF·CR 중 하나다 [WHATWG HTML §9.2.5].
 - **§6.4** `id` 필드 값에 U+0000 NULL이 있으면 클라이언트가 그 `id` 필드를 무시한다 [WHATWG HTML §9.2.6].
@@ -106,19 +110,20 @@ obsolete RFC(2616 / 7230–7235 / 6874)는 인용하지 않는다.
 
 ## 7. 캐시·조건부·폐기 헤더
 
-- **§7.1** [SHOULD NOT] `Warning`을 emit하지 않는다 (RFC 9111 §5.5 obsolete).
-- **§7.2** [SHOULD NOT] `Pragma`를 emit하지 않는다 (RFC 9111 §5.4 deprecated).
+- **§7.1** `Warning`은 RFC 9111 §5.5가 obsolete 처리했다(규범 키워드 없음 — 무표기); emit하지 않는다 [RFC 9111 §5.5].
+- **§7.2** `Pragma`는 HTTP/1.0 request header로 정의되었고 RFC 9111 §5.4가 deprecated 처리했다(응답에서의 의미는 미정의; 규범 키워드 없음 — 무표기); emit하지 않는다 [RFC 9111 §5.4].
 - **§7.3** origin server는 `Age`를 생성하지 않는다(RFC 9111 §5.1은 규범 키워드 없는 함의로만 규정 — 무표기) [RFC 9111 §5.1].
 - **§7.4** [MUST] origin server는 `If-Match`에 strong, `If-None-Match`에 weak 비교 함수를 쓴다 [RFC 9110 §13.1.1·§13.1.2]. [MUST] 선택된 표현을 고르는 요청에 precondition이 있으면 정상 검사 직후·메서드 수행 직전에 다음 순서로 평가한다 — If-Match → If-Unmodified-Since → If-None-Match → If-Modified-Since → If-Range [RFC 9110 §13.2.1·§13.2.2]. [MUST] 동일 요청을 precondition 없이 진행했을 때 응답이 2xx 또는 412가 아니었을 경우에는 수신한 모든 precondition을 무시한다 [RFC 9110 §13.2.1]. [MUST] condition이 거짓이면 요청 메서드를 수행하지 않는다; [MUST] `If-None-Match`가 거짓이고 GET/HEAD면 `304`를, [MUST] 그 외 메서드에는 `412`를, [MUST] `If-Match`/`If-Unmodified-Since`가 거짓이면 `412`를 생성한다 [RFC 9110 §13.1.1·§13.1.2·§13.1.4]. [MAY] `If-Match` 또는 `If-Unmodified-Since` 조건이 거짓이어도 상태 변경 요청이 이미 적용된 것으로 판단되면 origin server는 412 대신 2xx로 응답할 수 있다 [RFC 9110 §13.1.1·§13.1.4]. [MUST] precondition 무시 규칙을 지킨다 — `If-Modified-Since`/`If-Unmodified-Since`는 각각 `If-None-Match`/`If-Match`가 있거나 값이 유효 HTTP-date가 아니거나 메서드가 GET/HEAD가 아니거나(IMS) 수정일이 없으면 무시; `If-Range`는 `Range`가 없거나 range 미지원 리소스면 무시; CONNECT/OPTIONS/TRACE에는 모든 precondition을 무시 [RFC 9110 §13.1.3·§13.1.4·§13.1.5·§13.2.1]. [MUST] origin server는 `If-Modified-Since`·`If-Unmodified-Since` 필드값의 timestamp를 origin server의 clock 기준으로 해석한다 [RFC 9110 §13.1.3·§13.1.4]. [MUST] HTTP 필드의 timestamp 값을 파싱할 때 세 가지 HTTP-date 형식(IMF-fixdate·rfc850·asctime)을 모두 수용한다 [RFC 9110 §5.6.7]. [MUST] 두 자리 연도의 rfc850-date timestamp가 50년 넘게 미래로 보이면 같은 마지막 두 자리를 갖는 가장 최근 과거 연도로 해석한다 [RFC 9110 §5.6.7]. [SHOULD NOT] `If-Modified-Since`가 거짓이면 요청 메서드를 수행하지 않으며 [SHOULD] `304`를 생성한다 [RFC 9110 §13.1.3].
 - **§7.5** [SHOULD] cacheable 응답을 selecting header field에 따라 선택적으로 재사용시키려면 그 응답에 `Vary`를 생성한다 [RFC 9110 §12.5.5].
 - **§7.6** [MUST NOT] clock 없는 origin은 값이 고정된 과거이거나 clock 있는 시스템이 리소스에 부여한 값이 아니면 `Expires`를 생성하지 않는다 [RFC 9111 §5.3].
 - **§7.7** [SHOULD] `428 (Precondition Required)`을 생성하면 요청을 성공적으로 재제출하는 방법을 설명하는 representation을 생성한다 [RFC 6585 §3].
+- **§7.8** [MUST NOT] `max-age`·`s-maxage` 응답 지시어를 생성한다면 quoted-string 형식으로 생성하지 않는다(token 형식만: `max-age=5`) [RFC 9111 §5.2.2.1·§5.2.2.10]. [SHOULD NOT] 필드명 인자를 갖는 `no-cache`·`private` 지시어를 생성한다면 token 형식으로 생성하지 않는다(quoted-string 형식 사용) [RFC 9111 §5.2.2.4·§5.2.2.7]. [SHOULD] `must-understand` 지시어를 담은 응답에는 `no-store` 지시어도 함께 생성한다 [RFC 9111 §5.2.2.3].
 
 ## 8. 인증
 
-- **§8.1** [MUST] 401 응답에는 target resource에 적용 가능한 challenge를 최소 하나 담은 `WWW-Authenticate` 헤더 필드를 생성한다 [RFC 9110 §15.5.2·§11.6.1]. [MUST] `WWW-Authenticate` challenge에 `realm`을 생성한다면 그 값은 token이 아니라 quoted-string 구문으로만 생성한다 [RFC 9110 §11.5·§16.4.2]. [SHOULD NOT] quoted-string 값을 생성할 때 문자열 내 DQUOTE·backslash octet을 인용하기 위해 필요한 경우가 아니면 quoted-pair를 생성하지 않는다 [RFC 9110 §5.6.4]. [SHOULD NOT] comment 안에서 DQUOTE·backslash octet 인용에 필요한 경우가 아니면 quoted-pair를 생성하지 않는다 [RFC 9110 §5.6.5].
+- **§8.1** [MUST] 401 응답에는 target resource에 적용 가능한 challenge를 최소 하나 담은 `WWW-Authenticate` 헤더 필드를 생성한다 [RFC 9110 §15.5.2·§11.6.1]. [MUST] `WWW-Authenticate` challenge에 `realm`을 생성한다면 그 값은 token이 아니라 quoted-string 구문으로만 생성한다 [RFC 9110 §11.5·§16.4.2]. [SHOULD NOT] quoted-string 값을 생성할 때 문자열 내 DQUOTE·backslash octet을 인용하기 위해 필요한 경우가 아니면 quoted-pair를 생성하지 않는다 [RFC 9110 §5.6.4]. [SHOULD NOT] comment 안에서 괄호(`(`·`)`)·backslash octet 인용에 필요한 경우가 아니면 quoted-pair를 생성하지 않는다 [RFC 9110 §5.6.4].
 - **§8.2** [MAY] 401 외 응답에서도 credential 제공이 응답에 영향을 줄 수 있음을 알리려 `WWW-Authenticate`를 생성할 수 있다 [RFC 9110 §11.6.1].
-- **§8.3** [SHOULD] 보호된 리소스 요청이 credential을 누락·무효·부분 제시하면 origin server는 `401`로 응답하고, 요청 리소스에 적용 가능한 challenge를 최소 하나 담은 `WWW-Authenticate`를 포함한다 [RFC 9110 §11.6.1].
+- **§8.3** [SHOULD] 보호된 리소스 요청이 credential을 누락·무효·부분 제시하면 origin server는 `401`로 응답하고, 요청 리소스에 적용 가능한 challenge를 최소 하나 담은 `WWW-Authenticate`를 포함한다 [RFC 9110 §11.4].
 - **§8.4** [MUST] 생성하는 각 challenge 안에서 auth-param 이름은 challenge당 1회만 등장한다 [RFC 9110 §11.2].
 
 ## 9. 프로토콜 엣지
@@ -138,7 +143,6 @@ obsolete RFC(2616 / 7230–7235 / 6874)는 인용하지 않는다.
 - **§10.4** [MAY] 파이프라인된 요청들은 모두 safe method일 때에 한해 병렬 처리할 수 있다. [MUST] 병렬 처리 여부와 무관하게 각 응답은 요청을 받은 순서대로 보낸다 [RFC 9112 §9.3.2].
 - **§10.5** [SHOULD] persistent connection을 timeout 처리하려는 서버는 급작스럽게 끊지 않고 graceful close를 개시하며, 열린 연결의 closure 신호를 지속 감시해 대응한다 [RFC 9112 §9.5]. [SHOULD] 서버는 가능하면 persistent connection을 유지하고 일시적 과부하는 하부 전송의 flow-control로 해소하며, 연결을 종료해 클라이언트 재시도를 유도하지 않는다 [RFC 9112 §9.5]. [MAY] 서버는 전송 연결을 언제든 닫을 수 있다 [RFC 9112 §9.5].
 - **§10.6** [MUST NOT] `Connection` 헤더에 모든 수신자 대상(end-to-end) 필드명을 connection option으로 나열하지 않으며, immediate recipient만을 위한 hop-by-hop 필드만 나열한다. [MUST] 역으로, `Connection` 외의 필드로 현재 연결에 대한/관한 제어 정보를 보내면 그 필드명을 `Connection` 헤더에 나열한다 [RFC 9110 §7.6.1].
-- **§10.7** [SHOULD] `408 (Request Timeout)`을 생성한다면 그 응답에 `close` connection option을 보낸다 [RFC 9110 §15.5.9].
 
 ## 11. Range 요청
 
@@ -152,3 +156,4 @@ obsolete RFC(2616 / 7230–7235 / 6874)는 인용하지 않는다.
 
 - URI 정규화 [RFC 3986 §6]·JSON 객체 키 유일성 [RFC 8259 §4]은 SHOULD이며 하드룰로 강제하지 않는다.
 - TRACE "self only" 제약은 RFC 9110에 없다(obsolete된 RFC 7231 오인용 금지).
+- OPTIONS 응답의 `Content-Length: 0` 강제와 408 응답의 `close` connection option 규칙은 RFC 9110에 없다(RFC 7231의 규범이었으나 RFC 9110에서 의도적으로 삭제 — Appendix B 변경 이력 참조; 재도입 금지).
