@@ -48,8 +48,7 @@
   "scripts": {
     "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
-    "coverage": "bun test --coverage",
-    "bench": "bun run bench/compression.bench.ts"
+    "coverage": "bun test --coverage"
   },
   "dependencies": {
     "@zipbul/baker": "catalog:",
@@ -63,8 +62,7 @@
     "@zipbul/common": "workspace:*",
     "@zipbul/core": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
-    "@zipbul/tck": "workspace:*",
-    "mitata": "catalog:"
+    "@zipbul/tck": "workspace:*"
   },
   "sideEffects": [
     "**/options.js"
