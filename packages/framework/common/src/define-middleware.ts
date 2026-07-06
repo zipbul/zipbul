@@ -2,6 +2,7 @@ import type { Result, ResultAsync } from '@zipbul/result';
 import type { AdapterClass } from './adapter/types';
 import type { AdapterContext } from './interfaces';
 import type { ContextKey } from './context-key';
+import type { MiddlewareAugments, MiddlewareAugmentsInput, MiddlewareAugmentSpec, AugmentSupplyFn } from './augment';
 
 /**
  * Handler function for a middleware definition.
@@ -43,18 +44,28 @@ export interface MiddlewareDefinition {
   readonly factory: MiddlewareFactory;
   readonly adapters?: readonly AdapterClass[];
   readonly provides?: readonly ContextKey<unknown>[];
+  /** Declarative context augments — carried on the definition so the runtime can compose supply steps and run collision checks. */
+  readonly augments?: MiddlewareAugments;
+}
+
+interface DefineMiddlewareConfigBase {
+  readonly adapters?: readonly AdapterClass[];
+  readonly provides?: readonly ContextKey<unknown>[];
 }
 
 /**
  * Configuration object for {@link defineMiddleware} (config overload).
  *
+ * `factory` may be omitted when `augments` is present (an augments-only
+ * middleware) — a noop factory is synthesized so the definition shape stays
+ * uniform. `augments` requires a non-empty `adapters` array: namespace
+ * strings (e.g. `request`) only have meaning per adapter context schema.
+ *
  * @public
  */
-export interface DefineMiddlewareConfig {
-  readonly factory: MiddlewareFactory;
-  readonly adapters?: readonly AdapterClass[];
-  readonly provides?: readonly ContextKey<unknown>[];
-}
+export type DefineMiddlewareConfig =
+  | (DefineMiddlewareConfigBase & { readonly factory: MiddlewareFactory; readonly augments?: MiddlewareAugmentsInput })
+  | (DefineMiddlewareConfigBase & { readonly augments: MiddlewareAugmentsInput; readonly factory?: MiddlewareFactory });
 
 /**
  * Declares a middleware. This is an identity wrapper — it freezes
@@ -95,13 +106,24 @@ export function defineMiddleware(
   configOrAdaptersOrFactory: DefineMiddlewareConfig | readonly AdapterClass[] | MiddlewareFactory,
   maybeFactory?: MiddlewareFactory,
 ): MiddlewareDefinition {
-  // Config object overload
-  if (typeof configOrAdaptersOrFactory === 'object' && !Array.isArray(configOrAdaptersOrFactory) && 'factory' in configOrAdaptersOrFactory) {
+  // Config object overload — discriminated by `factory` OR `augments` so an
+  // augments-only config never falls through to the array/function branches.
+  if (
+    typeof configOrAdaptersOrFactory === 'object'
+    && !Array.isArray(configOrAdaptersOrFactory)
+    && ('factory' in configOrAdaptersOrFactory || 'augments' in configOrAdaptersOrFactory)
+  ) {
     const config = configOrAdaptersOrFactory;
+    const augments = config.augments !== undefined ? freezeAugments(config.augments, config.adapters) : undefined;
+
     return Object.freeze({
-      factory: config.factory,
+      // Augments-only middleware: synthesize a noop so `factory` stays
+      // required on MiddlewareDefinition and every runtime call site is
+      // unchanged. The framework composes the supply step separately.
+      factory: config.factory ?? NOOP_FACTORY,
       ...(config.adapters !== undefined ? { adapters: Object.freeze([...config.adapters]) } : {}),
       ...(config.provides !== undefined ? { provides: Object.freeze([...config.provides]) } : {}),
+      ...(augments !== undefined ? { augments } : {}),
     });
   }
 
@@ -119,4 +141,73 @@ export function defineMiddleware(
     factory: maybeFactory,
     adapters: Object.freeze([...configOrAdaptersOrFactory]),
   });
+}
+
+const NOOP_HANDLER: MiddlewareHandlerFn = () => undefined;
+const NOOP_FACTORY: MiddlewareFactory = () => NOOP_HANDLER;
+
+/**
+ * True only for a PLAIN function (arrow or `function`) — rejects async,
+ * generator, and async-generator functions (distinct `[object *Function]`
+ * tags) and class constructors (which report `[object Function]` but stringify
+ * as `class …`). A supply must be a synchronous `(ctx) => raw`; the other
+ * callables would ship a Promise/iterator into baker validation or throw at
+ * construction.
+ */
+function isPlainSupplyFunction(value: unknown): value is AugmentSupplyFn {
+  if (typeof value !== 'function') {
+    return false;
+  }
+
+  // Whitelist: only `[object Function]` — leaves out AsyncFunction /
+  // GeneratorFunction / AsyncGeneratorFunction.
+  if (Object.prototype.toString.call(value) !== '[object Function]') {
+    return false;
+  }
+
+  // A class also reports `[object Function]`; its source starts with `class`.
+  return !/^class[\s{]/.test(Function.prototype.toString.call(value));
+}
+
+/**
+ * Validates, normalizes, and deep-freezes the augments slot. Augments require a
+ * non-empty `adapters` array (namespace strings only have meaning per adapter
+ * context schema). Each property value is either a bare supply function (the
+ * preferred floor-level form — a plain synchronous `(ctx) => raw`, normalized to
+ * a `validated-accessor` spec). Anything else — async/generator/class callables,
+ * non-callables — is a boot-time programmer error.
+ */
+function freezeAugments(
+  augments: MiddlewareAugmentsInput,
+  adapters: readonly AdapterClass[] | undefined,
+): MiddlewareAugments {
+  if (adapters === undefined || adapters.length === 0) {
+    throw new Error('Middleware augments require a non-empty adapters array.');
+  }
+
+  const namespaces: Record<string, Readonly<Record<string, MiddlewareAugmentSpec>>> = {};
+
+  for (const [namespace, props] of Object.entries(augments)) {
+    const frozenProps: Record<string, MiddlewareAugmentSpec> = {};
+
+    for (const [prop, entry] of Object.entries(props)) {
+      if (typeof entry !== 'function') {
+        throw new Error(`augments.${namespace}.${prop} must be a supply function ((ctx) => raw).`);
+      }
+
+      if (!isPlainSupplyFunction(entry)) {
+        throw new Error(
+          `augments.${namespace}.${prop} supply must be a plain synchronous function `
+          + '(not an async, generator, or class value).',
+        );
+      }
+
+      // Bare supply function → validated-accessor spec.
+      frozenProps[prop] = Object.freeze({ kind: 'validated-accessor' as const, supply: entry });
+    }
+
+    namespaces[namespace] = Object.freeze(frozenProps);
+  }
+
+  return Object.freeze(namespaces);
 }

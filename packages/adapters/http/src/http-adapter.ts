@@ -2,6 +2,7 @@ import type {
   AdapterContext,
   ApplicationContext,
   AdapterEntryDecorators,
+  AugmentAccessorRegistryEntry,
   CompiledHandlerEntry,
 } from '@zipbul/common';
 import { err, isErr } from '@zipbul/result';
@@ -38,6 +39,7 @@ import { parseBody } from './body';
 import { isAsyncIterable, formatSSEChunk } from './server-sent-event';
 import { writeErrorResponse, writeSuccessResponse } from './response-writer';
 import { normalizeMetadataRegistry } from './metadata';
+import { HTTP_NAMESPACE_PROTOTYPES } from './context-namespaces';
 
 function formatUnknownError(value: unknown): string {
   if (typeof value === 'string') return value;
@@ -68,6 +70,26 @@ export class HttpAdapter extends Adapter {
   private readonly logger = new Logger('HttpAdapter');
 
   private internalRoutes: InternalRouteEntry[] = [];
+
+  /**
+   * DECLARATION: the HTTP context namespaces and the prototypes their augment
+   * members install on (`request` → {@link HttpRequest}, `response` →
+   * {@link HttpResponse}). Core owns the install mechanism; the adapter only
+   * declares these targets.
+   */
+  protected override namespacePrototypes(): Readonly<Record<string, object>> {
+    return HTTP_NAMESPACE_PROTOTYPES;
+  }
+
+  /**
+   * Exposes the AOT-emitted accessor registry to {@link HttpServer} for
+   * RouteHandler validation wiring.
+   *
+   * @internal
+   */
+  getAugmentAccessors(): readonly AugmentAccessorRegistryEntry[] {
+    return this.getAugmentAccessorRegistry();
+  }
 
   constructor(options: HttpServerOptions = {}) {
     super();

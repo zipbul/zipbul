@@ -226,4 +226,252 @@ describe('defineMiddleware', () => {
     // Assert
     expect(Object.isFrozen(def.adapters)).toBe(true);
   });
+
+  // ── Augments slot ──────────────────────────────────────────
+
+  it('should carry a normalized augment on the definition when provided with a factory', () => {
+    // Arrange
+    const supply = (_ctx: AdapterContext) => ({ q: '1' });
+
+    // Act
+    const def = defineMiddleware({
+      adapters: [FakeAdapterA],
+      augments: { request: { getQuery: supply } },
+      factory: noopFactory,
+    });
+
+    // Assert
+    expect(def.augments?.request?.getQuery?.kind).toBe('validated-accessor');
+  });
+
+  it('should synthesize a noop factory for an augments-only config', () => {
+    // Arrange
+    const supply = (_ctx: AdapterContext) => 'value';
+
+    // Act
+    const def = defineMiddleware({
+      adapters: [FakeAdapterA],
+      augments: { request: { extra: supply } },
+    });
+
+    // Assert
+    expect(typeof def.factory).toBe('function');
+    expect(def.factory()({} as AdapterContext)).toBeUndefined();
+  });
+
+  it('should freeze augments namespaces defensively', () => {
+    // Arrange
+    const supply = (_ctx: AdapterContext) => 'value';
+    const props: Record<string, typeof supply> = { extra: supply };
+
+    // Act
+    const def = defineMiddleware({
+      adapters: [FakeAdapterA],
+      augments: { request: props },
+      factory: noopFactory,
+    });
+    props.later = supply;
+
+    // Assert
+    expect(Object.isFrozen(def.augments)).toBe(true);
+    expect(Object.isFrozen(def.augments?.request)).toBe(true);
+    expect(Object.keys(def.augments?.request ?? {})).toEqual(['extra']);
+  });
+
+  it('should throw when augments are provided without adapters', () => {
+    // Arrange
+    const supply = (_ctx: AdapterContext) => 'value';
+
+    // Act & Assert
+    expect(() => defineMiddleware({ augments: { request: { extra: supply } } })).toThrow(
+      'Middleware augments require a non-empty adapters array.',
+    );
+  });
+
+  it('should throw when augments are provided with an empty adapters array', () => {
+    // Arrange
+    const supply = (_ctx: AdapterContext) => 'value';
+
+    // Act & Assert
+    expect(() => defineMiddleware({ adapters: [], augments: { request: { extra: supply } } })).toThrow(
+      'Middleware augments require a non-empty adapters array.',
+    );
+  });
+
+  it('should normalize a bare supply function to a validated-accessor spec', () => {
+    // Arrange
+    const supply = (_ctx: AdapterContext) => ({ q: '1' });
+
+    // Act
+    const def = defineMiddleware({
+      adapters: [FakeAdapterA],
+      augments: { request: { getQuery: supply } },
+      factory: noopFactory,
+    });
+
+    // Assert
+    expect(def.augments?.request?.getQuery?.kind).toBe('validated-accessor');
+  });
+
+  it('should preserve the original function as the normalized spec supply', () => {
+    // Arrange
+    const supply = (_ctx: AdapterContext) => ({ q: '1' });
+
+    // Act
+    const def = defineMiddleware({
+      adapters: [FakeAdapterA],
+      augments: { request: { getQuery: supply } },
+      factory: noopFactory,
+    });
+    const normalized = def.augments?.request?.getQuery as { supply: (ctx: AdapterContext) => unknown };
+
+    // Assert — the SAME function, not a wrapper that merely reproduces the value.
+    expect(normalized.supply).toBe(supply);
+  });
+
+  it('should freeze the spec normalized from a bare supply function', () => {
+    // Arrange
+    const supply = (_ctx: AdapterContext) => ({ q: '1' });
+
+    // Act
+    const def = defineMiddleware({
+      adapters: [FakeAdapterA],
+      augments: { request: { getQuery: supply } },
+      factory: noopFactory,
+    });
+
+    // Assert
+    expect(Object.isFrozen(def.augments?.request?.getQuery)).toBe(true);
+  });
+
+  it('should throw when a bare supply function is async', () => {
+    // Arrange — an async arrow is the most natural mistake in the bare form;
+    // it would ship a Promise into baker validation. Reject at define time.
+    const supply = async (_ctx: AdapterContext) => ({ q: '1' });
+
+    // Act & Assert
+    expect(() =>
+      defineMiddleware({
+        adapters: [FakeAdapterA],
+        augments: { request: { getQuery: supply as never } },
+      }),
+    ).toThrow(/synchronous|async/i);
+  });
+
+  it('should throw when a bare supply function is a generator', () => {
+    // Arrange — a generator carries tag [object GeneratorFunction], a distinct
+    // non-plain-function partition from AsyncFunction; the guard must reject the
+    // whole family, not just async.
+    const supply = function* (_ctx: AdapterContext) { yield {}; };
+
+    // Act & Assert
+    expect(() =>
+      defineMiddleware({
+        adapters: [FakeAdapterA],
+        augments: { request: { getQuery: supply as never } },
+      }),
+    ).toThrow(/synchronous|generator|async/i);
+  });
+
+  it('should throw when a bare supply function is an async generator', () => {
+    // Arrange — async generators carry the THIRD non-plain tag
+    // [object AsyncGeneratorFunction]; a 2-branch blacklist (async + generator)
+    // would leak it. Forces the runtime guard to whitelist [object Function] only.
+    const supply = async function* (_ctx: AdapterContext) { yield {}; };
+
+    // Act & Assert
+    expect(() =>
+      defineMiddleware({
+        adapters: [FakeAdapterA],
+        augments: { request: { getQuery: supply as never } },
+      }),
+    ).toThrow(/synchronous|generator|async/i);
+  });
+
+  it('should throw when a class is passed as a bare supply value', () => {
+    // Arrange — `typeof Class === 'function'`; a class is not a (ctx) => raw supply.
+    class NotASupply {}
+
+    // Act & Assert
+    expect(() =>
+      defineMiddleware({
+        adapters: [FakeAdapterA],
+        augments: { request: { getQuery: NotASupply as never } },
+      }),
+    ).toThrow('augments.request.getQuery');
+  });
+
+  it('should throw when an augments value is neither a function nor a spec', () => {
+    // Arrange & Act & Assert
+    expect(() =>
+      defineMiddleware({
+        adapters: [FakeAdapterA],
+        augments: { request: { getQuery: 42 as never } },
+      }),
+    ).toThrow('augments.request.getQuery');
+  });
+
+  it('should normalize multiple bare functions in one namespace independently', () => {
+    // Arrange — two bare functions on the same namespace.
+    const getQuery = (_ctx: AdapterContext) => ({ q: '1' });
+    const getExtra = (_ctx: AdapterContext) => 'v';
+
+    // Act
+    const def = defineMiddleware({
+      adapters: [FakeAdapterA],
+      augments: { request: { getQuery, getExtra } },
+      factory: noopFactory,
+    });
+
+    // Assert
+    expect(def.augments?.request?.getQuery?.kind).toBe('validated-accessor');
+    expect(def.augments?.request?.getExtra?.kind).toBe('validated-accessor');
+  });
+
+  it('should normalize a bare function in an augments-only config and synthesize a noop factory', () => {
+    // Arrange
+    const supply = (_ctx: AdapterContext) => ({ q: '1' });
+
+    // Act
+    const def = defineMiddleware({
+      adapters: [FakeAdapterA],
+      augments: { request: { getQuery: supply } },
+    });
+
+    // Assert
+    expect(def.augments?.request?.getQuery?.kind).toBe('validated-accessor');
+    expect(def.factory()({} as AdapterContext)).toBeUndefined();
+  });
+
+  it('should normalize bare functions on distinct namespaces independently', () => {
+    // Arrange
+    const reqSupply = (_ctx: AdapterContext) => ({ q: '1' });
+    const resSupply = (_ctx: AdapterContext) => ({ r: '2' });
+
+    // Act
+    const def = defineMiddleware({
+      adapters: [FakeAdapterA],
+      augments: { request: { getQuery: reqSupply }, response: { getMeta: resSupply } },
+      factory: noopFactory,
+    });
+
+    // Assert
+    expect(def.augments?.request?.getQuery?.kind).toBe('validated-accessor');
+    expect(def.augments?.response?.getMeta?.kind).toBe('validated-accessor');
+  });
+
+  it('should not fall through to other overloads for an augments-only config', () => {
+    // Arrange
+    const supply = (_ctx: AdapterContext) => 'value';
+
+    // Act
+    const def = defineMiddleware({
+      adapters: [FakeAdapterA],
+      augments: { request: { extra: supply } },
+    });
+
+    // Assert
+    expect(def.adapters).toEqual([FakeAdapterA]);
+    expect(Object.isFrozen(def)).toBe(true);
+  });
 });

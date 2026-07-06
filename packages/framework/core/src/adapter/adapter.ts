@@ -1,7 +1,8 @@
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result, ResultAsync } from '@zipbul/result';
 import { isBakerIssueSet } from '@zipbul/baker';
-import type { MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
+import type { AugmentAccessorRegistryEntry, MiddlewareAugments, MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
+import { augmentRawKey } from '@zipbul/common';
 import type { GuardDefinition, GuardHandlerFn } from '@zipbul/common';
 import type { ExceptionFilterDefinition, ExceptionFilterHandlerFn, ExceptionConstructorLike } from '@zipbul/common';
 import type { Adapter as AdapterContract, AdapterClass, AdapterConfig, AdapterEntryDecorators, AdapterContext, ApplicationContext } from '@zipbul/common';
@@ -11,6 +12,7 @@ import { contextKey } from '@zipbul/common';
 import { appBaker } from '../baker';
 import { runInInjectionContext } from '../injection-context';
 import { runInAdapterContext } from '../adapter-context';
+import { installAugmentAccessorOnPrototype } from './augment-installer';
 import { CoreStep } from './enums';
 
 /**
@@ -106,6 +108,7 @@ export abstract class Adapter implements AdapterContract {
 
   private middlewareRegistry = new Map<string, readonly MiddlewareDefinition[]>();
   private resolvedMiddlewareRegistry = new Map<string, ResolvedMiddleware[]>();
+  private augmentAccessorRegistry: readonly AugmentAccessorRegistryEntry[] = [];
 
   protected exceptionFilterDefs: readonly ExceptionFilterDefinition[] = [];
   protected guardDefs: readonly GuardDefinition[] = [];
@@ -195,6 +198,12 @@ export abstract class Adapter implements AdapterContract {
         this.validateAdapterCompatibility(definitions, 'Middleware');
         this.middlewareRegistry.set(phase, definitions);
       }
+
+      this.validateGlobalAugmentCollisions(config.middlewares);
+    }
+
+    if (config.augmentAccessors !== undefined) {
+      this.augmentAccessorRegistry = config.augmentAccessors;
     }
 
     if (config.guards !== undefined) {
@@ -628,9 +637,115 @@ export abstract class Adapter implements AdapterContract {
     definitions: readonly MiddlewareDefinition[],
     container: ZipbulContainer,
   ): ResolvedMiddleware[] {
-    return definitions.map((def) => ({
-      handler: runInInjectionContext(container, def.factory),
-    }));
+    return definitions.map((def) => {
+      const handler = runInInjectionContext(container, def.factory);
+
+      if (def.augments === undefined) {
+        return { handler };
+      }
+
+      // Boot-time: install the (options-independent) prototype accessors via
+      // the adapter hook. Idempotent by the adapter's bookkeeping — this runs
+      // once per resolved definition, covering both global (initializePipeline)
+      // and per-route (resolveMiddlewareKeys) registration paths.
+      this.installAugments(def.augments);
+
+      // Per-request: supply raw/value slots BEFORE the author handler so the
+      // handler (and everything after this phase) can read its own accessors.
+      const supply = buildAugmentSupplyStep(def.augments);
+
+      return {
+        handler: (ctx: AdapterContext) => {
+          supply(ctx);
+
+          return handler(ctx);
+        },
+      };
+    });
+  }
+
+  /**
+   * Installs the boot-time accessors for a definition's augments. Core owns the
+   * install MECHANISM ({@link installAugmentAccessorOnPrototype}); the adapter
+   * contributes only the namespace→prototype declaration via
+   * {@link namespacePrototypes}.
+   */
+  private installAugments(augments: MiddlewareAugments): void {
+    const prototypes = this.namespacePrototypes();
+
+    for (const [namespace, props] of Object.entries(augments)) {
+      const prototype = prototypes[namespace];
+
+      if (prototype === undefined) {
+        throw new Error(
+          `[${this.constructor.name}] adapter declares no context namespace '${namespace}' `
+          + `(known: ${Object.keys(prototypes).join(', ') || '(none)'}).`,
+        );
+      }
+
+      for (const prop of Object.keys(props)) {
+        installAugmentAccessorOnPrototype(prototype, namespace, prop, this.constructor.name);
+      }
+    }
+  }
+
+  /**
+   * Protocol-specific DECLARATION: maps each context namespace to the prototype
+   * its augment members are installed on (e.g. HTTP: `request` →
+   * `HttpRequest.prototype`). The base class declares none; adapters that
+   * support augments override this. Core drives installation off it.
+   *
+   * @public
+   */
+  protected namespacePrototypes(): Readonly<Record<string, object>> {
+    return {};
+  }
+
+  /**
+   * The AOT-emitted augment accessor registry applied via {@link applyConfig}.
+   * Adapters consume this to wire DTO validation for validated accessors.
+   *
+   * @public
+   */
+  protected getAugmentAccessorRegistry(): readonly AugmentAccessorRegistryEntry[] {
+    return this.augmentAccessorRegistry;
+  }
+
+  /**
+   * Rejects duplicate augment members across the adapter's GLOBAL phase
+   * registrations. Multi-instance middleware (same factory, different options)
+   * is sanctioned across different ROUTE pipelines — never twice in the global
+   * set, where both instances would race the same per-request slot.
+   */
+  private validateGlobalAugmentCollisions(
+    middlewares: Readonly<Record<string, readonly MiddlewareDefinition[]>>,
+  ): void {
+    const seen = new Map<string, string>();
+
+    for (const [phase, definitions] of Object.entries(middlewares)) {
+      for (const def of definitions) {
+        if (def.augments === undefined) {
+          continue;
+        }
+
+        for (const [namespace, props] of Object.entries(def.augments)) {
+          for (const prop of Object.keys(props)) {
+            const member = `${namespace}.${prop}`;
+            const existing = seen.get(member);
+
+            if (existing !== undefined) {
+              throw new Error(
+                `Duplicate context augment '${member}' in global middleware registration `
+                + `(phases '${existing}' and '${phase}'). Two middleware instances would race the same `
+                + `per-request slot — register per route instead.`,
+              );
+            }
+
+            seen.set(member, phase);
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -699,5 +814,29 @@ export abstract class Adapter implements AdapterContract {
 
     return this.pipelineContainer;
   }
+}
+
+/**
+ * Builds the per-request supply step for a definition's augments: plain
+ * augments store `create(ctx)` under the value key; validated accessors store
+ * `supply(ctx)` under the raw key (baker validation later moves the validated
+ * instance to the validated key at the Validation step).
+ */
+function buildAugmentSupplyStep(augments: MiddlewareAugments): (ctx: AdapterContext) => void {
+  const steps: Array<(ctx: AdapterContext) => void> = [];
+
+  for (const [namespace, props] of Object.entries(augments)) {
+    for (const [prop, spec] of Object.entries(props)) {
+      const key = augmentRawKey(namespace, prop);
+
+      steps.push((ctx) => { ctx.set(key, spec.supply(ctx)); });
+    }
+  }
+
+  return (ctx) => {
+    for (const step of steps) {
+      step(ctx);
+    }
+  };
 }
    
