@@ -279,6 +279,13 @@ describe('QueryParser', () => {
       expect(parser.parse('arr[]=a')).toEqual({ 'arr[]': 'a' });
       expect(parser.parse('a[b][c]=d')).toEqual({ 'a[b][c]': 'd' });
     });
+
+    it('should keep percent-encoded brackets as literal key characters when nesting is false', () => {
+      // Decode-then-parse: the key decodes to 'a[b]' but nesting is off, so the
+      // decoded brackets stay literal in the key name.
+      // Act & Assert
+      expect(parser.parse('a%5Bb%5D=c')).toEqual({ 'a[b]': 'c' });
+    });
   });
 
   // =========================================================================
@@ -347,6 +354,14 @@ describe('QueryParser', () => {
       // Act & Assert
       expect(parser.parse('a=1&b=2&c=3')).toEqual({ a: '1', b: '2' });
     });
+
+    it('should keep all pairs when the pair count equals maxParams exactly', () => {
+      // Arrange — boundary: the limit truncates only pairs BEYOND maxParams.
+      const parser = QueryParser.create({ maxParams: 2 });
+
+      // Act & Assert
+      expect(parser.parse('a=1&b=2')).toEqual({ a: '1', b: '2' });
+    });
   });
 
   // =========================================================================
@@ -382,6 +397,15 @@ describe('QueryParser', () => {
       expect(expectQueryArray(first.arr)).toEqual(['a']);
       expect(expectQueryArray(filtered.arr)).toEqual(['a']);
       expect(expectQueryRecord(fallback.arr)).toEqual({ '1': 'b' });
+    });
+
+    it('should create an object container for an over-limit index at an intermediate level', () => {
+      // Arrange — shouldCreateArray rejects indices above arrayLimit at container
+      // creation, so the intermediate level becomes an object and the value is kept.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('arr[21][x]=y')).toEqual({ arr: { '21': { x: 'y' } } });
     });
 
     it('should enforce arrayLimit 10 when limit is set', () => {
@@ -442,6 +466,16 @@ describe('QueryParser', () => {
 
       // Act & Assert
       expect(parser.parse('id=1')).toEqual({ id: '1' });
+    });
+
+    it('should drop a scalar duplicate of a record-valued key when duplicates is array', () => {
+      // Traced behavior: with duplicates 'array', a later scalar for a key that
+      // already holds a RECORD (not an array) is silently dropped — only an
+      // existing array collects the scalar. The record is never wrapped.
+      const parser = QueryParser.create({ nesting: true, duplicates: 'array' });
+
+      // Act & Assert
+      expect(parser.parse('a[b]=1&a=2')).toEqual({ a: { b: '1' } });
     });
 
     it('should allow explicit array brackets when duplicates is first and nesting is true', () => {
@@ -713,8 +747,24 @@ describe('QueryParser', () => {
     });
 
     it('should handle encoded brackets when percent encoded', () => {
+      // Intentional decode-then-parse semantics (matches qs): keys are fully
+      // percent-decoded BEFORE bracket detection, so %5B/%5D act structurally
+      // under nesting — there is no way to smuggle a literal '[' into a key.
       // Act & Assert
       expect(parser.parse('a%5Bb%5D=c')).toEqual({ a: { b: 'c' } });
+    });
+
+    it('should keep the non-strict fallback for a stray close bracket in the root-key portion', () => {
+      // The stray ']' before the first '[' only errors in strict mode; the
+      // non-strict shape is locked in here.
+      // Act & Assert
+      expect(parser.parse('a]b[c]=1')).toEqual({ 'a]b': { c: '1' } });
+    });
+
+    it('should silently drop garbage characters between bracket groups when strict is false', () => {
+      // Non-strict keeps only the bracket segments; 'junk' is discarded.
+      // Act & Assert
+      expect(parser.parse('a[b]junk[c]=1')).toEqual({ a: { b: { c: '1' } } });
     });
 
     it('should reject empty root key when brackets are used', () => {
@@ -804,6 +854,34 @@ describe('QueryParser', () => {
       expect(res.data).toEqual({ name: 'a', '0': 'b' });
     });
 
+    it('should replace a root scalar with the nested structure when a bracket key follows', () => {
+      // Non-strict: the later structural key rebuilds the root container
+      // regardless of the duplicates strategy — the scalar '1' is discarded.
+      expect(parser.parse('a=1&a[b]=2')).toEqual({ a: { b: '2' } });
+    });
+
+    it('should keep the nested structure when a scalar follows under default duplicates', () => {
+      // Non-strict, duplicates 'first': the later scalar for a structured key is dropped.
+      expect(parser.parse('a[b]=1&a=2')).toEqual({ a: { b: '1' } });
+    });
+
+    it('should overwrite the nested structure with the scalar when duplicates is last', () => {
+      // Arrange
+      const lastParser = QueryParser.create({ nesting: true, duplicates: 'last' });
+
+      // Act & Assert
+      expect(lastParser.parse('a[b]=1&a=2')).toEqual({ a: '2' });
+    });
+
+    it('should skip holes when converting a sparse array to an object', () => {
+      // arrayToObject iterates own keys only, so indices 0-4 never materialize.
+      // Act
+      const res = parser.parse('arr[5]=b&arr[foo]=x');
+
+      // Assert
+      expect(res.arr).toEqual({ '5': 'b', foo: 'x' });
+    });
+
     it('should preserve the nested structure on a non-strict array-index structure-then-scalar conflict', () => {
       // The object-key path keeps the structure (k[a][b]=1&k[a]=2 -> {k:{a:{b:'1'}}});
       // the array-index path must not silently drop {b:'1'} for the later scalar.
@@ -848,6 +926,27 @@ describe('QueryParser', () => {
 
       // '0' itself is still a valid array index
       expect(expectQueryArray(parser.parse('arr[0]=val').arr)).toEqual(['val']);
+    });
+
+    it('should treat a 10-digit index as an array index when nesting is true', () => {
+      // Arrange — 10 digits is the isValidArrayIndex length boundary: it is still
+      // recognized as an index, so the default arrayLimit drops the over-limit
+      // value from the existing array instead of converting to an object.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('arr[0]=a&arr[9999999999]=x')).toEqual({ arr: ['a'] });
+    });
+
+    it('should fall back to an object key for an 11-digit index when nesting is true', () => {
+      // Arrange — 11 digits exceeds the isValidArrayIndex length cap, so the key
+      // is non-numeric: the array converts to an object and the value is kept.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('arr[0]=a&arr[12345678901]=x')).toEqual({
+        arr: { '0': 'a', '12345678901': 'x' },
+      });
     });
 
     it('should handle mixed empty and indexed brackets when provided', () => {
@@ -903,6 +1002,49 @@ describe('QueryParser', () => {
 
       // Act & Assert — scalar first, then bracket key triggers conflict in parseComplexKey
       expect(() => parser.parse('a=1&a[b]=2')).toThrow(/Conflict/);
+    });
+
+    it('should throw on a stray close bracket in the root-key portion when strict and nesting are true', () => {
+      // Arrange — the ']' sits BEFORE the first '[', outside the bracket-scan region.
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act & Assert
+      expect(() => parser.parse('a]b[c]=1')).toThrow(/unbalanced brackets/);
+    });
+
+    it('should throw on garbage characters between bracket groups when strict and nesting are true', () => {
+      // Arrange
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act
+      const error = catchError(() => parser.parse('a[b]junk[c]=1'));
+
+      // Assert
+      expect(error.reason).toBe(QueryParserErrorReason.MalformedQueryString);
+    });
+
+    it('should throw on nested brackets when strict and nesting are true', () => {
+      // Arrange — the nesting:true path validates inside parseComplexKey, not validateBrackets.
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act & Assert
+      expect(() => parser.parse('a[[b]]=1')).toThrow(/nested brackets/);
+    });
+
+    it('should throw on an unbalanced close bracket when strict and nesting are true', () => {
+      // Arrange
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act & Assert
+      expect(() => parser.parse('a[b]]=1')).toThrow(/unbalanced brackets/);
+    });
+
+    it('should throw on an unclosed bracket when strict and nesting are true', () => {
+      // Arrange
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act & Assert
+      expect(() => parser.parse('a[b=1')).toThrow(/unclosed bracket/);
     });
 
     it('should throw when non-numeric key is mixed in array and strict is true', () => {

@@ -15,6 +15,7 @@ export {
   createTestHttpContext as mockContext,
   createTestHttpRequest as mockRequest,
   createTestHttpResponse as mockResponse,
+  withAugments,
   unwrapOk,
   unwrapErr,
   readJsonBody,

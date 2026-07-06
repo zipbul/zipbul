@@ -35,6 +35,35 @@ parser.parse('q=hello%20world&lang=ko');
 
 <br>
 
+## 🧩 HTTP Middleware
+
+The package also ships a zipbul HTTP middleware factory, `queryParser(options?)`. Each call creates an independent middleware instance, so different registration points may use different options. Options are validated at boot — `queryParser()` throws `QueryParserError` immediately on invalid options, before the app starts serving.
+
+Register it on any phase **before** validation (typically `HttpAdapterPhase.BeforeValidate`):
+
+```typescript
+import { queryParser } from '@zipbul/query-parser';
+import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+
+// In your adapter config:
+middlewares: {
+  [HttpAdapterPhase.BeforeValidate]: [queryParser({ nesting: true })],
+}
+```
+
+The middleware declares a typed `request.getQuery(dto)` context accessor via its `augments` slot. The middleware only **supplies** the raw parsed query; the framework wires [@zipbul/baker](https://www.npmjs.com/package/@zipbul/baker) DTO validation from the handler's `getQuery(SomeDto)` call site, and the installed accessor returns the validated instance — exactly like `getBody`/`getParams`:
+
+```typescript
+@Get()
+search(ctx: HttpContext) {
+  const query = ctx.request.getQuery(SearchQueryDto); // typed + validated
+}
+```
+
+`zb build middleware` extracts the accessor declaration into `dist/context-augments.d.ts` (consumer types) and `dist/context-augments.json` (app AOT manifest).
+
+<br>
+
 ## ⚙️ Options
 
 ```typescript
@@ -89,15 +118,23 @@ parser.parse('filter[status]=active&filter[role]=admin');
 
 When `false` (default), brackets are treated as literal characters in the key name.
 
+> **Decode-then-parse:** keys are fully percent-decoded **before** bracket detection, so encoded brackets (`%5B`/`%5D`) act structurally under `nesting: true` — `a%5Bb%5D=c` parses the same as `a[b]=c` (matching `qs`). There is no way to smuggle a literal `[` or `]` into a key name when nesting is enabled.
+
 ### `arrayLimit`
 
-Maximum array index allowed when `nesting` is enabled. An index above this limit does **not** drop the value — the container falls back to a plain object keyed by the index string.
+Maximum array index allowed when `nesting` is enabled. At **container creation** an index above this limit does not drop the value — the container falls back to a plain object keyed by the index string.
 
 ```typescript
 const parser = QueryParser.create({ nesting: true, arrayLimit: 5 });
 
 parser.parse('a[3]=ok');   // { a: [undefined, undefined, undefined, 'ok'] }  (sparse array)
 parser.parse('a[100]=no'); // over limit → object: { a: { '100': 'no' } }
+```
+
+⚠️ The object fallback only applies when the container is first created. If the key already holds an **array**, a later over-limit index is silently dropped:
+
+```typescript
+parser.parse('a[0]=x&a[100]=no'); // { a: ['x'] } — '100' dropped
 ```
 
 ### `duplicates`
@@ -128,11 +165,11 @@ QueryParser.create({ duplicates: 'array' }).parse(input);
 When enabled, `parse()` throws `QueryParserError` instead of silently ignoring errors:
 
 - Malformed percent encoding (`%zz`, truncated `%E0%A4`)
-- Unbalanced or nested brackets (`a[[b]=1`, `a[b=1`)
-- Conflicting key structures (`a=1&a[b]=2`)
+- Unbalanced, nested, or unclosed brackets (`a]b[c]=1`, `a[[b]]=1`, `a[b=1`), and stray characters between bracket groups (`a[b]junk[c]=1`)
+- Conflicting key structures (`a=1&a[b]=2`) — detecting structure conflicts requires `nesting: true`; with nesting off, bracket keys are literal and never conflict
 
 ```typescript
-const parser = QueryParser.create({ strict: true });
+const parser = QueryParser.create({ strict: true, nesting: true });
 
 parser.parse('valid=ok');           // { valid: 'ok' }
 parser.parse('bad=%zz');            // throws QueryParserError

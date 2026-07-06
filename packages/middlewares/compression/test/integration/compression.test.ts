@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
-import { isErr } from '@zipbul/result';
-import type { Result } from '@zipbul/result';
 import type { AdapterContext, ClassToken, ContextKey, MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
 import { HttpContext } from '@zipbul/http-adapter';
 import {
   compressionMiddleware,
-
+  CompressionError,
   CompressionErrorReason,
 } from '../../index';
 import { CompressionCodec } from '../../src/enums';
@@ -96,15 +94,25 @@ function largeBody(sizeBytes: number): string {
   return 'a'.repeat(sizeBytes);
 }
 
-/** Unwrap a successful middleware Result and expose its handler.
- *  Fails the test if the Result is an Err. */
-function unwrap<E extends { message?: string }>(
-  result: Result<MiddlewareDefinition, E>,
-): { handler: MiddlewareHandlerFn } {
-  if (isErr(result)) {
-    throw new Error(`unexpected Err: ${String(result.data.message)}`);
+/** Instantiate the middleware definition's handler. */
+function unwrap(definition: MiddlewareDefinition): { handler: MiddlewareHandlerFn } {
+  return { handler: definition.factory() };
+}
+
+/** Run `fn` and return the CompressionError it throws.
+ *  Fails the test if nothing (or something else) is thrown. */
+function catchError(fn: () => void): CompressionError {
+  try {
+    fn();
+  } catch (error: unknown) {
+    if (error instanceof CompressionError) {
+      return error;
+    }
+
+    throw error;
   }
-  return { handler: result.factory() };
+
+  throw new Error('Expected CompressionError to be thrown');
 }
 
 const LARGE_JSON = JSON.stringify({ data: largeBody(2048) });
@@ -264,60 +272,46 @@ describe('compressionMiddleware', () => {
   });
 
   describe('create validation errors', () => {
-    it('should return Err with EmptyEncodings when encodings=[]', () => {
-      const result = compressionMiddleware({ encodings: [] });
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data.reason).toBe(CompressionErrorReason.EmptyEncodings);
-      }
+    it('should throw CompressionError with EmptyEncodings when encodings=[]', () => {
+      const error = catchError(() => compressionMiddleware({ encodings: [] }));
+      expect(error).toBeInstanceOf(CompressionError);
+      expect(error.reason).toBe(CompressionErrorReason.EmptyEncodings);
     });
 
-    it('should return Err with InvalidEncodings for unknown encoding', () => {
-      const result = compressionMiddleware({ encodings: ['lz4' as unknown as CompressionCodec] });
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data.reason).toBe(CompressionErrorReason.InvalidEncodings);
-      }
+    it('should throw CompressionError with InvalidEncodings for unknown encoding', () => {
+      const error = catchError(() => compressionMiddleware({ encodings: ['lz4' as unknown as CompressionCodec] }));
+      expect(error).toBeInstanceOf(CompressionError);
+      expect(error.reason).toBe(CompressionErrorReason.InvalidEncodings);
     });
 
-    it('should return Err with InvalidThreshold for negative threshold', () => {
-      const result = compressionMiddleware({ threshold: -1 });
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data.reason).toBe(CompressionErrorReason.InvalidThreshold);
-      }
+    it('should throw CompressionError with InvalidThreshold for negative threshold', () => {
+      const error = catchError(() => compressionMiddleware({ threshold: -1 }));
+      expect(error).toBeInstanceOf(CompressionError);
+      expect(error.reason).toBe(CompressionErrorReason.InvalidThreshold);
     });
 
-    it('should return Err with InvalidThreshold for NaN threshold', () => {
-      const result = compressionMiddleware({ threshold: NaN });
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data.reason).toBe(CompressionErrorReason.InvalidThreshold);
-      }
+    it('should throw CompressionError with InvalidThreshold for NaN threshold', () => {
+      const error = catchError(() => compressionMiddleware({ threshold: NaN }));
+      expect(error).toBeInstanceOf(CompressionError);
+      expect(error.reason).toBe(CompressionErrorReason.InvalidThreshold);
     });
 
-    it('should return Err with InvalidLevel for gzip level=10', () => {
-      const result = compressionMiddleware({ level: { [CompressionCodec.Gzip]: 10 } });
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
-      }
+    it('should throw CompressionError with InvalidLevel for gzip level=10', () => {
+      const error = catchError(() => compressionMiddleware({ level: { [CompressionCodec.Gzip]: 10 } }));
+      expect(error).toBeInstanceOf(CompressionError);
+      expect(error.reason).toBe(CompressionErrorReason.InvalidLevel);
     });
 
-    it('should return Err with InvalidLevel for brotli level=12', () => {
-      const result = compressionMiddleware({ level: { [CompressionCodec.Br]: 12 } });
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
-      }
+    it('should throw CompressionError with InvalidLevel for brotli level=12', () => {
+      const error = catchError(() => compressionMiddleware({ level: { [CompressionCodec.Br]: 12 } }));
+      expect(error).toBeInstanceOf(CompressionError);
+      expect(error.reason).toBe(CompressionErrorReason.InvalidLevel);
     });
 
-    it('should return Err with InvalidLevel for fractional level', () => {
-      const result = compressionMiddleware({ level: { [CompressionCodec.Gzip]: 5.5 } });
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
-      }
+    it('should throw CompressionError with InvalidLevel for fractional level', () => {
+      const error = catchError(() => compressionMiddleware({ level: { [CompressionCodec.Gzip]: 5.5 } }));
+      expect(error).toBeInstanceOf(CompressionError);
+      expect(error.reason).toBe(CompressionErrorReason.InvalidLevel);
     });
   });
 
@@ -670,12 +664,10 @@ describe('compressionMiddleware', () => {
       expect(sizes.size).toBeGreaterThan(1);
     });
 
-    it('should return Err when breach enabled with only non-BREACH-safe encodings', () => {
-      const result = compressionMiddleware({ encodings: [CompressionCodec.Br], breach: { maxPadding: 32 } });
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data.reason).toBe(CompressionErrorReason.InvalidBreach);
-      }
+    it('should throw CompressionError when breach enabled with only non-BREACH-safe encodings', () => {
+      const error = catchError(() => compressionMiddleware({ encodings: [CompressionCodec.Br], breach: { maxPadding: 32 } }));
+      expect(error).toBeInstanceOf(CompressionError);
+      expect(error.reason).toBe(CompressionErrorReason.InvalidBreach);
     });
 
     it('should not apply padding when breach option is not set', () => {
@@ -714,13 +706,11 @@ describe('compressionMiddleware', () => {
       expect(response.getHeader('content-encoding')).toBe('gzip');
     });
 
-    it('should return Err for invalid breach.maxPadding values', () => {
+    it('should throw CompressionError for invalid breach.maxPadding values', () => {
       for (const maxPadding of [0, -1, 1.5, 5000, NaN]) {
-        const result = compressionMiddleware({ breach: { maxPadding } });
-        expect(isErr(result)).toBe(true);
-        if (isErr(result)) {
-          expect(result.data.reason).toBe(CompressionErrorReason.InvalidBreach);
-        }
+        const error = catchError(() => compressionMiddleware({ breach: { maxPadding } }));
+        expect(error).toBeInstanceOf(CompressionError);
+        expect(error.reason).toBe(CompressionErrorReason.InvalidBreach);
       }
     });
   });
@@ -965,17 +955,14 @@ describe('compressionMiddleware', () => {
   });
 
   describe('RFC 9659 zstd level cap', () => {
-    it('should return Err for zstd level 20 (exceeds RFC 9659 8MB window)', () => {
-      const result = compressionMiddleware({ encodings: [CompressionCodec.Zstd], level: { [CompressionCodec.Zstd]: 20 } });
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
-      }
+    it('should throw CompressionError for zstd level 20 (exceeds RFC 9659 8MB window)', () => {
+      const error = catchError(() => compressionMiddleware({ encodings: [CompressionCodec.Zstd], level: { [CompressionCodec.Zstd]: 20 } }));
+      expect(error).toBeInstanceOf(CompressionError);
+      expect(error.reason).toBe(CompressionErrorReason.InvalidLevel);
     });
 
     it('should accept zstd level 19', () => {
-      const result = compressionMiddleware({ encodings: [CompressionCodec.Zstd], level: { [CompressionCodec.Zstd]: 19 } });
-      expect(isErr(result)).toBe(false);
+      expect(() => compressionMiddleware({ encodings: [CompressionCodec.Zstd], level: { [CompressionCodec.Zstd]: 19 } })).not.toThrow();
     });
   });
 });

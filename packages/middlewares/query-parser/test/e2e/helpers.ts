@@ -1,24 +1,22 @@
-import type { Class } from '@zipbul/common';
-
 import { afterAll, beforeAll } from 'bun:test';
-import { defineMiddleware } from '@zipbul/common';
+import { augmentRawKey, defineMiddleware } from '@zipbul/common';
 import { HttpAdapter, HttpAdapterPhase, HttpContext } from '@zipbul/http-adapter';
 import { Tck, type TestApplication } from '@zipbul/tck';
 
 import { queryParser } from '../../index';
 
-class QueryDto {}
-
 /**
- * Echoes the parsed query — read via the typed `request.getQuery(dto)` accessor
- * the `queryParser` middleware installs — into the `x-parsed-query` response
- * header (JSON-encoded, so any control characters are escaped and never reach
- * the wire raw), then commits the response. Lets an HTTP-level test observe what
- * the middleware parsed without needing an AOT-compiled route.
+ * Echoes the parsed query — read from the raw augment slot the `queryParser`
+ * middleware supplies — into the `x-parsed-query` response header
+ * (JSON-encoded, so any control characters are escaped and never reach the
+ * wire raw), then commits the response. Lets an HTTP-level test observe what
+ * the middleware parsed without needing an AOT-compiled route. The validated
+ * `getQuery(Dto)` accessor path requires the AOT validation step and is
+ * covered by the compiled-app acceptance suite, not this Tck harness.
  */
 const echoQuery = defineMiddleware([HttpAdapter], () => (ctx) => {
   const http = ctx.to(HttpContext);
-  const query = (http.request as unknown as { getQuery<T>(dto: Class<T>): T }).getQuery(QueryDto);
+  const query = ctx.get(augmentRawKey('request', 'getQuery'));
 
   http.response.setHeader('x-parsed-query', JSON.stringify(query));
   http.response.send();
@@ -37,7 +35,7 @@ export async function bootQueryParserApp(): Promise<QpTestApp> {
     adapterConfig: {
       HttpAdapter: {
         middlewares: {
-          [HttpAdapterPhase.OnRequest]: [queryParser, echoQuery],
+          [HttpAdapterPhase.OnRequest]: [queryParser(), echoQuery],
         },
       },
     },

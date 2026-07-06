@@ -11,10 +11,21 @@ import type {
 } from '@zipbul/common';
 
 import {
-  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE,
+  ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL,
 } from '@zipbul/common';
 import type { AnalyzerValueRecord } from '../types';
+import { buildDiagnostic, DiagnosticError } from '../../../diagnostics';
 import { toRecord, isAnalyzerValueArray, isUnresolvable } from '../type-guards';
+
+/**
+ * IR marker for a member access applied to a call result — produced when a
+ * const-local member registration (`cookies.onRequest`) is resolved to its
+ * initializing factory call. The value serializer renders
+ * `<call>(<args>).<member>`.
+ *
+ * @public
+ */
+export const ZIPBUL_MEMBER_KEY = '__zipbul_member';
 
 /**
  * Enriches a ZIPBUL_REF value with ZIPBUL_IMPORT_SOURCE from the class imports map.
@@ -47,6 +58,135 @@ function enrichRefWithImportSource(
   return { ...record, [ZIPBUL_IMPORT_SOURCE]: importSource } as AnalyzerValueRecord as AnalyzerValue;
 }
 
+/**
+ * One middleware registration entry resolved to an analyzable form.
+ *
+ * - `ref` : direct identifier reference — `corsMiddleware`.
+ * - `call`: factory call (`queryParser({...})`) or resolved const-local
+ *   member access (`cookies.onRequest`).
+ *
+ * `refName` is the middleware's export-name identity (the factory export for
+ * call forms) — the key used to match manifests and collected augments.
+ */
+interface ResolvedMiddlewareEntry {
+  readonly value: AnalyzerValue;
+  readonly kind: 'ref' | 'call';
+  readonly refName: string;
+}
+
+/**
+ * Resolves one middleware registration value (`ref` / `call` / const-local
+ * member access) into an analyzable entry, or throws a `DiagnosticError` when
+ * the entry cannot be statically resolved — the previous behavior silently
+ * dropped such entries, making them invisible to AOT analysis.
+ */
+function resolveMiddlewareEntry(params: {
+  readonly arg: AnalyzerValue;
+  readonly imports: Record<string, string>;
+  readonly localValues: AnalyzerValueRecord | undefined;
+  readonly where: string;
+  readonly filePath?: string | undefined;
+}): ResolvedMiddlewareEntry {
+  const { arg, imports, localValues, where, filePath } = params;
+  const failEntry = (detail: string, how: string): never => {
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `${where}: ${detail}`,
+      ...(filePath !== undefined ? { file: filePath } : {}),
+      how,
+    }));
+  };
+  const enriched = enrichRefWithImportSource(arg, imports);
+  const record = toRecord(enriched);
+
+  if (record === null) {
+    return failEntry(
+      `middleware entry is not a statically resolvable reference or factory call (found: ${JSON.stringify(arg)}).`,
+      'Register middleware as an imported identifier (`corsMiddleware`), a direct factory call (`queryParser({...})`), or a same-file const-local member (`cookies.onRequest`).',
+    );
+  }
+
+  if (isUnresolvable(record)) {
+    return failEntry(
+      `middleware entry \`${typeof record.sourceText === 'string' ? record.sourceText : '<expression>'}\` is not statically resolvable.`,
+      'Register middleware as an imported identifier, a direct factory call, or a same-file const-local member access — conditionals, spreads, and dynamic expressions are not analyzable.',
+    );
+  }
+
+  const refName = record[ZIPBUL_REF];
+
+  if (typeof refName === 'string' && refName.length > 0) {
+    const dot = refName.indexOf('.');
+
+    if (dot === -1) {
+      return { value: enriched, kind: 'ref', refName };
+    }
+
+    // Member access `local.prop` — supported only for a same-file const local
+    // whose initializer is a resolvable middleware factory call.
+    const root = refName.slice(0, dot);
+    const member = refName.slice(dot + 1);
+    const local = toRecord(localValues?.[root]);
+    const localCallee = local !== null ? local[ZIPBUL_CALL] : undefined;
+
+    if (typeof localCallee === 'string' && localCallee.length > 0) {
+      const calleeRoot = localCallee.split('.')[0] ?? localCallee;
+      const ownSource = local![ZIPBUL_IMPORT_SOURCE];
+      const importSource = typeof ownSource === 'string' && ownSource.length > 0
+        ? ownSource
+        : imports[calleeRoot];
+
+      if (typeof importSource === 'string' && importSource.length > 0) {
+        const synthesized: AnalyzerValueRecord = {
+          [ZIPBUL_CALL]: localCallee,
+          [ZIPBUL_IMPORT_SOURCE]: importSource,
+          args: local!.args,
+          [ZIPBUL_MEMBER_KEY]: member,
+        };
+        const lastSegment = localCallee.split('.').pop() ?? localCallee;
+
+        return { value: synthesized as AnalyzerValue, kind: 'call', refName: lastSegment };
+      }
+
+      return failEntry(
+        `middleware entry \`${refName}\` resolves to local \`const ${root} = ${localCallee}(...)\`, but \`${calleeRoot}\` is not an imported factory.`,
+        'Import the middleware factory from its package so the call can be resolved statically.',
+      );
+    }
+
+    return failEntry(
+      `middleware entry \`${refName}\` is a member access that cannot be resolved statically.`,
+      `Only same-file const locals initialized by a middleware factory call are supported (\`const ${root} = someMiddleware(...); ... ${refName}\`). Re-exported instances and dynamic member access are not analyzable — register the factory call directly instead.`,
+    );
+  }
+
+  const callee = record[ZIPBUL_CALL];
+
+  if (typeof callee === 'string' && callee.length > 0) {
+    const calleeRoot = callee.split('.')[0] ?? callee;
+    const ownSource = record[ZIPBUL_IMPORT_SOURCE];
+    const importSource = typeof ownSource === 'string' && ownSource.length > 0
+      ? ownSource
+      : imports[calleeRoot];
+
+    if (typeof importSource !== 'string' || importSource.length === 0) {
+      return failEntry(
+        `middleware factory call \`${callee}(...)\` does not resolve to an imported factory.`,
+        'Import the middleware factory from its package so the registration can be resolved statically.',
+      );
+    }
+
+    const value: AnalyzerValueRecord = { ...record, [ZIPBUL_IMPORT_SOURCE]: importSource };
+    const lastSegment = callee.split('.').pop() ?? callee;
+
+    return { value: value as AnalyzerValue, kind: 'call', refName: lastSegment };
+  }
+
+  return failEntry(
+    'middleware entry is not a statically resolvable reference or factory call.',
+    'Register middleware as an imported identifier (`corsMiddleware`), a direct factory call (`queryParser({...})`), or a same-file const-local member (`cookies.onRequest`).',
+  );
+}
+
 interface DecoratorKeyExtraction {
   keys: string[];
   bindings: CompiledPipelineBindingEntry[];
@@ -69,6 +209,9 @@ interface MiddlewareDecoratorKeyExtraction {
  * @param keyPrefix - Prefix for generated container keys.
  * @param registrations - Accumulator for route-level container registrations.
  * @param startIndex - Starting index for key generation (to avoid collision with UseMiddlewares keys).
+ * @param localValues - Same-file local bindings (`FileAnalysis.localValues`) —
+ *   used to resolve const-local member registrations (`cookies.onRequest`).
+ * @param filePath - Declaring file path for diagnostics.
  * @returns Array of deterministic container keys and their bindings.
  * @public
  */
@@ -78,6 +221,8 @@ export function extractMiddlewaresDecoratorRefKeys(
   keyPrefix: string,
   registrations: RouteRegistration[],
   startIndex: number,
+  localValues?: AnalyzerValueRecord,
+  filePath?: string,
 ): MiddlewareDecoratorKeyExtraction {
   const keys: string[] = [];
   const bindings: CompiledMiddlewareBindingEntry[] = [];
@@ -85,6 +230,22 @@ export function extractMiddlewaresDecoratorRefKeys(
 
   const extractFromDecorator = (decorator: { arguments: readonly AnalyzerValue[] }, scope: 'cls' | 'mtd'): void => {
     const args = decorator.arguments;
+    const pushEntry = (ref: AnalyzerValue, phase: string | undefined): void => {
+      const resolved = resolveMiddlewareEntry({
+        arg: ref,
+        imports: cls.imports,
+        localValues,
+        where: `@UseMiddlewares on '${cls.className}'`,
+        filePath,
+      });
+      const key = `${keyPrefix}:${scope}:${index}`;
+      const bindingScope: CompiledPipelineScope = scope === 'cls' ? 'controller' : 'handler';
+
+      keys.push(key);
+      registrations.push({ key, value: resolved.value, kind: resolved.kind });
+      bindings.push({ key, scope: bindingScope, order: index, ...(phase !== undefined ? { phase } : {}) });
+      index++;
+    };
 
     if (args.length === 2) {
       // Positional: @UseMiddlewares('OnReceive', [mw1, mw2])
@@ -94,22 +255,11 @@ export function extractMiddlewaresDecoratorRefKeys(
         return;
       }
 
+      const phaseArg = args[0];
+      const phase = typeof phaseArg === 'string' ? phaseArg : undefined;
+
       for (const ref of refsArray) {
-        const enriched = enrichRefWithImportSource(ref, cls.imports);
-        const record = toRecord(enriched);
-        const refName = record !== null ? record[ZIPBUL_REF] : undefined;
-
-        if (typeof refName === 'string' && refName.length > 0) {
-          const key = `${keyPrefix}:${scope}:${index}`;
-          const bindingScope: CompiledPipelineScope = scope === 'cls' ? 'controller' : 'handler';
-          const phaseArg = args[0];
-          const phase = typeof phaseArg === 'string' ? phaseArg : undefined;
-
-          keys.push(key);
-          registrations.push({ key, value: enriched, kind: 'ref' });
-          bindings.push({ key, scope: bindingScope, order: index, ...(phase !== undefined ? { phase } : {}) });
-          index++;
-        }
+        pushEntry(ref, phase);
       }
 
       return;
@@ -137,19 +287,7 @@ export function extractMiddlewaresDecoratorRefKeys(
         }
 
         for (const ref of phaseRefs) {
-          const enriched = enrichRefWithImportSource(ref, cls.imports);
-          const record = toRecord(enriched);
-          const refName = record !== null ? record[ZIPBUL_REF] : undefined;
-
-          if (typeof refName === 'string' && refName.length > 0) {
-            const key = `${keyPrefix}:${scope}:${index}`;
-            const bindingScope: CompiledPipelineScope = scope === 'cls' ? 'controller' : 'handler';
-
-            keys.push(key);
-            registrations.push({ key, value: enriched, kind: 'ref' });
-            bindings.push({ key, scope: bindingScope, order: index, phase: phaseKey });
-            index++;
-          }
+          pushEntry(ref, phaseKey);
         }
       }
     }
@@ -243,17 +381,16 @@ export function extractGlobalPipelineBindings(
           const moduleImports = analysis.moduleDefinition?.imports ?? {};
 
           for (const ref of refs) {
-            const enriched = enrichRefWithImportSource(ref, moduleImports);
-            const record = toRecord(enriched);
-            const refName = record !== null ? record[ZIPBUL_REF] : undefined;
-
-            if (typeof refName !== 'string' || refName.length === 0) {
-              continue;
-            }
-
+            const resolved = resolveMiddlewareEntry({
+              arg: ref,
+              imports: moduleImports,
+              localValues: analysis.localValues,
+              where: `module '${moduleName}' adapter '${adapterId}' middlewares['${phase}']`,
+              filePath: analysis.filePath,
+            });
             const key = `__global_mw__:${moduleName}:${adapterId}:${phase}:${middlewareIndex}`;
 
-            registrations.push({ key, value: enriched, kind: 'ref' });
+            registrations.push({ key, value: resolved.value, kind: resolved.kind });
             middlewareBindings.push({ key, scope: 'global', order: middlewareIndex, phase });
             middlewareIndex++;
           }

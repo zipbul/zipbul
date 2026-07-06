@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { isErr } from '@zipbul/result';
 import { compressionMiddleware } from '../../index';
 import { CompressionCodec } from '../../src/enums';
 import {
@@ -14,11 +13,9 @@ let BASE: string;
 
 const LARGE_DATA = JSON.stringify({ data: 'x'.repeat(2048) });
 
-const result = compressionMiddleware({
+const middlewareHandler = compressionMiddleware({
   encodings: [CompressionCodec.Br, CompressionCodec.Gzip],
-});
-if (isErr(result)) throw new Error(`setup failed: ${result.data.message}`);
-const middlewareHandler = result.factory();
+}).factory();
 
 let server: Server<unknown>;
 

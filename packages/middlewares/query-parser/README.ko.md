@@ -35,6 +35,35 @@ parser.parse('q=hello%20world&lang=ko');
 
 <br>
 
+## 🧩 HTTP 미들웨어
+
+이 패키지는 zipbul HTTP 미들웨어 팩토리 `queryParser(options?)`도 함께 제공합니다. 호출할 때마다 독립적인 미들웨어 인스턴스가 생성되므로, 등록 지점마다 서로 다른 옵션을 사용할 수 있습니다. 옵션은 부트 시점에 검증됩니다 — 잘못된 옵션이면 앱이 서비스를 시작하기 전에 `queryParser()`가 즉시 `QueryParserError`를 throw합니다.
+
+검증(Validation) **이전** 단계(일반적으로 `HttpAdapterPhase.BeforeValidate`)에 등록하세요:
+
+```typescript
+import { queryParser } from '@zipbul/query-parser';
+import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+
+// 어댑터 설정에서:
+middlewares: {
+  [HttpAdapterPhase.BeforeValidate]: [queryParser({ nesting: true })],
+}
+```
+
+이 미들웨어는 `augments` 슬롯을 통해 타입이 지정된 `request.getQuery(dto)` 컨텍스트 접근자를 선언합니다. 미들웨어는 파싱된 원시 쿼리를 **공급**하기만 하고, 프레임워크가 핸들러의 `getQuery(SomeDto)` 호출 지점으로부터 [@zipbul/baker](https://www.npmjs.com/package/@zipbul/baker) DTO 검증을 연결합니다. 설치된 접근자는 검증된 인스턴스를 반환합니다 — `getBody`/`getParams`와 정확히 동일한 방식입니다:
+
+```typescript
+@Get()
+search(ctx: HttpContext) {
+  const query = ctx.request.getQuery(SearchQueryDto); // 타입 지정 + 검증 완료
+}
+```
+
+`zb build middleware`가 접근자 선언을 `dist/context-augments.d.ts`(소비자 타입)와 `dist/context-augments.json`(앱 AOT 매니페스트)으로 추출합니다.
+
+<br>
+
 ## ⚙️ 옵션
 
 ```typescript
@@ -89,15 +118,23 @@ parser.parse('filter[status]=active&filter[role]=admin');
 
 `false`(기본값)이면 브래킷은 키 이름의 리터럴 문자로 처리됩니다.
 
+> **디코딩 후 파싱:** 키는 브래킷 감지 **이전에** 퍼센트 디코딩이 완전히 수행되므로, `nesting: true`에서는 인코딩된 브래킷(`%5B`/`%5D`)도 구조적으로 동작합니다 — `a%5Bb%5D=c`는 `a[b]=c`와 동일하게 파싱됩니다(`qs`와 동일). nesting이 활성화된 상태에서 리터럴 `[` 또는 `]`를 키 이름에 넣을 방법은 없습니다.
+
 ### `arrayLimit`
 
-`nesting` 활성화 시 허용되는 최대 배열 인덱스. 한도를 초과하는 인덱스는 값을 버리지 **않고**, 컨테이너가 인덱스 문자열을 키로 갖는 일반 객체로 폴백됩니다.
+`nesting` 활성화 시 허용되는 최대 배열 인덱스. **컨테이너 생성 시점**에는 한도를 초과하는 인덱스도 값을 버리지 않고, 컨테이너가 인덱스 문자열을 키로 갖는 일반 객체로 폴백됩니다.
 
 ```typescript
 const parser = QueryParser.create({ nesting: true, arrayLimit: 5 });
 
 parser.parse('a[3]=ok');   // { a: [undefined, undefined, undefined, 'ok'] }  (희소 배열)
 parser.parse('a[100]=no'); // 한도 초과 → 객체: { a: { '100': 'no' } }
+```
+
+⚠️ 객체 폴백은 컨테이너가 처음 생성될 때만 적용됩니다. 키가 이미 **배열**을 갖고 있다면, 이후의 한도 초과 인덱스는 조용히 버려집니다:
+
+```typescript
+parser.parse('a[0]=x&a[100]=no'); // { a: ['x'] } — '100' 버려짐
 ```
 
 ### `duplicates`
@@ -128,11 +165,11 @@ QueryParser.create({ duplicates: 'array' }).parse(input);
 활성화 시 `parse()`가 오류를 무시하는 대신 `QueryParserError`를 throw합니다:
 
 - 잘못된 퍼센트 인코딩 (`%zz`, 불완전한 `%E0%A4`)
-- 불균형 또는 중첩 브래킷 (`a[[b]=1`, `a[b=1`)
-- 충돌하는 키 구조 (`a=1&a[b]=2`)
+- 불균형·중첩·미닫힘 브래킷 (`a]b[c]=1`, `a[[b]]=1`, `a[b=1`) 및 브래킷 그룹 사이의 잉여 문자 (`a[b]junk[c]=1`)
+- 충돌하는 키 구조 (`a=1&a[b]=2`) — 구조 충돌 감지에는 `nesting: true`가 필요합니다. nesting이 꺼져 있으면 브래킷 키는 리터럴이라 충돌이 발생하지 않습니다
 
 ```typescript
-const parser = QueryParser.create({ strict: true });
+const parser = QueryParser.create({ strict: true, nesting: true });
 
 parser.parse('valid=ok');           // { valid: 'ok' }
 parser.parse('bad=%zz');            // QueryParserError throw

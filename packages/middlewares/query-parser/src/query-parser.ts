@@ -252,6 +252,15 @@ export class QueryParser {
       return;
     }
 
+    // Strict: the root-key portion (before the first '[') sits outside the
+    // bracket scan below, so a stray ']' there must be rejected explicitly.
+    if (this.options.strict && rootKey.includes(']')) {
+      return err<QueryParserErrorData>({
+        reason: QueryParserErrorReason.MalformedQueryString,
+        message: `Malformed query string: unbalanced brackets in key "${key}"`,
+      });
+    }
+
     // State machine for parsing brackets
     let i = firstBrace;
     const len = key.length;
@@ -282,6 +291,14 @@ export class QueryParser {
             message: `Malformed query string: unbalanced brackets in key "${key}"`,
           });
         }
+      } else if (partStart === -1 && this.options.strict) {
+        // Strict: any character outside a bracket group (between ']' and the
+        // next '[', or trailing after the last ']') is garbage — non-strict
+        // mode silently drops it, strict mode rejects the whole key.
+        return err<QueryParserErrorData>({
+          reason: QueryParserErrorReason.MalformedQueryString,
+          message: `Malformed query string: unexpected characters between bracket groups in key "${key}"`,
+        });
       }
 
       i++;

@@ -25,7 +25,6 @@ export class HttpRequest {
   private _body: RequestBodyValue;
   private _params: RequestParamMap;
   private _rawBody: Uint8Array | null;
-  private _query: unknown;
 
   private _queryString: string | null | undefined = undefined;
   private _contentType: ContentTypeInfo | null | undefined = undefined;
@@ -64,7 +63,6 @@ export class HttpRequest {
     this._body = undefined;
     this._params = {};
     this._rawBody = null;
-    this._query = undefined;
   }
 
   // ── Public accessors for mutable fields ─────────────────────
@@ -89,10 +87,6 @@ export class HttpRequest {
 
   get rawBody(): Uint8Array | null { return this._rawBody; }
   set rawBody(value: Uint8Array | null) { this._rawBody = value; }
-
-  /** Parsed query parameters. Set by BeforeValidation middleware (e.g. parseQuery). */
-  get query(): unknown { return this._query; }
-  set query(value: unknown) { this._query = value; }
 
   // ── Lazy-computed getters ─────────────────────────────────
 
