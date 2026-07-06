@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
 import { injectGzipPadding, injectZstdPadding } from './htb';
 
 function at(arr: Uint8Array, i: number): number {
@@ -125,6 +125,75 @@ describe('injectGzipPadding (HTB - Heal the BREACH)', () => {
     // Should return a copy (not mutated) since 65530 + padding > 65535
     expect(result).not.toBe(fakeGzip);
     expect(result).toEqual(fakeGzip);
+  });
+
+  // --- Rejection sampling (bias-free RNG) ---
+
+  it('should reject an out-of-range RNG draw and retry until a valid one (non-power-of-two maxPadding)', () => {
+    const compressed = compress(data);
+    // maxPadding=100 → limit = 2^32 - (2^32 % 100) = 4294967296 - 96 = 4294967200.
+    // First draw ≥ limit must be rejected; second draw is accepted.
+    const limit = 0x100000000 - (0x100000000 % 100);
+    let call = 0;
+    const spy = spyOn(crypto, 'getRandomValues').mockImplementation(((buf: ArrayBufferView) => {
+      const view = buf as Uint32Array;
+      view[0] = call === 0 ? limit + 42 : 50; // reject, then accept
+      call++;
+      return buf;
+    }) as typeof crypto.getRandomValues);
+    try {
+      const padded = injectGzipPadding(compressed, 100);
+      // Retry happened → getRandomValues called exactly twice
+      expect(spy).toHaveBeenCalledTimes(2);
+      // padLen = 1 + (50 % 100) = 51, in [1, 100]
+      const xlen = at(padded, 10) | (at(padded, 11) << 8);
+      const padLen = xlen - 4;
+      expect(padLen).toBe(51);
+      expect(padLen).toBeGreaterThanOrEqual(1);
+      expect(padLen).toBeLessThanOrEqual(100);
+      // Still a valid gzip round-trip
+      expect(Buffer.from(Bun.gunzipSync(toAB(padded))).toString()).toBe(Buffer.from(data).toString());
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // --- XLEN overflow exact boundary ---
+
+  it('should NOT bail when existing XLEN + subfield reaches exactly 65535 (max, not over)', () => {
+    const compressed = compress(data);
+    // maxPadding=1 → padLen=1 deterministically → subfieldTotal = 4 + 1 = 5.
+    // existingXlen=65530 → newXlen = 65535 = MAX_XLEN (not > MAX) → proceed.
+    const existingXlen = 65530;
+    const fakeGzip = new Uint8Array(compressed.length + 2 + existingXlen);
+    fakeGzip.set(compressed.subarray(0, 10));
+    fakeGzip[3] = at(compressed, 3) | 0x04; // FEXTRA flag
+    fakeGzip[10] = existingXlen & 0xff;
+    fakeGzip[11] = (existingXlen >> 8) & 0xff;
+    fakeGzip.set(compressed.subarray(10), 12 + existingXlen);
+
+    const result = injectGzipPadding(fakeGzip, 1);
+    // Proceeded: grew by exactly subfieldTotal (5) and new XLEN is the 65535 max
+    expect(result.byteLength).toBe(fakeGzip.byteLength + 5);
+    expect(at(result, 10) | (at(result, 11) << 8)).toBe(65535);
+    expect(Buffer.from(Bun.gunzipSync(toAB(result))).toString()).toBe(Buffer.from(data).toString());
+  });
+
+  it('should bail (return an unmodified copy) when existing XLEN + subfield reaches exactly 65536 (over max)', () => {
+    const compressed = compress(data);
+    // existingXlen=65531 → newXlen = 65531 + 5 = 65536 > MAX_XLEN → bail with a copy.
+    const existingXlen = 65531;
+    const fakeGzip = new Uint8Array(compressed.length + 2 + existingXlen);
+    fakeGzip.set(compressed.subarray(0, 10));
+    fakeGzip[3] = at(compressed, 3) | 0x04;
+    fakeGzip[10] = existingXlen & 0xff;
+    fakeGzip[11] = (existingXlen >> 8) & 0xff;
+    fakeGzip.set(compressed.subarray(10), 12 + existingXlen);
+
+    const result = injectGzipPadding(fakeGzip, 1);
+    expect(result).not.toBe(fakeGzip); // a copy, not the same reference
+    expect(result.byteLength).toBe(fakeGzip.byteLength); // unmodified length
+    expect(result).toEqual(fakeGzip); // byte-identical copy
   });
 
   // --- Existing FEXTRA ---

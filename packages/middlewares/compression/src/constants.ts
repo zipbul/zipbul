@@ -7,6 +7,12 @@ export const DEFAULT_ENCODINGS: CompressionCodec[] = [
   CompressionCodec.Gzip,
 ];
 
+/** Encodings with safe format-level padding for BREACH mitigation (gzip FEXTRA, zstd skippable frame). */
+export const BREACH_SAFE_ENCODINGS: ReadonlySet<CompressionCodec> = new Set<CompressionCodec>([
+  CompressionCodec.Gzip,
+  CompressionCodec.Zstd,
+]);
+
 export const DEFAULT_LEVELS = {
   [CompressionCodec.Br]: 4,
   [CompressionCodec.Gzip]: 6,

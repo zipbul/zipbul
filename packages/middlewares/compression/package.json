@@ -48,9 +48,11 @@
   "scripts": {
     "build": "tsgo -p tsconfig.build.json",
     "test": "bun test",
-    "coverage": "bun test --coverage"
+    "coverage": "bun test --coverage",
+    "bench": "bun run bench/compression.bench.ts"
   },
   "dependencies": {
+    "@zipbul/baker": "catalog:",
     "@zipbul/result": "workspace:*"
   },
   "peerDependencies": {
@@ -59,7 +61,12 @@
   },
   "devDependencies": {
     "@zipbul/common": "workspace:*",
-    "@zipbul/http-adapter": "workspace:*"
+    "@zipbul/core": "workspace:*",
+    "@zipbul/http-adapter": "workspace:*",
+    "@zipbul/tck": "workspace:*",
+    "mitata": "catalog:"
   },
-  "sideEffects": false
+  "sideEffects": [
+    "**/options.js"
+  ]
 }

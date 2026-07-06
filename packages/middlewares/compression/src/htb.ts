@@ -24,9 +24,8 @@ function randomPadLen(maxPadding: number): number {
   let value: number;
   do {
     crypto.getRandomValues(rngBuf);
-    const v = rngBuf[0];
-    if (v === undefined) throw new Error('Uint32Array(1) access returned undefined');
-    value = v;
+    // rngBuf has length 1 → index 0 always exists (satisfies noUncheckedIndexedAccess).
+    value = rngBuf[0]!;
   } while (value >= limit);
   return 1 + (value % maxPadding);
 }
@@ -42,17 +41,15 @@ function writeSubfield(target: Uint8Array, offset: number, dataLen: number): voi
 export function injectGzipPadding(compressed: Uint8Array, maxPadding: number): Uint8Array {
   const padLen = randomPadLen(maxPadding);
   const subfieldTotal = SUBFIELD_HEADER_SIZE + padLen; // total bytes added to extra field
-  const flagByte = compressed[3];
-  if (flagByte === undefined) throw new Error('gzip input too short to contain header flag byte');
+  // gzip output is always ≥10 bytes, so the FLG byte (index 3) always exists.
+  const flagByte = compressed[3]!;
   const hasFExtra = (flagByte & FEXTRA_FLAG) !== 0;
 
   if (hasFExtra) {
     // Existing FEXTRA: read current XLEN, append a new subfield
-    const xlenLo = compressed[GZIP_HEADER_SIZE];
-    const xlenHi = compressed[GZIP_HEADER_SIZE + 1];
-    if (xlenLo === undefined || xlenHi === undefined) {
-      throw new Error('gzip input too short to contain XLEN field');
-    }
+    // FEXTRA set ⇒ a well-formed gzip carries XLEN at bytes 10–11.
+    const xlenLo = compressed[GZIP_HEADER_SIZE]!;
+    const xlenHi = compressed[GZIP_HEADER_SIZE + 1]!;
     const existingXlen = xlenLo | (xlenHi << 8);
     const newXlen = existingXlen + subfieldTotal;
 

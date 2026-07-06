@@ -26,4 +26,5 @@ export enum CompressionErrorReason {
   InvalidLevel = 'invalid_level',
   EmptyEncodings = 'empty_encodings',
   InvalidBreach = 'invalid_breach',
+  InvalidFilter = 'invalid_filter',
 }
