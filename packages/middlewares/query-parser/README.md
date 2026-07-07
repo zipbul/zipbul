@@ -35,6 +35,37 @@ parser.parse('q=hello%20world&lang=ko');
 
 <br>
 
+## 🔌 As a `@zipbul` middleware
+
+Register `queryParser` on `HttpAdapterPhase.BeforeValidate`. It parses the request
+query once and installs a typed `getQuery<T>(dto)` accessor on the HTTP request:
+
+```typescript
+import { queryParser } from '@zipbul/query-parser';
+import { defineModule } from '@zipbul/core';
+import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+
+export const appModule = defineModule({
+  name: 'App',
+  adapters: [
+    {
+      adapter: HttpAdapter,
+      middlewares: {
+        [HttpAdapterPhase.BeforeValidate]: [queryParser],
+      },
+    },
+  ],
+});
+```
+
+Then read the parsed query in a handler or downstream middleware:
+
+```typescript
+const query = ctx.request.getQuery(SearchQueryDto); // typed
+```
+
+<br>
+
 ## ⚙️ Options
 
 ```typescript

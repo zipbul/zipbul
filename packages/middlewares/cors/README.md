@@ -88,6 +88,7 @@ interface CorsOptions {
   maxAge?: number;                     // Default: none (header not included)
   preflightContinue?: boolean;         // Default: false
   optionsSuccessStatus?: number;       // Default: 204
+  allowPrivateNetwork?: boolean;       // Default: false
 }
 ```
 
@@ -105,7 +106,7 @@ interface CorsOptions {
 
 > When `credentials: true`, `origin: '*'` causes a **validation error**. Use `origin: true` to reflect the request origin.
 >
-> RegExp origins are checked for **ReDoS safety** at creation time using [safe-regex2](https://github.com/fastify/safe-regex2). Patterns with star height ≥ 2 (e.g. `/(a+)+$/`) are rejected with `CorsErrorReason.UnsafeRegExp`.
+> RegExp origins must be stateless — patterns with the `g` or `y` flag are rejected with `CorsErrorReason.InvalidOrigin` (a stateful `lastIndex` would make matching depend on call order).
 
 ### `methods`
 
@@ -210,6 +211,7 @@ Returned when CORS validation fails. Use `reason` to build a detailed error resp
 | `CorsErrorReason` | Meaning |
 |:------------------|:--------|
 | `CredentialsWithWildcardOrigin` | `credentials:true` with `origin:'*'` (Fetch Standard §3.3.5) |
+| `CredentialsWithWildcardMethods` | `credentials:true` with `methods:['*']` (a wildcard method is not credentialed per the Fetch Standard) |
 | `InvalidMaxAge` | `maxAge` is not a non-negative integer (RFC 9111 §1.2.1) |
 | `InvalidStatusCode` | `optionsSuccessStatus` is not a 2xx integer |
 | `InvalidOrigin` | `origin` is an empty/blank string, empty array, or array with empty/blank entries (RFC 6454) |
@@ -217,7 +219,6 @@ Returned when CORS validation fails. Use `reason` to build a detailed error resp
 | `InvalidAllowedHeaders` | `allowedHeaders` contains empty/blank entries (RFC 9110 §5.6.2) |
 | `InvalidExposedHeaders` | `exposedHeaders` contains empty/blank entries (RFC 9110 §5.6.2) |
 | `OriginFunctionError` | Origin function threw at runtime |
-| `UnsafeRegExp` | origin RegExp has exponential backtracking risk (ReDoS) |
 
 <br>
 

@@ -50,51 +50,49 @@ bun add @zipbul/core @zipbul/common @zipbul/http-adapter @zipbul/cli
 ### 3. Create your module
 
 ```typescript
-// src/__module__.ts
-import type { ZipbulModule } from '@zipbul/common';
-import { UserService } from './user.service';
+// src/module.ts
+import { defineModule } from '@zipbul/core';
+import { HttpAdapter } from '@zipbul/http-adapter';
 
-export const module: ZipbulModule = {
-  name: 'AppModule',
-  providers: [UserService],
-};
+// Providers and controllers are discovered from the source tree at build time
+// (any @Injectable / @Controller in this module's directory) — you don't list
+// them here. defineModule declares the module name and which adapters it wires.
+export const appModule = defineModule({
+  name: 'App',
+  adapters: [{ adapter: HttpAdapter }],
+});
 ```
 
 ### 4. Create your entry point
 
 ```typescript
 // src/main.ts
-import { bootstrapApplication } from '@zipbul/core';
-import { zipbulHttpAdapter } from '@zipbul/http-adapter';
-import { module } from './__module__';
+import { createApplication } from '@zipbul/core';
+import { HttpAdapter } from '@zipbul/http-adapter';
 
-await bootstrapApplication(module, {
-  name: 'my-app',
-  adapters: [
-    zipbulHttpAdapter(() => ({
-      name: 'http-server',
-      port: 3000,
-    })),
-  ],
-});
+import { appModule } from './module';
+
+const app = createApplication(appModule);
+app.attach(HttpAdapter, { port: 3000 }); // bind transport options
+await app.start();
 ```
 
-### 5. Run development server
+### 5. Run it
 
 ```bash
-zp dev
-bun .zipbul/index.ts
+zb dev                          # watch mode with hot reload
+zb build && bun dist/entry.js   # production build + run
 ```
 
 ## Packages
 
-| Package                                         | Description                                                |
-| ----------------------------------------------- | ---------------------------------------------------------- |
-| [@zipbul/cli](./packages/cli)                   | CLI tooling for AOT compilation and development            |
-| [@zipbul/core](./packages/core)                 | Core framework with DI container and application bootstrap |
-| [@zipbul/common](./packages/common)             | Shared interfaces, decorators, and utilities               |
-| [@zipbul/http-adapter](./packages/http-adapter) | HTTP server adapter with routing and middleware            |
-| [@zipbul/logger](./packages/logger)             | Structured logging utility                                 |
+| Package                                                    | Description                                                |
+| ---------------------------------------------------------- | ---------------------------------------------------------- |
+| [@zipbul/cli](./packages/framework/cli)                    | CLI tooling for AOT compilation and development            |
+| [@zipbul/core](./packages/framework/core)                  | Core framework with DI container and application bootstrap |
+| [@zipbul/common](./packages/framework/common)              | Shared interfaces, decorators, and utilities               |
+| [@zipbul/http-adapter](./packages/adapters/http)           | HTTP server adapter with routing and middleware            |
+| [@zipbul/logger](./packages/framework/logger)              | Structured logging utility                                 |
 
 ## Project Structure
 
@@ -102,42 +100,41 @@ bun .zipbul/index.ts
 my-app/
 ├── src/
 │   ├── main.ts              # Application entry point
-│   ├── __module__.ts        # Root module definition
+│   ├── module.ts            # Root module (defineModule)
 │   ├── users/
-│   │   ├── __module__.ts    # Users feature module
+│   │   ├── module.ts        # Users feature module
 │   │   ├── users.service.ts
 │   │   └── users.controller.ts
 │   └── posts/
-│       ├── __module__.ts    # Posts feature module
+│       ├── module.ts        # Posts feature module
 │       └── ...
 ├── .zipbul/                  # Generated AOT artifacts (dev)
-├── dist/                     # Production build output
-├── zipbul.config.ts          # CLI configuration
+├── dist/                     # Build output (zb build)
+├── zipbul.jsonc              # CLI configuration
 └── package.json
 ```
 
 ## Module System
 
-Zipbul uses a file-based module system with `__module__.ts` files:
+Zipbul uses a file-based module system. Each module is a `module.ts` that calls
+`defineModule`; the providers and controllers that belong to it are discovered
+from the same directory tree at build time — you don't enumerate them:
 
 ```typescript
-// src/users/__module__.ts
-import type { ZipbulModule } from '@zipbul/common';
-import { UsersService } from './users.service';
-import { UsersController } from './users.controller';
+// src/users/module.ts
+import { defineModule } from '@zipbul/core';
 
-export const module: ZipbulModule = {
-  name: 'UsersModule',
-  providers: [UsersService, UsersController],
-};
+// UsersService / UsersController in this directory are collected automatically.
+export const usersModule = defineModule();
 ```
 
 ### Visibility Control
 
-Control cross-module access with the `visibility` option:
+By default a provider is visible only within its own module. Widen cross-module
+access with the `visibleTo` option (`'all'` | `'module'` | module markers):
 
 ```typescript
-@Injectable({ visibility: 'exported' })
+@Injectable({ visibleTo: 'all' })
 export class SharedService {}
 ```
 
@@ -151,7 +148,7 @@ export class SharedService {}
 - **Bun only** — Does not support Node.js runtime
 - **ESM only** — CommonJS modules are not supported
 - **TypeScript required** — JavaScript source files are not analyzed
-- **File-based modules** — Uses `__module__.ts` instead of class decorators
+- **File-based modules** — Uses `module.ts` (`defineModule`) instead of class decorators
 
 ## Roadmap
 

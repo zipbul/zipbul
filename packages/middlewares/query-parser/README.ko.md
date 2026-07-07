@@ -35,6 +35,37 @@ parser.parse('q=hello%20world&lang=ko');
 
 <br>
 
+## 🔌 `@zipbul` 미들웨어로 사용
+
+`queryParser`를 `HttpAdapterPhase.BeforeValidate`에 등록합니다. 요청 쿼리를 한 번
+파싱하고 HTTP 요청에 타입 안전 `getQuery<T>(dto)` 접근자를 설치합니다:
+
+```typescript
+import { queryParser } from '@zipbul/query-parser';
+import { defineModule } from '@zipbul/core';
+import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+
+export const appModule = defineModule({
+  name: 'App',
+  adapters: [
+    {
+      adapter: HttpAdapter,
+      middlewares: {
+        [HttpAdapterPhase.BeforeValidate]: [queryParser],
+      },
+    },
+  ],
+});
+```
+
+이후 핸들러나 다운스트림 미들웨어에서 파싱된 쿼리를 읽습니다:
+
+```typescript
+const query = ctx.request.getQuery(SearchQueryDto); // 타입 안전
+```
+
+<br>
+
 ## ⚙️ 옵션
 
 ```typescript

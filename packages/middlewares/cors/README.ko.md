@@ -88,6 +88,7 @@ interface CorsOptions {
   maxAge?: number;                     // 기본값: 없음 (헤더 미포함)
   preflightContinue?: boolean;         // 기본값: false
   optionsSuccessStatus?: number;       // 기본값: 204
+  allowPrivateNetwork?: boolean;       // 기본값: false
 }
 ```
 
@@ -105,7 +106,7 @@ interface CorsOptions {
 
 > `credentials: true`일 때 `origin: '*'`는 **검증 오류**를 발생시킵니다. 요청 출처를 반영하려면 `origin: true`를 사용하세요.
 >
-> RegExp origin은 생성 시점에 [safe-regex2](https://github.com/fastify/safe-regex2)를 사용하여 **ReDoS 안전성**을 검사합니다. star height ≥ 2인 패턴(예: `/(a+)+$/`)은 `CorsErrorReason.UnsafeRegExp`으로 거부됩니다.
+> RegExp origin은 **stateless**여야 합니다 — `g`(global)나 `y`(sticky) 플래그가 붙은 패턴은 `CorsErrorReason.InvalidOrigin`으로 거부됩니다(`lastIndex`가 호출 순서에 따라 매칭을 바꾸기 때문).
 
 ### `methods`
 
@@ -210,6 +211,7 @@ CORS 검증 실패 시 반환됩니다. `reason`으로 상세한 에러 응답�
 | `CorsErrorReason` | 의미 |
 |:------------------|:--------|
 | `CredentialsWithWildcardOrigin` | `credentials:true` + `origin:'*'` 조합 불가 (Fetch Standard §3.3.5) |
+| `CredentialsWithWildcardMethods` | `credentials:true` + `methods:['*']` 조합 불가 (와일드카드 메서드는 credential 요청에 허용되지 않음) |
 | `InvalidMaxAge` | `maxAge`가 음수가 아닌 정수가 아님 (RFC 9111 §1.2.1) |
 | `InvalidStatusCode` | `optionsSuccessStatus`가 2xx 정수가 아님 |
 | `InvalidOrigin` | `origin`이 빈/공백 문자열, 빈 배열, 또는 배열 내 빈/공백 요소 (RFC 6454) |
@@ -217,7 +219,6 @@ CORS 검증 실패 시 반환됩니다. `reason`으로 상세한 에러 응답�
 | `InvalidAllowedHeaders` | `allowedHeaders`에 빈/공백 요소 포함 (RFC 9110 §5.6.2) |
 | `InvalidExposedHeaders` | `exposedHeaders`에 빈/공백 요소 포함 (RFC 9110 §5.6.2) |
 | `OriginFunctionError` | 런타임에 origin 함수가 예외를 오발 |
-| `UnsafeRegExp` | origin RegExp이 지수적 역추적 위험(ReDoS)을 가짐 |
 
 <br>
 
