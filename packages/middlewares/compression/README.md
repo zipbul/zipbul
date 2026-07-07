@@ -32,23 +32,35 @@ bun add @zipbul/common @zipbul/http-adapter
 on invalid options, otherwise a middleware you register in the **`BeforeResponse`** phase (it runs
 after the handler has produced the body).
 
+Build it in its own module and narrow the `Result` there, then export the concrete middleware.
+The AOT compiler serialises a module's middleware list by reference, so each entry must be an
+**imported symbol** — and control-flow narrowing (`isErr`) does not cross a module boundary unless
+you export the narrowed value as a fresh `const`:
+
 ```typescript
-import { defineModule } from '@zipbul/core';
+// compression.ts
 import { compressionMiddleware, CompressionCodec } from '@zipbul/compression';
-import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
 import { isErr } from '@zipbul/result';
 
-const compression = compressionMiddleware({
+const result = compressionMiddleware({
   encodings: [CompressionCodec.Br, CompressionCodec.Gzip], // server preference order
   threshold: 1024,                                         // bytes; smaller bodies are left alone
 });
 
-if (isErr(compression)) {
-  throw new Error(compression.data.message); // invalid config — fail fast at boot
+if (isErr(result)) {
+  throw new Error(result.data.message); // invalid config — fail fast at boot
 }
 
-// Declarative registration: the middleware is wired into the module, keyed by
-// adapter and pipeline phase. The bootstrap applies it via the adapter's config.
+export const compression = result; // narrowed to MiddlewareDefinition
+```
+
+```typescript
+// module.ts — declarative registration, keyed by adapter and pipeline phase.
+import { defineModule } from '@zipbul/core';
+import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+
+import { compression } from './compression';
+
 export const appModule = defineModule({
   name: 'App',
   adapters: [
