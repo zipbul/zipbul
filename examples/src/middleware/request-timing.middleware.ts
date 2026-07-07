@@ -15,9 +15,17 @@ const DEFAULT_HEADER = 'X-Response-Time';
  *
  * @example
  * ```ts
- * httpAdapter.addMiddlewares(HttpAdapterPhase.OnReceive, [
- *   requestTimingMiddleware({ headerName: 'X-Timing' }),
- * ]);
+ * defineModule({
+ *   name: 'App',
+ *   adapters: [
+ *     {
+ *       adapter: HttpAdapter,
+ *       middlewares: {
+ *         [HttpAdapterPhase.OnReceive]: [requestTimingMiddleware({ headerName: 'X-Timing' })],
+ *       },
+ *     },
+ *   ],
+ * });
  * ```
  *
  * @public

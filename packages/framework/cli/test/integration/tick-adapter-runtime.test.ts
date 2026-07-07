@@ -13,7 +13,7 @@
  *
  * This is the regression guard the inline-adapter contract was missing —
  * everything below the resolver/extractor surface (executePipeline,
- * dispatchRequest, runPipeline, addMiddlewares wiring) is now exercised by
+ * dispatchRequest, runPipeline, applyConfig middleware wiring) is now exercised by
  * a real subprocess boot.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';

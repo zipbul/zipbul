@@ -14,12 +14,20 @@ import { CorsAction } from './enums';
  * Options are resolved and validated at registration time (`Cors.create`)
  * so configuration errors fail fast at boot.
  *
- * Register on `HttpAdapterPhase.OnRequest`:
+ * Register on `HttpAdapterPhase.OnRequest` via a module's middleware map:
  *
  * ```ts
- * httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
- *   corsMiddleware({ origin: 'https://example.com' }),
- * ]);
+ * defineModule({
+ *   name: 'App',
+ *   adapters: [
+ *     {
+ *       adapter: HttpAdapter,
+ *       middlewares: {
+ *         [HttpAdapterPhase.OnRequest]: [corsMiddleware({ origin: 'https://example.com' })],
+ *       },
+ *     },
+ *   ],
+ * });
  * ```
  *
  * @throws {CorsError} when options fail validation.
