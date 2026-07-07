@@ -25,8 +25,7 @@
     "**/dist/**",
     "**/.zipbul/**",
     "**/.zipbul-temp/**",
-    "packages/adapters/http/benchmark/apps/nestjs-express/**",
-    "packages/adapters/http/benchmark/apps/nestjs-fastify/**",
+    "packages/adapters/http/benchmark/**",
     "poc/**"
   ]
 }
