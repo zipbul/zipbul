@@ -53,6 +53,17 @@ export class QueryParser {
     return result;
   }
 
+  /**
+   * Result-returning parse — the non-throwing counterpart to {@link parse}.
+   * Returns the parsed record on success, or an `Err<QueryParserErrorData>`
+   * in strict mode when the query string is malformed / structurally
+   * conflicting. Used by the HTTP middleware to translate a client-supplied
+   * bad query into a 400 (returned `Err`) rather than a thrown 500.
+   */
+  public parseResult(qs: string): Result<QueryValueRecord, QueryParserErrorData> {
+    return this.parseInternal(qs);
+  }
+
   private parseInternal(qs: string): Result<QueryValueRecord, QueryParserErrorData> {
     if (qs.length === 0) {
       return {};
@@ -655,10 +666,11 @@ export class QueryParser {
   }
 
   private assignArrayRecordValue(target: QueryArray, key: string, value: QueryValue): void {
-    // Direct assignment is safe here: poisoned keys (`__proto__` etc.) are
-    // filtered upstream by POISONED_KEYS before any write reaches this sink, and
-    // non-numeric keys convert the array to a plain object before assignment — so
-    // `key` is only ever a numeric index or an already-cleared property name.
+    // Direct assignment is safe here: `__proto__` is filtered upstream by
+    // POISONED_KEYS before any write reaches this sink, and non-numeric keys
+    // convert the array to a plain object before assignment — so `key` is only
+    // ever a numeric index or an already-cleared property name. Any other name
+    // (constructor, prototype, …) is written as a harmless own-property shadow.
     (target as unknown as Record<string, QueryValue>)[key] = value;
   }
 

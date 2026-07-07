@@ -17,6 +17,12 @@ A high-performance, RFC 3986 compliant query string parser with strict security 
 bun add @zipbul/query-parser
 ```
 
+The standalone `QueryParser` has no runtime dependencies. To use the **HTTP middleware** form (`queryParser()` + `request.getQuery(dto)`), also install its peer dependencies:
+
+```bash
+bun add @zipbul/common @zipbul/http-adapter
+```
+
 <br>
 
 ## 🚀 Quick Start
@@ -61,6 +67,21 @@ search(ctx: HttpContext) {
 ```
 
 `zb build middleware` extracts the accessor declaration into `dist/context-augments.d.ts` (consumer types) and `dist/context-augments.json` (app AOT manifest).
+
+### Malformed queries → 400 (not 500)
+
+In the middleware, a malformed query string is a **client** error. When `strict` is enabled, the supply step returns an `httpError(BadRequest)` — the framework short-circuits the pipeline into a **400** response and never runs the handler. It is never thrown, so a hostile `?q=%ZZ` can't be turned into a 500:
+
+```typescript
+middlewares: {
+  [HttpAdapterPhase.BeforeValidate]: [queryParser({ strict: true, nesting: true })],
+}
+// GET /search?q=%ZZ        → 400 Bad Request  (malformed percent-escape)
+// GET /search?a[b]c[d]=1   → 400 Bad Request  (malformed brackets, needs nesting)
+// GET /search?q=hello      → handler runs normally
+```
+
+Under the default (`strict: false`) a malformed query is parsed leniently and never fails the request.
 
 <br>
 
@@ -209,6 +230,24 @@ try {
 }
 ```
 
+### `parseResult()` — the non-throwing variant
+
+`parse()` throws in strict mode; `parseResult()` returns a `Result` instead, so you can branch on a malformed query without a `try`/`catch`. (This is what the HTTP middleware uses to map a bad query to a 400.)
+
+```typescript
+import { QueryParser, isErr } from '@zipbul/query-parser';
+
+const parser = QueryParser.create({ strict: true });
+const result = parser.parseResult('q=%ZZ');
+
+if (isErr(result)) {
+  result.data.reason;   // QueryParserErrorReason.MalformedQueryString
+  result.data.message;  // human-readable detail
+} else {
+  result;               // the parsed query record
+}
+```
+
 ### `QueryParserErrorReason`
 
 | Reason | Thrown by | Description |
@@ -239,9 +278,11 @@ This parser follows [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) se
 
 ### Prototype pollution prevention
 
-The following keys are blocked from all parsed output — at any position, including as a plain top-level key (a literal `?constructor=1` yields `{}`, so these names cannot be used as ordinary parameters):
+`__proto__` is the only blocked key — at every position (root, nested segment, leaf), so `?__proto__[x]=1` and `?a[__proto__][x]=1` are neutralized. A plain assignment to `__proto__` invokes the prototype setter, so it can never be an ordinary parameter.
 
-`__proto__`, `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`
+Every other key — including `constructor`, `prototype`, `__defineGetter__`, etc. — is a **safe own-property value**: the parser only ever writes own properties (create-own-or-skip via `hasOwnProperty`), so it never reaches the prototype chain, and the classic `?constructor[prototype][x]=y` payload builds an ordinary own object without polluting `Object.prototype`. These names are therefore returned as normal parameters (`?constructor=1` → `{ constructor: '1' }`) rather than silently discarded.
+
+> **Behavior change (since this release):** `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` used to be dropped at all positions. They are now surfaced as ordinary own-property values (only `__proto__` remains blocked). If your app relied on these being absent from the parsed object, note that `parsed.constructor` is now whatever the client sent as a string rather than `Object`.
 
 ### HPP (HTTP Parameter Pollution) defense
 

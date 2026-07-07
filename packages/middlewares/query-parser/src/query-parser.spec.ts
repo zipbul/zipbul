@@ -535,75 +535,89 @@ describe('QueryParser', () => {
   // Security: Prototype Pollution
   // =========================================================================
   describe('security: prototype pollution', () => {
-    it('should block POISONED root keys when parsing query', () => {
+    // Policy: `__proto__` is the ONLY key ever blocked — its assignment invokes
+    // the prototype setter, so it is neutralized at every position. Every other
+    // key (constructor, prototype, __defineGetter__, toString, …) is stored as
+    // an ordinary own-property shadow and never reaches the prototype chain
+    // (the parser create-own-or-skip via hasOwnProperty). The load-bearing,
+    // non-negotiable invariant asserted throughout is that no GLOBAL prototype
+    // is ever polluted.
+
+    /** Assert no global prototype was mutated by the vectors above. */
+    const expectNoGlobalPollution = (): void => {
+      expect((({}) as Record<string, unknown>).polluted).toBeUndefined();
+      expect((({}) as Record<string, unknown>).x).toBeUndefined();
+      expect((([] as unknown) as Record<string, unknown>).polluted).toBeUndefined();
+      expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+    };
+
+    it('should block __proto__ as a flat key and leave no pollution', () => {
       // Arrange
       const parser = QueryParser.create();
 
-      // Act & Assert
+      // Act & Assert — the sole always-blocked key
       expect(parser.parse('__proto__=1')).toEqual({});
-      expect(parser.parse('constructor=1')).toEqual({});
-      expect(parser.parse('prototype=1')).toEqual({});
+      expectNoGlobalPollution();
     });
 
-    it('should block __defineGetter__ and __defineSetter__ when provided', () => {
+    it('should store constructor/prototype as ordinary own-property scalars', () => {
       // Arrange
       const parser = QueryParser.create();
 
-      // Act
-      const res = parser.parse('__defineGetter__=bad');
-
-      // Assert
-      expect(Object.prototype.hasOwnProperty.call(res, '__defineGetter__')).toBe(false);
+      // Act & Assert — own-property shadows, harmless, no longer silently dropped
+      expect(parser.parse('constructor=1')).toEqual({ constructor: '1' });
+      expect(parser.parse('prototype=1')).toEqual({ prototype: '1' });
+      expectNoGlobalPollution();
     });
 
-    it('should block __lookupGetter__ and __lookupSetter__ when provided', () => {
+    it('should store __define*/__lookup* method names as own-property scalars', () => {
       // Arrange
       const parser = QueryParser.create();
 
-      // Act
-      const lookupGetter = parser.parse('__lookupGetter__=bad');
-      const lookupSetter = parser.parse('__lookupSetter__=bad');
-
-      // Assert
-      expect(Object.prototype.hasOwnProperty.call(lookupGetter, '__lookupGetter__')).toBe(false);
-      expect(Object.prototype.hasOwnProperty.call(lookupSetter, '__lookupSetter__')).toBe(false);
+      // Act & Assert — plain Object.prototype methods; a string shadow is harmless
+      expect(Object.getOwnPropertyDescriptor(parser.parse('__defineGetter__=bad'), '__defineGetter__')?.value).toBe('bad');
+      expect(Object.getOwnPropertyDescriptor(parser.parse('__defineSetter__=bad'), '__defineSetter__')?.value).toBe('bad');
+      expect(Object.getOwnPropertyDescriptor(parser.parse('__lookupGetter__=bad'), '__lookupGetter__')?.value).toBe('bad');
+      expect(Object.getOwnPropertyDescriptor(parser.parse('__lookupSetter__=bad'), '__lookupSetter__')?.value).toBe('bad');
+      expectNoGlobalPollution();
     });
 
-    it('should block nested POISONED keys when parsing nested structures', () => {
-      // Arrange
-      const parser = QueryParser.create({ nesting: true });
-
-      // Act & Assert
-      const protoRes = parser.parse('__proto__[polluted]=true');
-
-      expect(Object.prototype.hasOwnProperty.call(protoRes, '__proto__')).toBe(false);
-
-      const ctorRes = parser.parse('constructor[prototype][foo]=bar');
-
-      expect(Object.prototype.hasOwnProperty.call(ctorRes, 'constructor')).toBe(false);
-    });
-
-    it('should block POISONED keys at child positions when nesting is true', () => {
+    it('should block __proto__ at every nested position and leave no pollution', () => {
       // Arrange
       const parser = QueryParser.create({ nesting: true });
 
       // Act
-      const protoChild = parser.parse('safe[__proto__]=polluted');
-      const ctorChild = parser.parse('safe[constructor]=polluted');
-      const prototypeChild = parser.parse('safe[prototype]=polluted');
+      const protoRoot = parser.parse('__proto__[polluted]=true');
+      parser.parse('a[__proto__][polluted]=true');
+      parser.parse('a[0][__proto__][polluted]=true');
 
-      // Assert — child poisoned keys are silently dropped
-      const safeProto = expectQueryRecord(protoChild.safe);
+      // Assert — __proto__ neutralized at root, child, and array-child positions
+      expect(Object.prototype.hasOwnProperty.call(protoRoot, '__proto__')).toBe(false);
+      expectNoGlobalPollution();
+    });
 
-      expect(Object.prototype.hasOwnProperty.call(safeProto, '__proto__')).toBe(false);
+    it('should traverse constructor/prototype as own containers without polluting', () => {
+      // Arrange
+      const parser = QueryParser.create({ nesting: true });
 
-      const safeCtor = expectQueryRecord(ctorChild.safe);
+      // Act & Assert — nested constructor/prototype are ordinary own keys now
+      expect(parser.parse('a[constructor]=1')).toEqual({ a: { constructor: '1' } });
+      expect(parser.parse('filter[constructor]=x')).toEqual({ filter: { constructor: 'x' } });
+      expect(parser.parse('a[constructor][prototype][x]=y')).toEqual({ a: { constructor: { prototype: { x: 'y' } } } });
+      expectNoGlobalPollution();
+    });
 
-      expect(Object.prototype.hasOwnProperty.call(safeCtor, 'constructor')).toBe(false);
+    it('should not pollute via the classic constructor.prototype chain vector', () => {
+      // Arrange
+      const parser = QueryParser.create({ nesting: true });
 
-      const safePrototype = expectQueryRecord(prototypeChild.safe);
+      // Act — the canonical prototype-pollution payloads
+      const rootChain = parser.parse('constructor[prototype][polluted]=yes');
+      parser.parse('a[constructor][prototype][polluted]=yes');
 
-      expect(Object.prototype.hasOwnProperty.call(safePrototype, 'prototype')).toBe(false);
+      // Assert — stored as own containers on the result, global prototype clean
+      expect(Object.prototype.hasOwnProperty.call(rootChain, 'constructor')).toBe(true);
+      expectNoGlobalPollution();
     });
 
     it('should allow non-dangerous inherited method names when used as keys', () => {

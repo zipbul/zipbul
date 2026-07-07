@@ -1,7 +1,8 @@
 import type { MiddlewareDefinition } from '@zipbul/common';
 
 import { defineMiddleware } from '@zipbul/common';
-import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
+import { isErr } from '@zipbul/result';
+import { HttpAdapter, HttpContext, HttpStatus, httpError } from '@zipbul/http-adapter';
 
 import type { QueryParserOptions } from './interfaces';
 
@@ -46,10 +47,25 @@ export function queryParser(options?: QueryParserOptions): MiddlewareDefinition 
     adapters: [HttpAdapter],
     augments: {
       request: {
+        // Supplies the parsed query as the raw value the `getQuery(dto)`
+        // accessor reads. A malformed query (strict mode) is a CLIENT error, so
+        // it is RETURNED as an `Err` (400) — the framework short-circuits the
+        // pipeline into that response — never thrown (which would surface as an
+        // attacker-triggerable 500).
         getQuery: (ctx) => {
           const queryString = ctx.to(HttpContext).request.queryString;
 
-          return queryString === null ? {} : parser.parse(queryString);
+          if (queryString === null) {
+            return {};
+          }
+
+          const result = parser.parseResult(queryString);
+
+          if (isErr(result)) {
+            return httpError(HttpStatus.BadRequest, `Malformed query string: ${result.data.message}`);
+          }
+
+          return result;
         },
       },
     },
