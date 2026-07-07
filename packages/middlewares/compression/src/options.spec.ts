@@ -386,4 +386,18 @@ describe('validateCompressionOptions', () => {
       expect(result.data.message).toBe(msg);
     }
   });
+
+  it('should carry human-readable messages for non-level field failures', () => {
+    const cases: Array<[ResolvedCompressionOptions, string]> = [
+      [makeResolved({ encodings: [] }), 'encodings must not be empty'],
+      [makeResolved({ encodings: ['bogus' as CompressionCodec, CompressionCodec.Br] }), 'unknown encoding: bogus'],
+      [makeResolved({ threshold: -1 }), 'threshold must be a non-negative finite number'],
+      [makeResolved({ filter: 123 as unknown as (ct: string) => boolean }), 'filter must be a function'],
+    ];
+    for (const [resolved, msg] of cases) {
+      const result = validateCompressionOptions(resolved);
+      if (!isErr(result)) throw new Error('expected Err');
+      expect(result.data.message).toBe(msg);
+    }
+  });
 });

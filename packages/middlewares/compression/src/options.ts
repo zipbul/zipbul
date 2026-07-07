@@ -95,6 +95,33 @@ const PATH_CODE_REASON: Readonly<Record<string, CompressionErrorReason>> = {
   'encodings:arrayEvery': CompressionErrorReason.InvalidEncodings,
 };
 
+// Built-in baker rules (arrayNotEmpty/arrayEvery/isFiniteNonNegative/isFunction) carry
+// no `message` thunk, so their issue.message is undefined. This table restores the
+// pre-baker human-readable text keyed by `path:code`. `level` is absent here because
+// its @Field carries a `message` thunk (issue.message is set) — that wins in messageFor.
+const CODE_MESSAGE: Readonly<Record<string, string>> = {
+  'encodings:arrayNotEmpty': 'encodings must not be empty',
+  'threshold:isFiniteNonNegative': 'threshold must be a non-negative finite number',
+  'filter:isFunction': 'filter must be a function',
+};
+
+const KNOWN_CODECS: ReadonlySet<string> = new Set(Object.values(CompressionCodec));
+
+function messageFor(
+  issue: { path: string; code: string; message?: string },
+  resolved: ResolvedCompressionOptions,
+): string {
+  // `level` failures carry a thunk-built message ("gzip level must be … got 12").
+  if (issue.message !== undefined) return issue.message;
+  // arrayEvery doesn't expose which element failed, so recover it from the value to
+  // reproduce the pre-baker "unknown encoding: <codec>" detail.
+  if (`${issue.path}:${issue.code}` === 'encodings:arrayEvery') {
+    const bad = resolved.encodings.find((e) => !KNOWN_CODECS.has(e));
+    return `unknown encoding: ${String(bad)}`;
+  }
+  return CODE_MESSAGE[`${issue.path}:${issue.code}`] ?? `${issue.path}: ${issue.code}`;
+}
+
 let sealed = false;
 function ensureSealed(): void {
   if (sealed) return;
@@ -135,7 +162,7 @@ export function validateCompressionOptions(
     if (reason === undefined) {
       throw new Error(`internal: baker @Field for "${issue.path}" missing context.reason`);
     }
-    return err<CompressionErrorData>({ reason, message: issue.message ?? `${issue.path}: ${issue.code}` });
+    return err<CompressionErrorData>({ reason, message: messageFor(issue, resolved) });
   }
 
   // breach: a separate argument + cross-field rule (requires a BREACH-safe encoding

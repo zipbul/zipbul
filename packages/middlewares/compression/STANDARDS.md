@@ -65,7 +65,7 @@ RFC 1950·1952는 Informational(1996, pre-BCP14)이라 규범 키워드가 소�
 
 ## 8. 범위 밖 (이 미들웨어가 다루지 않는 것)
 
-- **§8.1** `dcb`/`dcz`(Compression Dictionary Transport)는 구현하지 않는다 — 구현 시 secure context MUST, `Vary: accept-encoding, available-dictionary`, 36/40-byte 스트림 헤더 등 별도 규칙군이 필요하다 [RFC 9842].
+- **§8.1** `dcb`/`dcz`(Compression Dictionary Transport)는 구현하지 않는다 — 구현 시 secure context MUST, `Vary: accept-encoding, available-dictionary`, 36/40-byte 스트림 헤더 등 별도 규칙군이 필요하다. `dcb`는 shared-brotli 데이터 포맷(RFC 9841)을 규범 참조한다 [RFC 9842; RFC 9841].
 - **§8.2** `Transfer-Encoding`·chunked framing·HTTP/2/3 프레이밍과 `Content-Length`의 전송 정합(HEAD/304 값-일치·금지 상태코드·부정합 forward 방지)은 메시징 계층 소관이다 — 단 인코딩으로 인한 `Content-Length` 무효화·재생성은 §2.2로 이 미들웨어가 소유한다. 이 미들웨어는 hop-by-hop 인코딩을 생성하지 않는다 [RFC 9110 §8.4·§8.6].
 - **§8.3** 요청 측 content coding 디코딩과 그에 따른 415 응답 생성은 응답 압축 미들웨어의 소관이 아니다 [RFC 9110 §8.4·§12.5.3].
 - **§8.4** TLS 계층 압축과 그 side-channel 공격은 전송 계층 소관이다(§17.6은 content coding·TLS 압축을 포함한 여러 압축 벡터를 다루며 BREACH를 명시한다) [RFC 9110 §17.6].
