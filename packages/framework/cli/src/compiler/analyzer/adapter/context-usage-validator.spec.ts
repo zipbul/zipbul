@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { validateHandlerContextUsages } from './context-usage-validator';
+import {
+  validateHandlerContextUsages,
+  validateAccessorUsages,
+  formatAccessorUsageViolation,
+} from './context-usage-validator';
 import type { HandlerIndexEntry, RouteRegistration } from '../interfaces';
 import type { ContextUsage } from '../parser/handler-context-usage-extractor';
 import type { MiddlewareContextAugment } from './middleware-context-types';
@@ -138,5 +142,62 @@ describe('validateHandlerContextUsages', () => {
     const usages = new Map<string, readonly ContextUsage[]>();
 
     expect(validateHandlerContextUsages([makeHandler(HID)], usages, [getQueryAugment])).toEqual([]);
+  });
+});
+
+function makeAccessorAugment(middlewareName: string, ns: string, prop: string): MiddlewareContextAugment {
+  return {
+    middlewareName,
+    contextType: 'HttpContext',
+    sourceFilePath: `/tmp/${middlewareName}.ts`,
+    augments: [{ path: [ns, prop] }],
+    classImports: new Map(),
+  };
+}
+
+const queryAccessorAugment = makeAccessorAugment('queryParser', 'request', 'getQuery');
+
+describe('validateAccessorUsages', () => {
+  test('returns nothing when no validated accessors are declared', () => {
+    const usages = new Map([[HID, [makeUsage(['request', 'getQuery'])]]]);
+
+    expect(validateAccessorUsages([makeHandler(HID)], usages, [])).toEqual([]);
+  });
+
+  test('accessor call with the providing middleware registered passes', () => {
+    const handler = makeHandler(HID, MW_KEY);
+    const usages = new Map([[HID, [{ path: ['request', 'getQuery'], isCall: true, dtoIdentifier: 'SearchDto' } satisfies ContextUsage]]]);
+    const registrations = [makeRegistration(MW_KEY, 'queryParser')];
+
+    expect(validateAccessorUsages([handler], usages, [queryAccessorAugment], registrations)).toEqual([]);
+  });
+
+  test('accessor call without the providing middleware is a missing-provider violation', () => {
+    const usages = new Map([[HID, [{ path: ['request', 'getQuery'], isCall: true, dtoIdentifier: 'SearchDto' } satisfies ContextUsage]]]);
+
+    const violations = validateAccessorUsages([makeHandler(HID)], usages, [queryAccessorAugment]);
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.kind).toBe('missing-provider');
+    expect(violations[0]!.middlewareName).toBe('queryParser');
+    expect(formatAccessorUsageViolation(violations[0]!)).toContain('not registered');
+  });
+
+  test('detached read of a declared accessor is a violation even when the provider is registered', () => {
+    const handler = makeHandler(HID, MW_KEY);
+    const usages = new Map([[HID, [{ path: ['request', 'getQuery'], isCall: false, dtoIdentifier: null } satisfies ContextUsage]]]);
+    const registrations = [makeRegistration(MW_KEY, 'queryParser')];
+
+    const violations = validateAccessorUsages([handler], usages, [queryAccessorAugment], registrations);
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.kind).toBe('detached-read');
+    expect(formatAccessorUsageViolation(violations[0]!)).toContain('without calling it');
+  });
+
+  test('unrelated context usages are ignored', () => {
+    const usages = new Map([[HID, [makeUsage(['request', 'getBody'])]]]);
+
+    expect(validateAccessorUsages([makeHandler(HID)], usages, [queryAccessorAugment])).toEqual([]);
   });
 });

@@ -10,13 +10,16 @@ export const DEFAULT_QUERY_PARSER_OPTIONS: ResolvedQueryParserOptions = {
   urlEncoded: false,
 };
 
-/** Keys that must never be written to any parsed object (prototype pollution prevention). */
-export const POISONED_KEYS: ReadonlySet<string> = new Set([
-  '__proto__',
-  'constructor',
-  'prototype',
-  '__defineGetter__',
-  '__defineSetter__',
-  '__lookupGetter__',
-  '__lookupSetter__',
-]);
+/**
+ * The sole key ever blocked from a parsed object. `__proto__` is special: a
+ * plain assignment (`obj.__proto__ = x`) invokes the prototype setter, so it is
+ * neutralized at every position (root, nested segment, leaf).
+ *
+ * Every other key — including `constructor`, `prototype`, `__defineGetter__`,
+ * etc. — is stored as an ordinary OWN-property shadow and is harmless: the
+ * parser only ever create-own-or-skips via `hasOwnProperty`, so it never reads
+ * or writes a property off the prototype chain. Blocking those names would
+ * silently discard legitimate query fields (e.g. `?filter[constructor]=x`)
+ * without adding any pollution defense.
+ */
+export const POISONED_KEYS: ReadonlySet<string> = new Set(['__proto__']);

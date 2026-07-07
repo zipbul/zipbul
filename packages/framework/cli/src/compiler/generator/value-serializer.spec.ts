@@ -3,6 +3,7 @@ import { ZIPBUL_REF, ZIPBUL_IMPORT_SOURCE, ZIPBUL_CALL, ZIPBUL_UNRESOLVABLE } fr
 
 import type { AnalyzerValue } from '../analyzer/types';
 
+import { ZIPBUL_MEMBER_KEY } from '../analyzer/adapter/middleware-pipeline-processor';
 import { ImportRegistry } from './import-registry';
 import { serializeValue } from './value-serializer';
 
@@ -62,5 +63,15 @@ describe('serializeValue', () => {
   it('should throw on a local (non-imported) ref instead of leaking the marker record', () => {
     const value = { [ZIPBUL_REF]: 'localCors' } as unknown as AnalyzerValue;
     expect(() => serializeValue(value, registry())).toThrow(/localCors/);
+  });
+
+  it('should render a member access on a call result for member-marked call records', () => {
+    const value = {
+      [ZIPBUL_CALL]: 'cookieMiddleware',
+      [ZIPBUL_IMPORT_SOURCE]: '@zipbul/cookie',
+      args: [],
+      [ZIPBUL_MEMBER_KEY]: 'onRequest',
+    } as unknown as AnalyzerValue;
+    expect(serializeValue(value, registry())).toBe('cookieMiddleware().onRequest');
   });
 });

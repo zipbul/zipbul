@@ -1,4 +1,5 @@
 import type { Result } from '@zipbul/result';
+import type { AugmentAccessorRegistryEntry } from '@zipbul/common';
 import type { AnalyzerValue } from '../analyzer/types';
 import type { ImportRegistry } from './import-registry';
 import type { Diagnostic } from '../../diagnostics';
@@ -26,7 +27,11 @@ interface Replacement {
 }
 
 export class InjectorGenerator {
-  generate(graph: ModuleGraph, registry: ImportRegistry): Result<string, Diagnostic> {
+  generate(
+    graph: ModuleGraph,
+    registry: ImportRegistry,
+    augmentAccessorRegistries?: ReadonlyMap<string, readonly AugmentAccessorRegistryEntry[]>,
+  ): Result<string, Diagnostic> {
     const allKeys = graph.getAllRegisteredKeys();
     const sortedNodes = Array.from(graph.modules.values()).sort((a, b) => compareCodePoint(a.filePath, b.filePath));
 
@@ -46,7 +51,7 @@ export class InjectorGenerator {
       return providerResult.error;
     }
 
-    const adapterConfigs = this.generateAdapterConfigs(sortedNodes, registry);
+    const adapterConfigs = this.generateAdapterConfigs(sortedNodes, registry, augmentAccessorRegistries);
     const dynamicEntries = this.generateDynamicModules(sortedNodes, registry);
 
     return this.buildContainerCode(
@@ -354,9 +359,15 @@ export class InjectorGenerator {
    *
    * @param sortedNodes - Module nodes sorted by file path for deterministic output.
    * @param registry - The import registry for resolving and tracking import aliases.
+   * @param augmentAccessorRegistries - Per-adapter augment accessor registry
+   *   entries (keyed by adapter class name) emitted into the config slice.
    * @returns Serialized adapter config code lines.
    */
-  private generateAdapterConfigs(sortedNodes: readonly ModuleNode[], registry: ImportRegistry): string[] {
+  private generateAdapterConfigs(
+    sortedNodes: readonly ModuleNode[],
+    registry: ImportRegistry,
+    augmentAccessorRegistries?: ReadonlyMap<string, readonly AugmentAccessorRegistryEntry[]>,
+  ): string[] {
     const adapterConfigMap = new Map<
       string,
       {
@@ -364,6 +375,7 @@ export class InjectorGenerator {
         middlewares: Map<string, string[]>;
         exceptionFilters: string[];
         guards: string[];
+        augmentAccessors: readonly AugmentAccessorRegistryEntry[];
       }
     >();
 
@@ -399,7 +411,19 @@ export class InjectorGenerator {
           middlewares: new Map<string, string[]>(),
           exceptionFilters: [],
           guards: [],
+          augmentAccessors: [],
         };
+
+        // Accessor registry rides the config slice keyed by the adapter's
+        // class name — present even when the adapter has ONLY route-scoped
+        // augment middleware (no global config parts).
+        if (adapterClassName !== null) {
+          const registryEntries = augmentAccessorRegistries?.get(adapterClassName);
+
+          if (registryEntries !== undefined && registryEntries.length > 0) {
+            adapterConfigEntry.augmentAccessors = registryEntries;
+          }
+        }
 
         if (itemRecord.middlewares !== undefined) {
           const middlewares = asRecord(itemRecord.middlewares);
@@ -469,6 +493,10 @@ export class InjectorGenerator {
 
         if (config.guards.length > 0) {
           configParts.push(`'guards': [${config.guards.join(', ')}]`);
+        }
+
+        if (config.augmentAccessors.length > 0) {
+          configParts.push(`'augmentAccessors': ${JSON.stringify(config.augmentAccessors)}`);
         }
 
         if (configParts.length === 0) {

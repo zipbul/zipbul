@@ -5,7 +5,7 @@ import type {
 } from '../interfaces';
 import type { MiddlewareProducerInfo } from './middleware-context-types';
 import type { ContextOperation } from '../parser/context-operation-extractor';
-import { ZIPBUL_REF } from '@zipbul/common';
+import { ZIPBUL_REF, ZIPBUL_CALL } from '@zipbul/common';
 import { toRecord } from '../type-guards';
 
 /**
@@ -340,12 +340,23 @@ function invertProducerMap(byName: ReadonlyMap<string, ReadonlySet<string>>): Ma
 export function buildKeyToRefName(registrations: readonly RouteRegistration[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const reg of registrations) {
-    if (reg.kind !== 'ref') continue;
     const record = toRecord(reg.value);
     if (record === null) continue;
-    const refName = record[ZIPBUL_REF];
-    if (typeof refName !== 'string' || refName.length === 0) continue;
-    map.set(reg.key, refName);
+
+    if (reg.kind === 'ref') {
+      const refName = record[ZIPBUL_REF];
+      if (typeof refName !== 'string' || refName.length === 0) continue;
+      map.set(reg.key, refName);
+      continue;
+    }
+
+    // `call` registrations (`queryParser({...})`, resolved `cookies.onRequest`):
+    // identity is the factory's export name — the last callee segment.
+    const callee = record[ZIPBUL_CALL];
+    if (typeof callee !== 'string' || callee.length === 0) continue;
+    const lastSegment = callee.split('.').pop();
+    if (lastSegment === undefined || lastSegment.length === 0) continue;
+    map.set(reg.key, lastSegment);
   }
   return map;
 }

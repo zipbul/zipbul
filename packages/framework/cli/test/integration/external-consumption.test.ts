@@ -1,9 +1,38 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, rm, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, rm, readFile, symlink } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { buildAdapter, readAdapterManifest, detectMultiAdapterConflicts } from '../../src/compiler/adapter-build';
+
+/**
+ * Symlink typescript + the `@zipbul` workspace deps the fixture imports and
+ * write a `tsconfig.build.json` so `zb build adapter`'s tsgo codegen resolves +
+ * emits `dist/index.js` (a package without it is a manifest-only build).
+ */
+async function enableTsgoBuild(pkgRoot: string): Promise<void> {
+  const monorepoRoot = resolve(__dirname, '../../../../..');
+  await mkdir(join(pkgRoot, 'node_modules', '@zipbul'), { recursive: true });
+  await symlink(join(monorepoRoot, 'node_modules', 'typescript'),
+    join(pkgRoot, 'node_modules', 'typescript')).catch(() => {});
+  for (const [sourcePath, name] of [
+    ['packages/framework/common', 'common'],
+    ['packages/framework/logger', 'logger'],
+    ['packages/framework/core', 'core'],
+    ['packages/libs/result', 'result'],
+  ] as const) {
+    await symlink(join(monorepoRoot, sourcePath),
+      join(pkgRoot, 'node_modules', '@zipbul', name)).catch(() => {});
+  }
+  await Bun.write(join(pkgRoot, 'tsconfig.build.json'), JSON.stringify({
+    compilerOptions: {
+      module: 'esnext', target: 'esnext', moduleResolution: 'bundler',
+      declaration: true, noEmit: false, emitDeclarationOnly: false,
+      outDir: 'dist', rootDir: '.', skipLibCheck: true, strict: true,
+    },
+    include: ['index.ts', 'src'],
+  }));
+}
 
 /**
  * Step 12 External e2e — emulates the user-app build's interaction with a
@@ -65,8 +94,16 @@ async function writeAdapter(adapterId: string): Promise<void> {
     join(adapterRoot, `src/${adapterId}.ts`),
     [
       `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+      `import { ClusterStrategy } from '@zipbul/common';`,
       `export class ${adapterId} {`,
       `  readonly decorators: AdapterEntryDecorators = { controller: ${adapterId}Controller, handlers: [${adapterId}Get] };`,
+      `  readonly clusterStrategy = ClusterStrategy.Shared;`,
+      `  async start(_ctx: unknown): Promise<void> {}`,
+      `  async stop(): Promise<void> {}`,
+      `  async drain(_timeoutMs: number): Promise<void> {}`,
+      `  async dispatchRequest(_ctx: unknown): Promise<void> {}`,
+      `  applyConfig(_config: unknown): void {}`,
+      `  initializePipeline(_container: unknown): void {}`,
       `}`,
       `export class ${adapterId}Context {}`,
       `export const ${adapterId}Controller = () => () => {};`,
@@ -80,6 +117,7 @@ async function writeAdapter(adapterId: string): Promise<void> {
 describe('Step 12 External e2e — manifest-only adapter consumption', () => {
   it('user-app build consumes adapter purely via dist/*.json + dist/index.js', async () => {
     await writeAdapter('Foo');
+    await enableTsgoBuild(adapterRoot);
 
     // 1. Adapter package author runs `zb build adapter`. After this point,
     //    the adapter source could be deleted — only dist/ matters.
