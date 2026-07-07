@@ -1,5 +1,5 @@
 ---
-"@zipbul/compression": major
+"@zipbul/compression": minor
 ---
 
 First release of `@zipbul/compression`. A Bun-native HTTP response-compression middleware for `gzip` / `brotli` / `deflate` / `zstd` with strict RFC 9110 conformance.

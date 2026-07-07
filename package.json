@@ -32,7 +32,7 @@
     "typecheck": "bunx tsc --noEmit",
     "lint": "bunx oxlint --type-aware",
     "knip": "knip",
-    "release:publish": "for d in packages/*/package.json; do [ \"$(jq -r .private $d)\" = \"true\" ] && continue; (cd $(dirname $d) && name=$(jq -r .name package.json) && ver=$(jq -r .version package.json) && bun publish --access public && echo \"New tag: $name@$ver\"); done"
+    "release:publish": "for d in packages/*/*/package.json; do [ \"$(jq -r .private $d)\" = \"true\" ] && continue; (cd $(dirname $d) && name=$(jq -r .name package.json) && ver=$(jq -r .version package.json) && bun publish --access public && echo \"New tag: $name@$ver\"); done"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.4",
