@@ -1,3 +1,5 @@
+import type { Result } from '@zipbul/result';
+
 import type { AdapterContext } from './interfaces';
 
 /**
@@ -7,12 +9,18 @@ import type { AdapterContext } from './interfaces';
  * `getBody`/`getParams`) and the installed accessor returns the validated
  * instance. Normalized to a {@link ValidatedAccessorSpec} at definition time.
  *
+ * Returns the raw value, OR an `Err` to signal a CLIENT error (e.g. a
+ * malformed query): the framework short-circuits the pipeline into that `Err`
+ * response — same value-or-error channel a middleware handler uses — so a bad
+ * input becomes a 4xx, never a thrown 500. (`Result<Raw> = Raw | Err`, so a
+ * supply that only ever returns a value needs no change.)
+ *
  * Must be a PLAIN synchronous function — async / generator / async-generator
  * functions and classes are rejected (they cannot be a `(ctx) => raw` supply).
  *
  * @public
  */
-export type AugmentSupplyFn<Raw = unknown> = (ctx: AdapterContext) => Raw;
+export type AugmentSupplyFn<Raw = unknown> = (ctx: AdapterContext) => Result<Raw, unknown>;
 
 /**
  * The NORMALIZED internal spec produced from an {@link AugmentSupplyFn} by
@@ -23,7 +31,7 @@ export type AugmentSupplyFn<Raw = unknown> = (ctx: AdapterContext) => Raw;
  */
 export interface ValidatedAccessorSpec<Raw = unknown> {
   readonly kind: 'validated-accessor';
-  readonly supply: (ctx: AdapterContext) => Raw;
+  readonly supply: (ctx: AdapterContext) => Result<Raw, unknown>;
 }
 
 /**

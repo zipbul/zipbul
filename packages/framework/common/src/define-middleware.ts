@@ -86,13 +86,17 @@ export type DefineMiddlewareConfig =
  *   handleCors(http);
  * });
  *
- * // Config object with provides
+ * // Config object with augments — declares a typed `request.getQuery(dto)`
+ * // accessor. The bare `(ctx) => raw` supply fills the raw slot; the framework
+ * // wires baker DTO validation from the handler's `getQuery(SomeDto)` call
+ * // site (exactly like `getBody`/`getParams`). A supply may return an `Err`
+ * // (value-or-error) to short-circuit the request into a 4xx.
  * export const queryParser = defineMiddleware({
- *   provides: [queryInput],
  *   adapters: [HttpAdapter],
- *   factory: () => (ctx) => {
- *     const http = ctx.to(HttpContext);
- *     ctx.set(queryInput, parseQuery(http.request.queryString));
+ *   augments: {
+ *     request: {
+ *       getQuery: (ctx) => parseQuery(ctx.to(HttpContext).request.queryString),
+ *     },
  *   },
  * });
  * ```

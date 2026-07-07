@@ -656,7 +656,11 @@ export abstract class Adapter implements AdapterContract {
 
       return {
         handler: (ctx: AdapterContext) => {
-          supply(ctx);
+          const supplyResult = supply(ctx);
+
+          if (isErr(supplyResult)) {
+            return supplyResult;
+          }
 
           return handler(ctx);
         },
@@ -817,26 +821,44 @@ export abstract class Adapter implements AdapterContract {
 }
 
 /**
- * Builds the per-request supply step for a definition's augments: plain
- * augments store `create(ctx)` under the value key; validated accessors store
- * `supply(ctx)` under the raw key (baker validation later moves the validated
- * instance to the validated key at the Validation step).
+ * Builds the per-request supply step for a definition's augments: each supply
+ * fills the raw key (baker validation later moves the validated instance to the
+ * validated key at the Validation step). A supply may instead return an `Err`
+ * to signal a CLIENT error (e.g. a malformed query) — the step returns it so
+ * the pipeline short-circuits into that response (a 4xx), rather than a thrown
+ * 500.
  */
-function buildAugmentSupplyStep(augments: MiddlewareAugments): (ctx: AdapterContext) => void {
-  const steps: Array<(ctx: AdapterContext) => void> = [];
+function buildAugmentSupplyStep(augments: MiddlewareAugments): (ctx: AdapterContext) => Result<void, unknown> {
+  const steps: Array<(ctx: AdapterContext) => Result<void, unknown>> = [];
 
   for (const [namespace, props] of Object.entries(augments)) {
     for (const [prop, spec] of Object.entries(props)) {
       const key = augmentRawKey(namespace, prop);
 
-      steps.push((ctx) => { ctx.set(key, spec.supply(ctx)); });
+      steps.push((ctx) => {
+        const supplied = spec.supply(ctx);
+
+        if (isErr(supplied)) {
+          return supplied;
+        }
+
+        ctx.set(key, supplied);
+
+        return undefined;
+      });
     }
   }
 
   return (ctx) => {
     for (const step of steps) {
-      step(ctx);
+      const result = step(ctx);
+
+      if (isErr(result)) {
+        return result;
+      }
     }
+
+    return undefined;
   };
 }
    

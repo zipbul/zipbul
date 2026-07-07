@@ -1,6 +1,7 @@
 import type { MiddlewareDefinition } from '@zipbul/common';
 import { augmentRawKey } from '@zipbul/common';
 import { installAugmentAccessorOnPrototype, runInAdapterContext } from '@zipbul/core';
+import { isErr } from '@zipbul/result';
 
 import type { HttpContext } from '../http-context';
 import { HTTP_NAMESPACE_PROTOTYPES } from '../context-namespaces';
@@ -17,6 +18,11 @@ import { HTTP_NAMESPACE_PROTOTYPES } from '../context-namespaces';
  * via `ctx.get(augmentRawKey(ns, prop))` instead; the DTO path is end-to-end
  * territory.
  *
+ * A supply may return an `Err` (value-or-error). Mirroring the real runtime
+ * ({@link buildAugmentSupplyStep}, which short-circuits without writing the
+ * slot), an erroring supply leaves the raw slot unset here — so a test reads
+ * back `undefined`, never a stray `Err` masquerading as the raw value.
+ *
  * @public
  */
 export async function withAugments<T>(
@@ -32,7 +38,12 @@ export async function withAugments<T>(
         if (prototype !== undefined) {
           installAugmentAccessorOnPrototype(prototype, namespace, prop, 'HttpAdapter');
         }
-        ctx.set(augmentRawKey(namespace, prop), spec.supply(ctx));
+
+        const supplied = spec.supply(ctx);
+
+        if (!isErr(supplied)) {
+          ctx.set(augmentRawKey(namespace, prop), supplied);
+        }
       }
     }
   }
