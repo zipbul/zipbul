@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@zipbul/query-parser)](https://www.npmjs.com/package/@zipbul/query-parser)
 ![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/parkrevil/3965fb9d1fe2d6fc5c321cb38d88c823/raw/query-parser-coverage.json)
 
-A high-performance, RFC 3986 compliant query string parser with strict security controls.
+A fast, security-hardened query string parser for Bun: prototype-pollution-safe, WHATWG `x-www-form-urlencoded` aligned, and multiples faster than `qs` on nested/array input.
 
 > Designed for Bun. Options are validated with [@zipbul/baker](https://www.npmjs.com/package/@zipbul/baker).
 
@@ -148,9 +148,11 @@ Maximum array index allowed when `nesting` is enabled. At **container creation**
 ```typescript
 const parser = QueryParser.create({ nesting: true, arrayLimit: 5 });
 
-parser.parse('a[3]=ok');   // { a: [undefined, undefined, undefined, 'ok'] }  (sparse array)
+parser.parse('a[3]=ok');   // { a: [ <3 empty items>, 'ok' ] }  (sparse array)
 parser.parse('a[100]=no'); // over limit → object: { a: { '100': 'no' } }
 ```
+
+⚠️ A sparse array keeps the gaps as holes. `JSON.stringify` renders holes as `null`, so `a[3]=ok` serializes to `{"a":[null,null,null,"ok"]}`. If your DTO layer rejects `null` elements, prefer explicit indices or a lower `arrayLimit`.
 
 ⚠️ The object fallback only applies when the container is first created. If the key already holds an **array**, a later over-limit index is silently dropped:
 
@@ -201,7 +203,7 @@ parser.parse('a=1&a[b]=2');        // throws QueryParserError (conflicting struc
 
 ### `urlEncoded`
 
-Decode `+` as a space, matching `application/x-www-form-urlencoded` — how browsers and `URLSearchParams` treat query strings. Off by default; see [RFC 3986 Compliance](#-rfc-3986-compliance).
+Decode `+` as a space, matching `application/x-www-form-urlencoded` — how browsers and `URLSearchParams` treat query strings. Off by default; see [Encoding & spec alignment](#-encoding--spec-alignment).
 
 ```typescript
 QueryParser.create({ urlEncoded: true }).parse('q=hello+world');
@@ -252,26 +254,29 @@ if (isErr(result)) {
 
 ### `QueryParserErrorReason`
 
-| Reason | Thrown by | Description |
-|:-------|:---------|:------------|
+`create()` throws a `QueryParserError` on invalid options. `parse()` throws on a malformed strict-mode query, while `parseResult()` returns the same reason as an `Err` (and the middleware maps it to a **400**) instead of throwing.
+
+| Reason | Surfaced by | Description |
+|:-------|:-----------|:------------|
 | `InvalidDepth` | `create()` | `depth` must be a non-negative integer |
 | `InvalidMaxParams` | `create()` | `maxParams` must be a positive integer |
+| `InvalidNesting` | `create()` | `nesting` must be a boolean |
 | `InvalidArrayLimit` | `create()` | `arrayLimit` must be a non-negative integer |
 | `InvalidDuplicates` | `create()` | `duplicates` must be `'first'`, `'last'`, or `'array'` |
-| `InvalidNesting` | `create()` | `nesting` must be a boolean |
 | `InvalidStrict` | `create()` | `strict` must be a boolean |
 | `InvalidUrlEncoded` | `create()` | `urlEncoded` must be a boolean |
-| `MalformedQueryString` | `parse()` | Malformed syntax (strict mode only) |
-| `ConflictingStructure` | `parse()` | Key used as both scalar and nested (strict mode only) |
+| `MalformedQueryString` | `parse()` throws / `parseResult()` → `Err` → 400 | Malformed syntax (strict mode only) |
+| `ConflictingStructure` | `parse()` throws / `parseResult()` → `Err` → 400 | Key used as both scalar and nested (strict mode only) |
 
 <br>
 
-## 📐 RFC 3986 Compliance
+## 📐 Encoding & spec alignment
 
-This parser follows [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) semantics:
+RFC 3986 defines URI *syntax* (which characters are legal in a query) but not how a query string is split into key/value pairs or how `application/x-www-form-urlencoded` bytes are decoded — that is the [WHATWG url-encoded parser](https://url.spec.whatwg.org/#application/x-www-form-urlencoded) (what `URLSearchParams` implements). This parser aligns with the WHATWG model, with a few deliberate choices:
 
 - **`+` is literal by default** — not decoded to a space. ⚠️ This differs from browsers, `URLSearchParams`, and `qs`, which decode `+`→space. For form-urlencoded query strings set [`urlEncoded: true`](#urlencoded). Use `%20` for an unambiguous space.
-- **Percent decoding** — `%HH` sequences are decoded via `decodeURIComponent`. Malformed sequences fall back to the raw string in non-strict mode.
+- **Percent decoding** — `%HH` sequences are decoded via `decodeURIComponent` (UTF-8, per RFC 3986). ⚠️ Unlike `URLSearchParams` (which never throws and keeps a malformed `%ZZ` literally), a malformed escape falls back to the raw string in non-strict mode and is rejected as a **400** in `strict` mode.
+- **Percent-encoded brackets are decoded before structural parsing** — with `nesting: true`, `a%5Bb%5D=c` decodes to the key `a[b]` and is parsed as `{ a: { b: 'c' } }`. To keep a literal `[`/`]` in a key, do not enable `nesting`.
 - **`&` delimiter only** — `;` is not recognized as a separator.
 
 <br>
@@ -292,36 +297,57 @@ Default `duplicates: 'first'` prevents attackers from injecting values by append
 
 ### Resource limits
 
-- `depth` caps nested object recursion
-- `maxParams` caps the number of parsed pairs
+- `depth` caps nesting: keys beyond the limit stop nesting and the value is kept as a leaf at the deepest allowed level (never dropped, and no empty placeholder object is left behind)
+- `maxParams` caps the number of parsed pairs; empty `&` separators do not count toward it
 - `arrayLimit` caps array index allocation
+
+> Note: these limits bound *output* structure. They do not bound raw input length — a single very long key is still scanned in full. For untrusted input, cap the request URL/body size upstream.
 
 <br>
 
 ## ⚡ Performance
 
-Benchmarked with [mitata](https://github.com/evanwashere/mitata) on Bun.
+Where this parser stands, honestly: **it is many times faster than `qs`, wins on
+percent-encoded and `+`-heavy (form) input, but it is _not_ the fastest parser** —
+`fast-querystring` leads on flat input and `picoquery` leads on nested/array. The
+trade is deliberate: typed `Result` errors, precise prototype-pollution blocking,
+and strict validation that the raw-speed leaders don't offer.
 
-### vs competitors (flat key-value)
+Competitors are compared only against same-class peers (a parser is never credited
+for work it skips). Numbers below: Bun 1.3.14, i7-13700K — **indicative only, and
+machine/version dependent**. Reproduce with `bun run bench:vs` (builds `dist/` and
+benches the published artifact against pinned rivals).
 
-| Input | @zipbul/query-parser | node:querystring | URLSearchParams | qs |
-|:------|---------------------:|-----------------:|----------------:|---:|
-| flat 10 params | 423 ns | 368 ns | 2.62 us | 4.65 us |
-| flat 50 params | 4.81 us | 4.36 us | 12.58 us | 19.40 us |
-| encoded 5 params | **955 ns** | 1.24 us | 1.60 us | 2.24 us |
+### Flat-only parsers (no nesting)
 
-### vs qs (nested/array)
+| Input | @zipbul (`nesting:false`) | node:querystring | fast-querystring | URLSearchParams→record |
+|:------|--------------------------:|-----------------:|-----------------:|-----------------------:|
+| flat 10 | 496 ns | 424 ns | **366 ns** | 2.64 µs |
+| flat 50 | 5.30 µs | 4.79 µs | **3.40 µs** | 12.90 µs |
+| encoded 5 | **978 ns** | 1.20 µs | 1.47 µs | 1.60 µs |
 
-| Input | @zipbul/query-parser | qs | Speedup |
-|:------|---------------------:|---:|--------:|
-| nested depth 3 | 162 ns | 1.01 us | **6.3x** |
-| array x10 | 1.39 us | 7.16 us | **5.2x** |
-| e-commerce payload | 1.12 us | 4.50 us | **4.0x** |
+`fast-querystring` is ~1.4× faster on plain flat input; @zipbul leads once values
+are percent-encoded.
+
+### Full parsers (bracket-capable)
+
+| Input | @zipbul (`nesting:true`) | qs | picoquery |
+|:------|-------------------------:|---:|----------:|
+| flat 10 | 487 ns | 4.26 µs | **387 ns** |
+| nested depth 3 | 155 ns | 1.11 µs | **84 ns** |
+| array ×10 | 1.36 µs | 6.60 µs | **429 ns** |
+| e-commerce | 1.15 µs | 4.66 µs | **633 ns** |
+| plus-heavy (form) | **604 ns** | 1.47 µs | — |
+
+@zipbul is **5–15× faster than `qs`** across nested/array, and fastest on `+`-heavy
+form input — but `picoquery` is 1.8–3.2× faster on bracket structures. (picoquery's
+duplicate-key handling differs; see the parity preview `bench:vs` prints.)
 
 Run benchmarks locally:
 
 ```bash
-bun run bench
+bun run bench:self   # @zipbul-only regression micro-benchmarks (src)
+bun run bench:vs     # vs qs / node:querystring / fast-querystring / picoquery (dist)
 ```
 
 <br>

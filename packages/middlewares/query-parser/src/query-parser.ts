@@ -3,8 +3,9 @@ import type { Err, Result } from '@zipbul/result';
 
 import { POISONED_KEYS } from './constants';
 import { QueryParserErrorReason } from './enums';
-import { QueryParserError } from './interfaces';
-import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
+import { QueryParserError } from './errors';
+import type { QueryParserErrorData } from './errors';
+import type { QueryParserOptions } from './interfaces';
 import { resolveQueryParserOptions, validateQueryParserOptions } from './options';
 import type { QueryArray, QueryContainer, QueryValue, QueryValueRecord, ResolvedQueryParserOptions } from './types';
 
@@ -109,11 +110,16 @@ export class QueryParser {
           return pairResult;
         }
 
-        paramCount++;
+        // Only a real key-value pair counts toward maxParams. Empty segments
+        // (`&&`, `=&`) emit nothing (processPair returns false) and must not
+        // erode the budget, or they would silently drop later real parameters.
+        if (pairResult) {
+          paramCount++;
 
-        if (paramCount >= this.options.maxParams) {
-          limitReached = true;
-          break;
+          if (paramCount >= this.options.maxParams) {
+            limitReached = true;
+            break;
+          }
         }
 
         // Reset
@@ -143,6 +149,12 @@ export class QueryParser {
     return res;
   }
 
+  /**
+   * Decodes and stores a single key-value pair.
+   *
+   * @returns `true` if a pair was emitted (counts toward maxParams), `false` if
+   *   the segment was empty/skipped, or `Err` on a strict-mode failure.
+   */
   private processPair(
     res: QueryValueRecord,
     qs: string,
@@ -150,7 +162,7 @@ export class QueryParser {
     keyEnd: number,
     valStart: number,
     valEnd: number,
-  ): Err<QueryParserErrorData> | undefined {
+  ): Err<QueryParserErrorData> | boolean {
     // Decode Key
     const keyRaw = qs.slice(keyStart, keyEnd);
     const keyNeedsDecode = keyRaw.includes('%') || (this.options.urlEncoded && keyRaw.includes('+'));
@@ -163,7 +175,7 @@ export class QueryParser {
     const key = keyDecoded;
 
     if (!key) {
-      return;
+      return false;
     }
 
     // Decode Value
@@ -192,7 +204,9 @@ export class QueryParser {
         });
       }
 
-      return this.assignLeaf(res, key, val);
+      // `?? true`: assign* returns undefined on success, Err on strict failure.
+      // Map success to `true` so the caller counts this as an emitted pair.
+      return this.assignLeaf(res, key, val) ?? true;
     }
 
     if (!this.options.nesting) {
@@ -204,10 +218,10 @@ export class QueryParser {
         }
       }
 
-      return this.assignLeaf(res, key, val);
+      return this.assignLeaf(res, key, val) ?? true;
     }
 
-    return this.parseComplexKey(res, key, braceIdx, val);
+    return this.parseComplexKey(res, key, braceIdx, val) ?? true;
   }
 
   /**
@@ -254,7 +268,9 @@ export class QueryParser {
     firstBrace: number,
     value: string,
   ): Err<QueryParserErrorData> | undefined {
-    let current: QueryContainer = root;
+    // `current` is assigned from the resolved root container below (or the
+    // function returns first), so no initializer is needed here.
+    let current: QueryContainer;
     let depth = 0;
     const maxDepth = this.options.depth;
     const rootKey = key.slice(0, firstBrace);
@@ -327,6 +343,16 @@ export class QueryParser {
       return this.assignLeaf(root, key, value);
     }
 
+    // Pollution check — up front, before any container is built. A poisoned
+    // segment anywhere in the key drops the whole pair; doing this before
+    // container creation guarantees a rejected key leaves no phantom parent
+    // behind (e.g. `a[__proto__][x]=1` yields {} rather than {a:{}}).
+    for (let s = 1; s < keys.length; s++) {
+      if (POISONED_KEYS.has(keys[s] ?? '')) {
+        return;
+      }
+    }
+
     // Initialize/Validate root container
     if (!Object.prototype.hasOwnProperty.call(root, rootKey)) {
       const nextKey = keys[1] ?? '';
@@ -359,17 +385,39 @@ export class QueryParser {
 
     // Traverse and build from 2nd key match
     for (let k = 1; k < keys.length; k++) {
-      const prop = keys[k] ?? '';
+      let prop = keys[k] ?? '';
       const isLast = k === keys.length - 1;
 
-      if (depth >= maxDepth) {
-        return;
+      // `[]` array-append targeting a parent that resolved to a record (e.g.
+      // `a[k]=1&a[]=2`) would otherwise write to obj[''], a spurious empty-string
+      // key. Treat it as a structure conflict in strict mode; in lenient mode
+      // synthesize the next free numeric index so the value is preserved under a
+      // sane key, symmetric with the array→object conversion path. This runs
+      // BEFORE the depth cap so the boundary case still normalizes the empty prop
+      // instead of assigning the value under '' at the deepest level.
+      if (prop === '' && this.isRecordValue(current)) {
+        if (this.options.strict) {
+          return err<QueryParserErrorData>({
+            reason: QueryParserErrorReason.ConflictingStructure,
+            message: `Conflict: array-append "[]" used on an object structure at "${parentKey}"`,
+          });
+        }
+
+        prop = this.nextRecordIndex(current);
       }
 
-      // Pollution check — BEFORE any property access
-      if (POISONED_KEYS.has(prop)) {
-        return;
+      // Depth cap. `depth` counts the container levels descended so far. When a
+      // non-terminal key would push past the cap, stop descending and keep the
+      // value at the deepest permitted level as a leaf. Dropping it here (and
+      // leaving the just-created container empty) silently loses client data and
+      // leaves a phantom `{}` where a scalar was sent. Like maxParams/arrayLimit
+      // this truncates deeper structure silently rather than raising an error.
+      if (!isLast && depth + 1 >= maxDepth) {
+        return this.assignLeaf(current, prop, value);
       }
+
+      // (Poisoned segments were already rejected up front, before any container
+      // was built — see the pre-scan above.)
 
       // Conversion: Array with non-numeric key → Object
       if (Array.isArray(current) && prop !== '' && !this.isValidArrayIndex(prop)) {
@@ -676,6 +724,21 @@ export class QueryParser {
 
   private normalizeKey(key: string | number): string {
     return typeof key === 'number' ? key.toString() : key;
+  }
+
+  /**
+   * Smallest non-negative integer (as a string) that is not already an own key
+   * of `obj`. Used to give `[]` array-append a sane index when its parent
+   * resolved to a record instead of an array.
+   */
+  private nextRecordIndex(obj: QueryValueRecord): string {
+    let n = 0;
+
+    while (Object.prototype.hasOwnProperty.call(obj, String(n))) {
+      n++;
+    }
+
+    return String(n);
   }
 
   /**

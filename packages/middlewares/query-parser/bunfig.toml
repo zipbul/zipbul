@@ -1,5 +1,8 @@
 [test]
 coverageReporter = ["text", "lcov"]
+# NOTE: bun measures line + function coverage only, not branch/condition
+# coverage — this threshold does NOT guarantee every branch of the parser's
+# compound guards is exercised. Branch/mutation testing is a separate concern.
 coverageThreshold = 0.95
 coverageSkipTestFiles = true
 coveragePathIgnorePatterns = [

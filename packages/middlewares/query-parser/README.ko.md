@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@zipbul/query-parser)](https://www.npmjs.com/package/@zipbul/query-parser)
 ![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/parkrevil/3965fb9d1fe2d6fc5c321cb38d88c823/raw/query-parser-coverage.json)
 
-엄격한 보안 제어를 갖춘 고성능 RFC 3986 준수 쿼리 스트링 파서.
+Bun을 위한 빠르고 보안에 강한 쿼리 스트링 파서: 프로토타입 오염에 안전하고, WHATWG `x-www-form-urlencoded`에 정렬되며, 중첩/배열 입력에서 `qs`보다 수 배 빠릅니다.
 
 > Bun 전용 설계. 옵션은 [@zipbul/baker](https://www.npmjs.com/package/@zipbul/baker)로 검증됩니다.
 
@@ -101,18 +101,18 @@ interface QueryParserOptions {
 
 ### `depth`
 
-중첩 객체 파싱의 최대 깊이 (`nesting: true` 필요). 한도를 초과하면 초과된 값은 버려지고 그 자리에 빈 컨테이너가 남습니다. strict 모드도 깊이 초과로는 throw하지 **않습니다**.
+중첩 객체 파싱의 최대 깊이 (`nesting: true` 필요). 한도를 초과하면 더 이상 중첩하지 않고 **값을 허용된 가장 깊은 레벨에 리프로 보존**합니다 — 값을 버리지 않으며, 빈 플레이스홀더 객체도 남기지 않습니다. 이는 리소스 제한이며 strict 오류가 아니므로 깊이 초과로는 throw하지 **않습니다**.
 
 ```typescript
 const parser = QueryParser.create({ nesting: true, depth: 2 });
 
 parser.parse('a[b][c]=1');    // { a: { b: { c: '1' } } }
-parser.parse('a[b][c][d]=1'); // 깊이 초과 — '1' 버려짐: { a: { b: { c: {} } } }
+parser.parse('a[b][c][d]=1'); // 깊이 초과 — 값은 c에 리프로 보존: { a: { b: { c: '1' } } }
 ```
 
 ### `maxParams`
 
-파싱할 키-값 쌍의 최대 개수. 초과분은 무시됩니다.
+파싱할 키-값 쌍의 최대 개수. 초과분은 조용히 버려집니다. 빈 `&` 구분자는 쌍을 만들지 않으므로 이 한도에 포함되지 않습니다.
 
 ```typescript
 const parser = QueryParser.create({ maxParams: 2 });
@@ -148,9 +148,11 @@ parser.parse('filter[status]=active&filter[role]=admin');
 ```typescript
 const parser = QueryParser.create({ nesting: true, arrayLimit: 5 });
 
-parser.parse('a[3]=ok');   // { a: [undefined, undefined, undefined, 'ok'] }  (희소 배열)
+parser.parse('a[3]=ok');   // { a: [ <빈 항목 3개>, 'ok' ] }  (희소 배열)
 parser.parse('a[100]=no'); // 한도 초과 → 객체: { a: { '100': 'no' } }
 ```
+
+⚠️ 희소 배열의 빈 자리는 홀(hole)로 유지됩니다. `JSON.stringify`는 홀을 `null`로 직렬화하므로 `a[3]=ok`는 `{"a":[null,null,null,"ok"]}`가 됩니다. DTO 계층이 `null` 요소를 거부한다면 명시적 인덱스를 쓰거나 `arrayLimit`을 낮추세요.
 
 ⚠️ 객체 폴백은 컨테이너가 처음 생성될 때만 적용됩니다. 키가 이미 **배열**을 갖고 있다면, 이후의 한도 초과 인덱스는 조용히 버려집니다:
 
@@ -201,7 +203,7 @@ parser.parse('a=1&a[b]=2');        // QueryParserError throw (구조 충돌)
 
 ### `urlEncoded`
 
-`+`를 공백으로 디코딩합니다 — `application/x-www-form-urlencoded`(브라우저와 `URLSearchParams`가 쿼리 스트링을 다루는 방식)와 동일. 기본은 비활성이며 [RFC 3986 준수](#-rfc-3986-준수) 참고.
+`+`를 공백으로 디코딩합니다 — `application/x-www-form-urlencoded`(브라우저와 `URLSearchParams`가 쿼리 스트링을 다루는 방식)와 동일. 기본은 비활성이며 [인코딩 & 스펙 정렬](#-인코딩--스펙-정렬) 참고.
 
 ```typescript
 QueryParser.create({ urlEncoded: true }).parse('q=hello+world');
@@ -217,7 +219,7 @@ QueryParser.create().parse('q=hello+world'); // 기본값 — '+'는 리터럴
 
 ## 🚨 에러 처리
 
-`QueryParser.create()`는 잘못된 옵션에서 throw합니다. `parse()`는 strict 모드에서 throw합니다.
+`QueryParser.create()`는 잘못된 옵션에서 `QueryParserError`를 throw합니다. `parse()`는 strict 모드의 잘못된 쿼리에서 throw하며, `parseResult()`는 같은 이유를 throw 대신 `Err`로 반환합니다(미들웨어는 이를 **400**으로 매핑).
 
 ```typescript
 import { QueryParser, QueryParserError, QueryParserErrorReason } from '@zipbul/query-parser';
@@ -252,26 +254,27 @@ if (isErr(result)) {
 
 ### `QueryParserErrorReason`
 
-| Reason | 발생 위치 | 설명 |
+| Reason | 노출 위치 | 설명 |
 |:-------|:---------|:-----|
 | `InvalidDepth` | `create()` | `depth`가 0 이상의 정수가 아님 |
 | `InvalidMaxParams` | `create()` | `maxParams`가 양의 정수가 아님 |
+| `InvalidNesting` | `create()` | `nesting`이 불리언이 아님 |
 | `InvalidArrayLimit` | `create()` | `arrayLimit`가 0 이상의 정수가 아님 |
 | `InvalidDuplicates` | `create()` | `duplicates`가 `'first'`, `'last'`, `'array'` 중 하나가 아님 |
-| `InvalidNesting` | `create()` | `nesting`이 불리언이 아님 |
 | `InvalidStrict` | `create()` | `strict`가 불리언이 아님 |
 | `InvalidUrlEncoded` | `create()` | `urlEncoded`가 불리언이 아님 |
-| `MalformedQueryString` | `parse()` | 잘못된 문법 (strict 모드 전용) |
-| `ConflictingStructure` | `parse()` | 키가 스칼라와 중첩 구조로 동시 사용됨 (strict 모드 전용) |
+| `MalformedQueryString` | `parse()` throw / `parseResult()` → `Err` → 400 | 잘못된 문법 (strict 모드 전용) |
+| `ConflictingStructure` | `parse()` throw / `parseResult()` → `Err` → 400 | 키가 스칼라와 중첩 구조로 동시 사용됨 (strict 모드 전용) |
 
 <br>
 
-## 📐 RFC 3986 준수
+## 📐 인코딩 & 스펙 정렬
 
-이 파서는 [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) 시맨틱을 따릅니다:
+RFC 3986은 URI *문법*(쿼리에 어떤 문자가 허용되는지)을 정의하지만, 쿼리 스트링을 키/값 쌍으로 나누는 방법이나 `application/x-www-form-urlencoded` 바이트를 디코딩하는 방법은 정의하지 않습니다 — 그것은 [WHATWG url-encoded 파서](https://url.spec.whatwg.org/#application/x-www-form-urlencoded)(즉 `URLSearchParams`)의 영역입니다. 이 파서는 WHATWG 모델에 정렬되며, 몇 가지 의도적인 선택이 있습니다:
 
 - **`+`는 기본적으로 리터럴** — 공백으로 디코딩하지 않습니다. ⚠️ `+`→공백으로 디코딩하는 브라우저·`URLSearchParams`·`qs`와 다릅니다. form-urlencoded 쿼리 스트링은 [`urlEncoded: true`](#urlencoded)를 사용하세요. 명확한 공백은 `%20`을 쓰세요.
-- **퍼센트 디코딩** — `%HH` 시퀀스를 `decodeURIComponent`로 디코딩합니다. 잘못된 시퀀스는 non-strict 모드에서 원본 문자열로 폴백됩니다.
+- **퍼센트 디코딩** — `%HH` 시퀀스를 `decodeURIComponent`(UTF-8, RFC 3986 준수)로 디코딩합니다. ⚠️ `URLSearchParams`(절대 throw하지 않고 잘못된 `%ZZ`를 리터럴로 유지)와 달리, 잘못된 escape는 non-strict 모드에서 원본 문자열로 폴백되고 `strict` 모드에서는 **400**으로 거부됩니다.
+- **퍼센트 인코딩된 브라켓은 구조 파싱 전에 디코딩됩니다** — `nesting: true`에서 `a%5Bb%5D=c`는 키 `a[b]`로 디코딩되어 `{ a: { b: 'c' } }`로 파싱됩니다. 키에 리터럴 `[`/`]`를 유지하려면 `nesting`을 켜지 마세요.
 - **`&` 구분자만 사용** — `;`는 구분자로 인식하지 않습니다.
 
 <br>
@@ -292,36 +295,47 @@ if (isErr(result)) {
 
 ### 리소스 제한
 
-- `depth`로 중첩 객체 재귀 깊이 제한
-- `maxParams`로 파싱 쌍 수 제한
+- `depth`로 중첩 제한: 한도를 넘는 키는 중첩을 멈추고 값은 허용된 가장 깊은 레벨에 리프로 보존됩니다(버려지지 않으며 빈 플레이스홀더 객체도 남지 않음)
+- `maxParams`로 파싱 쌍 수 제한; 빈 `&` 구분자는 포함되지 않음
 - `arrayLimit`로 배열 인덱스 할당 제한
+
+> 참고: 이 한도들은 *출력* 구조를 제한하며, 원본 입력 길이는 제한하지 않습니다 — 하나의 매우 긴 키는 여전히 전체가 스캔됩니다. 신뢰할 수 없는 입력에는 상위 계층에서 요청 URL/본문 크기를 제한하세요.
 
 <br>
 
 ## ⚡ 성능
 
-[mitata](https://github.com/evanwashere/mitata)로 Bun에서 벤치마크.
+솔직한 위치: **`qs`보다 몇 배 빠르고, 퍼센트 인코딩·`+` 많은(폼) 입력에서 우세하지만, 가장 빠른 파서는 _아닙니다_** — flat은 `fast-querystring`, 중첩/배열은 `picoquery`가 앞섭니다. 이는 의도된 트레이드입니다: 타입드 `Result` 에러, 정밀한 프로토타입 오염 차단, 엄격한 검증 — 순수 속도 리더들이 제공하지 않는 것들.
 
-### vs 경쟁 라이브러리 (flat key-value)
+경쟁 비교는 동일 클래스 상대끼리만 합니다(건너뛴 작업으로 크레딧을 주지 않음). 아래 수치: Bun 1.3.14, i7-13700K — **참고용이며 머신/버전 의존적**. `bun run bench:vs`로 재현하세요(`dist/` 빌드 후 배포 아티팩트를 핀 고정된 경쟁자와 비교).
 
-| 입력 | @zipbul/query-parser | node:querystring | URLSearchParams | qs |
-|:-----|---------------------:|-----------------:|----------------:|---:|
-| flat 10 params | 423 ns | 368 ns | 2.62 us | 4.65 us |
-| flat 50 params | 4.81 us | 4.36 us | 12.58 us | 19.40 us |
-| encoded 5 params | **955 ns** | 1.24 us | 1.60 us | 2.24 us |
+### flat 전용 파서 (중첩 없음)
 
-### vs qs (nested/array)
+| 입력 | @zipbul (`nesting:false`) | node:querystring | fast-querystring | URLSearchParams→record |
+|:-----|--------------------------:|-----------------:|-----------------:|-----------------------:|
+| flat 10 | 496 ns | 424 ns | **366 ns** | 2.64 µs |
+| flat 50 | 5.30 µs | 4.79 µs | **3.40 µs** | 12.90 µs |
+| encoded 5 | **978 ns** | 1.20 µs | 1.47 µs | 1.60 µs |
 
-| 입력 | @zipbul/query-parser | qs | 속도 차이 |
-|:-----|---------------------:|---:|----------:|
-| nested depth 3 | 162 ns | 1.01 us | **6.3x** |
-| array x10 | 1.39 us | 7.16 us | **5.2x** |
-| e-commerce payload | 1.12 us | 4.50 us | **4.0x** |
+순수 flat은 `fast-querystring`이 약 1.4× 빠르고, 값이 퍼센트 인코딩되면 @zipbul이 앞섭니다.
+
+### 풀 파서 (브라켓 지원)
+
+| 입력 | @zipbul (`nesting:true`) | qs | picoquery |
+|:-----|-------------------------:|---:|----------:|
+| flat 10 | 487 ns | 4.26 µs | **387 ns** |
+| nested depth 3 | 155 ns | 1.11 µs | **84 ns** |
+| array ×10 | 1.36 µs | 6.60 µs | **429 ns** |
+| e-commerce | 1.15 µs | 4.66 µs | **633 ns** |
+| plus-heavy (폼) | **604 ns** | 1.47 µs | — |
+
+@zipbul은 중첩/배열에서 **`qs` 대비 5–15× 빠르고** `+` 많은 폼 입력에서 가장 빠르지만, 브라켓 구조에서는 `picoquery`가 1.8–3.2× 빠릅니다. (picoquery는 중복키 처리가 다릅니다 — `bench:vs`가 출력하는 parity preview 참고.)
 
 로컬에서 벤치마크 실행:
 
 ```bash
-bun run bench
+bun run bench:self   # @zipbul 단독 회귀 마이크로벤치 (src)
+bun run bench:vs     # vs qs / node:querystring / fast-querystring / picoquery (dist)
 ```
 
 <br>
