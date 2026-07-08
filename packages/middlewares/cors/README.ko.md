@@ -286,6 +286,44 @@ Cors.create({ origin: 'https://app.example.com', credentials: true });
 Cors.create({ origin: '*', credentials: true }); // CorsErrorReason.CredentialsWithWildcardOrigin
 ```
 
+> [!WARNING]
+> **`origin: true` + `credentials: true`는 _아무_ 요청 출처에나 자격증명을 노출합니다.**
+> 이는 스펙상 유효하며(브라우저 CORS check가 반영된 구체 origin을 허용) 여러 출처에서 자격증명 CORS를
+> 지원하는 유일한 방법이지만, **모든** 웹사이트가 자격증명 요청을 보내 응답을 읽을 수 있다는 뜻입니다.
+> **반드시** 1차 출처 허용목록이나 인증 게이트웨이 뒤에서만 사용하세요. 신뢰하는 출처 집합이 고정이라면
+> `true` 대신 배열이나 함수를 넘기세요:
+>
+> ```typescript
+> // ✅ 검증된 허용목록으로 자격증명 CORS 범위 제한
+> Cors.create({ origin: ['https://app.example.com', 'https://admin.example.com'], credentials: true });
+> Cors.create({ origin: (o) => allowlist.has(o), credentials: true });
+> ```
+>
+> 참고: `origin: '*'` + `credentials`는 브라우저가 차단하는(작동 불가·깨진) 설정이라 **부팅 시 거부**되고,
+> `origin: true` + `credentials`는 **실제로 작동하기 때문에 허용**됩니다 — 그래서 범위를 안 씌우면 위험한 건
+> 오히려 이쪽입니다.
+
+### 출처별 / 라우트별 정책 (다중 인스턴스)
+
+요청마다 동적인 건 `origin`뿐입니다. `methods`·`allowedHeaders`·`credentials`·`maxAge` 등은
+**고정 정책**으로 `Cors.create()` 시점에 한 번 검증됩니다. 라우트·테넌트·표면별로 _정책 전체_를 바꾸려면
+정책마다 부팅 검증된 `Cors` 인스턴스를 만들어 상위에서 선택하세요 — 모든 인스턴스가 완전히 검증된 상태로
+유지되고 요청 경로에 할당이 없습니다:
+
+```typescript
+const corsBySurface = new Map<string, Cors>([
+  ['public', Cors.create({ origin: '*', methods: [HttpMethod.Get] })],
+  ['app', Cors.create({ origin: 'https://app.example.com', credentials: true })],
+]);
+
+// 이 요청의 표면에 맞는 정책을 고른 뒤 평소대로 처리
+const cors = corsBySurface.get(surfaceOf(request)) ?? corsBySurface.get('public')!;
+const result = await cors.handle(request);
+```
+
+요청마다 옵션을 바꾸는 delegate보다 이 방식이 낫습니다 — 검증을 hot path로 옮기지 않고 fail-fast 부팅 검증을
+그대로 보존합니다.
+
 ### 프리플라이트 위임
 
 다른 미들웨어가 OPTIONS 요청을 직접 처리해야 하는 경우:
