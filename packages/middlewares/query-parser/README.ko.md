@@ -17,7 +17,7 @@
 bun add @zipbul/query-parser
 ```
 
-독립 실행형 `QueryParser`는 런타임 의존성이 없습니다. **HTTP 미들웨어** 형태(`queryParser()` + `request.getQuery(dto)`)를 쓰려면 peer 의존성도 함께 설치하세요:
+`@zipbul/query-parser`는 zipbul 프레임워크 미들웨어라, zipbul 앱에서는 의존성이 이미 갖춰져 있습니다. **HTTP 미들웨어** 형태(`queryParser()` + `request.getQuery(dto)`)는 다음 프레임워크 peer 의존성을 필요로 합니다:
 
 ```bash
 bun add @zipbul/common @zipbul/http-adapter
@@ -157,6 +157,8 @@ parser.parse('a[100]=no'); // 한도 초과 → 객체: { a: { '100': 'no' } }
 ```typescript
 parser.parse('a[0]=x&a[100]=no'); // { a: ['x'] } — '100' 버려짐
 ```
+
+⚠️ `arrayLimit`은 리소스 한계이기도 합니다: 한도 내 인덱스는 그 인덱스까지 희소 배열을 할당하므로, 기본값보다 크게 올리면 작은 입력으로 거대한 배열을 할당할 수 있습니다(`arrayLimit: 1_000_000` + `a[999999]=x`). 신뢰할 수 없는 입력에는 작게 유지하세요. (인덱스는 최대 10자리까지 허용되며, JS 실제 최대 배열 인덱스 2³²−2를 넘는 값은 배열 요소가 아니라 문자열 키 속성으로 보관됩니다.)
 
 ### `duplicates`
 

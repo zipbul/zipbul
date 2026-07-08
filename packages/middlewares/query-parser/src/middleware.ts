@@ -62,7 +62,10 @@ export function queryParser(options?: QueryParserOptions): MiddlewareDefinition 
           const result = parser.parseResult(queryString);
 
           if (isErr(result)) {
-            return httpError(HttpStatus.BadRequest, `Malformed query string: ${result.data.message}`);
+            // The parser's message is already fully formed and self-describing
+            // (e.g. "Malformed query string: …" or "Conflict: …"); pass it
+            // through rather than prefixing a second, sometimes-wrong copy.
+            return httpError(HttpStatus.BadRequest, result.data.message);
           }
 
           return result;
