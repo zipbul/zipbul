@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { parseAcceptEncoding, negotiateEncoding } from './encoding';
+import { parseAcceptEncoding, negotiateEncoding, isIdentityAcceptable } from './encoding';
 import { CompressionCodec } from './enums';
 
 describe('parseAcceptEncoding', () => {
@@ -254,7 +254,7 @@ describe('negotiateEncoding', () => {
     expect(result).toBeNull();
   });
 
-  it('should use last wildcard quality when multiple wildcards present', () => {
+  it('should use highest wildcard quality when multiple wildcards present', () => {
     const serverEncodings: CompressionCodec[] = [CompressionCodec.Zstd];
     const clientPreferences = [
       { encoding: '*', quality: 0.1 },
@@ -262,6 +262,28 @@ describe('negotiateEncoding', () => {
     ];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
     expect(result).toBe(CompressionCodec.Zstd);
+  });
+
+  it('should represent duplicate codings by their highest qvalue (no demotion by later entry)', () => {
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Gzip, CompressionCodec.Br];
+    const clientPreferences = [
+      { encoding: 'gzip', quality: 0.8 },
+      { encoding: 'br', quality: 0.5 },
+      { encoding: 'gzip', quality: 0.2 },
+    ];
+    const result = negotiateEncoding(serverEncodings, clientPreferences);
+    expect(result).toBe(CompressionCodec.Gzip);
+  });
+
+  it('should not resurrect a coding excluded by q=0 when a lower duplicate precedes it', () => {
+    const serverEncodings: CompressionCodec[] = [CompressionCodec.Gzip];
+    const clientPreferences = [
+      { encoding: 'gzip', quality: 0 },
+      { encoding: 'gzip', quality: 0.5 },
+    ];
+    // 최고 q 대표 규칙: q=0.5가 대표 → 선택됨 (관용적·결정적)
+    const result = negotiateEncoding(serverEncodings, clientPreferences);
+    expect(result).toBe(CompressionCodec.Gzip);
   });
 
   it('should return same result when given same input multiple times', () => {
@@ -291,5 +313,48 @@ describe('negotiateEncoding', () => {
     ];
     const result = negotiateEncoding(serverEncodings, clientPreferences);
     expect(result).toBe(CompressionCodec.Gzip);
+  });
+});
+
+describe('isIdentityAcceptable', () => {
+  it('should return true when preferences are empty', () => {
+    expect(isIdentityAcceptable([])).toBe(true);
+  });
+
+  it('should return true when identity is not mentioned and no wildcard exists', () => {
+    expect(isIdentityAcceptable([{ encoding: 'gzip', quality: 1 }])).toBe(true);
+  });
+
+  it('should return false when identity;q=0 is explicit', () => {
+    expect(isIdentityAcceptable([
+      { encoding: 'identity', quality: 0 },
+      { encoding: 'br', quality: 1 },
+    ])).toBe(false);
+  });
+
+  it('should return true when identity has a positive quality', () => {
+    expect(isIdentityAcceptable([{ encoding: 'identity', quality: 0.5 }])).toBe(true);
+  });
+
+  it('should return false when *;q=0 excludes identity without a specific identity entry', () => {
+    expect(isIdentityAcceptable([{ encoding: '*', quality: 0 }])).toBe(false);
+  });
+
+  it('should let a specific identity entry override *;q=0', () => {
+    expect(isIdentityAcceptable([
+      { encoding: '*', quality: 0 },
+      { encoding: 'identity', quality: 0.1 },
+    ])).toBe(true);
+  });
+
+  it('should return true when wildcard has a positive quality', () => {
+    expect(isIdentityAcceptable([{ encoding: '*', quality: 0.5 }])).toBe(true);
+  });
+
+  it('should represent duplicate identity entries by their highest qvalue', () => {
+    expect(isIdentityAcceptable([
+      { encoding: 'identity', quality: 0 },
+      { encoding: 'identity', quality: 0.4 },
+    ])).toBe(true);
   });
 });

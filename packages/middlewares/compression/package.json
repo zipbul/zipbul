@@ -51,6 +51,7 @@
     "coverage": "bun test --coverage"
   },
   "dependencies": {
+    "@zipbul/baker": "catalog:",
     "@zipbul/result": "workspace:*"
   },
   "peerDependencies": {
@@ -59,7 +60,11 @@
   },
   "devDependencies": {
     "@zipbul/common": "workspace:*",
-    "@zipbul/http-adapter": "workspace:*"
+    "@zipbul/core": "workspace:*",
+    "@zipbul/http-adapter": "workspace:*",
+    "@zipbul/tck": "workspace:*"
   },
-  "sideEffects": false
+  "sideEffects": [
+    "**/options.js"
+  ]
 }

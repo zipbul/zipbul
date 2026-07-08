@@ -49,8 +49,9 @@ interface AttachedRecord {
 
 /**
  * Recorder passed to the `attach` callback. Returns the live adapter
- * instance so users can chain `.addMiddlewares(...)` exactly as they
- * would in production `main.ts`.
+ * instance so you attach and wire adapters exactly as you would in
+ * production `main.ts`. Middleware is registered declaratively in the
+ * module's middleware map, not here.
  *
  * @public
  */
@@ -100,12 +101,13 @@ export interface RouteOverrideRegistration<D> {
 export interface TestCreateOptions {
   /**
    * Attach + wire adapters. Runs after the AOT runtime is installed and
-   * before any overrides apply. Same shape as a production `main.ts`:
+   * before any overrides apply. Same shape as a production `main.ts` —
+   * attach the adapter and bind its transport options; middleware is
+   * registered declaratively in the module's middleware map, not here:
    *
    *   ```ts
    *   attach: r => {
-   *     const http = r.attach(HttpAdapter, { port: 0 });
-   *     http.addMiddlewares(HttpAdapterPhase.OnRequest, [corsMiddleware({...})]);
+   *     r.attach(HttpAdapter, { port: 0 });
    *   }
    *   ```
    */
