@@ -17,7 +17,7 @@ A high-performance, RFC 3986 compliant query string parser with strict security 
 bun add @zipbul/query-parser
 ```
 
-The standalone `QueryParser` has no runtime dependencies. To use the **HTTP middleware** form (`queryParser()` + `request.getQuery(dto)`), also install its peer dependencies:
+`@zipbul/query-parser` is a zipbul-framework middleware; in a zipbul app its dependencies are already present. The **HTTP middleware** form (`queryParser()` + `request.getQuery(dto)`) requires these framework peer dependencies:
 
 ```bash
 bun add @zipbul/common @zipbul/http-adapter
@@ -157,6 +157,8 @@ parser.parse('a[100]=no'); // over limit → object: { a: { '100': 'no' } }
 ```typescript
 parser.parse('a[0]=x&a[100]=no'); // { a: ['x'] } — '100' dropped
 ```
+
+⚠️ `arrayLimit` is also a resource bound: an in-limit index allocates a sparse array up to that index, so raising it far above the default lets a tiny input allocate a huge array (`arrayLimit: 1_000_000` + `a[999999]=x`). Keep it small for untrusted input. (Indices are accepted up to 10 digits; a value above the max real JS array index, 2³²−2, is retained as a string-keyed property rather than a true array element.)
 
 ### `duplicates`
 

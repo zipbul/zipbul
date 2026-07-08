@@ -1,8 +1,11 @@
 import type { QueryParserErrorReason } from './enums';
 
 /**
- * Error data payload used internally with the Result pattern.
- * @internal
+ * Error data payload carried by the `Result` pattern — the `E` type of the
+ * public {@link QueryParser.parseResult} return. Consumers read `.reason`
+ * (a {@link QueryParserErrorReason}) and `.message`.
+ *
+ * @public
  */
 export interface QueryParserErrorData {
   reason: QueryParserErrorReason;
@@ -45,7 +48,17 @@ export interface QueryParserOptions {
   nesting?: boolean;
 
   /**
-   * Maximum array index allowed.
+   * Maximum array index allowed when `nesting` is enabled. An index within the
+   * limit allocates a sparse array up to that index, so this doubles as a
+   * resource bound: raising it far above the default lets a tiny input allocate
+   * a huge array (e.g. `arrayLimit: 1_000_000` + `a[999999]=x`). Keep it small
+   * for untrusted input — the default is a safe cap.
+   *
+   * Note: indices are accepted up to 10 digits, which exceeds the maximum real
+   * JS array index (2^32 − 2); an in-limit value above that is retained as a
+   * string-keyed own property rather than a true array element (the array's
+   * `length` stays 0). No value is lost, but such keys won't be array indices.
+   *
    * @default 20
    */
   arrayLimit?: number;

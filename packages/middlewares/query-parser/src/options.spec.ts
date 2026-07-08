@@ -169,6 +169,9 @@ describe('validateQueryParserOptions', () => {
     const errResult = assertErr(result);
 
     expect(errResult.data.reason).toBe(QueryParserErrorReason.InvalidDepth);
+    // The README documents this exact message string verbatim (`e.message` on
+    // the QueryParserError thrown by `create`), so pin the format.
+    expect(errResult.data.message).toBe('depth: min');
   });
 
   it('should return Err with InvalidDepth when depth is non-integer', () => {

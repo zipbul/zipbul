@@ -48,6 +48,23 @@ describe('queryParser strict-mode malformed query — HTTP status', () => {
     expect(res.status).toBe(400);
   });
 
+  it('the 400 body carries the parser message verbatim, not a doubled prefix', async () => {
+    const res = await app.fetch('/x?q=%ZZ');
+    const body = await res.text();
+    // The parser already emits "Malformed query string: ...". The middleware must
+    // pass it through, not prepend a second copy.
+    expect(body).toContain('Malformed query string:');
+    expect(body).not.toContain('Malformed query string: Malformed query string:');
+  });
+
+  it('a conflicting-structure error keeps its own "Conflict:" message (no wrong prefix)', async () => {
+    const res = await app.fetch('/x?a=1&a[b]=2');
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain('Conflict:');
+    expect(body).not.toContain('Malformed query string: Conflict:');
+  });
+
   it('a well-formed query under strict mode still parses (2xx, not 5xx)', async () => {
     const res = await app.fetch('/x?a[b]=1');
     // echoQuery commits a header-only response (204 No Content); the point is it

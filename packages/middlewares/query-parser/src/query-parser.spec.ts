@@ -672,6 +672,13 @@ describe('QueryParser', () => {
       expect(parser.parse('%E0%A4=value')).toEqual({ '%E0%A4': 'value' });
     });
 
+    it('should fall back to raw for a lone-surrogate escape when non-strict', () => {
+      // `%ED%A0%80` decodes to a lone high surrogate — decodeURIComponent throws;
+      // non-strict must degrade to the raw string, never propagate the throw.
+      expect(parser.parse('bad=%ED%A0%80')).toEqual({ bad: '%ED%A0%80' });
+      expect(parser.parse('%ED%A0%80=v')).toEqual({ '%ED%A0%80': 'v' });
+    });
+
     it('should throw QueryParserError for malformed percent encoding in value when strict', () => {
       // Arrange
       const strictParser = QueryParser.create({ strict: true });
@@ -689,6 +696,17 @@ describe('QueryParser', () => {
 
       // Act & Assert
       const error = catchError(() => strictParser.parse('%E0%A4=value'));
+
+      expect(error).toBeInstanceOf(QueryParserError);
+      expect(error.reason).toBe(QueryParserErrorReason.MalformedQueryString);
+    });
+
+    it('should throw QueryParserError for a lone-surrogate escape when strict', () => {
+      // Arrange
+      const strictParser = QueryParser.create({ strict: true });
+
+      // Act & Assert
+      const error = catchError(() => strictParser.parse('bad=%ED%A0%80'));
 
       expect(error).toBeInstanceOf(QueryParserError);
       expect(error.reason).toBe(QueryParserErrorReason.MalformedQueryString);
