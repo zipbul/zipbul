@@ -181,12 +181,17 @@ export interface HandlerParamEntry {
  * for route-level middleware/filter/guard registrations.
  *
  * All registrations use the same code pattern:
- * `container.set(key, () => value)` — direct reference.
+ * `container.set(key, () => value)`.
+ *
+ * - `ref`: a direct identifier reference (`corsMiddleware`).
+ * - `call`: a middleware factory call (`queryParser({...})`), including the
+ *   resolved const-local member form (`cookies.onRequest` where `cookies` is
+ *   a same-file `const cookies = cookieMiddleware(...)`).
  */
 export interface RouteRegistration {
   readonly key: string;
   readonly value: AnalyzerValue;
-  readonly kind: 'ref';
+  readonly kind: 'ref' | 'call';
 }
 
 export interface AdapterResolution {

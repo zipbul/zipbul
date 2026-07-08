@@ -57,7 +57,7 @@ export class AdapterDefinitionResolver {
    * @public
    */
   async resolve(params: AdapterResolveParams): Promise<Result<AdapterResolution, Diagnostic>> {
-    const { fileMap, projectRoot, graph } = params;
+    const { fileMap, projectRoot, graph, validationAccessors } = params;
     const entryFiles = collectPackageEntryFiles(fileMap);
     const adapterExtractions: AdapterExtraction[] = [];
     const visitedRoots = new Set<string>();
@@ -134,7 +134,7 @@ export class AdapterDefinitionResolver {
     const middlewareValidation = validateMiddlewarePhaseInputs(adapterExtractions, fileMap, controllerAdapterMap);
     if (isErr(middlewareValidation)) return middlewareValidation;
 
-    const handlerIndexResult = buildHandlerIndex(adapterExtractions, fileMap, projectRoot, controllerAdapterMap, graph);
+    const handlerIndexResult = buildHandlerIndex(adapterExtractions, fileMap, projectRoot, controllerAdapterMap, graph, validationAccessors);
     if (isErr(handlerIndexResult)) return handlerIndexResult;
 
     return {

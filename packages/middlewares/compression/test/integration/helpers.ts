@@ -1,7 +1,5 @@
 import type { AdapterContext, ClassToken, ContextKey, MiddlewareDefinition, MiddlewareHandlerFn } from '@zipbul/common';
 import { HttpContext } from '@zipbul/http-adapter';
-import { isErr } from '@zipbul/result';
-import type { Result } from '@zipbul/result';
 
 export interface MockHeaders {
   get(name: string): string | null;
@@ -156,15 +154,10 @@ export function largeBody(sizeBytes: number): string {
   return 'a'.repeat(sizeBytes);
 }
 
-/** Unwrap a successful middleware Result and expose its handler.
- *  Fails the test if the Result is an Err. */
-export function unwrap<E extends { message?: string }>(
-  result: Result<MiddlewareDefinition, E>,
-): { handler: MiddlewareHandlerFn } {
-  if (isErr(result)) {
-    throw new Error(`unexpected Err: ${String(result.data.message)}`);
-  }
-  return { handler: result.factory() };
+/** Expose a middleware definition's handler. `compressionMiddleware` throws on
+ *  invalid options, so a definition passed here is already valid. */
+export function unwrap(def: MiddlewareDefinition): { handler: MiddlewareHandlerFn } {
+  return { handler: def.factory() };
 }
 
 export const LARGE_BODY_OBJ = { data: largeBody(2048) };

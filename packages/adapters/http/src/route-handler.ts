@@ -1,7 +1,9 @@
 import type {
+  AugmentAccessorRegistryEntry,
   CompiledHandlerEntry,
   AdapterContext,
 } from '@zipbul/common';
+import { augmentRawKey, augmentValidatedKey } from '@zipbul/common';
 import type { ResolvedExceptionFilter, ResolvedValidationEntry, PipelineStepFn } from '@zipbul/core';
 
 import { isHttpToken } from '@zipbul/baker/rules';
@@ -71,15 +73,18 @@ export class RouteHandler {
   private readonly router: Router<MatchedRouteMetadata>;
   private readonly logger = Logger.inherit();
   private readonly registeredMethods = new Set<string>();
+  private readonly augmentAccessors: ReadonlyMap<string, AugmentAccessorRegistryEntry>;
 
   constructor(
     metadataRegistry: Map<MetadataRegistryKey, ClassMetadata>,
     decoratorConfig: RouteHandlerDecoratorConfig,
     routerOptions?: RouterOptions,
+    augmentAccessors: readonly AugmentAccessorRegistryEntry[] = [],
   ) {
     this.metadataRegistry = metadataRegistry;
     this.metatypeIndex = buildMetatypeIndex(metadataRegistry);
     this.decoratorConfig = decoratorConfig;
+    this.augmentAccessors = new Map(augmentAccessors.map((entry) => [entry.prop, entry]));
     this.router = new Router<MatchedRouteMetadata>({
       ignoreTrailingSlash: true,
       enableCache: true,
@@ -364,11 +369,7 @@ export class RouteHandler {
       }
 
       const lastSegment = validation.accessor[validation.accessor.length - 1];
-      const io = resolveAccessorIO(lastSegment);
-
-      if (io === undefined) {
-        continue;
-      }
+      const io = resolveAccessorIO(lastSegment, this.augmentAccessors);
 
       resolved.push({
         accessor: validation.accessor,
@@ -451,10 +452,21 @@ interface AccessorIO {
 }
 
 /**
- * Maps an accessor method name to read/write closures operating on HttpRequest slots.
- * Returns `undefined` for unrecognized accessors.
+ * Maps an accessor method name to read/write closures operating on HttpRequest
+ * slots (built-in `getBody`/`getParams`) or on the per-request augment slots
+ * (middleware-declared validated accessors from the AOT registry).
+ *
+ * Unknown accessors are a BOOT ERROR — a compiled validation entry naming an
+ * accessor nothing claims means the providing middleware's registry entry is
+ * missing (version skew or misregistration); silently skipping it would ship
+ * an unvalidated accessor that returns garbage at runtime.
+ *
+ * @internal — exported for direct unit testing.
  */
-function resolveAccessorIO(accessor: string | undefined): AccessorIO | undefined {
+export function resolveAccessorIO(
+  accessor: string | undefined,
+  augmentAccessors?: ReadonlyMap<string, AugmentAccessorRegistryEntry>,
+): AccessorIO {
   switch (accessor) {
     case 'getBody':
       return {
@@ -466,8 +478,40 @@ function resolveAccessorIO(accessor: string | undefined): AccessorIO | undefined
         readInput: (ctx) => ctx.to(HttpContext).request.params,
         writeOutput: (ctx, value) => { ctx.to(HttpContext).request.setValidatedParams(value); },
       };
-    default:
-      return undefined;
+    default: {
+      const entry = accessor !== undefined ? augmentAccessors?.get(accessor) : undefined;
+
+      if (entry !== undefined && entry.kind === 'validated-accessor') {
+        const rawKey = augmentRawKey(entry.namespace, entry.prop);
+        const validatedKey = augmentValidatedKey(entry.namespace, entry.prop);
+
+        return {
+          readInput: (ctx) => {
+            const raw = ctx.get(rawKey);
+
+            if (raw === undefined) {
+              // Distinguish "middleware never ran" (phase-ordering violation)
+              // from a baker failure on legitimate raw input — the former is
+              // a framework wiring error, not a request-validation error.
+              throw new Error(
+                `[RouteHandler] Validated accessor '${entry.namespace}.${entry.prop}' has no raw input — `
+                + `the providing middleware did not run before the validation step. `
+                + `Register it at a phase before Validation.`,
+              );
+            }
+
+            return raw;
+          },
+          writeOutput: (ctx, value) => { ctx.set(validatedKey, value); },
+        };
+      }
+
+      throw new Error(
+        `[RouteHandler] Unknown validation accessor '${String(accessor)}'. `
+        + `No built-in accessor and no augment-declared validated accessor matches — `
+        + `check the providing middleware's registration and its context-augments manifest.`,
+      );
+    }
   }
 }
 

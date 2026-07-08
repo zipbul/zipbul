@@ -6,6 +6,7 @@ import {
   ZIPBUL_COMPUTED_PREFIX, ZIPBUL_COMPUTED_KEY, ZIPBUL_COMPUTED_VALUE,
 } from '@zipbul/common';
 import { type ClassMetadata } from '../analyzer';
+import { ZIPBUL_MEMBER_KEY } from '../analyzer/adapter/middleware-pipeline-processor';
 import { buildDiagnostic, DiagnosticError } from '../../diagnostics';
 import { compareCodePoint } from '../../common';
 import { isRecordValue, isAnalyzerValueArray, isNonEmptyString } from '../analyzer/type-guards';
@@ -189,8 +190,13 @@ export const serializeValue = (value: AnalyzerValue, registry: ImportRegistry): 
     }
 
     const args = (isAnalyzerValueArray(record.args) ? record.args : []).map(a => serializeValue(a, registry)).join(', ');
+    // Resolved const-local member registration (`cookies.onRequest`) — render
+    // the member access on the factory call result.
+    const member = asString(record[ZIPBUL_MEMBER_KEY]);
 
-    return `${callName}(${args})`;
+    return member !== undefined && member.length > 0
+      ? `${callName}(${args}).${member}`
+      : `${callName}(${args})`;
   }
 
   // Statically-unevaluable expressions (literals nested in call args, template

@@ -3,7 +3,6 @@ import type { CompiledHandlerEntry, MiddlewareDefinition } from '@zipbul/common'
 import { registerBootstrapState } from '@zipbul/core';
 import { HttpAdapter, HttpAdapterPhase, HttpAdapterStep } from '@zipbul/http-adapter';
 import type { HttpContext } from '@zipbul/http-adapter';
-import { isErr } from '@zipbul/result';
 import { Tck, type TestApplication } from '@zipbul/tck';
 
 import { compressionMiddleware } from '../../index';
@@ -60,11 +59,9 @@ function makeEntry(path: string, methodName: string): CompiledHandlerEntry {
 }
 
 export function unwrapMiddleware(opts?: CompressionOptions): MiddlewareDefinition {
-  const result = compressionMiddleware(opts);
-  if (isErr(result)) {
-    throw new Error(`compressionMiddleware setup failed: ${result.data.message}`);
-  }
-  return result;
+  // compressionMiddleware throws (CompressionError) on invalid options — a boot-time
+  // programmer error — so a valid call returns the definition directly.
+  return compressionMiddleware(opts);
 }
 
 /** 실제 zipbul 앱을 부팅한다: 수동 handlerIndex 라우트 + BeforeResponse phase의

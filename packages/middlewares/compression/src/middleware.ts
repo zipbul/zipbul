@@ -1,14 +1,14 @@
 import { defineMiddleware } from '@zipbul/common';
 import type { MiddlewareDefinition } from '@zipbul/common';
 import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
-import { err, isErr } from '@zipbul/result';
-import type { Result } from '@zipbul/result';
+import { isErr } from '@zipbul/result';
 import { HttpHeader, HttpStatus } from '@zipbul/http-adapter';
 
 import { BUFFER_COMPRESSORS } from './compressors';
 import { CompressionCodec } from './enums';
 import { injectGzipPadding, injectZstdPadding } from './htb';
-import type { BreachOptions, CompressionErrorData, CompressionOptions } from './interfaces';
+import { CompressionError } from './interfaces';
+import type { BreachOptions, CompressionOptions } from './interfaces';
 import { resolveCompressionOptions, validateCompressionOptions } from './options';
 import { BREACH_SAFE_ENCODINGS } from './constants';
 import { isIdentityAcceptable, negotiateEncoding, parseAcceptEncoding } from './encoding';
@@ -17,16 +17,23 @@ import { serializeBody } from './serialize';
 import { weakenETag } from './etag';
 import { hasNoTransform, varyCoversAcceptEncoding } from './eligibility';
 
-export function compressionMiddleware(
-  opts?: CompressionOptions,
-): Result<MiddlewareDefinition, CompressionErrorData> {
+/**
+ * Compression HTTP middleware factory.
+ *
+ * Options are validated at boot — invalid options are a programmer error
+ * that fails identically on every boot, so the factory throws instead of
+ * returning a Result.
+ *
+ * @throws {CompressionError} when options fail validation.
+ */
+export function compressionMiddleware(opts?: CompressionOptions): MiddlewareDefinition {
   const resolved = resolveCompressionOptions(opts);
   // 생성 시점 스냅숏 — 검증을 통과한 값이 사후 변조로 오염되지 않는다
   const breach: BreachOptions | undefined =
     opts?.breach === undefined ? undefined : { maxPadding: opts.breach.maxPadding };
 
   const validation = validateCompressionOptions(resolved, breach);
-  if (isErr(validation)) return err(validation.data);
+  if (isErr(validation)) throw new CompressionError(validation.data);
 
   // When BREACH mitigation is enabled, restrict to encodings with safe padding
   const effectiveEncodings = breach !== undefined

@@ -69,6 +69,8 @@ class InternPool {
  * @param projectRoot - The project root path for normalizing file paths.
  * @param controllerAdapterMap - Map of controller class names to adapter IDs.
  * @param graph - Optional module graph for resolving owner modules.
+ * @param validationAccessors - Accessor names that trigger validation wiring
+ *   (built-ins plus manifest-declared validated accessors from the pre-pass).
  * @returns Handler index entries and route registrations, or a diagnostic error.
  * @public
  */
@@ -78,6 +80,7 @@ export function buildHandlerIndex(
   projectRoot: string,
   controllerAdapterMap: Map<string, string>,
   graph?: AdapterResolveParams['graph'],
+  validationAccessors: ReadonlySet<string> = DEFAULT_VALIDATION_ACCESSORS,
 ): Result<{ entries: HandlerIndexEntry[]; routeRegistrations: RouteRegistration[]; handlerContextUsages: Map<string, readonly ContextUsage[]>; handlerContextOps: Map<string, readonly ContextOperation[]> }, Diagnostic> {
   const entries: HandlerIndexEntry[] = [];
   const routeRegistrations: RouteRegistration[] = [];
@@ -178,6 +181,8 @@ export function buildHandlerIndex(
             `__route_mw__:${cls.className}.${method.name}`,
             routeRegistrations,
             0,
+            analysis.localValues,
+            analysis.filePath,
           );
           const allMiddlewareKeys = middlewareKeyResult.keys;
           const exceptionFilterKeyResult = extractDecoratorRefKeys(
@@ -232,7 +237,8 @@ export function buildHandlerIndex(
           const params = extractHandlerParams(method);
 
           // Build validations from ctx.request.getBody(Dto) / getParams(Dto) calls
-          const validations = buildValidationEntries(method.contextUsages);
+          // (plus manifest-declared validated accessors, e.g. getQuery).
+          const validations = buildValidationEntries(method.contextUsages, validationAccessors);
 
           // Compile pipeline -- eliminate steps with no registrations
           const pipelineResult = compilePipeline(
@@ -382,8 +388,8 @@ function joinRoutePaths(prefix: string, handlerPath: string): string {
   return `${normalizedPrefix}${normalizedHandler}`;
 }
 
-/** Accessor method names that trigger AOT validation wiring. */
-const VALIDATION_ACCESSORS = new Set(['getBody', 'getParams']);
+/** Built-in accessor method names that always trigger AOT validation wiring. */
+export const DEFAULT_VALIDATION_ACCESSORS: ReadonlySet<string> = new Set(['getBody', 'getParams']);
 
 /**
  * Builds `CompiledValidationEntry[]` from context accessor calls found in
@@ -393,11 +399,15 @@ const VALIDATION_ACCESSORS = new Set(['getBody', 'getParams']);
  * DTO class name. The adapter interprets the accessor path at boot time.
  *
  * @param contextUsages - Context member-access chains extracted from the handler body.
+ * @param validationAccessors - Accessor names that trigger validation wiring.
+ *   Defaults to the built-in `getBody`/`getParams` set; the build pre-pass
+ *   extends it with manifest-declared `validated-accessor` names.
  * @returns Validation entries. Empty array when no matches.
  * @public
  */
 export function buildValidationEntries(
   contextUsages: readonly ContextUsage[] | undefined,
+  validationAccessors: ReadonlySet<string> = DEFAULT_VALIDATION_ACCESSORS,
 ): CompiledValidationEntry[] {
   if (contextUsages === undefined) {
     return [];
@@ -413,7 +423,7 @@ export function buildValidationEntries(
 
     const lastSegment = usage.path[usage.path.length - 1];
 
-    if (lastSegment === undefined || !VALIDATION_ACCESSORS.has(lastSegment)) {
+    if (lastSegment === undefined || !validationAccessors.has(lastSegment)) {
       continue;
     }
 

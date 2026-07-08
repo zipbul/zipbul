@@ -33,6 +33,12 @@ export interface AdapterResolveParams {
   fileMap: Map<string, FileAnalysis>;
   projectRoot: string;
   graph?: ModuleGraph;
+  /**
+   * Accessor names that trigger AOT validation wiring — built-ins plus
+   * manifest-declared `validated-accessor` names from the augments pre-pass.
+   * Omitted = built-ins only (`getBody`/`getParams`).
+   */
+  validationAccessors?: ReadonlySet<string>;
 }
 
 export interface CyclePath {

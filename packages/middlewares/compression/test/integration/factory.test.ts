@@ -1,68 +1,72 @@
 import { describe, expect, it } from 'bun:test';
-import { isErr } from '@zipbul/result';
 
-import { compressionMiddleware, CompressionErrorReason } from '../../index';
+import { compressionMiddleware, CompressionError, CompressionErrorReason } from '../../index';
 import { CompressionCodec } from '../../src/enums';
 
-function expectErr(result: ReturnType<typeof compressionMiddleware>, reason: CompressionErrorReason) {
-  expect(isErr(result)).toBe(true);
-  if (isErr(result)) {
-    expect(result.data.reason).toBe(reason);
+// compressionMiddleware validates options at boot and THROWS CompressionError on
+// invalid options (a programmer error), rather than returning a Result.
+function expectThrows(fn: () => unknown, reason: CompressionErrorReason) {
+  expect(fn).toThrow(CompressionError);
+  try {
+    fn();
+  } catch (e) {
+    expect(e).toBeInstanceOf(CompressionError);
+    expect((e as CompressionError).reason).toBe(reason);
   }
 }
 
 describe('factory (생성 검증)', () => {
   // ── HP ──
   it('FAC-01 옵션 없음·빈 객체·부분 옵션 → 정상 정의 반환', () => {
-    expect(isErr(compressionMiddleware())).toBe(false);
-    expect(isErr(compressionMiddleware({}))).toBe(false);
-    expect(isErr(compressionMiddleware({ threshold: 512 }))).toBe(false);
-    expect(isErr(compressionMiddleware({ encodings: [CompressionCodec.Zstd] }))).toBe(false);
+    expect(() => compressionMiddleware()).not.toThrow();
+    expect(() => compressionMiddleware({})).not.toThrow();
+    expect(() => compressionMiddleware({ threshold: 512 })).not.toThrow();
+    expect(() => compressionMiddleware({ encodings: [CompressionCodec.Zstd] })).not.toThrow();
   });
 
   // ── NE ──
-  it('FAC-02 encodings: [] → Err(EmptyEncodings)', () => {
-    expectErr(compressionMiddleware({ encodings: [] }), CompressionErrorReason.EmptyEncodings);
+  it('FAC-02 encodings: [] → throw(EmptyEncodings)', () => {
+    expectThrows(() => compressionMiddleware({ encodings: [] }), CompressionErrorReason.EmptyEncodings);
   });
 
-  it('[§2.2.1] FAC-03 미등록 인코딩 lz4 → Err(InvalidEncodings)', () => {
-    expectErr(
-      compressionMiddleware({ encodings: ['lz4' as unknown as CompressionCodec] }),
+  it('[§2.2.1] FAC-03 미등록 인코딩 lz4 → throw(InvalidEncodings)', () => {
+    expectThrows(
+      () => compressionMiddleware({ encodings: ['lz4' as unknown as CompressionCodec] }),
       CompressionErrorReason.InvalidEncodings,
     );
   });
 
-  it('FAC-04 threshold 음수·NaN·Infinity → Err(InvalidThreshold)', () => {
+  it('FAC-04 threshold 음수·NaN·Infinity → throw(InvalidThreshold)', () => {
     for (const threshold of [-1, NaN, Infinity]) {
-      expectErr(compressionMiddleware({ threshold }), CompressionErrorReason.InvalidThreshold);
+      expectThrows(() => compressionMiddleware({ threshold }), CompressionErrorReason.InvalidThreshold);
     }
   });
 
-  it('[§5.4.3] FAC-05 레벨 범위 밖·소수 → Err(InvalidLevel)', () => {
-    expectErr(compressionMiddleware({ level: { [CompressionCodec.Gzip]: 0 } }), CompressionErrorReason.InvalidLevel);
-    expectErr(compressionMiddleware({ level: { [CompressionCodec.Gzip]: 10 } }), CompressionErrorReason.InvalidLevel);
-    expectErr(compressionMiddleware({ level: { [CompressionCodec.Br]: 12 } }), CompressionErrorReason.InvalidLevel);
-    expectErr(compressionMiddleware({ level: { [CompressionCodec.Zstd]: 0 } }), CompressionErrorReason.InvalidLevel);
-    expectErr(
-      compressionMiddleware({ encodings: [CompressionCodec.Zstd], level: { [CompressionCodec.Zstd]: 20 } }),
+  it('[§5.4.3] FAC-05 레벨 범위 밖·소수 → throw(InvalidLevel)', () => {
+    expectThrows(() => compressionMiddleware({ level: { [CompressionCodec.Gzip]: 0 } }), CompressionErrorReason.InvalidLevel);
+    expectThrows(() => compressionMiddleware({ level: { [CompressionCodec.Gzip]: 10 } }), CompressionErrorReason.InvalidLevel);
+    expectThrows(() => compressionMiddleware({ level: { [CompressionCodec.Br]: 12 } }), CompressionErrorReason.InvalidLevel);
+    expectThrows(() => compressionMiddleware({ level: { [CompressionCodec.Zstd]: 0 } }), CompressionErrorReason.InvalidLevel);
+    expectThrows(
+      () => compressionMiddleware({ encodings: [CompressionCodec.Zstd], level: { [CompressionCodec.Zstd]: 20 } }),
       CompressionErrorReason.InvalidLevel,
     );
-    expectErr(compressionMiddleware({ level: { [CompressionCodec.Gzip]: 5.5 } }), CompressionErrorReason.InvalidLevel);
+    expectThrows(() => compressionMiddleware({ level: { [CompressionCodec.Gzip]: 5.5 } }), CompressionErrorReason.InvalidLevel);
   });
 
-  it('FAC-06 breach.maxPadding 0·-1·1.5·4097·NaN → Err(InvalidBreach)', () => {
+  it('FAC-06 breach.maxPadding 0·-1·1.5·4097·NaN → throw(InvalidBreach)', () => {
     for (const maxPadding of [0, -1, 1.5, 4097, NaN]) {
-      expectErr(compressionMiddleware({ breach: { maxPadding } }), CompressionErrorReason.InvalidBreach);
+      expectThrows(() => compressionMiddleware({ breach: { maxPadding } }), CompressionErrorReason.InvalidBreach);
     }
   });
 
-  it('FAC-07 breach + BREACH-safe 인코딩 전무 → Err(InvalidBreach)', () => {
-    expectErr(
-      compressionMiddleware({ encodings: [CompressionCodec.Br], breach: { maxPadding: 32 } }),
+  it('FAC-07 breach + BREACH-safe 인코딩 전무 → throw(InvalidBreach)', () => {
+    expectThrows(
+      () => compressionMiddleware({ encodings: [CompressionCodec.Br], breach: { maxPadding: 32 } }),
       CompressionErrorReason.InvalidBreach,
     );
-    expectErr(
-      compressionMiddleware({ encodings: [CompressionCodec.Deflate], breach: { maxPadding: 32 } }),
+    expectThrows(
+      () => compressionMiddleware({ encodings: [CompressionCodec.Deflate], breach: { maxPadding: 32 } }),
       CompressionErrorReason.InvalidBreach,
     );
   });
@@ -76,22 +80,22 @@ describe('factory (생성 검증)', () => {
       [CompressionCodec.Zstd, 1], [CompressionCodec.Zstd, 19],
     ];
     for (const [codec, level] of boundaries) {
-      expect(isErr(compressionMiddleware({ level: { [codec]: level } }))).toBe(false);
+      expect(() => compressionMiddleware({ level: { [codec]: level } })).not.toThrow();
     }
   });
 
   // ── SE ──
-  it('FAC-09 Err 반환 시 재호출·정상 생성에 영향 없음(전역 부수효과 없음)', () => {
-    expect(isErr(compressionMiddleware({ encodings: [] }))).toBe(true);
-    expect(isErr(compressionMiddleware())).toBe(false);
-    expect(isErr(compressionMiddleware({ encodings: [] }))).toBe(true);
-    expect(isErr(compressionMiddleware())).toBe(false);
+  it('FAC-09 throw 후 재호출·정상 생성에 영향 없음(전역 부수효과 없음)', () => {
+    expect(() => compressionMiddleware({ encodings: [] })).toThrow();
+    expect(() => compressionMiddleware()).not.toThrow();
+    expect(() => compressionMiddleware({ encodings: [] })).toThrow();
+    expect(() => compressionMiddleware()).not.toThrow();
   });
 
   it('FAC: breach + safe 인코딩 혼재 → 정상 생성', () => {
-    expect(isErr(compressionMiddleware({
+    expect(() => compressionMiddleware({
       encodings: [CompressionCodec.Br, CompressionCodec.Zstd],
       breach: { maxPadding: 32 },
-    }))).toBe(false);
+    })).not.toThrow();
   });
 });

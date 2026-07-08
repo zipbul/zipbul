@@ -17,6 +17,12 @@ A high-performance, RFC 3986 compliant query string parser with strict security 
 bun add @zipbul/query-parser
 ```
 
+The standalone `QueryParser` has no runtime dependencies. To use the **HTTP middleware** form (`queryParser()` + `request.getQuery(dto)`), also install its peer dependencies:
+
+```bash
+bun add @zipbul/common @zipbul/http-adapter
+```
+
 <br>
 
 ## 🚀 Quick Start
@@ -35,34 +41,47 @@ parser.parse('q=hello%20world&lang=ko');
 
 <br>
 
-## 🔌 As a `@zipbul` middleware
+## 🧩 HTTP Middleware
 
-Register `queryParser` on `HttpAdapterPhase.BeforeValidate`. It parses the request
-query once and installs a typed `getQuery<T>(dto)` accessor on the HTTP request:
+The package also ships a zipbul HTTP middleware factory, `queryParser(options?)`. Each call creates an independent middleware instance, so different registration points may use different options. Options are validated at boot — `queryParser()` throws `QueryParserError` immediately on invalid options, before the app starts serving.
+
+Register it on any phase **before** validation (typically `HttpAdapterPhase.BeforeValidate`):
 
 ```typescript
 import { queryParser } from '@zipbul/query-parser';
-import { defineModule } from '@zipbul/core';
 import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
 
-export const appModule = defineModule({
-  name: 'App',
-  adapters: [
-    {
-      adapter: HttpAdapter,
-      middlewares: {
-        [HttpAdapterPhase.BeforeValidate]: [queryParser],
-      },
-    },
-  ],
-});
+// In your adapter config:
+middlewares: {
+  [HttpAdapterPhase.BeforeValidate]: [queryParser({ nesting: true })],
+}
 ```
 
-Then read the parsed query in a handler or downstream middleware:
+The middleware declares a typed `request.getQuery(dto)` context accessor via its `augments` slot. The middleware only **supplies** the raw parsed query; the framework wires [@zipbul/baker](https://www.npmjs.com/package/@zipbul/baker) DTO validation from the handler's `getQuery(SomeDto)` call site, and the installed accessor returns the validated instance — exactly like `getBody`/`getParams`:
 
 ```typescript
-const query = ctx.request.getQuery(SearchQueryDto); // typed
+@Get()
+search(ctx: HttpContext) {
+  const query = ctx.request.getQuery(SearchQueryDto); // typed + validated
+}
 ```
+
+`zb build middleware` extracts the accessor declaration into `dist/context-augments.d.ts` (consumer types) and `dist/context-augments.json` (app AOT manifest).
+
+### Malformed queries → 400 (not 500)
+
+In the middleware, a malformed query string is a **client** error. When `strict` is enabled, the supply step returns an `httpError(BadRequest)` — the framework short-circuits the pipeline into a **400** response and never runs the handler. It is never thrown, so a hostile `?q=%ZZ` can't be turned into a 500:
+
+```typescript
+middlewares: {
+  [HttpAdapterPhase.BeforeValidate]: [queryParser({ strict: true, nesting: true })],
+}
+// GET /search?q=%ZZ        → 400 Bad Request  (malformed percent-escape)
+// GET /search?a[b]c[d]=1   → 400 Bad Request  (malformed brackets, needs nesting)
+// GET /search?q=hello      → handler runs normally
+```
+
+Under the default (`strict: false`) a malformed query is parsed leniently and never fails the request.
 
 <br>
 
@@ -120,15 +139,23 @@ parser.parse('filter[status]=active&filter[role]=admin');
 
 When `false` (default), brackets are treated as literal characters in the key name.
 
+> **Decode-then-parse:** keys are fully percent-decoded **before** bracket detection, so encoded brackets (`%5B`/`%5D`) act structurally under `nesting: true` — `a%5Bb%5D=c` parses the same as `a[b]=c` (matching `qs`). There is no way to smuggle a literal `[` or `]` into a key name when nesting is enabled.
+
 ### `arrayLimit`
 
-Maximum array index allowed when `nesting` is enabled. An index above this limit does **not** drop the value — the container falls back to a plain object keyed by the index string.
+Maximum array index allowed when `nesting` is enabled. At **container creation** an index above this limit does not drop the value — the container falls back to a plain object keyed by the index string.
 
 ```typescript
 const parser = QueryParser.create({ nesting: true, arrayLimit: 5 });
 
 parser.parse('a[3]=ok');   // { a: [undefined, undefined, undefined, 'ok'] }  (sparse array)
 parser.parse('a[100]=no'); // over limit → object: { a: { '100': 'no' } }
+```
+
+⚠️ The object fallback only applies when the container is first created. If the key already holds an **array**, a later over-limit index is silently dropped:
+
+```typescript
+parser.parse('a[0]=x&a[100]=no'); // { a: ['x'] } — '100' dropped
 ```
 
 ### `duplicates`
@@ -159,11 +186,11 @@ QueryParser.create({ duplicates: 'array' }).parse(input);
 When enabled, `parse()` throws `QueryParserError` instead of silently ignoring errors:
 
 - Malformed percent encoding (`%zz`, truncated `%E0%A4`)
-- Unbalanced or nested brackets (`a[[b]=1`, `a[b=1`)
-- Conflicting key structures (`a=1&a[b]=2`)
+- Unbalanced, nested, or unclosed brackets (`a]b[c]=1`, `a[[b]]=1`, `a[b=1`), and stray characters between bracket groups (`a[b]junk[c]=1`)
+- Conflicting key structures (`a=1&a[b]=2`) — detecting structure conflicts requires `nesting: true`; with nesting off, bracket keys are literal and never conflict
 
 ```typescript
-const parser = QueryParser.create({ strict: true });
+const parser = QueryParser.create({ strict: true, nesting: true });
 
 parser.parse('valid=ok');           // { valid: 'ok' }
 parser.parse('bad=%zz');            // throws QueryParserError
@@ -203,6 +230,24 @@ try {
 }
 ```
 
+### `parseResult()` — the non-throwing variant
+
+`parse()` throws in strict mode; `parseResult()` returns a `Result` instead, so you can branch on a malformed query without a `try`/`catch`. (This is what the HTTP middleware uses to map a bad query to a 400.)
+
+```typescript
+import { QueryParser, isErr } from '@zipbul/query-parser';
+
+const parser = QueryParser.create({ strict: true });
+const result = parser.parseResult('q=%ZZ');
+
+if (isErr(result)) {
+  result.data.reason;   // QueryParserErrorReason.MalformedQueryString
+  result.data.message;  // human-readable detail
+} else {
+  result;               // the parsed query record
+}
+```
+
 ### `QueryParserErrorReason`
 
 | Reason | Thrown by | Description |
@@ -233,9 +278,11 @@ This parser follows [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) se
 
 ### Prototype pollution prevention
 
-The following keys are blocked from all parsed output — at any position, including as a plain top-level key (a literal `?constructor=1` yields `{}`, so these names cannot be used as ordinary parameters):
+`__proto__` is the only blocked key — at every position (root, nested segment, leaf), so `?__proto__[x]=1` and `?a[__proto__][x]=1` are neutralized. A plain assignment to `__proto__` invokes the prototype setter, so it can never be an ordinary parameter.
 
-`__proto__`, `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`
+Every other key — including `constructor`, `prototype`, `__defineGetter__`, etc. — is a **safe own-property value**: the parser only ever writes own properties (create-own-or-skip via `hasOwnProperty`), so it never reaches the prototype chain, and the classic `?constructor[prototype][x]=y` payload builds an ordinary own object without polluting `Object.prototype`. These names are therefore returned as normal parameters (`?constructor=1` → `{ constructor: '1' }`) rather than silently discarded.
+
+> **Behavior change (since this release):** `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` used to be dropped at all positions. They are now surfaced as ordinary own-property values (only `__proto__` remains blocked). If your app relied on these being absent from the parsed object, note that `parsed.constructor` is now whatever the client sent as a string rather than `Object`.
 
 ### HPP (HTTP Parameter Pollution) defense
 

@@ -1,36 +1,73 @@
-import type { Class, MiddlewareDefinition } from '@zipbul/common';
+import type { MiddlewareDefinition } from '@zipbul/common';
 
 import { defineMiddleware } from '@zipbul/common';
-import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';
+import { isErr } from '@zipbul/result';
+import { HttpAdapter, HttpContext, HttpStatus, httpError } from '@zipbul/http-adapter';
+
+import type { QueryParserOptions } from './interfaces';
 
 import { QueryParser } from './query-parser';
 
 /**
- * Query-parser HTTP middleware (canonical `export const … = defineMiddleware(…)`
- * shape so `zb build middleware` can extract the context augment and emit the
- * matching `context-augments.d.ts`).
+ * Query-parser HTTP middleware factory (canonical form-2 shape:
+ * `export function xMiddleware(opts?) { return defineMiddleware({...}) }`).
  *
- * Parses the request query string once per request and augments the request
- * with a typed `getQuery<T>(dto)` accessor — consistent with the framework's
- * `getBody<T>(dto)` / `getParams<T>(dto)` accessors. Consumers read it as:
+ * Each call creates an independent instance — different registration points
+ * may use different options. Options are baker-validated at boot
+ * (`QueryParser.create` throws {@link QueryParserError} on invalid options).
+ *
+ * The `augments` slot declares the typed `request.getQuery(dto)` accessor:
+ * this middleware only SUPPLIES the parsed query (raw); the framework wires
+ * baker DTO validation from the handler's `getQuery(SomeDto)` call site and
+ * the installed accessor returns the validated instance — exactly like
+ * `getBody`/`getParams`. `zb build middleware` extracts the declaration into
+ * `dist/context-augments.d.ts` (consumer types) and
+ * `dist/context-augments.json` (app AOT manifest).
+ *
+ * Register on `HttpAdapterPhase.BeforeValidate` (any phase before Validation):
  *
  * ```ts
+ * middlewares: {
+ *   [HttpAdapterPhase.BeforeValidate]: [queryParser({ nesting: true })],
+ * }
+ *
+ * // In a handler:
  * @Get()
  * search(ctx: HttpContext) {
- *   const query = ctx.request.getQuery(SearchQueryDto); // typed
+ *   const query = ctx.request.getQuery(SearchQueryDto); // typed + validated
  * }
  * ```
  *
- * Register on `HttpAdapterPhase.BeforeValidate`.
+ * @throws {QueryParserError} when options fail validation.
  */
-export const queryParser: MiddlewareDefinition = defineMiddleware([HttpAdapter], () => {
-  const parser = QueryParser.create();
+export function queryParser(options?: QueryParserOptions): MiddlewareDefinition {
+  const parser = QueryParser.create(options);
 
-  return (ctx) => {
-    const http = ctx.to(HttpContext);
-    const queryString = http.request.queryString;
-    const parsed = queryString === null ? {} : parser.parse(queryString);
+  return defineMiddleware({
+    adapters: [HttpAdapter],
+    augments: {
+      request: {
+        // Supplies the parsed query as the raw value the `getQuery(dto)`
+        // accessor reads. A malformed query (strict mode) is a CLIENT error, so
+        // it is RETURNED as an `Err` (400) — the framework short-circuits the
+        // pipeline into that response — never thrown (which would surface as an
+        // attacker-triggerable 500).
+        getQuery: (ctx) => {
+          const queryString = ctx.to(HttpContext).request.queryString;
 
-    http.request.getQuery = <T>(_dto: Class<T>): T => parsed as T;
-  };
-});
+          if (queryString === null) {
+            return {};
+          }
+
+          const result = parser.parseResult(queryString);
+
+          if (isErr(result)) {
+            return httpError(HttpStatus.BadRequest, `Malformed query string: ${result.data.message}`);
+          }
+
+          return result;
+        },
+      },
+    },
+  });
+}
