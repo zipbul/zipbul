@@ -789,12 +789,16 @@ describe('Cors', () => {
       expect(result.headers.has(HttpHeader.AccessControlExposeHeaders)).toBe(false);
     });
 
-    it('should not set ACEH on OPTIONS + no ACRM (non-preflight OPTIONS) even when exposedHeaders is configured', async () => {
+    it('should set ACEH on OPTIONS + no ACRM (non-preflight OPTIONS is an actual response, §4.1.2)', async () => {
+      // A cross-origin fetch(url, {method:'OPTIONS'}) preflights (OPTIONS is not a
+      // CORS-safelisted method) and then sends this actual OPTIONS request with no
+      // Access-Control-Request-Method. Its response is an actual response, so
+      // Access-Control-Expose-Headers belongs on it (§4.1.2).
       const cors = Cors.create({ origin: true, exposedHeaders: ['X-Trace'] });
       const req = makeRequest('OPTIONS', 'https://a.com');
       const result = await cors.handle(req);
       assertContinue(result);
-      expect(result.headers.has(HttpHeader.AccessControlExposeHeaders)).toBe(false);
+      expect(result.headers.get(HttpHeader.AccessControlExposeHeaders)).toBe('X-Trace');
     });
 
     it('should not set Vary:Origin when ACAO is wildcard with no credentials', async () => {
@@ -1154,5 +1158,62 @@ describe('Cors', () => {
       assertPreflight(result);
       expect(result.headers.has(HttpHeader.AccessControlAllowPrivateNetwork)).toBe(false);
     });
+  });
+});
+
+// ── STANDARDS.md coverage gaps ──
+
+describe('Cors — STANDARDS coverage', () => {
+  // §2.1.4 / §3.2.2 — a committed RespondPreflight (204) response must carry
+  // both ACAO and (when credentialed) ACAC:true, not only the Continue paths.
+  it('§2.1.4/§3.2.2 committed preflight (RespondPreflight) carries ACAO and ACAC:true when credentialed', async () => {
+    const cors = Cors.create({ origin: 'https://a.com', credentials: true });
+    const result = await cors.handle(makePreflight('https://a.com', 'POST'));
+    assertPreflight(result);
+    expect(result.statusCode).toBe(204);
+    expect(result.headers.get(HttpHeader.AccessControlAllowOrigin)).toBe('https://a.com');
+    expect(result.headers.get(HttpHeader.AccessControlAllowCredentials)).toBe('true');
+  });
+
+  // §3.3.3 — a custom method is emitted in ACAM in its exact byte-case (the UA
+  // only normalizes DELETE/GET/HEAD/OPTIONS/POST/PUT), so the output must not be
+  // upper/lower-folded.
+  it('§3.3.3 emits a custom method in Access-Control-Allow-Methods with exact case', async () => {
+    const cors = Cors.create({ origin: 'https://a.com', methods: [HttpMethod.Propfind] });
+    const result = await cors.handle(makePreflight('https://a.com', HttpMethod.Propfind));
+    assertPreflight(result);
+    const acam = result.headers.get(HttpHeader.AccessControlAllowMethods)!;
+    expect(acam.split(',').map(m => m.trim())).toContain('PROPFIND');
+  });
+
+  // §1.1.11 — ACAO is a single serialized origin, never a comma/space list nor a
+  // subdomain-wildcard pattern. An array config echoes exactly the one matched
+  // request origin.
+  it('§1.1.11 array origin echoes a single origin, never a list or wildcard pattern', async () => {
+    const cors = Cors.create({ origin: ['https://a.com', 'https://b.com'] });
+    const result = await cors.handle(makeRequest(HttpMethod.Get, 'https://a.com'));
+    assertContinue(result);
+    const acao = result.headers.get(HttpHeader.AccessControlAllowOrigin);
+    expect(acao).toBe('https://a.com');
+    expect(acao).not.toContain(',');
+    expect(acao).not.toContain(' ');
+    expect(acao).not.toContain('*');
+  });
+
+  // §4.1.4 — Set-Cookie (forbidden response-header name) is never emitted in
+  // Access-Control-Expose-Headers, even if configured.
+  it('§4.1.4 drops Set-Cookie from Access-Control-Expose-Headers', async () => {
+    const cors = Cors.create({ origin: 'https://a.com', exposedHeaders: ['Set-Cookie', 'X-Trace'] });
+    const result = await cors.handle(makeRequest(HttpMethod.Get, 'https://a.com'));
+    assertContinue(result);
+    const aceh = result.headers.get(HttpHeader.AccessControlExposeHeaders);
+    expect(aceh).toBe('X-Trace');
+  });
+
+  it('§4.1.4 omits Access-Control-Expose-Headers entirely when only forbidden names are configured', async () => {
+    const cors = Cors.create({ origin: 'https://a.com', exposedHeaders: ['Set-Cookie'] });
+    const result = await cors.handle(makeRequest(HttpMethod.Get, 'https://a.com'));
+    assertContinue(result);
+    expect(result.headers.has(HttpHeader.AccessControlExposeHeaders)).toBe(false);
   });
 });

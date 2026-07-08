@@ -285,6 +285,44 @@ Cors.create({ origin: 'https://app.example.com', credentials: true });
 Cors.create({ origin: '*', credentials: true }); // CorsErrorReason.CredentialsWithWildcardOrigin
 ```
 
+> [!WARNING]
+> **`origin: true` + `credentials: true` reflects _any_ requesting origin with credentials.**
+> This is spec-valid (the browser CORS check accepts a reflected concrete origin) and is the only
+> way to support credentialed CORS across multiple origins — but it means **every** website can make
+> credentialed requests and read the responses. Use it **only** behind a first-party allowlist or an
+> auth gateway. For a fixed set of trusted origins, pass an array or a function instead of `true`:
+>
+> ```typescript
+> // ✅ credentialed CORS scoped to a vetted allowlist
+> Cors.create({ origin: ['https://app.example.com', 'https://admin.example.com'], credentials: true });
+> Cors.create({ origin: (o) => allowlist.has(o), credentials: true });
+> ```
+>
+> Note: `origin: '*'` + `credentials` is *rejected at boot* because the browser blocks it (an inert,
+> broken config); `origin: true` + `credentials` is *allowed* because it actually works — which is
+> exactly why it is the dangerous one to leave unscoped.
+
+### Per-origin / per-route policy (multiple instances)
+
+Only `origin` is dynamic per request. `methods`, `allowedHeaders`, `credentials`, `maxAge`, etc. are
+**fixed policy**, validated once at `Cors.create()` time. To vary the _whole_ policy by route, tenant,
+or surface, construct one boot-validated `Cors` instance per policy and select it upstream — this keeps
+every instance fully validated and the request path allocation-free:
+
+```typescript
+const corsBySurface = new Map<string, Cors>([
+  ['public', Cors.create({ origin: '*', methods: [HttpMethod.Get] })],
+  ['app', Cors.create({ origin: 'https://app.example.com', credentials: true })],
+]);
+
+// pick the policy for this request's surface, then handle as usual
+const cors = corsBySurface.get(surfaceOf(request)) ?? corsBySurface.get('public')!;
+const result = await cors.handle(request);
+```
+
+This is preferred over a per-request options delegate: it preserves fail-fast boot validation instead
+of moving it onto the hot request path.
+
 ### Preflight delegation
 
 When another middleware needs to handle OPTIONS requests directly:

@@ -2,7 +2,7 @@ import type { ResultAsync } from '@zipbul/result';
 
 import { isBakerIssueSet } from '@zipbul/baker';
 import { isErr, safe } from '@zipbul/result';
-import { HttpHeader } from '@zipbul/http-adapter';
+import { HttpHeader, HttpMethod } from '@zipbul/http-adapter';
 import type { HttpStatus } from '@zipbul/http-adapter';
 
 import type { CorsErrorData, CorsRejectResult } from './interfaces';
@@ -152,21 +152,18 @@ export class Cors {
       headers.set(HttpHeader.AccessControlAllowCredentials, 'true');
     }
 
-    if (request.method !== 'OPTIONS') {
-      if (this.options.exposedHeaders !== null && this.options.exposedHeaders.length > 0) {
-        const exposeHeadersValue = this.serializeExposeHeaders(this.options.exposedHeaders);
-
-        if (exposeHeadersValue !== undefined) {
-          headers.set(HttpHeader.AccessControlExposeHeaders, exposeHeadersValue);
-        }
-      }
-
-      return { action: CorsAction.Continue, headers };
-    }
-
-    const requestMethod = request.headers.get(HttpHeader.AccessControlRequestMethod);
+    // A preflight is an OPTIONS request carrying Access-Control-Request-Method.
+    // Anything else — including an OPTIONS request used as a real verb (which a
+    // cross-origin `fetch(url, {method:'OPTIONS'})` sends *after* its preflight) —
+    // is an actual response, and that is where Access-Control-Expose-Headers
+    // belongs (§4.1.2). So gate on preflight-ness, not on the method being OPTIONS.
+    const requestMethod = request.method === HttpMethod.Options
+      ? request.headers.get(HttpHeader.AccessControlRequestMethod)
+      : null;
 
     if (requestMethod === null || requestMethod.length === 0) {
+      this.applyExposeHeaders(headers);
+
       return { action: CorsAction.Continue, headers };
     }
 
@@ -284,15 +281,33 @@ export class Cors {
     return undefined;
   }
 
+  /** @internal Emit Access-Control-Expose-Headers for an actual (non-preflight) response. */
+  private applyExposeHeaders(headers: Headers): void {
+    if (this.options.exposedHeaders === null || this.options.exposedHeaders.length === 0) {
+      return;
+    }
+
+    const value = this.serializeExposeHeaders(this.options.exposedHeaders);
+
+    if (value !== undefined) {
+      headers.set(HttpHeader.AccessControlExposeHeaders, value);
+    }
+  }
+
   /** @internal */
   private serializeExposeHeaders(exposedHeaders: string[]): string | undefined {
-    if (this.options.credentials && this.includesWildcard(exposedHeaders)) {
-      const explicit = exposedHeaders.filter(header => header.trim() !== '*');
+    // Set-Cookie is a forbidden response-header name — never exposable to script
+    // via Access-Control-Expose-Headers (the UA blocks it regardless). Drop it so
+    // the middleware never emits an inert, misleading entry (STANDARDS §4.1.4).
+    const exposable = exposedHeaders.filter(header => header.trim().toLowerCase() !== HttpHeader.SetCookie);
+
+    if (this.options.credentials && this.includesWildcard(exposable)) {
+      const explicit = exposable.filter(header => header.trim() !== '*');
 
       return explicit.length > 0 ? explicit.join(',') : undefined;
     }
 
-    return exposedHeaders.join(',');
+    return exposable.length > 0 ? exposable.join(',') : undefined;
   }
 
   /** @internal */
