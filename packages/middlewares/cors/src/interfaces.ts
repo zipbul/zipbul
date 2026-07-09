@@ -31,8 +31,10 @@ export interface CorsRejectResult {
 }
 
 /**
- * Error data payload used internally with the Result pattern.
- * @internal
+ * Error data payload carried by {@link CorsError} and the internal Result
+ * pattern. Kept in the public surface (not stripped) so the emitted
+ * {@link CorsError} constructor signature resolves — mirrors cookie's
+ * `CookieErrorData`.
  */
 export interface CorsErrorData {
   reason: CorsErrorReason;

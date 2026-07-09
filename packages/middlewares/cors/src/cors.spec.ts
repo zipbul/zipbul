@@ -1,4 +1,4 @@
-import { HttpHeader, HttpMethod } from '@zipbul/http-adapter';
+import { HttpHeader, HttpMethod, HttpStatus } from '@zipbul/http-adapter';
 import { describe, expect, it } from 'bun:test';
 
 import type { CorsContinueResult, CorsPreflightResult, CorsRejectResult } from './interfaces';
@@ -1200,10 +1200,10 @@ describe('Cors — STANDARDS coverage', () => {
     expect(acao).not.toContain('*');
   });
 
-  // §4.1.4 — Set-Cookie (forbidden response-header name) is never emitted in
-  // Access-Control-Expose-Headers, even if configured.
-  it('§4.1.4 drops Set-Cookie from Access-Control-Expose-Headers', async () => {
-    const cors = Cors.create({ origin: 'https://a.com', exposedHeaders: ['Set-Cookie', 'X-Trace'] });
+  // §4.1.4 — Set-Cookie AND Set-Cookie2 (forbidden response-header names, Fetch
+  // #forbidden-response-header-name) are never emitted in Access-Control-Expose-Headers.
+  it('§4.1.4 drops Set-Cookie and Set-Cookie2 from Access-Control-Expose-Headers', async () => {
+    const cors = Cors.create({ origin: 'https://a.com', exposedHeaders: ['Set-Cookie', 'X-Trace', 'set-cookie2'] });
     const result = await cors.handle(makeRequest(HttpMethod.Get, 'https://a.com'));
     assertContinue(result);
     const aceh = result.headers.get(HttpHeader.AccessControlExposeHeaders);
@@ -1215,5 +1215,82 @@ describe('Cors — STANDARDS coverage', () => {
     const result = await cors.handle(makeRequest(HttpMethod.Get, 'https://a.com'));
     assertContinue(result);
     expect(result.headers.has(HttpHeader.AccessControlExposeHeaders)).toBe(false);
+  });
+});
+
+// ── enterprise-review fixes (TDD) ──
+
+describe('Cors — review defect fixes', () => {
+  // #4 — OriginFn returning an empty/blank string must not emit an empty ACAO;
+  // treat it as not-allowed (RFC 6454: ACAO is a serialized origin / '*' / 'null').
+  it('#4 rejects an origin function that returns an empty string', async () => {
+    const cors = Cors.create({ origin: () => '' });
+    const result = await cors.handle(makeRequest('GET', 'https://a.com'));
+    assertReject(result);
+    expect(result.reason).toBe(CorsRejectionReason.OriginNotAllowed);
+  });
+
+  it('#4 rejects an origin function that returns a blank string', async () => {
+    const cors = Cors.create({ origin: () => '   ' });
+    const result = await cors.handle(makeRequest('GET', 'https://a.com'));
+    assertReject(result);
+  });
+
+  // #4 — a CR/LF-bearing return must not throw a raw TypeError from Headers.set
+  // (header injection); it is not a valid origin value → not allowed.
+  it('#4 rejects an origin function that returns a value containing CR/LF', async () => {
+    const cors = Cors.create({ origin: () => 'https://a.com\r\nX-Injected: 1' });
+    const result = await cors.handle(makeRequest('GET', 'https://a.com'));
+    assertReject(result);
+  });
+
+  // #7 — optionsSuccessStatus must be a real 2xx HttpStatus, not any int in 200-299.
+  // 250 is not a registered status, so it is out of the HttpStatus domain — cast
+  // past the type to feed the runtime validator the intentionally-invalid value.
+  it('#7 rejects a non-existent 2xx status code (250) at boot', () => {
+    expect(() => Cors.create({ optionsSuccessStatus: 250 as HttpStatus })).toThrow(CorsError);
+  });
+
+  it('#7 accepts a real 2xx HttpStatus (200)', () => {
+    expect(() => Cors.create({ optionsSuccessStatus: 200 })).not.toThrow();
+  });
+
+  // #9 — resolved policy must not alias the caller's arrays; mutating the input
+  // after create must not change the emitted headers.
+  it('#9 does not alias the caller allowedHeaders array (post-create mutation is inert)', async () => {
+    const allowed = ['X-A'];
+    const cors = Cors.create({ origin: true, allowedHeaders: allowed });
+    allowed.push('X-Evil');
+    const result = await cors.handle(makePreflight('https://a.com', 'POST', 'X-A'));
+    assertPreflight(result);
+    expect(result.headers.get(HttpHeader.AccessControlAllowHeaders)).toBe('X-A');
+  });
+
+  // #10 — in reflect mode (allowedHeaders unset), the preflight response varies on
+  // Access-Control-Request-Headers even when the request carried none (cache safety).
+  it('#10 emits Vary: Access-Control-Request-Headers in reflect mode even without ACRH', async () => {
+    const cors = Cors.create({ origin: true });
+    const result = await cors.handle(makePreflight('https://a.com', 'POST'));
+    assertPreflight(result);
+    const vary = (result.headers.get(HttpHeader.Vary) ?? '').toLowerCase();
+    expect(vary).toContain('access-control-request-headers');
+  });
+});
+
+describe('Cors — §3.3.1 CORS-safelisted method carve-out (L2)', () => {
+  // GET/HEAD/POST are CORS-safelisted: the browser lets them through even when
+  // absent from Access-Control-Allow-Methods, so the middleware must not reject
+  // a safelisted-method preflight just because the configured list omits it.
+  it('L2 does not reject a POST preflight when methods excludes POST', async () => {
+    const cors = Cors.create({ origin: 'https://a.com', methods: [HttpMethod.Put] });
+    const result = await cors.handle(makePreflight('https://a.com', 'POST'));
+    assertPreflight(result);
+  });
+
+  it('L2 still rejects a non-safelisted method excluded from methods', async () => {
+    const cors = Cors.create({ origin: 'https://a.com', methods: [HttpMethod.Put] });
+    const result = await cors.handle(makePreflight('https://a.com', 'DELETE'));
+    assertReject(result);
+    expect(result.reason).toBe(CorsRejectionReason.MethodNotAllowed);
   });
 });
