@@ -322,26 +322,26 @@ benches the published artifact against pinned rivals).
 
 | Input | @zipbul (`nesting:false`) | node:querystring | fast-querystring | URLSearchParams→record |
 |:------|--------------------------:|-----------------:|-----------------:|-----------------------:|
-| flat 10 | 496 ns | 424 ns | **366 ns** | 2.64 µs |
-| flat 50 | 5.30 µs | 4.79 µs | **3.40 µs** | 12.90 µs |
-| encoded 5 | **978 ns** | 1.20 µs | 1.47 µs | 1.60 µs |
+| flat 10 | 493 ns | 449 ns | **391 ns** | 2.69 µs |
+| flat 50 | 4.62 µs | 5.08 µs | **3.59 µs** | 13.30 µs |
+| encoded 5 | **1.01 µs** | 1.23 µs | 1.59 µs | 1.62 µs |
 
-`fast-querystring` is ~1.4× faster on plain flat input; @zipbul leads once values
-are percent-encoded.
+`fast-querystring` is fastest on plain flat input; @zipbul edges out `node:querystring`
+as the pair count grows (flat 50) and leads once values are percent-encoded.
 
 ### Full parsers (bracket-capable)
 
 | Input | @zipbul (`nesting:true`) | qs | picoquery |
 |:------|-------------------------:|---:|----------:|
-| flat 10 | 487 ns | 4.26 µs | **387 ns** |
-| nested depth 3 | 155 ns | 1.11 µs | **84 ns** |
-| array ×10 | 1.36 µs | 6.60 µs | **429 ns** |
-| e-commerce | 1.15 µs | 4.66 µs | **633 ns** |
-| plus-heavy (form) | **604 ns** | 1.47 µs | — |
+| flat 10 | 464 ns | 4.48 µs | **403 ns** |
+| nested depth 3 | 152 ns | 1.16 µs | **87 ns** |
+| array ×10 | 850 ns | 6.67 µs | **445 ns** |
+| e-commerce | 1.17 µs | 4.84 µs | **619 ns** |
+| plus-heavy (form) | **574 ns** | 1.52 µs | — |
 
-@zipbul is **5–15× faster than `qs`** across nested/array, and fastest on `+`-heavy
-form input — but `picoquery` is 1.8–3.2× faster on bracket structures. (picoquery's
-duplicate-key handling differs; see the parity preview `bench:vs` prints.)
+@zipbul is **11–15× faster than `qs`** across nested/array, and fastest on `+`-heavy
+form input — but `picoquery` is still 1.7–1.9× faster on bracket structures.
+(picoquery's duplicate-key handling differs; see the parity preview `bench:vs` prints.)
 
 Run benchmarks locally:
 

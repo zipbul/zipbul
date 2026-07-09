@@ -86,6 +86,15 @@ export class QueryParser {
     let paramCount = 0;
     let limitReached = false;
 
+    // Decode-needed flags, tracked DURING this scan so processPair never has to
+    // re-scan the sliced key/value with `.includes('%')`/`.includes('+')`. A key
+    // or value needs decoding iff it contains '%', or (under urlEncoded) '+'.
+    const urlEncoded = this.options.urlEncoded;
+    let keyPct = false;
+    let keyPlus = false;
+    let valPct = false;
+    let valPlus = false;
+
     // Fast path: Scan loop
     while (i < len) {
       const code = qs.charCodeAt(i);
@@ -104,7 +113,9 @@ export class QueryParser {
           valStart = i;
         }
 
-        const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, i);
+        const keyNeedsDecode = keyPct || (urlEncoded && keyPlus);
+        const valNeedsDecode = valPct || (urlEncoded && valPlus);
+        const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, i, keyNeedsDecode, valNeedsDecode);
 
         if (isErr(pairResult)) {
           return pairResult;
@@ -127,6 +138,24 @@ export class QueryParser {
         keyEnd = -1;
         valStart = -1;
         isKey = true;
+        keyPct = false;
+        keyPlus = false;
+        valPct = false;
+        valPlus = false;
+      } else if (code === 37) {
+        // '%'
+        if (isKey) {
+          keyPct = true;
+        } else {
+          valPct = true;
+        }
+      } else if (code === 43) {
+        // '+'
+        if (isKey) {
+          keyPlus = true;
+        } else {
+          valPlus = true;
+        }
       }
 
       i++;
@@ -139,7 +168,9 @@ export class QueryParser {
         valStart = len;
       }
 
-      const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, len);
+      const keyNeedsDecode = keyPct || (urlEncoded && keyPlus);
+      const valNeedsDecode = valPct || (urlEncoded && valPlus);
+      const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, len, keyNeedsDecode, valNeedsDecode);
 
       if (isErr(pairResult)) {
         return pairResult;
@@ -162,10 +193,12 @@ export class QueryParser {
     keyEnd: number,
     valStart: number,
     valEnd: number,
+    keyNeedsDecode: boolean,
+    valNeedsDecode: boolean,
   ): Err<QueryParserErrorData> | boolean {
-    // Decode Key
+    // Decode Key. `keyNeedsDecode` was computed during the scan (presence of '%'
+    // or, under urlEncoded, '+'), so no re-scan of the sliced key is needed.
     const keyRaw = qs.slice(keyStart, keyEnd);
-    const keyNeedsDecode = keyRaw.includes('%') || (this.options.urlEncoded && keyRaw.includes('+'));
     const keyDecoded = keyNeedsDecode ? this.safeDecode(keyRaw) : keyRaw;
 
     if (isErr(keyDecoded)) {
@@ -183,7 +216,6 @@ export class QueryParser {
 
     if (valStart < valEnd) {
       const valRaw = qs.slice(valStart, valEnd);
-      const valNeedsDecode = valRaw.includes('%') || (this.options.urlEncoded && valRaw.includes('+'));
       const valDecoded = valNeedsDecode ? this.safeDecode(valRaw) : valRaw;
 
       if (isErr(valDecoded)) {
@@ -419,8 +451,13 @@ export class QueryParser {
       // (Poisoned segments were already rejected up front, before any container
       // was built — see the pre-scan above.)
 
+      // Parse the array index once (>=0, or -1 when not a valid index), but only
+      // on the array path — record keys never need it, so this stays off the
+      // hot object-nesting path. Fuses validation with integer parsing.
+      const arrIdx = Array.isArray(current) ? this.parseArrayIndex(prop) : -1;
+
       // Conversion: Array with non-numeric key → Object
-      if (Array.isArray(current) && prop !== '' && !this.isValidArrayIndex(prop)) {
+      if (Array.isArray(current) && prop !== '' && arrIdx === -1) {
         if (this.options.strict) {
           return err<QueryParserErrorData>({
             reason: QueryParserErrorReason.ConflictingStructure,
@@ -465,15 +502,16 @@ export class QueryParser {
           continue;
         }
 
-        if (this.isValidArrayIndex(prop)) {
-          const index = parseInt(prop, 10);
-
-          if (index > this.options.arrayLimit) {
+        if (arrIdx !== -1) {
+          if (arrIdx > this.options.arrayLimit) {
             return;
           }
 
           if (isLast) {
-            const leafErr = this.assignLeaf(current, prop, value);
+            // Call assignToArrayIndex directly with the numeric index: assignLeaf
+            // would re-parse the index and re-run the poison/empty checks already
+            // established here.
+            const leafErr = this.assignToArrayIndex(current, arrIdx, prop, value);
 
             if (isErr(leafErr)) {
               return leafErr;
@@ -485,7 +523,7 @@ export class QueryParser {
           }
 
           const nextKey = keys[k + 1] ?? '';
-          let nextValue = current[index];
+          let nextValue = current[arrIdx];
 
           if (!this.isRecordValue(nextValue) && !Array.isArray(nextValue)) {
             // An existing scalar at this index being nested into is a
@@ -498,7 +536,8 @@ export class QueryParser {
             }
 
             nextValue = this.shouldCreateArray(nextKey) ? [] : {};
-            this.assignArrayRecordValue(current, prop, nextValue);
+            // Numeric-index write (#1b): arr[n] is JSC's fast path, not arr['n'].
+            current[arrIdx] = nextValue;
           }
 
           parent = current;
@@ -561,13 +600,9 @@ export class QueryParser {
       return true;
     }
 
-    if (this.isValidArrayIndex(nextKey)) {
-      const n = parseInt(nextKey, 10);
+    const n = this.parseArrayIndex(nextKey);
 
-      return n >= 0 && n <= this.options.arrayLimit;
-    }
-
-    return false;
+    return n !== -1 && n <= this.options.arrayLimit;
   }
 
   /**
@@ -585,9 +620,9 @@ export class QueryParser {
     }
 
     if (Array.isArray(obj)) {
-      if (this.isValidArrayIndex(key)) {
-        const idx = parseInt(key, 10);
+      const idx = this.parseArrayIndex(key);
 
+      if (idx !== -1) {
         if (idx > this.options.arrayLimit) {
           return;
         }
@@ -673,7 +708,10 @@ export class QueryParser {
     const existing = arr[idx];
 
     if (existing === undefined) {
-      this.assignArrayRecordValue(arr, key, value);
+      // Write via the numeric index, not the string key: `arr[0]=v` is JSC's
+      // fast contiguous-array put, whereas `arr['0']=v` takes the generic
+      // string-keyed put path (a large hotspot in profiling).
+      arr[idx] = value;
 
       return;
     }
@@ -702,7 +740,7 @@ export class QueryParser {
     }
 
     if (this.options.duplicates === 'last') {
-      this.assignArrayRecordValue(arr, key, value);
+      arr[idx] = value;
 
       return;
     }
@@ -710,7 +748,7 @@ export class QueryParser {
     // duplicates:'array' with an existing scalar — combine into a pair. An
     // existing array is already handled by the fast path above, so `existing`
     // is necessarily a scalar at this point.
-    this.assignArrayRecordValue(arr, key, [existing, value]);
+    arr[idx] = [existing, value];
   }
 
   private assignArrayRecordValue(target: QueryArray, key: string, value: QueryValue): void {
@@ -742,35 +780,43 @@ export class QueryParser {
   }
 
   /**
-   * Checks if a string represents a valid non-negative integer for array indexing.
-   * Rejects: negative numbers, floats, empty strings, non-numeric strings, leading zeros.
+   * Parses a string as a non-negative array index in a single digit walk,
+   * fusing validation and integer conversion (avoids isValidArrayIndex followed
+   * by a redundant parseInt). Returns the index, or -1 for anything that is not
+   * a valid index: empty, >10 digits, non-numeric, or a leading zero (except "0").
    */
-  private isValidArrayIndex(str: string): boolean {
-    if (str.length === 0 || str.length > 10) {
-      return false;
+  private parseArrayIndex(str: string): number {
+    const len = str.length;
+
+    if (len === 0 || len > 10) {
+      return -1;
     }
 
-    const code = str.charCodeAt(0);
+    let code = str.charCodeAt(0);
 
     // First char must be 0-9
     if (code < 48 || code > 57) {
-      return false;
+      return -1;
     }
 
     // Reject leading zeros (except "0" itself)
-    if (code === 48 && str.length > 1) {
-      return false;
+    if (code === 48 && len > 1) {
+      return -1;
     }
 
-    for (let i = 1; i < str.length; i++) {
-      const c = str.charCodeAt(i);
+    let n = code - 48;
 
-      if (c < 48 || c > 57) {
-        return false;
+    for (let i = 1; i < len; i++) {
+      code = str.charCodeAt(i);
+
+      if (code < 48 || code > 57) {
+        return -1;
       }
+
+      n = n * 10 + (code - 48);
     }
 
-    return true;
+    return n;
   }
 
   /**

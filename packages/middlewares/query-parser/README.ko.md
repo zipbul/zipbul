@@ -313,23 +313,23 @@ RFC 3986은 URI *문법*(쿼리에 어떤 문자가 허용되는지)을 정의�
 
 | 입력 | @zipbul (`nesting:false`) | node:querystring | fast-querystring | URLSearchParams→record |
 |:-----|--------------------------:|-----------------:|-----------------:|-----------------------:|
-| flat 10 | 496 ns | 424 ns | **366 ns** | 2.64 µs |
-| flat 50 | 5.30 µs | 4.79 µs | **3.40 µs** | 12.90 µs |
-| encoded 5 | **978 ns** | 1.20 µs | 1.47 µs | 1.60 µs |
+| flat 10 | 493 ns | 449 ns | **391 ns** | 2.69 µs |
+| flat 50 | 4.62 µs | 5.08 µs | **3.59 µs** | 13.30 µs |
+| encoded 5 | **1.01 µs** | 1.23 µs | 1.59 µs | 1.62 µs |
 
-순수 flat은 `fast-querystring`이 약 1.4× 빠르고, 값이 퍼센트 인코딩되면 @zipbul이 앞섭니다.
+순수 flat은 `fast-querystring`이 가장 빠르고, 쌍 개수가 늘면(flat 50) @zipbul이 `node:querystring`을 앞지르며, 값이 퍼센트 인코딩되면 @zipbul이 선두입니다.
 
 ### 풀 파서 (브라켓 지원)
 
 | 입력 | @zipbul (`nesting:true`) | qs | picoquery |
 |:-----|-------------------------:|---:|----------:|
-| flat 10 | 487 ns | 4.26 µs | **387 ns** |
-| nested depth 3 | 155 ns | 1.11 µs | **84 ns** |
-| array ×10 | 1.36 µs | 6.60 µs | **429 ns** |
-| e-commerce | 1.15 µs | 4.66 µs | **633 ns** |
-| plus-heavy (폼) | **604 ns** | 1.47 µs | — |
+| flat 10 | 464 ns | 4.48 µs | **403 ns** |
+| nested depth 3 | 152 ns | 1.16 µs | **87 ns** |
+| array ×10 | 850 ns | 6.67 µs | **445 ns** |
+| e-commerce | 1.17 µs | 4.84 µs | **619 ns** |
+| plus-heavy (폼) | **574 ns** | 1.52 µs | — |
 
-@zipbul은 중첩/배열에서 **`qs` 대비 5–15× 빠르고** `+` 많은 폼 입력에서 가장 빠르지만, 브라켓 구조에서는 `picoquery`가 1.8–3.2× 빠릅니다. (picoquery는 중복키 처리가 다릅니다 — `bench:vs`가 출력하는 parity preview 참고.)
+@zipbul은 중첩/배열에서 **`qs` 대비 11–15× 빠르고** `+` 많은 폼 입력에서 가장 빠르지만, 브라켓 구조에서는 `picoquery`가 여전히 1.7–1.9× 빠릅니다. (picoquery는 중복키 처리가 다릅니다 — `bench:vs`가 출력하는 parity preview 참고.)
 
 로컬에서 벤치마크 실행:
 
