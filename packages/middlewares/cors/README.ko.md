@@ -107,6 +107,8 @@ interface CorsOptions {
 > `credentials: true`일 때 `origin: '*'`는 **검증 오류**를 발생시킵니다. 요청 출처를 반영하려면 `origin: true`를 사용하세요.
 >
 > RegExp origin은 **stateless**여야 합니다 — `g`(global)나 `y`(sticky) 플래그가 붙은 패턴은 `CorsErrorReason.InvalidOrigin`으로 거부됩니다(`lastIndex`가 호출 순서에 따라 매칭을 바꾸기 때문).
+>
+> RegExp origin은 catastrophic backtracking(ReDoS)에 대해 **검사하지 않습니다**. RegExp은 요청 `Origin`에 동기적으로 매칭되므로, 앵커드·선형시간 패턴(예: `/^https:\/\/([a-z0-9-]+\.)?example\.com$/`)만 넘기거나, 패턴이 복잡해질 경우 string/array/function origin을 사용하세요.
 
 ### `methods`
 
@@ -119,7 +121,7 @@ Cors.create({ methods: [HttpMethod.Get, HttpMethod.Post, HttpMethod.Delete] });
 Cors.create({ methods: [HttpMethod.Get, HttpMethod.Propfind] }); // WebDAV
 ```
 
-와일드카드 `'*'`를 넣으면 모든 메서드를 허용합니다. `credentials: true`이면 와일드카드 대신 요청 메서드를 그대로 반영합니다.
+와일드카드 `'*'`를 넣으면 모든 메서드를 허용합니다(자격증명 없는 요청 한정). `credentials: true`이면 `methods: ['*']`는 **부팅 시 거부**됩니다(`CredentialsWithWildcardMethods`) — 허용 메서드를 명시적으로 나열하세요.
 
 ### `allowedHeaders`
 
@@ -169,6 +171,10 @@ Cors.create({ maxAge: 86400 }); // 24시간
 
 프리플라이트 응답의 HTTP 상태 코드. 기본값 `204`. 일부 레거시 브라우저 호환이 필요하면 `200`으로 설정합니다.
 
+### `allowPrivateNetwork`
+
+`true`이면 `Access-Control-Request-Private-Network: true`를 담은 프리플라이트에 `Access-Control-Allow-Private-Network: true`를 응답해 사설망 접근을 허가합니다. 기본값 `false`. WICG [Private Network Access](https://wicg.github.io/private-network-access/) 초안 기반(비표준, Fetch Standard 미병합).
+
 <br>
 
 ## 📤 반환 타입
@@ -212,9 +218,9 @@ CORS 검증 실패 시 반환됩니다. `reason`으로 상세한 에러 응답�
 |:------------------|:--------|
 | `CredentialsWithWildcardOrigin` | `credentials:true` + `origin:'*'` 조합 불가 (Fetch Standard §3.3.5) |
 | `CredentialsWithWildcardMethods` | `credentials:true` + `methods:['*']` 조합 불가 (와일드카드 메서드는 credential 요청에 허용되지 않음) |
-| `InvalidMaxAge` | `maxAge`가 음수가 아닌 정수가 아님 (RFC 9111 §1.2.1) |
+| `InvalidMaxAge` | `maxAge`가 음수가 아닌 정수가 아님 (RFC 9111 §1.2.2) |
 | `InvalidStatusCode` | `optionsSuccessStatus`가 2xx 정수가 아님 |
-| `InvalidOrigin` | `origin`이 빈/공백 문자열, 빈 배열, 또는 배열 내 빈/공백 요소 (RFC 6454) |
+| `InvalidOrigin` | `origin`이 빈/공백 문자열, 또는 배열 내 빈/공백 요소 (RFC 6454) |
 | `InvalidMethods` | `methods`가 빈 배열이거나 빈/공백 요소 포함 (RFC 9110 §5.6.2) |
 | `InvalidAllowedHeaders` | `allowedHeaders`에 빈/공백 요소 포함 (RFC 9110 §5.6.2) |
 | `InvalidExposedHeaders` | `exposedHeaders`에 빈/공백 요소 포함 (RFC 9110 §5.6.2) |
@@ -271,7 +277,7 @@ Fetch Standard에 따라 인증 요청(쿠키·`Authorization`)에는 와일드�
 | 옵션 | 와일드카드 시 동작 |
 |:---|:---|
 | `origin: '*'` | **검증 오류** — `origin: true`를 사용하여 요청 출처를 반영하세요 |
-| `methods: ['*']` | 요청 메서드를 그대로 반영 |
+| `methods: ['*']` | **검증 오류** — 허용 메서드를 명시적으로 나열하세요 |
 | `allowedHeaders: ['*']` | 요청 헤더를 그대로 반영 |
 | `exposedHeaders: ['*']` | `Access-Control-Expose-Headers` 미설정 |
 
@@ -302,6 +308,10 @@ Cors.create({ origin: '*', credentials: true }); // CorsErrorReason.CredentialsW
 > 참고: `origin: '*'` + `credentials`는 브라우저가 차단하는(작동 불가·깨진) 설정이라 **부팅 시 거부**되고,
 > `origin: true` + `credentials`는 **실제로 작동하기 때문에 허용**됩니다 — 그래서 범위를 안 씌우면 위험한 건
 > 오히려 이쪽입니다.
+>
+> **`origin: 'null'` + `credentials: true`**도 같은 주의가 필요합니다: 스펙상 유효해 허용되지만 `null`은
+> sandboxed iframe·`data:`/`file:` 문서 등 opaque origin의 출처라, 그런 컨텍스트에 자격증명 응답을 공유하게
+> 됩니다. 의도한 경우에만 허용하세요.
 
 ### 출처별 / 라우트별 정책 (다중 인스턴스)
 
@@ -398,13 +408,13 @@ Bun.serve({
 </details>
 
 <details>
-<summary><b>미들웨어 패턴</b></summary>
+<summary><b>범용 미들웨어 패턴 (프레임워크 무관)</b></summary>
 
 ```typescript
 import { Cors, CorsAction } from '@zipbul/cors';
 import type { CorsOptions } from '@zipbul/cors';
 
-function corsMiddleware(options?: CorsOptions) {
+function withCors(options?: CorsOptions) {
   // 잘못된 옵션이면 CorsError를 throw
   const cors = Cors.create(options);
 
@@ -433,6 +443,22 @@ function corsMiddleware(options?: CorsOptions) {
     }
   };
 }
+```
+
+</details>
+
+<details>
+<summary><b>zipbul (<code>corsMiddleware</code>)</b></summary>
+
+zipbul 앱에서는 export된 `corsMiddleware`를 사용하세요 — `Cors` 엔진을 `MiddlewareDefinition`으로 감쌉니다. 옵션은 등록 시점(`Cors.create`)에 검증되어, 잘못된 설정은 부팅 시 `CorsError`를 throw합니다. 거부된 요청에는 응답을 보내지 않고 **조용히 반환**합니다(`Access-Control-*` 헤더 미부착 → 브라우저가 교차 출처 접근을 차단, STANDARDS §9.1.4). 직접 403을 만들지 않습니다.
+
+```typescript
+import { corsMiddleware } from '@zipbul/cors';
+import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+
+httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
+  corsMiddleware({ origin: 'https://app.example.com', credentials: true }),
+]);
 ```
 
 </details>

@@ -15,7 +15,7 @@ import {
   min,
   max,
 } from '@zipbul/baker/rules';
-import { HttpMethod } from '@zipbul/http-adapter';
+import { HttpMethod, HttpStatus } from '@zipbul/http-adapter';
 
 import type { OriginOptions, ResolvedCorsOptions } from './types';
 
@@ -87,7 +87,7 @@ export class CorsOptions {
   exposedHeaders?: string[] | null;
 
   /** Whether to send `Access-Control-Allow-Credentials: true`. */
-  @Field(isBoolean, { optional: true })
+  @Field(isBoolean, { optional: true, context: { reason: CorsErrorReason.InvalidCredentials } })
   credentials?: boolean;
 
   /**
@@ -105,39 +105,23 @@ export class CorsOptions {
   maxAge?: number | null;
 
   /** When `true`, preflight returns `Continue` instead of `RespondPreflight`. */
-  @Field(isBoolean, { optional: true })
+  @Field(isBoolean, { optional: true, context: { reason: CorsErrorReason.InvalidPreflightContinue } })
   preflightContinue?: boolean;
 
-  /** HTTP status for the preflight response. Must be a 2xx integer (200–299). */
+  /** HTTP status for the preflight response. Must be a real 2xx {@link HttpStatus}. */
   @Field(
     isInt,
+    isEnum(HttpStatus),
     min(200),
     max(299),
     { optional: true, context: { reason: CorsErrorReason.InvalidStatusCode } },
   )
-  optionsSuccessStatus?: number;
+  optionsSuccessStatus?: HttpStatus;
 
   /** When `true`, preflight requests carrying PNA header receive the allow-PNA echo. */
-  @Field(isBoolean, { optional: true })
+  @Field(isBoolean, { optional: true, context: { reason: CorsErrorReason.InvalidAllowPrivateNetwork } })
   allowPrivateNetwork?: boolean;
 }
-
-/**
- * Public input shape — partial. Users pass plain objects matching this type.
- * Resolved options (after defaults + validation) are the full
- * {@link ResolvedCorsOptions} shape held by the {@link Cors} instance.
- */
-export type CorsOptionsInput = Partial<{
-  origin: OriginOptions;
-  methods: Array<HttpMethod | '*'>;
-  allowedHeaders: string[] | null;
-  exposedHeaders: string[] | null;
-  credentials: boolean;
-  maxAge: number | null;
-  preflightContinue: boolean;
-  optionsSuccessStatus: number;
-  allowPrivateNetwork: boolean;
-}>;
 
 /**
  * Defaults merged with caller-provided options inside `Cors.create`. The

@@ -4,7 +4,7 @@ export { Cors } from './src/cors';
 export { corsMiddleware } from './src/middleware';
 export { CorsAction, CorsRejectionReason, CorsErrorReason } from './src/enums';
 export { CorsError } from './src/interfaces';
-export { CorsOptions, type CorsOptionsInput } from './src/options';
+export type { CorsOptions } from './src/options';
 export type {
   CorsContinueResult,
   CorsPreflightResult,

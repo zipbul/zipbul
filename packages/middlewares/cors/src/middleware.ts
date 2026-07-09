@@ -3,7 +3,7 @@ import type { MiddlewareDefinition } from '@zipbul/common';
 import { defineMiddleware } from '@zipbul/common';
 import { HttpAdapter, HttpContext, HttpHeader } from '@zipbul/http-adapter';
 
-import type { CorsOptionsInput } from './options';
+import type { CorsOptions } from './options';
 
 import { Cors } from './cors';
 import { CorsAction } from './enums';
@@ -32,7 +32,7 @@ import { CorsAction } from './enums';
  *
  * @throws {CorsError} when options fail validation.
  */
-export function corsMiddleware(opts?: CorsOptionsInput): MiddlewareDefinition {
+export function corsMiddleware(opts?: CorsOptions): MiddlewareDefinition {
   const cors = Cors.create(opts);
 
   return defineMiddleware([HttpAdapter], () => async ctx => {

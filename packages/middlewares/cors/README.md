@@ -107,6 +107,8 @@ interface CorsOptions {
 > When `credentials: true`, `origin: '*'` causes a **validation error**. Use `origin: true` to reflect the request origin.
 >
 > RegExp origins must be stateless — patterns with the `g` or `y` flag are rejected with `CorsErrorReason.InvalidOrigin` (a stateful `lastIndex` would make matching depend on call order).
+>
+> RegExp origins are **not** screened for catastrophic backtracking (ReDoS). Because a RegExp is matched against the request `Origin` synchronously, supply only anchored, linear-time patterns (e.g. `/^https:\/\/([a-z0-9-]+\.)?example\.com$/`) — or prefer a string/array/function origin when the pattern would be complex.
 
 ### `methods`
 
@@ -119,7 +121,7 @@ Cors.create({ methods: [HttpMethod.Get, HttpMethod.Post, HttpMethod.Delete] });
 Cors.create({ methods: [HttpMethod.Get, HttpMethod.Propfind] }); // WebDAV
 ```
 
-A wildcard `'*'` allows all methods. With `credentials: true`, the wildcard is replaced by echoing the request method.
+A wildcard `'*'` allows all methods (non-credentialed requests only). With `credentials: true`, `methods: ['*']` is **rejected at boot** (`CredentialsWithWildcardMethods`) — enumerate the allowed methods explicitly.
 
 ### `allowedHeaders`
 
@@ -169,6 +171,10 @@ When set to `true`, preflight requests are not handled automatically. Instead, `
 
 HTTP status code for the preflight response. Defaults to `204`. Set to `200` if legacy browser compatibility is needed.
 
+### `allowPrivateNetwork`
+
+When `true`, a preflight carrying `Access-Control-Request-Private-Network: true` receives `Access-Control-Allow-Private-Network: true` in response, permitting the private-network access. Defaults to `false`. Based on the WICG [Private Network Access](https://wicg.github.io/private-network-access/) draft (non-standard, not yet merged into the Fetch Standard).
+
 <br>
 
 ## 📤 Return Types
@@ -212,9 +218,9 @@ Returned when CORS validation fails. Use `reason` to build a detailed error resp
 |:------------------|:--------|
 | `CredentialsWithWildcardOrigin` | `credentials:true` with `origin:'*'` (Fetch Standard §3.3.5) |
 | `CredentialsWithWildcardMethods` | `credentials:true` with `methods:['*']` (a wildcard method is not credentialed per the Fetch Standard) |
-| `InvalidMaxAge` | `maxAge` is not a non-negative integer (RFC 9111 §1.2.1) |
+| `InvalidMaxAge` | `maxAge` is not a non-negative integer (RFC 9111 §1.2.2) |
 | `InvalidStatusCode` | `optionsSuccessStatus` is not a 2xx integer |
-| `InvalidOrigin` | `origin` is an empty/blank string, empty array, or array with empty/blank entries (RFC 6454) |
+| `InvalidOrigin` | `origin` is an empty/blank string, or an array with empty/blank entries (RFC 6454) |
 | `InvalidMethods` | `methods` is empty, or contains empty/blank entries (RFC 9110 §5.6.2) |
 | `InvalidAllowedHeaders` | `allowedHeaders` contains empty/blank entries (RFC 9110 §5.6.2) |
 | `InvalidExposedHeaders` | `exposedHeaders` contains empty/blank entries (RFC 9110 §5.6.2) |
@@ -271,7 +277,7 @@ When `credentials: true`, the library automatically handles the following:
 | Option | Behavior with wildcard |
 |:-------|:-----------------------|
 | `origin: '*'` | **Validation error** — use `origin: true` to reflect the request origin |
-| `methods: ['*']` | Echoes the request method |
+| `methods: ['*']` | **Validation error** — enumerate the allowed methods explicitly |
 | `allowedHeaders: ['*']` | Echoes the request headers |
 | `exposedHeaders: ['*']` | `Access-Control-Expose-Headers` is not set |
 
@@ -302,6 +308,10 @@ Cors.create({ origin: '*', credentials: true }); // CorsErrorReason.CredentialsW
 > Note: `origin: '*'` + `credentials` is *rejected at boot* because the browser blocks it (an inert,
 > broken config); `origin: true` + `credentials` is *allowed* because it actually works — which is
 > exactly why it is the dangerous one to leave unscoped.
+>
+> The same caution applies to **`origin: 'null'` + `credentials: true`**: it is spec-valid and permitted,
+> but `null` is the origin of sandboxed iframes, `data:`/`file:` documents, and other opaque origins — so
+> this shares credentialed responses with any such context. Only allow it when you specifically intend to.
 
 ### Per-origin / per-route policy (multiple instances)
 
@@ -398,13 +408,13 @@ Bun.serve({
 </details>
 
 <details>
-<summary><b>Middleware pattern</b></summary>
+<summary><b>Generic middleware pattern (any framework)</b></summary>
 
 ```typescript
 import { Cors, CorsAction } from '@zipbul/cors';
 import type { CorsOptions } from '@zipbul/cors';
 
-function corsMiddleware(options?: CorsOptions) {
+function withCors(options?: CorsOptions) {
   // throws CorsError on invalid options
   const cors = Cors.create(options);
 
@@ -433,6 +443,22 @@ function corsMiddleware(options?: CorsOptions) {
     }
   };
 }
+```
+
+</details>
+
+<details>
+<summary><b>zipbul (<code>corsMiddleware</code>)</b></summary>
+
+For a zipbul app, use the exported `corsMiddleware` — it wraps the `Cors` engine as a `MiddlewareDefinition`. Options are validated at registration (`Cors.create`), so a bad config throws `CorsError` at boot. On a rejected request it returns silently **without** sending a response (no `Access-Control-*` headers — the browser then blocks the cross-origin access, per STANDARDS §9.1.4); it does not produce a 403 itself.
+
+```typescript
+import { corsMiddleware } from '@zipbul/cors';
+import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+
+httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
+  corsMiddleware({ origin: 'https://app.example.com', credentials: true }),
+]);
 ```
 
 </details>

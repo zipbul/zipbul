@@ -3,7 +3,6 @@ import type { ResultAsync } from '@zipbul/result';
 import { isBakerIssueSet } from '@zipbul/baker';
 import { isErr, safe } from '@zipbul/result';
 import { HttpHeader, HttpMethod } from '@zipbul/http-adapter';
-import type { HttpStatus } from '@zipbul/http-adapter';
 
 import type { CorsErrorData, CorsRejectResult } from './interfaces';
 import type { CorsResult, OriginResult, ResolvedCorsOptions } from './types';
@@ -11,7 +10,7 @@ import type { CorsResult, OriginResult, ResolvedCorsOptions } from './types';
 import { CorsAction, CorsErrorReason, CorsRejectionReason } from './enums';
 import { CorsError } from './interfaces';
 import { corsBaker } from './baker';
-import { CORS_DEFAULTS, CorsOptions, type CorsOptionsInput } from './options';
+import { CORS_DEFAULTS, CorsOptions } from './options';
 
 /**
  * Lazy seal — `Cors.create` seals {@link corsBaker} once on first call.
@@ -52,13 +51,30 @@ export class Cors {
    * @throws {CorsError} when options fail validation (invalid origin, methods, maxAge, etc.)
    * @returns A ready-to-use Cors instance.
    */
-  public static create(options?: CorsOptionsInput): Cors {
+  public static create(options?: CorsOptions): Cors {
     ensureSealed();
     const merged: ResolvedCorsOptions = { ...CORS_DEFAULTS, ...(options ?? {}) };
 
+    // Defensive copy of the array options: the shallow spread above aliases the
+    // caller's arrays, so without this a post-registration `opts.methods.push(...)`
+    // would silently mutate the resolved policy.
+    merged.methods = [...merged.methods];
+    if (Array.isArray(merged.origin)) {
+      merged.origin = [...merged.origin];
+    }
+    if (merged.allowedHeaders !== null) {
+      merged.allowedHeaders = [...merged.allowedHeaders];
+    }
+    if (merged.exposedHeaders !== null) {
+      merged.exposedHeaders = [...merged.exposedHeaders];
+    }
+
     const result = corsBaker.validateSync(CorsOptions, merged);
     if (isBakerIssueSet(result)) {
-      const issue = result.errors[0]!;
+      const [issue] = result.errors;
+      if (issue === undefined) {
+        throw new Error('internal: baker reported an invalid options set with no errors');
+      }
       const ctx = issue.context as { reason?: CorsErrorReason } | undefined;
       if (ctx?.reason === undefined) {
         throw new Error(`internal: baker @Field for "${issue.path}" missing context.reason`);
@@ -192,9 +208,13 @@ export class Cors {
         headers.append(HttpHeader.Vary, HttpHeader.AccessControlRequestHeaders);
       }
     } else {
+      // Reflect mode: the preflight response varies on Access-Control-Request-Headers
+      // whether or not this particular request carried one, so declare it
+      // unconditionally to keep intermediary caches correct.
+      headers.append(HttpHeader.Vary, HttpHeader.AccessControlRequestHeaders);
+
       if (requestHeadersRaw !== null && requestHeadersRaw.length > 0) {
         headers.set(HttpHeader.AccessControlAllowHeaders, requestHeadersRaw);
-        headers.append(HttpHeader.Vary, HttpHeader.AccessControlRequestHeaders);
       }
     }
 
@@ -210,7 +230,7 @@ export class Cors {
       return { action: CorsAction.Continue, headers };
     }
 
-    return { action: CorsAction.RespondPreflight, headers, statusCode: this.options.optionsSuccessStatus as HttpStatus };
+    return { action: CorsAction.RespondPreflight, headers, statusCode: this.options.optionsSuccessStatus };
   }
 
   /** @internal */
@@ -276,9 +296,27 @@ export class Cors {
       return origin;
     }
     if (typeof result === 'string') {
-      return result;
+      // An origin function returning a blank string, or one bearing control
+      // characters (CR/LF/NUL → header injection / a raw Headers.set TypeError),
+      // is not a valid Access-Control-Allow-Origin value — treat as not-allowed
+      // rather than emitting a malformed header (RFC 6454 §6.2).
+      return this.isEmittableOrigin(result) ? result : undefined;
     }
     return undefined;
+  }
+
+  /** @internal */
+  private isEmittableOrigin(value: string): boolean {
+    if (value.trim().length === 0) {
+      return false;
+    }
+    for (let i = 0; i < value.length; i++) {
+      const code = value.charCodeAt(i);
+      if (code < 0x20 || code === 0x7f) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** @internal Emit Access-Control-Expose-Headers for an actual (non-preflight) response. */
@@ -296,10 +334,16 @@ export class Cors {
 
   /** @internal */
   private serializeExposeHeaders(exposedHeaders: string[]): string | undefined {
-    // Set-Cookie is a forbidden response-header name — never exposable to script
-    // via Access-Control-Expose-Headers (the UA blocks it regardless). Drop it so
+    // Set-Cookie and Set-Cookie2 are forbidden response-header names (Fetch
+    // #forbidden-response-header-name) — never exposable to script via
+    // Access-Control-Expose-Headers (the UA blocks them regardless). Drop both so
     // the middleware never emits an inert, misleading entry (STANDARDS §4.1.4).
-    const exposable = exposedHeaders.filter(header => header.trim().toLowerCase() !== HttpHeader.SetCookie);
+    // Set-Cookie2 (RFC 2965, obsolete) has no HttpHeader enum member but remains
+    // in Fetch's forbidden list, so it is matched by its lowercased literal name.
+    const exposable = exposedHeaders.filter(header => {
+      const name = header.trim().toLowerCase();
+      return name !== HttpHeader.SetCookie && name !== 'set-cookie2';
+    });
 
     if (this.options.credentials && this.includesWildcard(exposable)) {
       const explicit = exposable.filter(header => header.trim() !== '*');
@@ -316,7 +360,19 @@ export class Cors {
       return true;
     }
 
+    // CORS-safelisted methods (GET/HEAD/POST) are allowed through even when the
+    // configured list omits them — the browser lets them cross regardless, so
+    // rejecting their preflight would be inconsistent with the UA (STANDARDS §3.3.1).
+    if (this.isCorsSafelistedMethod(requestMethod)) {
+      return true;
+    }
+
     return allowedMethods.includes(requestMethod);
+  }
+
+  /** @internal A CORS-safelisted method (Fetch #cors-safelisted-method), byte-case-sensitive. */
+  private isCorsSafelistedMethod(method: string): boolean {
+    return method === HttpMethod.Get || method === HttpMethod.Head || method === HttpMethod.Post;
   }
 
   /** @internal */
