@@ -1,42 +1,16 @@
-import type { QueryParserErrorReason } from './enums';
-
-/**
- * Error data payload carried by the `Result` pattern — the `E` type of the
- * public {@link QueryParser.parseResult} return. Consumers read `.reason`
- * (a {@link QueryParserErrorReason}) and `.message`.
- *
- * @public
- */
-export interface QueryParserErrorData {
-  reason: QueryParserErrorReason;
-  message: string;
-}
-
-/**
- * Thrown by {@link QueryParser.create} on invalid options, or by
- * {@link QueryParser.parse} when strict mode detects malformed input.
- *
- * Inspect {@link reason} to programmatically distinguish error kinds.
- */
-export class QueryParserError extends Error {
-  public readonly reason: QueryParserErrorReason;
-
-  constructor(data: QueryParserErrorData) {
-    super(data.message);
-    this.name = 'QueryParserError';
-    this.reason = data.reason;
-  }
-}
-
 export interface QueryParserOptions {
   /**
-   * Maximum depth of nested objects to parse.
+   * Maximum depth of nested objects to parse. Beyond this depth, nesting stops
+   * and the value is kept as a leaf at the deepest permitted level — it is never
+   * dropped, and no empty placeholder object is left behind. This is a resource
+   * limit, not a strict error.
    * @default 5
    */
   depth?: number;
 
   /**
-   * Maximum number of parameters to parse.
+   * Maximum number of key-value pairs to parse. Pairs beyond this limit are
+   * silently dropped; empty `&` separators emit no pair and do not count.
    * @default 1000
    */
   maxParams?: number;
@@ -74,10 +48,18 @@ export interface QueryParserOptions {
 
   /**
    * Whether to enable strict mode.
-   * If enabled:
-   * - Throws QueryParserError on malformed query strings (unbalanced brackets, etc.).
-   * - Throws on mixed scalar and nested keys (e.g. `a=1&a[b]=2`).
-   * - Throws on mixed array and object indices if not handled by conversion.
+   *
+   * When enabled, {@link QueryParser.parse} throws (and
+   * {@link QueryParser.parseResult} returns an `Err`) on:
+   * - Malformed query strings — unbalanced/nested brackets, invalid percent
+   *   escapes (`MalformedQueryString`).
+   * - Structure conflicts — a key used as both a scalar and a nested structure,
+   *   e.g. `a=1&a[b]=2`, or a non-numeric key applied to an array
+   *   (`ConflictingStructure`).
+   *
+   * Resource limits (`depth`, `maxParams`, `arrayLimit`) are NOT strict errors:
+   * they truncate silently in both modes.
+   *
    * @default false
    */
   strict?: boolean;

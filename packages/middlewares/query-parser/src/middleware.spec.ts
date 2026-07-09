@@ -16,7 +16,7 @@ import { HttpAdapter } from '@zipbul/http-adapter';
 import { mockContext, withAugments } from '@zipbul/http-adapter/testing';
 import { describe, expect, it } from 'bun:test';
 
-import { QueryParserError } from './interfaces';
+import { QueryParserError } from './errors';
 import { queryParser } from './middleware';
 
 /** Runs the middleware's raw supply against `path` and reads back the raw slot. */
