@@ -55,18 +55,22 @@ export enum CorsErrorReason {
    * and `'null'`), a stateless `RegExp`, a mixed `Array<string | RegExp>`,
    * or a function — anything else fires this reason.
    *
-   * **BREAKING (baker 3.3.0 migration)**: `RegExp` matchers carrying the
-   * `g` (global) or `y` (sticky) flag are now rejected at boot — they
-   * mutate `lastIndex` between `test()` calls, so the previous workaround
-   * silently rewrote the caller's instance on every request. Drop the
-   * flag from your matcher; the stateless variants (`i`, `m`, `s`, `u`,
-   * `d`) all pass.
+   * A `RegExp` carrying the `g` (global) or `y` (sticky) flag is rejected at
+   * boot: those flags mutate `lastIndex` between `test()` calls, so a shared
+   * matcher would return alternating results across requests. Use a stateless
+   * matcher — the `i`, `m`, `s`, `u`, `d` flags all pass.
    */
   InvalidOrigin = 'invalid-origin',
-  /** methods is an empty array or contains empty/blank string entries (RFC 9110 §5.6.2 token). */
+  /** methods is an empty array or contains an entry that is not a known {@link HttpMethod} or the wildcard `'*'`. */
   InvalidMethods = 'invalid-methods',
   /** allowedHeaders contains an entry that is not a valid HTTP token — empty/blank or non-tchar chars (RFC 9110 §5.6.2: 1*tchar). */
   InvalidAllowedHeaders = 'invalid-allowed-headers',
   /** exposedHeaders contains an entry that is not a valid HTTP token — empty/blank or non-tchar chars (RFC 9110 §5.6.2: 1*tchar). */
   InvalidExposedHeaders = 'invalid-exposed-headers',
+  /** credentials is not a boolean. */
+  InvalidCredentials = 'invalid-credentials',
+  /** preflightContinue is not a boolean. */
+  InvalidPreflightContinue = 'invalid-preflight-continue',
+  /** allowPrivateNetwork is not a boolean. */
+  InvalidAllowPrivateNetwork = 'invalid-allow-private-network',
 }

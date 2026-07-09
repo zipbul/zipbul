@@ -1,6 +1,7 @@
 import type { HttpMethod } from '@zipbul/http-adapter';
 
 import type { CorsContinueResult, CorsPreflightResult, CorsRejectResult } from './interfaces';
+import type { CorsOptions } from './options';
 
 /**
  * Return value of an origin function.
@@ -29,17 +30,12 @@ export type OriginOptions = boolean | string | RegExp | Array<string | RegExp> |
 export type CorsResult = CorsContinueResult | CorsPreflightResult | CorsRejectResult;
 
 /**
- * Fully resolved CORS options with all defaults applied.
- * `null` indicates "use default behavior" (e.g., echo mode for headers).
+ * Fully resolved CORS options with all defaults applied. Derived from the
+ * canonical {@link CorsOptions} schema (single source of truth) — every field
+ * required, `methods` frozen to a `ReadonlyArray`. `null` indicates "use default
+ * behavior" (e.g., echo mode for headers). Adding a `@Field` to the schema
+ * automatically requires it here, so the two cannot silently drift.
  */
-export type ResolvedCorsOptions = {
-  origin: OriginOptions;
+export type ResolvedCorsOptions = Required<Omit<CorsOptions, 'methods'>> & {
   methods: ReadonlyArray<HttpMethod | '*'>;
-  allowedHeaders: string[] | null;
-  exposedHeaders: string[] | null;
-  credentials: boolean;
-  maxAge: number | null;
-  preflightContinue: boolean;
-  optionsSuccessStatus: number;
-  allowPrivateNetwork: boolean;
 };

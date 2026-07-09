@@ -1,17 +1,20 @@
 import { HttpMethod } from '@zipbul/http-adapter';
 import { describe, expect, it } from 'bun:test';
 
-import type { CorsOptionsInput } from './options';
+import type { CorsOptions } from './options';
 
 import { Cors } from './cors';
 import { CORS_DEFAULT_METHODS } from './constants';
 import { CorsErrorReason } from './enums';
 import { CorsError } from './interfaces';
 
-function expectInvalid(input: CorsOptionsInput, reason: CorsErrorReason) {
+// Invalid inputs are, by definition, not a valid CorsOptions — accept an
+// arbitrary shape so out-of-domain values (e.g. a non-HttpStatus number) can be
+// fed to the runtime validator under test.
+function expectInvalid(input: Record<string, unknown>, reason: CorsErrorReason) {
   let caught: unknown;
   try {
-    Cors.create(input);
+    Cors.create(input as CorsOptions);
   } catch (e) {
     caught = e;
   }
@@ -19,7 +22,7 @@ function expectInvalid(input: CorsOptionsInput, reason: CorsErrorReason) {
   expect((caught as CorsError).reason).toBe(reason);
 }
 
-function expectValid(input: CorsOptionsInput) {
+function expectValid(input: CorsOptions) {
   expect(() => Cors.create(input)).not.toThrow();
 }
 
@@ -121,9 +124,11 @@ describe('CorsOptions schema — maxAge (RFC 9111 §1.2.2 delta-seconds)', () =>
 });
 
 describe('CorsOptions schema — optionsSuccessStatus', () => {
-  it('passes at lower boundary 200', () => expectValid({ optionsSuccessStatus: 200 }));
-  it('passes at upper boundary 299', () => expectValid({ optionsSuccessStatus: 299 }));
+  it('passes at lower boundary 200 (HttpStatus.Ok)', () => expectValid({ optionsSuccessStatus: 200 }));
+  it('passes at the highest real 2xx (226 ImUsed)', () => expectValid({ optionsSuccessStatus: 226 }));
 
+  it('rejects a non-existent 2xx code (250)', () => expectInvalid({ optionsSuccessStatus: 250 }, CorsErrorReason.InvalidStatusCode));
+  it('rejects the bare upper bound 299 (not a real status)', () => expectInvalid({ optionsSuccessStatus: 299 }, CorsErrorReason.InvalidStatusCode));
   it('rejects below 200', () => expectInvalid({ optionsSuccessStatus: 100 }, CorsErrorReason.InvalidStatusCode));
   it('rejects above 299', () => expectInvalid({ optionsSuccessStatus: 599 }, CorsErrorReason.InvalidStatusCode));
   it('rejects non-integer', () => expectInvalid({ optionsSuccessStatus: 200.5 }, CorsErrorReason.InvalidStatusCode));
@@ -137,3 +142,21 @@ describe('CorsOptions cross-field — credentials + wildcard', () => {
     expectInvalid({ origin: 'https://a.com', methods: ['*'], credentials: true }, CorsErrorReason.CredentialsWithWildcardMethods));
 });
 
+
+describe('barrel — public export surface', () => {
+  // #5 — the @Recipe schema class must not leak as a runtime value; the public
+  // `CorsOptions` export is a type alias for the input shape, not the class.
+  it('#5 does not leak CorsOptions as a runtime value', async () => {
+    const pkg = await import('../index');
+    expect(Object.keys(pkg)).not.toContain('CorsOptions');
+  });
+});
+
+describe('CorsOptions schema — boolean fields (H1: must throw CorsError, not plain Error)', () => {
+  it('rejects non-boolean credentials with CorsError(InvalidCredentials)', () =>
+    expectInvalid({ credentials: 'yes' }, CorsErrorReason.InvalidCredentials));
+  it('rejects non-boolean preflightContinue with CorsError(InvalidPreflightContinue)', () =>
+    expectInvalid({ preflightContinue: 1 }, CorsErrorReason.InvalidPreflightContinue));
+  it('rejects non-boolean allowPrivateNetwork with CorsError(InvalidAllowPrivateNetwork)', () =>
+    expectInvalid({ allowPrivateNetwork: 'true' }, CorsErrorReason.InvalidAllowPrivateNetwork));
+});
