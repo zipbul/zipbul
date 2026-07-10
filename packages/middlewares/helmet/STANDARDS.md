@@ -5,14 +5,14 @@
 이 문서는 **규칙만** 담는다. 구현 분담은 `CLAUDE.md`, 런타임 동작은 테스트의 소관이다. 이 문서는 구현 코드가 아니라 **1차 출처(RFC·W3C·WHATWG 원문)만**을 근거로 한다. 1차 출처가 존재하지 않는 헤더는 §14에서 **"표준 문서 없음"을 명시**한다.
 
 **검증 방법과 그 한계** — 이 문서의 정확성 주장은 다음까지만 미친다:
-- 본문의 영어 verbatim 인용 **전건(62건)**을 대조했다. 58건은 1차 출처 원문에 기계적으로 문자열 일치를 확인했고, 나머지 4건(WICG 상태 보일러플레이트 2건·Chromium 설계문서 1건·OWASP 1건)은 발행본에서 개별 확인했다. 이 과정에서 생략부호 없이 잘린 인용 4건과 대소문자를 바꾼 인용 1건을 원문 형태로 복원했다.
-- 인용이 **정말 그 앵커 절 안에 있는지**까지 기계 대조했다(37건). 앵커는 실재하지만 인용문은 다른 절에 있던 3건(§13.3.4·§13.3.11·§13.3.13)을 교정했다.
-- 규칙이 다는 **출처 앵커 전건(192건)**이 발행본 스펙 문서에 실제 `id`로 존재하는지 대조했다. TR 스타일 앵커가 편집자 초안에 없던 다수를 교정했다.
-- **MUST·MUST NOT 전건(73건)**의 정당성을 재감사했다. RFC 출처는 BCP14 키워드의 실재를 개별 확인했고, 키워드도 구조적 실패도 없는 규칙은 강등했다 — SF 중복 키(§2.4.3·§9.3.5), CSP 중복 디렉티브(§4.1.7), `Referrer-Policy` 소문자(§8.1.6), `Cache-Control` 따옴표, `includeSubDomains` 값, NEL 삭제 멤버(§11.3.7), `X-XSS-Protection`(§14.1.3), Document-Policy `report-to` 타입(§13.3.6)이 그 사례다.
-- 규칙이 언급하는 기술 식별자(헤더명·디렉티브·토큰)가 인용 출처에 실재하는지 대조했다. 그 결과 NEL의 두 멤버가 편집자 초안에서 삭제되었음(§11.3.7), NEL의 `endpoint group` 참조가 현행 Reporting-1에서 정의를 잃어 **끊긴 참조**임(§11.3.4), DIP 편집자 초안이 report-only 헤더명을 오타로 조회함(§10.6.5), Reporting-1의 `destination`은 URL이 아니라 **엔드포인트 이름**인데 HTML·DIP 산문은 이를 "valid URL string"이라 부름(§11.1.6–§11.1.7)을 발견했다.
-- 문서 내부 정합성도 기계 검사했다 — 규칙 번호 연속성, 교차참조 dangling, 그리고 §13.3.7이 §2.4.1(Dictionary Boolean true는 값 생략)과 충돌하던 것을 교정했다.
+- 본문의 영어 verbatim 인용 **전건(75건)**을 대조했다. 71건은 1차 출처 원문에 기계적으로 문자열 일치를 확인했고, 나머지 4건(WICG 상태 보일러플레이트 2건·Chromium 설계문서 1건·OWASP 1건)은 발행본에서 개별 확인했다. 이 과정에서 생략부호 없이 잘린 인용 4건과 대소문자를 바꾼 인용 1건을 원문 형태로 복원했다.
+- 인용이 **정말 그 앵커 절 안에 있는지**까지 기계 대조했다(42건). 앵커는 실재하지만 인용문은 다른 절에 있던 3건(§13.3.4·§13.3.11·§13.3.13)을 교정했다.
+- 규칙이 다는 **출처 앵커 전건(198건)**이 발행본 스펙 문서에 실제 `id`로 존재하는지 대조했다. TR 스타일 앵커가 편집자 초안에 없던 다수를 교정했다.
+- **MUST·MUST NOT 전건(68건)**의 정당성을 재감사했다. RFC 출처는 BCP14 키워드의 실재를 개별 확인했고, 키워드도 구조적 실패도 없는 규칙은 강등했다 — 앞뒤 공백(§1.1.5), SF 중복 키(§2.4.3·§9.3.5), CSP 중복 디렉티브(§4.1.7), `'none'` 혼용(§4.2.2), `Referrer-Policy` 소문자(§8.1.6), Permissions-Policy의 `'self'` 표기·`src`·`report-to` 타입(§9.2.3·§9.2.5·§9.2.6), 엔드포인트 이름(§11.1.6), NEL 삭제 멤버(§11.3.7), Document-Policy `report-to` 타입(§13.3.6), `X-XSS-Protection`(§14.1.3), 그리고 `Cache-Control` 따옴표와 `includeSubDomains` 값이 그 사례다. 판정 기준은 규범 수준 규약의 **(ㄷ) 실패 귀결 판정** 하나로 통일했다.
+- 규칙이 언급하는 기술 식별자(헤더명·디렉티브·토큰)가 인용 출처에 실재하는지 대조했다. 그 결과 NEL의 두 멤버가 편집자 초안에서 삭제되었음(§11.3.7), NEL의 `endpoint group` 참조가 현행 Reporting-1에서 정의를 잃어 **끊긴 참조**임(§11.3.4), DIP 편집자 초안이 report-only 헤더명을 오타로 조회함(§10.6.5), Document Policy가 `Require-Document-Policy`를 정의해놓고 알고리즘에서는 `Required-Document-Policy`를 조회함(§13.4.3), Reporting-1의 `destination`은 URL이 아니라 **엔드포인트 이름**인데 HTML·DIP 산문은 이를 "valid URL string"이라 부름(§11.1.6–§11.1.7)을 발견했다.
+- 문서 내부 정합성도 기계 검사했다 — 규칙 번호 연속성, 교차참조 dangling, 그리고 §13.3.7이 §2.4.1(Dictionary Boolean true는 값 생략)과 충돌하던 것을 §13.3.8로 분리해 교정했다.
 - helmet의 공개 옵션 표면을 역방향으로 대조해 **누락된 헤더**(`Require-Document-Policy`·`Document-Policy-Report-Only`)와 누락된 규칙(COOP/COEP/DIP Report-Only, Document-Policy 값 타입·범위, DIP `report-to`)을 찾아 보강했다.
-- **한계:** 규범 키워드가 없는 서술형 규칙(무표기)의 개별 문장은 위 식별자 대조 수준까지만 검증되었고, 문장 단위 의미 대조는 전수로 수행되지 않았다. 이 문서는 서로 다른 두 엔진(codex·grok)의 적대적 교차 검토를 **세 라운드** 거쳤고, 두 엔진의 지적은 채택 전에 1차 출처로 재검증했다 — 실제로 각 엔진이 틀린 적이 있다(codex의 RFC 9651 §3.1.2 오독, grok이 인용한 존재하지 않는 `network_reporting_endpoints`). 그 과정에서 발견된 정본 오지정(`X-Frame-Options`를 RFC 7034로 인용)·사실 반전(XFO 중복의 fail-open↔fail-closed)·앵커 부재·정책의 MUST 둔갑은 모두 수정되었다.
+- **한계:** 규범 키워드가 없는 서술형 규칙(무표기)의 개별 문장은 위 식별자 대조 수준까지만 검증되었고, 문장 단위 의미 대조는 전수로 수행되지 않았다. 이 문서는 서로 다른 두 엔진(codex·grok)의 적대적 교차 검토를 **네 라운드** 거쳤고, 두 엔진의 지적은 채택 전에 1차 출처로 재검증했다 — 실제로 각 엔진이 여러 번 틀렸다 — codex의 RFC 9651 §3.1.2 오독, grok이 인용한 존재하지 않는 `network_reporting_endpoints`, 그리고 4라운드에서 두 엔진이 함께 준 존재하지 않는 CSP3 앵커와 *"processing algorithm"*(원문은 *"processing steps"*)이라는 잘못된 인용이 그것이다. 그 과정에서 발견된 정본 오지정(`X-Frame-Options`를 RFC 7034로 인용)·사실 반전(XFO 중복의 fail-open↔fail-closed)·앵커 부재·정책의 MUST 둔갑은 모두 수정되었다.
 
 ## 적용 범위 · 주체 선언
 
@@ -24,9 +24,9 @@
 
 인용 정본이 두 부류라 수준 판정도 **혼합**한다. 각 규칙은 어느 부류인지 출처로 식별된다.
 
-**(가) BCP14 원문 부류** — RFC 6797·9110·9111·9112·9651. 규범 키워드가 원문에 실재하므로 **원문 수준을 그대로** 쓰고, 원 수신 주체(sender·recipient·cache·UA)를 규칙 문장에 밝힌다. 수신 주체가 서버가 아닌 규칙은 서버의 파생 의무로 수용하며 그 사실을 적는다.
+**(가) BCP14 원문 부류** — RFC 6797·9110·9111·9112·9651. 규범 키워드가 원문에 실재하므로 **원문 수준을 그대로** 쓰고, 원 수신 주체(sender·recipient·cache·UA)를 규칙 문장에 밝힌다. 수신 주체가 서버가 아닌 규칙은 서버의 파생 의무로 수용하며 그 사실을 적는다. 원문에 **송신자 대상 키워드가 없는** 경우에는 키워드를 지어내지 않고 **(ㄷ) 실패 귀결 판정**을 쓴다: 잘못된 출력이 수신 파서를 실패시켜 헤더가 통째로 무시되거나 보호가 소멸하면 MUST·MUST NOT이고, 파싱은 성공하는데 **값만 조용히 소실**되거나 수신자가 알아서 복구하면 SHOULD·SHOULD NOT을 넘지 않는다. 각 규칙은 둘 중 어느 쪽인지 문장에서 드러낸다.
 
-**(가)의 예외 — RFC 9651 직렬화 알고리즘.** RFC 9651 §1.2는 *"For serialization to HTTP fields, the algorithms define the **recommended** way to produce them. Implementations **MAY vary** from the specified behavior so long as the output is still correctly handled by the parsing algorithm described in Section 4.2."*라고 명시한다. 따라서 §4.1의 명령형 단계(*"fail serialization"*·*"do not serialize the field at all"*)는 그 자체로 MUST 강도가 **아니다.** 이 문서가 SF 방출에 MUST를 붙일 때 그 근거는 (ㄱ) §3의 **데이터 모델 산문에 실재하는 BCP14 키워드**(예: §3.1.2·§3.2의 *"MUST omit that value when serialized"*)이거나, (ㄴ) 잘못된 출력이 §4.2의 파서 MUST(*"the entire field value MUST be ignored"*)에 걸려 **헤더 전체가 소멸하는 기능적 실패**다. 각 규칙은 둘 중 어느 근거인지 문장에서 드러낸다. 반대로 (ㄷ) 잘못된 출력이 **파싱을 실패시키지 않고 값만 조용히 소실**시키는 경우는 §1.2의 면제 조건(*"so long as the output is still correctly handled by the parsing algorithm"*)을 만족하므로 어떤 MUST도 도출되지 않으며, 이 문서는 **SHOULD NOT을 넘지 않는다** — SF 중복 키(§2.4.3·§9.3.5)가 그 예다.
+**(가)의 예외 — RFC 9651 직렬화 알고리즘.** RFC 9651 §1.2는 *"For serialization to HTTP fields, the algorithms define the **recommended** way to produce them. Implementations **MAY vary** from the specified behavior so long as the output is still correctly handled by the parsing algorithm described in Section 4.2."*라고 명시한다. 따라서 §4.1의 명령형 단계(*"fail serialization"*·*"do not serialize the field at all"*)는 그 자체로 MUST 강도가 **아니다.** 이 문서가 SF 방출에 MUST를 붙일 때 그 근거는 (ㄱ) §3의 **데이터 모델 산문에 실재하는 BCP14 키워드**(예: §3.1.2·§3.2의 *"MUST omit that value when serialized"*)이거나, (ㄴ) 잘못된 출력이 §4.2의 파서 MUST(*"the entire field value MUST be ignored"*)에 걸려 **헤더 전체가 소멸하는 기능적 실패**다. 각 규칙은 둘 중 어느 근거인지 문장에서 드러낸다. 반대로 잘못된 출력이 **파싱을 실패시키지 않고 값만 조용히 소실**시키는 경우는 §1.2의 면제 조건(*"so long as the output is still correctly handled by the parsing algorithm"*)을 만족하므로 어떤 MUST도 도출되지 않는다 — 이는 위 (ㄷ) 판정과 같은 결론이며, SF 중복 키(§2.4.3·§9.3.5)가 그 예다.
 
 **(나) UA 알고리즘 부류** — WHATWG HTML·Fetch·MIME Sniffing, W3C CSP3·Permissions-Policy·Referrer-Policy·Reporting·NEL·Clear-Site-Data·SRI·Secure Contexts, WICG DIP·Document-Policy. 규범 수준을 **위반 시의 기능적 결과**로 정의한다:
 
@@ -69,14 +69,14 @@
 - **§1.1.2** [무표기] field-value 문법은 `field-value = *field-content`, `field-content = field-vchar [ 1*( SP / HTAB / field-vchar ) field-vchar ]`, `field-vchar = VCHAR / obs-text`이며, 이 문법은 CR(%x0D)·LF(%x0A)·NUL(%x00)을 포함한 모든 CTL을 구조적으로 배제한다 [RFC 9110 §5.5]
 - **§1.1.3** [MUST NOT] 사용자·설정에서 유래해 헤더 값에 삽입되는 모든 문자열(CSP nonce·report URL·origin·디렉티브 값 등)에 CR·LF·NUL을 생성하지 않는다 — 원문은 이를 *"invalid and dangerous"*로 규정하고 **수신자에게** 메시지 거부 또는 SP 치환을 MUST로 명하므로, 방출자가 이를 생성하면 메시지가 거부되거나 헤더가 분할된다 [RFC 9110 §5.5]
 - **§1.1.4** [무표기] quoted-string으로 감싸는 것은 §1.1.3의 방어가 되지 못한다 — `qdtext`가 CR·LF·NUL을 이미 배제하므로 인용 부호는 이들 문자를 무해화하지 않는다 [RFC 9110 §5.6.4]
-- **§1.1.5** [MUST NOT] field-value 앞뒤에 선행·후행 공백(SP·HTAB)을 생성하지 않는다 — 원문에 sender 대상 금지 키워드는 없으나 §1.1.2의 문법이 `field-vchar`로 시작·종료하므로 문법 파생 의무이며, **수신 파서는** 그 공백을 평가 전에 MUST로 제거한다 [RFC 9110 §5.5]
-- **§1.1.6** [MUST NOT] sender는 BWS(bad whitespace)를 생성하지 않는다 [RFC 9110 §5.6.3]
+- **§1.1.5** [SHOULD NOT] field-value 앞뒤에 선행·후행 공백(SP·HTAB)을 생성하지 않는다 — 금지 규범은 **없다**. 원문은 오히려 *"A field line value might be preceded and/or followed by optional whitespace (OWS); a single SP preceding the field line value is preferred for consistent readability by humans"*라 하고, *"The field line value does not include that leading or trailing whitespace"*라고 못박는다. 따라서 그 공백은 값에 실리지 않고 조용히 사라질 뿐이므로 (ㄷ)에 따라 SHOULD NOT을 넘지 않으며, 값이 공백으로 의미를 나르지 않게 하는 것이 이 규칙의 목적이다 [RFC 9112 §5]
+- **§1.1.6** [MUST NOT] sender는 BWS(bad whitespace)를 생성하지 않는다 — 원문이 *"A sender MUST NOT generate BWS in messages"*로 규정한다 [RFC 9110 §5.6.3]
 - **§1.1.7** [SHOULD] 선택적 공백(OWS)을 생성할 때는 단일 SP로 생성한다 [RFC 9110 §5.6.3]
 - **§1.1.8** [MUST NOT] sender는 obs-fold(`OWS CRLF RWS`, 폐기된 줄 접기)를 포함하는 메시지를 생성하지 않는다(`message/http` 매체 타입 포장 목적 제외) — 이 금지는 RFC 9110이 아니라 HTTP/1.1 메시지 문법에 있다 [RFC 9112 §5.2]
 - **§1.1.9** [SHOULD] 방출 옥텟을 가시 US-ASCII(VCHAR)·SP·HTAB로 제한하고, 더 넓은 문자 범위가 필요하면 RFC 8187 인코딩을 쓴다 — 수신자는 obs-text(%x80-FF)를 opaque data로 취급할 것이 SHOULD이므로 비-ASCII는 의도대로 해석되지 않는다 [RFC 9110 §5.5]
 
 - **§1.2.1** [무표기] 같은 field-name이 한 섹션에 반복되면 수신자는 각 field line value를 순서대로 comma로 이어 붙여 하나의 field value로 결합한다 [RFC 9110 §5.2]
-- **§1.2.2** [MUST NOT] sender는 같은 이름의 field line을 복수 생성하지 않는다 — 단, 그 필드 정의가 comma로 구분된 리스트(`#(values)`)로의 재결합을 허용하는 경우만 예외다 [RFC 9110 §5.3]
+- **§1.2.2** [MUST NOT] sender는 같은 이름의 field line을 복수 생성하지 않는다 — 원문이 *"a sender MUST NOT generate multiple field lines with the same name in a message"*로 규정하며, 그 필드 정의가 comma로 구분된 리스트(`#(values)`)로의 재결합을 허용하는 경우만 예외다 [RFC 9110 §5.3]
 - **§1.2.3** [MUST NOT] 리스트형이 아닌 보안 헤더(`X-Frame-Options`·`Strict-Transport-Security`·`X-Content-Type-Options`·`Cross-Origin-Opener-Policy`·`Cross-Origin-Embedder-Policy`·`Cross-Origin-Resource-Policy`·`Origin-Agent-Cluster`)를 두 번 이상 방출하지 않는다 — §1.2.1의 결합으로 값이 comma 리스트가 되며 각 헤더의 파서가 이를 처리하는 방식은 서로 다르다(HSTS는 첫 헤더만 처리 §5.3.3, COEP·CORP는 보호가 소멸 §10.2.3·§10.3.3, nosniff는 첫 값만 검사 §7.1.2, XFO는 오히려 차단 §6.1.5) [RFC 9110 §5.2·§5.3]
 - **§1.2.4** [무표기] `Content-Security-Policy`는 §1.2.2의 예외다 — 복수 field line은 comma 결합 후 **복수의 독립 정책**으로 파싱되며, 각 정책은 독립 강제되어 교집합으로만 좁혀진다(§4.1.4) [CSP3 #parse-response-csp·RFC 9110 §5.3]
 
@@ -134,7 +134,7 @@
 ### 4.2 소스 표현식 문법
 
 - **§4.2.1** [무표기] `serialized-source-list = ( source-expression *( required-ascii-whitespace source-expression ) ) / "'none'"`이므로 **`'none'`은 소스 목록 전체를 대체하는 배타적 대안**이며 목록의 한 원소가 아니다 [CSP3 #grammardef-serialized-source-list]
-- **§4.2.2** [MUST NOT] `'none'`을 다른 소스 표현식과 함께 한 디렉티브 값에 생성하지 않는다 — §4.2.1의 문법상 무효 조합이다 [CSP3 #grammardef-serialized-source-list]
+- **§4.2.2** [SHOULD NOT] `'none'`을 다른 소스 표현식과 함께 한 디렉티브 값에 생성하지 않는다 — §4.2.1의 ABNF는 `'none'`을 배타적 대안으로 두므로 조합은 **문법상 무효**이나, 파서는 이를 거부하지 않고 원문 주석이 *"The 'none' keyword has no effect when other source expressions are present"*, *"A list consisting of « 'none', https://example.com », on the other hand, would match https://example.com/"*라고 밝힌다. 헤더도 디렉티브도 살아 있고 `'none'`만 조용히 무효가 되므로 (ㄷ)에 따라 SHOULD NOT이다 [CSP3 #grammardef-serialized-source-list·#match-url-to-source-list]
 - **§4.2.3** [무표기] CSP3의 keyword-source 전체 집합은 `'self'`·`'unsafe-inline'`·`'unsafe-eval'`·`'strict-dynamic'`·`'unsafe-hashes'`·`'report-sample'`·`'unsafe-allow-redirects'`·`'wasm-unsafe-eval'`·`'trusted-types-eval'`·`'report-sha256'`·`'report-sha384'`·`'report-sha512'`·`'unsafe-webtransport-hashes'`다 [CSP3 #grammardef-keyword-source]
 - **§4.2.4** [무표기] `'inline-speculation-rules'`는 CSP3에 존재하지 않는다 — 브라우저 확장이며 이 문서의 정본 근거가 없다 [CSP3 #grammardef-keyword-source]
 - **§4.2.5** [무표기] `nonce-source = "'nonce-" base64-value "'"`, `hash-source = "'" hash-algorithm "-" base64-value "'"`, `hash-algorithm = "sha256" / "sha384" / "sha512"`다 [CSP3 #grammardef-nonce-source·#grammardef-hash-source]
@@ -193,8 +193,8 @@
 - **§5.1.5** [무표기] 디렉티브 이름은 case-insensitive하다 [RFC 6797 §6.1]
 - **§5.1.6** [MAY] `max-age` 값을 quoted-string으로 생성할 수 있다 — 문법상 유효하다 [RFC 6797 §6.2]
 
-- **§5.2.1** [MUST NOT] 비보안 전송으로 전달되는 HTTP 응답에 STS 헤더 필드를 포함하지 않는다 [RFC 6797 §7.2]
-- **§5.2.2** [MUST] STS 헤더 필드를 포함한다면 **오직 하나만** 포함한다 [RFC 6797 §7.1]
+- **§5.2.1** [MUST NOT] 비보안 전송으로 전달되는 HTTP 응답에 STS 헤더 필드를 포함하지 않는다 — 원문이 *"An HSTS Host MUST NOT include the STS header field in HTTP responses conveyed over non-secure transport"*로 규정한다 [RFC 6797 §7.2]
+- **§5.2.2** [MUST] STS 헤더 필드를 포함한다면 **오직 하나만** 포함한다 — 원문이 *"the HSTS Host MUST include only one such header field"*로 규정한다 [RFC 6797 §7.1]
 - **§5.2.3** [MUST] 한 STS 헤더 필드 안에서 각 디렉티브는 **한 번만** 나타나도록 생성한다 — 위반 시 UA가 헤더 **전체를 무시**한다(§5.3.2). 이는 STS 헤더를 두 개 보낸 경우(UA가 첫 번째만 처리, §5.3.3)와 결과가 다르다 [RFC 6797 §6.1]
 - **§5.2.4** [무표기] 비보안 전송으로 받은 응답의 STS 헤더는 UA가 MUST로 무시한다 [RFC 6797 §8.1]
 
@@ -251,10 +251,10 @@
 
 - **§9.2.1** [MUST] Member Value는 `*` token, `self` token, ASCII permissions-source-expression을 담은 String, 또는 이들 0개 이상을 담은 Inner List 중 하나로 생성한다 [Permissions Policy #structured-header-serialization]
 - **§9.2.2** [MUST] origin은 **따옴표 붙은 sf-string**으로, `self`와 `*`는 **따옴표 없는 sf-token**으로 생성한다 — 예: `geolocation=(self "https://a.example")` [Permissions Policy #structured-header-serialization]
-- **§9.2.3** [MUST NOT] CSP식 따옴표 표기 `'self'`나 따옴표 없는 origin을 생성하지 않는다 — 전자는 아포스트로피를 포함한 리터럴 문자열이라 어떤 origin과도 매치되지 않고, 후자는 §2.3.5에 따라 유효 token으로 파싱되어 파싱 실패 없이 조용히 탈락한다 [Permissions Policy #structured-header-serialization·RFC 9651 §3.3.4]
+- **§9.2.3** [SHOULD NOT] CSP식 따옴표 표기 `'self'`나 따옴표 없는 origin을 생성하지 않는다 — 전자는 아포스트로피를 포함한 리터럴 문자열이라 어떤 origin과도 매치되지 않고, 후자는 유효한 SF Token이지만 construct-policy가 인식하지 않는다. 원문이 *"Any other items inside of an Inner List will be ignored by the processing steps"*라 헤더는 파싱되고 그 항목만 조용히 사라지므로 (ㄷ)에 따라 SHOULD NOT이다 [Permissions Policy #structured-header-serialization·#algo-construct-policy]
 - **§9.2.4** [무표기] 빈 Inner List `()`는 그 feature를 **모든 origin에서 비활성화**하며, 이는 멤버를 **생략**해 feature의 기본 allowlist로 남기는 것과 정반대의 결과다 [Permissions Policy #structured-header-serialization]
-- **§9.2.5** [MUST] `report-to` 파라미터를 붙인다면 그 값은 String으로 생성한다 — 그 외 파라미터는 무시된다 [Permissions Policy #structured-header-serialization]
-- **§9.2.6** [MUST NOT] `src`를 헤더에 생성하지 않는다 — `'src'`는 iframe `allow` 속성 문법 전용이며 헤더의 construct-policy 알고리즘은 `*`와 `self`와 origin 표현식만 인식한다 [Permissions Policy #ascii-serialization·#algo-construct-policy]
+- **§9.2.5** [SHOULD] `report-to` 파라미터를 붙인다면 그 값은 String으로 생성한다 — 원문이 *"Member Values may have a Parameter named \"report-to\", whose value must be a String. Any other parameters will be ignored"*라 하고, UA는 *"If params[\"report-to\"] exists, and is a string"*일 때에만 채택한다. String이 아니면 리포팅만 사라지고 allowlist는 그대로 적용되므로 §13.3.6과 같은 이유로 SHOULD다 [Permissions Policy #structured-header-serialization·#algo-construct-policy]
+- **§9.2.6** [SHOULD NOT] `src`를 헤더에 생성하지 않는다 — `'src'`는 iframe `allow` 속성 문법 전용이며 헤더의 construct-policy 알고리즘은 `*`와 `self`와 origin 표현식만 인식한다. 인식되지 않는 항목은 *"will be ignored by the processing steps"*라 헤더가 버려지지 않으므로 (ㄷ)에 따라 SHOULD NOT이다 [Permissions Policy #structured-header-serialization·#algo-construct-policy]
 - **§9.2.7** [MUST NOT] 폐기된 `Feature-Policy` 헤더의 값 문법(세미콜론 구분·따옴표 붙은 키워드)을 `Permissions-Policy`에 재사용하지 않는다 — 두 헤더의 문법은 무관하다 [Permissions Policy #ascii-serialization]
 
 - **§9.3.1** [무표기] SF 파싱이 실패하면 UA는 헤더 전체를 무시하고 빈 정책을 반환하므로, **단 하나의 문법 오류가 그 헤더의 모든 feature 제한을 소멸시킨다** [Permissions Policy #algo-process-response-policy·RFC 9651 §4.2]
@@ -268,15 +268,16 @@
 
 ### 10.1 Cross-Origin-Opener-Policy
 
-- **§10.1.1** [무표기] COOP·COOP-Report-Only는 structured header이며 값은 token이어야 하고, token에는 `report-to` 파라미터(유효 URL 문자열)를 붙일 수 있다 [HTML #the-coop-headers]
+- **§10.1.1** [무표기] COOP·COOP-Report-Only는 structured header이며 값은 token이어야 하고, token에는 `report-to` 파라미터를 붙일 수 있다 — 산문은 이 파라미터를 *"a valid URL string identifying an appropriate reporting endpoint"*라 서술하나, 실제로 채택되는 값은 §11.1.7이 밝히는 대로 엔드포인트 **이름**이다 [HTML #the-coop-headers·#obtain-coop]
 - **§10.1.2** [MUST] 값은 `unsafe-none`·`same-origin`·`same-origin-allow-popups`·`noopener-allow-popups` 중 하나를 **따옴표 없는 sf-token**으로 생성한다 — UA는 유효하지 않은 값이나 token으로 파싱되지 않는 값을 담은 헤더를 무시한다 [HTML #the-coop-headers·#cross-origin-opener-policy-value]
 - **§10.1.3** [MUST NOT] `same-origin-plus-COEP`를 직접 생성하지 않는다 — 원문이 *"cannot be directly set via the Cross-Origin-Opener-Policy header"*로 명시하며, 이 값은 `COOP: same-origin`과 호환 COEP의 조합으로 파생된다 [HTML #cross-origin-opener-policy-value]
 - **§10.1.4** [무표기] 비보안 컨텍스트에서는 UA가 COOP 획득 알고리즘 2단계에서 조기 반환하므로 헤더가 완전히 무시된다 [HTML #obtain-coop]
 - **§10.1.5** [MUST NOT] COOP 헤더를 두 번 이상 방출하지 않는다 — §1.2.1의 결합으로 값이 sf-list가 되어 token으로 파싱되지 않고, §10.1.2에 따라 UA가 헤더를 무시해 기본값 `unsafe-none`으로 되돌아간다 [HTML #the-coop-headers·RFC 9110 §5.3]
 - **§10.1.6** [무표기] `Cross-Origin-Opener-Policy-Report-Only`는 COOP와 같은 structured header·token 문법을 쓰나, 그 값은 opener policy struct의 **report-only value**에 들어가 리포팅에만 관여하며 강제되는 policy value를 바꾸지 않는다 [HTML #the-coop-headers]
 - **§10.1.7** [SHOULD NOT] `Cross-Origin-Opener-Policy-Report-Only`에 `noopener-allow-popups`를 생성하지 않는다 — COOP 획득 알고리즘의 report-only 분기는 `same-origin`과 `same-origin-allow-popups`만 처리하고 `noopener-allow-popups` 분기를 **두지 않으므로**, 파싱은 성공하나 report-only value가 설정되지 않아 아무 리포트도 발생하지 않는다 [HTML #obtain-coop]
-- **§10.1.8** [MUST NOT] `Cross-Origin-Opener-Policy-Report-Only` 헤더를 두 번 이상 방출하지 않는다 — §10.1.5와 동일하게 결합된 값이 `"item"`으로 파싱되지 않아 UA가 헤더를 무시하고 report-only value가 기본값으로 남는다 [HTML #obtain-coop·RFC 9110 §5.3]
-- **§10.1.9** [무표기] report-only COOP의 `same-origin`은 강제 COEP뿐 아니라 **report-only COEP**도 교차 출처 격리 호환으로 인정해 `same-origin-plus-COEP`를 부여한다 — 원문 주석이 *"This allows developers more freedom in the order of deployment of COOP and COEP"*로 그 의도를 밝힌다 [HTML #obtain-coop]
+- **§10.1.8** [SHOULD] COOP·COEP의 `report-to` 파라미터를 붙인다면 그 값을 SF **String**으로 생성한다 — UA는 *"If parsedItem[1][\"report-to\"] exists and it is a string"*일 때에만 리포팅 엔드포인트로 채택하므로, String이 아니면 리포팅만 사라지고 격리 정책은 그대로 적용된다 [HTML #obtain-coop]
+- **§10.1.9** [MUST NOT] `Cross-Origin-Opener-Policy-Report-Only` 헤더를 두 번 이상 방출하지 않는다 — §10.1.5와 동일하게 결합된 값이 `"item"`으로 파싱되지 않아 UA가 헤더를 무시하고 report-only value가 기본값으로 남는다 [HTML #obtain-coop·RFC 9110 §5.3]
+- **§10.1.10** [무표기] report-only COOP의 `same-origin`은 강제 COEP뿐 아니라 **report-only COEP**도 교차 출처 격리 호환으로 인정해 `same-origin-plus-COEP`를 부여한다 — 원문 주석이 *"This allows developers more freedom in the order of deployment of COOP and COEP"*로 그 의도를 밝힌다 [HTML #obtain-coop]
 
 ### 10.2 Cross-Origin-Embedder-Policy
 
@@ -328,7 +329,7 @@
 - **§11.1.3** [MUST] 엔드포인트 URL은 potentially trustworthy여야 한다 — 원문이 *"the URL that the member's value represents MUST be potentially trustworthy [SECURE-CONTEXTS]. Non-secure endpoints will be ignored"*로 규정한다 [Reporting-1 #header]
 - **§11.1.4** [MUST] 엔드포인트 **이름**은 §2.2의 `key` 문법(소문자 시작, `[a-z0-9_.\-*]`)을 만족하도록 생성한다 [RFC 9651 §4.1.1.3]
 - **§11.1.5** [무표기] 엔드포인트 URL은 응답 URL을 base로 파싱되므로 상대 참조도 허용된다 [Reporting-1 #process-header]
-- **§11.1.6** [MUST] 다른 헤더의 `report-to` 파라미터에는 URL이 아니라 §11.1의 Dictionary **키(엔드포인트 이름)**를 생성한다 — Reporting-1이 *"Each report has a destination, which is a string representing the name of the endpoint that the report will be sent to"*로 규정하고, UA는 그 이름을 `Reporting-Endpoints`의 키와 대조한다 [Reporting-1 #concept-reports]
+- **§11.1.6** [SHOULD] 다른 헤더의 `report-to` 파라미터에는 URL이 아니라 §11.1의 Dictionary **키(엔드포인트 이름)**를 생성한다 — Reporting-1이 *"Each report has a destination, which is a string representing the name of the endpoint that the report will be sent to"*로 규정하기 때문이다. 이름이 어긋나면 리포트만 배달되지 않고 헤더의 보안 효력은 그대로이므로 MUST가 아니다 [Reporting-1 #concept-reports]
 - **§11.1.7** [무표기] 그럼에도 WHATWG HTML(COOP·COEP)과 WICG DIP의 산문은 `report-to` 파라미터를 *"a valid URL string identifying an appropriate reporting endpoint"*라고 서술한다 — 알고리즘은 그 값을 `generate and queue a report`의 destination(=이름)으로 그대로 넘기므로, **산문과 알고리즘이 어긋난다**. 이 문서는 알고리즘을 따른다(§11.1.6) [HTML #the-coep-headers·WICG DIP #dip-headers·Reporting-1 #concept-reports]
 
 ### 11.2 Report-To (폐기 — 현행 스펙 부재)
@@ -397,7 +398,7 @@
 
 - **§13.2.1** [무표기] `Integrity-Policy`·`Integrity-Policy-Report-Only`는 W3C SRI 문서에 정의되어 있으나 그 문서 자체가 **Working Draft**이므로 미확정이다 [SRI Status·#integrity-policy-section]
 - **§13.2.2** [MUST] 값은 RFC 9651 **Dictionary**로 생성하며 모든 member-value는 **token의 Inner List**여야 한다 — 원문이 *"a Dictionary [RFC9651], with every member-value being an inner list of tokens"*로 규정한다 [SRI #integrity-policy-section]
-- **§13.2.3** [MUST NOT] Inner List 항목을 따옴표 붙은 String으로 생성하지 않는다 — token이어야 하므로 `blocked-destinations=(script)`이지 `blocked-destinations=("script")`가 아니다 [SRI #integrity-policy-section·RFC 9651 §3.3.4]
+- **§13.2.3** [MUST NOT] Inner List 항목을 따옴표 붙은 String으로 생성하지 않는다 — `blocked-destinations=(script)`이지 `blocked-destinations=("script")`가 아니다. String을 쓰면 SF 파싱은 **성공하지만** UA 알고리즘의 *"If its value contains \"script\""* 대조가 타입 불일치로 어긋나 어떤 destination도 차단되지 않는다 — 오류 없이 보호가 통째로 소멸하므로 (나)에 따라 MUST NOT이다 [SRI #processing-an-integrity-policy·RFC 9651 §3.3.4]
 - **§13.2.4** [무표기] `blocked-destinations`의 가능한 값은 `script`와 `style`뿐이고, `sources`의 유일한 가능값은 `inline`이다 [SRI #integrity-policy-section]
 - **§13.2.5** [MUST] member key(`blocked-destinations`·`sources`·`endpoints`)는 §2.2의 `key` 문법을 만족하도록 소문자로 생성한다 [RFC 9651 §4.1.1.3]
 
@@ -408,20 +409,22 @@
 - **§13.3.3** [무표기] 어떤 디렉티브에도 `report-to` 파라미터를 붙여 위반 리포트 엔드포인트를 지정할 수 있다 [WICG Document Policy §6.1.1]
 - **§13.3.4** [무표기] report-only 정책은 `Document-Policy-Report-Only` 헤더로 지정하며, 위반 시 강제 정책과 동일하게 리포트를 생성하되 *"they do not cause any other action to be taken by the user agent"*이므로 차단하지 않는다 [WICG Document Policy #report-only]
 - **§13.3.5** [MUST] `Document-Policy-Report-Only` 값을 Structured Header **dictionary**로, `Document-Policy`와 동일한 문법으로 생성한다 — 원문이 *"The Document-Policy-Report-Only header is a Structured Header. Its value must be a dictionary. It has exactly the same syntax as the `Document-Policy` header"*로 규정하므로 §13.3.2가 그대로 적용된다 [WICG Document Policy #document-policy-report-only-header]
-- **§13.3.6** [SHOULD] `report-to` 파라미터를 붙인다면 그 값을 **String**으로 생성한다 — 원문이 *"Any document policy directive may include a parameter named `report-to`, whose value must be a string"*라 하고 UA는 *"If parameters[\"report-to\"] exists, and is a string"*일 때에만 엔드포인트로 채택하나, String이 아니면 그 파라미터가 **건너뛰어질 뿐 파싱은 실패하지 않는다** — 리포팅만 사라지고 정책은 살아남으므로 §13.3.7–§13.3.9의 MUST와 달리 SHOULD다 [WICG Document Policy #document-policy-directive-parameters·#parse-document-policy]
-- **§13.3.7** [MUST] `boolean` 타입 설정점의 값을 SF **Boolean**으로 생성한다 — UA 알고리즘이 *"If value is not a Boolean, then fail"*로 파싱을 중단한다. 단 §2.4.1에 따라 true는 값을 **생략**해 `feature`로만 쓰고(`feature=?1` 금지) false만 `feature=?0`로 쓴다 [WICG Document Policy #parse-document-policy·RFC 9651 §3.2]
-- **§13.3.8** [MUST] `enum` 타입 설정점의 값을 그 설정점이 허용하는 **Token** 중 하나로 생성한다 — *"If value is not a Token, then fail"*이고 *"If value is not the name of one of configuration points allowed enum values, then fail"*이다 [WICG Document Policy #parse-document-policy]
-- **§13.3.9** [MUST] `integer` 타입 설정점의 값을 SF **Integer**로, `float` 타입 설정점의 값을 SF **Decimal**로 생성하며 각각 그 설정점의 **range 안**에 있게 한다 — 타입 불일치와 범위 이탈 모두 *"then fail"*이다 [WICG Document Policy #parse-document-policy]
-- **§13.3.10** [무표기] 파싱 알고리즘은 *"returns a document policy … or else fails"*로 두 결말을 구분한다 — 헤더가 없으면 `return null`이고, 디렉티브 하나라도 값 타입·범위를 어기면 `then fail`이어서 그 헤더에서 **어떤 정책도 생성되지 않는다**. 즉 오류 하나가 그 문서의 document policy 전부를 잃게 만든다 [WICG Document Policy #parse-document-policy]
-- **§13.3.11** [무표기] 특수 엔드포인트 이름 `none`은 그 feature의 리포팅을 **끈다** — 원문이 *"This will override the default endpoint and disable reporting for that feature"*로 설명한다 [WICG Document Policy #reporting-disable]
-- **§13.3.12** [SHOULD] `none`을 지정할 때 `report-to="none"`처럼 **String**으로 생성한다 — 초안의 예시는 따옴표 없는 `report-to=none`(SF Token)을 쓰지만, `#parse-document-policy`는 *"exists, and is a string"*일 때만 엔드포인트를 채택하므로 Token 형태는 알고리즘상 무시된다. 초안 내부의 모순이며 §13.3.6과 정합하는 String 형태를 택한다 [WICG Document Policy #reporting-disable·#parse-document-policy]
-- **§13.3.13** [SHOULD] `Document-Policy-Report-Only`의 디렉티브에는 `report-to` 파라미터를 붙인다 — 원문이 *"The `report-to` directive parameter should be used with directives in this header, or else they will have no effect at all"*로 경고한다 [WICG Document Policy #report-only]
+- **§13.3.6** [SHOULD] `report-to` 파라미터를 붙인다면 그 값을 **String**으로 생성한다 — 원문이 *"Any document policy directive may include a parameter named `report-to`, whose value must be a string"*라 하고 UA는 *"If parameters[\"report-to\"] exists, and is a string"*일 때에만 엔드포인트로 채택하나, String이 아니면 그 파라미터가 **건너뛰어질 뿐 파싱은 실패하지 않는다** — 리포팅만 사라지고 정책은 살아남으므로 §13.3.7·§13.3.9·§13.3.10의 MUST와 달리 SHOULD다 [WICG Document Policy #document-policy-directive-parameters·#parse-document-policy]
+- **§13.3.7** [MUST] `boolean` 타입 설정점의 값을 SF **Boolean**으로 생성한다 — UA 알고리즘이 *"If value is not a Boolean, then fail"*로 파싱을 중단하기 때문이다 [WICG Document Policy #parse-document-policy]
+- **§13.3.8** [MUST] `boolean` 설정점이 true이면 값을 **생략**해 `feature`로만 생성하고 `feature=?1`을 쓰지 않는다 — 근거는 Document Policy가 아니라 §2.4.1이 인용한 RFC 9651 §3.2의 *"MUST omit that value when serialized"*뿐이다. `?1`도 Boolean이라 `then fail`에 걸리지 않고 원문이 *"parsers are still required to correctly handle the true Boolean value when it appears in Dictionary values"*라 하므로, 이 금지는 파싱 실패가 아니라 직렬화 의무다 [RFC 9651 §3.2]
+- **§13.3.9** [MUST] `enum` 타입 설정점의 값을 그 설정점이 허용하는 **Token** 중 하나로 생성한다 — *"If value is not a Token, then fail"*이고 *"If value is not the name of one of configuration points allowed enum values, then fail"*이다 [WICG Document Policy #parse-document-policy]
+- **§13.3.10** [MUST] `integer` 타입 설정점의 값을 SF **Integer**로, `float` 타입 설정점의 값을 SF **Decimal**로 생성하며 각각 그 설정점의 **range 안**에 있게 한다 — 타입 불일치와 범위 이탈 모두 *"then fail"*이다 [WICG Document Policy #parse-document-policy]
+- **§13.3.11** [무표기] 파싱 알고리즘은 *"returns a document policy … or else fails"*로 두 결말을 구분한다 — 헤더가 없으면 `return null`이고, 디렉티브 하나라도 값 타입·범위를 어기면 `then fail`이어서 그 헤더에서 **어떤 정책도 생성되지 않는다**. 즉 오류 하나가 그 문서의 document policy 전부를 잃게 만든다 [WICG Document Policy #parse-document-policy]
+- **§13.3.12** [무표기] 특수 엔드포인트 이름 `none`은 그 feature의 리포팅을 **끈다** — 원문이 *"This will override the default endpoint and disable reporting for that feature"*로 설명한다 [WICG Document Policy #reporting-disable]
+- **§13.3.13** [SHOULD] `none`을 지정할 때 `report-to="none"`처럼 **String**으로 생성한다 — 초안의 예시는 따옴표 없는 `report-to=none`(SF Token)을 쓰지만, `#parse-document-policy`는 *"exists, and is a string"*일 때만 엔드포인트를 채택하므로 Token 형태는 알고리즘상 무시된다. 초안 내부의 모순이며 §13.3.6과 정합하는 String 형태를 택한다 [WICG Document Policy #reporting-disable·#parse-document-policy]
+- **§13.3.14** [SHOULD] `Document-Policy-Report-Only`의 디렉티브에는 `report-to` 파라미터를 붙인다 — 원문이 *"The `report-to` directive parameter should be used with directives in this header, or else they will have no effect at all"*로 경고한다 [WICG Document Policy #report-only]
 
 ### 13.4 Require-Document-Policy (비표준)
 
 - **§13.4.1** [무표기] `Require-Document-Policy`는 WICG Document Policy가 정의하는 **응답 헤더**로, 중첩된 모든 콘텐츠에 적용될 **최소 요구 document policy**를 클라이언트에 전달한다 — §13.3.1의 비표준 단서가 동일하게 적용된다 [WICG Document Policy #require-document-policy-header]
-- **§13.4.2** [MUST] `Require-Document-Policy` 값은 `Document-Policy`와 **정확히 같은 문법**의 Structured Header dictionary로 생성한다 — 원문이 *"is a Structured Header dictionary, with exactly the same syntax as the `Document-Policy` header"*로 규정하므로 §2의 SF 규칙과 §13.3.2·§13.3.6–§13.3.9의 값 타입·범위 규칙이 그대로 적용된다 [WICG Document Policy #require-document-policy-header]
-- **§13.4.3** [무표기] 이 헤더는 중첩 콘텐츠(iframe 등)에 부과되는 요구사항이므로 자신의 문서에 적용되는 §13.3의 `Document-Policy`와 역할이 다르다 [WICG Document Policy #require-document-policy-header]
+- **§13.4.2** [MUST] `Require-Document-Policy` 값은 `Document-Policy`와 **정확히 같은 문법**의 Structured Header dictionary로 생성한다 — 원문이 *"is a Structured Header dictionary, with exactly the same syntax as the `Document-Policy` header"*로 규정하므로 §2의 SF 규칙과 §13.3.2·§13.3.6–§13.3.10의 값 타입·범위 규칙이 그대로 적용된다 [WICG Document Policy #require-document-policy-header]
+- **§13.4.3** [무표기] 스펙은 이 헤더를 `Require-Document-Policy`로 정의하나, Fetch 통합 알고리즘은 *"get a structured field value with header name Required-Document-Policy and type \"dictionary\""*로 **정의된 적 없는 이름**을 조회한다 — §10.6.5의 DIP 오타와 같은 부류이며, 방출자는 정의된 이름을 따른다 [WICG Document Policy #integration-with-fetch]
+- **§13.4.4** [무표기] 이 헤더는 중첩 콘텐츠(iframe 등)에 부과되는 요구사항이므로 자신의 문서에 적용되는 §13.3의 `Document-Policy`와 역할이 다르다 [WICG Document Policy #require-document-policy-header]
 
 ## 14. 비표준 · 레거시 · 노출 헤더
 
