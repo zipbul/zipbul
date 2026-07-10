@@ -6,17 +6,21 @@
 
 **검증 방법과 그 한계** — 이 문서의 정확성 주장은 다음까지만 미친다:
 - 본문의 영어 verbatim 인용 **전건(84건)**을 대조했다. 80건은 1차 출처 원문에 기계적으로 문자열 일치를 확인했고, 나머지 4건(WICG 상태 보일러플레이트 2건·Chromium 설계문서 1건·OWASP 1건)은 발행본에서 개별 확인했다. 이 과정에서 생략부호 없이 잘린 인용 4건과 대소문자를 바꾼 인용 1건을 원문 형태로 복원했다.
-- 인용이 **정말 그 앵커 절 안에 있는지**까지 기계 대조했다(47건). 앵커는 실재하지만 인용문은 다른 절에 있던 3건(§13.3.4·§13.3.11·§13.3.13)을 교정했다.
+- 인용이 **정말 그 앵커 절 안에 있는지**까지 기계 대조했다(47건). 앵커는 실재하지만 인용문은 다른 절에 있던 3건(§13.3.4·§13.3.12·§13.3.14)을 교정했다.
 - 규칙이 다는 **출처 앵커 전건(206건)**이 발행본 스펙 문서에 실제 `id`로 존재하는지 대조했다. TR 스타일 앵커가 편집자 초안에 없던 다수를 교정했다.
-- **MUST·MUST NOT 전건(70건)**의 정당성을 재감사했다. RFC 출처는 BCP14 키워드의 실재를 개별 확인했고, 키워드도 구조적 실패도 없는 규칙은 강등했다 — 앞뒤 공백(§1.1.5), SF 중복 키(§2.4.3·§9.3.5), CSP 중복 디렉티브(§4.1.7), `'none'` 혼용(§4.2.2), `Referrer-Policy` 소문자(§8.1.6), Permissions-Policy의 `src`와 `report-to` 타입(§9.2.5·§9.2.6), 엔드포인트 이름(§11.1.6), NEL 삭제 멤버(§11.3.7), Document-Policy `report-to` 타입(§13.3.6), `X-XSS-Protection`(§14.1.3), 그리고 `Cache-Control` 따옴표와 `includeSubDomains` 값이 그 사례다. 판정 기준은 규범 수준 규약의 **(ㄷ) 실패 귀결 판정** 하나로 통일했다 — 의도한 리소스·기능이 차단되는 것도 경성 실패로 본다(§9.2.3·§13.1.2). 같은 판정으로 강등을 **되돌린** 경우도 있다 — §9.2.3은 잘못된 `'self'` 표기가 allowlist를 비워 그 기능을 차단하므로 MUST NOT을 유지한다(항목만 무시되고 나머지가 남는 §9.2.6과 결말이 다르다).
-- 규칙이 언급하는 기술 식별자(헤더명·디렉티브·토큰)가 인용 출처에 실재하는지 대조했다. 그 결과 NEL의 두 멤버가 편집자 초안에서 삭제되었음(§11.3.7), NEL의 `endpoint group` 참조가 현행 Reporting-1에서 정의를 잃어 **끊긴 참조**임(§11.3.4), DIP 편집자 초안이 report-only 헤더명을 오타로 조회함(§10.6.5), Document Policy가 `Require-Document-Policy`를 정의해놓고 알고리즘에서는 `Required-Document-Policy`를 조회함(§13.4.3), Reporting-1의 `destination`은 URL이 아니라 **엔드포인트 이름**인데 HTML·DIP 산문은 이를 "valid URL string"이라 부름(§11.1.6–§11.1.7)을 발견했다.
-- 문서 내부 정합성도 기계 검사했다 — 규칙 번호 연속성, 교차참조 dangling, 그리고 §13.3.7이 §2.4.1(Dictionary Boolean true는 값 생략)과 충돌하던 것을 §13.3.8로 분리해 교정했다.
+- **MUST·MUST NOT 전건(70건)**의 정당성을 재감사했다. RFC 출처는 BCP14 키워드의 실재를 개별 확인했고, 키워드도 구조적 실패도 없는 규칙은 강등했다 — 앞뒤 공백(§1.1.5), SF 중복 키(§2.4.3·§9.3.5), CSP 중복 디렉티브(§4.1.7), `'none'` 혼용(§4.2.2), `Referrer-Policy` 소문자(§8.1.6), Permissions-Policy의 `src`와 `report-to` 타입(§9.2.5·§9.2.6), 엔드포인트 이름(§11.1.6), NEL 삭제 멤버(§11.3.9), Document-Policy `report-to` 타입(§13.3.6), `X-XSS-Protection`(§14.1.3), 그리고 `Cache-Control` 따옴표와 `includeSubDomains` 값이 그 사례다. 판정 기준은 규범 수준 규약의 **(ㄷ) 실패 귀결 판정** 하나로 통일했다 — 의도한 리소스·기능이 차단되는 것도 경성 실패로 본다(§9.2.3·§13.1.2). 같은 판정으로 강등을 **되돌린** 경우도 있다 — §9.2.3은 잘못된 `'self'` 표기가 allowlist를 비워 그 기능을 차단하므로 MUST NOT을 유지한다(항목만 무시되고 나머지가 남는 §9.2.6과 결말이 다르다).
+- 규칙이 언급하는 기술 식별자(헤더명·디렉티브·토큰)가 인용 출처에 실재하는지 대조했다. 그 결과 NEL의 두 멤버가 편집자 초안에서 삭제되었음(§11.3.9), NEL의 `endpoint group` 참조가 현행 Reporting-1에서 정의를 잃어 **끊긴 참조**임(§11.3.5), DIP 편집자 초안이 report-only 헤더명을 오타로 조회함(§10.6.5), Document Policy가 `Require-Document-Policy`를 정의해놓고 알고리즘에서는 `Required-Document-Policy`를 조회함(§13.4.3), Reporting-1의 `destination`은 URL이 아니라 **엔드포인트 이름**인데 HTML·DIP 산문은 이를 "valid URL string"이라 부름(§11.1.6–§11.1.7)을 발견했다.
+- 문서 내부 정합성도 기계 검사했다 — 규칙 번호 연속성, 교차참조 dangling, 그리고 boolean 설정점 규칙이 §2.4.1(Dictionary Boolean true는 값 생략)과 충돌하던 것을 §13.3.7(타입)과 §13.3.8(`?1` 금지)로 분리해 교정했다.
 - helmet의 공개 옵션 표면을 역방향으로 대조해 **누락된 헤더**(`Require-Document-Policy`·`Document-Policy-Report-Only`)와 누락된 규칙(COOP/COEP/DIP Report-Only, Document-Policy 값 타입·범위, DIP `report-to`)을 찾아 보강했다.
 - **한계:** 규범 키워드가 없는 서술형 규칙(무표기)의 개별 문장은 위 식별자 대조 수준까지만 검증되었고, 문장 단위 의미 대조는 전수로 수행되지 않았다. 이 문서는 서로 다른 두 엔진(codex·grok)의 적대적 교차 검토를 **다섯 라운드** 거쳤고, 두 엔진의 지적은 채택 전에 1차 출처로 재검증했다 — 실제로 각 엔진이 여러 번 틀렸다 — codex의 RFC 9651 §3.1.2 오독, grok이 인용한 존재하지 않는 `network_reporting_endpoints`, 그리고 4라운드에서 두 엔진이 함께 준 존재하지 않는 CSP3 앵커와 *"processing algorithm"*(원문은 *"processing steps"*)이라는 잘못된 인용이 그것이다. 그 과정에서 발견된 정본 오지정(`X-Frame-Options`를 RFC 7034로 인용)·사실 반전(XFO 중복의 fail-open↔fail-closed)·앵커 부재·정책의 MUST 둔갑은 모두 수정되었다.
 
 ## 적용 범위 · 주체 선언
 
 이 미들웨어는 **origin server 측 응답 보안 헤더 생성자**다 — 요청을 판정하지 않고, 브라우저(user agent)가 보안 정책을 적용하도록 응답 헤더를 생성한다. 추가로 **CSP 위반 리포트의 서버측 수신자(ingestor)** 역할을 겸한다(§11.4).
+
+**규칙 선별 기준 — 무엇이 이 문서에 들어오고 무엇이 빠지는가.** 포함 대상은 **helmet이 방출하거나 제거하는 헤더**뿐이다. 헤더가 표준인지 폐기됐는지는 포함 여부를 정하지 않는다 — 방출한다면 규칙이 있어야 하고, 규칙이 없는 방출은 통제되지 않는 방출이기 때문이다. 그래서 이 문서는 폐기된 것까지 담는다: `X-Frame-Options`(§6, WHATWG HTML이 정본), 레거시 `Report-To`(§11.2, NEL이 아직 요구하므로 helmet이 `Reporting-Endpoints`에서 합성한다), `Feature-Policy` 문법 재사용 금지(§9.2.7), `Pragma`·`Expires`(§12), 그리고 표준 문서가 아예 없는 §14의 벤더 헤더들이다. 각 레거시 헤더는 **정본의 지위**(폐기·대체·표준 없음)와 **방출 여부 규칙**을 함께 단다.
+
+반대로 **helmet이 방출하지 않는 헤더는 다루지 않는다** — `Expect-CT`·`Public-Key-Pins`가 그렇다. 둘 다 브라우저에서 제거되어 helmet의 옵션 표면에 없으므로, 이 문서의 부재는 **누락이 아니라 범위 밖**이다. 반대로 `X-Robots-Tag`(§14.5)나 `Timing-Allow-Origin`(§14.6)처럼 엄밀히는 보안 통제가 아닌 헤더도 helmet이 방출하므로 규칙을 둔다. §16은 이 기준의 바깥 경계를, §17은 규칙이 아닌 정책을 따로 선언한다.
 
 이 미들웨어는 **user agent가 아니다.** 인용 정본의 절대다수(WHATWG HTML·Fetch, W3C CSP·Permissions-Policy·Reporting·Referrer-Policy)는 **행위 규범을 UA 알고리즘으로만 규정**하며, 서버를 직접 구속하는 부분은 대개 **헤더 문법**뿐이다. 따라서 이 문서의 서버 규칙 상당수는 그 UA 알고리즘에서 **파생**된 의무다.
 
@@ -26,7 +30,7 @@
 
 **(가) BCP14 원문 부류** — RFC 6797·9110·9111·9112·9651. 규범 키워드가 원문에 실재하므로 **원문 수준을 그대로** 쓰고, 원 수신 주체(sender·recipient·cache·UA)를 규칙 문장에 밝힌다. 수신 주체가 서버가 아닌 규칙은 서버의 파생 의무로 수용하며 그 사실을 적는다. 원문에 **송신자 대상 키워드가 없는** 경우에는 키워드를 지어내지 않고 **(ㄷ) 실패 귀결 판정**을 쓴다: 잘못된 출력이 수신 파서를 실패시켜 헤더가 통째로 무시되거나 보호가 소멸하면 MUST·MUST NOT이고, 파싱은 성공하는데 **값만 조용히 소실**되거나 수신자가 알아서 복구하면 SHOULD·SHOULD NOT을 넘지 않는다. 각 규칙은 둘 중 어느 쪽인지 문장에서 드러낸다.
 
-**(가)의 예외 — RFC 9651 직렬화 알고리즘.** RFC 9651 §1.2는 *"For serialization to HTTP fields, the algorithms define the **recommended** way to produce them. Implementations **MAY vary** from the specified behavior so long as the output is still correctly handled by the parsing algorithm described in Section 4.2."*라고 명시한다. 따라서 §4.1의 명령형 단계(*"fail serialization"*·*"do not serialize the field at all"*)는 그 자체로 MUST 강도가 **아니다.** 이 문서가 SF 방출에 MUST를 붙일 때 그 근거는 (ㄱ) §3의 **데이터 모델 산문에 실재하는 BCP14 키워드**(예: §3.1.2·§3.2의 *"MUST omit that value when serialized"*)이거나, (ㄴ) 잘못된 출력이 §4.2의 파서 MUST(*"the entire field value MUST be ignored"*)에 걸려 **헤더 전체가 소멸하는 기능적 실패**다. 각 규칙은 둘 중 어느 근거인지 문장에서 드러낸다. 반대로 잘못된 출력이 **파싱을 실패시키지 않고 값만 조용히 소실**시키는 경우는 §1.2의 면제 조건(*"so long as the output is still correctly handled by the parsing algorithm"*)을 만족하므로 어떤 MUST도 도출되지 않는다 — 이는 위 (ㄷ) 판정과 같은 결론이며, SF 중복 키(§2.4.3·§9.3.5)가 그 예다.
+**(가)의 예외 — RFC 9651 직렬화 알고리즘.** RFC 9651 §1.2는 *"For serialization to HTTP fields, the algorithms define the **recommended** way to produce them. Implementations **MAY vary** from the specified behavior so long as the output is still correctly handled by the parsing algorithm described in Section 4.2."*라고 명시한다. 따라서 §4.1의 명령형 단계(*"fail serialization"*·*"do not serialize the field at all"*)는 그 자체로 MUST 강도가 **아니다.** 이 문서가 SF 방출에 MUST를 붙일 때 그 근거는 (ㄱ) §3의 **데이터 모델 산문에 실재하는 BCP14 키워드**(예: RFC 9651 §3.1.2·§3.2의 *"MUST omit that value when serialized"*)이거나, (ㄴ) 잘못된 출력이 §4.2의 파서 MUST(*"the entire field value MUST be ignored"*)에 걸려 **헤더 전체가 소멸하는 기능적 실패**다. 각 규칙은 둘 중 어느 근거인지 문장에서 드러낸다. 반대로 잘못된 출력이 **파싱을 실패시키지 않고 값만 조용히 소실**시키는 경우는 §1.2의 면제 조건(*"so long as the output is still correctly handled by the parsing algorithm"*)을 만족하므로 어떤 MUST도 도출되지 않는다 — 이는 위 (ㄷ) 판정과 같은 결론이며, SF 중복 키(§2.4.3·§9.3.5)가 그 예다.
 
 **(나) UA 알고리즘 부류** — WHATWG HTML·Fetch·MIME Sniffing, W3C CSP3·Permissions-Policy·Referrer-Policy·Reporting·NEL·Clear-Site-Data·SRI·Secure Contexts, WICG DIP·Document-Policy. 규범 수준을 **위반 시의 기능적 결과**로 정의한다:
 
@@ -40,7 +44,7 @@
 
 **대조 기준일 2026-07-10** — 전 규범 문장을 다음 원문과 규칙 단위로 직접 대조 완료: RFC 6797·7034·9110·9111·9112·9651 원문 텍스트(rfc-editor.org), W3C CSP3(WD 2026-05-05)·Trusted Types(ED 2026-06-23)·Permissions Policy(ED, TR WD 2026-06-18)·Referrer Policy(ED 2026-03-20)·Reporting-1(WD 2025-06-11)·NEL(WD 2025-05-05)·Clear-Site-Data(WD 2017-11-30 / ED 2023-11-10)·SRI(WD 2026-03-20)·Secure Contexts(CR Draft 2023-11-10)·Resource Timing(CR Draft 2026-04-20)·CSP2(REC 2016-12-15), WHATWG HTML·Fetch·MIME Sniffing(Living, 2026-07-10 스냅숏), WICG Document Isolation Policy(CG-DRAFT 2025-04-23)·Document Policy(CG-DRAFT 2022-03-30), Google Search Central·Chromium XSS Auditor 설계문서·OWASP Secure Headers(`headers_remove.json` 2026-06-30).
 
-**published TR과 편집자 초안(ED)이 갈라진 경우 이 문서는 ED를 정본으로 삼고 그 사실을 규칙에 밝힌다** — 예: NEL의 `request_headers`·`response_headers`는 TR에 남아 있으나 ED에서 삭제되었으므로 §11.3.7은 방출을 금지한다. Referrer Policy의 *"should not be quoted"* 문장도 ED에만 있다(§8.1.3).
+**published TR과 편집자 초안(ED)이 갈라진 경우 이 문서는 ED를 정본으로 삼고 그 사실을 규칙에 밝힌다** — 예: NEL의 `request_headers`·`response_headers`는 TR에 남아 있으나 ED에서 삭제되었으므로 §11.3.9는 방출하지 않기를 권고한다(파스 오류를 일으키지 않아 금지는 아니다). Referrer Policy의 *"should not be quoted"* 문장도 ED에만 있다(§8.1.3).
 
 **RFC 인용은 불변이나, WHATWG living standard·W3C ED/WD·WICG draft·벤더 문서는 재대조 시 이 기준일 이후 변경분만 본다.** W3C 인용 정본 중 **Recommendation은 CSP2 하나뿐**이며(§11.4의 legacy 리포트 전송 근거), 나머지 W3C 문서는 전부 WD/CR/ED다 — 즉 이 문서가 근거하는 웹 보안 헤더 규범의 대부분은 **미확정 상태**다.
 
