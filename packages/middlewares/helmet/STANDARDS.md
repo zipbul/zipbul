@@ -5,14 +5,14 @@
 이 문서는 **규칙만** 담는다. 구현 분담은 `CLAUDE.md`, 런타임 동작은 테스트의 소관이다. 이 문서는 구현 코드가 아니라 **1차 출처(RFC·W3C·WHATWG 원문)만**을 근거로 한다. 1차 출처가 존재하지 않는 헤더는 §14에서 **"표준 문서 없음"을 명시**한다.
 
 **검증 방법과 그 한계** — 이 문서의 정확성 주장은 다음까지만 미친다:
-- 본문의 영어 verbatim 인용 **전건(84건)**을 대조했다. 80건은 1차 출처 원문에 기계적으로 문자열 일치를 확인했고, 나머지 4건(WICG 상태 보일러플레이트 2건·Chromium 설계문서 1건·OWASP 1건)은 발행본에서 개별 확인했다. 이 과정에서 생략부호 없이 잘린 인용 4건과 대소문자를 바꾼 인용 1건을 원문 형태로 복원했다.
+- 본문의 영어 verbatim 인용 **전건(87건)**을 대조했다. 83건은 1차 출처 원문에 기계적으로 문자열 일치를 확인했고, 나머지 4건(WICG 상태 보일러플레이트 2건·Chromium 설계문서 1건·OWASP 1건)은 발행본에서 개별 확인했다. 이 과정에서 생략부호 없이 잘린 인용 4건과 대소문자를 바꾼 인용 1건을 원문 형태로 복원했다.
 - 인용이 **정말 그 앵커 절 안에 있는지**까지 기계 대조했다(47건). 앵커는 실재하지만 인용문은 다른 절에 있던 3건(§13.3.4·§13.3.12·§13.3.14)을 교정했다.
 - 규칙이 다는 **출처 앵커 전건(206건)**이 발행본 스펙 문서에 실제 `id`로 존재하는지 대조했다. TR 스타일 앵커가 편집자 초안에 없던 다수를 교정했다.
-- **MUST·MUST NOT 전건(70건)**의 정당성을 재감사했다. RFC 출처는 BCP14 키워드의 실재를 개별 확인했고, 키워드도 구조적 실패도 없는 규칙은 강등했다 — 앞뒤 공백(§1.1.5), SF 중복 키(§2.4.3·§9.3.5), CSP 중복 디렉티브(§4.1.7), `'none'` 혼용(§4.2.2), `Referrer-Policy` 소문자(§8.1.6), Permissions-Policy의 `src`와 `report-to` 타입(§9.2.5·§9.2.6), 엔드포인트 이름(§11.1.6), NEL 삭제 멤버(§11.3.9), Document-Policy `report-to` 타입(§13.3.6), `X-XSS-Protection`(§14.1.3), 그리고 `Cache-Control` 따옴표와 `includeSubDomains` 값이 그 사례다. 판정 기준은 규범 수준 규약의 **(ㄷ) 실패 귀결 판정** 하나로 통일했다 — 의도한 리소스·기능이 차단되는 것도 경성 실패로 본다(§9.2.3·§13.1.2). 같은 판정으로 강등을 **되돌린** 경우도 있다 — §9.2.3은 잘못된 `'self'` 표기가 allowlist를 비워 그 기능을 차단하므로 MUST NOT을 유지한다(항목만 무시되고 나머지가 남는 §9.2.6과 결말이 다르다).
+- **MUST·MUST NOT 전건(70건)**의 정당성을 재감사했다. RFC 출처는 BCP14 키워드의 실재를 개별 확인했고, 키워드도 구조적 실패도 없는 규칙은 강등했다 — 앞뒤 공백(§1.1.5), SF 중복 키(§2.4.3·§9.3.5), CSP 중복 디렉티브(§4.1.7), `'none'` 혼용(§4.2.2), `Referrer-Policy` 소문자(§8.1.6), Permissions-Policy의 `src`와 `report-to` 타입(§9.2.5·§9.2.6), 엔드포인트 이름(§11.1.6), NEL 삭제 멤버(§11.3.9), Document-Policy `report-to` 타입(§13.3.6), `X-XSS-Protection`(§14.1.3), 그리고 `includeSubDomains` 값(§5.1.4)이 그 사례다. 판정 기준은 규범 수준 규약의 **(ㄷ) 실패 귀결 판정** 하나로 통일했다 — 의도한 리소스·기능이 차단되는 것도 경성 실패로 본다(§9.2.3·§13.1.2). 같은 판정으로 강등을 **되돌린** 경우도 있다 — §9.2.3은 잘못된 `'self'` 표기가 allowlist를 비워 그 기능을 차단하므로 MUST NOT을 유지한다(항목만 무시되고 나머지가 남는 §9.2.6과 결말이 다르다).
 - 규칙이 언급하는 기술 식별자(헤더명·디렉티브·토큰)가 인용 출처에 실재하는지 대조했다. 그 결과 NEL의 두 멤버가 편집자 초안에서 삭제되었음(§11.3.9), NEL의 `endpoint group` 참조가 현행 Reporting-1에서 정의를 잃어 **끊긴 참조**임(§11.3.5), DIP 편집자 초안이 report-only 헤더명을 오타로 조회함(§10.6.5), Document Policy가 `Require-Document-Policy`를 정의해놓고 알고리즘에서는 `Required-Document-Policy`를 조회함(§13.4.3), Reporting-1의 `destination`은 URL이 아니라 **엔드포인트 이름**인데 HTML·DIP 산문은 이를 "valid URL string"이라 부름(§11.1.6–§11.1.7)을 발견했다.
 - 문서 내부 정합성도 기계 검사했다 — 규칙 번호 연속성, 교차참조 dangling, 그리고 boolean 설정점 규칙이 §2.4.1(Dictionary Boolean true는 값 생략)과 충돌하던 것을 §13.3.7(타입)과 §13.3.8(`?1` 금지)로 분리해 교정했다.
 - helmet의 공개 옵션 표면을 역방향으로 대조해 **누락된 헤더**(`Require-Document-Policy`·`Document-Policy-Report-Only`)와 누락된 규칙(COOP/COEP/DIP Report-Only, Document-Policy 값 타입·범위, DIP `report-to`)을 찾아 보강했다.
-- **한계:** 규범 키워드가 없는 서술형 규칙(무표기)의 개별 문장은 위 식별자 대조 수준까지만 검증되었고, 문장 단위 의미 대조는 전수로 수행되지 않았다. 이 문서는 서로 다른 두 엔진(codex·grok)의 적대적 교차 검토를 **다섯 라운드** 거쳤고, 두 엔진의 지적은 채택 전에 1차 출처로 재검증했다 — 실제로 각 엔진이 여러 번 틀렸다 — codex의 RFC 9651 §3.1.2 오독, grok이 인용한 존재하지 않는 `network_reporting_endpoints`, 그리고 4라운드에서 두 엔진이 함께 준 존재하지 않는 CSP3 앵커와 *"processing algorithm"*(원문은 *"processing steps"*)이라는 잘못된 인용이 그것이다. 그 과정에서 발견된 정본 오지정(`X-Frame-Options`를 RFC 7034로 인용)·사실 반전(XFO 중복의 fail-open↔fail-closed)·앵커 부재·정책의 MUST 둔갑은 모두 수정되었다.
+- **한계:** 규범 키워드가 없는 서술형 규칙(무표기)의 개별 문장은 위 식별자 대조 수준까지만 검증되었고, 문장 단위 의미 대조는 전수로 수행되지 않았다. 이 문서는 서로 다른 두 엔진(codex·grok)의 적대적 교차 검토를 **여섯 라운드** 거쳤고, 두 엔진의 지적은 채택 전에 1차 출처로 재검증했다 — 이 검증 자체도 오류를 냈고 후속 라운드가 잡았다 — 1라운드의 BCP14 감사는 줄바꿈으로 나뉜 *"A sender MUST NOT generate the quoted-string form"*(RFC 9111 §5.2.2.1)을 놓쳐 `Cache-Control` 따옴표 금지를 "RFC에 없음"으로 오판·강등했으며, 6라운드에서 복원했다(§12.1.2). 실제로 각 엔진이 여러 번 틀렸다 — codex의 RFC 9651 §3.1.2 오독, grok이 인용한 존재하지 않는 `network_reporting_endpoints`, 그리고 4라운드에서 두 엔진이 함께 준 존재하지 않는 CSP3 앵커와 *"processing algorithm"*(원문은 *"processing steps"*)이라는 잘못된 인용이 그것이다. 그 과정에서 발견된 정본 오지정(`X-Frame-Options`를 RFC 7034로 인용)·사실 반전(XFO 중복의 fail-open↔fail-closed)·앵커 부재·정책의 MUST 둔갑은 모두 수정되었다.
 
 ## 적용 범위 · 주체 선언
 
@@ -81,7 +81,7 @@
 
 - **§1.2.1** [무표기] 같은 field-name이 한 섹션에 반복되면 수신자는 각 field line value를 순서대로 comma로 이어 붙여 하나의 field value로 결합한다 [RFC 9110 §5.2]
 - **§1.2.2** [MUST NOT] sender는 같은 이름의 field line을 복수 생성하지 않는다 — 원문이 *"a sender MUST NOT generate multiple field lines with the same name in a message"*로 규정하며, 그 필드 정의가 comma로 구분된 리스트(`#(values)`)로의 재결합을 허용하는 경우만 예외다 [RFC 9110 §5.3]
-- **§1.2.3** [MUST NOT] 리스트형이 아닌 보안 헤더(`X-Frame-Options`·`Strict-Transport-Security`·`X-Content-Type-Options`·`Cross-Origin-Opener-Policy`·`Cross-Origin-Embedder-Policy`·`Cross-Origin-Resource-Policy`·`Origin-Agent-Cluster`)를 두 번 이상 방출하지 않는다 — §1.2.1의 결합으로 값이 comma 리스트가 되며 각 헤더의 파서가 이를 처리하는 방식은 서로 다르다(HSTS는 첫 헤더만 처리 §5.3.3, COEP·CORP는 보호가 소멸 §10.2.3·§10.3.3, nosniff는 첫 값만 검사 §7.1.2, XFO는 오히려 차단 §6.1.5) [RFC 9110 §5.2·§5.3]
+- **§1.2.3** [MUST NOT] 리스트형이 아닌 보안 헤더(`X-Frame-Options`·`Strict-Transport-Security`·`X-Content-Type-Options`·`Cross-Origin-Opener-Policy`·`Cross-Origin-Embedder-Policy`·`Cross-Origin-Resource-Policy`·`Origin-Agent-Cluster`)를 두 번 이상 방출하지 않는다 — §1.2.1의 결합으로 값이 comma 리스트가 되며 각 헤더의 파서가 이를 처리하는 방식은 서로 다르다(HSTS는 첫 헤더만 처리 §5.3.3, COEP·CORP는 보호가 소멸 §10.2.4·§10.3.3, nosniff는 첫 값만 검사 §7.1.2, XFO는 오히려 차단 §6.1.5) [RFC 9110 §5.2·§5.3]
 - **§1.2.4** [무표기] `Content-Security-Policy`는 §1.2.2의 예외다 — 복수 field line은 comma 결합 후 **복수의 독립 정책**으로 파싱되며, 각 정책은 독립 강제되어 교집합으로만 좁혀진다(§4.1.4) [CSP3 #parse-response-csp·RFC 9110 §5.3]
 
 ## 2. Structured Fields 직렬화 (SF 기반 헤더 횡단)
@@ -92,9 +92,9 @@
 - **§2.1.2** [무표기] SF 문법을 어긴 값은 수신 파서를 실패시키고, 원문이 *"If parsing fails, either the entire field value MUST be ignored (i.e., treated as if the field were not present in the section), or alternatively the complete HTTP message MUST be treated as malformed"*라고 규정한다 — 그러므로 §2의 모든 문법 규칙 위반은 **헤더 전체 소멸**이라는 경성 실패를 낳으며, 이것이 §2의 MUST·MUST NOT를 정당화하는 (ㄴ) 근거다 [RFC 9651 §4.2]
 - **§2.1.3** [무표기] Permissions Policy는 `[[!RFC8941]]`을 인용하나, Dictionary·Token·String·key 문법은 RFC 9651과 동일하므로 이 문서는 현행 정본인 RFC 9651을 인용한다 [Permissions Policy #structured-header-serialization·RFC 9651 Abstract]
 
-- **§2.2.1** [MUST] Dictionary·Parameters의 key는 `key = ( lcalpha / "*" ) *( lcalpha / DIGIT / "_" / "-" / "." / "*" )` 문법을 만족하도록 생성하며, 위반 시 §2.1.2에 따라 수신 파서가 실패해 헤더 전체가 소멸한다(*"fail serialization"*) [RFC 9651 §4.1.1.3]
+- **§2.2.1** [MUST] Dictionary·Parameters의 key는 `key = ( lcalpha / "*" ) *( lcalpha / DIGIT / "_" / "-" / "." / "*" )` 문법을 만족하도록 생성하며, 위반 시 §2.1.2에 따라 수신 파서가 실패해 헤더 전체가 소멸한다 [RFC 9651 §4.1.1.3]
 - **§2.2.2** [MUST NOT] key에 대문자를 생성하지 않는다 — `lcalpha`는 `%x61-7A`(a–z)뿐이며 원문이 *"parameter keys cannot contain uppercase letters"*로 못박는다 [RFC 9651 §3.1.2·§4.1.1.3]
-- **§2.2.3** [MUST NOT] key의 첫 문자로 `lcalpha` 또는 `*` 외의 문자(숫자·`-`·`.`·`_`)를 생성하지 않는다 [RFC 9651 §4.1.1.3]
+- **§2.2.3** [MUST NOT] key의 첫 문자로 `lcalpha` 또는 `*` 외의 문자(숫자·`-`·`.`·`_`)를 생성하지 않는다 — 위반 시 §2.1.2에 따라 수신 파서가 실패해 헤더 전체가 소멸한다 [RFC 9651 §4.1.1.3]
 
 - **§2.3.1** [MUST NOT] sf-string에 %x20–%x7E(가시 ASCII·SP) 밖의 문자를 생성하지 않는다 — 원문이 *"Strings are zero or more printable ASCII [RFC0020] characters (i.e., the range %x20 to %x7E)"*로 규정하고, 직렬화 알고리즘은 %x00-1f·%x7f-ff에서 실패한다 [RFC 9651 §3.3.3·§4.1.6]
 - **§2.3.2** [MUST] sf-string은 double quote로 감싸고 그 안의 `\`와 `"`만 backslash로 이스케이프한다 — 그 외 어떤 문자도 이스케이프하지 않는다 [RFC 9651 §3.3.3·§4.1.6]
@@ -105,8 +105,8 @@
 - **§2.3.7** [MUST NOT] sf-integer 범위 −999,999,999,999,999 ~ 999,999,999,999,999 밖의 값을 생성하지 않는다 — 위반 시 §2.1.2에 따라 수신 파서가 실패해 헤더 전체가 소멸한다 [RFC 9651 §3.3.1·§4.1.4]
 - **§2.3.8** [SHOULD NOT] String이나 Token으로 충분한 자리에 Display String(`%"…"`)을 생성하지 않는다 — 원문이 *"It is NOT RECOMMENDED that they be used in situations where a String … or Token … would be adequate"*라는 BCP14 NOT RECOMMENDED를 두며, 이 문서가 다루는 헤더 중 값 타입이 Display String으로 정의된 것은 없다 [RFC 9651 §3.3.8]
 
-- **§2.4.1** [MUST] Dictionary 멤버의 값이 Boolean true이면 그 값을 **생략**해 `key`로만 생성한다(`key=?1` 금지) [RFC 9651 §3.2]
-- **§2.4.2** [MUST] Parameter의 값이 Boolean true이면 그 값을 **생략**해 `;key`로만 생성한다(`;key=?1` 금지) [RFC 9651 §3.1.2]
+- **§2.4.1** [MUST] Dictionary 멤버의 값이 Boolean true이면 그 값을 **생략**해 `key`로만 생성한다(`key=?1` 금지) — 원문이 *"Members whose value is Boolean (see Section 3.3.6) true MUST omit that value when serialized"*로 규정한다 [RFC 9651 §3.2]
+- **§2.4.2** [MUST] Parameter의 값이 Boolean true이면 그 값을 **생략**해 `;key`로만 생성한다(`;key=?1` 금지) — 원문이 *"Parameters whose value is Boolean (see Section 3.3.6) true MUST omit that value when serialized"*로 규정한다 [RFC 9651 §3.1.2]
 - **§2.4.3** [SHOULD NOT] 하나의 Dictionary·Parameters에 같은 key를 두 번 생성하지 않는다 — 키 유일성은 데이터 모델 속성일 뿐 파싱은 실패하지 않고, 파서가 *"overwrite its value"* 하여 *"all but the last instance are ignored"*(마지막 값만 남고 앞선 값은 조용히 사라진다). 송신자에 대한 BCP14 금지는 없으므로 MUST NOT이 아니다 [RFC 9651 §3.2·§4.2.2·§4.2.3.2]
 - **§2.4.4** [SHOULD] 최상위 구조가 Dictionary·List이고 멤버가 하나도 없으면 **필드명과 필드값을 모두 생략**해 헤더 자체를 방출하지 않는다 — RFC 9651 §4.1 step 1의 명령형 단계이나, §1.2에 따라 직렬화 알고리즘은 recommended이고 구현이 MAY vary하므로 MUST가 아니다(빈 헤더는 파싱 실패를 일으키지 않고 빈 정책으로 해석될 뿐이다) [RFC 9651 §4.1·§1.2]
 - **§2.4.5** [무표기] List·Dictionary의 멤버 구분자는 `","` 뒤 단일 SP이며, Inner List는 `(`…`)`로 감싸고 항목을 단일 SP로 구분한다 [RFC 9651 §4.1.1·§4.1.1.1·§4.1.2]
@@ -120,7 +120,7 @@
 - **§3.1.1** [무표기] *potentially trustworthy origin* 판정 알고리즘의 정본은 **W3C Secure Contexts**이며, WHATWG URL Standard에는 이 알고리즘이 존재하지 않는다 [Secure Contexts #is-origin-trustworthy]
 - **§3.1.2** [무표기] origin의 scheme이 `https`·`wss`이거나, host가 `127.0.0.0/8`·`::1/128`에 속하거나, host가 `localhost`·`.localhost`로 끝나거나, scheme이 `file`이면 Potentially Trustworthy이며, opaque origin은 Not Trustworthy다 [Secure Contexts #is-origin-trustworthy]
 - **§3.1.3** [무표기] origin의 domain·port는 이 판정에 영향을 주지 않는다 [Secure Contexts #potentially-trustworthy-origin]
-- **§3.2.1** [무표기] `Strict-Transport-Security`(§5.2.4)·`Clear-Site-Data`(§12.2.4)·`Cross-Origin-Opener-Policy`(§10.1.4)·`Cross-Origin-Embedder-Policy`(§10.2.4)·`Origin-Agent-Cluster`(§10.4.2)·`Document-Isolation-Policy`(§10.6.3)·`NEL`(§11.3.5)은 **응답·요청 출처가 신뢰 불가**이면 UA가 헤더를 무시하므로, 비-HTTPS 응답에 실으면 무효다 [Secure Contexts #is-origin-trustworthy]
+- **§3.2.1** [무표기] `Strict-Transport-Security`(§5.2.4)·`Clear-Site-Data`(§12.2.4)·`Cross-Origin-Opener-Policy`(§10.1.4)·`Cross-Origin-Embedder-Policy`(§10.2.5)·`Origin-Agent-Cluster`(§10.4.2)·`Document-Isolation-Policy`(§10.6.3)·`NEL`(§11.3.6)은 **응답·요청 출처가 신뢰 불가**이면 UA가 헤더를 무시하므로, 비-HTTPS 응답에 실으면 무효다 [Secure Contexts #is-origin-trustworthy]
 - **§3.2.2** [무표기] `Reporting-Endpoints`는 §3.2.1과 다르다 — 신뢰 불가 판정 대상은 응답의 출처가 아니라 **각 엔드포인트 URL**이며, 신뢰 불가한 엔드포인트 멤버만 무시된다(§11.1.3) [Reporting-1 #header]
 
 ## 4. Content Security Policy · Trusted Types
@@ -195,7 +195,7 @@
 - **§5.1.1** [무표기] 필드 문법은 `Strict-Transport-Security = "Strict-Transport-Security" ":" [ directive ] *( ";" [ directive ] )`, `directive = directive-name [ "=" directive-value ]`, `directive-value = token | quoted-string`이다 [RFC 6797 §6.1]
 - **§5.1.2** [SHOULD] 보안 전송으로 전달된 요청에 응답할 때 HSTS Host는 STS 헤더 필드를 포함하며, 포함한다면 그 값은 §6.1 문법을 **MUST** 만족한다 [RFC 6797 §7.1]
 - **§5.1.3** [MUST] STS 헤더 필드를 방출한다면 그 안에 `max-age` 디렉티브를 생성한다 — REQUIRED이며 값 문법은 `delta-seconds = 1*DIGIT`다(헤더 방출 자체는 §5.1.2의 SHOULD이므로 무조건적 의무가 아니다) [RFC 6797 §6.1.1]
-- **§5.1.4** [MUST NOT] `includeSubDomains`에 값을 붙이지 않는다 — 원문이 이를 *"a valueless directive"*로 정의하므로 값을 붙이면 문법에 어긋나고, UA는 *"MUST ignore any STS header field containing directives, or other header field value data, that does not conform to the syntax defined in this specification"*에 따라 **STS 헤더 전체를 무시**한다. 인식 못 한 디렉티브만 개별 무시하는 경우(§8.1의 5항)와 달리 헤더가 통째로 소멸한다 [RFC 6797 §6.1.2·§8.1]
+- **§5.1.4** [SHOULD NOT] `includeSubDomains`에 값을 붙이지 않는다 — 원문이 이를 *"a valueless directive"*로 정의하지만, §6.1의 ABNF는 `directive = directive-name [ "=" directive-value ]`로 **모든 디렉티브에 값을 허용**하므로 값을 붙여도 문법 위반이 아니고(§6.1 요구사항 4항의 전체 무시가 발동하지 않는다), 인식된 디렉티브라 5항의 개별 무시 대상도 아니다 — 정의된 처리 결과가 없는 위생 규칙이므로 MUST NOT의 근거가 없다 [RFC 6797 §6.1·§6.1.2]
 - **§5.1.5** [무표기] 디렉티브 이름은 case-insensitive하다 [RFC 6797 §6.1]
 - **§5.1.6** [MAY] `max-age` 값을 quoted-string으로 생성할 수 있다 — 문법상 유효하다 [RFC 6797 §6.2]
 
@@ -245,7 +245,7 @@
 - **§8.1.3** [SHOULD NOT] 값을 따옴표로 감싸지 않는다 — 원문이 *"Referrer-Policy header values should not be quoted"*라 하고, 따옴표 붙은 값은 `policy-token`과 매치되지 않아 §8.1.6과 똑같이 UA 기본 정책으로 되돌아갈 뿐 헤더가 버려지지 않는다 [Referrer Policy #referrer-policy-header]
 - **§8.1.4** [무표기] UA는 토큰들을 순회하며 referrer policy이면서 빈 문자열이 아닌 것을 만날 때마다 정책을 갱신하므로, **마지막 유효 토큰이 채택되고 미지 토큰은 무시된다** [Referrer Policy #parse-referrer-policy-from-header]
 - **§8.1.5** [SHOULD] 구형 UA용 보수적 토큰을 앞에, 선호 토큰을 뒤에 두어 comma로 나열한다 — §8.1.4의 last-valid-wins가 폴백 배포를 위해 존재한다고 원문이 밝힌다 [Referrer Policy #unknown-policy-values]
-- **§8.1.6** [SHOULD] 토큰을 소문자로 생성한다 — 이 스펙은 **ABNF와 처리 알고리즘이 충돌한다**: `policy-token`은 RFC 5234 문자열 리터럴이라 대소문자를 무시하지만(RFC 5234 §2.3), 규범 알고리즘은 *"if token is a referrer policy"*라는 Infra 문자열 동등 비교(대소문자 구분)를 수행하며 XFO(§6.1.3)·nosniff(§7.1.1)와 달리 case-insensitive 대조를 지시하지 않는다. 소문자만이 두 해석 모두에서 적용되므로 fail-safe 선택이다. 다만 대문자 토큰이라도 헤더가 버려지지 않고 UA 기본 정책으로 되돌아갈 뿐이므로 (ㄷ)에 따라 MUST가 아니다 [Referrer Policy #referrer-policies·#parse-referrer-policy-from-header·RFC 5234 §2.3]
+- **§8.1.6** [SHOULD] 토큰을 소문자로 생성한다 — 이 스펙은 **ABNF와 처리 알고리즘이 충돌한다**: `policy-token`은 RFC 5234 문자열 리터럴이라 대소문자를 무시하지만(RFC 5234 §2.3), 규범 알고리즘은 *"if token is a referrer policy"*라는 Infra 문자열 동등 비교(대소문자 구분)를 수행하며 XFO(§6.1.4)·nosniff(§7.1.1)와 달리 case-insensitive 대조를 지시하지 않는다. 소문자만이 두 해석 모두에서 적용되므로 fail-safe 선택이다. 다만 대문자 토큰이라도 헤더가 버려지지 않고 UA 기본 정책으로 되돌아갈 뿐이므로 (ㄷ)에 따라 MUST가 아니다 [Referrer Policy #referrer-policies·#parse-referrer-policy-from-header·RFC 5234 §2.3]
 - **§8.1.7** [무표기] 빈 문자열은 "정책 없음"을 뜻해 상위 정책 또는 기본 정책으로 폴백하며, 리다이렉트 시 빈 문자열은 기존 정책을 덮어쓰지 않는다 [Referrer Policy #referrer-policy-empty-string]
 - **§8.1.8** [무표기] 유지보수되는 정본의 기본 referrer policy는 `strict-origin-when-cross-origin`이다 — 2017년 CR 텍스트의 `no-referrer-when-downgrade`에서 변경되었으므로 UA 기본값에 의존하지 말고 명시적으로 생성한다 [Referrer Policy #referrer-policies]
 
@@ -293,7 +293,7 @@
 - **§10.2.4** [MUST NOT] COEP 헤더를 두 번 이상 방출하지 않는다 — 원문이 *"The processing model fails open (by defaulting to \"unsafe-none\") in the presence of a header that cannot be parsed as a token. This includes inadvertent lists created by combining multiple instances"*로 규정하므로, 중복은 오류 없이 격리를 소멸시킨다 [HTML #the-coep-headers]
 - **§10.2.5** [무표기] 비보안 컨텍스트에서는 UA가 COEP 획득 알고리즘 2단계에서 조기 반환하므로 헤더가 무시된다 [HTML #obtain-an-embedder-policy]
 - **§10.2.6** [무표기] `require-corp` 하에서는 CORS도 CORP도 없는 교차 출처 no-cors 하위 리소스가 차단되며, `credentialless`는 no-cors 요청의 credentials를 제거하는 대신 CORP를 요구하지 않는다 [HTML #embedder-policy-value·Fetch #cross-origin-resource-policy-internal-check]
-- **§10.2.7** [MUST NOT] `Cross-Origin-Embedder-Policy-Report-Only` 헤더도 두 번 이상 방출하지 않는다 — 원문이 §10.2.3의 fail-open 표 직후 *"(The same applies to `Cross-Origin-Embedder-Policy-Report-Only`.)"*라고 명시하므로 중복 시 동일하게 `unsafe-none`으로 되돌아간다 [HTML #the-coep-headers]
+- **§10.2.7** [MUST NOT] `Cross-Origin-Embedder-Policy-Report-Only` 헤더도 두 번 이상 방출하지 않는다 — 원문이 §10.2.4의 fail-open 문장 직후 *"(The same applies to `Cross-Origin-Embedder-Policy-Report-Only`.)"*라고 명시하므로 중복 시 동일하게 `unsafe-none`으로 되돌아간다 [HTML #the-coep-headers]
 
 ### 10.3 Cross-Origin-Resource-Policy
 
@@ -356,7 +356,7 @@
 - **§11.3.6** [무표기] UA는 요청 origin이 Potentially Trustworthy가 아니면 NEL 정책 처리를 중단한다 [NEL #process-policy-headers]
 - **§11.3.7** [무표기] `success_fraction`이 없으면 UA는 성공 요청의 NEL 리포트를 수집하지 않고, `failure_fraction`이 없으면 실패 요청 전부를 수집한다 [NEL #success-fraction-member·#failure-fraction-member]
 - **§11.3.8** [MUST] `success_fraction`·`failure_fraction`을 방출한다면 각각 **0.0 이상 1.0 이하의 number**로 생성한다 — 원문이 두 멤버 모두에 대해 *"If present, its value MUST be a number between 0.0 and 1.0, inclusive; any other value will result in a parse error"*라 규정하며, 파스 오류는 그 정책을 무효로 만든다 [NEL #success-fraction-member·#failure-fraction-member]
-- **§11.3.9** [SHOULD NOT] `request_headers`·`response_headers` 멤버를 생성하지 않는다 — published TR(WD 2025-05-05)에는 §4.1.6·§4.1.7로 남아 있으나 편집자 초안에서 **삭제되었다**(커밋 *"Remove \"request headers\" and \"response headers\" from NEL"*). 원문이 *"User agents MUST ignore any unknown or invalid field(s) or value(s)"*라고 하므로 이 멤버는 무시될 뿐 파스 오류를 일으키지 않아 MUST NOT은 아니다 [NEL ED·#nel-response-header]
+- **§11.3.9** [SHOULD NOT] `request_headers`·`response_headers` 멤버를 생성하지 않는다 — published TR(WD 2025-05-05)에는 NEL TR §4.1.6·§4.1.7로 남아 있으나 편집자 초안에서 **삭제되었다**(커밋 *"Remove \"request headers\" and \"response headers\" from NEL"*). 원문이 *"User agents MUST ignore any unknown or invalid field(s) or value(s)"*라고 하므로 이 멤버는 무시될 뿐 파스 오류를 일으키지 않아 MUST NOT은 아니다 [NEL ED·#nel-response-header]
 - **§11.3.10** [무표기] 이 두 멤버의 존재 여부는 NEL의 published TR과 편집자 초안이 **갈라진 지점**이므로, TR만 보고 구현하면 이미 제거된 기능을 방출하게 된다 [NEL ED·NEL TR §4.1.6·§4.1.7]
 - **§11.3.11** [무표기] `include_subdomains` 멤버는 OPTIONAL 불리언으로 이 NEL 정책을 origin의 모든 하위 도메인에 적용한다 [NEL #include-subdomains-member]
 
@@ -374,16 +374,17 @@
 ### 12.1 Cache-Control
 
 - **§12.1.1** [무표기] 문법은 `Cache-Control = #cache-directive`, `cache-directive = token [ "=" ( token / quoted-string ) ]`이며 디렉티브 이름은 case-insensitive하게 대조된다 [RFC 9111 §5.2]
-- **§12.1.2** [SHOULD] `delta-seconds` 인자를 따옴표 없는 token 형식으로 생성한다 — `delta-seconds = 1*DIGIT`이나 `cache-directive` 문법은 인자에 token과 quoted-string을 **모두 허용**하고 원문이 *"recipients ought to accept both forms, even if a specific form is required for generation"*라 하므로 따옴표 형식을 금지하는 규범 문장은 없다 [RFC 9111 §5.2·§1.2.2]
-- **§12.1.3** [무표기] 캐시는 자신이 표현할 수 있는 최대 정수를 넘는 `delta-seconds`를 2147483648로 MUST 간주한다 [RFC 9111 §1.2.2]
-- **§12.1.4** [무표기] `no-store`는 캐시가 요청·응답의 어떤 부분도 저장하지 않고 다른 요청에 재사용하지 않을 것을 MUST로 명하나, 원문은 그 저장 금지가 *"best-effort"*임을 밝히고 *"This directive is not a reliable or sufficient mechanism for ensuring privacy"*라고 스스로 한계를 규정한다 [RFC 9111 §5.2.2.5]
-- **§12.1.5** [무표기] `no-cache`는 저장을 금지하지 않고 재사용 전 검증을 강제할 뿐이므로 `no-store`와 다르다 [RFC 9111 §5.2.2.4]
-- **§12.1.6** [무표기] `private`는 **shared cache**의 저장만 금지하며 사용자 브라우저의 개인 캐시는 저장할 수 있다 [RFC 9111 §5.2.2.7]
-- **§12.1.7** [무표기] `must-revalidate`는 응답이 stale해진 뒤의 재사용을 금지할 뿐 저장을 금지하지 않는다 [RFC 9111 §5.2.2.2]
-- **§12.1.8** [무표기] `max-age=0`은 즉시 stale을 뜻하며 저장 금지가 아니다 [RFC 9111 §5.2.2.1]
-- **§12.1.9** [무표기] 캐시는 인식하지 못하는 디렉티브를 MUST 무시한다 [RFC 9111 §5.2.3]
-- **§12.1.10** [무표기] RFC 9111은 `Pragma`를 deprecate하며, *"the meaning of \"Pragma: no-cache\" in responses was never specified"*라고 명시한다 — 따라서 응답의 `Pragma: no-cache`는 규정된 의미가 없고 `Cache-Control: no-cache`의 신뢰할 수 있는 대체가 아니다 [RFC 9111 §5.4]
-- **§12.1.11** [무표기] 캐시는 무효 날짜 형식, 특히 값 `"0"`을 이미 만료된 시각으로 MUST 해석하므로 `Expires: 0`은 유효한 freshness 신호다 [RFC 9111 §5.3]
+- **§12.1.2** [MUST NOT] `max-age`·`s-maxage`의 인자를 quoted-string으로 생성하지 않는다 — 두 디렉티브 모두 원문이 *"This directive uses the token form of the argument syntax"*라 하고 *"A sender MUST NOT generate the quoted-string form"*으로 송신자를 직접 금지한다(수신자는 두 형식 모두 수용하라고 권고되므로 경성 실패는 아니나 BCP14 송신 금지다) [RFC 9111 §5.2.2.1·§5.2.2.10]
+- **§12.1.3** [SHOULD NOT] `no-cache`·`private`에 필드 이름 인자를 붙일 때 token 형식으로 생성하지 않는다 — 이 두 디렉티브는 반대로 *"This directive uses the quoted-string form of the argument syntax"*이며 원문이 *"A sender SHOULD NOT generate the token form (even if quoting appears not to be needed for single-entry lists)"*라 한다 [RFC 9111 §5.2.2.4·§5.2.2.7]
+- **§12.1.4** [무표기] 캐시는 자신이 표현할 수 있는 최대 정수를 넘는 `delta-seconds`를 2147483648로 MUST 간주한다 [RFC 9111 §1.2.2]
+- **§12.1.5** [무표기] `no-store`는 캐시가 요청·응답의 어떤 부분도 저장하지 않고 다른 요청에 재사용하지 않을 것을 MUST로 명하나, 원문은 그 저장 금지가 *"best-effort"*임을 밝히고 *"This directive is not a reliable or sufficient mechanism for ensuring privacy"*라고 스스로 한계를 규정한다 [RFC 9111 §5.2.2.5]
+- **§12.1.6** [무표기] `no-cache`는 저장을 금지하지 않고 재사용 전 검증을 강제할 뿐이므로 `no-store`와 다르다 [RFC 9111 §5.2.2.4]
+- **§12.1.7** [무표기] `private`는 **shared cache**의 저장만 금지하며 사용자 브라우저의 개인 캐시는 저장할 수 있다 [RFC 9111 §5.2.2.7]
+- **§12.1.8** [무표기] `must-revalidate`는 응답이 stale해진 뒤의 재사용을 금지할 뿐 저장을 금지하지 않는다 [RFC 9111 §5.2.2.2]
+- **§12.1.9** [무표기] `max-age=0`은 즉시 stale을 뜻하며 저장 금지가 아니다 [RFC 9111 §5.2.2.1]
+- **§12.1.10** [무표기] 캐시는 인식하지 못하는 디렉티브를 MUST 무시한다 [RFC 9111 §5.2.3]
+- **§12.1.11** [무표기] RFC 9111은 `Pragma`를 deprecate하며, *"the meaning of \"Pragma: no-cache\" in responses was never specified"*라고 명시한다 — 따라서 응답의 `Pragma: no-cache`는 규정된 의미가 없고 `Cache-Control: no-cache`의 신뢰할 수 있는 대체가 아니다 [RFC 9111 §5.4]
+- **§12.1.12** [무표기] 캐시는 무효 날짜 형식, 특히 값 `"0"`을 이미 만료된 시각으로 MUST 해석하므로 `Expires: 0`은 유효한 freshness 신호다 [RFC 9111 §5.3]
 
 ### 12.2 Clear-Site-Data
 
@@ -399,7 +400,7 @@
 ### 13.1 SRI 해시 값
 
 - **§13.1.1** [무표기] 유효한 SRI 해시 알고리즘 토큰 집합은 정확히 `"sha256"`·`"sha384"`·`"sha512"`이며, 그 외 토큰의 해시는 UA가 조용히 버린다 [SRI #valid-sri-hash-algorithm-token-set]
-- **§13.1.2** [MUST NOT] `sha1`·`md5` 해시를 생성하지 않는다 — CSP3의 `hash-algorithm = "sha256" / "sha384" / "sha512"`에도, SRI의 *"valid SRI hash algorithm token set is the ordered set « \"sha256\", \"sha384\", \"sha512\" »"*에도 없어 유효한 hash-source가 아니며, 그 결과 어떤 스크립트와도 매치되지 않아 **의도한 리소스가 차단된다**. 보안 고려사항도 *"Examples of hashing functions that are not recommended include MD5 and SHA-1"*로 이를 뒷받침한다 [CSP3 #grammardef-hash-source·SRI #valid-sri-hash-algorithm-token-set·#hash-collision-attacks]
+- **§13.1.2** [MUST NOT] `sha1`·`md5` 해시를 생성하지 않는다 — CSP3의 `hash-algorithm = "sha256" / "sha384" / "sha512"`에 없어 `'sha1-…'`은 어떤 hash-source와도 매치되지 않고, 허용하려던 그 스크립트가 **차단된다**(경성 실패 — helmet의 해시 방출 경로는 CSP뿐이다). 참고로 SRI `integrity` **속성** 쪽 알고리즘은 반대로 미지 토큰을 건너뛴 뒤 *"If parsedMetadata is empty set, return true"*로 **무결성 검사 없이 통과**시키므로(fail-open) 결말이 다르다 [CSP3 #grammardef-hash-source·SRI #valid-sri-hash-algorithm-token-set·#does-response-match-metadatalist]
 - **§13.1.3** [MUST] 다이제스트 출력은 **표준 base64(RFC 4648 §4)**로 인코딩해 생성한다 — SRI의 생성 알고리즘이 *"Return the result of base64 encoding result"*이고 그 base64는 RFC 4648 §4(base64url인 §5가 아님)를 가리킨다 [SRI "Apply algorithm to bytes"]
 - **§13.1.4** [무표기] CSP3의 `base64-value`는 base64와 base64url을 모두 수용해 hash-source 처리 시 동등 취급하므로(§4.2.6), 표준 base64를 방출하면 `integrity` 속성과 CSP hash-source 양쪽에서 유효하다 [CSP3 #grammardef-base64-value·SRI "Apply algorithm to bytes"]
 - **§13.1.5** [무표기] CSP hash-source는 작은따옴표로 감싼 `'<alg>-<b64>'` 문법이고 SRI `integrity` 속성의 hash-expression은 따옴표 없는 `<alg>-<b64>` 문법이므로(`<alg>` ∈ {sha256, sha384, sha512}), 같은 base64 값을 두 곳에 쓸 때 따옴표를 붙이거나 떼어야 한다 [CSP3 #grammardef-hash-source·SRI #the-integrity-attribute]
