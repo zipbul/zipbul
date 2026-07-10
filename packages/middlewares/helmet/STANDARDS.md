@@ -20,7 +20,7 @@
 
 **규칙 선별 기준 — 무엇이 이 문서에 들어오고 무엇이 빠지는가.** 포함 대상은 **helmet이 방출하거나 제거하는 헤더**뿐이다. 헤더가 표준인지 폐기됐는지는 포함 여부를 정하지 않는다 — 방출한다면 규칙이 있어야 하고, 규칙이 없는 방출은 통제되지 않는 방출이기 때문이다. 그래서 이 문서는 폐기된 것까지 담는다: `X-Frame-Options`(§6, WHATWG HTML이 정본), 레거시 `Report-To`(§11.2, NEL이 아직 요구하므로 helmet이 `Reporting-Endpoints`에서 합성한다), `Feature-Policy` 문법 재사용 금지(§9.2.7), `Pragma`·`Expires`(§12), 그리고 표준 문서가 아예 없는 §14의 벤더 헤더들이다. 각 레거시 헤더는 **정본의 지위**(폐기·대체·표준 없음)와 **방출 여부 규칙**을 함께 단다.
 
-반대로 **helmet이 방출하지 않는 헤더는 다루지 않는다** — `Expect-CT`·`Public-Key-Pins`가 그렇다. 둘 다 브라우저에서 제거되어 helmet의 옵션 표면에 없으므로, 이 문서의 부재는 **누락이 아니라 범위 밖**이다. 반대로 `X-Robots-Tag`(§14.5)나 `Timing-Allow-Origin`(§14.6)처럼 엄밀히는 보안 통제가 아닌 헤더도 helmet이 방출하므로 규칙을 둔다. §16은 이 기준의 바깥 경계를, §17은 규칙이 아닌 정책을 따로 선언한다.
+반대로 **helmet이 방출하지 않는 헤더는 다루지 않는다** — `Expect-CT`·`Public-Key-Pins`가 그렇다. 둘 다 브라우저에서 제거되어 helmet의 옵션 표면에 없으므로, 이 문서의 부재는 **누락이 아니라 범위 밖**이다. 반대로 `X-Robots-Tag`(§14.5)나 `Timing-Allow-Origin`(§14.6)처럼 엄밀히는 보안 통제가 아닌 헤더도 helmet이 방출하므로 규칙을 둔다. 이 표면의 **완전성은 세 방향으로 대조되었다**(2026-07-10): OWASP Secure Headers Project `headers_add.json`(2026-06-30) 13종 전부 포함, helmet(npm) v8 표면 전부 포함, 그리고 두 엔진(codex·grok)의 독립 갭 분석이 "방출·제거 대상에서 빠진 응답 보안 헤더 없음"으로 일치했다 — 유일한 후보였던 `Content-Disposition`은 리소스 단위 의미론이라 §16.1.10의 경계로 정리했다. §16은 이 기준의 바깥 경계를, §17은 규칙이 아닌 정책을 따로 선언한다.
 
 이 미들웨어는 **user agent가 아니다.** 인용 정본의 절대다수(WHATWG HTML·Fetch, W3C CSP·Permissions-Policy·Reporting·Referrer-Policy)는 **행위 규범을 UA 알고리즘으로만 규정**하며, 서버를 직접 구속하는 부분은 대개 **헤더 문법**뿐이다. 따라서 이 문서의 서버 규칙 상당수는 그 UA 알고리즘에서 **파생**된 의무다.
 
@@ -484,6 +484,7 @@
 - **§16.1.7** [무표기] wire-level 메시지 framing·상태줄 생성·`Content-Length` 정합은 http-adapter/메시징 계층 소관이며 이 미들웨어의 규칙이 아니다 [경계: http-adapter STANDARDS.md]
 - **§16.1.8** [무표기] 요청 측 CORS 판정과 preflight 응답 생성은 이 미들웨어의 소관이 아니다 [경계: cors STANDARDS.md]
 - **§16.1.9** [무표기] `Content-Type` 자체의 생성은 이 미들웨어의 소관이 아니나, §7.1.3에 따라 `nosniff` 방출은 정확한 `Content-Type`을 전제한다 [Fetch #should-response-to-request-be-blocked-due-to-nosniff?]
+- **§16.1.10** [무표기] `Content-Disposition: attachment`는 사용자 제공 활성 콘텐츠(HTML·SVG·PDF)의 인라인 렌더링을 막는 실효 수단이나, 응답 **리소스 단위의 의미론**(RFC 6266)이라 전역 헤더 정책의 소관이 아니다 — 다운로드 엔드포인트가 개별적으로 설정할 일이다 [RFC 6266]
 
 ## 17. 규칙이 아닌 것 (정책)
 
