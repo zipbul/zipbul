@@ -5,14 +5,14 @@
 이 문서는 **규칙만** 담는다. 구현 분담은 `CLAUDE.md`, 런타임 동작은 테스트의 소관이다. 이 문서는 구현 코드가 아니라 **1차 출처(RFC·W3C·WHATWG 원문)만**을 근거로 한다. 1차 출처가 존재하지 않는 헤더는 §14에서 **"표준 문서 없음"을 명시**한다.
 
 **검증 방법과 그 한계** — 이 문서의 정확성 주장은 다음까지만 미친다:
-- 본문의 영어 verbatim 인용 **전건(75건)**을 대조했다. 71건은 1차 출처 원문에 기계적으로 문자열 일치를 확인했고, 나머지 4건(WICG 상태 보일러플레이트 2건·Chromium 설계문서 1건·OWASP 1건)은 발행본에서 개별 확인했다. 이 과정에서 생략부호 없이 잘린 인용 4건과 대소문자를 바꾼 인용 1건을 원문 형태로 복원했다.
-- 인용이 **정말 그 앵커 절 안에 있는지**까지 기계 대조했다(42건). 앵커는 실재하지만 인용문은 다른 절에 있던 3건(§13.3.4·§13.3.11·§13.3.13)을 교정했다.
-- 규칙이 다는 **출처 앵커 전건(198건)**이 발행본 스펙 문서에 실제 `id`로 존재하는지 대조했다. TR 스타일 앵커가 편집자 초안에 없던 다수를 교정했다.
-- **MUST·MUST NOT 전건(68건)**의 정당성을 재감사했다. RFC 출처는 BCP14 키워드의 실재를 개별 확인했고, 키워드도 구조적 실패도 없는 규칙은 강등했다 — 앞뒤 공백(§1.1.5), SF 중복 키(§2.4.3·§9.3.5), CSP 중복 디렉티브(§4.1.7), `'none'` 혼용(§4.2.2), `Referrer-Policy` 소문자(§8.1.6), Permissions-Policy의 `'self'` 표기·`src`·`report-to` 타입(§9.2.3·§9.2.5·§9.2.6), 엔드포인트 이름(§11.1.6), NEL 삭제 멤버(§11.3.7), Document-Policy `report-to` 타입(§13.3.6), `X-XSS-Protection`(§14.1.3), 그리고 `Cache-Control` 따옴표와 `includeSubDomains` 값이 그 사례다. 판정 기준은 규범 수준 규약의 **(ㄷ) 실패 귀결 판정** 하나로 통일했다.
+- 본문의 영어 verbatim 인용 **전건(83건)**을 대조했다. 79건은 1차 출처 원문에 기계적으로 문자열 일치를 확인했고, 나머지 4건(WICG 상태 보일러플레이트 2건·Chromium 설계문서 1건·OWASP 1건)은 발행본에서 개별 확인했다. 이 과정에서 생략부호 없이 잘린 인용 4건과 대소문자를 바꾼 인용 1건을 원문 형태로 복원했다.
+- 인용이 **정말 그 앵커 절 안에 있는지**까지 기계 대조했다(47건). 앵커는 실재하지만 인용문은 다른 절에 있던 3건(§13.3.4·§13.3.11·§13.3.13)을 교정했다.
+- 규칙이 다는 **출처 앵커 전건(201건)**이 발행본 스펙 문서에 실제 `id`로 존재하는지 대조했다. TR 스타일 앵커가 편집자 초안에 없던 다수를 교정했다.
+- **MUST·MUST NOT 전건(71건)**의 정당성을 재감사했다. RFC 출처는 BCP14 키워드의 실재를 개별 확인했고, 키워드도 구조적 실패도 없는 규칙은 강등했다 — 앞뒤 공백(§1.1.5), SF 중복 키(§2.4.3·§9.3.5), CSP 중복 디렉티브(§4.1.7), `'none'` 혼용(§4.2.2), `Referrer-Policy` 소문자(§8.1.6), Permissions-Policy의 `'self'` 표기·`src`·`report-to` 타입(§9.2.3·§9.2.5·§9.2.6), 엔드포인트 이름(§11.1.6), NEL 삭제 멤버(§11.3.7), Document-Policy `report-to` 타입(§13.3.6), `X-XSS-Protection`(§14.1.3), 그리고 `Cache-Control` 따옴표와 `includeSubDomains` 값이 그 사례다. 판정 기준은 규범 수준 규약의 **(ㄷ) 실패 귀결 판정** 하나로 통일했다.
 - 규칙이 언급하는 기술 식별자(헤더명·디렉티브·토큰)가 인용 출처에 실재하는지 대조했다. 그 결과 NEL의 두 멤버가 편집자 초안에서 삭제되었음(§11.3.7), NEL의 `endpoint group` 참조가 현행 Reporting-1에서 정의를 잃어 **끊긴 참조**임(§11.3.4), DIP 편집자 초안이 report-only 헤더명을 오타로 조회함(§10.6.5), Document Policy가 `Require-Document-Policy`를 정의해놓고 알고리즘에서는 `Required-Document-Policy`를 조회함(§13.4.3), Reporting-1의 `destination`은 URL이 아니라 **엔드포인트 이름**인데 HTML·DIP 산문은 이를 "valid URL string"이라 부름(§11.1.6–§11.1.7)을 발견했다.
 - 문서 내부 정합성도 기계 검사했다 — 규칙 번호 연속성, 교차참조 dangling, 그리고 §13.3.7이 §2.4.1(Dictionary Boolean true는 값 생략)과 충돌하던 것을 §13.3.8로 분리해 교정했다.
 - helmet의 공개 옵션 표면을 역방향으로 대조해 **누락된 헤더**(`Require-Document-Policy`·`Document-Policy-Report-Only`)와 누락된 규칙(COOP/COEP/DIP Report-Only, Document-Policy 값 타입·범위, DIP `report-to`)을 찾아 보강했다.
-- **한계:** 규범 키워드가 없는 서술형 규칙(무표기)의 개별 문장은 위 식별자 대조 수준까지만 검증되었고, 문장 단위 의미 대조는 전수로 수행되지 않았다. 이 문서는 서로 다른 두 엔진(codex·grok)의 적대적 교차 검토를 **네 라운드** 거쳤고, 두 엔진의 지적은 채택 전에 1차 출처로 재검증했다 — 실제로 각 엔진이 여러 번 틀렸다 — codex의 RFC 9651 §3.1.2 오독, grok이 인용한 존재하지 않는 `network_reporting_endpoints`, 그리고 4라운드에서 두 엔진이 함께 준 존재하지 않는 CSP3 앵커와 *"processing algorithm"*(원문은 *"processing steps"*)이라는 잘못된 인용이 그것이다. 그 과정에서 발견된 정본 오지정(`X-Frame-Options`를 RFC 7034로 인용)·사실 반전(XFO 중복의 fail-open↔fail-closed)·앵커 부재·정책의 MUST 둔갑은 모두 수정되었다.
+- **한계:** 규범 키워드가 없는 서술형 규칙(무표기)의 개별 문장은 위 식별자 대조 수준까지만 검증되었고, 문장 단위 의미 대조는 전수로 수행되지 않았다. 이 문서는 서로 다른 두 엔진(codex·grok)의 적대적 교차 검토를 **다섯 라운드** 거쳤고, 두 엔진의 지적은 채택 전에 1차 출처로 재검증했다 — 실제로 각 엔진이 여러 번 틀렸다 — codex의 RFC 9651 §3.1.2 오독, grok이 인용한 존재하지 않는 `network_reporting_endpoints`, 그리고 4라운드에서 두 엔진이 함께 준 존재하지 않는 CSP3 앵커와 *"processing algorithm"*(원문은 *"processing steps"*)이라는 잘못된 인용이 그것이다. 그 과정에서 발견된 정본 오지정(`X-Frame-Options`를 RFC 7034로 인용)·사실 반전(XFO 중복의 fail-open↔fail-closed)·앵커 부재·정책의 MUST 둔갑은 모두 수정되었다.
 
 ## 적용 범위 · 주체 선언
 
@@ -85,7 +85,8 @@
 적용 대상: `Permissions-Policy`(§9)·`Origin-Agent-Cluster`(§10.4)·`Reporting-Endpoints`(§11.1)·`Integrity-Policy`(§13.2)·`Document-Policy`(§13.3)·COOP/COEP/DIP의 token+parameter(§10). **`Cross-Origin-Resource-Policy`(§10.3)와 `Clear-Site-Data`(§12.2)는 SF가 아니다.**
 
 - **§2.1.1** [무표기] RFC 9651은 RFC 8941을 obsolete하며, Date(RFC 9651 §3.3.7)·Display String(RFC 9651 §3.3.8) 타입을 추가하고 ABNF를 informative 부록으로 옮겼다 — 규범적 방출자 의무는 RFC 9651 §3의 데이터 모델 제약과 §4.1의 직렬화 알고리즘에 있다 [RFC 9651 Abstract·Appendix D]
-- **§2.1.2** [무표기] Permissions Policy는 `[[!RFC8941]]`을 인용하나, Dictionary·Token·String·key 문법은 RFC 9651과 동일하므로 이 문서는 현행 정본인 RFC 9651을 인용한다 [Permissions Policy #structured-header-serialization·RFC 9651 Abstract]
+- **§2.1.2** [무표기] SF 문법을 어긴 값은 수신 파서를 실패시키고, 원문이 *"If parsing fails, either the entire field value MUST be ignored (i.e., treated as if the field were not present in the section), or alternatively the complete HTTP message MUST be treated as malformed"*라고 규정한다 — 그러므로 §2의 모든 문법 규칙 위반은 **헤더 전체 소멸**이라는 경성 실패를 낳으며, 이것이 §2의 MUST·MUST NOT를 정당화하는 (ㄴ) 근거다 [RFC 9651 §4.2]
+- **§2.1.3** [무표기] Permissions Policy는 `[[!RFC8941]]`을 인용하나, Dictionary·Token·String·key 문법은 RFC 9651과 동일하므로 이 문서는 현행 정본인 RFC 9651을 인용한다 [Permissions Policy #structured-header-serialization·RFC 9651 Abstract]
 
 - **§2.2.1** [MUST] Dictionary·Parameters의 key는 `key = ( lcalpha / "*" ) *( lcalpha / DIGIT / "_" / "-" / "." / "*" )` 문법을 만족하도록 생성하며, 위반 시 직렬화가 실패한다(*"fail serialization"*) [RFC 9651 §4.1.1.3]
 - **§2.2.2** [MUST NOT] key에 대문자를 생성하지 않는다 — `lcalpha`는 `%x61-7A`(a–z)뿐이며 원문이 *"parameter keys cannot contain uppercase letters"*로 못박는다 [RFC 9651 §3.1.2·§4.1.1.3]
@@ -140,13 +141,13 @@
 - **§4.2.5** [무표기] `nonce-source = "'nonce-" base64-value "'"`, `hash-source = "'" hash-algorithm "-" base64-value "'"`, `hash-algorithm = "sha256" / "sha384" / "sha512"`다 [CSP3 #grammardef-nonce-source·#grammardef-hash-source]
 - **§4.2.6** [무표기] `base64-value = 1*( ALPHA / DIGIT / "+" / "/" / "-" / "_" ) *2( "=" )`이며 base64와 base64url을 모두 허용하고 **hash-source 처리 시 두 인코딩을 동등 취급**한다 [CSP3 #grammardef-base64-value]
 - **§4.2.7** [무표기] nonce는 인코딩 동등성을 적용받지 않는다 — UA는 디코딩하지 않고 **문자열 그대로** 대조한다 [CSP3 #grammardef-base64-value]
-- **§4.2.8** [MUST] 국제화 도메인 이름(IDN)은 host-source에 직접 쓰지 않고 Punycode로 인코딩해 생성한다 [CSP3 #grammardef-host-source]
+- **§4.2.8** [MUST] 국제화 도메인 이름(IDN)은 host-source에 직접 쓰지 않고 Punycode로 인코딩해 생성한다 — 원문이 *"internationalized domain names cannot be entered directly as part of a serialized CSP, but instead MUST be Punycode-encoded"*로 규정하며 `üüüüüü.de`는 `xn--tdaaaaaa.de`로 써야 한다 [CSP3 #grammardef-host-source]
 - **§4.2.9** [무표기] IP 리터럴 중 실제로 URL과 매치되는 것은 `127.0.0.1`뿐이다 [CSP3 #grammardef-host-source]
 - **§4.2.10** [무표기] keyword·scheme·host·hash-algorithm 라벨은 ASCII case-insensitive로 대조되고, nonce의 base64-value와 hash의 base64-value는 **byte 그대로** 대조된다 [CSP3 #match-nonce-to-source-list·#match-hosts]
 
 ### 4.3 nonce (서버 직접 구속 — CSP3에서 가장 강한 방출자 의무)
 
-- **§4.3.1** [MUST] nonce-source를 정책에 실어 보낸다면 **정책을 전송할 때마다 고유한 값**을 생성한다 [CSP3 #security-nonces]
+- **§4.3.1** [MUST] nonce-source를 정책에 실어 보낸다면 **정책을 전송할 때마다 고유한 값**을 생성한다 — 원문이 *"If a server delivers a nonce-source expression as part of a policy, the server MUST generate a unique value each time it transmits a policy"*로 서버를 직접 지목한다 [CSP3 #security-nonces]
 - **§4.3.2** [SHOULD] nonce 값은 인코딩 전 기준 최소 128비트로 생성한다 [CSP3 #security-nonces]
 - **§4.3.3** [SHOULD] nonce 값은 암호학적으로 안전한 난수 생성기로 생성한다 [CSP3 #security-nonces]
 - **§4.3.4** [무표기] nonce는 자신이 담긴 디렉티브의 다른 제약을 무효화하므로, 예측 가능하면 정책 우회가 자명해진다 [CSP3 #security-nonces]
@@ -249,9 +250,9 @@
 - **§9.1.2** [MUST] feature 이름(Dictionary member key)은 §2.2의 `key` 문법을 만족하도록 **소문자**로 생성한다 — 대문자 key는 SF 파싱 실패를 일으켜 §9.3.1로 헤더 전체가 사라진다 [RFC 9651 §4.1.1.3·Permissions Policy #structured-header-serialization]
 - **§9.1.3** [MUST] `Permissions-Policy-Report-Only`도 같은 Dictionary 문법으로 생성한다 [Permissions Policy #permissions-policy-report-only-header]
 
-- **§9.2.1** [MUST] Member Value는 `*` token, `self` token, ASCII permissions-source-expression을 담은 String, 또는 이들 0개 이상을 담은 Inner List 중 하나로 생성한다 [Permissions Policy #structured-header-serialization]
+- **§9.2.1** [MUST] Member Value는 `*` token, `self` token, ASCII permissions-source-expression을 담은 String, 또는 이들 0개 이상을 담은 Inner List 중 하나로 생성한다 — 원문이 *"Member Values of any other form will cause the entire Dictionary Member to be ignored by the processing steps"*라 하므로, 형태가 어긋나면 그 feature 선언이 통째로 사라지고 **기본 allowlist로 되돌아가 의도한 제한이 소멸한다** [Permissions Policy #structured-header-serialization]
 - **§9.2.2** [MUST] origin은 **따옴표 붙은 sf-string**으로, `self`와 `*`는 **따옴표 없는 sf-token**으로 생성한다 — 예: `geolocation=(self "https://a.example")` [Permissions Policy #structured-header-serialization]
-- **§9.2.3** [SHOULD NOT] CSP식 따옴표 표기 `'self'`나 따옴표 없는 origin을 생성하지 않는다 — 전자는 아포스트로피를 포함한 리터럴 문자열이라 어떤 origin과도 매치되지 않고, 후자는 유효한 SF Token이지만 construct-policy가 인식하지 않는다. 원문이 *"Any other items inside of an Inner List will be ignored by the processing steps"*라 헤더는 파싱되고 그 항목만 조용히 사라지므로 (ㄷ)에 따라 SHOULD NOT이다 [Permissions Policy #structured-header-serialization·#algo-construct-policy]
+- **§9.2.3** [MUST NOT] CSP식 따옴표 표기 `'self'`나 따옴표 없는 origin을 생성하지 않는다 — 전자는 아포스트로피를 포함한 리터럴 문자열이라 어떤 origin과도 매치되지 않고, 후자는 유효한 SF Token이지만 `*`·`self`가 아니라 인식되지 않는다. 원문이 *"Any other items inside of an Inner List will be ignored by the processing steps, and the Member Value will be processed as if they were not present"*라 하므로 allowlist가 비어 **그 기능이 차단된다** — §9.2.6과 달리 남는 항목이 없다 [Permissions Policy #structured-header-serialization]
 - **§9.2.4** [무표기] 빈 Inner List `()`는 그 feature를 **모든 origin에서 비활성화**하며, 이는 멤버를 **생략**해 feature의 기본 allowlist로 남기는 것과 정반대의 결과다 [Permissions Policy #structured-header-serialization]
 - **§9.2.5** [SHOULD] `report-to` 파라미터를 붙인다면 그 값은 String으로 생성한다 — 원문이 *"Member Values may have a Parameter named \"report-to\", whose value must be a String. Any other parameters will be ignored"*라 하고, UA는 *"If params[\"report-to\"] exists, and is a string"*일 때에만 채택한다. String이 아니면 리포팅만 사라지고 allowlist는 그대로 적용되므로 §13.3.6과 같은 이유로 SHOULD다 [Permissions Policy #structured-header-serialization·#algo-construct-policy]
 - **§9.2.6** [SHOULD NOT] `src`를 헤더에 생성하지 않는다 — `'src'`는 iframe `allow` 속성 문법 전용이며 헤더의 construct-policy 알고리즘은 `*`와 `self`와 origin 표현식만 인식한다. 인식되지 않는 항목은 *"will be ignored by the processing steps"*라 헤더가 버려지지 않으므로 (ㄷ)에 따라 SHOULD NOT이다 [Permissions Policy #structured-header-serialization·#algo-construct-policy]
@@ -275,7 +276,7 @@
 - **§10.1.5** [MUST NOT] COOP 헤더를 두 번 이상 방출하지 않는다 — §1.2.1의 결합으로 값이 sf-list가 되어 token으로 파싱되지 않고, §10.1.2에 따라 UA가 헤더를 무시해 기본값 `unsafe-none`으로 되돌아간다 [HTML #the-coop-headers·RFC 9110 §5.3]
 - **§10.1.6** [무표기] `Cross-Origin-Opener-Policy-Report-Only`는 COOP와 같은 structured header·token 문법을 쓰나, 그 값은 opener policy struct의 **report-only value**에 들어가 리포팅에만 관여하며 강제되는 policy value를 바꾸지 않는다 [HTML #the-coop-headers]
 - **§10.1.7** [SHOULD NOT] `Cross-Origin-Opener-Policy-Report-Only`에 `noopener-allow-popups`를 생성하지 않는다 — COOP 획득 알고리즘의 report-only 분기는 `same-origin`과 `same-origin-allow-popups`만 처리하고 `noopener-allow-popups` 분기를 **두지 않으므로**, 파싱은 성공하나 report-only value가 설정되지 않아 아무 리포트도 발생하지 않는다 [HTML #obtain-coop]
-- **§10.1.8** [SHOULD] COOP·COEP의 `report-to` 파라미터를 붙인다면 그 값을 SF **String**으로 생성한다 — UA는 *"If parsedItem[1][\"report-to\"] exists and it is a string"*일 때에만 리포팅 엔드포인트로 채택하므로, String이 아니면 리포팅만 사라지고 격리 정책은 그대로 적용된다 [HTML #obtain-coop]
+- **§10.1.8** [SHOULD] COOP의 `report-to` 파라미터를 붙인다면 그 값을 SF **String**으로 생성한다 — UA는 *"If parsedItem[1][\"report-to\"] exists and it is a string"*일 때에만 리포팅 엔드포인트로 채택하므로, String이 아니면 리포팅만 사라지고 격리 정책은 그대로 적용된다 [HTML #obtain-coop]
 - **§10.1.9** [MUST NOT] `Cross-Origin-Opener-Policy-Report-Only` 헤더를 두 번 이상 방출하지 않는다 — §10.1.5와 동일하게 결합된 값이 `"item"`으로 파싱되지 않아 UA가 헤더를 무시하고 report-only value가 기본값으로 남는다 [HTML #obtain-coop·RFC 9110 §5.3]
 - **§10.1.10** [무표기] report-only COOP의 `same-origin`은 강제 COEP뿐 아니라 **report-only COEP**도 교차 출처 격리 호환으로 인정해 `same-origin-plus-COEP`를 부여한다 — 원문 주석이 *"This allows developers more freedom in the order of deployment of COOP and COEP"*로 그 의도를 밝힌다 [HTML #obtain-coop]
 
@@ -283,10 +284,11 @@
 
 - **§10.2.1** [무표기] COEP·COEP-Report-Only는 structured header이며 값은 token이어야 하고 `report-to` 파라미터를 붙일 수 있다 [HTML #the-coep-headers]
 - **§10.2.2** [MUST] 값은 `unsafe-none`·`require-corp`·`credentialless` 중 하나를 따옴표 없는 sf-token으로 생성한다 [HTML #embedder-policy-value]
-- **§10.2.3** [MUST NOT] COEP 헤더를 두 번 이상 방출하지 않는다 — 원문이 *"The processing model fails open (by defaulting to \"unsafe-none\") in the presence of a header that cannot be parsed as a token. This includes inadvertent lists created by combining multiple instances"*로 규정하므로, 중복은 오류 없이 격리를 소멸시킨다 [HTML #the-coep-headers]
-- **§10.2.4** [무표기] 비보안 컨텍스트에서는 UA가 COEP 획득 알고리즘 2단계에서 조기 반환하므로 헤더가 무시된다 [HTML #obtain-an-embedder-policy]
-- **§10.2.5** [무표기] `require-corp` 하에서는 CORS도 CORP도 없는 교차 출처 no-cors 하위 리소스가 차단되며, `credentialless`는 no-cors 요청의 credentials를 제거하는 대신 CORP를 요구하지 않는다 [HTML #embedder-policy-value·Fetch #cross-origin-resource-policy-internal-check]
-- **§10.2.6** [MUST NOT] `Cross-Origin-Embedder-Policy-Report-Only` 헤더도 두 번 이상 방출하지 않는다 — 원문이 §10.2.3의 fail-open 표 직후 *"(The same applies to `Cross-Origin-Embedder-Policy-Report-Only`.)"*라고 명시하므로 중복 시 동일하게 `unsafe-none`으로 되돌아간다 [HTML #the-coep-headers]
+- **§10.2.3** [SHOULD] COEP·COEP-Report-Only의 `report-to` 파라미터를 붙인다면 그 값을 SF **String**으로 생성한다 — COOP(§10.1.8)과 달리 UA 알고리즘은 *"If parsedItem[1][\"report-to\"] exists, then set policy's endpoint to parsedItem[1][\"report-to\"]"*로 **존재만 검사하므로**, String 요구는 알고리즘이 아니라 헤더 산문과 §11.1.6에서 파생된다 [HTML #obtain-an-embedder-policy]
+- **§10.2.4** [MUST NOT] COEP 헤더를 두 번 이상 방출하지 않는다 — 원문이 *"The processing model fails open (by defaulting to \"unsafe-none\") in the presence of a header that cannot be parsed as a token. This includes inadvertent lists created by combining multiple instances"*로 규정하므로, 중복은 오류 없이 격리를 소멸시킨다 [HTML #the-coep-headers]
+- **§10.2.5** [무표기] 비보안 컨텍스트에서는 UA가 COEP 획득 알고리즘 2단계에서 조기 반환하므로 헤더가 무시된다 [HTML #obtain-an-embedder-policy]
+- **§10.2.6** [무표기] `require-corp` 하에서는 CORS도 CORP도 없는 교차 출처 no-cors 하위 리소스가 차단되며, `credentialless`는 no-cors 요청의 credentials를 제거하는 대신 CORP를 요구하지 않는다 [HTML #embedder-policy-value·Fetch #cross-origin-resource-policy-internal-check]
+- **§10.2.7** [MUST NOT] `Cross-Origin-Embedder-Policy-Report-Only` 헤더도 두 번 이상 방출하지 않는다 — 원문이 §10.2.3의 fail-open 표 직후 *"(The same applies to `Cross-Origin-Embedder-Policy-Report-Only`.)"*라고 명시하므로 중복 시 동일하게 `unsafe-none`으로 되돌아간다 [HTML #the-coep-headers]
 
 ### 10.3 Cross-Origin-Resource-Policy
 
@@ -341,14 +343,16 @@
 ### 11.3 Network Error Logging
 
 - **§11.3.1** [무표기] `NEL` 헤더 값은 JSON 객체 배열로 해석된다 [NEL #nel-response-header]
-- **§11.3.2** [MUST] `max_age`를 non-negative integer로 생성한다 — REQUIRED이며 *"Its value MUST be an non-negative integer; any other type will result in a parse error"*이고, `0`은 이 origin의 NEL 정책을 정책 캐시에서 제거한다 [NEL #max-age-member]
-- **§11.3.3** [MUST] NEL 정책을 등록하려면 `report_to`를 String으로 생성한다 — REQUIRED이며 *"If present, its value MUST be a string; any other type will result in a parse error"*다 [NEL #report-to-member]
-- **§11.3.4** [무표기] `report_to`의 값은 *"the endpoint group that reports for this NEL policy will be sent to"*이며, NEL은 이 *endpoint group* 개념을 `[REPORTING]`의 외부 정의에 위임한다 — 그런데 **현행 Reporting-1 편집자 초안에는 endpoint group의 정의가 존재하지 않는다**(그 개념은 폐기된 `Report-To`와 함께 사라졌다). 즉 NEL의 이 규범 참조는 현재 **연결이 끊긴 상태**이며, NEL 자신의 예시는 여전히 `Report-To` 헤더를 사용한다 [NEL #report-to-member·Reporting-1 ED]
-- **§11.3.5** [무표기] UA는 요청 origin이 Potentially Trustworthy가 아니면 NEL 정책 처리를 중단한다 [NEL #process-policy-headers]
-- **§11.3.6** [무표기] `success_fraction`이 없으면 UA는 성공 요청의 NEL 리포트를 수집하지 않고, `failure_fraction`이 없으면 실패 요청 전부를 수집한다 [NEL #success-fraction-member·#failure-fraction-member]
-- **§11.3.7** [SHOULD NOT] `request_headers`·`response_headers` 멤버를 생성하지 않는다 — published TR(WD 2025-05-05)에는 §4.1.6·§4.1.7로 남아 있으나 편집자 초안에서 **삭제되었다**(커밋 *"Remove \"request headers\" and \"response headers\" from NEL"*). 원문이 *"User agents MUST ignore any unknown or invalid field(s) or value(s)"*라고 하므로 이 멤버는 무시될 뿐 파스 오류를 일으키지 않아 MUST NOT은 아니다 [NEL ED·#nel-response-header]
-- **§11.3.8** [무표기] 이 두 멤버의 존재 여부는 NEL의 published TR과 편집자 초안이 **갈라진 지점**이므로, TR만 보고 구현하면 이미 제거된 기능을 방출하게 된다 [NEL ED·NEL TR §4.1.6·§4.1.7]
-- **§11.3.9** [무표기] `include_subdomains` 멤버는 OPTIONAL 불리언으로 이 NEL 정책을 origin의 모든 하위 도메인에 적용한다 [NEL #include-subdomains-member]
+- **§11.3.2** [MUST] `NEL` 값을 **JSON 객체의 배열**로 생성하고 그 배열에 REQUIRED 멤버를 모두 갖춘 정책 객체를 최소 하나 담는다 — 원문이 *"A valid NEL header field MUST, at a minimum, contain one object with all of the \"REQUIRED\" fields defined in this specification"*라 하고, UA는 *"MUST process the first valid policy in the array and ignore any additional policies in the array"*이므로 두 번째 이후 정책은 무의미하다 [NEL #nel-response-header]
+- **§11.3.3** [MUST] `max_age`를 non-negative integer로 생성한다 — REQUIRED이며 *"Its value MUST be an non-negative integer; any other type will result in a parse error"*이고, `0`은 이 origin의 NEL 정책을 정책 캐시에서 제거한다 [NEL #max-age-member]
+- **§11.3.4** [MUST] NEL 정책을 등록하려면 `report_to`를 String으로 생성한다 — REQUIRED이며 *"If present, its value MUST be a string; any other type will result in a parse error"*다 [NEL #report-to-member]
+- **§11.3.5** [무표기] `report_to`의 값은 *"the endpoint group that reports for this NEL policy will be sent to"*이며, NEL은 이 *endpoint group* 개념을 `[REPORTING]`의 외부 정의에 위임한다 — 그런데 **현행 Reporting-1 편집자 초안에는 endpoint group의 정의가 존재하지 않는다**(그 개념은 폐기된 `Report-To`와 함께 사라졌다). 즉 NEL의 이 규범 참조는 현재 **연결이 끊긴 상태**이며, NEL 자신의 예시는 여전히 `Report-To` 헤더를 사용한다 [NEL #report-to-member·Reporting-1 ED]
+- **§11.3.6** [무표기] UA는 요청 origin이 Potentially Trustworthy가 아니면 NEL 정책 처리를 중단한다 [NEL #process-policy-headers]
+- **§11.3.7** [무표기] `success_fraction`이 없으면 UA는 성공 요청의 NEL 리포트를 수집하지 않고, `failure_fraction`이 없으면 실패 요청 전부를 수집한다 [NEL #success-fraction-member·#failure-fraction-member]
+- **§11.3.8** [MUST] `success_fraction`·`failure_fraction`을 방출한다면 각각 **0.0 이상 1.0 이하의 number**로 생성한다 — 원문이 두 멤버 모두에 대해 *"If present, its value MUST be a number between 0.0 and 1.0, inclusive; any other value will result in a parse error"*라 규정하며, 파스 오류는 그 정책을 무효로 만든다 [NEL #success-fraction-member·#failure-fraction-member]
+- **§11.3.9** [SHOULD NOT] `request_headers`·`response_headers` 멤버를 생성하지 않는다 — published TR(WD 2025-05-05)에는 §4.1.6·§4.1.7로 남아 있으나 편집자 초안에서 **삭제되었다**(커밋 *"Remove \"request headers\" and \"response headers\" from NEL"*). 원문이 *"User agents MUST ignore any unknown or invalid field(s) or value(s)"*라고 하므로 이 멤버는 무시될 뿐 파스 오류를 일으키지 않아 MUST NOT은 아니다 [NEL ED·#nel-response-header]
+- **§11.3.10** [무표기] 이 두 멤버의 존재 여부는 NEL의 published TR과 편집자 초안이 **갈라진 지점**이므로, TR만 보고 구현하면 이미 제거된 기능을 방출하게 된다 [NEL ED·NEL TR §4.1.6·§4.1.7]
+- **§11.3.11** [무표기] `include_subdomains` 멤버는 OPTIONAL 불리언으로 이 NEL 정책을 origin의 모든 하위 도메인에 적용한다 [NEL #include-subdomains-member]
 
 ### 11.4 리포트 수신 (ingestor 측)
 
