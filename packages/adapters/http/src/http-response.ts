@@ -147,6 +147,7 @@ export class HttpResponse {
     }
 
     this.ensureHeaders().set(name, value);
+    this._mergedNativeResponse = undefined;
     return this;
   }
 
@@ -167,6 +168,7 @@ export class HttpResponse {
     }
 
     this._headers?.delete(name);
+    this._mergedNativeResponse = undefined;
     return this;
   }
 
@@ -205,6 +207,9 @@ export class HttpResponse {
    */
   appendHeader(name: string, value: string): this {
     this.ensureHeaders().append(name, value);
+    // 헤더 변경은 캐시된 native 병합 결과를 무효화한다 — 안 그러면 병합이 한 번
+    // 계산된 뒤의 append(예: BeforeResponse 미들웨어의 Vary)가 전송에 반영되지 않는다.
+    this._mergedNativeResponse = undefined;
     return this;
   }
 
@@ -297,6 +302,22 @@ export class HttpResponse {
   }
 
   /**
+   * Returns the raw native Response WITHOUT merging `_headers` — a read-only
+   * peek for BeforeResponse middlewares that must inspect the native
+   * response's own headers (e.g. compression checking a handler-set
+   * `Content-Encoding`/`Content-Type`) or wrap its body stream.
+   *
+   * Unlike {@link getNativeResponse}, this never creates the merged cache,
+   * so later finalizers/middlewares can still add headers safely.
+   *
+   * @returns The raw native Response, or `undefined` if none is set.
+   * @public
+   */
+  peekNativeResponse(): Response | undefined {
+    return this._rawNativeResponse;
+  }
+
+  /**
    * Returns the native Response with `_headers` merged in.
    * Creates and caches the merged Response on first call.
    *
@@ -325,6 +346,21 @@ export class HttpResponse {
     for (const [key, value] of headerOverrides.entries()) {
       if (key === HttpHeader.SetCookie) {
         merged.append(key, value);
+      } else if (key === HttpHeader.Vary && merged.has(key)) {
+        // Vary is a list-valued selecting header: a native Response's own Vary and a
+        // middleware-added one (e.g. Accept-Encoding from compression) must BOTH survive,
+        // else a shared cache mis-selects the representation (RFC 9110 §12.5.5). Union the
+        // tokens instead of letting the native value win. `*` already means unlimited variance.
+        const existing = merged.get(key) as string;
+        const seen = new Set(existing.split(',').map((t) => t.trim().toLowerCase()).filter((t) => t !== ''));
+        if (!seen.has('*')) {
+          const additions: string[] = [];
+          for (const token of value.split(',')) {
+            const t = token.trim();
+            if (t !== '' && !seen.has(t.toLowerCase())) { additions.push(t); seen.add(t.toLowerCase()); }
+          }
+          if (additions.length > 0) merged.set(key, `${existing}, ${additions.join(', ')}`);
+        }
       } else if (!merged.has(key)) {
         merged.set(key, value);
       }
@@ -377,6 +413,18 @@ export class HttpResponse {
       this.setContentType(this.inferContentType());
     }
 
+    // Already-serialized bodies: a string or binary body needs no JSON
+    // serialization regardless of Content-Type — re-stringifying a Uint8Array
+    // set by a BeforeResponse middleware (e.g. compression) would corrupt it
+    // into `{"0":31,"1":139,...}`. Honors the documented no-op contract above.
+    if (
+      typeof this._body === 'string'
+      || this._body instanceof Uint8Array
+      || this._body instanceof ArrayBuffer
+    ) {
+      return;
+    }
+
     // JSON serialization
     const contentType = this.getContentType();
     if (contentType?.startsWith(ContentType.Json) === true) {
@@ -408,6 +456,12 @@ export class HttpResponse {
         this.setStatus(HttpStatus.Found);
       }
       this._body = undefined;
+      // Body is dropped — content-coupled metadata (Content-Encoding set by a
+      // BeforeResponse middleware, stale Content-Length) would describe content
+      // that no longer exists. RFC 9110 §8.4: Content-Encoding is a property of
+      // the (now absent) representation content.
+      this._headers?.delete(HttpHeader.ContentEncoding);
+      this._headers?.delete(HttpHeader.ContentLength);
       return this.createResponse();
     }
 
@@ -420,10 +474,14 @@ export class HttpResponse {
       this._body = undefined;
       // RFC 9110 §15.3.5/§15.3.6: 204/205 MUST NOT contain content. Content-Type
       // describes non-existent content and MUST be removed. 304 MAY carry
-      // Content-Type (RFC 9110 §15.4.5) so only strip for 204/205.
+      // Content-Type (RFC 9110 §15.4.5) so only strip for 204/205. Likewise
+      // Content-Encoding/Content-Length describe absent content on 204/205,
+      // while on 304 they are permitted representation metadata for cache updates.
       if (this._status !== HttpStatus.NotModified) {
         this._contentType = undefined;
         this._headers?.delete(HttpHeader.ContentType);
+        this._headers?.delete(HttpHeader.ContentEncoding);
+        this._headers?.delete(HttpHeader.ContentLength);
       }
       return this.createResponse();
     }
