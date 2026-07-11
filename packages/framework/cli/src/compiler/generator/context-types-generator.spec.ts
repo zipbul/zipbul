@@ -15,7 +15,7 @@ const HTTP_ADAPTER_MAP: ContextAdapterMap = {
 };
 
 describe('ContextTypesGenerator', () => {
-  test('generates declaration merging for class augments', () => {
+  test('generates declaration merging for validatedAccessor augments across interfaces', () => {
     const generator = new ContextTypesGenerator();
     const registry = new ImportRegistry('/project/.zipbul');
     const augments: MiddlewareContextAugment[] = [
@@ -24,44 +24,8 @@ describe('ContextTypesGenerator', () => {
         contextType: 'HttpContext',
         sourceFilePath: '/project/packages/cookie/src/index.ts',
         augments: [
-          { path: ['request', 'cookie'], rhs: { kind: 'class', identifier: 'RequestCookieJar' } },
-          { path: ['response', 'cookie'], rhs: { kind: 'class', identifier: 'ResponseCookieJar' } },
-        ],
-        classImports: new Map([
-          ['RequestCookieJar', '/project/packages/cookie/src/request-cookie-jar.ts'],
-          ['ResponseCookieJar', '/project/packages/cookie/src/response-cookie-jar.ts'],
-        ]),
-      },
-    ];
-
-    const output = generator.generate(augments, registry, HTTP_ADAPTER_MAP);
-
-    expect(output).toContain("declare module '@zipbul/http-adapter'");
-    expect(output).toContain('interface HttpRequest {');
-    expect(output).toContain('cookie: RequestCookieJar;');
-    expect(output).toContain('interface HttpResponse {');
-    expect(output).toContain('cookie: ResponseCookieJar;');
-    expect(output).toContain('import type {');
-  });
-
-  test('generates method signatures with generics', () => {
-    const generator = new ContextTypesGenerator();
-    const registry = new ImportRegistry('/project/.zipbul');
-    const augments: MiddlewareContextAugment[] = [
-      {
-        middlewareName: 'queryParserMiddleware',
-        contextType: 'HttpContext',
-        sourceFilePath: '/project/packages/query-parser/src/index.ts',
-        augments: [
-          {
-            path: ['request', 'getQuery'],
-            rhs: {
-              kind: 'method',
-              typeParams: ['T'],
-              params: [{ name: 'dto', type: 'Class<T>' }],
-              returnType: 'T',
-            },
-          },
+          { path: ['request', 'getCookie'] },
+          { path: ['response', 'setCookie'] },
         ],
         classImports: new Map(),
       },
@@ -69,7 +33,12 @@ describe('ContextTypesGenerator', () => {
 
     const output = generator.generate(augments, registry, HTTP_ADAPTER_MAP);
 
-    expect(output).toContain('getQuery<T>(dto: Class<T>): T;');
+    expect(output).toContain("declare module '@zipbul/http-adapter'");
+    expect(output).toContain('interface HttpRequest {');
+    expect(output).toContain('getCookie<T>(dto: Class<T>): T;');
+    expect(output).toContain('interface HttpResponse {');
+    expect(output).toContain('setCookie<T>(dto: Class<T>): T;');
+    expect(output).toContain('import type { Class } from "@zipbul/common"');
   });
 
   test('merges multiple middlewares into one HttpRequest interface block', () => {
@@ -81,21 +50,16 @@ describe('ContextTypesGenerator', () => {
         contextType: 'HttpContext',
         sourceFilePath: '/project/packages/cookie/src/index.ts',
         augments: [
-          { path: ['request', 'cookie'], rhs: { kind: 'class', identifier: 'CookieJar' } },
+          { path: ['request', 'getCookie'] },
         ],
-        classImports: new Map([
-          ['CookieJar', '/project/packages/cookie/src/cookie-jar.ts'],
-        ]),
+        classImports: new Map(),
       },
       {
         middlewareName: 'queryMiddleware',
         contextType: 'HttpContext',
         sourceFilePath: '/project/packages/query/src/index.ts',
         augments: [
-          {
-            path: ['request', 'getQuery'],
-            rhs: { kind: 'method', typeParams: ['T'], params: [{ name: 'dto', type: 'Class<T>' }], returnType: 'T' },
-          },
+          { path: ['request', 'getQuery'] },
         ],
         classImports: new Map(),
       },
@@ -106,7 +70,7 @@ describe('ContextTypesGenerator', () => {
     const requestBlocks = output.match(/interface HttpRequest \{[^}]*\}/g);
 
     expect(requestBlocks).toHaveLength(1);
-    expect(output).toContain('cookie: CookieJar;');
+    expect(output).toContain('getCookie<T>(dto: Class<T>): T;');
     expect(output).toContain('getQuery<T>(dto: Class<T>): T;');
   });
 
@@ -120,30 +84,7 @@ describe('ContextTypesGenerator', () => {
         sourceFilePath: '/project/bad.ts',
         augments: [
           // 'session' is not in HTTP_ADAPTER_MAP — should be dropped
-          { path: ['session', 'data'], rhs: { kind: 'class', identifier: 'SessionData' } },
-        ],
-        classImports: new Map([
-          ['SessionData', '/project/bad.ts'],
-        ]),
-      },
-    ];
-
-    const output = generator.generate(augments, registry, HTTP_ADAPTER_MAP);
-
-    expect(output).not.toContain('session');
-    expect(output).not.toContain('data');
-  });
-
-  test('skips class augments without resolved import', () => {
-    const generator = new ContextTypesGenerator();
-    const registry = new ImportRegistry('/project/.zipbul');
-    const augments: MiddlewareContextAugment[] = [
-      {
-        middlewareName: 'badMiddleware',
-        contextType: 'HttpContext',
-        sourceFilePath: '/project/bad.ts',
-        augments: [
-          { path: ['request', 'mystery'], rhs: { kind: 'class', identifier: 'UnknownClass' } },
+          { path: ['session', 'getData'] },
         ],
         classImports: new Map(),
       },
@@ -151,7 +92,8 @@ describe('ContextTypesGenerator', () => {
 
     const output = generator.generate(augments, registry, HTTP_ADAPTER_MAP);
 
-    expect(output).not.toContain('mystery');
+    expect(output).not.toContain('session');
+    expect(output).not.toContain('getData');
   });
 
   test('works with non-HTTP adapter via custom adapter map', () => {
@@ -169,11 +111,9 @@ describe('ContextTypesGenerator', () => {
         contextType: 'WsContext',
         sourceFilePath: '/project/ws-auth.ts',
         augments: [
-          { path: ['client', 'session'], rhs: { kind: 'class', identifier: 'Session' } },
+          { path: ['client', 'getSession'] },
         ],
-        classImports: new Map([
-          ['Session', '/project/session.ts'],
-        ]),
+        classImports: new Map(),
       },
     ];
 
@@ -181,6 +121,28 @@ describe('ContextTypesGenerator', () => {
 
     expect(output).toContain("declare module '@zipbul/ws-adapter'");
     expect(output).toContain('interface WsClient {');
-    expect(output).toContain('session: Session;');
+    expect(output).toContain('getSession<T>(dto: Class<T>): T;');
+  });
+
+  test('renders validatedAccessor augments with the standardized signature and Class import', () => {
+    const generator = new ContextTypesGenerator();
+    const registry = new ImportRegistry('/project/.zipbul');
+    const augments: MiddlewareContextAugment[] = [
+      {
+        middlewareName: 'queryParser',
+        contextType: 'HttpContext',
+        sourceFilePath: '@zipbul/query-parser',
+        packageName: '@zipbul/query-parser',
+        augments: [
+          { path: ['request', 'getQuery'] },
+        ],
+        classImports: new Map(),
+      },
+    ];
+
+    const output = generator.generate(augments, registry, HTTP_ADAPTER_MAP);
+
+    expect(output).toContain('getQuery<T>(dto: Class<T>): T;');
+    expect(output).toContain('import type { Class } from "@zipbul/common"');
   });
 });

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
+import { gunzipSync as nodeGunzipSync, zstdDecompressSync as nodeZstdDecompressSync } from 'node:zlib';
 import { injectGzipPadding, injectZstdPadding } from './htb';
 
 function at(arr: Uint8Array, i: number): number {
@@ -127,6 +128,75 @@ describe('injectGzipPadding (HTB - Heal the BREACH)', () => {
     expect(result).toEqual(fakeGzip);
   });
 
+  // --- Rejection sampling (bias-free RNG) ---
+
+  it('should reject an out-of-range RNG draw and retry until a valid one (non-power-of-two maxPadding)', () => {
+    const compressed = compress(data);
+    // maxPadding=100 → limit = 2^32 - (2^32 % 100) = 4294967296 - 96 = 4294967200.
+    // First draw ≥ limit must be rejected; second draw is accepted.
+    const limit = 0x100000000 - (0x100000000 % 100);
+    let call = 0;
+    const spy = spyOn(crypto, 'getRandomValues').mockImplementation(((buf: ArrayBufferView) => {
+      const view = buf as Uint32Array;
+      view[0] = call === 0 ? limit + 42 : 50; // reject, then accept
+      call++;
+      return buf;
+    }) as typeof crypto.getRandomValues);
+    try {
+      const padded = injectGzipPadding(compressed, 100);
+      // Retry happened → getRandomValues called exactly twice
+      expect(spy).toHaveBeenCalledTimes(2);
+      // padLen = 1 + (50 % 100) = 51, in [1, 100]
+      const xlen = at(padded, 10) | (at(padded, 11) << 8);
+      const padLen = xlen - 4;
+      expect(padLen).toBe(51);
+      expect(padLen).toBeGreaterThanOrEqual(1);
+      expect(padLen).toBeLessThanOrEqual(100);
+      // Still a valid gzip round-trip
+      expect(Buffer.from(Bun.gunzipSync(toAB(padded))).toString()).toBe(Buffer.from(data).toString());
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // --- XLEN overflow exact boundary ---
+
+  it('should NOT bail when existing XLEN + subfield reaches exactly 65535 (max, not over)', () => {
+    const compressed = compress(data);
+    // maxPadding=1 → padLen=1 deterministically → subfieldTotal = 4 + 1 = 5.
+    // existingXlen=65530 → newXlen = 65535 = MAX_XLEN (not > MAX) → proceed.
+    const existingXlen = 65530;
+    const fakeGzip = new Uint8Array(compressed.length + 2 + existingXlen);
+    fakeGzip.set(compressed.subarray(0, 10));
+    fakeGzip[3] = at(compressed, 3) | 0x04; // FEXTRA flag
+    fakeGzip[10] = existingXlen & 0xff;
+    fakeGzip[11] = (existingXlen >> 8) & 0xff;
+    fakeGzip.set(compressed.subarray(10), 12 + existingXlen);
+
+    const result = injectGzipPadding(fakeGzip, 1);
+    // Proceeded: grew by exactly subfieldTotal (5) and new XLEN is the 65535 max
+    expect(result.byteLength).toBe(fakeGzip.byteLength + 5);
+    expect(at(result, 10) | (at(result, 11) << 8)).toBe(65535);
+    expect(Buffer.from(Bun.gunzipSync(toAB(result))).toString()).toBe(Buffer.from(data).toString());
+  });
+
+  it('should bail (return an unmodified copy) when existing XLEN + subfield reaches exactly 65536 (over max)', () => {
+    const compressed = compress(data);
+    // existingXlen=65531 → newXlen = 65531 + 5 = 65536 > MAX_XLEN → bail with a copy.
+    const existingXlen = 65531;
+    const fakeGzip = new Uint8Array(compressed.length + 2 + existingXlen);
+    fakeGzip.set(compressed.subarray(0, 10));
+    fakeGzip[3] = at(compressed, 3) | 0x04;
+    fakeGzip[10] = existingXlen & 0xff;
+    fakeGzip[11] = (existingXlen >> 8) & 0xff;
+    fakeGzip.set(compressed.subarray(10), 12 + existingXlen);
+
+    const result = injectGzipPadding(fakeGzip, 1);
+    expect(result).not.toBe(fakeGzip); // a copy, not the same reference
+    expect(result.byteLength).toBe(fakeGzip.byteLength); // unmodified length
+    expect(result).toEqual(fakeGzip); // byte-identical copy
+  });
+
   // --- Existing FEXTRA ---
 
   it('should handle input that already has FEXTRA by appending a new subfield', () => {
@@ -170,14 +240,17 @@ describe('injectZstdPadding (HTB - Skippable Frame)', () => {
     expect(Buffer.from(decompressed).toString()).toBe(Buffer.from(data).toString());
   });
 
-  it('should prepend a Skippable Frame with correct magic number', () => {
+  it('should append a Skippable Frame with correct magic number (after the data frame)', () => {
     const compressed = compress(data);
     const padded = injectZstdPadding(compressed, 32);
+    const off = compressed.byteLength; // skippable frame is trailing
     // Magic: 0x184D2A50 in little-endian
-    expect(at(padded, 0)).toBe(0x50);
-    expect(at(padded, 1)).toBe(0x2a);
-    expect(at(padded, 2)).toBe(0x4d);
-    expect(at(padded, 3)).toBe(0x18);
+    expect(at(padded, off)).toBe(0x50);
+    expect(at(padded, off + 1)).toBe(0x2a);
+    expect(at(padded, off + 2)).toBe(0x4d);
+    expect(at(padded, off + 3)).toBe(0x18);
+    // The original compressed frame is preserved byte-for-byte at the front.
+    expect(padded.subarray(0, off)).toEqual(compressed);
   });
 
   it('should produce output longer than the original', () => {
@@ -190,11 +263,12 @@ describe('injectZstdPadding (HTB - Skippable Frame)', () => {
   it('should encode frame size correctly in little-endian', () => {
     const compressed = compress(data);
     const padded = injectZstdPadding(compressed, 16);
-    const frameSize = at(padded, 4) | (at(padded, 5) << 8) | (at(padded, 6) << 16) | (at(padded, 7) << 24);
+    const off = compressed.byteLength;
+    const frameSize = at(padded, off + 4) | (at(padded, off + 5) << 8) | (at(padded, off + 6) << 16) | (at(padded, off + 7) << 24);
     expect(frameSize).toBeGreaterThanOrEqual(1);
     expect(frameSize).toBeLessThanOrEqual(16);
-    // Total = 8 (header) + frameSize (padding) + compressed.length
-    expect(padded.byteLength).toBe(8 + frameSize + compressed.byteLength);
+    // Total = compressed.length + 8 (header) + frameSize (padding)
+    expect(padded.byteLength).toBe(compressed.byteLength + 8 + frameSize);
   });
 
   it('should produce varying output sizes across multiple calls', () => {
@@ -209,7 +283,7 @@ describe('injectZstdPadding (HTB - Skippable Frame)', () => {
   it('should work with maxPadding=1 (always adds exactly 1 byte)', () => {
     const compressed = compress(data);
     const padded = injectZstdPadding(compressed, 1);
-    const frameSize = at(padded, 4);
+    const frameSize = at(padded, compressed.byteLength + 4);
     expect(frameSize).toBe(1);
     expect(padded.byteLength).toBe(8 + 1 + compressed.byteLength);
     expect(Buffer.from(Bun.zstdDecompressSync(toAB(padded))).toString()).toBe(Buffer.from(data).toString());
@@ -218,9 +292,55 @@ describe('injectZstdPadding (HTB - Skippable Frame)', () => {
   it('should work with large maxPadding=256', () => {
     const compressed = compress(data);
     const padded = injectZstdPadding(compressed, 256);
-    const frameSize = at(padded, 4) | (at(padded, 5) << 8);
+    const off = compressed.byteLength;
+    const frameSize = at(padded, off + 4) | (at(padded, off + 5) << 8);
     expect(frameSize).toBeGreaterThanOrEqual(1);
     expect(frameSize).toBeLessThanOrEqual(256);
     expect(Buffer.from(Bun.zstdDecompressSync(toAB(padded))).toString()).toBe(Buffer.from(data).toString());
+  });
+});
+
+/**
+ * L5: HTB padding must be transparent to ANY RFC-compliant decompressor, not only Bun's
+ * (tolerant) decoder. These roundtrip the padded bytes through node:zlib and the WHATWG
+ * DecompressionStream — independent implementations — to prove the FEXTRA subfield injection
+ * (RFC 1952 §2.3.1) and zstd skippable frame (RFC 8878 §3.1.2) are byte-legal.
+ */
+describe('HTB padding — transparency to independent RFC decoders (cross-decoder)', () => {
+  const data = new TextEncoder().encode('cross-decoder BREACH payload '.repeat(120));
+
+  async function inflateGzipViaWebStream(padded: Uint8Array): Promise<Uint8Array> {
+    const ds = new DecompressionStream('gzip');
+    const piped = new Blob([toAB(padded)]).stream().pipeThrough(ds);
+    return new Uint8Array(await new Response(piped).arrayBuffer());
+  }
+
+  it('gzip FEXTRA padding decodes via node:zlib (independent of Bun)', () => {
+    const padded = injectGzipPadding(toAB(Bun.gzipSync(toAB(data))), 64);
+    expect(Buffer.from(nodeGunzipSync(Buffer.from(padded))).toString()).toBe(Buffer.from(data).toString());
+  });
+
+  it('gzip FEXTRA padding decodes via WHATWG DecompressionStream', async () => {
+    const padded = injectGzipPadding(toAB(Bun.gzipSync(toAB(data))), 64);
+    expect(Buffer.from(await inflateGzipViaWebStream(padded)).toString()).toBe(Buffer.from(data).toString());
+  });
+
+  it('double-padded gzip (existing-FEXTRA append branch) still decodes via node:zlib', () => {
+    // First inject sets FEXTRA; the second inject exercises the existing-FEXTRA XLEN-append path.
+    const once = injectGzipPadding(toAB(Bun.gzipSync(toAB(data))), 40);
+    const twice = injectGzipPadding(once, 40);
+    expect(Buffer.from(nodeGunzipSync(Buffer.from(twice))).toString()).toBe(Buffer.from(data).toString());
+  });
+
+  it('zstd trailing skippable-frame padding decodes via Bun', () => {
+    const padded = injectZstdPadding(new Uint8Array(Bun.zstdCompressSync(toAB(data), { level: 3 })), 64);
+    expect(Buffer.from(Bun.zstdDecompressSync(toAB(padded))).toString()).toBe(Buffer.from(data).toString());
+  });
+
+  // F5 fix: the skippable frame is now TRAILING, so even node:zlib's zstd decoder — which
+  // returns empty for a LEADING skippable frame — recovers the full payload independently of Bun.
+  it('zstd trailing skippable-frame padding decodes via node:zlib zstd (independent of Bun)', () => {
+    const padded = injectZstdPadding(new Uint8Array(Bun.zstdCompressSync(toAB(data), { level: 3 })), 64);
+    expect(Buffer.from(nodeZstdDecompressSync(Buffer.from(padded))).toString()).toBe(Buffer.from(data).toString());
   });
 });

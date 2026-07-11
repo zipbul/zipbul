@@ -217,7 +217,7 @@ CORS 검증 실패 시 반환됩니다. `reason`으로 상세한 에러 응답�
 | `CorsErrorReason` | 의미 |
 |:------------------|:--------|
 | `CredentialsWithWildcardOrigin` | 부팅 시 `credentials:true` + `origin:'*'`, 또는 런타임에 origin 함수가 `'*'` 반환 (Fetch Standard §3.3.5) |
-| `CredentialsWithWildcardMethods` | `credentials:true` + `methods:['*']` 조합 불가 (Fetch Standard §3.2.6) |
+| `CredentialsWithWildcardMethods` | `credentials:true` + `methods:['*']` 조합 불가 (와일드카드 메서드는 credential 요청에 허용되지 않음 — Fetch Standard) |
 | `InvalidMaxAge` | `maxAge`가 10²¹ 미만의 음수가 아닌 정수가 아님 (RFC 9111 `delta-seconds`) |
 | `InvalidStatusCode` | `optionsSuccessStatus`가 실존하는 2xx `HttpStatus` 멤버가 아님 (예: `299`는 throw) |
 | `InvalidOrigin` | `origin`이 boolean, 직렬화된 origin 문자열(`'*'`·`'null'` 허용), stateless RegExp(`g`·`y` 플래그 불가), 그 배열, 함수 중 어느 것도 아님 |

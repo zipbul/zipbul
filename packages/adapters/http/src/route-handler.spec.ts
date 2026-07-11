@@ -842,7 +842,10 @@ describe('RouteHandler', () => {
       expect(entry.metatype).toBe(ParamsDto);
     });
 
-    it('should skip unknown accessor paths silently', () => {
+    it('should throw at boot for an unknown accessor path (no built-in, no augment registry entry)', () => {
+      // A compiled validation entry naming an accessor nothing claims means the
+      // providing middleware's registry entry is missing — silently skipping it
+      // would ship an unvalidated accessor, so registration must fail loudly.
       class SomeDto {}
       const metatypeRegistry = new Map<new (...args: readonly unknown[]) => unknown, { className: string }>([
         [SomeDto, { className: 'SomeDto' }],
@@ -850,6 +853,36 @@ describe('RouteHandler', () => {
       const handlerWithMeta = new RouteHandler(
         metatypeRegistry as never,
         { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
+      );
+      const instance = { handle: () => 'ok' };
+      const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
+
+      const buildPipeline = mock(() => ({ pre: [], post: [], filters: [] }));
+
+      expect(() => handlerWithMeta.registerFromHandlerIndex([{
+        id: 'TestAdapter:test#TestCtrl.handle',
+        adapterId: 'TestAdapter',
+        controllerKey: 'TestCtrl',
+        methodName: 'handle',
+        handlerDecorator: 'Get',
+        handlerDecoratorArgs: ['test'],
+        params: [],
+        validations: [{ accessor: ['request', 'unknownAccessor'], metatypeKey: 'SomeDto' }],
+      } as never], controllerFactories, buildPipeline as never)).toThrow(
+        "Unknown validation accessor 'unknownAccessor'",
+      );
+    });
+
+    it('should resolve a registry-declared validated accessor to raw/validated slot IO', () => {
+      class SomeDto {}
+      const metatypeRegistry = new Map<new (...args: readonly unknown[]) => unknown, { className: string }>([
+        [SomeDto, { className: 'SomeDto' }],
+      ]);
+      const handlerWithMeta = new RouteHandler(
+        metatypeRegistry as never,
+        { adapterId: 'TestAdapter', controllerDecoratorName: 'Controller', handlerDecoratorNames: ['Get'] },
+        undefined,
+        [{ namespace: 'request', prop: 'getQuery', kind: 'validated-accessor' }],
       );
       const instance = { handle: () => 'ok' };
       const controllerFactories = new Map<string, () => unknown>([['TestCtrl', () => instance]]);
@@ -868,10 +901,10 @@ describe('RouteHandler', () => {
         handlerDecorator: 'Get',
         handlerDecoratorArgs: ['test'],
         params: [],
-        validations: [{ accessor: ['request', 'unknownAccessor'], metatypeKey: 'SomeDto' }],
+        validations: [{ accessor: ['request', 'getQuery'], metatypeKey: 'SomeDto' }],
       } as never], controllerFactories, buildPipeline as never);
 
-      expect(capturedValidations).toEqual([]);
+      expect(capturedValidations).toHaveLength(1);
     });
 
     it('should throw when metatypeKey cannot be resolved', () => {

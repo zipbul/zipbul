@@ -1187,6 +1187,116 @@ describe('HttpResponse', () => {
       const text = await response.text();
       expect(text).toBe(JSON.stringify({ replaced: true }));
     });
+
+    it('should not JSON.stringify a Uint8Array body set after serialize() under a JSON Content-Type', async () => {
+      const res = createResponse();
+      res.setContentType('application/json');
+      res.setBody({ original: true });
+
+      // Simulate pipeline: Serialize step runs (body → JSON string)
+      res.serialize();
+
+      // BeforeResponse middleware (e.g. compression) replaces body with binary
+      const compressed = new Uint8Array([0x1f, 0x8b, 0x08, 0x00, 0x42]);
+      res.setBody(compressed);
+
+      // end() → build() → safety-net serialize(): binary body must pass through untouched
+      const response = res.end();
+
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      expect(bytes).toEqual(compressed);
+    });
+
+    it('should not re-stringify a string body set after serialize() under a JSON Content-Type', async () => {
+      const res = createResponse();
+      res.setContentType('application/json');
+      res.setBody({ original: true });
+      res.serialize();
+
+      // BeforeResponse middleware replaces body with already-serialized JSON text
+      res.setBody('{"replaced":true}');
+
+      const response = res.end();
+
+      expect(await response.text()).toBe('{"replaced":true}');
+    });
+
+    it('should drop Content-Encoding and Content-Length when a redirect removes the body', async () => {
+      const res = createResponse();
+      res.setContentType('text/plain');
+      res.setBody(new Uint8Array([0x1f, 0x8b, 0x08]));
+      res.setHeader('content-encoding', 'gzip');
+      res.setHeader('content-length', '3');
+      res.redirect('/elsewhere');
+
+      const response = res.end();
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get('content-encoding')).toBeNull();
+      // stale CL('3')이 남아 있으면 안 된다 (빈 body의 런타임 CL 0은 허용)
+      expect(response.headers.get('content-length')).not.toBe('3');
+      expect((await response.arrayBuffer()).byteLength).toBe(0);
+    });
+
+    it('should drop Content-Encoding and stale Content-Length when a 204 removes the body', () => {
+      const res = createResponse();
+      res.setStatus(204);
+      res.setBody('x');
+      res.setHeader('content-encoding', 'gzip');
+      res.setHeader('content-length', '99');
+
+      const response = res.end();
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get('content-encoding')).toBeNull();
+      expect(response.headers.get('content-length')).not.toBe('99');
+    });
+
+    it('should keep Content-Encoding on 304 as representation metadata for cache updates', () => {
+      const res = createResponse();
+      res.setStatus(304);
+      res.setHeader('content-encoding', 'gzip');
+
+      const response = res.end();
+
+      expect(response.status).toBe(304);
+      expect(response.headers.get('content-encoding')).toBe('gzip');
+    });
+  });
+
+  // ── peekNativeResponse: read-only native access ──────────────
+
+  describe('peekNativeResponse', () => {
+    it('should return undefined when no native response is set', () => {
+      const res = createResponse();
+      expect(res.peekNativeResponse()).toBeUndefined();
+    });
+
+    it('should return the raw native Response with its own headers unmerged', () => {
+      const res = createResponse();
+      const native = new Response('x', { headers: { 'content-encoding': 'gzip' } });
+      res.setNativeResponse(native);
+      res.setHeader('x-middleware', 'set');
+
+      const peeked = res.peekNativeResponse();
+
+      expect(peeked).toBe(native);
+      expect(peeked!.headers.get('content-encoding')).toBe('gzip');
+      // raw peek이므로 _headers는 병합되지 않는다
+      expect(peeked!.headers.get('x-middleware')).toBeNull();
+    });
+
+    it('should not create the merged cache, so headers set after peeking still reach getNativeResponse', () => {
+      const res = createResponse();
+      res.setNativeResponse(new Response('x'));
+
+      res.peekNativeResponse();
+      // peek 이후에 미들웨어가 헤더를 추가해도
+      res.setHeader('x-late-header', 'late');
+
+      const merged = res.getNativeResponse();
+      expect(merged!.headers.get('x-late-header')).toBe('late');
+    });
   });
 
   // ── F13 regression: setBody stream cancel ────────────────────

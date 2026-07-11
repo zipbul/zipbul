@@ -10,7 +10,18 @@ import { buildFileAnalysis } from '../build/build-analysis';
 import { writeInterfaceCatalog, writeRuntimeReport } from '../build/build-artifact-writer';
 import { normalizePhaseKeys } from '../../compiler/analyzer/adapter/phase-key-normalizer';
 import { MiddlewareAugmentCollector } from '../../compiler/analyzer/adapter/middleware-augment-collector';
-import { validateHandlerContextUsages } from '../../compiler/analyzer/adapter/context-usage-validator';
+import { readAugmentsManifests } from '../../compiler/analyzer/adapter/augments-manifest-reader';
+import { DEFAULT_VALIDATION_ACCESSORS } from '../../compiler/analyzer/adapter/handler-index-builder';
+import {
+  buildAugmentAccessorRegistries,
+  validateAccessorPhaseRules,
+  formatAccessorPhaseViolation,
+} from '../../compiler/analyzer/adapter/augment-registry-builder';
+import {
+  validateHandlerContextUsages,
+  validateAccessorUsages,
+  formatAccessorUsageViolation,
+} from '../../compiler/analyzer/adapter/context-usage-validator';
 import {
   validateContextDependencies,
   formatViolationMessage,
@@ -159,7 +170,15 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
   const phaseKeysResult = await normalizePhaseKeys(graph, fileMap, parser);
   if (isErr(phaseKeysResult)) throw new DiagnosticError(phaseKeysResult.data);
 
-  const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot, graph });
+  // PRE-PASS: manifest-declared validated accessor names parameterize
+  // validation-entry extraction (same as `zb build`).
+  const augmentsManifestIndex = await readAugmentsManifests(fileMap);
+  const validationAccessors = new Set([
+    ...DEFAULT_VALIDATION_ACCESSORS,
+    ...augmentsManifestIndex.validationAccessorNames,
+  ]);
+
+  const adapterResolution = await adapterDefinitionResolver.resolve({ fileMap, projectRoot, graph, validationAccessors });
 
   if (isErr(adapterResolution)) {
     throw new DiagnosticError(adapterResolution.data);
@@ -215,19 +234,63 @@ export async function rebuild(context: RebuildContext, options?: RebuildOptions)
     controllerKey: controllerKeyMap.get(entry.className) ?? entry.className,
   }));
 
-  const runtimeResult = manifestGen.generate(graph, allClasses, outDir, resolvedHandlerIndex, adapterResolution.routeRegistrations, srcDir);
+  // Collect middleware augments for build-time validation + accessor registry.
+  // The .d.ts emission is the responsibility of `zb build middleware`
+  // (each middleware library ships its own `dist/context-augments.d.ts`).
+  const augmentCollector = new MiddlewareAugmentCollector();
+  const augmentResult = await augmentCollector.collect(
+    fileMap,
+    adapterResolution.adapterStaticSchemas,
+    undefined,
+    augmentsManifestIndex,
+  );
+
+  // Declared validated accessors: implicit provides + detached-read — HARD ERROR.
+  const accessorViolations = validateAccessorUsages(
+    adapterResolution.handlerIndex,
+    adapterResolution.handlerContextUsages,
+    augmentResult.augments,
+    adapterResolution.routeRegistrations,
+  );
+
+  if (accessorViolations.length > 0) {
+    const summary = accessorViolations.map(formatAccessorUsageViolation).join('\n\n');
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `${accessorViolations.length} validated-accessor usage violation(s):\n\n${summary}`,
+      how: 'Register the providing middleware for each violating route, and always invoke validated accessors directly with a DTO class.',
+    }));
+  }
+
+  // Validated-accessor phase rule: providers must run strictly before Validation.
+  const phaseViolations = validateAccessorPhaseRules({
+    handlerIndex: adapterResolution.handlerIndex,
+    routeRegistrations: adapterResolution.routeRegistrations,
+    adapterStaticSchemas: adapterResolution.adapterStaticSchemas,
+    augments: augmentResult.augments,
+  });
+
+  if (phaseViolations.length > 0) {
+    const summary = phaseViolations.map(formatAccessorPhaseViolation).join('\n\n');
+    throw new DiagnosticError(buildDiagnostic({
+      reason: `${phaseViolations.length} validated-accessor phase violation(s):\n\n${summary}`,
+      how: 'Move each violating middleware registration to a pipeline phase that runs before the Validation step.',
+    }));
+  }
+
+  // Accessor registry — emitted into the compiled adapter config slice.
+  const augmentAccessorRegistries = buildAugmentAccessorRegistries({
+    handlerIndex: adapterResolution.handlerIndex,
+    routeRegistrations: adapterResolution.routeRegistrations,
+    augments: augmentResult.augments,
+  });
+
+  const runtimeResult = manifestGen.generate(graph, allClasses, outDir, resolvedHandlerIndex, adapterResolution.routeRegistrations, srcDir, augmentAccessorRegistries);
 
   if (isErr(runtimeResult)) {
     throw new DiagnosticError(runtimeResult.data);
   }
 
   await writeIfChanged(join(outDir, 'runtime.ts'), runtimeResult);
-
-  // Collect middleware augments for build-time validation only.
-  // The .d.ts emission is the responsibility of `zb build middleware`
-  // (each middleware library ships its own `dist/context-augments.d.ts`).
-  const augmentCollector = new MiddlewareAugmentCollector();
-  const augmentResult = await augmentCollector.collect(fileMap, adapterResolution.adapterStaticSchemas);
 
   if (augmentResult.augments.length > 0) {
     const usageWarnings = validateHandlerContextUsages(

@@ -52,6 +52,7 @@ HTTP pipeline. Each layer is independently usable.
 import { cookieMiddleware, cookieJarKey, SameSite } from '@zipbul/cookie';
 import { HttpAdapter, HttpAdapterPhase, HttpContext } from '@zipbul/http-adapter';
 import { defineMiddleware } from '@zipbul/common';
+import { defineModule } from '@zipbul/core';
 
 // One parser, validated at registration (throws CookieError on invalid config, e.g. a blank secret)
 const cookies = cookieMiddleware({
@@ -61,8 +62,19 @@ const cookies = cookieMiddleware({
   sameSite: SameSite.Lax,  // SameSite.Strict | SameSite.Lax | SameSite.None
 });
 
-httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [cookies.onRequest]);
-httpAdapter.addMiddlewares(HttpAdapterPhase.BeforeResponse, [cookies.beforeResponse]);
+// Register both phases in a module's middleware map (applied by the bootstrap via adapter config).
+defineModule({
+  name: 'App',
+  adapters: [
+    {
+      adapter: HttpAdapter,
+      middlewares: {
+        [HttpAdapterPhase.OnRequest]: [cookies.onRequest],
+        [HttpAdapterPhase.BeforeResponse]: [cookies.beforeResponse],
+      },
+    },
+  ],
+});
 
 // Downstream handler / middleware: read and write via the jar
 const handler = defineMiddleware([HttpAdapter], () => async (ctx) => {

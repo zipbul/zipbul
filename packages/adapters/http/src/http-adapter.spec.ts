@@ -27,6 +27,7 @@ const { Adapter, handlerResultKey } = await import('../../../framework/core/src/
 const { CoreStep } = await import('../../../framework/core/src/adapter/enums');
 const { runInInjectionContext } = await import('../../../framework/core/src/injection-context');
 const { getAdapterContext, runInAdapterContext } = await import('../../../framework/core/src/adapter-context');
+const { installAugmentAccessorOnPrototype } = await import('../../../framework/core/src/adapter/augment-installer');
 
 mock.module('@zipbul/core', () => ({
   Adapter,
@@ -34,6 +35,7 @@ mock.module('@zipbul/core', () => ({
   handlerResultKey,
   getAdapterContext,
   runInAdapterContext,
+  installAugmentAccessorOnPrototype,
   runInInjectionContext,
   ClusterManager: class {},
   getBootstrapState: mockGetBootstrapState,

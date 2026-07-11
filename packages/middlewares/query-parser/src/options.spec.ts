@@ -6,7 +6,7 @@ import type { Err } from '@zipbul/result';
 
 import { DEFAULT_QUERY_PARSER_OPTIONS } from './constants';
 import { QueryParserErrorReason } from './enums';
-import type { QueryParserErrorData } from './interfaces';
+import type { QueryParserErrorData } from './errors';
 import { resolveQueryParserOptions, validateQueryParserOptions } from './options';
 import type { ResolvedQueryParserOptions } from './types';
 
@@ -169,6 +169,9 @@ describe('validateQueryParserOptions', () => {
     const errResult = assertErr(result);
 
     expect(errResult.data.reason).toBe(QueryParserErrorReason.InvalidDepth);
+    // The README documents this exact message string verbatim (`e.message` on
+    // the QueryParserError thrown by `create`), so pin the format.
+    expect(errResult.data.message).toBe('depth: min');
   });
 
   it('should return Err with InvalidDepth when depth is non-integer', () => {
@@ -293,16 +296,18 @@ describe('validateQueryParserOptions', () => {
     expect(errResult.data.reason).toBe(QueryParserErrorReason.InvalidDepth);
   });
 
-  it('should produce identical output when called twice with same input', () => {
-    // Arrange
-    const resolved = resolveQueryParserOptions({ depth: 3 });
+  it('should keep validating correctly across repeated calls after the baker is sealed', () => {
+    // The baker seals lazily on first validation (isSealed guard). Exercise the
+    // post-seal path with an invalid → valid → invalid sequence to prove the
+    // one-time seal does not break subsequent success or failure validation.
+    const invalid = resolveQueryParserOptions({ depth: -1 });
+    const valid = resolveQueryParserOptions({ depth: 3 });
 
-    // Act
-    const result1 = validateQueryParserOptions(resolved);
-    const result2 = validateQueryParserOptions(resolved);
-
-    // Assert
-    expect(result1).toBeUndefined();
-    expect(result2).toBeUndefined();
+    // First call triggers the seal and must still report the error.
+    expect(assertErr(validateQueryParserOptions(invalid)).data.reason).toBe(QueryParserErrorReason.InvalidDepth);
+    // A valid input after sealing passes.
+    expect(validateQueryParserOptions(valid)).toBeUndefined();
+    // And a later invalid input is still rejected (seal is not one-shot state).
+    expect(assertErr(validateQueryParserOptions(invalid)).data.reason).toBe(QueryParserErrorReason.InvalidDepth);
   });
 });

@@ -1,39 +1,16 @@
-import type { QueryParserErrorReason } from './enums';
-
-/**
- * Error data payload used internally with the Result pattern.
- * @internal
- */
-export interface QueryParserErrorData {
-  reason: QueryParserErrorReason;
-  message: string;
-}
-
-/**
- * Thrown by {@link QueryParser.create} on invalid options, or by
- * {@link QueryParser.parse} when strict mode detects malformed input.
- *
- * Inspect {@link reason} to programmatically distinguish error kinds.
- */
-export class QueryParserError extends Error {
-  public readonly reason: QueryParserErrorReason;
-
-  constructor(data: QueryParserErrorData) {
-    super(data.message);
-    this.name = 'QueryParserError';
-    this.reason = data.reason;
-  }
-}
-
 export interface QueryParserOptions {
   /**
-   * Maximum depth of nested objects to parse.
+   * Maximum depth of nested objects to parse. Beyond this depth, nesting stops
+   * and the value is kept as a leaf at the deepest permitted level — it is never
+   * dropped, and no empty placeholder object is left behind. This is a resource
+   * limit, not a strict error.
    * @default 5
    */
   depth?: number;
 
   /**
-   * Maximum number of parameters to parse.
+   * Maximum number of key-value pairs to parse. Pairs beyond this limit are
+   * silently dropped; empty `&` separators emit no pair and do not count.
    * @default 1000
    */
   maxParams?: number;
@@ -45,7 +22,17 @@ export interface QueryParserOptions {
   nesting?: boolean;
 
   /**
-   * Maximum array index allowed.
+   * Maximum array index allowed when `nesting` is enabled. An index within the
+   * limit allocates a sparse array up to that index, so this doubles as a
+   * resource bound: raising it far above the default lets a tiny input allocate
+   * a huge array (e.g. `arrayLimit: 1_000_000` + `a[999999]=x`). Keep it small
+   * for untrusted input — the default is a safe cap.
+   *
+   * Note: indices are accepted up to 10 digits, which exceeds the maximum real
+   * JS array index (2^32 − 2); an in-limit value above that is retained as a
+   * string-keyed own property rather than a true array element (the array's
+   * `length` stays 0). No value is lost, but such keys won't be array indices.
+   *
    * @default 20
    */
   arrayLimit?: number;
@@ -61,10 +48,18 @@ export interface QueryParserOptions {
 
   /**
    * Whether to enable strict mode.
-   * If enabled:
-   * - Throws QueryParserError on malformed query strings (unbalanced brackets, etc.).
-   * - Throws on mixed scalar and nested keys (e.g. `a=1&a[b]=2`).
-   * - Throws on mixed array and object indices if not handled by conversion.
+   *
+   * When enabled, {@link QueryParser.parse} throws (and
+   * {@link QueryParser.parseResult} returns an `Err`) on:
+   * - Malformed query strings — unbalanced/nested brackets, invalid percent
+   *   escapes (`MalformedQueryString`).
+   * - Structure conflicts — a key used as both a scalar and a nested structure,
+   *   e.g. `a=1&a[b]=2`, or a non-numeric key applied to an array
+   *   (`ConflictingStructure`).
+   *
+   * Resource limits (`depth`, `maxParams`, `arrayLimit`) are NOT strict errors:
+   * they truncate silently in both modes.
+   *
    * @default false
    */
   strict?: boolean;

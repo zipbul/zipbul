@@ -329,4 +329,75 @@ describe('validateCompressionOptions', () => {
     const result = validateCompressionOptions(resolved);
     expect(result).toBeUndefined();
   });
+
+  it('should return InvalidFilter when filter is not a function', () => {
+    const resolved = makeResolved({ filter: 'nope' as unknown as (ct: string) => boolean });
+    const result = validateCompressionOptions(resolved);
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) throw new Error('expected Err');
+    expect(result.data.reason).toBe(CompressionErrorReason.InvalidFilter);
+  });
+
+  it('should return InvalidThreshold when threshold is Infinity', () => {
+    const resolved = makeResolved({ threshold: Infinity });
+    const result = validateCompressionOptions(resolved);
+
+    expect(isErr(result)).toBe(true);
+    if (!isErr(result)) throw new Error('expected Err');
+    expect(result.data.reason).toBe(CompressionErrorReason.InvalidThreshold);
+  });
+
+  it('should return InvalidLevel for deflate above/below/fractional', () => {
+    for (const bad of [10, 0, 5.5]) {
+      const result = validateCompressionOptions(
+        makeResolved({ level: { ...DEFAULT_LEVELS, [CompressionCodec.Deflate]: bad } }),
+      );
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) throw new Error('expected Err');
+      expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
+    }
+  });
+
+  it('should return InvalidLevel for zstd above/below/fractional', () => {
+    for (const bad of [20, 0, 5.5]) {
+      const result = validateCompressionOptions(
+        makeResolved({ level: { ...DEFAULT_LEVELS, [CompressionCodec.Zstd]: bad } }),
+      );
+      expect(isErr(result)).toBe(true);
+      if (!isErr(result)) throw new Error('expected Err');
+      expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
+    }
+  });
+
+  it('should carry a per-codec detailed message with the offending value', () => {
+    const cases: Array<[CompressionCodec, number, string]> = [
+      [CompressionCodec.Gzip, 10, 'gzip level must be an integer between 1 and 9, got 10'],
+      [CompressionCodec.Br, 12, 'br level must be an integer between 0 and 11, got 12'],
+      [CompressionCodec.Deflate, 10, 'deflate level must be an integer between 1 and 9, got 10'],
+      [CompressionCodec.Zstd, 20, 'zstd level must be an integer between 1 and 19, got 20'],
+    ];
+    for (const [codec, bad, msg] of cases) {
+      const result = validateCompressionOptions(
+        makeResolved({ level: { ...DEFAULT_LEVELS, [codec]: bad } }),
+      );
+      if (!isErr(result)) throw new Error('expected Err');
+      expect(result.data.reason).toBe(CompressionErrorReason.InvalidLevel);
+      expect(result.data.message).toBe(msg);
+    }
+  });
+
+  it('should carry human-readable messages for non-level field failures', () => {
+    const cases: Array<[ResolvedCompressionOptions, string]> = [
+      [makeResolved({ encodings: [] }), 'encodings must not be empty'],
+      [makeResolved({ encodings: ['bogus' as CompressionCodec, CompressionCodec.Br] }), 'unknown encoding: bogus'],
+      [makeResolved({ threshold: -1 }), 'threshold must be a non-negative finite number'],
+      [makeResolved({ filter: 123 as unknown as (ct: string) => boolean }), 'filter must be a function'],
+    ];
+    for (const [resolved, msg] of cases) {
+      const result = validateCompressionOptions(resolved);
+      if (!isErr(result)) throw new Error('expected Err');
+      expect(result.data.message).toBe(msg);
+    }
+  });
 });

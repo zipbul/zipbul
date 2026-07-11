@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { QueryParserErrorReason } from './enums';
-import { QueryParserError } from './interfaces';
+import { QueryParserError } from './errors';
 import type { QueryParserOptions } from './interfaces';
 import type { QueryArray, QueryValue, QueryValueRecord } from './types';
 
@@ -279,6 +279,13 @@ describe('QueryParser', () => {
       expect(parser.parse('arr[]=a')).toEqual({ 'arr[]': 'a' });
       expect(parser.parse('a[b][c]=d')).toEqual({ 'a[b][c]': 'd' });
     });
+
+    it('should keep percent-encoded brackets as literal key characters when nesting is false', () => {
+      // Decode-then-parse: the key decodes to 'a[b]' but nesting is off, so the
+      // decoded brackets stay literal in the key name.
+      // Act & Assert
+      expect(parser.parse('a%5Bb%5D=c')).toEqual({ 'a[b]': 'c' });
+    });
   });
 
   // =========================================================================
@@ -293,26 +300,47 @@ describe('QueryParser', () => {
       expect(parser.parse('a[b][c][d][e][f]=deep')).toEqual({
         a: { b: { c: { d: { e: { f: 'deep' } } } } },
       });
+      // Beyond the depth cap the value is preserved at the deepest permitted
+      // level (a leaf), NOT dropped and NOT left as a phantom empty object.
       expect(parser.parse('a[b][c][d][e][f][g]=blocked')).toEqual({
-        a: { b: { c: { d: { e: { f: {} } } } } },
+        a: { b: { c: { d: { e: { f: 'blocked' } } } } },
       });
     });
 
-    it('should enforce depth 0 when nesting is disallowed', () => {
+    it('should preserve the value at the deepest level when depth 0 is exceeded', () => {
       // Arrange
       const parser = QueryParser.create({ depth: 0, nesting: true });
 
-      // Act & Assert
-      expect(parser.parse('a[b]=c')).toEqual({ a: {} });
+      // Act & Assert — value kept as a leaf, no phantom empty container.
+      expect(parser.parse('a[b]=c')).toEqual({ a: { b: 'c' } });
     });
 
-    it('should enforce depth 1 when one level is allowed', () => {
+    it('should preserve the value at the deepest level when depth 1 is exceeded', () => {
       // Arrange
       const parser = QueryParser.create({ depth: 1, nesting: true });
 
       // Act & Assert
       expect(parser.parse('a[b]=c')).toEqual({ a: { b: 'c' } });
-      expect(parser.parse('a[b][c]=d')).toEqual({ a: { b: {} } });
+      // [c] exceeds depth 1, so the value lands on b as a leaf — not a phantom {}.
+      expect(parser.parse('a[b][c]=d')).toEqual({ a: { b: 'd' } });
+    });
+
+    it('should not drop the value or leave a phantom object when depth is exceeded (strict === non-strict)', () => {
+      // Regression for the audit finding: `a[b][c][d][e][f][g]=1` at default
+      // depth 5 previously returned {a:{b:{c:{d:{e:{f:{}}}}}}} (value "1" lost,
+      // f a phantom empty object). Depth is a resource limit like maxParams, so
+      // it truncates silently (no strict error) but must not corrupt data.
+      const lenient = QueryParser.create({ nesting: true });
+      const strict = QueryParser.create({ nesting: true, strict: true });
+      const expected = { a: { b: { c: { d: { e: { f: '1' } } } } } };
+
+      expect(lenient.parse('a[b][c][d][e][f][g]=1')).toEqual(expected);
+      expect(strict.parse('a[b][c][d][e][f][g]=1')).toEqual(expected);
+
+      // parseResult must report success (no Err) — depth overflow is not malformed.
+      const res = strict.parseResult('a[b][c][d][e][f][g]=1');
+
+      expect(res).toEqual(expected);
     });
   });
 
@@ -346,6 +374,29 @@ describe('QueryParser', () => {
 
       // Act & Assert
       expect(parser.parse('a=1&b=2&c=3')).toEqual({ a: '1', b: '2' });
+    });
+
+    it('should keep all pairs when the pair count equals maxParams exactly', () => {
+      // Arrange — boundary: the limit truncates only pairs BEYOND maxParams.
+      const parser = QueryParser.create({ maxParams: 2 });
+
+      // Act & Assert
+      expect(parser.parse('a=1&b=2')).toEqual({ a: '1', b: '2' });
+    });
+
+    it('should not let empty segments consume the maxParams budget', () => {
+      // Regression: empty `&` segments emit no key-value pair, so they must not
+      // count toward maxParams and silently drop real trailing parameters.
+      expect(QueryParser.create({ maxParams: 2 }).parse('&a=1&b=2')).toEqual({ a: '1', b: '2' });
+      expect(QueryParser.create({ maxParams: 3 }).parse('&&&&real=value')).toEqual({ real: 'value' });
+      expect(QueryParser.create({ maxParams: 3 }).parse('=&=&=&real=value')).toEqual({ real: 'value' });
+      // Trailing/interleaved empties must not evict earlier real pairs either.
+      expect(QueryParser.create({ maxParams: 2 }).parse('a=1&&&b=2')).toEqual({ a: '1', b: '2' });
+    });
+
+    it('should still count empty-value pairs (key=) toward maxParams', () => {
+      // `a=` IS a pair (key emitted), unlike a bare `&` separator.
+      expect(QueryParser.create({ maxParams: 2 }).parse('a=&b=&c=')).toEqual({ a: '', b: '' });
     });
   });
 
@@ -382,6 +433,15 @@ describe('QueryParser', () => {
       expect(expectQueryArray(first.arr)).toEqual(['a']);
       expect(expectQueryArray(filtered.arr)).toEqual(['a']);
       expect(expectQueryRecord(fallback.arr)).toEqual({ '1': 'b' });
+    });
+
+    it('should create an object container for an over-limit index at an intermediate level', () => {
+      // Arrange — shouldCreateArray rejects indices above arrayLimit at container
+      // creation, so the intermediate level becomes an object and the value is kept.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('arr[21][x]=y')).toEqual({ arr: { '21': { x: 'y' } } });
     });
 
     it('should enforce arrayLimit 10 when limit is set', () => {
@@ -444,6 +504,16 @@ describe('QueryParser', () => {
       expect(parser.parse('id=1')).toEqual({ id: '1' });
     });
 
+    it('should drop a scalar duplicate of a record-valued key when duplicates is array', () => {
+      // Traced behavior: with duplicates 'array', a later scalar for a key that
+      // already holds a RECORD (not an array) is silently dropped — only an
+      // existing array collects the scalar. The record is never wrapped.
+      const parser = QueryParser.create({ nesting: true, duplicates: 'array' });
+
+      // Act & Assert
+      expect(parser.parse('a[b]=1&a=2')).toEqual({ a: { b: '1' } });
+    });
+
     it('should allow explicit array brackets when duplicates is first and nesting is true', () => {
       // Arrange
       const parser = QueryParser.create({ duplicates: 'first', nesting: true });
@@ -501,75 +571,114 @@ describe('QueryParser', () => {
   // Security: Prototype Pollution
   // =========================================================================
   describe('security: prototype pollution', () => {
-    it('should block POISONED root keys when parsing query', () => {
+    // Policy: `__proto__` is the ONLY key ever blocked — its assignment invokes
+    // the prototype setter, so it is neutralized at every position. Every other
+    // key (constructor, prototype, __defineGetter__, toString, …) is stored as
+    // an ordinary own-property shadow and never reaches the prototype chain
+    // (the parser create-own-or-skip via hasOwnProperty). The load-bearing,
+    // non-negotiable invariant asserted throughout is that no GLOBAL prototype
+    // is ever polluted.
+
+    /** Assert no global prototype was mutated by the vectors above. */
+    const expectNoGlobalPollution = (): void => {
+      expect((({}) as Record<string, unknown>).polluted).toBeUndefined();
+      expect((({}) as Record<string, unknown>).x).toBeUndefined();
+      expect((([] as unknown) as Record<string, unknown>).polluted).toBeUndefined();
+      expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+    };
+
+    it('should block __proto__ as a flat key and leave no pollution', () => {
       // Arrange
       const parser = QueryParser.create();
 
-      // Act & Assert
+      // Act & Assert — the sole always-blocked key
       expect(parser.parse('__proto__=1')).toEqual({});
-      expect(parser.parse('constructor=1')).toEqual({});
-      expect(parser.parse('prototype=1')).toEqual({});
+      expectNoGlobalPollution();
     });
 
-    it('should block __defineGetter__ and __defineSetter__ when provided', () => {
+    it('should store constructor/prototype as ordinary own-property scalars', () => {
       // Arrange
       const parser = QueryParser.create();
 
-      // Act
-      const res = parser.parse('__defineGetter__=bad');
-
-      // Assert
-      expect(Object.prototype.hasOwnProperty.call(res, '__defineGetter__')).toBe(false);
+      // Act & Assert — own-property shadows, harmless, no longer silently dropped
+      expect(parser.parse('constructor=1')).toEqual({ constructor: '1' });
+      expect(parser.parse('prototype=1')).toEqual({ prototype: '1' });
+      expectNoGlobalPollution();
     });
 
-    it('should block __lookupGetter__ and __lookupSetter__ when provided', () => {
+    it('should store __define*/__lookup* method names as own-property scalars', () => {
       // Arrange
       const parser = QueryParser.create();
 
-      // Act
-      const lookupGetter = parser.parse('__lookupGetter__=bad');
-      const lookupSetter = parser.parse('__lookupSetter__=bad');
-
-      // Assert
-      expect(Object.prototype.hasOwnProperty.call(lookupGetter, '__lookupGetter__')).toBe(false);
-      expect(Object.prototype.hasOwnProperty.call(lookupSetter, '__lookupSetter__')).toBe(false);
+      // Act & Assert — plain Object.prototype methods; a string shadow is harmless
+      expect(Object.getOwnPropertyDescriptor(parser.parse('__defineGetter__=bad'), '__defineGetter__')?.value).toBe('bad');
+      expect(Object.getOwnPropertyDescriptor(parser.parse('__defineSetter__=bad'), '__defineSetter__')?.value).toBe('bad');
+      expect(Object.getOwnPropertyDescriptor(parser.parse('__lookupGetter__=bad'), '__lookupGetter__')?.value).toBe('bad');
+      expect(Object.getOwnPropertyDescriptor(parser.parse('__lookupSetter__=bad'), '__lookupSetter__')?.value).toBe('bad');
+      expectNoGlobalPollution();
     });
 
-    it('should block nested POISONED keys when parsing nested structures', () => {
-      // Arrange
-      const parser = QueryParser.create({ nesting: true });
-
-      // Act & Assert
-      const protoRes = parser.parse('__proto__[polluted]=true');
-
-      expect(Object.prototype.hasOwnProperty.call(protoRes, '__proto__')).toBe(false);
-
-      const ctorRes = parser.parse('constructor[prototype][foo]=bar');
-
-      expect(Object.prototype.hasOwnProperty.call(ctorRes, 'constructor')).toBe(false);
-    });
-
-    it('should block POISONED keys at child positions when nesting is true', () => {
+    it('should block __proto__ at every nested position and leave no pollution', () => {
       // Arrange
       const parser = QueryParser.create({ nesting: true });
 
       // Act
-      const protoChild = parser.parse('safe[__proto__]=polluted');
-      const ctorChild = parser.parse('safe[constructor]=polluted');
-      const prototypeChild = parser.parse('safe[prototype]=polluted');
+      const protoRoot = parser.parse('__proto__[polluted]=true');
+      parser.parse('a[__proto__][polluted]=true');
+      parser.parse('a[0][__proto__][polluted]=true');
 
-      // Assert — child poisoned keys are silently dropped
-      const safeProto = expectQueryRecord(protoChild.safe);
+      // Assert — __proto__ neutralized at root, child, and array-child positions
+      expect(Object.prototype.hasOwnProperty.call(protoRoot, '__proto__')).toBe(false);
+      expectNoGlobalPollution();
+    });
 
-      expect(Object.prototype.hasOwnProperty.call(safeProto, '__proto__')).toBe(false);
+    it('should drop a key with a poisoned nested segment cleanly, leaving no phantom parent', () => {
+      // A `__proto__` segment anywhere drops the whole pair. It must not leave an
+      // empty phantom container for the prefix (e.g. {a:{}}) — same no-phantom
+      // guarantee as the depth cap.
+      const parser = QueryParser.create({ nesting: true });
 
-      const safeCtor = expectQueryRecord(ctorChild.safe);
+      expect(parser.parse('a[__proto__][x]=1')).toEqual({});
+      expect(parser.parse('a[b][__proto__]=1')).toEqual({});
+      expect(parser.parse('a[b][c][__proto__][x]=1')).toEqual({});
+      // A sibling real param is unaffected by the dropped poisoned one.
+      expect(parser.parse('a[b][__proto__]=1&a[b][c]=2')).toEqual({ a: { b: { c: '2' } } });
+      expectNoGlobalPollution();
+    });
 
-      expect(Object.prototype.hasOwnProperty.call(safeCtor, 'constructor')).toBe(false);
+    it('should block __proto__ even when percent-encoded, since decoding precedes the poison scan', () => {
+      // `%5f%5fproto%5f%5f` decodes to `__proto__` — a classic blocklist bypass.
+      // Keys are decoded before bracket parsing, so the segment is still caught.
+      const parser = QueryParser.create({ nesting: true });
 
-      const safePrototype = expectQueryRecord(prototypeChild.safe);
+      expect(parser.parse('%5f%5fproto%5f%5f[x]=1')).toEqual({});
+      expect(parser.parse('a[%5f%5fproto%5f%5f][x]=1')).toEqual({});
+      expect(parser.parse('a[b][%5f%5fproto%5f%5f]=1')).toEqual({});
+      expectNoGlobalPollution();
+    });
 
-      expect(Object.prototype.hasOwnProperty.call(safePrototype, 'prototype')).toBe(false);
+    it('should traverse constructor/prototype as own containers without polluting', () => {
+      // Arrange
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert — nested constructor/prototype are ordinary own keys now
+      expect(parser.parse('a[constructor]=1')).toEqual({ a: { constructor: '1' } });
+      expect(parser.parse('filter[constructor]=x')).toEqual({ filter: { constructor: 'x' } });
+      expect(parser.parse('a[constructor][prototype][x]=y')).toEqual({ a: { constructor: { prototype: { x: 'y' } } } });
+      expectNoGlobalPollution();
+    });
+
+    it('should not pollute via the classic constructor.prototype chain vector', () => {
+      // Arrange
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act — the canonical prototype-pollution payloads
+      const rootChain = parser.parse('constructor[prototype][polluted]=yes');
+      parser.parse('a[constructor][prototype][polluted]=yes');
+
+      // Assert — stored as own containers on the result, global prototype clean
+      expect(Object.prototype.hasOwnProperty.call(rootChain, 'constructor')).toBe(true);
+      expectNoGlobalPollution();
     });
 
     it('should allow non-dangerous inherited method names when used as keys', () => {
@@ -624,6 +733,13 @@ describe('QueryParser', () => {
       expect(parser.parse('%E0%A4=value')).toEqual({ '%E0%A4': 'value' });
     });
 
+    it('should fall back to raw for a lone-surrogate escape when non-strict', () => {
+      // `%ED%A0%80` decodes to a lone high surrogate — decodeURIComponent throws;
+      // non-strict must degrade to the raw string, never propagate the throw.
+      expect(parser.parse('bad=%ED%A0%80')).toEqual({ bad: '%ED%A0%80' });
+      expect(parser.parse('%ED%A0%80=v')).toEqual({ '%ED%A0%80': 'v' });
+    });
+
     it('should throw QueryParserError for malformed percent encoding in value when strict', () => {
       // Arrange
       const strictParser = QueryParser.create({ strict: true });
@@ -641,6 +757,17 @@ describe('QueryParser', () => {
 
       // Act & Assert
       const error = catchError(() => strictParser.parse('%E0%A4=value'));
+
+      expect(error).toBeInstanceOf(QueryParserError);
+      expect(error.reason).toBe(QueryParserErrorReason.MalformedQueryString);
+    });
+
+    it('should throw QueryParserError for a lone-surrogate escape when strict', () => {
+      // Arrange
+      const strictParser = QueryParser.create({ strict: true });
+
+      // Act & Assert
+      const error = catchError(() => strictParser.parse('bad=%ED%A0%80'));
 
       expect(error).toBeInstanceOf(QueryParserError);
       expect(error.reason).toBe(QueryParserErrorReason.MalformedQueryString);
@@ -713,8 +840,24 @@ describe('QueryParser', () => {
     });
 
     it('should handle encoded brackets when percent encoded', () => {
+      // Intentional decode-then-parse semantics (matches qs): keys are fully
+      // percent-decoded BEFORE bracket detection, so %5B/%5D act structurally
+      // under nesting — there is no way to smuggle a literal '[' into a key.
       // Act & Assert
       expect(parser.parse('a%5Bb%5D=c')).toEqual({ a: { b: 'c' } });
+    });
+
+    it('should keep the non-strict fallback for a stray close bracket in the root-key portion', () => {
+      // The stray ']' before the first '[' only errors in strict mode; the
+      // non-strict shape is locked in here.
+      // Act & Assert
+      expect(parser.parse('a]b[c]=1')).toEqual({ 'a]b': { c: '1' } });
+    });
+
+    it('should silently drop garbage characters between bracket groups when strict is false', () => {
+      // Non-strict keeps only the bracket segments; 'junk' is discarded.
+      // Act & Assert
+      expect(parser.parse('a[b]junk[c]=1')).toEqual({ a: { b: { c: '1' } } });
     });
 
     it('should reject empty root key when brackets are used', () => {
@@ -763,8 +906,8 @@ describe('QueryParser', () => {
       // Arrange
       const parser = QueryParser.create({ depth: 1, nesting: true });
 
-      // Act & Assert
-      expect(parser.parse('a[b][c]=d')).toEqual({ a: { b: {} } });
+      // Act & Assert — [c] exceeds depth 1; value kept on b, no phantom {}.
+      expect(parser.parse('a[b][c]=d')).toEqual({ a: { b: 'd' } });
     });
 
     it('should handle arrayLimit with nesting when limit is set', () => {
@@ -802,6 +945,34 @@ describe('QueryParser', () => {
 
       // Assert — stays as object
       expect(res.data).toEqual({ name: 'a', '0': 'b' });
+    });
+
+    it('should replace a root scalar with the nested structure when a bracket key follows', () => {
+      // Non-strict: the later structural key rebuilds the root container
+      // regardless of the duplicates strategy — the scalar '1' is discarded.
+      expect(parser.parse('a=1&a[b]=2')).toEqual({ a: { b: '2' } });
+    });
+
+    it('should keep the nested structure when a scalar follows under default duplicates', () => {
+      // Non-strict, duplicates 'first': the later scalar for a structured key is dropped.
+      expect(parser.parse('a[b]=1&a=2')).toEqual({ a: { b: '1' } });
+    });
+
+    it('should overwrite the nested structure with the scalar when duplicates is last', () => {
+      // Arrange
+      const lastParser = QueryParser.create({ nesting: true, duplicates: 'last' });
+
+      // Act & Assert
+      expect(lastParser.parse('a[b]=1&a=2')).toEqual({ a: '2' });
+    });
+
+    it('should skip holes when converting a sparse array to an object', () => {
+      // arrayToObject iterates own keys only, so indices 0-4 never materialize.
+      // Act
+      const res = parser.parse('arr[5]=b&arr[foo]=x');
+
+      // Assert
+      expect(res.arr).toEqual({ '5': 'b', foo: 'x' });
     });
 
     it('should preserve the nested structure on a non-strict array-index structure-then-scalar conflict', () => {
@@ -848,6 +1019,27 @@ describe('QueryParser', () => {
 
       // '0' itself is still a valid array index
       expect(expectQueryArray(parser.parse('arr[0]=val').arr)).toEqual(['val']);
+    });
+
+    it('should treat a 10-digit index as an array index when nesting is true', () => {
+      // Arrange — 10 digits is the isValidArrayIndex length boundary: it is still
+      // recognized as an index, so the default arrayLimit drops the over-limit
+      // value from the existing array instead of converting to an object.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('arr[0]=a&arr[9999999999]=x')).toEqual({ arr: ['a'] });
+    });
+
+    it('should fall back to an object key for an 11-digit index when nesting is true', () => {
+      // Arrange — 11 digits exceeds the isValidArrayIndex length cap, so the key
+      // is non-numeric: the array converts to an object and the value is kept.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('arr[0]=a&arr[12345678901]=x')).toEqual({
+        arr: { '0': 'a', '12345678901': 'x' },
+      });
     });
 
     it('should handle mixed empty and indexed brackets when provided', () => {
@@ -905,6 +1097,49 @@ describe('QueryParser', () => {
       expect(() => parser.parse('a=1&a[b]=2')).toThrow(/Conflict/);
     });
 
+    it('should throw on a stray close bracket in the root-key portion when strict and nesting are true', () => {
+      // Arrange — the ']' sits BEFORE the first '[', outside the bracket-scan region.
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act & Assert
+      expect(() => parser.parse('a]b[c]=1')).toThrow(/unbalanced brackets/);
+    });
+
+    it('should throw on garbage characters between bracket groups when strict and nesting are true', () => {
+      // Arrange
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act
+      const error = catchError(() => parser.parse('a[b]junk[c]=1'));
+
+      // Assert
+      expect(error.reason).toBe(QueryParserErrorReason.MalformedQueryString);
+    });
+
+    it('should throw on nested brackets when strict and nesting are true', () => {
+      // Arrange — the nesting:true path validates inside parseComplexKey, not validateBrackets.
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act & Assert
+      expect(() => parser.parse('a[[b]]=1')).toThrow(/nested brackets/);
+    });
+
+    it('should throw on an unbalanced close bracket when strict and nesting are true', () => {
+      // Arrange
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act & Assert
+      expect(() => parser.parse('a[b]]=1')).toThrow(/unbalanced brackets/);
+    });
+
+    it('should throw on an unclosed bracket when strict and nesting are true', () => {
+      // Arrange
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act & Assert
+      expect(() => parser.parse('a[b=1')).toThrow(/unclosed bracket/);
+    });
+
     it('should throw when non-numeric key is mixed in array and strict is true', () => {
       // Arrange
       const parser = QueryParser.create({ nesting: true, strict: true });
@@ -958,6 +1193,67 @@ describe('QueryParser', () => {
 
       // Assert
       expect(error.reason).toBe(QueryParserErrorReason.ConflictingStructure);
+    });
+
+    it('should not emit an empty-string key when array-append targets an existing object (non-strict)', () => {
+      // Regression: `filter[status]=a&filter[]=b` made filter an object, then the
+      // `[]` append fell through to obj[''] = 'b'. The value must be preserved
+      // under a synthesized numeric index, never an '' key.
+      const parser = QueryParser.create({ nesting: true });
+
+      expect(parser.parse('filter[status]=a&filter[]=b')).toEqual({ filter: { status: 'a', '0': 'b' } });
+      // Non-terminal append onto an object preserves the value under an index too.
+      expect(parser.parse('filter[x]=a&filter[][b]=c')).toEqual({ filter: { x: 'a', '0': { b: 'c' } } });
+    });
+
+    it('should throw ConflictingStructure when array-append targets an existing object (strict)', () => {
+      // Arrange — mixing object keys and `[]` array-append on one parent is a
+      // structure conflict, symmetric with the scalar/nested conflict cases.
+      const parser = QueryParser.create({ nesting: true, strict: true });
+
+      // Act
+      const error = catchError(() => parser.parse('filter[status]=a&filter[]=b'));
+
+      // Assert
+      expect(error.reason).toBe(QueryParserErrorReason.ConflictingStructure);
+    });
+
+    it('should not emit an empty-string key when array-append onto an object coincides with the depth limit', () => {
+      // Corner: `[]` onto a record AT the depth boundary must still normalize the
+      // empty prop (not fall through to obj['']). Non-strict keeps the value under
+      // a numeric index; strict reports the array/object conflict.
+      const lenient = QueryParser.create({ nesting: true, depth: 1 });
+
+      expect(lenient.parse('a[x]=1&a[][b]=2')).toEqual({ a: { x: '1', '0': '2' } });
+
+      const strict = QueryParser.create({ nesting: true, depth: 1, strict: true });
+      const error = catchError(() => strict.parse('a[x]=1&a[][b]=2'));
+
+      expect(error.reason).toBe(QueryParserErrorReason.ConflictingStructure);
+    });
+
+    it('should drop the scalar on an array-index structure-then-scalar conflict when duplicates is array', () => {
+      // Coverage gap: the 4th mode (array) of the k[0][b]=1&k[0]=2 matrix — the
+      // first/last/strict siblings are asserted; this pins the array-mode branch.
+      const parser = QueryParser.create({ nesting: true, duplicates: 'array' });
+
+      expect(parser.parse('k[0][b]=1&k[0]=2')).toEqual({ k: [{ b: '1' }] });
+    });
+
+    it('should overwrite the scalar with a structure on an array-index scalar-then-structure conflict (non-strict)', () => {
+      // Coverage gap: only the strict throw path (k[0]=1&k[0][b]=2) was asserted;
+      // this pins the lenient silent-overwrite branch.
+      const parser = QueryParser.create({ nesting: true });
+
+      expect(parser.parse('k[0]=1&k[0][b]=2')).toEqual({ k: [{ b: '2' }] });
+    });
+
+    it('should convert an array element to an object when its parent is itself an array', () => {
+      // Coverage gap: the array→object conversion where the PARENT is an array
+      // (the Array.isArray(parent) branch) — sibling cases all use a record parent.
+      const parser = QueryParser.create({ nesting: true });
+
+      expect(parser.parse('a[0][0]=1&a[0][foo]=2')).toEqual({ a: [{ '0': '1', foo: '2' }] });
     });
   });
 

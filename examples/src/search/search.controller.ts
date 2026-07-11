@@ -1,10 +1,21 @@
+import { Field } from '@zipbul/baker';
+import { isString } from '@zipbul/baker/rules';
 import { UseMiddlewares } from '@zipbul/common';
+import { Recipe } from '@zipbul/core';
 import { Get, RestController, type HttpContext } from '@zipbul/http-adapter';
 import { queryParser } from '@zipbul/query-parser';
 
-/** Query shape for `GET /search` — types the `request.getQuery` result. */
+/**
+ * Query shape for `GET /search` — the DTO passed to `request.getQuery`.
+ * baker validates the middleware-supplied raw query against this recipe at
+ * the Validation step, exactly like `getBody` DTOs.
+ */
+@Recipe
 export class SearchQueryDto {
+  @Field(isString, { optional: true })
   q?: string;
+
+  @Field(isString, { optional: true })
   city?: string;
 }
 
@@ -19,7 +30,7 @@ export class SearchQueryDto {
  * compiledPre phase and only a static @UseMiddlewares is analyzed.
  */
 @RestController('search')
-@UseMiddlewares('BeforeValidate', [queryParser])
+@UseMiddlewares('BeforeValidate', [queryParser()])
 export class SearchController {
   @Get()
   search(ctx: HttpContext): SearchQueryDto {

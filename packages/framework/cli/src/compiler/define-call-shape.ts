@@ -9,9 +9,10 @@
  * - `zb build adapter`: enforces ALL of `defineAdapter`, `defineMiddleware`,
  *   `defineGuard`, `defineExceptionFilter`, `defineModule` (adapter source
  *   must be a pure protocol adapter — no factory-wrapped middleware).
- * - `zb build middleware`: enforces all five (library packages publish defineX
- *   exports for static augment extraction; factory wrapping defeats the
- *   build-time analyzer).
+ * - `zb build middleware`: uses the grammar-v2 validator in
+ *   `./middleware-shape` — `defineMiddleware` additionally allows FORM 2
+ *   (exported factory function with a single definition-bearing return
+ *   site); the other four keep this strict FORM 1 rule.
  * - `zb build` (user-app): enforces `defineModule` only. Middleware/guard/
  *   exception-filter factories in user-app code are *consumers* of library
  *   packages and legitimately need runtime options, so factory-wrapped
@@ -158,9 +159,17 @@ export interface CalleeResolver {
 }
 
 /**
+ * Builds a {@link CalleeResolver} for `file`. By default it tracks the five
+ * regulated `defineX` names from `@zipbul/common` / `@zipbul/core`; callers
+ * may narrow/replace both sets.
+ *
  * @public
  */
-export function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver {
+export function buildCalleeResolver(
+  file: DefineCallShapeInput,
+  trackedNames: ReadonlySet<string> = REGULATED_DEFINE_CALLS,
+  sources: ReadonlySet<string> = REGULATED_SOURCES,
+): CalleeResolver {
   const named = new Map<string, string>();           // localName → originalName
   const namespaces = new Set<string>();              // localName of `* as ns`
 
@@ -168,7 +177,7 @@ export function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver 
   for (const rel of relations) {
     if (rel.type !== 'imports') continue;
     const specifier = rel.specifier;
-    if (specifier === undefined || !REGULATED_SOURCES.has(specifier)) continue;
+    if (specifier === undefined || !sources.has(specifier)) continue;
 
     const local = rel.srcSymbolName;
     const imported = rel.dstSymbolName;
@@ -180,7 +189,7 @@ export function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver 
     }
     if (imported === null || imported === 'default') continue;
 
-    if (REGULATED_DEFINE_CALLS.has(imported)) {
+    if (trackedNames.has(imported)) {
       named.set(local, imported);
     }
   }
@@ -208,7 +217,7 @@ export function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver 
         && is.Identifier(init.object)
         && is.Identifier(init.property)
         && namespaces.has(init.object.name)
-        && REGULATED_DEFINE_CALLS.has(init.property.name)
+        && trackedNames.has(init.property.name)
       ) {
         const idNode = d.id as { type?: string; name?: string };
         if (idNode.type === 'Identifier' && typeof idNode.name === 'string') {
@@ -251,7 +260,7 @@ export function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver 
             original = prop.key.name;
           }
           if (original === null) continue;
-          if (!REGULATED_DEFINE_CALLS.has(original)) continue;
+          if (!trackedNames.has(original)) continue;
           if (prop.value?.type !== 'Identifier' || typeof prop.value.name !== 'string') continue;
           named.set(prop.value.name, original);
         }
@@ -268,7 +277,7 @@ export function buildCalleeResolver(file: DefineCallShapeInput): CalleeResolver 
       const obj = calleeText.slice(0, dot);
       const prop = calleeText.slice(dot + 1);
       if (!namespaces.has(obj)) return null;
-      return REGULATED_DEFINE_CALLS.has(prop) ? prop : null;
+      return trackedNames.has(prop) ? prop : null;
     },
   };
 }
@@ -294,7 +303,7 @@ function classifyFile(
   walk(file.parsed.program, {
     enter(node) {
       if (!is.CallExpression(node)) return;
-      const calleeName = resolveRegulatedCallee(node, resolver);
+      const calleeName = resolveTrackedCallee(node, resolver);
       if (calleeName === null) return;
       if (!regulatedCallees.has(calleeName)) return;
       if (allowed.has(node)) return;
@@ -317,7 +326,7 @@ function visitTopLevelStatement(stmt: Node, allowed: WeakSet<object>, resolver: 
     if (stmt.declaration.kind !== 'const') return;
     for (const decl of stmt.declaration.declarations) {
       if (decl.init !== null && decl.init !== undefined && is.CallExpression(decl.init)) {
-        if (resolveRegulatedCallee(decl.init, resolver) !== null) {
+        if (resolveTrackedCallee(decl.init, resolver) !== null) {
           allowed.add(decl.init);
         }
       }
@@ -326,12 +335,17 @@ function visitTopLevelStatement(stmt: Node, allowed: WeakSet<object>, resolver: 
 }
 
 /**
- * Resolves a CallExpression's callee to the regulated `defineX` original
- * name when the callee references one (via direct import, alias, or
- * namespace member access from `@zipbul/common` / `@zipbul/core`). Returns
- * `null` for any other call.
+ * Resolves a CallExpression's callee to the tracked original name when the
+ * callee references one (via direct import, alias, or namespace member access
+ * from a tracked source module). Returns `null` for any other call.
+ *
+ * @public
  */
-function resolveRegulatedCallee(call: Node, resolver: CalleeResolver): string | null {
+export function resolveTrackedCallee(
+  call: Node,
+  resolver: CalleeResolver,
+  trackedNames: ReadonlySet<string> = REGULATED_DEFINE_CALLS,
+): string | null {
   if (!is.CallExpression(call)) return null;
   const callee = call.callee;
 
@@ -342,7 +356,7 @@ function resolveRegulatedCallee(call: Node, resolver: CalleeResolver): string | 
   if (is.MemberExpression(callee) && !callee.computed && is.Identifier(callee.property) && is.Identifier(callee.object)) {
     if (!resolver.isRegulatedNamespace(callee.object.name)) return null;
     const propName = callee.property.name;
-    return REGULATED_DEFINE_CALLS.has(propName) ? propName : null;
+    return trackedNames.has(propName) ? propName : null;
   }
 
   return null;

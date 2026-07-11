@@ -151,6 +151,32 @@ export interface AdapterConfig {
   middlewares?: Readonly<Record<string, readonly MiddlewareDefinition[]>>;
   guards?: readonly GuardDefinition[];
   exceptionFilters?: readonly ExceptionFilterDefinition[];
+  /**
+   * Accessor registry emitted by the AOT compiler — every augment-declared
+   * accessor reachable in this adapter's pipelines (global AND route-scoped;
+   * applyConfig never sees route-scoped middleware definitions, so this slice
+   * is the only complete channel). Consumed by the adapter to wire
+   * DTO validation for validated-accessor call sites and to install
+   * prototype accessors.
+   */
+  augmentAccessors?: readonly AugmentAccessorRegistryEntry[];
+}
+
+/**
+ * One augment-declared context member, as compiled into the adapter config
+ * slice by the AOT compiler.
+ *
+ * @public
+ */
+export interface AugmentAccessorRegistryEntry {
+  /** Context namespace the member lives on (e.g. `request`). */
+  readonly namespace: string;
+  /** Member name (e.g. `getQuery`). */
+  readonly prop: string;
+  /** Spec kind — every augment is a DTO-validated accessor. */
+  readonly kind: 'validated-accessor';
+  /** Owning package (diagnostics only; keys are derived from namespace+prop). */
+  readonly package?: string;
 }
 
 /** Adapter class constructor type. Produces an instance satisfying the {@link Adapter} contract. */

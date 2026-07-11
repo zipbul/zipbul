@@ -5,7 +5,8 @@ import type { Result } from '@zipbul/result';
 
 import { DEFAULT_QUERY_PARSER_OPTIONS } from './constants';
 import { QueryParserErrorReason } from './enums';
-import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
+import type { QueryParserErrorData } from './errors';
+import type { QueryParserOptions } from './interfaces';
 import type { ResolvedQueryParserOptions } from './types';
 
 const DUPLICATE_MODES: string[] = ['first', 'last', 'array'];
@@ -97,7 +98,12 @@ export function validateQueryParserOptions(resolved: ResolvedQueryParserOptions)
   const result = queryParserBaker.validateSync(QueryParserOptionsSchema, resolved);
 
   if (isBakerIssueSet(result)) {
-    const issue = result.errors[0]!;
+    const issue = result.errors[0];
+
+    if (issue === undefined) {
+      throw new Error('internal: baker reported an issue set with no issues');
+    }
+
     const ctx = issue.context as { reason?: QueryParserErrorReason } | undefined;
 
     if (ctx?.reason === undefined) {

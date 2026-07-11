@@ -217,7 +217,7 @@ Returned when CORS validation fails. Use `reason` to build a detailed error resp
 | `CorsErrorReason` | Meaning |
 |:------------------|:--------|
 | `CredentialsWithWildcardOrigin` | `credentials:true` with `origin:'*'` at boot, or an origin function returning `'*'` at runtime (Fetch Standard §3.3.5) |
-| `CredentialsWithWildcardMethods` | `credentials:true` with `methods:['*']` (Fetch Standard §3.2.6) |
+| `CredentialsWithWildcardMethods` | `credentials:true` with `methods:['*']` (a wildcard method is not credentialed per the Fetch Standard) |
 | `InvalidMaxAge` | `maxAge` is not a non-negative integer below 10²¹ (RFC 9111 `delta-seconds`) |
 | `InvalidStatusCode` | `optionsSuccessStatus` is not a real 2xx `HttpStatus` member (e.g. `299` throws) |
 | `InvalidOrigin` | `origin` is not a boolean, serialized-origin string (`'*'`/`'null'` allowed), stateless RegExp (no `g`/`y` flags), array thereof, or function |

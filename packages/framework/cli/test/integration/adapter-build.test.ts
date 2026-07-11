@@ -1,10 +1,41 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { buildAdapter } from '../../src/compiler/adapter-build';
 import { DiagnosticError } from '../../src/diagnostics';
+
+/**
+ * Make tsgo + workspace deps resolvable inside an isolated fixture: symlink the
+ * hoisted typescript install and the `@zipbul` packages the fixture sources
+ * import into `<pkgRoot>/node_modules`, and write a `tsconfig.build.json` (the
+ * tsgo codegen driver — a package without it is a manifest-only build). Needed
+ * only by the tests that assert a real `dist/index.js` emission.
+ */
+async function enableTsgoBuild(pkgRoot: string): Promise<void> {
+  const monorepoRoot = resolve(__dirname, '../../../../..');
+  await mkdir(join(pkgRoot, 'node_modules', '@zipbul'), { recursive: true });
+  await symlink(join(monorepoRoot, 'node_modules', 'typescript'),
+    join(pkgRoot, 'node_modules', 'typescript')).catch(() => {});
+  for (const [sourcePath, name] of [
+    ['packages/framework/common', 'common'],
+    ['packages/framework/logger', 'logger'],
+    ['packages/framework/core', 'core'],
+    ['packages/libs/result', 'result'],
+  ] as const) {
+    await symlink(join(monorepoRoot, sourcePath),
+      join(pkgRoot, 'node_modules', '@zipbul', name)).catch(() => {});
+  }
+  await Bun.write(join(pkgRoot, 'tsconfig.build.json'), JSON.stringify({
+    compilerOptions: {
+      module: 'esnext', target: 'esnext', moduleResolution: 'bundler',
+      declaration: true, noEmit: false, emitDeclarationOnly: false,
+      outDir: 'dist', rootDir: '.', skipLibCheck: true, strict: true,
+    },
+    include: ['index.ts', 'src'],
+  }));
+}
 
 let pkgRoot: string;
 
@@ -53,6 +84,7 @@ describe('zb build adapter — Slice 1', () => {
       join(pkgRoot, 'src/test-adapter.ts'),
       [
         `import type { AdapterEntryDecorators } from '@zipbul/common';`,
+        `import { ClusterStrategy } from '@zipbul/common';`,
         `export interface TestOptions { readonly port?: number; }`,
         `export class TestAdapter {`,
         `  readonly decorators: AdapterEntryDecorators = {`,
@@ -60,9 +92,16 @@ describe('zb build adapter — Slice 1', () => {
         `    handlers: [TestGet, TestPost],`,
         `    options: [TestStatus],`,
         `  };`,
+        `  readonly clusterStrategy = ClusterStrategy.Shared;`,
         `  constructor(options: TestOptions = {}) {`,
         `    void options;`,
         `  }`,
+        `  async start(_ctx: unknown): Promise<void> {}`,
+        `  async stop(): Promise<void> {}`,
+        `  async drain(_timeoutMs: number): Promise<void> {}`,
+        `  async dispatchRequest(_ctx: unknown): Promise<void> {}`,
+        `  applyConfig(_config: unknown): void {}`,
+        `  initializePipeline(_container: unknown): void {}`,
         `}`,
         `export class TestContext {`,
         `  private internal = 1;`,
@@ -292,7 +331,7 @@ describe('zb build adapter — Slice 1', () => {
     expect(JSON.parse(indexJson).manifests).not.toHaveProperty('builtins');
   });
 
-  it('emits dist/index.js via Bun.build alongside the manifests', async () => {
+  it('emits dist/index.js via tsgo alongside the manifests', async () => {
     await writeMinimalAdapter();
     await Bun.write(
       join(pkgRoot, 'index.ts'),
@@ -301,6 +340,7 @@ describe('zb build adapter — Slice 1', () => {
         `export { adapterDefinition } from './src/adapter-definition';`,
       ].join('\n'),
     );
+    await enableTsgoBuild(pkgRoot);
 
     await buildAdapter({ packageRoot: pkgRoot });
 

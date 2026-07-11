@@ -116,10 +116,6 @@
 
   - Add comprehensive benchmark suite (`bench/query-parser.bench.ts`) using mitata with 10 groups: factory cost, flat scaling, nested depth, array parsing, HPP modes, encoding overhead, strict mode overhead, realistic payloads, and competitor comparison (qs, node:querystring, URLSearchParams)
 
-## 0.1.0
-
-### Minor Changes
-
 - 0a8d457: ### Refactor
 
   - Merge duplicate `assignLeaf` / `assignLeafStrict` into a single unified method

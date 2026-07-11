@@ -13,6 +13,7 @@ export type {
   AdapterEntryDecorators,
   AdapterClass,
   AdapterConfig,
+  AugmentAccessorRegistryEntry,
 } from './adapter/types';
 export type {
   CompiledHandlerEntry,
@@ -94,6 +95,8 @@ export type {
 } from './define-exception-filter';
 export { defineMiddleware } from './define-middleware';
 export type { MiddlewareHandlerFn, MiddlewareFactory, MiddlewareDefinition, DefineMiddlewareConfig } from './define-middleware';
+export type { ValidatedAccessorSpec, MiddlewareAugmentSpec, MiddlewareAugments, MiddlewareAugmentsInput, AugmentSupplyFn } from './augment';
+export { augmentRawKey, augmentValidatedKey } from './augment-keys';
 export { defineGuard } from './define-guard';
 export type { GuardHandlerFn, GuardFactory, GuardDefinition } from './define-guard';
 

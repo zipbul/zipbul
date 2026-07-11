@@ -1,3 +1,4 @@
+import { compressionMiddleware, CompressionCodec } from '@zipbul/compression';
 import { defineModule } from '@zipbul/core';
 import { corsMiddleware } from '@zipbul/cors';
 import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
@@ -22,6 +23,12 @@ export const appModule = defineModule({
         [HttpAdapterPhase.OnRequest]: [
           corsMiddleware({ origin: 'https://allowed.example' }),
           requestTimingMiddleware(),
+        ],
+        [HttpAdapterPhase.BeforeResponse]: [
+          compressionMiddleware({
+            encodings: [CompressionCodec.Br, CompressionCodec.Gzip],
+            threshold: 1024,
+          }),
         ],
       },
     },

@@ -85,6 +85,115 @@ export function validateHandlerContextUsages(
 }
 
 /**
+ * Hard violation for a declared validated-accessor usage.
+ *
+ * - `missing-provider`: the handler calls the accessor but the providing
+ *   middleware is absent from the handler's merged pipeline (implicit
+ *   `provides` — the accessor's validated slot would never be supplied).
+ * - `detached-read`: the accessor is read as a value (`const q = req.getQuery`)
+ *   instead of called — the compile-time validation wiring cannot see the
+ *   eventual call site.
+ *
+ * @public
+ */
+export interface AccessorUsageViolation {
+  readonly handlerId: string;
+  readonly usagePath: readonly string[];
+  readonly middlewareName: string;
+  readonly kind: 'missing-provider' | 'detached-read';
+}
+
+/**
+ * Validates handler usages of DECLARED validated accessors (manifest or
+ * augments-slot declared) — unlike {@link validateHandlerContextUsages},
+ * matches are hard errors, not warnings.
+ *
+ * @param handlerIndex - The compiled handler index entries.
+ * @param handlerContextUsages - Per-handler context usages, keyed by handler ID.
+ * @param augments - Collected middleware augments (accessor declarations).
+ * @param routeRegistrations - Container key → value mappings for name resolution.
+ * @returns Hard violations. Empty when all accessor usages are wired.
+ * @public
+ */
+export function validateAccessorUsages(
+  handlerIndex: readonly HandlerIndexEntry[],
+  handlerContextUsages: ReadonlyMap<string, readonly ContextUsage[]>,
+  augments: readonly MiddlewareContextAugment[],
+  routeRegistrations: readonly RouteRegistration[] = [],
+): readonly AccessorUsageViolation[] {
+  // path → declaring middleware, validated accessors only.
+  const accessorIndex = new Map<string, string>();
+
+  for (const augment of augments) {
+    for (const prop of augment.augments) {
+      accessorIndex.set(prop.path.join('.'), augment.middlewareName);
+    }
+  }
+
+  if (accessorIndex.size === 0) return [];
+
+  const keyToRefName = buildKeyToRefName(routeRegistrations);
+  const handlerMiddlewareIndex = buildHandlerMiddlewareIndex(handlerIndex, keyToRefName);
+  const violations: AccessorUsageViolation[] = [];
+
+  for (const entry of handlerIndex) {
+    const usages = handlerContextUsages.get(entry.id);
+
+    if (usages === undefined) continue;
+
+    const registeredMiddlewares = handlerMiddlewareIndex.get(entry.id) ?? new Set<string>();
+
+    for (const usage of usages) {
+      const matched = findMatchingAugment(usage.path, accessorIndex);
+
+      if (matched === null) continue;
+
+      if (!usage.isCall) {
+        violations.push({
+          handlerId: entry.id,
+          usagePath: usage.path,
+          middlewareName: matched,
+          kind: 'detached-read',
+        });
+        continue;
+      }
+
+      if (!registeredMiddlewares.has(matched)) {
+        violations.push({
+          handlerId: entry.id,
+          usagePath: usage.path,
+          middlewareName: matched,
+          kind: 'missing-provider',
+        });
+      }
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * Formats one accessor-usage violation as a diagnostic string.
+ *
+ * @public
+ */
+export function formatAccessorUsageViolation(violation: AccessorUsageViolation): string {
+  const path = violation.usagePath.join('.');
+
+  if (violation.kind === 'detached-read') {
+    return [
+      `Handler '${violation.handlerId}' reads the validated accessor '${path}' (declared by middleware '${violation.middlewareName}') without calling it.`,
+      '  Hint: validated accessors must be invoked directly (`ctx.request.getQuery(Dto)`) — detached reads hide the DTO from compile-time validation wiring.',
+    ].join('\n');
+  }
+
+  return [
+    `Handler '${violation.handlerId}' calls '${path}', but the providing middleware '${violation.middlewareName}' is not registered in this route's pipeline.`,
+    `  Hint: register '${violation.middlewareName}' globally or via @UseMiddlewares for this route — the accessor's validated slot is supplied by that middleware.`,
+  ].join('\n');
+}
+
+/**
  * Builds a prefix-based index from augment paths to providing middleware names.
  * Augment paths like `['request', 'cookie']` are stored as `'request.cookie'` keys.
  */

@@ -33,12 +33,23 @@ export interface CookieMiddleware {
  * One {@link CookieParser} is built and validated at registration (`CookieParser.create`), so
  * configuration errors fail fast at boot — mirroring `corsMiddleware`'s `Cors.create`.
  *
- * Register both phases:
+ * Register both phases in a module's middleware map:
  *
  * ```ts
  * const cookies = cookieMiddleware({ secrets: [process.env.COOKIE_SECRET!] });
- * httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [cookies.onRequest]);
- * httpAdapter.addMiddlewares(HttpAdapterPhase.BeforeResponse, [cookies.beforeResponse]);
+ *
+ * defineModule({
+ *   name: 'App',
+ *   adapters: [
+ *     {
+ *       adapter: HttpAdapter,
+ *       middlewares: {
+ *         [HttpAdapterPhase.OnRequest]: [cookies.onRequest],
+ *         [HttpAdapterPhase.BeforeResponse]: [cookies.beforeResponse],
+ *       },
+ *     },
+ *   ],
+ * });
  *
  * // In a handler / downstream middleware:
  * const jar = ctx.use(cookieJarKey);

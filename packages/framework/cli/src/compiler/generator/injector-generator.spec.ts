@@ -708,4 +708,96 @@ describe('InjectorGenerator', () => {
       expect(result).not.toMatch(/new SomeService\w*\([^)]/);
     });
   });
+
+  describe('generate — augment accessor registry emission', () => {
+    function createAdapterOnlyGraph(): ModuleGraph {
+      const modulePath = '/app/src/app/__module__.ts';
+      const fileMap = new Map<string, FileAnalysis>();
+
+      fileMap.set(modulePath, {
+        filePath: modulePath,
+        classes: [],
+        reExports: [],
+        exports: [],
+        defineModuleCalls: [
+          { callee: 'defineModule', importSource: '@zipbul/core', args: [], exportedName: 'appModule' },
+        ],
+        imports: {},
+        moduleDefinition: {
+          name: 'AppModule',
+          providers: [],
+          imports: {},
+          // Adapter declared with NO global middlewares/guards/filters —
+          // route-scoped-only registration shape.
+          adapters: [{ adapter: { __zipbul_ref: 'HttpAdapter' } }],
+        },
+      });
+
+      const graph = new ModuleGraph(fileMap, '__module__.ts');
+
+      graph.build();
+
+      return graph;
+    }
+
+    it('should emit augmentAccessors into the adapter config slice', () => {
+      // Arrange
+      const graph = createAdapterOnlyGraph();
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+      const registries = new Map([
+        ['HttpAdapter', [
+          { namespace: 'request', prop: 'getQuery', kind: 'validated-accessor' as const, package: '@zipbul/query-parser' },
+        ]],
+      ]);
+
+      // Act
+      const result = unwrapOk(generator.generate(graph, registry, registries));
+
+      // Assert
+      expect(result).toContain("'augmentAccessors': ");
+      expect(result).toContain('"namespace":"request"');
+      expect(result).toContain('"prop":"getQuery"');
+      expect(result).toContain('"kind":"validated-accessor"');
+      expect(result).toContain('"package":"@zipbul/query-parser"');
+    });
+
+    it('should emit a non-empty config entry for an adapter with ONLY route-scoped augment middleware', () => {
+      // The adapter has no global middlewares/guards/filters — previously
+      // configParts.length === 0 skipped the entry entirely, which would keep
+      // applyConfig from ever firing. The registry configPart must keep the
+      // channel open.
+      const graph = createAdapterOnlyGraph();
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+
+      // Without a registry the adapter entry is skipped (baseline behavior).
+      const withoutRegistry = unwrapOk(generator.generate(graph, registry));
+
+      expect(withoutRegistry).not.toContain("'HttpAdapter': {");
+
+      // With a registry the entry must exist even though every other config
+      // part is empty.
+      const registries = new Map([
+        ['HttpAdapter', [{ namespace: 'request', prop: 'getQuery', kind: 'validated-accessor' as const }]],
+      ]);
+      const withRegistry = unwrapOk(generator.generate(graph, new ImportRegistry('/app/src'), registries));
+
+      expect(withRegistry).toContain("'HttpAdapter': {");
+      expect(withRegistry).toContain("'augmentAccessors': ");
+    });
+
+    it('should not emit augmentAccessors for adapters absent from the registry map', () => {
+      const graph = createAdapterOnlyGraph();
+      const registry = new ImportRegistry('/app/src');
+      const generator = new InjectorGenerator();
+      const registries = new Map([
+        ['WsAdapter', [{ namespace: 'client', prop: 'getPayload', kind: 'validated-accessor' as const }]],
+      ]);
+
+      const result = unwrapOk(generator.generate(graph, registry, registries));
+
+      expect(result).not.toContain("'augmentAccessors': ");
+    });
+  });
 });

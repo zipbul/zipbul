@@ -1,5 +1,7 @@
-import type { AugmentMethodParam, PropAugment } from '../analyzer/parser/middleware-augment-extractor';
-import type { MiddlewareContextAugment } from '../analyzer/adapter/middleware-context-types';
+import type {
+  MiddlewareContextAugment,
+  PropAugment,
+} from '../analyzer/adapter/middleware-context-types';
 import type { ImportRegistry } from './import-registry';
 
 /**
@@ -151,67 +153,26 @@ export class ContextTypesGenerator {
 
   /**
    * Renders a single augment line. `remainder` is the property path *after* the
-   * adapter-mapped namespace. For a flat augment (`request.cookie`), remainder
-   * is `['cookie']`. For deeper paths, only the first remainder segment becomes
+   * adapter-mapped namespace. For a flat augment (`request.getQuery`), remainder
+   * is `['getQuery']`. For deeper paths, only the first remainder segment becomes
    * the interface member; deeper paths are not currently supported.
+   *
+   * Every augment is a DTO-validated accessor — it renders the standardized
+   * generated signature `<T>(dto: Class<T>): T` with `Class` imported from
+   * `@zipbul/common`.
    */
   private renderProp(
     remainder: readonly string[],
-    prop: PropAugment,
-    aug: MiddlewareContextAugment,
+    _prop: PropAugment,
+    _aug: MiddlewareContextAugment,
     registry: ImportRegistry,
   ): string | null {
     if (remainder.length === 0) return null;
     if (remainder.length > 1) return null; // nested augments not supported yet
 
     const memberName = remainder[0]!;
+    const classAlias = registry.getAlias('Class', '@zipbul/common');
 
-    if (prop.rhs.kind === 'class') {
-      const importPath = aug.classImports.get(prop.rhs.identifier);
-
-      if (!importPath) return null;
-
-      const alias = registry.getAlias(prop.rhs.identifier, importPath);
-
-      return `${memberName}: ${alias};`;
-    }
-
-    if (prop.rhs.kind === 'method') {
-      const tParams = prop.rhs.typeParams.length > 0 ? `<${prop.rhs.typeParams.join(', ')}>` : '';
-      const params = prop.rhs.params.map(formatMethodParam).join(', ');
-      const returnType = prop.rhs.returnType ?? 'unknown';
-      let signature = `${memberName}${tParams}(${params}): ${returnType};`;
-
-      // Register imports for any imported types referenced in the signature
-      // (e.g. `Class<T>` from `@zipbul/common`) so the emitted file imports
-      // them, and rewrite each to the registry's (collision-deduplicated)
-      // alias.
-      for (const [identifier, importPath] of aug.classImports) {
-        const wordRe = new RegExp(`\\b${escapeRegExp(identifier)}\\b`);
-
-        if (!wordRe.test(signature)) continue;
-
-        const alias = registry.getAlias(identifier, importPath);
-
-        if (alias !== identifier) {
-          signature = signature.replace(new RegExp(`\\b${escapeRegExp(identifier)}\\b`, 'g'), alias);
-        }
-      }
-
-      return signature;
-    }
-
-    return null;
+    return `${memberName}<T>(dto: ${classAlias}<T>): T;`;
   }
-}
-
-/** Escapes a string for safe use as a literal inside a `RegExp`. */
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function formatMethodParam(param: AugmentMethodParam): string {
-  const type = param.type ?? 'unknown';
-
-  return `${param.name}: ${type}`;
 }

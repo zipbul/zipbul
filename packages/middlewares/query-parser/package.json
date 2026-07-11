@@ -44,10 +44,12 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo -p tsconfig.build.json",
+    "build": "zb build middleware",
     "test": "bun test",
     "coverage": "bun test --coverage",
-    "bench": "bun run bench/query-parser.bench.ts"
+    "bench": "bun run bench:self && bun run bench:vs",
+    "bench:self": "bun run bench/self.bench.ts",
+    "bench:vs": "bun run build && bun run bench/competitive.bench.ts"
   },
   "dependencies": {
     "@zipbul/baker": "catalog:",
@@ -58,13 +60,15 @@
     "@zipbul/http-adapter": "workspace:*"
   },
   "devDependencies": {
+    "@types/qs": "^6.9.18",
     "@zipbul/cli": "workspace:*",
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
     "@zipbul/tck": "workspace:*",
+    "fast-querystring": "1.1.2",
     "mitata": "catalog:",
-    "qs": "^6.14.0",
-    "@types/qs": "^6.9.18"
+    "picoquery": "2.5.0",
+    "qs": "6.15.3"
   },
   "sideEffects": [
     "**/options.js"

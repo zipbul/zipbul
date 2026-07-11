@@ -8,10 +8,11 @@
  * middleware never *applies* identity; it skips compression entirely when
  * identity is the negotiated outcome.
  *
- * Adding a new codec requires explicitly extending this enum AND providing
- * a `BUFFER_COMPRESSORS` entry, a `DEFAULT_LEVELS` entry, and a `LEVEL_RANGES`
- * entry. This is intentional: the supported codec set is the single source of
- * truth, not a derivation from the wire-format registry.
+ * Adding a new codec requires explicitly extending this enum AND providing a
+ * `BUFFER_COMPRESSORS` entry, a `STREAM_FORMATS` entry, a `DEFAULT_LEVELS` entry, and a
+ * `LEVEL_RANGES` entry (all four are `satisfies Record<CompressionCodec, …>`, so a
+ * missing entry is a compile error). This is intentional: the supported codec set is the
+ * single source of truth, not a derivation from the wire-format registry.
  */
 export enum CompressionCodec {
   Gzip = 'gzip',
@@ -26,4 +27,5 @@ export enum CompressionErrorReason {
   InvalidLevel = 'invalid_level',
   EmptyEncodings = 'empty_encodings',
   InvalidBreach = 'invalid_breach',
+  InvalidFilter = 'invalid_filter',
 }

@@ -13,6 +13,8 @@ import type {
   MetadataClassEntry,
 } from './interfaces';
 
+import type { AugmentAccessorRegistryEntry } from '@zipbul/common';
+
 import { isErr } from '@zipbul/result';
 import {
   ZIPBUL_REF, ZIPBUL_LAZY_REF,
@@ -32,7 +34,7 @@ export class ManifestGenerator {
 
   private metadataGen = new MetadataGenerator();
 
-  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string, handlerIndex: readonly HandlerIndexEntry[] = [], routeRegistrations: readonly RouteRegistration[] = [], projectSrcDir?: string): Result<string, Diagnostic> {
+  generate(graph: ModuleGraph, classes: MetadataClassEntry[], outputDir: string, handlerIndex: readonly HandlerIndexEntry[] = [], routeRegistrations: readonly RouteRegistration[] = [], projectSrcDir?: string, augmentAccessorRegistries?: ReadonlyMap<string, readonly AugmentAccessorRegistryEntry[]>): Result<string, Diagnostic> {
     const registry = new ImportRegistry(outputDir, projectSrcDir);
     // The metadata registry is a className→constructor lookup for the router only
     // (controllers + handler DTOs). Everything else — providers, baker @Recipe DTOs
@@ -52,7 +54,7 @@ export class ManifestGenerator {
       registry.getAlias(c.metadata.className, c.filePath);
     });
 
-    const injectorResult = this.injectorGen.generate(graph, registry);
+    const injectorResult = this.injectorGen.generate(graph, registry, augmentAccessorRegistries);
 
     if (isErr(injectorResult)) {
       return injectorResult;
