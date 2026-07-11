@@ -8,6 +8,7 @@ import { Logger } from '@zipbul/logger';
 import { dev } from './dev';
 import { build, buildMiddleware } from './build';
 import { buildAdapter } from '../compiler/adapter-build';
+import { createMiddleware, CreateError } from './create';
 import { reportError } from './report-diagnostic';
 
 const { positionals, values } = parseArgs({
@@ -45,10 +46,11 @@ const USAGE_TEXT = [
   'Usage: zb <command>',
   '',
   'Commands:',
-  '  dev                Generate AOT artifacts and watch for changes',
-  '  build              Build the user app (default — produces dist/entry.js + runtime)',
-  '  build adapter      Compile an adapter package (package.json#zipbul.kind === "adapter")',
-  '  build middleware   Compile a middleware library package (package.json#zipbul.kind === "middleware")',
+  '  dev                 Generate AOT artifacts and watch for changes',
+  '  build               Build the user app (default — produces dist/entry.js + runtime)',
+  '  build adapter       Compile an adapter package (package.json#zipbul.kind === "adapter")',
+  '  build middleware    Compile a middleware library package (package.json#zipbul.kind === "middleware")',
+  '  create middleware   Scaffold a new middleware package (<name>, kebab-case)',
   '',
   'Common options:',
   '  --verbose, -v      Show detailed build information',
@@ -115,6 +117,42 @@ try {
       }
 
       await build(commandOptions);
+      break;
+    }
+    case 'create': {
+      const kind = positionals[1];
+
+      if (kind !== 'middleware') {
+        if (kind === 'adapter' || kind === 'provider') {
+          log.error('create %s is not yet supported — only `create middleware` is available', kind);
+        } else {
+          log.error('usage: zb create middleware <name>');
+        }
+        process.stdout.write(USAGE_TEXT + '\n');
+        process.exitCode = 1;
+        break;
+      }
+
+      const name = positionals[2];
+
+      try {
+        const result = await createMiddleware(name ?? '');
+        // Program output (paths + next step) goes to stdout, not the log stream.
+        process.stdout.write(`Created ${result.name} (${result.files.length} files) at ${result.targetDir}\n`);
+        for (const file of result.files) {
+          process.stdout.write(`  ${file}\n`);
+        }
+        process.stdout.write(
+          `\nNext: add \`${result.camelName}Middleware()\` to your defineModule middlewares.\n`,
+        );
+      } catch (error) {
+        if (error instanceof CreateError) {
+          log.error('%s', error.message);
+          process.exitCode = 1;
+          break;
+        }
+        throw error;
+      }
       break;
     }
     case undefined:
