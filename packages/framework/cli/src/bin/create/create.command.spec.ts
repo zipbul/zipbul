@@ -36,11 +36,11 @@ describe('createMiddleware', () => {
     expect(result.camelName).toBe('greeting');
     expect([...result.files].sort()).toEqual(
       [
-        'greeting.spec.ts',
-        'greeting.ts',
         'index.ts',
-        'options.ts',
         'package.json',
+        'src/greeting.spec.ts',
+        'src/greeting.ts',
+        'src/options.ts',
         'tsconfig.build.json',
         'tsconfig.json',
       ].sort(),
@@ -63,7 +63,7 @@ describe('createMiddleware', () => {
     expect(pkg.name).toBe('my-thing');
     expect(pkg.zipbul?.kind).toBe('middleware');
 
-    const middleware = await Bun.file(join(result.targetDir, 'my-thing.ts')).text();
+    const middleware = await Bun.file(join(result.targetDir, 'src/my-thing.ts')).text();
     expect(middleware).toContain('export function myThingMiddleware(');
     expect(middleware).toContain("'X-MyThing'");
   });
@@ -94,19 +94,19 @@ describe('createMiddleware', () => {
 
     const result = await createMiddleware('greeting', { cwd });
 
-    const middleware = await Bun.file(join(result.targetDir, 'greeting.ts')).text();
+    const middleware = await Bun.file(join(result.targetDir, 'src/greeting.ts')).text();
     expect(middleware).toContain("import { defineMiddleware } from '@zipbul/common';");
     expect(middleware).toContain("import { isErr } from '@zipbul/result';");
     expect(middleware).toContain("import { HttpAdapter, HttpContext } from '@zipbul/http-adapter';");
     expect(middleware).toContain('defineMiddleware([HttpAdapter], () =>');
 
-    const options = await Bun.file(join(result.targetDir, 'options.ts')).text();
+    const options = await Bun.file(join(result.targetDir, 'src/options.ts')).text();
     expect(options).toContain("import { Baker, Field, isBakerIssueSet } from '@zipbul/baker';");
     expect(options).toContain('@greetingBaker.Recipe');
     expect(options).toContain('greetingBaker.validateSync(GreetingOptions,');
     expect(options).toContain('return err(');
 
-    const spec = await Bun.file(join(result.targetDir, 'greeting.spec.ts')).text();
+    const spec = await Bun.file(join(result.targetDir, 'src/greeting.spec.ts')).text();
     expect(spec).toContain("import { greetingMiddleware } from './greeting';");
   });
 });
