@@ -17,6 +17,29 @@ export function varyCoversAcceptEncoding(header: string): boolean {
 }
 
 /**
+ * RFC 9110 §12.5.5: returns the selecting-header tokens from `incoming` that are not
+ * already present in `existing` (case-insensitive), so a handler-set `Vary` can be
+ * merged with the middleware's `Accept-Encoding` without dropping either. Empty when
+ * `existing` already varies on everything (`*`).
+ */
+export function varyTokensToAppend(existing: string | null, incoming: string): string[] {
+  const seen = new Set(
+    (existing ?? '').split(',').map((t) => t.trim().toLowerCase()).filter((t) => t !== ''),
+  );
+  if (seen.has('*')) return [];
+
+  const toAppend: string[] = [];
+  for (const token of incoming.split(',')) {
+    const t = token.trim();
+    if (t !== '' && !seen.has(t.toLowerCase())) {
+      toAppend.push(t);
+      seen.add(t.toLowerCase());
+    }
+  }
+  return toAppend;
+}
+
+/**
  * RFC 9110 §7.7 · RFC 9111 §5.2.2.6: detects the `no-transform` response directive
  * in a `Cache-Control` field value (case-insensitive, comma-separated directives).
  */

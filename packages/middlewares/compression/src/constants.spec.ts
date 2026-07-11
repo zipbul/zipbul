@@ -1,5 +1,28 @@
 import { describe, expect, it } from 'bun:test';
-import { DEFAULT_FILTER } from './constants';
+import { DEFAULT_FILTER, DEFAULT_LEVELS, LEVEL_RANGES } from './constants';
+import { CompressionCodec } from './enums';
+
+describe('LEVEL_RANGES', () => {
+  it('covers every CompressionCodec — a new codec without a range is a compile error', () => {
+    const codecs = Object.values(CompressionCodec).sort();
+    expect(Object.keys(LEVEL_RANGES).sort()).toEqual(codecs);
+  });
+
+  it('encodes each codec\'s valid integer level range', () => {
+    expect(LEVEL_RANGES[CompressionCodec.Gzip]).toEqual({ min: 1, max: 9 });
+    expect(LEVEL_RANGES[CompressionCodec.Br]).toEqual({ min: 0, max: 11 });
+    expect(LEVEL_RANGES[CompressionCodec.Deflate]).toEqual({ min: 1, max: 9 });
+    expect(LEVEL_RANGES[CompressionCodec.Zstd]).toEqual({ min: 1, max: 19 });
+  });
+
+  it('holds every DEFAULT_LEVELS value inside its codec range', () => {
+    for (const codec of Object.values(CompressionCodec)) {
+      const { min, max } = LEVEL_RANGES[codec];
+      expect(DEFAULT_LEVELS[codec]).toBeGreaterThanOrEqual(min);
+      expect(DEFAULT_LEVELS[codec]).toBeLessThanOrEqual(max);
+    }
+  });
+});
 
 describe('DEFAULT_FILTER', () => {
   it('should return true for text/html when given text/html', () => {

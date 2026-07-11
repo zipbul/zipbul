@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'bun:test';
+import { zstdDecompressSync as nodeZstdDecompressSync } from 'node:zlib';
 
 import { compressionMiddleware } from '../../index';
 import { CompressionCodec } from '../../src/enums';
 import { LARGE_BODY_OBJ, makeRequestHeaders, mockContext, mockHttpResponse, unwrap } from './helpers';
+
+/** Offset of the trailing zstd skippable frame's magic number, or -1 if absent. */
+function findZstdSkippableMagic(body: Uint8Array): number {
+  for (let i = body.length - 8; i >= 0; i--) {
+    if (body[i] === 0x50 && body[i + 1] === 0x2a && body[i + 2] === 0x4d && body[i + 3] === 0x18) return i;
+  }
+  return -1;
+}
 
 function runBreach(opts: Parameters<typeof compressionMiddleware>[0], ae: string) {
   const m = unwrap(compressionMiddleware(opts));
@@ -23,15 +32,15 @@ describe('breach (HTB padding)', () => {
     expect(JSON.parse(Buffer.from(decompressed).toString())).toEqual(LARGE_BODY_OBJ);
   });
 
-  it('[§6.2.1·§6.2.2] BRC-02 zstd 패딩: skippable magic 0x184D2A50(LE) + 라운드트립 무손상', () => {
+  it('[§6.2.1·§6.2.2] BRC-02 zstd 패딩: trailing skippable magic 0x184D2A50(LE) + 독립 디코더 무손상', () => {
     const res = runBreach({ encodings: [CompressionCodec.Zstd], breach: { maxPadding: 32 } }, 'zstd');
     const body = res.getBody() as Uint8Array;
-    expect(body[0]).toBe(0x50);
-    expect(body[1]).toBe(0x2a);
-    expect(body[2]).toBe(0x4d);
-    expect(body[3]).toBe(0x18);
-    const decompressed = Bun.zstdDecompressSync(body);
-    expect(JSON.parse(Buffer.from(decompressed).toString())).toEqual(LARGE_BODY_OBJ);
+    // Skippable frame is trailing (F5) — its magic sits after the data frame, not at offset 0.
+    const magicOff = findZstdSkippableMagic(body);
+    expect(magicOff).toBeGreaterThan(0);
+    // Roundtrip through BOTH Bun and node:zlib (independent decoders) proves transparency.
+    expect(JSON.parse(Buffer.from(Bun.zstdDecompressSync(body)).toString())).toEqual(LARGE_BODY_OBJ);
+    expect(JSON.parse(Buffer.from(nodeZstdDecompressSync(Buffer.from(body))).toString())).toEqual(LARGE_BODY_OBJ);
   });
 
   it('[§9.3.1] BRC-03 30회 반복 → 출력 크기 분산 존재 (gzip·zstd 각)', () => {
@@ -96,13 +105,17 @@ describe('breach (HTB padding)', () => {
   // gunzip 무throw만 확인하던 공허 단언이었다. 실 오버플로 경계는 htb.spec.ts의
   // "XLEN boundary" 유닛 테스트가 결정적으로 검증한다.
 
-  it('[§6.2.1] BRC-09 zstd Frame_Size 리틀엔디언 인코딩 정확성', () => {
+  it('[§6.2.1] BRC-09 zstd Frame_Size 리틀엔디언 인코딩 정확성 (trailing frame)', () => {
     const res = runBreach({ encodings: [CompressionCodec.Zstd], breach: { maxPadding: 16 } }, 'zstd');
     const body = res.getBody() as Uint8Array;
-    const frameSize = (body[4] ?? 0) | ((body[5] ?? 0) << 8) | ((body[6] ?? 0) << 16) | ((body[7] ?? 0) << 24);
+    const off = findZstdSkippableMagic(body);
+    expect(off).toBeGreaterThan(0);
+    // Frame_Size (User_Data length) is the 4 LE bytes right after the 4-byte magic.
+    const frameSize = (body[off + 4] ?? 0) | ((body[off + 5] ?? 0) << 8) | ((body[off + 6] ?? 0) << 16) | ((body[off + 7] ?? 0) << 24);
     expect(frameSize).toBeGreaterThanOrEqual(1);
     expect(frameSize).toBeLessThanOrEqual(16);
-    expect(body.byteLength).toBeGreaterThan(8 + frameSize);
+    // The frame (magic + size + padding) occupies exactly the trailing bytes.
+    expect(body.byteLength).toBe(off + 8 + frameSize);
   });
 
   // ── SE ──

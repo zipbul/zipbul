@@ -10,6 +10,7 @@ import {
   DEFAULT_FILTER,
   DEFAULT_LEVELS,
   DEFAULT_THRESHOLD,
+  LEVEL_RANGES,
 } from './constants';
 import { CompressionCodec, CompressionErrorReason } from './enums';
 import type { BreachOptions, CompressionErrorData, CompressionOptions } from './interfaces';
@@ -26,38 +27,45 @@ type LevelMessageArgs = { property: string; value: unknown; constraints: Record<
 const levelMessage = (codec: string, lo: number, hi: number) =>
   ({ value }: LevelMessageArgs) => `${codec} level must be an integer between ${lo} and ${hi}, got ${value}`;
 
+// Per-codec bounds are single-sourced from LEVEL_RANGES (constants.ts) so the schema,
+// the messages, and the runtime compressors can never drift apart.
+const GZIP = LEVEL_RANGES[CompressionCodec.Gzip];
+const BR = LEVEL_RANGES[CompressionCodec.Br];
+const DEFLATE = LEVEL_RANGES[CompressionCodec.Deflate];
+const ZSTD = LEVEL_RANGES[CompressionCodec.Zstd];
+
 /**
- * Per-codec compression level ranges as a nested baker schema. Each codec has a
- * distinct integer range; the `message` thunk keeps the pre-baker "got <value>"
- * detail. Validated as `CompressionOptionsSchema.level` — baker recurses into the
- * nested DTO and reports `level.<codec>` paths carrying `InvalidLevel`.
+ * Per-codec compression level ranges as a nested baker schema. Each codec's integer
+ * range is taken from {@link LEVEL_RANGES}; the `message` thunk keeps the pre-baker
+ * "got <value>" detail. Validated as `CompressionOptionsSchema.level` — baker recurses
+ * into the nested DTO and reports `level.<codec>` paths carrying `InvalidLevel`.
  */
 class CompressionLevelSchema {
-  @Field(isInt, min(1), max(9), {
+  @Field(isInt, min(GZIP.min), max(GZIP.max), {
     optional: true,
     context: { reason: CompressionErrorReason.InvalidLevel },
-    message: levelMessage('gzip', 1, 9),
+    message: levelMessage('gzip', GZIP.min, GZIP.max),
   })
   gzip?: number;
 
-  @Field(isInt, min(0), max(11), {
+  @Field(isInt, min(BR.min), max(BR.max), {
     optional: true,
     context: { reason: CompressionErrorReason.InvalidLevel },
-    message: levelMessage('br', 0, 11),
+    message: levelMessage('br', BR.min, BR.max),
   })
   br?: number;
 
-  @Field(isInt, min(1), max(9), {
+  @Field(isInt, min(DEFLATE.min), max(DEFLATE.max), {
     optional: true,
     context: { reason: CompressionErrorReason.InvalidLevel },
-    message: levelMessage('deflate', 1, 9),
+    message: levelMessage('deflate', DEFLATE.min, DEFLATE.max),
   })
   deflate?: number;
 
-  @Field(isInt, min(1), max(19), {
+  @Field(isInt, min(ZSTD.min), max(ZSTD.max), {
     optional: true,
     context: { reason: CompressionErrorReason.InvalidLevel },
-    message: levelMessage('zstd', 1, 19),
+    message: levelMessage('zstd', ZSTD.min, ZSTD.max),
   })
   zstd?: number;
 }

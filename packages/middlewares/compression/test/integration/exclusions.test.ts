@@ -159,12 +159,32 @@ describe('exclusions', () => {
     }
   });
 
-  it('[§4.1.1] EXC-18 스킵 경로별 Vary 정책: 협상 도달 전 스킵=무Vary, 도달 후 스킵=Vary', () => {
-    // 협상 도달 전 (204)
-    const pre = runWith(mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json', status: 204 }));
-    expect(pre.getHeader('vary')).toBeNull();
-    // 협상 판단에 도달한 뒤 스킵 (filter 제외)
-    const post = runWith(mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'image/png' }));
-    expect(post.getHeader('vary')).toContain('accept-encoding');
+  it('[§4.1.1] EXC-18 Vary는 AE-협상 가능한 응답에만: 비협상 경로는 무Vary (RFC 9110 §12.5.5)', () => {
+    // §12.5.5: Vary는 "콘텐츠 선택에 영향을 준" 요청 필드만 나열한다.
+    // 협상 도달 전 스킵 (204) → AE 무관 → 무Vary
+    const notReached = runWith(mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json', status: 204 }));
+    expect(notReached.getHeader('vary')).toBeNull();
+    // 비압축 content-type(image/png)은 AE 값과 무관하게 항상 identity → AE가 표현 선택에 영향 없음 → Vary 과잉선언 금지
+    const incompressible = runWith(mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'image/png' }));
+    expect(incompressible.getHeader('vary')).toBeNull();
+    // no-transform은 변환 금지 → AE 영향 없음 → 무Vary
+    const noTransform = runWith(mockHttpResponse({
+      body: LARGE_BODY_OBJ, contentType: 'application/json', headers: { 'cache-control': 'no-transform' },
+    }));
+    expect(noTransform.getHeader('vary')).toBeNull();
+  });
+
+  it('[§4.1.1] EXC-19 AE-협상 가능한 응답은 압축 안 돼도 Vary 유지 (identity 협상·AE 부재)', () => {
+    // 압축가능 리소스는 이 요청에서 압축이 안 돼도(identity/AE부재) 다른 AE 값이면 표현이 달라지므로
+    // Vary: Accept-Encoding을 생성해야 shared cache의 표현 선택이 깨지지 않는다 (§4.1 · RFC 9111 §4.1).
+    const absentAE = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
+    middleware.handler(mockContext({ headers: makeRequestHeaders(undefined) }, absentAE));
+    expect(absentAE.getHeader('content-encoding')).toBeNull();
+    expect(absentAE.getHeader('vary')).toContain('accept-encoding');
+
+    const identity = mockHttpResponse({ body: LARGE_BODY_OBJ, contentType: 'application/json' });
+    middleware.handler(mockContext({ headers: makeRequestHeaders('identity') }, identity));
+    expect(identity.getHeader('content-encoding')).toBeNull();
+    expect(identity.getHeader('vary')).toContain('accept-encoding');
   });
 });

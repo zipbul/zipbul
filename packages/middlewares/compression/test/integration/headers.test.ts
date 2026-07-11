@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { compressionMiddleware } from '../../index';
 import { CompressionCodec } from '../../src/enums';
-import { LARGE_BODY_OBJ, LARGE_JSON, makeRequestHeaders, mockContext, mockHttpResponse, unwrap } from './helpers';
+import { LARGE_BODY_OBJ, LARGE_JSON, makeRequestHeaders, mockContext, mockHttpResponse, streamOf, unwrap } from './helpers';
 import type { MockResponse } from './helpers';
 
 const middleware = unwrap(compressionMiddleware());
@@ -170,6 +170,49 @@ describe('headers', () => {
     }));
     expect(res.getHeader('content-encoding')).toBe('gzip');
     expect(res.getHeader('content-length')).toBeNull();
+  });
+
+  it('[§2.2] HDR-22 압축 후 비인코딩 기준 Content-Digest·Repr-Digest 제거', () => {
+    // RFC 9530 §2·§3: integrity 필드는 실제 바이트를 서술한다 — 인코딩 후 옛 값은 거짓
+    const res = runWith(mockHttpResponse({
+      body: LARGE_BODY_OBJ,
+      contentType: 'application/json',
+      headers: {
+        'content-digest': 'sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:',
+        'repr-digest': 'sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:',
+      },
+    }));
+    expect(res.getHeader('content-encoding')).toBe('gzip');
+    expect(res.getHeader('content-digest')).toBeNull();
+    expect(res.getHeader('repr-digest')).toBeNull();
+  });
+
+  it('[§2.2] HDR-23 압축 스킵 시 integrity 필드 유지', () => {
+    // 인코딩을 적용하지 않으면 digest는 여전히 참 — 제거할 근거 없음
+    const res = runWith(mockHttpResponse({
+      body: LARGE_BODY_OBJ,
+      contentType: 'image/png',
+      headers: { 'content-digest': 'sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:' },
+    }));
+    expect(res.getHeader('content-encoding')).toBeNull();
+    expect(res.getHeader('content-digest')).toBe('sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:');
+  });
+
+  it('[§2.2] HDR-24 스트림 압축 시 native의 Content-Digest·Repr-Digest 미보존', () => {
+    const native = new Response(streamOf(LARGE_JSON), {
+      headers: {
+        'content-type': 'application/json',
+        'content-digest': 'sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:',
+        'repr-digest': 'sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:',
+        'x-custom': 'keep',
+      },
+    });
+    const res = mockHttpResponse({ nativeResponse: native });
+    middleware.handler(mockContext({ headers: makeRequestHeaders('gzip') }, res));
+    expect(res.getHeader('content-encoding')).toBe('gzip');
+    expect(res.getHeader('content-digest')).toBeNull();
+    expect(res.getHeader('repr-digest')).toBeNull();
+    expect(res.getHeader('x-custom')).toBe('keep');
   });
 
   // ── SE ──

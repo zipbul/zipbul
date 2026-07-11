@@ -37,7 +37,7 @@ export function UseMiddlewares(
  *
  * @example
  * ```ts
- * @UseMiddlewares({ BeforeHandle: [authMiddleware], BeforeResponse: [compressionMiddleware] })
+ * @UseMiddlewares({ BeforeHandle: [authMiddleware], BeforeResponse: [compressionMiddleware()] })
  * ```
  *
  * @public
