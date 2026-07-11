@@ -664,10 +664,9 @@ describe('QueryParser', () => {
     });
 
     // -----------------------------------------------------------------------
-    // WHATWG §2.5/§2.6 target behavior — expectations verified against the
-    // WHATWG oracle (URLSearchParams). These are RED until the hybrid decoder
-    // (byte-level percent-decode + UTF-8 decode WITHOUT BOM, replacement mode)
-    // replaces the current all-or-nothing decodeURIComponent fallback.
+    // WHATWG §2.5/§2.6 behavior — expectations verified against the WHATWG
+    // oracle (URLSearchParams). The hybrid decoder (byte-level percent-decode +
+    // UTF-8 decode WITHOUT BOM, replacement mode) implements these.
     // -----------------------------------------------------------------------
 
     // §2.6 [MUST] a malformed '%' (non-hex or truncated) is NOT an error — the
@@ -801,9 +800,9 @@ describe('QueryParser', () => {
   });
 
   // =========================================================================
-  // WHATWG §2.3 — empty-name pairs (RED until `if (!key) return` is removed)
-  // Expectations verified against the WHATWG oracle (URLSearchParams): a '='
-  // at the first byte yields an empty-string name; the pair is KEPT, not dropped.
+  // WHATWG §2.3 — empty-name pairs. Expectations verified against the WHATWG
+  // oracle (URLSearchParams): a '=' at the first byte yields an empty-string
+  // name; the pair is KEPT, not dropped.
   // =========================================================================
   describe('empty-name pairs (§2.3)', () => {
     const parser = QueryParser.create();
@@ -854,8 +853,8 @@ describe('QueryParser', () => {
   });
 
   // =========================================================================
-  // WHATWG §2.2 — empty sequences (`&&`) must be skipped WITHOUT consuming the
-  // maxParams budget (RED until paramCount only counts produced pairs).
+  // WHATWG §2.2 — empty sequences (`&&`) are skipped WITHOUT consuming the
+  // maxParams budget (paramCount only counts produced pairs).
   // =========================================================================
   describe('empty sequences and maxParams (§2.2)', () => {
     it('should not let leading empty sequences consume the maxParams budget', () => {
