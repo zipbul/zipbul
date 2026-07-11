@@ -31,7 +31,6 @@ const PACKAGE_JSON = `{
   "description": "A zipbul middleware.",
   "license": "MIT",
   "type": "module",
-  "source": "index.ts",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -99,14 +98,14 @@ const TSCONFIG_BUILD_JSON = `{
     "noEmitOnError": true,
     "allowImportingTsExtensions": false
   },
-  "include": ["index.ts", "*.ts"],
+  "include": ["index.ts", "src"],
   "exclude": ["**/*.spec.ts", "**/*.test.ts", "dist"]
 }
 `;
 
-const INDEX_TS = `export { __CAMEL__Middleware } from './__NAME__';
-export { __PASCAL__Options } from './options';
-export type { Resolved__PASCAL__Options } from './options';
+const INDEX_TS = `export { __CAMEL__Middleware } from './src/__NAME__';
+export { __PASCAL__Options } from './src/options';
+export type { Resolved__PASCAL__Options } from './src/options';
 `;
 
 const OPTIONS_TS = `import { Baker, Field, isBakerIssueSet } from '@zipbul/baker';
@@ -276,9 +275,10 @@ function substitute(template: string, parts: NameParts, versions: TemplateVersio
 
 /**
  * Renders the scaffold files for a middleware named `name`. Returns a map of
- * relative filename → file contents; the caller writes them to disk. The set is
- * buildable as-is: `package.json` (source + zipbul.kind), the two tsconfigs
- * `zb build middleware` drives tsgo with, `index.ts` entry, and the source.
+ * relative path → file contents; the caller writes them to disk (paths under
+ * `src/` create that directory). Buildable as-is and laid out like the
+ * first-party middlewares: `index.ts` entry re-exporting from `src/`, the two
+ * tsconfigs `zb build middleware` drives tsgo with, and the source under `src/`.
  */
 function renderMiddlewareFiles(name: string, versions: TemplateVersions): Record<string, string> {
   const parts = toParts(name);
@@ -288,9 +288,9 @@ function renderMiddlewareFiles(name: string, versions: TemplateVersions): Record
     'tsconfig.json': TSCONFIG_JSON,
     'tsconfig.build.json': TSCONFIG_BUILD_JSON,
     'index.ts': substitute(INDEX_TS, parts, versions),
-    'options.ts': substitute(OPTIONS_TS, parts, versions),
-    [`${name}.ts`]: substitute(MIDDLEWARE_TS, parts, versions),
-    [`${name}.spec.ts`]: substitute(SPEC_TS, parts, versions),
+    'src/options.ts': substitute(OPTIONS_TS, parts, versions),
+    [`src/${name}.ts`]: substitute(MIDDLEWARE_TS, parts, versions),
+    [`src/${name}.spec.ts`]: substitute(SPEC_TS, parts, versions),
   };
 }
 
