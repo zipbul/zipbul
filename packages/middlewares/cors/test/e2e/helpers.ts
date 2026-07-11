@@ -6,16 +6,16 @@ import { Tck, type TestApplication } from '@zipbul/tck';
 import { corsMiddleware } from '../../index';
 import type { CorsOptions } from '../../index';
 
+interface BootCorsAppExtras {
+  priorMiddlewares?: MiddlewareDefinition[];
+}
+
 export interface CorsTestApp {
   testApp: TestApplication;
   port: number;
   url(path: string): string;
   fetch(path: string, init?: RequestInit): Promise<Response>;
   close(): Promise<void>;
-}
-
-export interface BootCorsAppExtras {
-  priorMiddlewares?: MiddlewareDefinition[];
 }
 
 export async function bootCorsApp(opts: CorsOptions, extras: BootCorsAppExtras = {}): Promise<CorsTestApp> {
