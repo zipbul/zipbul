@@ -33,12 +33,58 @@ function hexNibble(code: number): number {
 
 /**
  * WHATWG percent-decode of a string (WHATWG URL #percent-decode + WHATWG
- * Encoding #utf-8-decode-without-bom). UTF-8 encodes the input, then walks the
- * bytes: a valid `%XX` becomes its byte, a malformed `%` is preserved as the
- * literal 0x25 octet and decoding continues (§2.6), and the byte sequence is
- * decoded with replacement (invalid UTF-8 → U+FFFD, §2.5). Never throws.
+ * Encoding #utf-8-decode-without-bom). A valid `%XX` becomes its byte, a
+ * malformed `%` is preserved as the literal 0x25 octet and decoding continues
+ * (§2.6), and invalid UTF-8 is replaced with U+FFFD (§2.5). Never throws.
+ *
+ * ASCII fast path: while every input char and every decoded byte is ASCII
+ * (< 0x80) — the overwhelmingly common case, valid (`hello%20world`) or malformed
+ * (`%ZZ`) — the result is built directly with no TextEncoder/TextDecoder and,
+ * crucially, without `decodeURIComponent`'s costly throw on malformed input.
+ * Returns `null` the moment a non-ASCII byte appears (part of a UTF-8 sequence),
+ * signalling the caller to use the native decoder / byte-level path instead.
  */
-function whatwgPercentDecode(input: string): string {
+function whatwgPercentDecodeAscii(input: string): string | null {
+  const len = input.length;
+  let result = '';
+  let runStart = 0; // start of the current literal run to be sliced verbatim
+
+  for (let i = 0; i < len; i++) {
+    const c = input.charCodeAt(i);
+
+    if (c >= 0x80) {
+      return null;
+    }
+
+    if (c === 0x25) {
+      const h1 = i + 2 < len ? hexNibble(input.charCodeAt(i + 1)) : -1;
+      const h2 = h1 === -1 ? -1 : hexNibble(input.charCodeAt(i + 2));
+
+      if (h2 !== -1) {
+        const byte = h1 * 16 + h2;
+
+        if (byte >= 0x80) {
+          return null;
+        }
+
+        // Flush the literal run before this escape, then the decoded byte.
+        result += input.slice(runStart, i) + String.fromCharCode(byte);
+        i += 2;
+        runStart = i + 1;
+      }
+      // A malformed '%' (h2 === -1) stays in the run and is sliced as a literal.
+    }
+  }
+
+  return runStart === 0 ? input : result + input.slice(runStart);
+}
+
+/**
+ * Byte-level path of {@link whatwgPercentDecode}: UTF-8 encodes the input, then
+ * percent-decodes the bytes and decodes with replacement. Used when a non-ASCII
+ * byte is involved (multi-byte UTF-8, valid or ill-formed).
+ */
+function whatwgPercentDecodeBytes(input: string): string {
   const src = UTF8_ENCODER.encode(input);
   const out = new Uint8Array(src.length);
   let o = 0;
@@ -780,15 +826,23 @@ export class QueryParser {
     // x-www-form-urlencoded / URLSearchParams), applied in that order (§2.4).
     const input = this.options.urlEncoded && raw.includes('+') ? raw.replaceAll('+', ' ') : raw;
 
-    // Fast path: native decode for well-formed, valid-UTF-8 input. On failure
-    // (malformed '%' or invalid UTF-8) fall back to the WHATWG byte-level decode,
-    // which never fails: malformed '%' is preserved (§2.6) and invalid UTF-8
-    // becomes U+FFFD (§2.5). Malformed input is therefore NOT an error, even in
-    // strict mode — strict validates structure (brackets/conflicts), not syntax.
+    // ASCII fast path — no throw; handles valid and malformed pure-ASCII input
+    // (e.g. '%ZZ') directly, sidestepping decodeURIComponent's costly throw on
+    // malformed input. Malformed '%' is preserved (§2.6); it is NOT an error,
+    // even in strict mode (strict validates structure, not percent syntax).
+    const ascii = whatwgPercentDecodeAscii(input);
+
+    if (ascii !== null) {
+      return ascii;
+    }
+
+    // A non-ASCII byte is involved: native decode is fastest for valid multi-byte
+    // UTF-8; on invalid UTF-8 it throws and the byte-level decode applies
+    // replacement (invalid UTF-8 → U+FFFD, §2.5) and never fails.
     try {
       return decodeURIComponent(input);
     } catch {
-      return whatwgPercentDecode(input);
+      return whatwgPercentDecodeBytes(input);
     }
   }
 }
