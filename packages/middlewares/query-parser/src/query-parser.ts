@@ -80,7 +80,7 @@ function whatwgPercentDecodeAscii(input: string): string | null {
 }
 
 /**
- * Byte-level path of {@link whatwgPercentDecode}: UTF-8 encodes the input, then
+ * Byte-level path of {@link whatwgPercentDecodeAscii}: UTF-8 encodes the input, then
  * percent-decodes the bytes and decodes with replacement. Used when a non-ASCII
  * byte is involved (multi-byte UTF-8, valid or ill-formed).
  */
@@ -94,11 +94,17 @@ function whatwgPercentDecodeBytes(input: string): string {
 
     if (b !== 0x25) {
       out[o++] = b;
-    } else if (i + 2 < src.length && hexNibble(src[i + 1]!) !== -1 && hexNibble(src[i + 2]!) !== -1) {
-      out[o++] = hexNibble(src[i + 1]!) * 16 + hexNibble(src[i + 2]!);
+      continue;
+    }
+
+    const h1 = i + 2 < src.length ? hexNibble(src[i + 1]!) : -1;
+    const h2 = h1 === -1 ? -1 : hexNibble(src[i + 2]!);
+
+    if (h2 !== -1) {
+      out[o++] = h1 * 16 + h2;
       i += 2;
     } else {
-      out[o++] = 0x25;
+      out[o++] = 0x25; // malformed '%' preserved as a literal octet
     }
   }
 
