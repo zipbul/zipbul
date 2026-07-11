@@ -37,7 +37,7 @@ describe('CORS / allowedHeaders', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('should reject the preflight with 404 and strip every CORS response header (Fetch §4.10)', async () => {
+    it('should strip the CORS grant on a header-rejected preflight but keep Vary: Origin (§7.1)', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'POST', {
         'Access-Control-Request-Headers': 'X-Foo',
         'Access-Control-Request-Private-Network': 'true',
@@ -50,7 +50,8 @@ describe('CORS / allowedHeaders', () => {
       expect(res.headers.get('access-control-expose-headers')).toBeNull();
       expect(res.headers.get('access-control-max-age')).toBeNull();
       expect(res.headers.get('access-control-allow-private-network')).toBeNull();
-      expect(res.headers.get('vary')).toBeNull();
+      // §7.1 — a dynamic (fixed-string) origin resource varies by Origin even on reject.
+      expect(varyTokens(res.headers.get('vary'))).toContain('origin');
     });
   });
 
@@ -220,6 +221,26 @@ describe('CORS / allowedHeaders', () => {
       expect(res.headers.get('access-control-allow-methods')).not.toBeNull();
       expect(String(res.headers.get('access-control-allow-headers')).toLowerCase())
         .toContain('authorization');
+    });
+  });
+
+  // RFC 9110 §5.6.1.1 — a sender MUST NOT generate empty list elements. Reflect mode
+  // must strip the client's empty ACRH elements ("X-Foo ,, x-bar") before echoing
+  // (STANDARDS §1.5).
+  describe('reflect mode with empty list elements in Access-Control-Request-Headers', () => {
+    let app: CorsTestApp;
+    beforeAll(async () => { app = await bootCorsApp({ origin: 'https://x.com' }); });
+    afterAll(async () => { await app.close(); });
+
+    it('should not echo empty list elements', async () => {
+      const res = await app.fetch('/x', preflight('https://x.com', HttpMethod.Post, {
+        'Access-Control-Request-Headers': 'X-Foo ,, x-bar',
+      }));
+      const acah = res.headers.get('access-control-allow-headers');
+      expect(acah).not.toBeNull();
+      const elements = String(acah).split(',').map((e) => e.trim());
+      expect(elements).not.toContain('');
+      expect(acah).not.toMatch(/,\s*,/);
     });
   });
 });

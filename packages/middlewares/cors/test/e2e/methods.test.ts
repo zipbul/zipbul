@@ -1,7 +1,7 @@
 import { HttpMethod } from '@zipbul/http-adapter';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
-import { bootCorsApp, preflight, setupSilentLogger, type CorsTestApp } from './helpers';
+import { bootCorsApp, preflight, setupSilentLogger, varyTokens, type CorsTestApp } from './helpers';
 
 describe('CORS / methods', () => {
   setupSilentLogger();
@@ -60,7 +60,7 @@ describe('CORS / methods', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('should reject the preflight with 404 and strip every CORS response header (Fetch §4.10)', async () => {
+    it('should strip the CORS grant on a method-rejected preflight but keep Vary: Origin (§7.1)', async () => {
       const res = await app.fetch('/x', preflight('https://x.com', 'DELETE', {
         'Access-Control-Request-Private-Network': 'true',
       }));
@@ -72,7 +72,8 @@ describe('CORS / methods', () => {
       expect(res.headers.get('access-control-expose-headers')).toBeNull();
       expect(res.headers.get('access-control-max-age')).toBeNull();
       expect(res.headers.get('access-control-allow-private-network')).toBeNull();
-      expect(res.headers.get('vary')).toBeNull();
+      // §7.1 — a dynamic (fixed-string) origin resource varies by Origin even on reject.
+      expect(varyTokens(res.headers.get('vary'))).toContain('origin');
     });
   });
 });
