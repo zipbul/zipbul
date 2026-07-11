@@ -4,7 +4,7 @@
 
 이 문서는 **규칙만** 담는다. 구현 분담은 `CLAUDE.md`, 런타임 동작은 `probe/`의 소관이다.
 
-**대조 기준일 2026-07-02** — 전 규범 문장을 rfc-editor.org 원문(verified errata 포함) 및 WHATWG HTML(living standard, 동일 기준일 스냅숏)과 전수 대조 완료. RFC 인용은 불변이나, WHATWG SSE(§6)와 RFC 10008(신규 표준, errata 추가 가능)은 재대조 시 이 기준일 이후 변경분만 보면 된다.
+**대조 기준일 2026-07-02** — 전 규범 문장을 rfc-editor.org 원문(verified errata 포함) 및 WHATWG HTML(living standard, 동일 기준일 스냅숏)과 전수 대조 완료. RFC 인용은 불변이나, WHATWG SSE(§6)와 RFC 10008(신규 표준, errata 추가 가능)은 재대조 시 이 기준일 이후 변경분만 보면 된다. 2026-07-05 재대조: §5.8.2의 수준 오표기를 정정하고, 응답 측 content coding 선택 규칙(구 §5.8.3)을 coding 적용 미들웨어 소관으로 이관했다.
 
 ## 포맷 규격
 
@@ -34,6 +34,9 @@
 - **WebSocket** (RFC 6455·7692) → `@zipbul/websocket-adapter`. request/response가 아닌 양방향 frame 모델이라 파이프라인이 다르다.
 - **HTTP/3 over QUIC** (RFC 9114·9204 / QUIC 9000·9001·9002) → 별도 어댑터. HTTP 의미론(9110)은 공유하나 전송(QUIC)·메시징(9114)이 다르며 Bun에서 experimental.
 - **HTTP/2 서버** — Bun.serve 미지원.
+
+별도 미들웨어 소관(범위 밖):
+- **응답 content coding 협상·적용** — `Accept-Encoding` 해석, `Content-Encoding` 생성, 인코딩에 따른 `Content-Length` 무효화·재생성, `ETag` weak 표기, `Vary: Accept-Encoding` 생성은 **그 coding을 적용하는 미들웨어**의 소관이다(압축: `@zipbul/compression`의 STANDARDS.md; `dcb`/`dcz`·`aes128gcm` 등 다른 coding은 각자의 미들웨어). coding 적용자가 장착되지 않으면 무인코딩 응답 그 자체로 표준 적합이므로(RFC 9110 §8.4는 coding 적용을 요구하지 않는다) 어댑터에 잔여 의무는 없다. 요청 측 content coding(미지원 coding의 415 판정, §5.8)은 어댑터 소관으로 남는다.
 
 obsolete RFC(2616 / 7230–7235 / 6874)는 인용하지 않는다.
 
@@ -210,8 +213,7 @@ obsolete RFC(2616 / 7230–7235 / 6874)는 인용하지 않는다.
 - **§5.6.1** [SHOULD] proactive content negotiation으로 수용 가능한 표현이 없고 기본 표현 제공도 거부하면 406을 생성하며, 응답 content에 가용 표현 특성과 대응 resource identifier 목록을 담는다 [RFC 9110 §15.5.7·§12.1]
 - **§5.7.1** [SHOULD] 409 (Conflict)를 생성하면 사용자가 충돌의 출처를 인지하기에 충분한 정보를 담은 content를 생성한다 [RFC 9110 §15.5.10]
 - **§5.8.1** [MUST NOT] content coding과 무관한 이유로 415를 생성할 때 `Accept-Encoding` 헤더 필드를 포함하지 않는다 [RFC 9110 §12.5.3]
-- **§5.8.2** [MAY] 미지원 content coding으로 인한 415에는 `Accept-Encoding`을 포함할 수 있다 [RFC 9110 §12.5.3]
-- **§5.8.3** [SHOULD] 요청에 non-empty `Accept-Encoding`이 있고 가용 표현 중 acceptable한 content coding이 없으면, identity coding이 unacceptable로 표시되지 않은 한 content coding 없는 응답을 보낸다 [RFC 9110 §12.5.3]
+- **§5.8.2** [무표기] 미지원 content coding으로 인한 415에는 `Accept-Encoding`을 포함하는 것이 권고된다(원문 "ought to" — BCP14 키워드 아님; 2026-07-05 재대조에서 [MAY] 오표기 정정) [RFC 9110 §12.5.3]
 
 ## 6. 스트리밍 (SSE) [WHATWG HTML §9.2 — Server-Sent Events]
 
