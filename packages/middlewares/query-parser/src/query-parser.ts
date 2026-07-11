@@ -344,37 +344,23 @@ export class QueryParser {
     }
   }
 
-  private parseComplexKey(
-    root: QueryValueRecord,
+  /**
+   * Splits a bracketed key (`a[b][c]`) into its path segments (`[a, b, c]`),
+   * starting from `rootKey` and the first `[`. Returns the segments, an `Err`
+   * in strict mode on malformed brackets (nested / unbalanced / stray chars /
+   * unclosed), or `null` for a non-strict unclosed bracket (the caller then
+   * assigns the whole key as a leaf).
+   */
+  private splitBracketKeys(
     key: string,
+    rootKey: string,
     firstBrace: number,
-    value: string,
-  ): Err<QueryParserErrorData> | undefined {
-    let current: QueryContainer = root;
-    let depth = 0;
-    const maxDepth = this.options.depth;
-    const rootKey = key.slice(0, firstBrace);
-
-    if (rootKey === '' || POISONED_KEYS.has(rootKey)) {
-      return;
-    }
-
-    // Strict: the root-key portion (before the first '[') sits outside the
-    // bracket scan below, so a stray ']' there must be rejected explicitly.
-    if (this.options.strict && rootKey.includes(']')) {
-      return err<QueryParserErrorData>({
-        reason: QueryParserErrorReason.MalformedQueryString,
-        message: `Malformed query string: unbalanced brackets in key "${key}"`,
-      });
-    }
-
-    // State machine for parsing brackets
-    let i = firstBrace;
+  ): string[] | Err<QueryParserErrorData> | null {
     const len = key.length;
     let partStart = -1;
     const keys: string[] = [rootKey];
 
-    while (i < len) {
+    for (let i = firstBrace; i < len; i++) {
       const code = key.charCodeAt(i);
 
       if (code === 91) {
@@ -407,12 +393,10 @@ export class QueryParser {
           message: `Malformed query string: unexpected characters between bracket groups in key "${key}"`,
         });
       }
-
-      i++;
     }
 
-    // Unclosed bracket
     if (partStart !== -1) {
+      // Unclosed bracket: strict rejects; non-strict signals a whole-key leaf.
       if (this.options.strict) {
         return err<QueryParserErrorData>({
           reason: QueryParserErrorReason.MalformedQueryString,
@@ -420,8 +404,49 @@ export class QueryParser {
         });
       }
 
+      return null;
+    }
+
+    return keys;
+  }
+
+  private parseComplexKey(
+    root: QueryValueRecord,
+    key: string,
+    firstBrace: number,
+    value: string,
+  ): Err<QueryParserErrorData> | undefined {
+    let current: QueryContainer = root;
+    let depth = 0;
+    const maxDepth = this.options.depth;
+    const rootKey = key.slice(0, firstBrace);
+
+    if (rootKey === '' || POISONED_KEYS.has(rootKey)) {
+      return;
+    }
+
+    // Strict: the root-key portion (before the first '[') sits outside the
+    // bracket scan below, so a stray ']' there must be rejected explicitly.
+    if (this.options.strict && rootKey.includes(']')) {
+      return err<QueryParserErrorData>({
+        reason: QueryParserErrorReason.MalformedQueryString,
+        message: `Malformed query string: unbalanced brackets in key "${key}"`,
+      });
+    }
+
+    // Split the bracket groups into path segments (`a[b][c]` → [a, b, c]).
+    const segments = this.splitBracketKeys(key, rootKey, firstBrace);
+
+    if (isErr(segments)) {
+      return segments;
+    }
+
+    if (segments === null) {
+      // Unclosed bracket (non-strict): assign the whole key as a leaf.
       return this.assignLeaf(root, key, value);
     }
+
+    const keys = segments;
 
     // Initialize/Validate root container
     if (!Object.prototype.hasOwnProperty.call(root, rootKey)) {
