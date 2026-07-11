@@ -1,4 +1,4 @@
-import type { QueryParserErrorReason } from './enums';
+import type { DuplicateStrategy, QueryParserErrorReason } from './enums';
 
 /**
  * Error data payload used internally with the Result pattern.
@@ -52,12 +52,13 @@ export interface QueryParserOptions {
 
   /**
    * Strategy for handling duplicate keys (HTTP Parameter Pollution).
-   * - 'first': Use the first value (Secure).
-   * - 'last': Use the last value.
-   * - 'array': Convert to array (Use with caution).
-   * @default 'first'
+   * - `DuplicateStrategy.First` / `'first'`: Use the first value (Secure).
+   * - `DuplicateStrategy.Last` / `'last'`: Use the last value.
+   * - `DuplicateStrategy.Array` / `'array'`: Convert to array (Use with caution).
+   * Accepts the {@link DuplicateStrategy} enum or the equivalent string literal.
+   * @default DuplicateStrategy.First
    */
-  duplicates?: 'first' | 'last' | 'array';
+  duplicates?: DuplicateStrategy | 'first' | 'last' | 'array';
 
   /**
    * Whether to enable strict mode.

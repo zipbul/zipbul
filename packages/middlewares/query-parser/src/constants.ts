@@ -1,3 +1,4 @@
+import { DuplicateStrategy } from './enums';
 import type { ResolvedQueryParserOptions } from './types';
 
 export const DEFAULT_QUERY_PARSER_OPTIONS: ResolvedQueryParserOptions = {
@@ -5,7 +6,7 @@ export const DEFAULT_QUERY_PARSER_OPTIONS: ResolvedQueryParserOptions = {
   maxParams: 1000,
   nesting: false,
   arrayLimit: 20,
-  duplicates: 'first',
+  duplicates: DuplicateStrategy.First,
   strict: false,
   urlEncoded: false,
 };

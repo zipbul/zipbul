@@ -2,11 +2,62 @@ import { err, isErr } from '@zipbul/result';
 import type { Err, Result } from '@zipbul/result';
 
 import { POISONED_KEYS } from './constants';
-import { QueryParserErrorReason } from './enums';
+import { DuplicateStrategy, QueryParserErrorReason } from './enums';
 import { QueryParserError } from './interfaces';
 import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
 import { resolveQueryParserOptions, validateQueryParserOptions } from './options';
 import type { QueryArray, QueryContainer, QueryValue, QueryValueRecord, ResolvedQueryParserOptions } from './types';
+
+// Module-level singletons for the WHATWG percent-decode fallback. `ignoreBOM:true`
+// implements "UTF-8 decode WITHOUT BOM" — a leading BOM must be preserved, not
+// stripped. `fatal:false` maps invalid sequences to U+FFFD instead of throwing.
+// Reused across calls: `decode()` (non-streaming) flushes state every call.
+const UTF8_ENCODER = new TextEncoder();
+const UTF8_DECODER = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+
+function hexNibble(code: number): number {
+  if (code >= 48 && code <= 57) {
+    return code - 48; // 0-9
+  }
+
+  if (code >= 65 && code <= 70) {
+    return code - 55; // A-F
+  }
+
+  if (code >= 97 && code <= 102) {
+    return code - 87; // a-f
+  }
+
+  return -1;
+}
+
+/**
+ * WHATWG percent-decode of a string (WHATWG URL #percent-decode + WHATWG
+ * Encoding #utf-8-decode-without-bom). UTF-8 encodes the input, then walks the
+ * bytes: a valid `%XX` becomes its byte, a malformed `%` is preserved as the
+ * literal 0x25 octet and decoding continues (§2.6), and the byte sequence is
+ * decoded with replacement (invalid UTF-8 → U+FFFD, §2.5). Never throws.
+ */
+function whatwgPercentDecode(input: string): string {
+  const src = UTF8_ENCODER.encode(input);
+  const out = new Uint8Array(src.length);
+  let o = 0;
+
+  for (let i = 0; i < src.length; i++) {
+    const b = src[i]!;
+
+    if (b !== 0x25) {
+      out[o++] = b;
+    } else if (i + 2 < src.length && hexNibble(src[i + 1]!) !== -1 && hexNibble(src[i + 2]!) !== -1) {
+      out[o++] = hexNibble(src[i + 1]!) * 16 + hexNibble(src[i + 2]!);
+      i += 2;
+    } else {
+      out[o++] = 0x25;
+    }
+  }
+
+  return UTF8_DECODER.decode(out.subarray(0, o));
+}
 
 /**
  * High-performance, strict query string parser.
@@ -98,29 +149,36 @@ export class QueryParser {
         }
       } else if (code === 38) {
         // '&'
-        if (keyEnd === -1) {
-          keyEnd = i;
-          valStart = i;
+        if (keyStart === i) {
+          // §2.2: an empty byte sequence (leading/consecutive '&') produces no
+          // pair and must NOT consume the maxParams budget. State is already in
+          // the post-reset shape (keyEnd/valStart -1, isKey true).
+          keyStart = i + 1;
+        } else {
+          if (keyEnd === -1) {
+            keyEnd = i;
+            valStart = i;
+          }
+
+          const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, i);
+
+          if (isErr(pairResult)) {
+            return pairResult;
+          }
+
+          paramCount++;
+
+          if (paramCount >= this.options.maxParams) {
+            limitReached = true;
+            break;
+          }
+
+          // Reset
+          keyStart = i + 1;
+          keyEnd = -1;
+          valStart = -1;
+          isKey = true;
         }
-
-        const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, i);
-
-        if (isErr(pairResult)) {
-          return pairResult;
-        }
-
-        paramCount++;
-
-        if (paramCount >= this.options.maxParams) {
-          limitReached = true;
-          break;
-        }
-
-        // Reset
-        keyStart = i + 1;
-        keyEnd = -1;
-        valStart = -1;
-        isKey = true;
       }
 
       i++;
@@ -151,20 +209,12 @@ export class QueryParser {
     valStart: number,
     valEnd: number,
   ): Err<QueryParserErrorData> | undefined {
-    // Decode Key
+    // Decode Key. An empty name (`=v`) is a valid §2.3 pair and is KEPT; empty
+    // SEQUENCES (`&&`) are skipped upstream in the scan loop, so they never
+    // reach here.
     const keyRaw = qs.slice(keyStart, keyEnd);
     const keyNeedsDecode = keyRaw.includes('%') || (this.options.urlEncoded && keyRaw.includes('+'));
-    const keyDecoded = keyNeedsDecode ? this.safeDecode(keyRaw) : keyRaw;
-
-    if (isErr(keyDecoded)) {
-      return keyDecoded;
-    }
-
-    const key = keyDecoded;
-
-    if (!key) {
-      return;
-    }
+    const key = keyNeedsDecode ? this.safeDecode(keyRaw) : keyRaw;
 
     // Decode Value
     let val = '';
@@ -172,13 +222,7 @@ export class QueryParser {
     if (valStart < valEnd) {
       const valRaw = qs.slice(valStart, valEnd);
       const valNeedsDecode = valRaw.includes('%') || (this.options.urlEncoded && valRaw.includes('+'));
-      const valDecoded = valNeedsDecode ? this.safeDecode(valRaw) : valRaw;
-
-      if (isErr(valDecoded)) {
-        return valDecoded;
-      }
-
-      val = valDecoded;
+      val = valNeedsDecode ? this.safeDecode(valRaw) : valRaw;
     }
 
     // Check for Nesting
@@ -575,7 +619,7 @@ export class QueryParser {
     const existing = obj[key];
 
     if (typeof existing === 'object' && existing !== null) {
-      if (Array.isArray(existing) && this.options.duplicates === 'array') {
+      if (Array.isArray(existing) && this.options.duplicates === DuplicateStrategy.Array) {
         existing.push(value);
 
         return;
@@ -588,16 +632,16 @@ export class QueryParser {
         });
       }
 
-      if (this.options.duplicates !== 'last') {
+      if (this.options.duplicates !== DuplicateStrategy.Last) {
         return;
       }
     }
 
-    if (this.options.duplicates === 'first') {
+    if (this.options.duplicates === DuplicateStrategy.First) {
       return;
     }
 
-    if (this.options.duplicates === 'last') {
+    if (this.options.duplicates === DuplicateStrategy.Last) {
       obj[key] = value;
 
       return;
@@ -631,7 +675,7 @@ export class QueryParser {
     }
 
     if (typeof existing === 'object' && existing !== null) {
-      if (Array.isArray(existing) && this.options.duplicates === 'array') {
+      if (Array.isArray(existing) && this.options.duplicates === DuplicateStrategy.Array) {
         existing.push(value);
 
         return;
@@ -644,16 +688,16 @@ export class QueryParser {
         });
       }
 
-      if (this.options.duplicates !== 'last') {
+      if (this.options.duplicates !== DuplicateStrategy.Last) {
         return;
       }
     }
 
-    if (this.options.duplicates === 'first') {
+    if (this.options.duplicates === DuplicateStrategy.First) {
       return;
     }
 
-    if (this.options.duplicates === 'last') {
+    if (this.options.duplicates === DuplicateStrategy.Last) {
       this.assignArrayRecordValue(arr, key, value);
 
       return;
@@ -731,23 +775,20 @@ export class QueryParser {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
-  private safeDecode(raw: string): string | Err<QueryParserErrorData> {
+  private safeDecode(raw: string): string {
     // '+'->space and percent-decoding are independent passes (WHATWG
-    // x-www-form-urlencoded / URLSearchParams). Compute the '+'-substituted
-    // string up front so a percent-decode failure still preserves it.
+    // x-www-form-urlencoded / URLSearchParams), applied in that order (§2.4).
     const input = this.options.urlEncoded && raw.includes('+') ? raw.replaceAll('+', ' ') : raw;
 
+    // Fast path: native decode for well-formed, valid-UTF-8 input. On failure
+    // (malformed '%' or invalid UTF-8) fall back to the WHATWG byte-level decode,
+    // which never fails: malformed '%' is preserved (§2.6) and invalid UTF-8
+    // becomes U+FFFD (§2.5). Malformed input is therefore NOT an error, even in
+    // strict mode — strict validates structure (brackets/conflicts), not syntax.
     try {
       return decodeURIComponent(input);
     } catch {
-      if (this.options.strict) {
-        return err<QueryParserErrorData>({
-          reason: QueryParserErrorReason.MalformedQueryString,
-          message: `Malformed query string: invalid percent encoding in "${raw}"`,
-        });
-      }
-
-      return input;
+      return whatwgPercentDecode(input);
     }
   }
 }

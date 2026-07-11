@@ -36,11 +36,13 @@ describe('queryParser strict-mode malformed query — HTTP status', () => {
   beforeAll(async () => { app = await bootStrictApp(); });
   afterAll(async () => { await app.close(); });
 
-  it('a malformed percent-escape under strict mode is a client error → 400 (not 500)', async () => {
-    // `%ZZ` is an invalid percent-escape; strict mode rejects it. The middleware
-    // returns an Err (400), never throws (which would surface as a 500).
+  it('a malformed percent-escape under strict mode parses (2xx) — §2.6, not an error', async () => {
+    // WHATWG §2.6 [MUST]: a malformed '%' is NOT an error. Strict validates
+    // STRUCTURE (brackets/conflicts), never percent syntax, so `%ZZ` is preserved
+    // as a literal and the request parses successfully instead of returning 400.
     const res = await app.fetch('/x?q=%ZZ');
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(204);
+    expect(JSON.parse(res.headers.get('x-parsed-query')!)).toEqual({ q: '%ZZ' });
   });
 
   it('malformed brackets under strict+nesting → 400 (not 500)', async () => {

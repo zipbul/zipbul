@@ -41,5 +41,4 @@
 - **§2.4** [MUST] 0x2B(`+`)는 퍼센트 디코딩 **전에**(raw byte 단계에서) 0x20(SP)으로 치환한다 — 순서의 귀결로 `%2B`는 리터럴 `+`로 복원되며 공백이 되지 않는다 [WHATWG URL #concept-urlencoded-parser step 3.4→3.5].
 - **§2.5** [MUST] 이름·값은 퍼센트 디코딩 후 UTF-8 decode without BOM으로 문자열화한다 — 무효 UTF-8 시퀀스는 파스 실패가 아니라 U+FFFD(replacement character)로 치환된다 [WHATWG URL #concept-urlencoded-parser step 3.5; WHATWG Encoding #utf-8-decode-without-bom].
 - **§2.6** [MUST] 기형 퍼센트 시퀀스(`%` 뒤 두 byte가 hex 범위 0x30–0x39/0x41–0x46/0x61–0x66이 아니거나 부족한 경우)는 오류가 아니다 — `%`를 리터럴 octet으로 보존하고 계속한다 [WHATWG URL #percent-decode step 2.2].
-- **§2.7** [MUST] 파스 결과는 입력 순서를 보존하고 중복 이름을 전부 유지하는 (이름, 값) 문자열 쌍 리스트다 — 이름·값은 문자열이며 그 외 타입은 없다 [WHATWG URL #concept-urlencoded-parser step 2·4; #interface-urlsearchparams].
-- **§2.8** 적합 UA의 URL 파서는 query의 비-URL 코드포인트·hex 미동반 `%`를 validation error로 표시하되 **보존하고 계속**한다(하드 실패 아님) — 그런 octet은 적합하게 생성된 query 입력에도 존재할 수 있다 [WHATWG URL #query-state step 3].
+- **§2.7** 적합 UA의 URL 파서는 query의 비-URL 코드포인트·hex 미동반 `%`를 validation error로 표시하되 **보존하고 계속**한다(하드 실패 아님) — 그런 octet은 적합하게 생성된 query 입력에도 존재할 수 있다 [WHATWG URL #query-state step 3].

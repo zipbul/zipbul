@@ -166,18 +166,20 @@ describe('QueryParser', () => {
       expect(parser.parse('?')).toEqual({});
     });
 
-    it('should return empty object when only delimiters are provided', () => {
+    it('should return empty object when only empty sequences are provided', () => {
+      // §2.2 — '&'-only input is all empty sequences and produces no pairs.
       // Act & Assert
       expect(parser.parse('&')).toEqual({});
       expect(parser.parse('&&&&')).toEqual({});
-      expect(parser.parse('=')).toEqual({});
-      expect(parser.parse('=&=&=')).toEqual({});
     });
 
-    it('should ignore empty keys when key is missing', () => {
-      // Act & Assert
-      expect(parser.parse('=value')).toEqual({});
-      expect(parser.parse('=value&foo=bar')).toEqual({ foo: 'bar' });
+    it('should keep empty-name pairs whose segment is non-empty (§2.3)', () => {
+      // Act & Assert — a '=' segment has an empty name but IS kept; duplicates
+      // 'first' (default) collapses the repeated empty name to a single entry.
+      expect(parser.parse('=')).toEqual({ '': '' });
+      expect(parser.parse('=&=&=')).toEqual({ '': '' });
+      expect(parser.parse('=value')).toEqual({ '': 'value' });
+      expect(parser.parse('=value&foo=bar')).toEqual({ '': 'value', foo: 'bar' });
     });
 
     it('should handle extra ampersands when delimiters repeat', () => {
@@ -661,37 +663,119 @@ describe('QueryParser', () => {
       expect(parser.parse('eq=%3D&amp=%26')).toEqual({ eq: '=', amp: '&' });
     });
 
-    it('should return raw string for malformed percent encoding in value when non-strict', () => {
-      // Act & Assert — non-strict falls back to raw string
-      expect(parser.parse('bad=%E0%A4')).toEqual({ bad: '%E0%A4' });
+    // -----------------------------------------------------------------------
+    // WHATWG §2.5/§2.6 target behavior — expectations verified against the
+    // WHATWG oracle (URLSearchParams). These are RED until the hybrid decoder
+    // (byte-level percent-decode + UTF-8 decode WITHOUT BOM, replacement mode)
+    // replaces the current all-or-nothing decodeURIComponent fallback.
+    // -----------------------------------------------------------------------
+
+    // §2.6 [MUST] a malformed '%' (non-hex or truncated) is NOT an error — the
+    // '%' is preserved as a literal octet and decoding continues.
+    it('should preserve a non-hex percent sequence as a literal when non-strict', () => {
+      // Act & Assert
       expect(parser.parse('key=%zz')).toEqual({ key: '%zz' });
+      expect(parser.parse('key=%ZZ')).toEqual({ key: '%ZZ' });
     });
 
-    it('should return raw string for malformed percent encoding in key when non-strict', () => {
-      // Act & Assert — non-strict falls back to raw key string
-      expect(parser.parse('%E0%A4=value')).toEqual({ '%E0%A4': 'value' });
+    it('should preserve a truncated percent sequence as a literal when non-strict', () => {
+      // Act & Assert — boundary: one hex digit short, and a lone '%'
+      expect(parser.parse('a=%2')).toEqual({ a: '%2' });
+      expect(parser.parse('a=%')).toEqual({ a: '%' });
     });
 
-    it('should throw QueryParserError for malformed percent encoding in value when strict', () => {
+    // §2.6 partial decode — a malformed '%' is preserved while an adjacent,
+    // well-formed %XX in the SAME token is still decoded.
+    it('should decode valid escapes around a malformed one (partial decode)', () => {
+      // Act & Assert
+      expect(parser.parse('a=%ZZ%41')).toEqual({ a: '%ZZA' });
+      expect(parser.parse('a=%41%ZZ')).toEqual({ a: 'A%ZZ' });
+      expect(parser.parse('a=x%20y%ZZz')).toEqual({ a: 'x y%ZZz' });
+    });
+
+    // §2.5 [MUST] an invalid UTF-8 sequence is replaced with U+FFFD, NOT a parse
+    // failure. '%C3%28': C3 begins a 2-byte sequence, 28 ('(') is not a valid
+    // continuation, so C3 → U+FFFD and '(' is reprocessed.
+    it('should replace an invalid UTF-8 byte with U+FFFD in a value when non-strict', () => {
+      // Act & Assert
+      expect(parser.parse('bad=%FF')).toEqual({ bad: '�' });
+      expect(parser.parse('bad=%E0%A4')).toEqual({ bad: '�' });
+      expect(parser.parse('bad=%C3%28')).toEqual({ bad: '�(' });
+    });
+
+    it('should replace an invalid UTF-8 byte with U+FFFD in a key when non-strict', () => {
+      // Act & Assert
+      expect(parser.parse('%E0%A4=value')).toEqual({ '�': 'value' });
+    });
+
+    // §2.5 "UTF-8 decode WITHOUT BOM": a leading BOM must be PRESERVED (the
+    // fallback TextDecoder must set ignoreBOM:true). Only reachable when another
+    // byte forces the byte-level path — a lone valid BOM takes the fast path.
+    it('should preserve a leading BOM while replacing an adjacent invalid byte', () => {
+      // Act & Assert
+      expect(parser.parse('b=%EF%BB%BF%FF')).toEqual({ b: '﻿�' });
+    });
+
+    // §2.6 [MUST] malformed percent is not an error even in STRICT mode — strict
+    // validates structure (brackets/conflicts), never percent syntax.
+    it('should NOT throw on malformed percent encoding in strict mode', () => {
       // Arrange
       const strictParser = QueryParser.create({ strict: true });
 
       // Act & Assert
-      const error = catchError(() => strictParser.parse('bad=%E0%A4'));
-
-      expect(error).toBeInstanceOf(QueryParserError);
-      expect(error.reason).toBe(QueryParserErrorReason.MalformedQueryString);
+      expect(strictParser.parse('q=%ZZ')).toEqual({ q: '%ZZ' });
+      expect(strictParser.parse('bad=%E0%A4')).toEqual({ bad: '�' });
+      expect(strictParser.parse('%E0%A4=value')).toEqual({ '�': 'value' });
     });
 
-    it('should throw QueryParserError for malformed percent encoding in key when strict', () => {
-      // Arrange
-      const strictParser = QueryParser.create({ strict: true });
-
+    // §2.5 — overlong encodings and surrogate-range code points are ill-formed
+    // UTF-8; each maximal invalid subpart becomes one U+FFFD. Values verified
+    // against the WHATWG oracle (URLSearchParams).
+    it('should replace overlong / surrogate UTF-8 with U+FFFD per maximal subpart', () => {
       // Act & Assert
-      const error = catchError(() => strictParser.parse('%E0%A4=value'));
+      expect(parser.parse('k=%C0%80')).toEqual({ k: '��' }); // overlong NUL
+      expect(parser.parse('k=%ED%A0%80')).toEqual({ k: '���' }); // UTF-16 lead surrogate
+      expect(parser.parse('k=%F0%80%80%80')).toEqual({ k: '����' }); // overlong 4-byte
+    });
 
-      expect(error).toBeInstanceOf(QueryParserError);
-      expect(error.reason).toBe(QueryParserErrorReason.MalformedQueryString);
+    // §2.6 — partial-decode boundaries: a doubled '%' and a trailing '%'.
+    it('should partial-decode at a doubled or trailing percent boundary', () => {
+      // Act & Assert
+      expect(parser.parse('k=%%41')).toEqual({ k: '%A' }); // first '%' malformed, '%41' decodes
+      expect(parser.parse('k=%41%')).toEqual({ k: 'A%' }); // '%41' decodes, trailing '%' literal
+    });
+
+    // §2.5/§2.6 — key/value symmetry: partial decode applies to keys too.
+    it('should partial-decode a malformed sequence in the key', () => {
+      // Act & Assert
+      expect(parser.parse('%ZZ%41=v')).toEqual({ '%ZZA': 'v' });
+    });
+
+    // §2.5 fast-path guard — a lone, well-formed BOM is valid UTF-8, so it takes
+    // the native fast path and must be PRESERVED (regression guard for a decoder
+    // that wrongly strips BOM on the common path).
+    it('should preserve a lone well-formed BOM', () => {
+      // Act & Assert
+      expect(parser.parse('k=%EF%BB%BF')).toEqual({ k: '﻿' });
+    });
+
+    // §2.5 success-path guard — a well-formed multi-byte sequence must still
+    // decode correctly after the hybrid decoder replaces decodeURIComponent.
+    it('should still decode a well-formed multi-byte sequence', () => {
+      // Act & Assert
+      expect(parser.parse('k=%E0%A4%A8')).toEqual({ k: 'न' });
+    });
+
+    // §1.4 — percent-encoding hex digits are case-insensitive.
+    it('should treat percent-encoding hex digits as case-insensitive', () => {
+      // Act & Assert
+      expect(parser.parse('a=%3a&b=%3A')).toEqual({ a: ':', b: ':' });
+    });
+
+    // §2.1 — ';' is a data octet, never a pair delimiter.
+    it('should treat a semicolon as data, not a delimiter', () => {
+      // Act & Assert
+      expect(parser.parse('a=1;b=2')).toEqual({ a: '1;b=2' });
     });
 
     it('should handle null bytes when present', () => {
@@ -713,6 +797,106 @@ describe('QueryParser', () => {
 
       // Assert
       expect(Object.getOwnPropertyDescriptor(res, longKey)?.value).toBe('1');
+    });
+  });
+
+  // =========================================================================
+  // WHATWG §2.3 — empty-name pairs (RED until `if (!key) return` is removed)
+  // Expectations verified against the WHATWG oracle (URLSearchParams): a '='
+  // at the first byte yields an empty-string name; the pair is KEPT, not dropped.
+  // =========================================================================
+  describe('empty-name pairs (§2.3)', () => {
+    const parser = QueryParser.create();
+
+    it('should keep a pair whose name is empty when value is present', () => {
+      // Act & Assert — URLSearchParams('=v') → [['', 'v']]
+      expect(parser.parse('=v')).toEqual({ '': 'v' });
+    });
+
+    it('should keep a pair whose name and value are both empty', () => {
+      // Act & Assert — boundary: '=' is both the first and last byte
+      expect(parser.parse('=')).toEqual({ '': '' });
+    });
+
+    it('should keep an interior empty-name pair alongside named pairs', () => {
+      // Act & Assert — URLSearchParams('a=1&=2') → [['a','1'],['','2']]
+      expect(parser.parse('a=1&=2')).toEqual({ a: '1', '': '2' });
+    });
+
+    it('should collect duplicate empty-name values under duplicates array', () => {
+      // Arrange
+      const arrayParser = QueryParser.create({ duplicates: 'array' });
+
+      // Act & Assert — [['','v'],['','w']] → all values retained
+      expect(arrayParser.parse('=v&=w')).toEqual({ '': ['v', 'w'] });
+    });
+
+    it('should keep the first value for a duplicate empty name under duplicates first', () => {
+      // Arrange
+      const firstParser = QueryParser.create({ duplicates: 'first' });
+
+      // Act & Assert
+      expect(firstParser.parse('=v&=w')).toEqual({ '': 'v' });
+    });
+
+    it('should keep the last value for a duplicate empty name under duplicates last', () => {
+      // Arrange
+      const lastParser = QueryParser.create({ duplicates: 'last' });
+
+      // Act & Assert
+      expect(lastParser.parse('=v&=w')).toEqual({ '': 'w' });
+    });
+
+    it('should keep an empty-name pair that follows a leading empty sequence', () => {
+      // Act & Assert — '&=x': the leading '&' is skipped, then ('', 'x') is kept
+      expect(parser.parse('&=x')).toEqual({ '': 'x' });
+    });
+  });
+
+  // =========================================================================
+  // WHATWG §2.2 — empty sequences (`&&`) must be skipped WITHOUT consuming the
+  // maxParams budget (RED until paramCount only counts produced pairs).
+  // =========================================================================
+  describe('empty sequences and maxParams (§2.2)', () => {
+    it('should not let leading empty sequences consume the maxParams budget', () => {
+      // Arrange
+      const parser = QueryParser.create({ maxParams: 2 });
+
+      // Act & Assert — the two leading '&' produce nothing and must not count
+      expect(parser.parse('&&a=1&b=2')).toEqual({ a: '1', b: '2' });
+    });
+
+    it('should not let interior empty sequences consume the maxParams budget', () => {
+      // Arrange
+      const parser = QueryParser.create({ maxParams: 2 });
+
+      // Act & Assert
+      expect(parser.parse('a=1&&&b=2')).toEqual({ a: '1', b: '2' });
+    });
+
+    it('should not let surrounding empty sequences consume the maxParams budget', () => {
+      // Arrange
+      const parser = QueryParser.create({ maxParams: 2 });
+
+      // Act & Assert
+      expect(parser.parse('&&a=1&&b=2&&')).toEqual({ a: '1', b: '2' });
+    });
+
+    it('should still cap at maxParams counting only produced pairs', () => {
+      // Arrange — boundary: real pairs DO count; the 3rd exceeds the cap
+      const parser = QueryParser.create({ maxParams: 2 });
+
+      // Act & Assert
+      expect(parser.parse('a=1&b=2&c=3')).toEqual({ a: '1', b: '2' });
+    });
+
+    it('should reach the maxParams-th real pair despite an interior empty sequence', () => {
+      // Arrange — BVA: exactly maxParams real pairs, with an empty sequence
+      // between them; the empty '&&' must not consume the budget before b=2.
+      const parser = QueryParser.create({ maxParams: 2 });
+
+      // Act & Assert
+      expect(parser.parse('a=1&&b=2')).toEqual({ a: '1', b: '2' });
     });
   });
 
@@ -1184,15 +1368,13 @@ describe('QueryParser', () => {
       expect(defaultParser.parse('name=a+b%ZZ')).toEqual({ name: 'a+b%ZZ' });
     });
 
-    it('should still throw on a malformed percent in strict mode even with urlEncoded', () => {
-      // Negative control — the strict error must fire before the plus-substitution fallback.
+    it('should NOT throw on a malformed percent in strict mode even with urlEncoded', () => {
+      // §2.6 target — a malformed percent is not an error; '+'->space still
+      // applies and the malformed '%ZZ' is preserved as a literal (Z is not hex).
       const strictParser = QueryParser.create({ urlEncoded: true, strict: true });
 
-      // Act
-      const error = catchError(() => strictParser.parse('a=hello+world%ZZ'));
-
-      // Assert
-      expect(error.reason).toBe(QueryParserErrorReason.MalformedQueryString);
+      // Act & Assert
+      expect(strictParser.parse('a=hello+world%ZZ')).toEqual({ a: 'hello world%ZZ' });
     });
 
     it('should decode multiple plus signs as multiple spaces when urlEncoded is true', () => {

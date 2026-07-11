@@ -4,11 +4,11 @@ import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
 
 import { DEFAULT_QUERY_PARSER_OPTIONS } from './constants';
-import { QueryParserErrorReason } from './enums';
+import { DuplicateStrategy, QueryParserErrorReason } from './enums';
 import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
 import type { ResolvedQueryParserOptions } from './types';
 
-const DUPLICATE_MODES: string[] = ['first', 'last', 'array'];
+const DUPLICATE_MODES: string[] = Object.values(DuplicateStrategy);
 
 /**
  * Query-parser-owned baker. baker 5.x scopes registration to an instance, so
@@ -74,7 +74,7 @@ export class QueryParserOptionsSchema {
 
   /** Duplicate-key strategy. */
   @Field(isIn(DUPLICATE_MODES), { optional: true, context: { reason: QueryParserErrorReason.InvalidDuplicates } })
-  duplicates?: 'first' | 'last' | 'array';
+  duplicates?: DuplicateStrategy | 'first' | 'last' | 'array';
 
   /** Whether strict mode is enabled. */
   @Field(isBoolean, { optional: true, context: { reason: QueryParserErrorReason.InvalidStrict } })

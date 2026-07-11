@@ -23,3 +23,18 @@ export enum QueryParserErrorReason {
   /** Key is used as both a scalar and a nested structure. */
   ConflictingStructure = 'conflicting-structure',
 }
+
+/**
+ * Strategy for handling duplicate keys (HTTP Parameter Pollution). String-valued
+ * so the member value doubles as the wire/option literal — a consumer may write
+ * either {@link DuplicateStrategy.First} or the bare `'first'` literal (the public
+ * `duplicates` option type is the union of this enum and its string literals).
+ */
+export enum DuplicateStrategy {
+  /** Keep the first value — safest against HPP attacks (default). */
+  First = 'first',
+  /** Keep the last value. */
+  Last = 'last',
+  /** Collect every value into an array. */
+  Array = 'array',
+}
