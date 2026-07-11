@@ -1,3 +1,6 @@
+// Side-effect import: registers the options schema on the package-private baker
+// (`@queryParserBaker.Recipe`) so option validation works. Intentionally unassigned.
+// oxlint-disable-next-line import/no-unassigned-import
 import './src/options';
 
 export { QueryParser } from './src/query-parser';

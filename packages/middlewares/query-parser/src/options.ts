@@ -25,7 +25,10 @@ const queryParserBaker = new Baker();
  */
 let isSealed = false;
 function ensureSealed(): void {
-  if (isSealed) return;
+  if (isSealed) {
+    return;
+  }
+
   queryParserBaker.seal();
   isSealed = true;
 }
