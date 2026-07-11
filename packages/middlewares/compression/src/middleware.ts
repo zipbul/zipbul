@@ -10,12 +10,12 @@ import { injectGzipPadding, injectZstdPadding } from './htb';
 import { CompressionError } from './interfaces';
 import type { BreachOptions, CompressionOptions } from './interfaces';
 import { resolveCompressionOptions, validateCompressionOptions } from './options';
-import { BREACH_SAFE_ENCODINGS } from './constants';
+import { BREACH_SAFE_ENCODINGS, INTEGRITY_FIELDS } from './constants';
 import { isIdentityAcceptable, negotiateEncoding, parseAcceptEncoding } from './encoding';
 import { compressStream } from './streaming';
 import { serializeBody } from './serialize';
 import { weakenETag } from './etag';
-import { hasNoTransform, varyCoversAcceptEncoding } from './eligibility';
+import { hasNoTransform, varyCoversAcceptEncoding, varyTokensToAppend } from './eligibility';
 
 /**
  * Compression HTTP middleware factory.
@@ -44,13 +44,21 @@ export function compressionMiddleware(opts?: CompressionOptions): MiddlewareDefi
     const http = ctx.to(HttpContext);
     const { request, response } = http;
 
+    // 스트림 경로: stream/Blob/raw Response body는 buffered `_body`가 아니라
+    // native Response에 저장된다. peekNativeResponse는 read-only라 lazy-merge
+    // 캐시를 만들지 않는다 — skip 경로에서도 안전하다. status·no-transform 게이트가
+    // native Response의 자체 status/헤더를 봐야 하므로 게이트보다 먼저 확인한다.
+    const body = response.getBody();
+    const native = body === undefined || body === null ? response.peekNativeResponse() : undefined;
+    const nativeBody = native?.body ?? null;
+
     // RFC 9110 §15: skip responses that MUST NOT have a body.
     // 206: Content-Range가 이미 (비인코딩) 선택 표현 기준으로 계산되어 있으므로
     // 사후 인코딩은 §15.3.7.1의 "동봉된 range 서술" 요건을 깨뜨린다 (§14.1.2).
-    // getStatus() can be undefined before the handler sets a status; that path
-    // is treated as compressible (200-like), so the cast to number is intentional
-    // — do NOT short-circuit on undefined here (it would disable compression).
-    const status = response.getStatus() as number;
+    // 핸들러가 반환한 raw Response의 status는 HttpResponse._status로 동기화되지 않으므로
+    // (getStatus()는 _status만 반환) native.status도 함께 본다 — 안 그러면 raw 206/205 등이
+    // 게이트를 통과해 압축된다. 미설정 status는 어댑터와 동일하게 200으로 취급한다.
+    const status = response.getStatus() ?? native?.status ?? HttpStatus.Ok;
     if (
       status < 200
       || status === HttpStatus.NoContent
@@ -62,30 +70,16 @@ export function compressionMiddleware(opts?: CompressionOptions): MiddlewareDefi
     // RFC 9110 §9.3.2: HEAD responses MUST NOT have content
     if (request.method === 'HEAD') return;
 
-    // 스트림 경로: stream/Blob/raw Response body는 buffered `_body`가 아니라
-    // native Response에 저장된다. peekNativeResponse는 read-only라 lazy-merge
-    // 캐시를 만들지 않는다 — skip 경로에서도 안전하다.
-    const body = response.getBody();
-    const native = body === undefined || body === null ? response.peekNativeResponse() : undefined;
-    const nativeBody = native?.body ?? null;
     if ((body === undefined || body === null) && nativeBody === null) return;
     if (response.getHeader(HttpHeader.ContentEncoding) !== null) return;
     // 핸들러가 반환한 raw Response 자체의 CE도 존중 — 이중 압축 금지 (§2.4.1)
     if (native !== undefined && native.headers.get(HttpHeader.ContentEncoding) !== null) return;
-    // RFC 9110 §12.5.5: Vary must be set whenever Accept-Encoding is considered,
-    // regardless of whether compression is actually applied. Set before any
-    // negotiation-dependent early return so identity/skipped responses still vary.
-    const existingVary = response.getHeader(HttpHeader.Vary);
-    if (existingVary === null || !varyCoversAcceptEncoding(existingVary)) {
-      response.appendHeader(HttpHeader.Vary, HttpHeader.AcceptEncoding);
-    }
 
-    // BREACH 활성 시 스트림은 압축하지 않는다 — 포맷 패딩 주입이 불가능하므로
-    // 압축 이득보다 오라클 방어를 우선한다 (§9.3.1 정책). Vary는 위에서 이미 설정.
-    if (native !== undefined && breach !== undefined) return;
-
-    // RFC 9110 §7.7 + RFC 9111 §5.2.2.6: no-transform prohibits compression
-    const cacheControl = response.getHeader(HttpHeader.CacheControl);
+    // RFC 9110 §7.7 + RFC 9111 §5.2.2.6: no-transform prohibits compression.
+    // CT·CE와 마찬가지로 native Response 자체의 Cache-Control도 본다 — raw Response에
+    // no-transform이 있으면 압축하지 않는다.
+    const cacheControl = response.getHeader(HttpHeader.CacheControl)
+      ?? (native !== undefined ? native.headers.get(HttpHeader.CacheControl) : null);
     if (cacheControl !== null && hasNoTransform(cacheControl)) return;
 
     // filter는 사용자 코드 — throw 시 보수적으로 압축을 포기한다 (응답은 원본 유지)
@@ -101,6 +95,21 @@ export function compressionMiddleware(opts?: CompressionOptions): MiddlewareDefi
       }
       if (!allowed) return;
     }
+
+    // RFC 9110 §12.5.5: Vary lists only request fields that influenced content selection.
+    // Set it here — once the response is known Accept-Encoding-negotiable (compressible
+    // content-type, not no-transform) — but before every negotiation-dependent early
+    // return, so identity/absent-AE responses of a negotiable resource still vary.
+    // no-transform and filter-excluded responses returned above intentionally get no Vary:
+    // Accept-Encoding never influences their (always-identity) representation.
+    const existingVary = response.getHeader(HttpHeader.Vary);
+    if (existingVary === null || !varyCoversAcceptEncoding(existingVary)) {
+      response.appendHeader(HttpHeader.Vary, HttpHeader.AcceptEncoding);
+    }
+
+    // BREACH 활성 시 스트림은 압축하지 않는다 — 포맷 패딩 주입이 불가능하므로
+    // 압축 이득보다 오라클 방어를 우선한다 (§9.3.1 정책). Vary는 위에서 이미 설정.
+    if (native !== undefined && breach !== undefined) return;
 
     // Check Accept-Encoding and negotiate before serializing body (avoids
     // wasteful JSON.stringify + TextEncoder.encode when no encoding matches).
@@ -133,12 +142,31 @@ export function compressionMiddleware(opts?: CompressionOptions): MiddlewareDefi
         .setBody(compressedStream)
         .setHeader(HttpHeader.ContentEncoding, encoding)
         .removeHeader(HttpHeader.ContentLength);
+      // RFC 9530 §2·§3: 비인코딩 기준 integrity 필드는 인코딩 후 거짓 — CL과 같이 무효화
+      for (const field of INTEGRITY_FIELDS) response.removeHeader(field);
       // 원본 native 헤더를 재적용 — 인코딩으로 무효해진 CL과 우리가 설정한 CE는 제외.
-      // 이미 설정된 헤더(현재 요청에서 미들웨어가 얹은 Vary 등)는 덮지 않는다.
+      // 이미 설정된 헤더는 덮지 않되, Vary는 예외로 병합한다: 미들웨어가 위에서
+      // Accept-Encoding을 얹었으므로 단순 skip하면 핸들러가 설정한 selecting header
+      // (예: Accept-Language)가 소실되어 shared cache가 깨진다 (§4.1 · RFC 9110 §12.5.5).
       for (const [name, value] of preserved) {
         const lower = name.toLowerCase();
         if (lower === HttpHeader.ContentEncoding || lower === HttpHeader.ContentLength) continue;
+        // 인코딩으로 무효해진 integrity 필드(RFC 9530)도 재적용하지 않는다
+        if ((INTEGRITY_FIELDS as readonly string[]).includes(lower)) continue;
+        // Set-Cookie는 다중값이라 아래에서 getSetCookie()로 일괄 append한다 — 여기서
+        // setHeader로 처리하면 두 번째 이후 쿠키가 소실된다 (RFC 6265: 다중 허용).
+        if (lower === HttpHeader.SetCookie) continue;
+        if (lower === HttpHeader.Vary) {
+          for (const token of varyTokensToAppend(response.getHeader(HttpHeader.Vary), value)) {
+            response.appendHeader(HttpHeader.Vary, token);
+          }
+          continue;
+        }
         if (response.getHeader(name) === null) response.setHeader(name, value);
+      }
+      // 원본 native의 모든 Set-Cookie를 개별 헤더로 재적용 (iterator/​setHeader 병합 회피)
+      for (const cookie of preserved.getSetCookie()) {
+        response.appendHeader(HttpHeader.SetCookie, cookie);
       }
       const streamETag = response.getHeader(HttpHeader.ETag);
       if (streamETag !== null) {
@@ -183,6 +211,8 @@ export function compressionMiddleware(opts?: CompressionOptions): MiddlewareDefi
     response
       .setBody(compressed)
       .setHeader(HttpHeader.ContentEncoding, encoding);
+    // RFC 9530 §2·§3: 비인코딩 기준 integrity 필드는 인코딩 후 거짓 — CL과 같이 무효화
+    for (const field of INTEGRITY_FIELDS) response.removeHeader(field);
     if (response.getHeader(HttpHeader.TransferEncoding) === null) {
       response.setHeader(HttpHeader.ContentLength, String(compressed.byteLength));
     } else {

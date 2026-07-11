@@ -5,10 +5,10 @@
 [![npm](https://img.shields.io/npm/v/@zipbul/cors)](https://www.npmjs.com/package/@zipbul/cors)
 ![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/parkrevil/3965fb9d1fe2d6fc5c321cb38d88c823/raw/cors-coverage.json)
 
-A framework-agnostic CORS handling library.
-Instead of generating responses directly, it returns a **discriminated union** result, giving the caller full control over the response.
+CORS middleware for the **zipbul** framework.
+Register it on the HTTP adapter's `OnRequest` phase and it evaluates the Fetch CORS protocol for every request — preflight answering, credentialed grants, `Vary` cache correctness, and Private Network Access.
 
-> Uses standard Web APIs (`Request` / `Response`).
+> Internally a standalone engine (`Cors`) evaluates policy and returns a **discriminated union** result; `corsMiddleware` wires it into the zipbul pipeline. The engine is exported for advanced use (custom adapters, tests).
 
 <br>
 
@@ -20,59 +20,55 @@ bun add @zipbul/cors
 
 <br>
 
+## 🚀 Quick Start
+
+Register `corsMiddleware` declaratively on the HTTP adapter's `OnRequest` phase in your module. Options are validated at registration (`Cors.create`), so a bad config throws `CorsError` **at boot**, not per request.
+
+```typescript
+import { defineModule } from '@zipbul/core';
+import { corsMiddleware } from '@zipbul/cors';
+import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
+
+export const appModule = defineModule({
+  name: 'App',
+  adapters: [
+    {
+      adapter: HttpAdapter,
+      middlewares: {
+        [HttpAdapterPhase.OnRequest]: [
+          corsMiddleware({
+            origin: 'https://my-app.example.com',
+            credentials: true,
+          }),
+        ],
+      },
+    },
+  ],
+});
+```
+
+What the middleware does per request:
+
+- **Preflight** (`OPTIONS` + `Access-Control-Request-Method`) — an accepted preflight is answered directly with the negotiated `Access-Control-*` headers and the configured success status (default `204`); with `preflightContinue: true` it is delegated to the next handler instead.
+- **Actual request** — attaches the applicable CORS headers to the response and lets the route run: `Access-Control-Allow-Origin` always on a grant, `-Allow-Credentials` only with `credentials: true`, `-Expose-Headers` only when configured, `Vary: Origin` only when the allow-origin answer varies by request origin.
+- **Rejected request** — withholds the grant (the browser then blocks cross-origin access) and lets the request proceed without producing a 403 itself; when the policy varies by origin (anything other than static `'*'` / `false`), `Vary: Origin` is still written per STANDARDS §7.1.
+
+> ⚠️ Register on `OnRequest` only. It is the sole phase that runs before route resolution (a preflight must be answered even for unrouted paths), and phases after `ParseBody` cannot see the raw request at all — the body parser consumes it.
+
+<br>
+
 ## 💡 Core Concept
 
-`handle()` does not create a response. It only tells you **what to do next**.
+The middleware wraps a standalone engine: `Cors.handle()` does not create a response — it returns **what to do next** as a discriminated union, and `corsMiddleware` maps that onto the zipbul pipeline.
 
 ```
 CorsResult
 ├── Continue          → Attach CORS headers to the response and continue
 ├── RespondPreflight  → Return a preflight-only response immediately
-└── Reject            → Reject the request (with reason)
+└── Reject            → Withhold the grant (with reason + cache-correctness headers)
 ```
 
-This design fits naturally into any environment — middleware pipelines, edge runtimes, custom error formats, and more.
-
-<br>
-
-## 🚀 Quick Start
-
-```typescript
-import { Cors, CorsAction, CorsError } from '@zipbul/cors';
-
-// Cors.create() throws CorsError on invalid options
-const cors = Cors.create({
-  origin: 'https://my-app.example.com',
-  credentials: true,
-});
-
-async function handleRequest(request: Request): Promise<Response> {
-  // handle() throws CorsError if the origin function fails
-  const result = await cors.handle(request);
-
-  if (result.action === CorsAction.Reject) {
-    return new Response('Forbidden', { status: 403 });
-  }
-
-  if (result.action === CorsAction.RespondPreflight) {
-    return new Response(null, {
-      status: result.statusCode,
-      headers: result.headers,
-    });
-  }
-
-  // CorsAction.Continue — merge CORS headers into your response
-  const response = new Response(JSON.stringify({ ok: true }), {
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  for (const [key, value] of result.headers) {
-    response.headers.set(key, value);
-  }
-
-  return response;
-}
-```
+The engine is exported for advanced use — custom adapters and tests. See [Engine usage](#-engine-usage-advanced).
 
 <br>
 
@@ -81,13 +77,13 @@ async function handleRequest(request: Request): Promise<Response> {
 ```typescript
 interface CorsOptions {
   origin?: OriginOptions;              // Default: '*'
-  methods?: HttpMethod[];              // Default: GET, HEAD, PUT, PATCH, POST, DELETE
-  allowedHeaders?: string[];           // Default: reflects request's ACRH
-  exposedHeaders?: string[];           // Default: none
+  methods?: Array<HttpMethod | '*'>;   // Default: GET, HEAD, PUT, PATCH, POST, DELETE
+  allowedHeaders?: string[] | null;    // Default: null (reflects request's ACRH)
+  exposedHeaders?: string[] | null;    // Default: null (header not included)
   credentials?: boolean;               // Default: false
-  maxAge?: number;                     // Default: none (header not included)
+  maxAge?: number | null;              // Default: null (header not included)
   preflightContinue?: boolean;         // Default: false
-  optionsSuccessStatus?: number;       // Default: 204
+  optionsSuccessStatus?: HttpStatus;   // Default: 204 (must be a real 2xx HttpStatus)
   allowPrivateNetwork?: boolean;       // Default: false
 }
 ```
@@ -102,11 +98,11 @@ interface CorsOptions {
 | `'https://example.com'` | Allow only the exact match |
 | `/^https:\/\/(.+\.)?example\.com$/` | Regex matching |
 | `['https://a.com', /^https:\/\/b\./]` | Array (mix of strings and regexes) |
-| `(origin, request) => boolean \| string` | Function (sync or async) |
+| `(origin, request) => boolean \| string \| Promise<boolean \| string>` | Function (sync or async) |
 
 > When `credentials: true`, `origin: '*'` causes a **validation error**. Use `origin: true` to reflect the request origin.
 >
-> RegExp origins must be stateless — patterns with the `g` or `y` flag are rejected with `CorsErrorReason.InvalidOrigin` (a stateful `lastIndex` would make matching depend on call order).
+> A RegExp carrying the `g` or `y` flag is **rejected at boot** (`InvalidOrigin`) — those flags mutate `lastIndex` between tests, so a shared matcher would alternate results across requests. Use stateless flags (`i`, `m`, `s`, `u`, `d`).
 >
 > RegExp origins are **not** screened for catastrophic backtracking (ReDoS). Because a RegExp is matched against the request `Origin` synchronously, supply only anchored, linear-time patterns (e.g. `/^https:\/\/([a-z0-9-]+\.)?example\.com$/`) — or prefer a string/array/function origin when the pattern would be complex.
 
@@ -123,9 +119,11 @@ Cors.create({ methods: [HttpMethod.Get, HttpMethod.Propfind] }); // WebDAV
 
 A wildcard `'*'` allows all methods (non-credentialed requests only). With `credentials: true`, `methods: ['*']` is **rejected at boot** (`CredentialsWithWildcardMethods`) — enumerate the allowed methods explicitly.
 
+> The CORS-safelisted methods `GET`/`HEAD`/`POST` **always pass** the preflight method check, even when omitted from `methods` — the browser lets them cross regardless, so rejecting their preflight would only contradict the UA (STANDARDS §3.3).
+
 ### `allowedHeaders`
 
-Request headers to allow in preflight. When not set, the client's `Access-Control-Request-Headers` value is echoed back.
+Request headers to allow in preflight. When not set, the client's requested header names are echoed back — re-serialized as a clean comma-separated list (whitespace and empty list elements stripped, per RFC 9110 §5.6.1.1's sender rule), never the raw client string.
 
 ```typescript
 Cors.create({ allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'] });
@@ -145,7 +143,7 @@ Response headers to expose to browser JavaScript.
 Cors.create({ exposedHeaders: ['X-Request-Id', 'X-Rate-Limit-Remaining'] });
 ```
 
-> With `credentials: true`, using a wildcard `'*'` causes the `Access-Control-Expose-Headers` header to not be set at all.
+> With `credentials: true`, the `'*'` entry is dropped (browsers treat it as a literal name under credentials): a bare `['*']` emits no header at all, while explicit names listed alongside it (e.g. `['*', 'X-Foo']`) are still emitted.
 
 ### `credentials`
 
@@ -157,7 +155,7 @@ Cors.create({ origin: 'https://app.example.com', credentials: true });
 
 ### `maxAge`
 
-How long (in seconds) the browser may cache the preflight result.
+How long (in seconds) the browser may cache the preflight result. Must be a non-negative integer below 10²¹ (RFC 9111 `delta-seconds`).
 
 ```typescript
 Cors.create({ maxAge: 86400 }); // 24 hours
@@ -165,7 +163,7 @@ Cors.create({ maxAge: 86400 }); // 24 hours
 
 ### `preflightContinue`
 
-When set to `true`, preflight requests are not handled automatically. Instead, `CorsAction.Continue` is returned, delegating to the next handler.
+When set to `true`, an **accepted** preflight is not answered automatically — `CorsAction.Continue` is returned with the negotiated headers, delegating the response to the next handler. A preflight that fails validation still returns `Reject`.
 
 ### `optionsSuccessStatus`
 
@@ -187,12 +185,12 @@ When `true`, a preflight carrying `Access-Control-Request-Private-Network: true`
 { action: CorsAction.Continue; headers: Headers }
 ```
 
-Returned for normal (non-OPTIONS) requests, or preflight when `preflightContinue: true`. Merge `headers` into your response directly.
+Returned for every non-preflight request — including an `OPTIONS` request **without** `Access-Control-Request-Method` (OPTIONS used as a real verb) and a no-Origin request under the static wildcard — and for an accepted preflight when `preflightContinue: true`. Merge `headers` into your response directly.
 
 #### `CorsPreflightResult`
 
 ```typescript
-{ action: CorsAction.RespondPreflight; headers: Headers; statusCode: number }
+{ action: CorsAction.RespondPreflight; headers: Headers; statusCode: HttpStatus }
 ```
 
 Returned for `OPTIONS` requests that include `Access-Control-Request-Method`. Use `headers` and `statusCode` to build a response.
@@ -200,31 +198,36 @@ Returned for `OPTIONS` requests that include `Access-Control-Request-Method`. Us
 #### `CorsRejectResult`
 
 ```typescript
-{ action: CorsAction.Reject; reason: CorsRejectionReason }
+{ action: CorsAction.Reject; reason: CorsRejectionReason; headers: Headers }
 ```
 
-Returned when CORS validation fails. Use `reason` to build a detailed error response.
+Returned when CORS validation fails. Use `reason` to build a detailed error response, and **merge `headers` into whatever you send back** — it carries the cache-correctness headers (chiefly `Vary: Origin` when the allow-origin answer depends on the request origin, per Fetch's CORS-and-HTTP-caches guidance). Without it a shared cache may store the header-less response and replay it to an allowed origin.
 
 | `CorsRejectionReason` | Meaning |
 |:-----------------------|:--------|
 | `NoOrigin` | `Origin` header missing or empty |
 | `OriginNotAllowed` | Origin not in the allowed list |
-| `MethodNotAllowed` | Request method not in the allowed list |
-| `HeaderNotAllowed` | Request header not in the allowed list |
+| `MethodNotAllowed` | Preflight's `Access-Control-Request-Method` not allowed by the policy (the CORS-safelisted `GET`/`HEAD`/`POST` always pass) |
+| `HeaderNotAllowed` | A preflight `Access-Control-Request-Headers` entry not allowed by the policy |
 
-`Cors.create()` throws `CorsError` when options fail validation:
+> Exception: with the static wildcard (`origin: '*'`), a request **without** an `Origin` header is not rejected — it returns `Continue` carrying `Access-Control-Allow-Origin: *`. Fetch's cache guidance requires a static wildcard to be sent on every response for the resource, non-CORS ones included (STANDARDS §7.2).
+
+`Cors.create()` throws `CorsError` when options fail boot validation. Two reasons fire from `handle()` at runtime instead: `OriginFunctionError`, and `CredentialsWithWildcardOrigin` when an origin **function** returns `'*'` under `credentials: true`.
 
 | `CorsErrorReason` | Meaning |
 |:------------------|:--------|
-| `CredentialsWithWildcardOrigin` | `credentials:true` with `origin:'*'` (Fetch Standard §3.3.5) |
+| `CredentialsWithWildcardOrigin` | `credentials:true` with `origin:'*'` at boot, or an origin function returning `'*'` at runtime (Fetch Standard §3.3.5) |
 | `CredentialsWithWildcardMethods` | `credentials:true` with `methods:['*']` (a wildcard method is not credentialed per the Fetch Standard) |
-| `InvalidMaxAge` | `maxAge` is not a non-negative integer (RFC 9111 §1.2.2) |
-| `InvalidStatusCode` | `optionsSuccessStatus` is not a 2xx integer |
-| `InvalidOrigin` | `origin` is an empty/blank string, or an array with empty/blank entries (RFC 6454) |
-| `InvalidMethods` | `methods` is empty, or contains empty/blank entries (RFC 9110 §5.6.2) |
-| `InvalidAllowedHeaders` | `allowedHeaders` contains empty/blank entries (RFC 9110 §5.6.2) |
-| `InvalidExposedHeaders` | `exposedHeaders` contains empty/blank entries (RFC 9110 §5.6.2) |
-| `OriginFunctionError` | Origin function threw at runtime |
+| `InvalidMaxAge` | `maxAge` is not a non-negative integer below 10²¹ (RFC 9111 `delta-seconds`) |
+| `InvalidStatusCode` | `optionsSuccessStatus` is not a real 2xx `HttpStatus` member (e.g. `299` throws) |
+| `InvalidOrigin` | `origin` is not a boolean, serialized-origin string (`'*'`/`'null'` allowed), stateless RegExp (no `g`/`y` flags), array thereof, or function |
+| `InvalidMethods` | `methods` is empty, or contains an entry that is not a known `HttpMethod` or `'*'` |
+| `InvalidAllowedHeaders` | `allowedHeaders` contains an entry that is not a valid HTTP token (RFC 9110 §5.6.2) |
+| `InvalidExposedHeaders` | `exposedHeaders` contains an entry that is not a valid HTTP token (RFC 9110 §5.6.2) |
+| `InvalidCredentials` | `credentials` is not a boolean |
+| `InvalidPreflightContinue` | `preflightContinue` is not a boolean |
+| `InvalidAllowPrivateNetwork` | `allowPrivateNetwork` is not a boolean |
+| `OriginFunctionError` | Origin function threw at runtime (`handle()`) |
 
 <br>
 
@@ -261,11 +264,15 @@ Cors.create({
 
     return allowed ? true : false;
     // true   → reflect the request origin
-    // string → use the specified string
+    // string → use the specified string (must be a serialized origin, 'null', or '*')
     // false  → reject
   },
 });
 ```
+
+> A returned string is held to the same standard as a config origin: it must be its own URL origin serialization (no trailing slash/path, no explicit default port), or the literal `'null'`/`'*'`. Anything else is treated as **not allowed** rather than emitted — a malformed value would fail the browser's byte comparison anyway.
+>
+> Exception: returning `'*'` while `credentials: true` is enabled makes `handle()` **throw** `CorsError` (`CredentialsWithWildcardOrigin`) — the same combination that is rejected at boot for the static config.
 
 > If the origin function throws, `handle()` throws `CorsError` with `reason: CorsErrorReason.OriginFunctionError`.
 
@@ -278,8 +285,8 @@ When `credentials: true`, the library automatically handles the following:
 |:-------|:-----------------------|
 | `origin: '*'` | **Validation error** — use `origin: true` to reflect the request origin |
 | `methods: ['*']` | **Validation error** — enumerate the allowed methods explicitly |
-| `allowedHeaders: ['*']` | Echoes the request headers |
-| `exposedHeaders: ['*']` | `Access-Control-Expose-Headers` is not set |
+| `allowedHeaders: ['*']` | Echoes the requested header names when present (never a literal `*`; `Authorization` still requires explicit listing) |
+| `exposedHeaders: ['*']` | Bare `['*']` emits no header; explicit names alongside `'*'` are still emitted |
 
 ```typescript
 // ✅ origin: true + credentials: true → request origin is reflected
@@ -318,7 +325,7 @@ Cors.create({ origin: '*', credentials: true }); // CorsErrorReason.CredentialsW
 Only `origin` is dynamic per request. `methods`, `allowedHeaders`, `credentials`, `maxAge`, etc. are
 **fixed policy**, validated once at `Cors.create()` time. To vary the _whole_ policy by route, tenant,
 or surface, construct one boot-validated `Cors` instance per policy and select it upstream — this keeps
-every instance fully validated and the request path allocation-free:
+every instance fully validated and keeps option re-validation/re-construction off the request path:
 
 ```typescript
 const corsBySurface = new Map<string, Cors>([
@@ -339,13 +346,15 @@ of moving it onto the hot request path.
 When another middleware needs to handle OPTIONS requests directly:
 
 ```typescript
-const cors = Cors.create({ preflightContinue: true });
+const cors = Cors.create({ origin: 'https://app.example.com', preflightContinue: true });
 
 async function handle(request: Request): Promise<Response> {
   const result = await cors.handle(request);
 
   if (result.action === CorsAction.Reject) {
-    return new Response('Forbidden', { status: 403 });
+    // result.headers carries Vary: Origin (the origin above varies by request) —
+    // merge it so caches stay correct even on the 403
+    return new Response('Forbidden', { status: 403, headers: result.headers });
   }
 
   // Continue — both normal and preflight requests arrive here
@@ -361,107 +370,35 @@ async function handle(request: Request): Promise<Response> {
 
 <br>
 
-## 🔌 Framework Integration Examples
+## 🔬 Engine usage (advanced)
 
-<details>
-<summary><b>Bun.serve</b></summary>
-
-```typescript
-import { Cors, CorsAction } from '@zipbul/cors';
-
-const cors = Cors.create({
-  origin: ['https://app.example.com'],
-  credentials: true,
-  exposedHeaders: ['X-Request-Id'],
-});
-
-Bun.serve({
-  async fetch(request) {
-    const result = await cors.handle(request);
-
-    if (result.action === CorsAction.Reject) {
-      return new Response(
-        JSON.stringify({ error: 'CORS policy violation', reason: result.reason }),
-        { status: 403, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
-
-    if (result.action === CorsAction.RespondPreflight) {
-      return new Response(null, {
-        status: result.statusCode,
-        headers: result.headers,
-      });
-    }
-
-    const response = await router.handle(request);
-
-    for (const [key, value] of result.headers) {
-      response.headers.set(key, value);
-    }
-
-    return response;
-  },
-  port: 3000,
-});
-```
-
-</details>
-
-<details>
-<summary><b>Generic middleware pattern (any framework)</b></summary>
+`corsMiddleware` covers zipbul apps. The underlying `Cors` engine is exported for the cases the middleware cannot reach — custom adapters and direct tests. It takes a standard `Request` and returns a `CorsResult`; you translate that onto your transport:
 
 ```typescript
 import { Cors, CorsAction } from '@zipbul/cors';
-import type { CorsOptions } from '@zipbul/cors';
 
-function withCors(options?: CorsOptions) {
-  // throws CorsError on invalid options
-  const cors = Cors.create(options);
+const cors = Cors.create({ origin: 'https://my-app.example.com', credentials: true });
 
-  return async (ctx: Context, next: () => Promise<void>) => {
-    // throws CorsError if origin function fails
-    const result = await cors.handle(ctx.request);
+async function handleRequest(request: Request): Promise<Response> {
+  const result = await cors.handle(request); // throws CorsError if the origin fn fails
 
-    if (result.action === CorsAction.Reject) {
-      ctx.status = 403;
-      ctx.body = { error: 'CORS_VIOLATION', reason: result.reason };
-      return;
-    }
+  if (result.action === CorsAction.Reject) {
+    // result.headers carries Vary: Origin — keep caches correct even on the 403
+    return new Response('Forbidden', { status: 403, headers: result.headers });
+  }
 
-    if (result.action === CorsAction.RespondPreflight) {
-      ctx.response = new Response(null, {
-        status: result.statusCode,
-        headers: result.headers,
-      });
-      return;
-    }
+  if (result.action === CorsAction.RespondPreflight) {
+    return new Response(null, { status: result.statusCode, headers: result.headers });
+  }
 
-    await next();
-
-    for (const [key, value] of result.headers) {
-      ctx.response.headers.set(key, value);
-    }
-  };
+  // CorsAction.Continue — merge result.headers into your response
+  const response = await next(request);
+  for (const [key, value] of result.headers) {
+    response.headers.set(key, value);
+  }
+  return response;
 }
 ```
-
-</details>
-
-<details>
-<summary><b>zipbul (<code>corsMiddleware</code>)</b></summary>
-
-For a zipbul app, use the exported `corsMiddleware` — it wraps the `Cors` engine as a `MiddlewareDefinition`. Options are validated at registration (`Cors.create`), so a bad config throws `CorsError` at boot. On a rejected request it returns silently **without** sending a response (no `Access-Control-*` headers — the browser then blocks the cross-origin access, per STANDARDS §9.1.4); it does not produce a 403 itself.
-
-```typescript
-import { corsMiddleware } from '@zipbul/cors';
-import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
-
-httpAdapter.addMiddlewares(HttpAdapterPhase.OnRequest, [
-  corsMiddleware({ origin: 'https://app.example.com', credentials: true }),
-]);
-```
-
-</details>
 
 <br>
 

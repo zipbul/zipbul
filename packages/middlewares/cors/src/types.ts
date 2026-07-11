@@ -6,10 +6,12 @@ import type { CorsOptions } from './options';
 /**
  * Return value of an origin function.
  * `true` to reflect the request `Origin`, `false` to reject, or a string to
- * emit verbatim as `Access-Control-Allow-Origin`. The middleware does not
- * validate the returned string, except `'*'` combined with `credentials:true`
- * is rejected per Fetch Standard §3.3.5. Otherwise supply a serialized
- * RFC 6454 §6.2 origin (or `'null'`/`'*'`) yourself.
+ * emit as `Access-Control-Allow-Origin`. A returned string is held to the same
+ * standard as a config origin (STANDARDS §1.2/§1.3): it must be `'*'`, the
+ * literal `'null'`, or a serialized origin (its own `new URL(v).origin`) —
+ * anything else (trailing slash, path, explicit default port, blank, control
+ * characters) is treated as not-allowed rather than emitted. `'*'` combined
+ * with `credentials:true` throws per Fetch Standard §3.3.5.
  */
 export type OriginResult = boolean | string;
 

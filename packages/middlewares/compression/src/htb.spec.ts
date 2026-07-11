@@ -1,4 +1,5 @@
 import { describe, expect, it, spyOn } from 'bun:test';
+import { gunzipSync as nodeGunzipSync, zstdDecompressSync as nodeZstdDecompressSync } from 'node:zlib';
 import { injectGzipPadding, injectZstdPadding } from './htb';
 
 function at(arr: Uint8Array, i: number): number {
@@ -239,14 +240,17 @@ describe('injectZstdPadding (HTB - Skippable Frame)', () => {
     expect(Buffer.from(decompressed).toString()).toBe(Buffer.from(data).toString());
   });
 
-  it('should prepend a Skippable Frame with correct magic number', () => {
+  it('should append a Skippable Frame with correct magic number (after the data frame)', () => {
     const compressed = compress(data);
     const padded = injectZstdPadding(compressed, 32);
+    const off = compressed.byteLength; // skippable frame is trailing
     // Magic: 0x184D2A50 in little-endian
-    expect(at(padded, 0)).toBe(0x50);
-    expect(at(padded, 1)).toBe(0x2a);
-    expect(at(padded, 2)).toBe(0x4d);
-    expect(at(padded, 3)).toBe(0x18);
+    expect(at(padded, off)).toBe(0x50);
+    expect(at(padded, off + 1)).toBe(0x2a);
+    expect(at(padded, off + 2)).toBe(0x4d);
+    expect(at(padded, off + 3)).toBe(0x18);
+    // The original compressed frame is preserved byte-for-byte at the front.
+    expect(padded.subarray(0, off)).toEqual(compressed);
   });
 
   it('should produce output longer than the original', () => {
@@ -259,11 +263,12 @@ describe('injectZstdPadding (HTB - Skippable Frame)', () => {
   it('should encode frame size correctly in little-endian', () => {
     const compressed = compress(data);
     const padded = injectZstdPadding(compressed, 16);
-    const frameSize = at(padded, 4) | (at(padded, 5) << 8) | (at(padded, 6) << 16) | (at(padded, 7) << 24);
+    const off = compressed.byteLength;
+    const frameSize = at(padded, off + 4) | (at(padded, off + 5) << 8) | (at(padded, off + 6) << 16) | (at(padded, off + 7) << 24);
     expect(frameSize).toBeGreaterThanOrEqual(1);
     expect(frameSize).toBeLessThanOrEqual(16);
-    // Total = 8 (header) + frameSize (padding) + compressed.length
-    expect(padded.byteLength).toBe(8 + frameSize + compressed.byteLength);
+    // Total = compressed.length + 8 (header) + frameSize (padding)
+    expect(padded.byteLength).toBe(compressed.byteLength + 8 + frameSize);
   });
 
   it('should produce varying output sizes across multiple calls', () => {
@@ -278,7 +283,7 @@ describe('injectZstdPadding (HTB - Skippable Frame)', () => {
   it('should work with maxPadding=1 (always adds exactly 1 byte)', () => {
     const compressed = compress(data);
     const padded = injectZstdPadding(compressed, 1);
-    const frameSize = at(padded, 4);
+    const frameSize = at(padded, compressed.byteLength + 4);
     expect(frameSize).toBe(1);
     expect(padded.byteLength).toBe(8 + 1 + compressed.byteLength);
     expect(Buffer.from(Bun.zstdDecompressSync(toAB(padded))).toString()).toBe(Buffer.from(data).toString());
@@ -287,9 +292,55 @@ describe('injectZstdPadding (HTB - Skippable Frame)', () => {
   it('should work with large maxPadding=256', () => {
     const compressed = compress(data);
     const padded = injectZstdPadding(compressed, 256);
-    const frameSize = at(padded, 4) | (at(padded, 5) << 8);
+    const off = compressed.byteLength;
+    const frameSize = at(padded, off + 4) | (at(padded, off + 5) << 8);
     expect(frameSize).toBeGreaterThanOrEqual(1);
     expect(frameSize).toBeLessThanOrEqual(256);
     expect(Buffer.from(Bun.zstdDecompressSync(toAB(padded))).toString()).toBe(Buffer.from(data).toString());
+  });
+});
+
+/**
+ * L5: HTB padding must be transparent to ANY RFC-compliant decompressor, not only Bun's
+ * (tolerant) decoder. These roundtrip the padded bytes through node:zlib and the WHATWG
+ * DecompressionStream — independent implementations — to prove the FEXTRA subfield injection
+ * (RFC 1952 §2.3.1) and zstd skippable frame (RFC 8878 §3.1.2) are byte-legal.
+ */
+describe('HTB padding — transparency to independent RFC decoders (cross-decoder)', () => {
+  const data = new TextEncoder().encode('cross-decoder BREACH payload '.repeat(120));
+
+  async function inflateGzipViaWebStream(padded: Uint8Array): Promise<Uint8Array> {
+    const ds = new DecompressionStream('gzip');
+    const piped = new Blob([toAB(padded)]).stream().pipeThrough(ds);
+    return new Uint8Array(await new Response(piped).arrayBuffer());
+  }
+
+  it('gzip FEXTRA padding decodes via node:zlib (independent of Bun)', () => {
+    const padded = injectGzipPadding(toAB(Bun.gzipSync(toAB(data))), 64);
+    expect(Buffer.from(nodeGunzipSync(Buffer.from(padded))).toString()).toBe(Buffer.from(data).toString());
+  });
+
+  it('gzip FEXTRA padding decodes via WHATWG DecompressionStream', async () => {
+    const padded = injectGzipPadding(toAB(Bun.gzipSync(toAB(data))), 64);
+    expect(Buffer.from(await inflateGzipViaWebStream(padded)).toString()).toBe(Buffer.from(data).toString());
+  });
+
+  it('double-padded gzip (existing-FEXTRA append branch) still decodes via node:zlib', () => {
+    // First inject sets FEXTRA; the second inject exercises the existing-FEXTRA XLEN-append path.
+    const once = injectGzipPadding(toAB(Bun.gzipSync(toAB(data))), 40);
+    const twice = injectGzipPadding(once, 40);
+    expect(Buffer.from(nodeGunzipSync(Buffer.from(twice))).toString()).toBe(Buffer.from(data).toString());
+  });
+
+  it('zstd trailing skippable-frame padding decodes via Bun', () => {
+    const padded = injectZstdPadding(new Uint8Array(Bun.zstdCompressSync(toAB(data), { level: 3 })), 64);
+    expect(Buffer.from(Bun.zstdDecompressSync(toAB(padded))).toString()).toBe(Buffer.from(data).toString());
+  });
+
+  // F5 fix: the skippable frame is now TRAILING, so even node:zlib's zstd decoder — which
+  // returns empty for a LEADING skippable frame — recovers the full payload independently of Bun.
+  it('zstd trailing skippable-frame padding decodes via node:zlib zstd (independent of Bun)', () => {
+    const padded = injectZstdPadding(new Uint8Array(Bun.zstdCompressSync(toAB(data), { level: 3 })), 64);
+    expect(Buffer.from(nodeZstdDecompressSync(Buffer.from(padded))).toString()).toBe(Buffer.from(data).toString());
   });
 });

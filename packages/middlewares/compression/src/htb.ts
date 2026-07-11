@@ -97,23 +97,27 @@ const ZSTD_SKIPPABLE_MAGIC = 0x184d2a50;
 export function injectZstdPadding(compressed: Uint8Array, maxPadding: number): Uint8Array {
   const padLen = randomPadLen(maxPadding);
   const frameOverhead = 8; // 4 bytes magic + 4 bytes frame size
-  const result = new Uint8Array(frameOverhead + padLen + compressed.length);
+  const result = new Uint8Array(compressed.length + frameOverhead + padLen);
+
+  // 데이터 프레임을 먼저 두고 Skippable Frame을 뒤에 붙인다(trailing). RFC 8878 §3.1은
+  // skippable frame을 어디에 두든 합법이나, 선두 배치는 일부 one-shot 디코더(node:zlib zstd)가
+  // 첫 프레임만 읽고 멈춰 빈 출력을 낸다. 후미 배치는 그런 디코더도 데이터 프레임을 먼저
+  // 복원하므로 상호운용성이 넓다. 길이 변화(=BREACH 완화)는 배치와 무관하게 동일하다.
+  result.set(compressed, 0);
+  const off = compressed.length;
 
   // Skippable Frame magic number (little-endian)
-  result[0] = ZSTD_SKIPPABLE_MAGIC & 0xff;
-  result[1] = (ZSTD_SKIPPABLE_MAGIC >> 8) & 0xff;
-  result[2] = (ZSTD_SKIPPABLE_MAGIC >> 16) & 0xff;
-  result[3] = (ZSTD_SKIPPABLE_MAGIC >> 24) & 0xff;
+  result[off] = ZSTD_SKIPPABLE_MAGIC & 0xff;
+  result[off + 1] = (ZSTD_SKIPPABLE_MAGIC >> 8) & 0xff;
+  result[off + 2] = (ZSTD_SKIPPABLE_MAGIC >> 16) & 0xff;
+  result[off + 3] = (ZSTD_SKIPPABLE_MAGIC >> 24) & 0xff;
 
   // User_Data size (little-endian)
-  result[4] = padLen & 0xff;
-  result[5] = (padLen >> 8) & 0xff;
-  result[6] = (padLen >> 16) & 0xff;
-  result[7] = (padLen >> 24) & 0xff;
+  result[off + 4] = padLen & 0xff;
+  result[off + 5] = (padLen >> 8) & 0xff;
+  result[off + 6] = (padLen >> 16) & 0xff;
+  result[off + 7] = (padLen >> 24) & 0xff;
 
-  // Padding bytes (zero-filled by Uint8Array constructor)
-  // Actual compressed frame follows
-  result.set(compressed, frameOverhead + padLen);
-
+  // Padding bytes after the frame header are zero-filled by the Uint8Array constructor.
   return result;
 }

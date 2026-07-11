@@ -4,7 +4,7 @@
 
 ## 1. Compression Dictionary Transport (dcb / dcz) — deferred
 
-STANDARDS.md §8.1에서 "범위 밖"으로 선언한 항목. content-coding 관점의 **최전선(천장)** 이며, 이것 외에 새 general-purpose content coding은 IETF 파이프라인에 없다.
+이 미들웨어가 구현하지 않는 항목. content-coding 관점의 **최전선(천장)** 이며, 이것 외에 새 general-purpose content coding은 IETF 파이프라인에 없다.
 
 ### 무엇
 - **RFC 9842** "Compression Dictionary Transport" (2025-09, Proposed Standard) + **RFC 9841** "Shared Brotli Compressed Data Format".

@@ -28,34 +28,32 @@ bun add @zipbul/common @zipbul/http-adapter
 
 ## 🚀 Quick Start
 
-`compressionMiddleware(options?)` validates its config eagerly and returns a `Result` — an `Err`
-on invalid options, otherwise a middleware you register in the **`BeforeResponse`** phase (it runs
-after the handler has produced the body).
+`compressionMiddleware(options?)` validates its config eagerly and returns a `MiddlewareDefinition`
+you register in the **`BeforeResponse`** phase (it runs after the handler has produced the body).
+Invalid options are a boot-time programmer error, so it **throws** `CompressionError` rather than
+returning a value to narrow — the same failure surfaces identically on every boot.
 
-Build it in its own module and narrow the `Result` there, then export the concrete middleware.
-The AOT compiler serialises a module's middleware list by reference, so each entry must be an
-**imported symbol** — and control-flow narrowing (`isErr`) does not cross a module boundary unless
-you export the narrowed value as a fresh `const`:
+Build it in its own module and export the concrete middleware. The AOT compiler serialises a
+module's middleware list by reference, so each entry must be an **imported symbol**:
 
 ```typescript
 // compression.ts
 import { compressionMiddleware, CompressionCodec } from '@zipbul/compression';
-import { isErr } from '@zipbul/result';
 
-const result = compressionMiddleware({
+// Throws CompressionError at boot if the config is invalid — fail fast, no branch to narrow.
+export const compression = compressionMiddleware({
   encodings: [CompressionCodec.Br, CompressionCodec.Gzip], // server preference order
   threshold: 1024,                                         // bytes; smaller bodies are left alone
 });
-
-if (isErr(result)) {
-  throw new Error(result.data.message); // invalid config — fail fast at boot
-}
-
-export const compression = result; // narrowed to MiddlewareDefinition
 ```
 
+Register that `MiddlewareDefinition` at either scope — both take the built definition (`[compression]`),
+not the factory, and both are resolved at AOT build time.
+
+**Global**, on the module's phase-keyed middleware map:
+
 ```typescript
-// module.ts — declarative registration, keyed by adapter and pipeline phase.
+// module.ts
 import { defineModule } from '@zipbul/core';
 import { HttpAdapter, HttpAdapterPhase } from '@zipbul/http-adapter';
 
@@ -72,6 +70,23 @@ export const appModule = defineModule({
     },
   ],
 });
+```
+
+**Per controller / route**, with the `@UseMiddlewares` decorator:
+
+```typescript
+// api.controller.ts
+import { RestController, Get, HttpAdapterPhase } from '@zipbul/http-adapter';
+import { UseMiddlewares } from '@zipbul/common';
+
+import { compression } from './compression';
+
+@RestController('api')
+@UseMiddlewares(HttpAdapterPhase.BeforeResponse, [compression])
+export class ApiController {
+  @Get('report')
+  report() { /* large JSON — compressed on the way out */ }
+}
 ```
 
 A client sending `Accept-Encoding: br, gzip` now receives a `Content-Encoding: br` body (server
@@ -174,21 +189,21 @@ RFC 9842) — its dictionary compression is not yet exposed by the Bun runtime.
 
 <br>
 
-## 📤 Error model — `Result`, not exceptions
+## 📤 Error model — throws `CompressionError` on invalid config
 
-`compressionMiddleware(options?)` returns a `Result<MiddlewareDefinition, CompressionErrorData>`
-(from `@zipbul/result`). Invalid configuration is a value you narrow with `isErr` — the middleware
-never throws for bad options; it surfaces the first offending field.
+Invalid configuration is a boot-time programmer error that fails identically on every boot, so
+`compressionMiddleware(options?)` **throws** a `CompressionError` (an `Error` subclass) carrying the
+first offending field. There is no value to narrow — the plain `const compression =
+compressionMiddleware({ … })` from the Quick Start is the whole usage; a bad config simply crashes
+the boot with a precise message:
 
-```typescript
-import { isErr } from '@zipbul/result';
-
-const compression = compressionMiddleware({ level: { gzip: 99 } });
-if (isErr(compression)) {
-  compression.data.reason;  // CompressionErrorReason.InvalidLevel
-  compression.data.message; // "gzip level must be an integer between 1 and 9, got 99"
-}
 ```
+CompressionError: gzip level must be an integer between 1 and 9, got 99
+  .reason === CompressionErrorReason.InvalidLevel
+```
+
+You only ever `catch` it if you build the config dynamically and want to inspect `.reason`
+programmatically — otherwise let it fail fast.
 
 ### `CompressionErrorReason`
 
@@ -201,8 +216,8 @@ if (isErr(compression)) {
 | `InvalidFilter` | `filter` is not a function |
 | `InvalidBreach` | `breach.maxPadding` out of `1–4096`, or no BREACH-safe encoding present |
 
-`CompressionError` (an `Error` subclass carrying `.reason`) is exported for constructing/throwing at
-call sites that prefer exceptions.
+`CompressionError` (an `Error` subclass carrying `.reason`) is what the factory throws, and is
+exported so call sites can `instanceof`-check or re-throw it.
 
 <br>
 
@@ -210,7 +225,7 @@ call sites that prefer exceptions.
 
 | Export | Description |
 |:---|:---|
-| `compressionMiddleware` | `(options?) => Result<MiddlewareDefinition, CompressionErrorData>` — register at `BeforeResponse`. |
+| `compressionMiddleware` | `(options?) => MiddlewareDefinition` — register at `BeforeResponse`; throws `CompressionError` on invalid options. |
 | `CompressionCodec` | Codec enum for `encodings`/`level`: `.Gzip` / `.Br` / `.Deflate` / `.Zstd`. |
 | `CompressionErrorReason` | snake_case reason enum for validation failures. |
 | `CompressionError` | `Error` subclass carrying `.reason` (for throw-based call sites). |
@@ -218,7 +233,7 @@ call sites that prefer exceptions.
 | `ContentEncoding` | Wire-value enum re-exported from `@zipbul/http-adapter`. |
 | Types | `CompressionOptions`, `CompressionErrorData`, `BreachOptions`, `EncodingPreference`. |
 
-> Narrow the returned `Result` with `isErr` from `@zipbul/result` (not re-exported here).
+> Invalid options throw `CompressionError` at boot — catch it only if you need to inspect `.reason`.
 
 <br>
 

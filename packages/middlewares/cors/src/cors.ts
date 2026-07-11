@@ -23,7 +23,9 @@ import { CORS_DEFAULTS, CorsOptions } from './options';
  */
 let isSealed = false;
 function ensureSealed(): void {
-  if (isSealed) return;
+  if (isSealed) {
+    return;
+  }
   corsBaker.seal();
   isSealed = true;
 }
@@ -34,10 +36,21 @@ function ensureSealed(): void {
  * instead of generating responses directly.
  */
 export class Cors {
+  /**
+   * @internal Whether the resource's Access-Control-Allow-Origin answer depends on the
+   * request `Origin`. A static `'*'` yields the same header for every request and
+   * `false` never yields one, so neither varies; every other form (fixed string, true,
+   * array, RegExp, function) does, and §7.1 then requires `Vary: Origin` on ALL
+   * responses — including rejects and no-Origin responses that carry no ACAO.
+   */
+  private readonly variesByOrigin: boolean;
+
   private constructor(
     /** @internal */
     private readonly options: ResolvedCorsOptions,
-  ) {}
+  ) {
+    this.variesByOrigin = options.origin !== '*' && options.origin !== false;
+  }
 
   /**
    * Creates a Cors instance after resolving and validating options.
@@ -53,7 +66,7 @@ export class Cors {
    */
   public static create(options?: CorsOptions): Cors {
     ensureSealed();
-    const merged: ResolvedCorsOptions = { ...CORS_DEFAULTS, ...(options ?? {}) };
+    const merged: ResolvedCorsOptions = { ...CORS_DEFAULTS, ...options };
 
     // Defensive copy of the array options: the shallow spread above aliases the
     // caller's arrays, so without this a post-registration `opts.methods.push(...)`
@@ -136,7 +149,17 @@ export class Cors {
     const origin = request.headers.get(HttpHeader.Origin);
 
     if (origin === null || origin.length === 0) {
-      return this.reject(CorsRejectionReason.NoOrigin);
+      if (this.options.origin === '*') {
+        // §7.2 — a static wildcard is sent on every response for the resource,
+        // including a no-Origin (non-CORS/navigation) one, and without `Vary`.
+        const headers = new Headers();
+        headers.set(HttpHeader.AccessControlAllowOrigin, '*');
+        this.applyExposeHeaders(headers);
+
+        return { action: CorsAction.Continue, headers };
+      }
+
+      return this.reject(CorsRejectionReason.NoOrigin, this.varyHeaders());
     }
 
     const allowedOrigin = await this.matchOrigin(origin, request);
@@ -146,7 +169,9 @@ export class Cors {
     }
 
     if (allowedOrigin === undefined) {
-      return this.reject(CorsRejectionReason.OriginNotAllowed);
+      // §7.1 — the resource's ACAO presence varies by Origin; declare it even on the
+      // rejected response so a shared cache cannot replay this ACAO-less body.
+      return this.reject(CorsRejectionReason.OriginNotAllowed, this.varyHeaders());
     }
 
     if (allowedOrigin === '*' && this.options.credentials) {
@@ -160,7 +185,11 @@ export class Cors {
 
     headers.set(HttpHeader.AccessControlAllowOrigin, allowedOrigin);
 
-    if (allowedOrigin !== '*') {
+    // Keyed on the CONFIG (variesByOrigin), not on the granted value: an origin
+    // function may return '*' for this request but something else for another, so
+    // even an `ACAO: *` grant varies by Origin and must say so (§7.1) — otherwise a
+    // cache could replay this wildcard grant to an origin the function denies.
+    if (this.variesByOrigin) {
       headers.append(HttpHeader.Vary, HttpHeader.Origin);
     }
 
@@ -184,7 +213,9 @@ export class Cors {
     }
 
     if (!this.isMethodAllowed(requestMethod, this.options.methods)) {
-      return this.reject(CorsRejectionReason.MethodNotAllowed);
+      // Rejection withholds the CORS grant (no ACAO/ACAM), but §7.1 still requires
+      // Vary: Origin when the resource's answer varies by origin.
+      return this.reject(CorsRejectionReason.MethodNotAllowed, this.varyHeaders());
     }
 
     const allowMethodsValue = this.serializeAllowedMethods(this.options.methods);
@@ -198,10 +229,10 @@ export class Cors {
 
     if (this.options.allowedHeaders !== null) {
       if (!this.areRequestHeadersAllowed(requestHeaders, this.options.allowedHeaders)) {
-        return this.reject(CorsRejectionReason.HeaderNotAllowed);
+        return this.reject(CorsRejectionReason.HeaderNotAllowed, this.varyHeaders());
       }
 
-      const allowHeadersValue = this.serializeAllowedHeaders(this.options.allowedHeaders, requestHeadersRaw);
+      const allowHeadersValue = this.serializeAllowedHeaders(this.options.allowedHeaders, requestHeaders);
 
       if (allowHeadersValue !== undefined) {
         headers.set(HttpHeader.AccessControlAllowHeaders, allowHeadersValue);
@@ -213,8 +244,12 @@ export class Cors {
       // unconditionally to keep intermediary caches correct.
       headers.append(HttpHeader.Vary, HttpHeader.AccessControlRequestHeaders);
 
-      if (requestHeadersRaw !== null && requestHeadersRaw.length > 0) {
-        headers.set(HttpHeader.AccessControlAllowHeaders, requestHeadersRaw);
+      // Echo the parsed, empty-element-stripped header names — never the raw client
+      // string — so the emitted list satisfies RFC 9110 §5.6.1.1 (a sender MUST NOT
+      // generate empty list elements). Raw "X-Foo ,, x-bar" would otherwise re-emit
+      // the empty element verbatim (STANDARDS §1.5).
+      if (requestHeaders.length > 0) {
+        headers.set(HttpHeader.AccessControlAllowHeaders, requestHeaders.join(','));
       }
     }
 
@@ -234,8 +269,17 @@ export class Cors {
   }
 
   /** @internal */
-  private reject(reason: CorsRejectionReason): CorsRejectResult {
-    return { action: CorsAction.Reject, reason };
+  private reject(reason: CorsRejectionReason, headers: Headers = new Headers()): CorsRejectResult {
+    return { action: CorsAction.Reject, reason, headers };
+  }
+
+  /** @internal A fresh header set carrying `Vary: Origin` iff the answer varies by origin (§7.1). */
+  private varyHeaders(): Headers {
+    const headers = new Headers();
+    if (this.variesByOrigin) {
+      headers.append(HttpHeader.Vary, HttpHeader.Origin);
+    }
+    return headers;
   }
 
   /** @internal */
@@ -296,27 +340,26 @@ export class Cors {
       return origin;
     }
     if (typeof result === 'string') {
-      // An origin function returning a blank string, or one bearing control
-      // characters (CR/LF/NUL → header injection / a raw Headers.set TypeError),
-      // is not a valid Access-Control-Allow-Origin value — treat as not-allowed
-      // rather than emitting a malformed header (RFC 6454 §6.2).
-      return this.isEmittableOrigin(result) ? result : undefined;
+      // A function return is held to the same standard as a config origin string
+      // (STANDARDS §1.2/§1.3): `*`, the literal `null`, or a serialized origin.
+      // Anything else — trailing slash/path, explicit default port, blank, CR/LF
+      // injection (the URL parser strips those, failing the equality) — would fail
+      // the UA's byte comparison, so treat it as not-allowed instead of emitting it.
+      return this.isSerializedCorsOrigin(result) ? result : undefined;
     }
     return undefined;
   }
 
-  /** @internal */
-  private isEmittableOrigin(value: string): boolean {
-    if (value.trim().length === 0) {
+  /** @internal `'*'`, `'null'`, or a value that IS its own URL origin serialization. */
+  private isSerializedCorsOrigin(value: string): boolean {
+    if (value === '*' || value === 'null') {
+      return true;
+    }
+    try {
+      return new URL(value).origin === value;
+    } catch {
       return false;
     }
-    for (let i = 0; i < value.length; i++) {
-      const code = value.charCodeAt(i);
-      if (code < 0x20 || code === 0x7f) {
-        return false;
-      }
-    }
-    return true;
   }
 
   /** @internal Emit Access-Control-Expose-Headers for an actual (non-preflight) response. */
@@ -411,16 +454,17 @@ export class Cors {
   }
 
   /** @internal */
-  private serializeAllowedHeaders(allowedHeaders: string[], requestHeadersRaw: string | null): string | undefined {
+  private serializeAllowedHeaders(allowedHeaders: string[], requestHeaders: string[]): string | undefined {
     if (allowedHeaders.length === 0) {
       return undefined;
     }
 
     // '*' is not a valid Access-Control-Allow-Headers token under credentials
     // (browsers reject the literal wildcard), so echo the concrete requested
-    // headers instead of the wildcard list.
+    // headers instead of the wildcard list. Echo the parsed names (empty list
+    // elements already stripped, STANDARDS §1.5), never the raw client string.
     if (this.options.credentials && this.includesWildcard(allowedHeaders)) {
-      return requestHeadersRaw !== null && requestHeadersRaw.length > 0 ? requestHeadersRaw : undefined;
+      return requestHeaders.length > 0 ? requestHeaders.join(',') : undefined;
     }
 
     // Otherwise emit the configured list verbatim. Explicit entries listed
