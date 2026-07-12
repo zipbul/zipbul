@@ -1,10 +1,12 @@
 /* oxlint-disable typescript-eslint/no-unsafe-type-assertion */
 
 import { describe, expect, it } from 'bun:test';
+import { isErr } from '@zipbul/result';
+import type { Err, Result } from '@zipbul/result';
 
 import { QueryParserErrorReason } from './enums';
 import { QueryParserError } from './interfaces';
-import type { QueryParserOptions } from './interfaces';
+import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
 import type { QueryArray, QueryValue, QueryValueRecord } from './types';
 
 import { QueryParser } from './query-parser';
@@ -590,11 +592,31 @@ describe('QueryParser', () => {
 
       // Act
       const protoRoot = parser.parse('__proto__[polluted]=true');
-      parser.parse('a[__proto__][polluted]=true');
-      parser.parse('a[0][__proto__][polluted]=true');
+      const protoChild = parser.parse('a[__proto__][polluted]=true');
+      const protoArrayChild = parser.parse('a[0][__proto__][polluted]=true');
 
-      // Assert — __proto__ neutralized at root, child, and array-child positions
-      expect(Object.prototype.hasOwnProperty.call(protoRoot, '__proto__')).toBe(false);
+      // Assert — root position: the poisoned root key is skipped entirely, so
+      // no container is ever created for it.
+      expect(protoRoot).toEqual({});
+
+      // Assert — object-child position: the "a" container is created, but the
+      // __proto__ segment write is skipped entirely (not merely redirected
+      // away from the global prototype). The instance-level canary proves the
+      // write never happened: the container's OWN prototype is untouched and
+      // it never gained a "polluted" own-property.
+      expect(protoChild).toEqual({ a: {} });
+      const childContainer = expectQueryRecord(protoChild.a);
+      expect(Object.getPrototypeOf(childContainer)).toBe(Object.prototype);
+      expect(childContainer.polluted).toBeUndefined();
+
+      // Assert — array-child position: same skip-the-write behavior one level
+      // deeper, inside an array element.
+      expect(protoArrayChild).toEqual({ a: [{}] });
+      const arrayChildContainer = expectQueryRecord(expectQueryArray(protoArrayChild.a)[0]);
+      expect(Object.getPrototypeOf(arrayChildContainer)).toBe(Object.prototype);
+      expect(arrayChildContainer.polluted).toBeUndefined();
+
+      // Assert — no GLOBAL prototype was ever mutated by any vector above.
       expectNoGlobalPollution();
     });
 
@@ -1297,6 +1319,84 @@ describe('QueryParser', () => {
 
       // Assert
       expect(error.reason).toBe(QueryParserErrorReason.ConflictingStructure);
+    });
+  });
+
+  // =========================================================================
+  // parseResult — the non-throwing counterpart to parse(). Success returns
+  // the parsed record directly (isErr === false); strict structural errors
+  // return an Err<QueryParserErrorData> instead of throwing.
+  // =========================================================================
+  describe('parseResult', () => {
+    const assertParseResultErr = (
+      result: Result<QueryValueRecord, QueryParserErrorData>,
+    ): Err<QueryParserErrorData> => {
+      expect(isErr(result)).toBe(true);
+
+      return result as Err<QueryParserErrorData>;
+    };
+
+    it('should return the parsed record when the query string is well-formed', () => {
+      // Arrange
+      const parser = QueryParser.create();
+
+      // Act
+      const result = parser.parseResult('a=1&b=2');
+
+      // Assert
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual({ a: '1', b: '2' });
+    });
+
+    it('should return Ok for a malformed percent escape even in strict mode', () => {
+      // Arrange — §2.6: malformed percent syntax is never an error, strict or not
+      const parser = QueryParser.create({ strict: true });
+
+      // Act
+      const result = parser.parseResult('q=%ZZ');
+
+      // Assert
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual({ q: '%ZZ' });
+    });
+
+    it('should return Err with MalformedQueryString for a strict bracket structure error', () => {
+      // Arrange
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act
+      const result = parser.parseResult('a[b]c[d]=1');
+
+      // Assert
+      const errResult = assertParseResultErr(result);
+
+      expect(errResult.data.reason).toBe(QueryParserErrorReason.MalformedQueryString);
+    });
+
+    it('should return Err with ConflictingStructure for a strict scalar/structure conflict', () => {
+      // Arrange
+      const parser = QueryParser.create({ strict: true, nesting: true });
+
+      // Act
+      const result = parser.parseResult('a=1&a[b]=2');
+
+      // Assert
+      const errResult = assertParseResultErr(result);
+
+      expect(errResult.data.reason).toBe(QueryParserErrorReason.ConflictingStructure);
+    });
+
+    it('should return Ok for the same malformed-brackets input under non-strict mode', () => {
+      // Arrange — boundary: identical input to the MalformedQueryString case
+      // above, but non-strict never returns Err; the structure degrades gracefully.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act
+      const result = parser.parseResult('a[b]c[d]=1');
+
+      // Assert
+      expect(isErr(result)).toBe(false);
+      expect(result).toEqual({ a: { b: { d: '1' } } });
     });
   });
 
