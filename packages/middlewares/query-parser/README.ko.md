@@ -70,14 +70,14 @@ search(ctx: HttpContext) {
 
 ### 잘못된 쿼리 → 400 (500 아님)
 
-미들웨어에서 잘못된 쿼리 스트링은 **클라이언트** 오류입니다. `strict`가 켜져 있으면 공급 단계가 `httpError(BadRequest)`를 반환하고, 프레임워크가 파이프라인을 **400** 응답으로 즉시 단락(short-circuit)시키며 핸들러는 실행되지 않습니다. throw가 아니므로 악의적인 `?q=%ZZ`가 500으로 바뀔 수 없습니다:
+미들웨어에서 구조적으로 잘못된 쿼리 스트링은 **클라이언트** 오류입니다. `strict`가 켜져 있으면 공급 단계가 `httpError(BadRequest)`를 반환하고, 프레임워크가 파이프라인을 **400** 응답으로 즉시 단락(short-circuit)시키며 핸들러는 실행되지 않습니다. throw가 아니므로 악의적인 쿼리가 500으로 바뀔 수 없습니다. strict는 **구조**(브래킷, 스칼라/구조 충돌)만 검증합니다 — 잘못된 퍼센트 이스케이프는 오류가 아니라 데이터이므로([`strict`](#strict) 참고) 400 경로를 유발하지 않습니다:
 
 ```typescript
 middlewares: {
   [HttpAdapterPhase.BeforeValidate]: [queryParser({ strict: true, nesting: true })],
 }
-// GET /search?q=%ZZ        → 400 Bad Request  (잘못된 퍼센트 이스케이프)
 // GET /search?a[b]c[d]=1   → 400 Bad Request  (잘못된 브래킷, nesting 필요)
+// GET /search?q=%ZZ        → 핸들러 정상 실행; q === '%ZZ' (잘못된 이스케이프가 보존됨, 오류 아님)
 // GET /search?q=hello      → 핸들러 정상 실행
 ```
 
@@ -143,7 +143,7 @@ parser.parse('filter[status]=active&filter[role]=admin');
 
 ### `arrayLimit`
 
-`nesting` 활성화 시 허용되는 최대 배열 인덱스. **컨테이너 생성 시점**에는 한도를 초과하는 인덱스도 값을 버리지 않고, 컨테이너가 인덱스 문자열을 키로 갖는 일반 객체로 폴백됩니다.
+`nesting` 활성화 시 허용되는 최대 배열 인덱스. `[0, 10000]` 범위의 정수여야 하며, 10000을 초과하면 `create()`에서 `QueryParserErrorReason.InvalidArrayLimit`가 throw됩니다. **컨테이너 생성 시점**에는 한도를 초과하는 인덱스도 값을 버리지 않고, 컨테이너가 인덱스 문자열을 키로 갖는 일반 객체로 폴백됩니다.
 
 ```typescript
 const parser = QueryParser.create({ nesting: true, arrayLimit: 5 });
@@ -160,21 +160,23 @@ parser.parse('a[0]=x&a[100]=no'); // { a: ['x'] } — '100' 버려짐
 
 ### `duplicates`
 
-중복 키 처리 전략 (HTTP Parameter Pollution 방어).
+중복 키 처리 전략 (HTTP Parameter Pollution 방어). 문자열 리터럴 또는 패키지가 export하는 `DuplicateStrategy` 문자열 enum 중 어느 쪽을 써도 동일하게 동작합니다.
 
-| 값 | 동작 |
-|:---|:-----|
-| `'first'` _(기본)_ | 첫 번째 값 유지 — HPP 공격에 가장 안전 |
-| `'last'` | 마지막 값 유지 |
-| `'array'` | 모든 값을 배열로 수집 |
+| 값 | `DuplicateStrategy` 멤버 | 동작 |
+|:---|:------------------------|:-----|
+| `'first'` _(기본)_ | `DuplicateStrategy.First` | 첫 번째 값 유지 — HPP 공격에 가장 안전 |
+| `'last'` | `DuplicateStrategy.Last` | 마지막 값 유지 |
+| `'array'` | `DuplicateStrategy.Array` | 모든 값을 배열로 수집 |
 
 ```typescript
+import { DuplicateStrategy, QueryParser } from '@zipbul/query-parser';
+
 // 입력: 'role=admin&role=user'
 
 QueryParser.create({ duplicates: 'first' }).parse(input);
 // { role: 'admin' }
 
-QueryParser.create({ duplicates: 'last' }).parse(input);
+QueryParser.create({ duplicates: DuplicateStrategy.Last }).parse(input);
 // { role: 'user' }
 
 QueryParser.create({ duplicates: 'array' }).parse(input);
@@ -183,9 +185,8 @@ QueryParser.create({ duplicates: 'array' }).parse(input);
 
 ### `strict`
 
-활성화 시 `parse()`가 오류를 무시하는 대신 `QueryParserError`를 throw합니다:
+활성화 시 `parse()`는 무시하는 대신 **구조적** 문제에서 `QueryParserError`를 throw합니다. 퍼센트 인코딩 문법은 여기에 포함되지 않습니다 — strict 모드에서도 잘못된 이스케이프는 결코 오류가 아닙니다(WHATWG §2.6; [RFC 3986 준수](#-rfc-3986-준수) 참고). 잘못된 이스케이프는 리터럴로 보존되고, 무효한 UTF-8은 U+FFFD가 됩니다. strict·non-strict 모두 동일합니다:
 
-- 잘못된 퍼센트 인코딩 (`%zz`, 불완전한 `%E0%A4`)
 - 불균형·중첩·미닫힘 브래킷 (`a]b[c]=1`, `a[[b]]=1`, `a[b=1`) 및 브래킷 그룹 사이의 잉여 문자 (`a[b]junk[c]=1`)
 - 충돌하는 키 구조 (`a=1&a[b]=2`) — 구조 충돌 감지에는 `nesting: true`가 필요합니다. nesting이 꺼져 있으면 브래킷 키는 리터럴이라 충돌이 발생하지 않습니다
 
@@ -193,7 +194,7 @@ QueryParser.create({ duplicates: 'array' }).parse(input);
 const parser = QueryParser.create({ strict: true, nesting: true });
 
 parser.parse('valid=ok');           // { valid: 'ok' }
-parser.parse('bad=%zz');            // QueryParserError throw
+parser.parse('bad=%zz');            // { bad: '%zz' } — 잘못된 이스케이프는 오류가 아니라 데이터
 parser.parse('a=1&a[b]=2');        // QueryParserError throw (구조 충돌)
 ```
 
@@ -238,7 +239,12 @@ try {
 import { QueryParser, isErr } from '@zipbul/query-parser';
 
 const parser = QueryParser.create({ strict: true });
-const result = parser.parseResult('q=%ZZ');
+
+parser.parseResult('q=%ZZ');
+// Ok — 잘못된 퍼센트 이스케이프는 구조 오류가 아니라 데이터입니다: { q: '%ZZ' }
+
+const nested = QueryParser.create({ strict: true, nesting: true });
+const result = nested.parseResult('a[b]c[d]=1'); // 구조 오류: 브래킷 그룹 사이의 잉여 문자
 
 if (isErr(result)) {
   result.data.reason;   // QueryParserErrorReason.MalformedQueryString
@@ -259,7 +265,7 @@ if (isErr(result)) {
 | `InvalidNesting` | `create()` | `nesting`이 불리언이 아님 |
 | `InvalidStrict` | `create()` | `strict`가 불리언이 아님 |
 | `InvalidUrlEncoded` | `create()` | `urlEncoded`가 불리언이 아님 |
-| `MalformedQueryString` | `parse()` | 잘못된 문법 (strict 모드 전용) |
+| `MalformedQueryString` | `parse()` | 잘못된 브래킷/구조 문법 (strict 모드 전용) — 퍼센트 인코딩은 해당 없음 |
 | `ConflictingStructure` | `parse()` | 키가 스칼라와 중첩 구조로 동시 사용됨 (strict 모드 전용) |
 
 <br>
@@ -269,7 +275,7 @@ if (isErr(result)) {
 이 파서는 [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) 시맨틱을 따릅니다:
 
 - **`+`는 기본적으로 리터럴** — 공백으로 디코딩하지 않습니다. ⚠️ `+`→공백으로 디코딩하는 브라우저·`URLSearchParams`·`qs`와 다릅니다. form-urlencoded 쿼리 스트링은 [`urlEncoded: true`](#urlencoded)를 사용하세요. 명확한 공백은 `%20`을 쓰세요.
-- **퍼센트 디코딩** — `%HH` 시퀀스를 `decodeURIComponent`로 디코딩합니다. 잘못된 시퀀스는 non-strict 모드에서 원본 문자열로 폴백됩니다.
+- **퍼센트 디코딩은 WHATWG 준수이며, 단순 `decodeURIComponent`가 아닙니다** — 순수 ASCII 고속 경로는 유효한 값과 잘못된 값 모두 `%HH`를 `decodeURIComponent`의 throw 비용 없이 디코딩합니다. 멀티바이트 입력은 유효한 UTF-8이면 네이티브 `decodeURIComponent`를 사용하고, 그렇지 않으면 바이트 단위 디코더로 폴백합니다. 16진수는 대소문자를 구분하지 않습니다(`%3A` ≡ `%3a`). 잘못된 `%`(뒤에 16진수 2자리가 오지 않음)는 결코 오류가 아니며 리터럴 문자로 보존되고 디코딩이 계속됩니다(`%ZZ%41` → `%ZZA`). 무효한 UTF-8 바이트 시퀀스는 throw 대신 U+FFFD(대체 문자)로 디코딩됩니다. 선행 BOM은 제거되지 않고 보존됩니다. strict 모드에서도 동일합니다 — strict는 구조를 검증하며 퍼센트 문법은 검증하지 않습니다. WHATWG 인용 전문은 [STANDARDS.md](./STANDARDS.md) §2.5–§2.7을 참고하세요.
 - **`&` 구분자만 사용** — `;`는 구분자로 인식하지 않습니다.
 
 <br>

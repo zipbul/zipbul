@@ -70,14 +70,14 @@ search(ctx: HttpContext) {
 
 ### Malformed queries → 400 (not 500)
 
-In the middleware, a malformed query string is a **client** error. When `strict` is enabled, the supply step returns an `httpError(BadRequest)` — the framework short-circuits the pipeline into a **400** response and never runs the handler. It is never thrown, so a hostile `?q=%ZZ` can't be turned into a 500:
+In the middleware, a structurally malformed query string is a **client** error. When `strict` is enabled, the supply step returns an `httpError(BadRequest)` — the framework short-circuits the pipeline into a **400** response and never runs the handler. It is never thrown, so a hostile query can't be turned into a 500. Strict validates **structure** (brackets, scalar/structure conflicts) — a malformed percent-escape is data, not an error (see [`strict`](#strict)), so it never triggers the 400 path:
 
 ```typescript
 middlewares: {
   [HttpAdapterPhase.BeforeValidate]: [queryParser({ strict: true, nesting: true })],
 }
-// GET /search?q=%ZZ        → 400 Bad Request  (malformed percent-escape)
 // GET /search?a[b]c[d]=1   → 400 Bad Request  (malformed brackets, needs nesting)
+// GET /search?q=%ZZ        → handler runs; q === '%ZZ' (malformed escape preserved, not an error)
 // GET /search?q=hello      → handler runs normally
 ```
 
@@ -143,7 +143,7 @@ When `false` (default), brackets are treated as literal characters in the key na
 
 ### `arrayLimit`
 
-Maximum array index allowed when `nesting` is enabled. At **container creation** an index above this limit does not drop the value — the container falls back to a plain object keyed by the index string.
+Maximum array index allowed when `nesting` is enabled. Must be an integer in `[0, 10000]`; a value above 10000 throws `QueryParserErrorReason.InvalidArrayLimit` at `create()`. At **container creation** an index above this limit does not drop the value — the container falls back to a plain object keyed by the index string.
 
 ```typescript
 const parser = QueryParser.create({ nesting: true, arrayLimit: 5 });
@@ -160,21 +160,23 @@ parser.parse('a[0]=x&a[100]=no'); // { a: ['x'] } — '100' dropped
 
 ### `duplicates`
 
-Strategy for handling duplicate keys (HTTP Parameter Pollution).
+Strategy for handling duplicate keys (HTTP Parameter Pollution). Accepts either the bare string literal or the exported `DuplicateStrategy` string enum — both are equivalent.
 
-| Value | Behavior |
-|:------|:---------|
-| `'first'` _(default)_ | Keep the first value — safest against HPP attacks |
-| `'last'` | Keep the last value |
-| `'array'` | Collect all values into an array |
+| Value | `DuplicateStrategy` member | Behavior |
+|:------|:---------------------------|:---------|
+| `'first'` _(default)_ | `DuplicateStrategy.First` | Keep the first value — safest against HPP attacks |
+| `'last'` | `DuplicateStrategy.Last` | Keep the last value |
+| `'array'` | `DuplicateStrategy.Array` | Collect all values into an array |
 
 ```typescript
+import { DuplicateStrategy, QueryParser } from '@zipbul/query-parser';
+
 // Input: 'role=admin&role=user'
 
 QueryParser.create({ duplicates: 'first' }).parse(input);
 // { role: 'admin' }
 
-QueryParser.create({ duplicates: 'last' }).parse(input);
+QueryParser.create({ duplicates: DuplicateStrategy.Last }).parse(input);
 // { role: 'user' }
 
 QueryParser.create({ duplicates: 'array' }).parse(input);
@@ -183,9 +185,8 @@ QueryParser.create({ duplicates: 'array' }).parse(input);
 
 ### `strict`
 
-When enabled, `parse()` throws `QueryParserError` instead of silently ignoring errors:
+When enabled, `parse()` throws `QueryParserError` on **structural** problems instead of silently ignoring them. Percent-encoding syntax is never one of them — a malformed escape is never an error, even in strict mode (WHATWG §2.6; see [RFC 3986 Compliance](#-rfc-3986-compliance)). Malformed escapes are preserved as literals and invalid UTF-8 becomes U+FFFD, in strict and non-strict alike:
 
-- Malformed percent encoding (`%zz`, truncated `%E0%A4`)
 - Unbalanced, nested, or unclosed brackets (`a]b[c]=1`, `a[[b]]=1`, `a[b=1`), and stray characters between bracket groups (`a[b]junk[c]=1`)
 - Conflicting key structures (`a=1&a[b]=2`) — detecting structure conflicts requires `nesting: true`; with nesting off, bracket keys are literal and never conflict
 
@@ -193,7 +194,7 @@ When enabled, `parse()` throws `QueryParserError` instead of silently ignoring e
 const parser = QueryParser.create({ strict: true, nesting: true });
 
 parser.parse('valid=ok');           // { valid: 'ok' }
-parser.parse('bad=%zz');            // throws QueryParserError
+parser.parse('bad=%zz');            // { bad: '%zz' } — malformed escape is data, not an error
 parser.parse('a=1&a[b]=2');        // throws QueryParserError (conflicting structure)
 ```
 
@@ -238,7 +239,12 @@ try {
 import { QueryParser, isErr } from '@zipbul/query-parser';
 
 const parser = QueryParser.create({ strict: true });
-const result = parser.parseResult('q=%ZZ');
+
+parser.parseResult('q=%ZZ');
+// Ok — a malformed percent-escape is data, not a structural error: { q: '%ZZ' }
+
+const nested = QueryParser.create({ strict: true, nesting: true });
+const result = nested.parseResult('a[b]c[d]=1'); // structural error: stray chars between bracket groups
 
 if (isErr(result)) {
   result.data.reason;   // QueryParserErrorReason.MalformedQueryString
@@ -259,7 +265,7 @@ if (isErr(result)) {
 | `InvalidNesting` | `create()` | `nesting` must be a boolean |
 | `InvalidStrict` | `create()` | `strict` must be a boolean |
 | `InvalidUrlEncoded` | `create()` | `urlEncoded` must be a boolean |
-| `MalformedQueryString` | `parse()` | Malformed syntax (strict mode only) |
+| `MalformedQueryString` | `parse()` | Malformed bracket/structure syntax (strict mode only) — never percent-encoding |
 | `ConflictingStructure` | `parse()` | Key used as both scalar and nested (strict mode only) |
 
 <br>
@@ -269,7 +275,7 @@ if (isErr(result)) {
 This parser follows [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) semantics:
 
 - **`+` is literal by default** — not decoded to a space. ⚠️ This differs from browsers, `URLSearchParams`, and `qs`, which decode `+`→space. For form-urlencoded query strings set [`urlEncoded: true`](#urlencoded). Use `%20` for an unambiguous space.
-- **Percent decoding** — `%HH` sequences are decoded via `decodeURIComponent`. Malformed sequences fall back to the raw string in non-strict mode.
+- **Percent decoding is WHATWG-compliant, not just `decodeURIComponent`** — a pure-ASCII fast path decodes valid and malformed `%HH` alike without `decodeURIComponent`'s throw cost; multi-byte input uses native `decodeURIComponent` when it's valid UTF-8, falling back to a byte-level decoder otherwise. Hex digits are case-insensitive (`%3A` ≡ `%3a`). A malformed `%` (not followed by two hex digits) is never an error — it is preserved as a literal character and decoding continues (`%ZZ%41` → `%ZZA`). Invalid UTF-8 byte sequences decode to U+FFFD (replacement character) instead of throwing. A leading BOM is preserved, not stripped. This holds in strict mode too — strict validates structure, not percent syntax. See [STANDARDS.md](./STANDARDS.md) §2.5–§2.7 for the full WHATWG citations.
 - **`&` delimiter only** — `;` is not recognized as a separator.
 
 <br>
