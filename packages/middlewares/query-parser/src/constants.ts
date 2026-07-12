@@ -1,6 +1,15 @@
 import { DuplicateStrategy } from './enums';
 import type { ResolvedQueryParserOptions } from './types';
 
+/**
+ * Upper bound for the `arrayLimit` option. A materialized array can reach length
+ * `arrayLimit + 1`, so an unbounded `arrayLimit` lets a single `a[<huge>]=x`
+ * inflate an array's `length` to billions — cheap to allocate but a DoS for any
+ * downstream `JSON.stringify` / length-driven iteration. 10000 is far beyond any
+ * real query need while keeping the worst-case array small.
+ */
+export const MAX_ARRAY_LIMIT = 10_000;
+
 export const DEFAULT_QUERY_PARSER_OPTIONS: ResolvedQueryParserOptions = {
   depth: 5,
   maxParams: 1000,

@@ -1,9 +1,9 @@
 import { Baker, Field, isBakerIssueSet } from '@zipbul/baker';
-import { isBoolean, isInt, isIn, min } from '@zipbul/baker/rules';
+import { isBoolean, isInt, isIn, max, min } from '@zipbul/baker/rules';
 import { err } from '@zipbul/result';
 import type { Result } from '@zipbul/result';
 
-import { DEFAULT_QUERY_PARSER_OPTIONS } from './constants';
+import { DEFAULT_QUERY_PARSER_OPTIONS, MAX_ARRAY_LIMIT } from './constants';
 import { DuplicateStrategy, QueryParserErrorReason } from './enums';
 import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
 import type { ResolvedQueryParserOptions } from './types';
@@ -71,8 +71,11 @@ export class QueryParserOptionsSchema {
   @Field(isBoolean, { optional: true, context: { reason: QueryParserErrorReason.InvalidNesting } })
   nesting?: boolean;
 
-  /** Maximum array index — non-negative integer. */
-  @Field(isInt, min(0), { optional: true, context: { reason: QueryParserErrorReason.InvalidArrayLimit } })
+  /** Maximum array index — integer in [0, MAX_ARRAY_LIMIT]. */
+  @Field(isInt, min(0), max(MAX_ARRAY_LIMIT), {
+    optional: true,
+    context: { reason: QueryParserErrorReason.InvalidArrayLimit },
+  })
   arrayLimit?: number;
 
   /** Duplicate-key strategy. */

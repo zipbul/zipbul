@@ -4,7 +4,7 @@ import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
 import type { Err } from '@zipbul/result';
 
-import { DEFAULT_QUERY_PARSER_OPTIONS } from './constants';
+import { DEFAULT_QUERY_PARSER_OPTIONS, MAX_ARRAY_LIMIT } from './constants';
 import { DuplicateStrategy, QueryParserErrorReason } from './enums';
 import type { QueryParserErrorData } from './interfaces';
 import { resolveQueryParserOptions, validateQueryParserOptions } from './options';
@@ -269,6 +269,27 @@ describe('validateQueryParserOptions', () => {
   it('should return Err with InvalidArrayLimit when arrayLimit is non-integer', () => {
     // Arrange
     const resolved: ResolvedQueryParserOptions = { ...resolveQueryParserOptions(), arrayLimit: 0.5 };
+
+    // Act
+    const result = validateQueryParserOptions(resolved);
+
+    // Assert
+    const errResult = assertErr(result);
+
+    expect(errResult.data.reason).toBe(QueryParserErrorReason.InvalidArrayLimit);
+  });
+
+  it('should pass when arrayLimit equals the MAX_ARRAY_LIMIT boundary', () => {
+    // Arrange — boundary: the upper bound itself is accepted
+    const resolved: ResolvedQueryParserOptions = { ...resolveQueryParserOptions(), arrayLimit: MAX_ARRAY_LIMIT };
+
+    // Act & Assert
+    expect(validateQueryParserOptions(resolved)).toBeUndefined();
+  });
+
+  it('should return Err with InvalidArrayLimit when arrayLimit exceeds MAX_ARRAY_LIMIT', () => {
+    // Arrange — one past the bound: an unbounded arrayLimit is a length-inflation DoS
+    const resolved: ResolvedQueryParserOptions = { ...resolveQueryParserOptions(), arrayLimit: MAX_ARRAY_LIMIT + 1 };
 
     // Act
     const result = validateQueryParserOptions(resolved);
