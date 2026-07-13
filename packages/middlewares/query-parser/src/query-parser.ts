@@ -1,7 +1,7 @@
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result } from '@zipbul/result';
 
-import { POISONED_KEYS } from './constants';
+import { DANGEROUS_KEYS, POISONED_KEYS } from './constants';
 import { DuplicateStrategy, QueryParserErrorReason } from './enums';
 import { QueryParserError } from './interfaces';
 import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
@@ -253,6 +253,27 @@ export class QueryParser {
     return res;
   }
 
+  /**
+   * Whether `key` must be dropped rather than written into the parsed output.
+   * `__proto__` is blocked unconditionally — even under `allowPrototypes: true`
+   * — because a plain assignment to it invokes the prototype setter. Every
+   * other `Object.prototype` own-name (`constructor`, `toString`,
+   * `hasOwnProperty`, …) is blocked only when `allowPrototypes` is `false`
+   * (the default); `allowPrototypes: true` reverts to the narrower
+   * `__proto__`-only policy.
+   */
+  private isBlockedKey(key: string): boolean {
+    if (POISONED_KEYS.has(key)) {
+      return true;
+    }
+
+    if (this.options.allowPrototypes) {
+      return false;
+    }
+
+    return DANGEROUS_KEYS.has(key);
+  }
+
   private processPair(
     res: QueryValueRecord,
     qs: string,
@@ -421,7 +442,7 @@ export class QueryParser {
     const maxDepth = this.options.depth;
     const rootKey = key.slice(0, firstBrace);
 
-    if (rootKey === '' || POISONED_KEYS.has(rootKey)) {
+    if (rootKey === '' || this.isBlockedKey(rootKey)) {
       return;
     }
 
@@ -488,7 +509,7 @@ export class QueryParser {
       }
 
       // Pollution check — BEFORE any property access
-      if (POISONED_KEYS.has(prop)) {
+      if (this.isBlockedKey(prop)) {
         return;
       }
 
@@ -647,7 +668,7 @@ export class QueryParser {
    * Assigns a value to a leaf position, with optional strict mode error reporting.
    */
   private assignLeaf(obj: QueryContainer, key: string, value: string): Err<QueryParserErrorData> | undefined {
-    if (POISONED_KEYS.has(key)) {
+    if (this.isBlockedKey(key)) {
       return;
     }
 
@@ -787,11 +808,11 @@ export class QueryParser {
   }
 
   private assignArrayRecordValue(target: QueryArray, key: string, value: QueryValue): void {
-    // Direct assignment is safe here: `__proto__` is filtered upstream by
-    // POISONED_KEYS before any write reaches this sink, and non-numeric keys
-    // convert the array to a plain object before assignment — so `key` is only
-    // ever a numeric index or an already-cleared property name. Any other name
-    // (constructor, prototype, …) is written as a harmless own-property shadow.
+    // Direct assignment is safe here: dangerous keys (Object.prototype own-names,
+    // plus `__proto__`) are filtered upstream by isBlockedKey before any write
+    // reaches this sink, and non-numeric keys convert the array to a plain
+    // object before assignment — so `key` is only ever a numeric index or an
+    // already-cleared property name.
     (target as unknown as Record<string, QueryValue>)[key] = value;
   }
 

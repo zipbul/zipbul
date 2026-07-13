@@ -45,6 +45,31 @@ const catchError = (fn: () => void): QueryParserError => {
   throw new Error('Expected QueryParserError to be thrown');
 };
 
+/**
+ * Textbook naive recursive merge (no `__proto__`/prototype-name guard of its
+ * own) — the kind of downstream consumer code an N-1 pollution gadget targets.
+ * Used only to prove the parser never hands such a consumer a live gadget.
+ */
+const naiveMerge = (target: Record<string, unknown>, source: Record<string, unknown>): void => {
+  for (const key in source) {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) {
+      continue;
+    }
+
+    const value = source[key];
+
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      if (typeof target[key] !== 'object' || target[key] === null) {
+        target[key] = {};
+      }
+
+      naiveMerge(target[key] as Record<string, unknown>, value as Record<string, unknown>);
+    } else {
+      target[key] = value;
+    }
+  }
+};
+
 // ---------------------------------------------------------------------------
 // QueryParser
 // ---------------------------------------------------------------------------
@@ -96,6 +121,17 @@ describe('QueryParser', () => {
       // Assert
       expect(error).toBeInstanceOf(QueryParserError);
       expect(error.reason).toBe(QueryParserErrorReason.InvalidDuplicates);
+    });
+
+    it('should throw QueryParserError when allowPrototypes is invalid', () => {
+      // Act
+      const error = catchError(() =>
+        QueryParser.create({ allowPrototypes: 'x' } as unknown as QueryParserOptions),
+      );
+
+      // Assert
+      expect(error).toBeInstanceOf(QueryParserError);
+      expect(error.reason).toBe(QueryParserErrorReason.InvalidAllowPrototypes);
     });
   });
 
@@ -539,13 +575,19 @@ describe('QueryParser', () => {
   // Security: Prototype Pollution
   // =========================================================================
   describe('security: prototype pollution', () => {
-    // Policy: `__proto__` is the ONLY key ever blocked — its assignment invokes
-    // the prototype setter, so it is neutralized at every position. Every other
-    // key (constructor, prototype, __defineGetter__, toString, …) is stored as
-    // an ordinary own-property shadow and never reaches the prototype chain
-    // (the parser create-own-or-skip via hasOwnProperty). The load-bearing,
-    // non-negotiable invariant asserted throughout is that no GLOBAL prototype
-    // is ever polluted.
+    // Policy: by default (`allowPrototypes: false`), every own-property name of
+    // `Object.prototype` (`constructor`, `toString`, `hasOwnProperty`,
+    // `__defineGetter__`, …) is dropped from the parsed output at every position
+    // — root, nested segment, and leaf — exactly like `__proto__` always was.
+    // `__proto__` itself remains blocked unconditionally, even when
+    // `allowPrototypes: true` re-admits the rest of the set. Dropping a key at a
+    // SEGMENT/LEAF position still leaves the parent container shell in place
+    // (e.g. `k[toString]=1` → `{ k: {} }`, not `{}`) — identical in shape to the
+    // pre-existing `a[__proto__][x]=1` → `{ a: {} }` behavior. `prototype` is
+    // NOT an own-property name of `Object.prototype` (it is an own-property of
+    // function objects, not of `Object.prototype`), so it is never blocked — this is
+    // qs-parity, not an oversight. The load-bearing, non-negotiable invariant
+    // asserted throughout is that no GLOBAL prototype is ever polluted.
 
     /** Assert no global prototype was mutated by the vectors above. */
     const expectNoGlobalPollution = (): void => {
@@ -559,30 +601,31 @@ describe('QueryParser', () => {
       // Arrange
       const parser = QueryParser.create();
 
-      // Act & Assert — the sole always-blocked key
+      // Act & Assert — always blocked, regardless of allowPrototypes
       expect(parser.parse('__proto__=1')).toEqual({});
       expectNoGlobalPollution();
     });
 
-    it('should store constructor/prototype as ordinary own-property scalars', () => {
+    it('should drop constructor by default but keep prototype (qs-parity)', () => {
       // Arrange
       const parser = QueryParser.create();
 
-      // Act & Assert — own-property shadows, harmless, no longer silently dropped
-      expect(parser.parse('constructor=1')).toEqual({ constructor: '1' });
+      // Act & Assert — `constructor` is an Object.prototype own-name → dropped;
+      // `prototype` is NOT (it's on Function.prototype) → kept, matching qs.
+      expect(parser.parse('constructor=1')).toEqual({});
       expect(parser.parse('prototype=1')).toEqual({ prototype: '1' });
       expectNoGlobalPollution();
     });
 
-    it('should store __define*/__lookup* method names as own-property scalars', () => {
+    it('should drop __define*/__lookup* method names by default', () => {
       // Arrange
       const parser = QueryParser.create();
 
-      // Act & Assert — plain Object.prototype methods; a string shadow is harmless
-      expect(Object.getOwnPropertyDescriptor(parser.parse('__defineGetter__=bad'), '__defineGetter__')?.value).toBe('bad');
-      expect(Object.getOwnPropertyDescriptor(parser.parse('__defineSetter__=bad'), '__defineSetter__')?.value).toBe('bad');
-      expect(Object.getOwnPropertyDescriptor(parser.parse('__lookupGetter__=bad'), '__lookupGetter__')?.value).toBe('bad');
-      expect(Object.getOwnPropertyDescriptor(parser.parse('__lookupSetter__=bad'), '__lookupSetter__')?.value).toBe('bad');
+      // Act & Assert — Object.prototype own-names, dropped under the default policy
+      expect(parser.parse('__defineGetter__=bad')).toEqual({});
+      expect(parser.parse('__defineSetter__=bad')).toEqual({});
+      expect(parser.parse('__lookupGetter__=bad')).toEqual({});
+      expect(parser.parse('__lookupSetter__=bad')).toEqual({});
       expectNoGlobalPollution();
     });
 
@@ -620,14 +663,17 @@ describe('QueryParser', () => {
       expectNoGlobalPollution();
     });
 
-    it('should traverse constructor/prototype as own containers without polluting', () => {
+    it('should drop constructor at nested positions, leaving the parent shell', () => {
       // Arrange
       const parser = QueryParser.create({ nesting: true });
 
-      // Act & Assert — nested constructor/prototype are ordinary own keys now
-      expect(parser.parse('a[constructor]=1')).toEqual({ a: { constructor: '1' } });
-      expect(parser.parse('filter[constructor]=x')).toEqual({ filter: { constructor: 'x' } });
-      expect(parser.parse('a[constructor][prototype][x]=y')).toEqual({ a: { constructor: { prototype: { x: 'y' } } } });
+      // Act & Assert — the "constructor" segment is blocked, but the container
+      // it would have been written into still exists (shell shape, not `{}`).
+      expect(parser.parse('a[constructor]=1')).toEqual({ a: {} });
+      expect(parser.parse('filter[constructor]=x')).toEqual({ filter: {} });
+      // Blocked at the "constructor" segment itself — the traversal never
+      // reaches "prototype"/"x", so only the "a" shell remains.
+      expect(parser.parse('a[constructor][prototype][x]=y')).toEqual({ a: {} });
       expectNoGlobalPollution();
     });
 
@@ -635,23 +681,85 @@ describe('QueryParser', () => {
       // Arrange
       const parser = QueryParser.create({ nesting: true });
 
-      // Act — the canonical prototype-pollution payloads
+      // Act — the canonical prototype-pollution payloads; "constructor" is
+      // blocked at the ROOT position now, so no container is ever created.
       const rootChain = parser.parse('constructor[prototype][polluted]=yes');
-      parser.parse('a[constructor][prototype][polluted]=yes');
+      const nestedChain = parser.parse('a[constructor][prototype][polluted]=yes');
 
-      // Assert — stored as own containers on the result, global prototype clean
-      expect(Object.prototype.hasOwnProperty.call(rootChain, 'constructor')).toBe(true);
+      // Assert — root-blocked to an empty object; nested shell stops at "a".
+      expect(rootChain).toEqual({});
+      expect(nestedChain).toEqual({ a: {} });
       expectNoGlobalPollution();
     });
 
-    it('should allow non-dangerous inherited method names when used as keys', () => {
+    it('should drop toString/hasOwnProperty/valueOf by default', () => {
       // Arrange
       const parser = QueryParser.create();
 
+      // Act & Assert — Object.prototype own-names, dropped under the default policy
+      expect(parser.parse('toString=hacked')).toEqual({});
+      expect(parser.parse('hasOwnProperty=value')).toEqual({});
+      expect(parser.parse('valueOf=custom')).toEqual({});
+    });
+
+    it('should not pollute Object.prototype via a naive merge of the N-1 gadget payload', () => {
+      // Arrange — the classic gadget: constructor[prototype][X]=1 would (under
+      // only-__proto__-blocked policies) build { constructor: { prototype: { X: '1' } } },
+      // which a naive recursive merge elsewhere in an application walks straight
+      // into Object.prototype. Under the default policy "constructor" is blocked
+      // at the root, so the gadget shape never materializes in the first place.
+      const parser = QueryParser.create({ nesting: true });
+
+      try {
+        // Act
+        const parsed = parser.parse('constructor[prototype][__NPWN]=1');
+
+        expect(parsed).toEqual({});
+
+        naiveMerge({}, parsed);
+
+        // Assert — the gadget never reached Object.prototype
+        expect(({} as Record<string, unknown>).__NPWN).toBeUndefined();
+      } finally {
+        // Clean up any accidental pollution so other tests are unaffected.
+        delete (Object.prototype as Record<string, unknown>).__NPWN;
+      }
+    });
+
+    it('should leave a working shell (no toString crash) for the N-2 method-shadow vector', () => {
+      // Arrange — previously `k[toString]=1` produced { k: { toString: '1' } },
+      // an own-property shadow that made `String(out.k)` throw. Now "toString"
+      // is blocked at the leaf, so the "k" shell keeps its inherited toString.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act
+      const out = parser.parse('k[toString]=1');
+
+      // Assert
+      expect(out).toEqual({ k: {} });
+      expect(String((out as unknown as { k: unknown }).k)).toBe('[object Object]');
+    });
+
+    it('should drop blocked keys silently even in strict mode, never throwing', () => {
+      // Arrange — strict mode validates structure, not key names; a blocked
+      // key is dropped exactly like non-strict, never surfaced as an error.
+      const parser = QueryParser.create({ nesting: true, strict: true });
+
       // Act & Assert
-      expect(Object.getOwnPropertyDescriptor(parser.parse('toString=hacked'), 'toString')?.value).toBe('hacked');
-      expect(Object.getOwnPropertyDescriptor(parser.parse('hasOwnProperty=value'), 'hasOwnProperty')?.value).toBe('value');
-      expect(Object.getOwnPropertyDescriptor(parser.parse('valueOf=custom'), 'valueOf')?.value).toBe('custom');
+      expect(parser.parse('a[constructor]=1')).toEqual({ a: {} });
+      expect(() => parser.parse('a[constructor]=1')).not.toThrow();
+    });
+
+    it('should restore the old behavior when allowPrototypes is true, except __proto__', () => {
+      // Arrange
+      const parser = QueryParser.create({ nesting: true, allowPrototypes: true });
+
+      // Act & Assert — opt-in reverts to __proto__-only blocking
+      expect(parser.parse('a[toString]=1')).toEqual({ a: { toString: '1' } });
+
+      // __proto__ is still blocked unconditionally, even under allowPrototypes
+      expect(parser.parse('a[__proto__][x]=1')).toEqual({ a: {} });
+      expectNoGlobalPollution();
     });
   });
 

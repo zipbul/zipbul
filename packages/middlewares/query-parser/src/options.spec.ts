@@ -97,6 +97,7 @@ describe('resolveQueryParserOptions', () => {
       duplicates: 'array' as const,
       strict: true,
       urlEncoded: false,
+      allowPrototypes: false,
     };
 
     // Act
