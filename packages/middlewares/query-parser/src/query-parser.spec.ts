@@ -280,24 +280,28 @@ describe('QueryParser', () => {
       });
     });
 
-    it('should parse sparse arrays when indices skip positions', () => {
+    it('should materialize to an object when indices skip positions (no hole)', () => {
+      // arr[5] on a length-1 array is a hole (5 > 1) → materializes losslessly
+      // instead of padding with null/undefined.
       // Act
       const res = parser.parse('arr[0]=a&arr[5]=b');
-      const arr = expectQueryArray(res.arr);
+      const arr = expectQueryRecord(res.arr);
 
       // Assert
-      expect(arr[0]).toBe('a');
-      expect(arr[5]).toBe('b');
+      expect(arr['0']).toBe('a');
+      expect(arr['5']).toBe('b');
     });
 
-    it('should parse non-sequential indices when order differs', () => {
+    it('should materialize to an object when indices arrive out of order (no hole)', () => {
+      // arr[2] on an empty array is a hole (2 > 0) → materializes immediately;
+      // the later arr[0] lands as an ordinary object key.
       // Act
       const res = parser.parse('arr[2]=c&arr[0]=a');
-      const arr = expectQueryArray(res.arr);
+      const arr = expectQueryRecord(res.arr);
 
       // Assert
-      expect(arr[0]).toBe('a');
-      expect(arr[2]).toBe('c');
+      expect(arr['0']).toBe('a');
+      expect(arr['2']).toBe('c');
     });
 
     it('should parse mixed bracket types when array contains object', () => {
@@ -409,18 +413,17 @@ describe('QueryParser', () => {
   // =========================================================================
   describe('arrayLimit', () => {
     it('should use default arrayLimit when not provided', () => {
-      // Arrange
+      // Arrange — arr[20] alone is a hole on the empty array (20 > length(0)),
+      // regardless of being within arrayLimit(20), so it materializes to an
+      // object instead of padding indices 0-19 with null/undefined.
       const parser = QueryParser.create({ nesting: true });
-      const expectedArr = new Array(21);
-
-      expectedArr[20] = 'ok';
 
       // Act
       const allowed = parser.parse('arr[20]=ok');
       const blocked = parser.parse('arr[21]=blocked');
 
       // Assert
-      expect(expectQueryArray(allowed.arr)).toEqual(expectedArr);
+      expect(expectQueryRecord(allowed.arr)).toEqual({ '20': 'ok' });
       expect(expectQueryRecord(blocked.arr)).toEqual({ '21': 'blocked' });
     });
 
@@ -430,12 +433,14 @@ describe('QueryParser', () => {
 
       // Act
       const first = parser.parse('arr[0]=a');
+      // arr[1] is over arrayLimit(0) on an already-populated array →
+      // materializes losslessly instead of dropping the second pair.
       const filtered = parser.parse('arr[0]=a&arr[1]=b');
       const fallback = parser.parse('arr[1]=b');
 
       // Assert
       expect(expectQueryArray(first.arr)).toEqual(['a']);
-      expect(expectQueryArray(filtered.arr)).toEqual(['a']);
+      expect(expectQueryRecord(filtered.arr)).toEqual({ '0': 'a', '1': 'b' });
       expect(expectQueryRecord(fallback.arr)).toEqual({ '1': 'b' });
     });
 
@@ -449,19 +454,18 @@ describe('QueryParser', () => {
     });
 
     it('should enforce arrayLimit 10 when limit is set', () => {
-      // Arrange
+      // Arrange — arr[10] on a length-1 array is a hole (10 > 1) regardless of
+      // arrayLimit, so it materializes losslessly; arr[11] is additionally
+      // over arrayLimit(10) and materializes the same way (no drop).
       const parser = QueryParser.create({ arrayLimit: 10, nesting: true });
-      const expectedArr = ['a'];
-
-      expectedArr[10] = 'b';
 
       // Act
       const allowed = parser.parse('arr[0]=a&arr[10]=b');
       const blocked = parser.parse('arr[0]=a&arr[11]=blocked');
 
       // Assert
-      expect(expectQueryArray(allowed.arr)).toEqual(expectedArr);
-      expect(expectQueryArray(blocked.arr)).toEqual(['a']);
+      expect(expectQueryRecord(allowed.arr)).toEqual({ '0': 'a', '10': 'b' });
+      expect(expectQueryRecord(blocked.arr)).toEqual({ '0': 'a', '11': 'blocked' });
     });
   });
 
@@ -1145,17 +1149,16 @@ describe('QueryParser', () => {
     });
 
     it('should handle arrayLimit with nesting when limit is set', () => {
-      // Arrange
+      // Arrange — arr[2] on a length-1 array is a hole (2 > 1), so it
+      // materializes losslessly (no null padding, no drop); the later
+      // arr[3] then lands as an ordinary key on the now-materialized object.
       const parser = QueryParser.create({ arrayLimit: 2, nesting: true });
 
       // Act
       const res = parser.parse('arr[0]=a&arr[2]=b&arr[3]=blocked');
-      const arrValue = expectQueryArray(res.arr);
 
       // Assert
-      expect(arrValue[0]).toBe('a');
-      expect(arrValue[1]).toBeUndefined();
-      expect(arrValue[2]).toBe('b');
+      expect(expectQueryRecord(res.arr)).toEqual({ '0': 'a', '2': 'b', '3': 'blocked' });
     });
   });
 
@@ -1256,13 +1259,13 @@ describe('QueryParser', () => {
     });
 
     it('should treat a 10-digit index as an array index when nesting is true', () => {
-      // Arrange — 10 digits is the isValidArrayIndex length boundary: it is still
-      // recognized as an index, so the default arrayLimit drops the over-limit
-      // value from the existing array instead of converting to an object.
+      // Arrange — 10 digits is the isValidArrayIndex length boundary: it is
+      // still recognized as an index, so the default arrayLimit materializes
+      // the over-limit value into the existing array losslessly (no drop).
       const parser = QueryParser.create({ nesting: true });
 
       // Act & Assert
-      expect(parser.parse('arr[0]=a&arr[9999999999]=x')).toEqual({ arr: ['a'] });
+      expect(parser.parse('arr[0]=a&arr[9999999999]=x')).toEqual({ arr: { '0': 'a', '9999999999': 'x' } });
     });
 
     it('should fall back to an object key for an 11-digit index when nesting is true', () => {
@@ -1618,6 +1621,166 @@ describe('QueryParser', () => {
       // Act & Assert
       expect(parser.parse('space=+')).toEqual({ space: ' ' });
       expect(parser.parse('spaces=+++')).toEqual({ spaces: '   ' });
+    });
+  });
+
+  // =========================================================================
+  // Array materialization (no holes, no drops) — #4/#5 policy.
+  //
+  // Policy: an array container stays an array only while explicit indices are
+  // dense/append (0 ≤ i ≤ length). The instant an explicit index would create
+  // a hole (i > current length) OR exceeds arrayLimit (i > arrayLimit), the
+  // WHOLE container materializes into a plain object (string keys, lossless,
+  // one-way — never reverts to an array). Existing elements move over via
+  // arrayToObject; no null/undefined element is ever produced.
+  // =========================================================================
+  describe('array materialization (no holes, no drops)', () => {
+    /** Recursively asserts no null/undefined appears anywhere in a parsed result. */
+    const deepAssertNoNullOrUndefined = (value: unknown, path = '$'): void => {
+      expect(value, `null/undefined found at ${path}`).not.toBeNull();
+      expect(value, `null/undefined found at ${path}`).not.toBeUndefined();
+
+      if (Array.isArray(value)) {
+        // Plain indexed access (NOT forEach/for-of), which silently skip holes
+        // in a sparse array — this must visit every index, including holes,
+        // to actually prove the "no hole" invariant.
+        for (let i = 0; i < value.length; i++) {
+          deepAssertNoNullOrUndefined(value[i], `${path}[${i}]`);
+        }
+      } else if (typeof value === 'object') {
+        for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+          deepAssertNoNullOrUndefined(item, `${path}.${key}`);
+        }
+      }
+    };
+
+    it('should keep a dense array when explicit indices are 0..n-1 in order', () => {
+      // Arrange
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[0]=x&a[1]=y&a[2]=z')).toEqual({ a: ['x', 'y', 'z'] });
+    });
+
+    it('should materialize to an object when a single explicit index leaves a leading hole', () => {
+      // Arrange — a[1] on an empty array: 1 > length(0) is a hole.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[1]=x')).toEqual({ a: { '1': 'x' } });
+    });
+
+    it('should materialize to an object when an explicit index creates a hole (#4)', () => {
+      // Arrange — a[2] on an empty array: 2 > length(0) is a hole. No null padding.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act
+      const res = parser.parse('a[2]=x');
+
+      // Assert
+      expect(res).toEqual({ a: { '2': 'x' } });
+      deepAssertNoNullOrUndefined(res);
+    });
+
+    it('should materialize to an object when explicit indices arrive in descending order', () => {
+      // Arrange — materialization is one-way: once a[2] creates a hole and
+      // materializes, later a[1]/a[0] land as ordinary object keys, not a
+      // reconstructed dense array.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[2]=z&a[1]=y&a[0]=x')).toEqual({ a: { '2': 'z', '1': 'y', '0': 'x' } });
+    });
+
+    it('should materialize to an object losslessly when an explicit index exceeds arrayLimit (#5)', () => {
+      // Arrange — previously a[25] silently dropped, losing the whole array.
+      const parser = QueryParser.create({ nesting: true, arrayLimit: 20 });
+
+      // Act
+      const res = parser.parse('a[0]=x&a[25]=z');
+
+      // Assert
+      expect(res).toEqual({ a: { '0': 'x', '25': 'z' } });
+      deepAssertNoNullOrUndefined(res);
+    });
+
+    it('should stay an object when a single over-limit index is the only key', () => {
+      // Arrange — unaffected baseline: shouldCreateArray already refuses to
+      // create an array for an over-limit root index.
+      const parser = QueryParser.create({ nesting: true, arrayLimit: 20 });
+
+      // Act & Assert
+      expect(parser.parse('a[25]=z')).toEqual({ a: { '25': 'z' } });
+    });
+
+    it('should keep an array for empty-bracket push syntax', () => {
+      // Arrange
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[]=1&a[]=2')).toEqual({ a: ['1', '2'] });
+    });
+
+    it('should keep an array for a duplicate explicit index under the default (first) strategy', () => {
+      // Arrange — i < length is a duplicate, not a hole; array semantics apply.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[0]=1&a[0]=2')).toEqual({ a: ['1'] });
+    });
+
+    it('should keep an array for a duplicate explicit index under the array strategy', () => {
+      // Arrange
+      const parser = QueryParser.create({ nesting: true, duplicates: 'array' });
+
+      // Act & Assert
+      expect(parser.parse('a[0]=1&a[0]=2')).toEqual({ a: [['1', '2']] });
+    });
+
+    it('should materialize a nested container-valued array on an index hole', () => {
+      // Arrange — a[0][b]=x builds an object at index 0; a[2][c]=y then hits
+      // index 2 on a length-1 array, a hole, and must materialize "a" itself
+      // (not just fail to nest) while preserving the existing element.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act
+      const res = parser.parse('a[0][b]=x&a[2][c]=y');
+
+      // Assert
+      expect(res).toEqual({ a: { '0': { b: 'x' }, '2': { c: 'y' } } });
+      deepAssertNoNullOrUndefined(res);
+    });
+
+    it('should materialize a nested leaf array on an index hole (a[b][2]=x)', () => {
+      // Arrange — the hole is one level down: a.b is the array, and index 2
+      // on an empty array must materialize a.b, not the "a" object above it.
+      const parser = QueryParser.create({ nesting: true });
+
+      // Act
+      const res = parser.parse('a[b][2]=x');
+
+      // Assert
+      expect(res).toEqual({ a: { b: { '2': 'x' } } });
+      deepAssertNoNullOrUndefined(res);
+    });
+
+    it('should never contain a null or undefined element across a battery of hole-producing inputs', () => {
+      // Arrange
+      const parser = QueryParser.create({ nesting: true, arrayLimit: 5 });
+      const inputs = [
+        'a[3]=x',
+        'a[0]=x&a[9]=z',
+        'a[0]=x&a[1]=y&a[9]=z',
+        'a[9]=z&a[0]=x',
+        'a[0][x]=1&a[4][y]=2',
+        'a[b][3]=x',
+        'a[0]=x&a[100]=z',
+      ];
+
+      // Act & Assert
+      for (const input of inputs) {
+        deepAssertNoNullOrUndefined(parser.parse(input));
+      }
     });
   });
 });

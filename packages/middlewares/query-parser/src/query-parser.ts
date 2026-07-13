@@ -522,14 +522,22 @@ export class QueryParser {
           });
         }
 
-        current = this.arrayToObject(current);
+        current = this.materializeArray(current, parent, parentKey);
+      }
 
-        if (Array.isArray(parent)) {
-          const normalizedKey = this.normalizeKey(parentKey);
+      // Conversion: Array with an explicit numeric index that would create a
+      // hole (index > current.length) or exceeds arrayLimit (index > arrayLimit)
+      // → Object. Materialized BEFORE any write, so a hole element is never
+      // created (#4) and an over-limit index is never silently dropped (#5).
+      // Unlike the non-numeric-key conversion above, this never throws — even
+      // in strict mode — because it is a density/limit condition, not a
+      // key-kind conflict (strict limit-observability is a separate concern,
+      // out of scope for this change).
+      if (Array.isArray(current) && this.isValidArrayIndex(prop)) {
+        const index = parseInt(prop, 10);
 
-          this.assignArrayRecordValue(parent, normalizedKey, current);
-        } else if (this.isRecordValue(parent)) {
-          parent[this.normalizeKey(parentKey)] = current;
+        if (index > current.length || index > this.options.arrayLimit) {
+          current = this.materializeArray(current, parent, parentKey);
         }
       }
 
@@ -562,9 +570,9 @@ export class QueryParser {
         if (this.isValidArrayIndex(prop)) {
           const index = parseInt(prop, 10);
 
-          if (index > this.options.arrayLimit) {
-            return;
-          }
+          // Invariant: the materialization check above guarantees `index <=
+          // current.length && index <= arrayLimit` here — any hole or
+          // over-limit index has already been converted to an object write.
 
           if (isLast) {
             const leafErr = this.assignLeaf(current, prop, value);
@@ -680,11 +688,11 @@ export class QueryParser {
 
     if (Array.isArray(obj)) {
       if (this.isValidArrayIndex(key)) {
+        // Invariant: every caller that can reach this branch with an array
+        // `obj` (parseComplexKey's push/leaf sites) has already materialized
+        // any hole/over-limit index into an object beforehand, so `idx` here
+        // is always <= obj.length && <= arrayLimit — never a drop candidate.
         const idx = parseInt(key, 10);
-
-        if (idx > this.options.arrayLimit) {
-          return;
-        }
 
         return this.assignToArrayIndex(obj, idx, key, value);
       }
@@ -850,6 +858,32 @@ export class QueryParser {
     }
 
     return true;
+  }
+
+  /**
+   * Materializes an array container into a plain object in place, rewriting
+   * the single reference the array's parent holds to it — the only place
+   * that can be done without leaving an orphan reference is here, inside
+   * {@link parseComplexKey}, which is the sole holder of `parent`/`parentKey`.
+   * Used whenever an explicit index would otherwise create a hole
+   * (`index > current.length`) or exceed `arrayLimit` (`index > arrayLimit`):
+   * materializing BEFORE the write means no null/undefined element, and no
+   * silently dropped value, is ever produced.
+   */
+  private materializeArray(
+    current: QueryArray,
+    parent: QueryContainer,
+    parentKey: string | number,
+  ): QueryValueRecord {
+    const materialized = this.arrayToObject(current);
+
+    if (Array.isArray(parent)) {
+      this.assignArrayRecordValue(parent, this.normalizeKey(parentKey), materialized);
+    } else if (this.isRecordValue(parent)) {
+      parent[this.normalizeKey(parentKey)] = materialized;
+    }
+
+    return materialized;
   }
 
   /**
