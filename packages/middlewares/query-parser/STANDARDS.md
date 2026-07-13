@@ -6,7 +6,7 @@
 
 이 미들웨어는 **origin server 내부의 query string 해석자**다 — request-target의 query 컴포넌트(raw 문자열)를 (이름, 값) 쌍 리스트로 해석한다. query를 생성·직렬화하지 않으므로 producer 대상 규범은 구속하지 않는다.
 
-정본 분담: **RFC 3986**은 query를 비계층(non-hierarchical) 데이터로 정의하며 octet 문법·퍼센트 인코딩 일반론만 규정한다(§1). **쌍 분해의 정본은 WHATWG URL Standard의 application/x-www-form-urlencoded 파서**다(§2) — 브라우저 폼·URLSearchParams와의 상호운용 기준이다.
+정본 분담: **RFC 3986**은 query를 비계층(non-hierarchical) 데이터로 정의하며 octet 문법·퍼센트 인코딩 일반론만 규정한다(§1). **쌍 분해는 form-urlencoded 모드(`urlEncoded: true`)에 한해 WHATWG URL Standard의 application/x-www-form-urlencoded 파서가 정본**이다(§2) — 브라우저 폼·URLSearchParams와의 상호운용 기준이다. 기본 모드(URI-generic, `urlEncoded: false`)는 RFC 3986 §1을 따르며 §2.4(`+`→SP)를 적용하지 않는다 — 두 모드의 관계는 §2.4에서 상술한다.
 
 ## 규범 수준 규약
 
@@ -38,7 +38,7 @@
 - **§2.1** [MUST] 입력은 0x26(`&`)에서만 분리한다 — `;`(0x3B)는 구분자가 아니라 이름/값 안의 데이터 octet이다(파서 알고리즘에 0x3B 처리 부재) [WHATWG URL #concept-urlencoded-parser step 1].
 - **§2.2** [MUST] 빈 바이트 시퀀스(선행·후행·연속 `&`)는 쌍을 생성하지 않고 건너뛴다 [WHATWG URL #concept-urlencoded-parser step 3.1].
 - **§2.3** [MUST] 각 시퀀스는 **첫** 0x3D(`=`)에서 이름/값으로 나눈다 — 두 번째 이후의 `=`는 값의 데이터다; `=`가 없으면 전체가 이름이고 값은 빈 문자열, `=`가 첫 byte면 이름이 빈 문자열, 마지막 byte면 값이 빈 문자열이다 [WHATWG URL #concept-urlencoded-parser step 3.2–3.3].
-- **§2.4** [MUST] 0x2B(`+`)는 퍼센트 디코딩 **전에**(raw byte 단계에서) 0x20(SP)으로 치환한다 — 순서의 귀결로 `%2B`는 리터럴 `+`로 복원되며 공백이 되지 않는다 [WHATWG URL #concept-urlencoded-parser step 3.4→3.5].
+- **§2.4** **form-urlencoded 모드(`urlEncoded: true`)에서 [MUST]**: 0x2B(`+`)는 퍼센트 디코딩 **전에**(raw byte 단계에서) 0x20(SP)으로 치환한다 — 순서의 귀결로 `%2B`는 리터럴 `+`로 복원되며 공백이 되지 않는다 [WHATWG URL #concept-urlencoded-parser step 3.4→3.5]. **기본 모드(URI-generic, `urlEncoded: false`)에서는 명시적·의도적으로 이 스텝을 적용하지 않는다** — `+`는 RFC 3986 §1의 일반 reserved-octet 규칙에 따라 리터럴 데이터 octet으로 남는다. 이는 WHATWG 알고리즘으로부터의 문서화된 의도적 편차(deliberate deviation)이며, RFC 3986 §1.7을 그 근거로 원용하지 않는다 — §1.7은 RFC 3986이 key=value 구조를 규정하지 않는다는 권위 부인(disclaimer)일 뿐, 기본 동작을 정당화하는 규범 조항이 아니다. 두 모드는 `urlEncoded` 옵션으로 명시적으로 선택한다.
 - **§2.5** [MUST] 이름·값은 퍼센트 디코딩 후 UTF-8 decode without BOM으로 문자열화한다 — 무효 UTF-8 시퀀스는 파스 실패가 아니라 U+FFFD(replacement character)로 치환된다 [WHATWG URL #concept-urlencoded-parser step 3.5; WHATWG Encoding #utf-8-decode-without-bom].
 - **§2.6** [MUST] 기형 퍼센트 시퀀스(`%` 뒤 두 byte가 hex 범위 0x30–0x39/0x41–0x46/0x61–0x66이 아니거나 부족한 경우)는 오류가 아니다 — `%`를 리터럴 octet으로 보존하고 계속한다 [WHATWG URL #percent-decode step 2.2].
 - **§2.7** 적합 UA의 URL 파서는 query의 비-URL 코드포인트·hex 미동반 `%`를 validation error로 표시하되 **보존하고 계속**한다(하드 실패 아님) — 그런 octet은 적합하게 생성된 query 입력에도 존재할 수 있다 [WHATWG URL #query-state step 3].

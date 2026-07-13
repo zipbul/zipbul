@@ -96,6 +96,7 @@ interface QueryParserOptions {
   duplicates?: 'first' | 'last' | 'array';  // 기본값: 'first'
   strict?: boolean;         // 기본값: false
   urlEncoded?: boolean;     // 기본값: false
+  allowPrototypes?: boolean; // 기본값: false
 }
 ```
 
@@ -212,6 +213,31 @@ QueryParser.create().parse('q=hello+world'); // 기본값 — '+'는 리터럴
 
 `+`→공백 변환과 퍼센트 디코딩은 독립적이라, 잘못된 이스케이프가 있어도 공백 변환은 유지됩니다: `parse('q=a+b%ZZ')` → `{ q: 'a b%ZZ' }`.
 
+### `allowPrototypes`
+
+기본적으로 `Object.prototype`의 own-property 이름과 일치하는 모든 키(`constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` 등)는 위치(루트·중첩 세그먼트·리프)에 관계없이 파싱 결과에서 버려집니다. `prototype`은 이 집합에 포함되지 **않습니다**(함수 객체의 own-property이지 `Object.prototype`의 이름이 아니므로) — 절대 차단되지 않습니다. `__proto__`는 이 옵션과 무관하게 **항상** 차단됩니다. 이유는 [보안 → 프로토타입 오염 방지](#프로토타입-오염-방지) 참고.
+
+```typescript
+QueryParser.create().parse('constructor=1');
+// {} — 기본값에서는 버려짐
+
+QueryParser.create({ nesting: true }).parse('a[toString]=1');
+// { a: {} } — 리프에서 버려짐; "a" 컨테이너 껍데기는 남음
+
+QueryParser.create().parse('prototype=1');
+// { prototype: '1' } — Object.prototype own-name이 아니므로 절대 차단되지 않음
+```
+
+⚠️ **보안 경고:** `allowPrototypes: true`로 설정하면 `__proto__`만 차단하던 이전 정책으로 되돌아가고, 위의 다른 모든 키가 다시 일반 own-property 값으로 노출됩니다. 이는 실제 프로토타입 오염 원시성을 재활성화합니다 — `?constructor[prototype][x]=1`은 `{ constructor: { prototype: { x: '1' } } }`을 만들며, 애플리케이션 어딘가의 naive recursive merge(`merge({}, parsed)`)가 이를 그대로 `Object.prototype`까지 오염시킵니다. 메서드섀도 크래시도 재활성화됩니다(`?k[toString]=1`은 `String(parsed.k)`를 throw시킵니다). 파싱 결과를 어떻게 소비하는지 완전히 통제할 수 있을 때만 활성화하세요. `qs`의 `allowPrototypes` opt-in과 동일합니다.
+
+```typescript
+QueryParser.create({ nesting: true, allowPrototypes: true }).parse('a[toString]=1');
+// { a: { toString: '1' } } — 이전 동작 복원
+
+QueryParser.create({ allowPrototypes: true }).parse('a[__proto__][x]=1');
+// { a: {} } — __proto__는 여전히 항상 차단됨
+```
+
 <br>
 
 ## 🚨 에러 처리
@@ -265,6 +291,7 @@ if (isErr(result)) {
 | `InvalidNesting` | `create()` | `nesting`이 불리언이 아님 |
 | `InvalidStrict` | `create()` | `strict`가 불리언이 아님 |
 | `InvalidUrlEncoded` | `create()` | `urlEncoded`가 불리언이 아님 |
+| `InvalidAllowPrototypes` | `create()` | `allowPrototypes`가 불리언이 아님 |
 | `MalformedQueryString` | `parse()` | 잘못된 브래킷/구조 문법 (strict 모드 전용) — 퍼센트 인코딩은 해당 없음 |
 | `ConflictingStructure` | `parse()` | 키가 스칼라와 중첩 구조로 동시 사용됨 (strict 모드 전용) |
 
@@ -284,11 +311,20 @@ if (isErr(result)) {
 
 ### 프로토타입 오염 방지
 
-`__proto__`가 유일하게 차단되는 키입니다 — 모든 위치(루트·중첩 세그먼트·리프)에서 차단되므로 `?__proto__[x]=1`과 `?a[__proto__][x]=1`은 무력화됩니다. `__proto__`에 대한 평범한 할당은 프로토타입 setter를 호출하므로, 절대 일반 파라미터가 될 수 없습니다.
+기본값(`allowPrototypes: false`)에서는 `Object.prototype`의 own-property 이름과 일치하는 모든 키 — `constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` 등 — 가 모든 위치(루트·중첩 세그먼트·리프)에서 파싱 결과에서 버려지므로, `?constructor=1`, `?a[toString]=1`, 그리고 고전적인 `?constructor[prototype][x]=1` 체인이 모두 무력화됩니다. 중첩 세그먼트/리프에서 키가 버려져도 전체 결과가 아니라 상위 컨테이너 껍데기만 남습니다: `?a[toString]=1` → `{ a: {} }` (`{}`가 아님).
 
-그 외의 모든 키 — `constructor`, `prototype`, `__defineGetter__` 등 — 는 **안전한 own-property 값**입니다: 파서는 항상 own 속성만 쓰며(`hasOwnProperty`로 create-own-or-skip), 프로토타입 체인에 도달하지 않습니다. 고전적인 `?constructor[prototype][x]=y` 페이로드도 `Object.prototype`을 오염시키지 않고 평범한 own 객체를 만듭니다. 따라서 이 이름들은 조용히 버려지지 않고 일반 파라미터로 반환됩니다(`?constructor=1` → `{ constructor: '1' }`).
+`__proto__`는 옵션과 무관하게, 모든 위치에서 **항상** 차단됩니다 — `__proto__`에 대한 평범한 할당은 프로토타입 setter를 호출하므로, `allowPrototypes: true`를 설정해도 절대 일반 파라미터가 될 수 없습니다.
 
-> **동작 변경 (이번 릴리스부터):** `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`는 이전에는 모든 위치에서 버려졌습니다. 이제는 일반 own-property 값으로 노출됩니다(`__proto__`만 차단 유지). 앱이 이 키들의 부재에 의존했다면, `parsed.constructor`가 이제 `Object`가 아니라 클라이언트가 보낸 문자열이라는 점에 유의하세요.
+`prototype`은 `Object.prototype`의 own-property 이름이 아니므로(함수 객체의 own-property이지 `Object.prototype`의 이름이 아님), 의도적으로 절대 차단되지 않고 일반 파라미터로 반환됩니다(`?prototype=1` → `{ prototype: '1' }`) — 이는 실수가 아니라 `qs`의 동작과 정확히 일치시킨 것입니다.
+
+`__proto__`만 차단하던 이전 정책에는 실제로 존재했던 두 가지 취약점을 이번 정책이 막습니다:
+
+- **오염 가젯:** `?constructor[prototype][x]=1`은 이전에는 평범한 own 객체 `{ constructor: { prototype: { x: '1' } } }`를 만들었습니다. 이 결과가 애플리케이션 어딘가의 naive recursive merge(`merge({}, parsed)`)에 전달되면 그 형태 그대로 `Object.prototype`에 도달해 오염시킵니다. 파서 자신은 공유 프로토타입에 병합하지 않지만, 반환한 객체를 다운스트림 소비자가 어떻게 다루는지는 통제할 수 없으므로 — 가젯 형태 자체를 소스에서 차단합니다.
+- **메서드섀도 크래시:** `?k[toString]=1`은 이전에는 `{ k: { toString: '1' } }`을 만들었습니다 — 상속된 `Object.prototype.toString`을 *가리는* own-property 문자열입니다. 이후의 `String(parsed.k)` 호출은 throw합니다(`toString`이 함수가 아니므로). `?k[hasOwnProperty]=1`도 마찬가지로 이후의 `parsed.k.hasOwnProperty(...)` 호출을 깨뜨립니다.
+
+이전 동작이 필요하다면 — 예를 들어 이미 다운스트림에서 위험한 키 이름을 정제/거부하거나, 파싱 결과를 어디에도 병합하지 않는다면 — [`allowPrototypes: true`](#allowprototypes)를 설정해 `__proto__`만 차단하던 정책으로 되돌릴 수 있습니다. ⚠️ 이는 위의 두 취약점을 모두 재활성화합니다. 전체 경고는 [`allowPrototypes`](#allowprototypes) 절을 참고하세요.
+
+> **파괴적 변경:** 이전에는 `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`가 모두 일반 own-property 값으로 노출되었습니다(`__proto__`만 차단). 기본값에서는 이제 다시 버려집니다(`prototype`은 예외 — 위 참고). 노출되는 이전 동작에 의존하는 앱이라면 `allowPrototypes: true`를 전달하세요.
 
 ### HPP (HTTP Parameter Pollution) 방어
 

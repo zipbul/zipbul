@@ -96,6 +96,7 @@ interface QueryParserOptions {
   duplicates?: 'first' | 'last' | 'array';  // Default: 'first'
   strict?: boolean;         // Default: false
   urlEncoded?: boolean;     // Default: false
+  allowPrototypes?: boolean; // Default: false
 }
 ```
 
@@ -212,6 +213,31 @@ QueryParser.create().parse('q=hello+world'); // default — '+' is literal
 
 The `+`→space and percent-decoding are independent passes, so a malformed escape never discards the space: `parse('q=a+b%ZZ')` → `{ q: 'a b%ZZ' }`.
 
+### `allowPrototypes`
+
+By default, every key that names an own-property of `Object.prototype` (`constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`, …) is dropped from the parsed output, at any position — root, nested segment, or leaf. `prototype` is **not** in this set (it is an own-property of function objects, not of `Object.prototype`) and is never blocked. `__proto__` is **always** blocked, regardless of this option. See [Security → Prototype pollution prevention](#prototype-pollution-prevention) for why.
+
+```typescript
+QueryParser.create().parse('constructor=1');
+// {} — dropped by default
+
+QueryParser.create({ nesting: true }).parse('a[toString]=1');
+// { a: {} } — dropped at the leaf; the "a" shell remains
+
+QueryParser.create().parse('prototype=1');
+// { prototype: '1' } — not an Object.prototype own-name, never blocked
+```
+
+⚠️ **SECURITY:** setting `allowPrototypes: true` reverts to blocking only `__proto__`, and re-admits every other key above as an ordinary own-property value. This re-arms a real prototype-pollution primitive — `?constructor[prototype][x]=1` builds `{ constructor: { prototype: { x: '1' } } }`, which a naive recursive merge (`merge({}, parsed)`) elsewhere in your application walks straight into `Object.prototype` — as well as method-shadow crashes (`?k[toString]=1` makes `String(parsed.k)` throw). Only enable it if you fully control how the parsed object is consumed downstream. Matches `qs`'s `allowPrototypes` opt-in.
+
+```typescript
+QueryParser.create({ nesting: true, allowPrototypes: true }).parse('a[toString]=1');
+// { a: { toString: '1' } } — old behavior restored
+
+QueryParser.create({ allowPrototypes: true }).parse('a[__proto__][x]=1');
+// { a: {} } — __proto__ is still always blocked
+```
+
 <br>
 
 ## 🚨 Error Handling
@@ -265,6 +291,7 @@ if (isErr(result)) {
 | `InvalidNesting` | `create()` | `nesting` must be a boolean |
 | `InvalidStrict` | `create()` | `strict` must be a boolean |
 | `InvalidUrlEncoded` | `create()` | `urlEncoded` must be a boolean |
+| `InvalidAllowPrototypes` | `create()` | `allowPrototypes` must be a boolean |
 | `MalformedQueryString` | `parse()` | Malformed bracket/structure syntax (strict mode only) — never percent-encoding |
 | `ConflictingStructure` | `parse()` | Key used as both scalar and nested (strict mode only) |
 
@@ -284,11 +311,20 @@ This parser follows [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) se
 
 ### Prototype pollution prevention
 
-`__proto__` is the only blocked key — at every position (root, nested segment, leaf), so `?__proto__[x]=1` and `?a[__proto__][x]=1` are neutralized. A plain assignment to `__proto__` invokes the prototype setter, so it can never be an ordinary parameter.
+By default (`allowPrototypes: false`), every key that names an own-property of `Object.prototype` — `constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`, … — is dropped from the parsed output at every position (root, nested segment, leaf), so `?constructor=1`, `?a[toString]=1`, and the classic `?constructor[prototype][x]=1` chain are all neutralized. Dropping a key at a nested segment/leaf leaves the parent container shell in place rather than discarding the whole result: `?a[toString]=1` → `{ a: {} }`, not `{}`.
 
-Every other key — including `constructor`, `prototype`, `__defineGetter__`, etc. — is a **safe own-property value**: the parser only ever writes own properties (create-own-or-skip via `hasOwnProperty`), so it never reaches the prototype chain, and the classic `?constructor[prototype][x]=y` payload builds an ordinary own object without polluting `Object.prototype`. These names are therefore returned as normal parameters (`?constructor=1` → `{ constructor: '1' }`) rather than silently discarded.
+`__proto__` is **always** blocked, at every position and regardless of any option — a plain assignment to it invokes the prototype setter, so it can never be an ordinary parameter, even when `allowPrototypes: true` is set.
 
-> **Behavior change (since this release):** `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` used to be dropped at all positions. They are now surfaced as ordinary own-property values (only `__proto__` remains blocked). If your app relied on these being absent from the parsed object, note that `parsed.constructor` is now whatever the client sent as a string rather than `Object`.
+`prototype` is **not** an own-property name of `Object.prototype` (it is an own-property of function objects, not of `Object.prototype`), so it is intentionally never blocked and is returned as an ordinary parameter (`?prototype=1` → `{ prototype: '1' }`) — this matches `qs`'s behavior exactly, it is not an oversight.
+
+This closes two real vectors that existed when only `__proto__` was blocked:
+
+- **Pollution gadget:** `?constructor[prototype][x]=1` used to build an ordinary own object `{ constructor: { prototype: { x: '1' } } }`. Handed to a naive recursive merge elsewhere in an application (`merge({}, parsed)`), that shape reaches and pollutes `Object.prototype`. The parser itself never merges into a shared prototype, but it can't control what a downstream consumer does with the object it returns — so the gadget shape is dropped at the source instead.
+- **Method-shadow crash:** `?k[toString]=1` used to build `{ k: { toString: '1' } }` — an own-property string that *shadows* the inherited `Object.prototype.toString`. Any later `String(parsed.k)` throws (`toString` is not a function). `?k[hasOwnProperty]=1` similarly breaks a later `parsed.k.hasOwnProperty(...)` call.
+
+Need the old behavior — e.g. you already sanitize/reject dangerous key names downstream, or you never merge the parsed object into anything — set [`allowPrototypes: true`](#allowprototypes) to revert to blocking only `__proto__`. ⚠️ This re-arms both vectors above; see the [`allowPrototypes`](#allowprototypes) section for the full warning.
+
+> **BREAKING CHANGE:** previously `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` were all surfaced as ordinary own-property values (only `__proto__` was blocked). By default they are now dropped again (`prototype` excepted — see above). If your app relies on the surfaced-values behavior, pass `allowPrototypes: true`.
 
 ### HPP (HTTP Parameter Pollution) defense
 
