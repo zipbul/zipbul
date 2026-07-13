@@ -13,6 +13,60 @@ function cancelStreamQuietly(response: Response | undefined): void {
   body.cancel().catch(() => {});
 }
 
+/** Fire-and-forget cancel for a bare stream (used when swapping bodies). */
+function cancelBodyQuietly(body: ReadableStream | null | undefined): void {
+  if (body === null || body === undefined) return;
+  body.cancel().catch(() => {});
+}
+
+/**
+ * Unions the tokens of a list-valued selecting header (`Vary`).
+ *
+ * A native Response's own `Vary` and a middleware-added one (e.g. `Accept-Encoding`
+ * from compression) must BOTH survive, else a shared cache mis-selects the
+ * representation (RFC 9110 §12.5.5). `*` already means unlimited variance.
+ */
+function unionVary(existing: string, addition: string): string {
+  const seen = new Set(
+    existing.split(',').map((t) => t.trim().toLowerCase()).filter((t) => t !== ''),
+  );
+  if (seen.has('*')) return existing;
+
+  const additions: string[] = [];
+  for (const token of addition.split(',')) {
+    const t = token.trim();
+    if (t !== '' && !seen.has(t.toLowerCase())) {
+      additions.push(t);
+      seen.add(t.toLowerCase());
+    }
+  }
+  if (additions.length === 0) return existing;
+  return existing === '' ? additions.join(', ') : `${existing}, ${additions.join(', ')}`;
+}
+
+/**
+ * Folds an override header entry into a base `Headers` under the merge rules
+ * shared by every read and by the final wire assembly:
+ *
+ * 1. Native Response headers are the base (the handler's explicit choice wins).
+ * 2. `Set-Cookie` is appended (RFC 6265: multiple allowed).
+ * 3. `Vary` is unioned, never overwritten (RFC 9110 §12.5.5).
+ * 4. Any other key is added only when the base lacks it.
+ */
+function foldOverride(base: Headers, key: string, value: string): void {
+  if (key === HttpHeader.SetCookie) {
+    base.append(key, value);
+    return;
+  }
+  if (key === HttpHeader.Vary && base.has(key)) {
+    base.set(key, unionVary(base.get(key) as string, value));
+    return;
+  }
+  if (!base.has(key)) {
+    base.set(key, value);
+  }
+}
+
 export class HttpResponse {
   private readonly req: HttpRequest;
   private _body: ResponseBodyValue | undefined;
@@ -101,7 +155,20 @@ export class HttpResponse {
 
   // ── Status ──────────────────────────────────────────────────
 
+  /**
+   * Returns the status that will actually be sent.
+   *
+   * A native Response ships its own status verbatim (see {@link getNativeResponse}),
+   * so it takes precedence here: a middleware gate that read the buffered status
+   * instead would, for example, see 200 for a handler's 206 and compress a
+   * partial representation. Status `0` (`Response.error()`) is not a wire status —
+   * it falls through to the buffered value.
+   */
   getStatus(): HttpStatus | undefined {
+    const nativeStatus = this._rawNativeResponse?.status;
+    if (nativeStatus !== undefined && nativeStatus !== 0) {
+      return nativeStatus as HttpStatus;
+    }
     return this._status;
   }
 
@@ -117,18 +184,22 @@ export class HttpResponse {
     return this.ensureHeaders();
   }
 
+  /**
+   * Returns the header value that will actually be sent — the same merged view
+   * the wire gets, so a middleware never reads one thing and ships another.
+   *
+   * `Set-Cookie` is multi-valued and cannot be represented as a single string
+   * (`Headers.get` comma-folds it into an invalid value), so it always reads
+   * `null` here; the wire keeps every cookie.
+   */
   getHeader(name: string): string | null {
     const normalized = name.toLowerCase();
 
-    if (normalized === HttpHeader.ContentType) {
-      return this._contentType ?? null;
+    if (normalized === HttpHeader.SetCookie) {
+      return null;
     }
 
-    if (normalized === HttpHeader.ContentLength) {
-      return this._contentLength ?? null;
-    }
-
-    return this._headers?.get(name) ?? null;
+    return this.mergedHeaderValue(normalized);
   }
 
   setHeader(name: string, value: string): this {
@@ -220,6 +291,69 @@ export class HttpResponse {
   }
 
   /**
+   * Returns the streaming body (SSE, streaming, Blob, handler Response), or
+   * `null` when the body is buffered or absent.
+   *
+   * This is the encapsulated way to reach a streaming body: middleware that
+   * needs to wrap it (compression) gets the stream, not the whole Response, and
+   * so cannot reach around the header/status model. Reading it does not consume
+   * it; passing it to a transform does — pair with {@link replaceBodyStream}.
+   */
+  getBodyStream(): ReadableStream | null {
+    return this._rawNativeResponse?.body ?? null;
+  }
+
+  /**
+   * Swaps the streaming body while keeping the response's headers and status.
+   *
+   * The existing native headers are hoisted into the override store, and the new
+   * native carries the body alone. That inversion is the point: after the swap
+   * every header lives where `setHeader`/`removeHeader` can reach it, so a
+   * middleware that re-encodes the body can actually drop the now-false
+   * `Content-Length`/integrity fields and weaken the `ETag` — with the headers
+   * left on the native they would win the merge and ship stale metadata.
+   *
+   * With no native response set this is just {@link setBody}.
+   *
+   * @param stream - The replacement body.
+   * @returns `this` for chaining.
+   * @public
+   */
+  replaceBodyStream(stream: ReadableStream): this {
+    const native = this._rawNativeResponse;
+    if (native === undefined) {
+      return this.setBody(stream);
+    }
+
+    const target = this.ensureHeaders();
+    for (const [key, value] of native.headers.entries()) {
+      if (key === HttpHeader.SetCookie) continue; // handled below — entries() folds cookies
+      if (key === HttpHeader.Vary && target.has(key)) {
+        target.set(key, unionVary(target.get(key) as string, value));
+        continue;
+      }
+      target.set(key, value);
+      if (key === HttpHeader.ContentType) this._contentType = value;
+      if (key === HttpHeader.ContentLength) this._contentLength = value;
+    }
+    for (const cookie of native.headers.getSetCookie()) {
+      target.append(HttpHeader.SetCookie, cookie);
+    }
+
+    const init: ResponseInit = {
+      ...(native.status !== 0 ? { status: native.status } : {}),
+      ...(native.statusText !== '' ? { statusText: native.statusText } : {}),
+    };
+
+    cancelBodyQuietly(native.body);
+    this._body = undefined;
+    this._rawNativeResponse = new Response(stream, init);
+    this._mergedNativeResponse = undefined;
+    this._serialized = false;
+    return this;
+  }
+
+  /**
    * Sets the response body. Handles all body types through a unified API:
    * - `ReadableStream` → native Response passthrough
    * - `Blob` → stream() conversion with manual Content-Length (prevents Blob.type auto-CT)
@@ -249,7 +383,14 @@ export class HttpResponse {
         this.setContentType(data.type);
       }
       this.setHeader(HttpHeader.ContentLength, data.size.toString());
-      this._rawNativeResponse = new Response(data.stream());
+
+      const native = new Response(data.stream());
+      // `new Response(blob.stream())` still infers `Content-Type` from the Blob in
+      // Bun, and a native header beats the override store — which would silently
+      // override an explicitly-set Content-Type (and drop the charset we add for
+      // text types). Strip it so the resolved value above is the one that ships.
+      native.headers.delete(HttpHeader.ContentType);
+      this._rawNativeResponse = native;
       this._mergedNativeResponse = undefined;
       return this;
     }
@@ -302,16 +443,16 @@ export class HttpResponse {
   }
 
   /**
-   * Returns the raw native Response WITHOUT merging `_headers` — a read-only
-   * peek for BeforeResponse middlewares that must inspect the native
-   * response's own headers (e.g. compression checking a handler-set
-   * `Content-Encoding`/`Content-Type`) or wrap its body stream.
+   * Returns the raw native Response, pre-merge.
    *
-   * Unlike {@link getNativeResponse}, this never creates the merged cache,
-   * so later finalizers/middlewares can still add headers safely.
+   * Adapter-internal. Middleware must not reach past the response model: read
+   * through {@link getHeader}/{@link getStatus} (which report the merged, wire-true
+   * value) and swap bodies with {@link replaceBodyStream}. Handing out the raw
+   * Response leaks the two-store representation and lets callers ship headers that
+   * disagree with what they just read.
    *
    * @returns The raw native Response, or `undefined` if none is set.
-   * @public
+   * @internal
    */
   peekNativeResponse(): Response | undefined {
     return this._rawNativeResponse;
@@ -321,16 +462,16 @@ export class HttpResponse {
    * Returns the native Response with `_headers` merged in.
    * Creates and caches the merged Response on first call.
    *
-   * INVARIANT: Call only in `fetch()` after all finalizers have completed.
-   * Calling earlier would cache a stale merge missing finalizer headers.
+   * Adapter-internal: this is the send-boundary assembly, called once by the
+   * server after every finalizer has run. Middleware reads go through
+   * {@link getHeader}/{@link getStatus}, which report this same merged view, so
+   * nothing needs the assembled Response mid-pipeline.
    *
-   * Merge rules:
-   * 1. Native Response headers are the base (handler's explicit choice)
-   * 2. `Set-Cookie` from `_headers` is always appended (RFC 6265: multiple allowed)
-   * 3. `_headers` keys not already in native Response are added (middleware defaults)
+   * Merge rules live in {@link mergedHeaders} — the single definition every read
+   * and this assembly share.
    *
    * @returns The merged Response, or `undefined` if no native Response set.
-   * @public
+   * @internal
    */
   getNativeResponse(): Response | undefined {
     if (this._rawNativeResponse === undefined) return undefined;
@@ -342,29 +483,7 @@ export class HttpResponse {
       return this._rawNativeResponse;
     }
 
-    const merged = new Headers(this._rawNativeResponse.headers);
-    for (const [key, value] of headerOverrides.entries()) {
-      if (key === HttpHeader.SetCookie) {
-        merged.append(key, value);
-      } else if (key === HttpHeader.Vary && merged.has(key)) {
-        // Vary is a list-valued selecting header: a native Response's own Vary and a
-        // middleware-added one (e.g. Accept-Encoding from compression) must BOTH survive,
-        // else a shared cache mis-selects the representation (RFC 9110 §12.5.5). Union the
-        // tokens instead of letting the native value win. `*` already means unlimited variance.
-        const existing = merged.get(key) as string;
-        const seen = new Set(existing.split(',').map((t) => t.trim().toLowerCase()).filter((t) => t !== ''));
-        if (!seen.has('*')) {
-          const additions: string[] = [];
-          for (const token of value.split(',')) {
-            const t = token.trim();
-            if (t !== '' && !seen.has(t.toLowerCase())) { additions.push(t); seen.add(t.toLowerCase()); }
-          }
-          if (additions.length > 0) merged.set(key, `${existing}, ${additions.join(', ')}`);
-        }
-      } else if (!merged.has(key)) {
-        merged.set(key, value);
-      }
-    }
+    const merged = this.mergedHeaders(this._rawNativeResponse, headerOverrides);
 
     this._mergedNativeResponse = new Response(this._rawNativeResponse.body, {
       status: this._rawNativeResponse.status,
@@ -572,6 +691,38 @@ export class HttpResponse {
       return this._body.toString();
     }
     throw new Error('normalizeBody received an unserialized object — build() should have serialized it');
+  }
+
+  /**
+   * The merged header set — the native response's own headers as the base, with
+   * the override store folded in under {@link foldOverride}'s rules. This is the
+   * one place the merge is defined; every public read and the final wire
+   * assembly go through it, so a read can never disagree with what is sent.
+   */
+  private mergedHeaders(native: Response, overrides: Headers | undefined): Headers {
+    const merged = new Headers(native.headers);
+    if (overrides === undefined) return merged;
+
+    for (const [key, value] of overrides.entries()) {
+      if (key === HttpHeader.SetCookie) continue; // entries() folds cookies — appended below
+      foldOverride(merged, key, value);
+    }
+    for (const cookie of overrides.getSetCookie()) {
+      merged.append(HttpHeader.SetCookie, cookie);
+    }
+    return merged;
+  }
+
+  /** Single-header view of {@link mergedHeaders} — used by every public read. */
+  private mergedHeaderValue(normalized: string): string | null {
+    const overrides = this.buildHeaders();
+    const native = this._rawNativeResponse;
+
+    if (native === undefined) {
+      return overrides?.get(normalized) ?? null;
+    }
+
+    return this.mergedHeaders(native, overrides).get(normalized);
   }
 
   private ensureHeaders(): Headers {

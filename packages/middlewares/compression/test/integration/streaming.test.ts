@@ -22,7 +22,7 @@ function runStream(
 
 async function wireBytes(res: ReturnType<typeof mockHttpResponse>): Promise<Uint8Array> {
   expect(res.hasNativeResponse()).toBe(true);
-  const stream = res.getNativeResponse().body;
+  const stream = res.getBodyStream();
   expect(stream).not.toBeNull();
   return drainStream(stream!);
 }
@@ -130,7 +130,7 @@ describe('streaming', () => {
     const res = runStream(failing, 'text/plain');
     expect(res.getHeader('content-encoding')).toBe('gzip');
     expect(res.hasNativeResponse()).toBe(true);
-    await expect(drainStream(res.getNativeResponse().body!)).rejects.toThrow();
+    await expect(drainStream(res.getBodyStream()!)).rejects.toThrow();
   });
 
   it('[§2.4.1] STR-12 native Response 자체에 Content-Encoding 존재 → 불간섭(이중 압축 금지)', async () => {
@@ -143,9 +143,10 @@ describe('streaming', () => {
     const m = unwrap(compressionMiddleware());
     const response = mockHttpResponse({ nativeResponse: nativeRes, contentType: 'text/plain' });
     m.handler(mockContext({ headers: makeRequestHeaders('gzip') }, response));
-    // _headers에 새 CE를 얹으면 안 되고, body 스트림도 그대로여야 한다
-    expect(response.getHeader('content-encoding')).toBeNull();
-    const bytes = await drainStream(response.getNativeResponse().body!);
+    // 핸들러가 이미 gzip으로 인코딩했으므로 미들웨어는 손대지 않는다 — 전송될 CE는
+    // 핸들러가 설정한 값 하나뿐이고(이중 인코딩이면 'gzip, gzip'이 된다), body도 원본이다.
+    expect(response.getHeader('content-encoding')).toBe('gzip');
+    const bytes = await drainStream(response.getBodyStream()!);
     expect(Buffer.from(Bun.gunzipSync(new Uint8Array(bytes))).toString()).toBe(TEXT);
   });
 
@@ -158,7 +159,7 @@ describe('streaming', () => {
     const response = mockHttpResponse({ nativeResponse: nativeRes, contentType: null });
     m.handler(mockContext({ headers: makeRequestHeaders('gzip') }, response));
     expect(response.getHeader('content-encoding')).toBeNull();
-    const bytes = await drainStream(response.getNativeResponse().body!);
+    const bytes = await drainStream(response.getBodyStream()!);
     expect(new TextDecoder().decode(bytes)).toBe('data: x\n\n');
   });
 
@@ -170,7 +171,7 @@ describe('streaming', () => {
     expect(response.getHeader('content-encoding')).toBe('gzip');
     // 재진입 — CE가 이미 있으므로 스킵해야 하며 throw 없어야 한다
     expect(() => m.handler(ctx())).not.toThrow();
-    const bytes = await drainStream(response.getNativeResponse().body!);
+    const bytes = await drainStream(response.getBodyStream()!);
     expect(Buffer.from(Bun.gunzipSync(new Uint8Array(bytes))).toString()).toBe(TEXT);
   });
 
@@ -186,7 +187,7 @@ describe('streaming', () => {
     m.handler(mockContext({ headers: makeRequestHeaders('gzip') }, response));
     expect(response.getHeader('content-encoding')).toBe('gzip');
     expect(response.getHeader('etag')).toBe('W/"s"');
-    const bytes = await drainStream(response.getNativeResponse().body!);
+    const bytes = await drainStream(response.getBodyStream()!);
     expect(gunzipSync(bytes).toString('utf-8')).toBe('x'.repeat(2000));
   });
 
@@ -201,7 +202,7 @@ describe('streaming', () => {
     m.handler(mockContext({ headers: makeRequestHeaders('gzip') }, response));
     expect(response.getHeader('content-encoding')).toBe('gzip');
     expect(response.getHeader('etag')).toBe('notquoted');
-    const bytes = await drainStream(response.getNativeResponse().body!);
+    const bytes = await drainStream(response.getBodyStream()!);
     expect(gunzipSync(bytes).toString('utf-8')).toBe('x'.repeat(2000));
   });
 
@@ -219,7 +220,7 @@ describe('streaming', () => {
     // 원 스트림은 파이프에 잠겨 직접 읽기 불가
     expect(source.locked).toBe(true);
     // 응답 스트림은 소비 가능해야 한다
-    const out = res.getNativeResponse().body!;
+    const out = res.getBodyStream()!;
     expect(out.locked).toBe(false);
     expect(gunzipSync(await drainStream(out)).toString('utf-8')).toBe(TEXT);
   });

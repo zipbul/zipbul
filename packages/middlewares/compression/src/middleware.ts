@@ -15,7 +15,7 @@ import { isIdentityAcceptable, negotiateEncoding, parseAcceptEncoding } from './
 import { compressStream } from './streaming';
 import { serializeBody } from './serialize';
 import { weakenETag } from './etag';
-import { hasNoTransform, varyCoversAcceptEncoding, varyTokensToAppend } from './eligibility';
+import { hasNoTransform, varyCoversAcceptEncoding } from './eligibility';
 
 /**
  * Compression HTTP middleware factory.
@@ -45,20 +45,17 @@ export function compressionMiddleware(opts?: CompressionOptions): MiddlewareDefi
     const { request, response } = http;
 
     // 스트림 경로: stream/Blob/raw Response body는 buffered `_body`가 아니라
-    // native Response에 저장된다. peekNativeResponse는 read-only라 lazy-merge
-    // 캐시를 만들지 않는다 — skip 경로에서도 안전하다. status·no-transform 게이트가
-    // native Response의 자체 status/헤더를 봐야 하므로 게이트보다 먼저 확인한다.
+    // 스트리밍 body로 저장된다. 읽기(getStatus·getHeader·getContentType)는 전송될
+    // 값을 그대로 돌려주므로 — 핸들러가 raw Response에 직접 설정한 status·헤더 포함 —
+    // 여기서 별도의 native 폴백이 필요 없다.
     const body = response.getBody();
-    const native = body === undefined || body === null ? response.peekNativeResponse() : undefined;
-    const nativeBody = native?.body ?? null;
+    const nativeBody = body === undefined || body === null ? response.getBodyStream() : null;
 
     // RFC 9110 §15: skip responses that MUST NOT have a body.
     // 206: Content-Range가 이미 (비인코딩) 선택 표현 기준으로 계산되어 있으므로
     // 사후 인코딩은 §15.3.7.1의 "동봉된 range 서술" 요건을 깨뜨린다 (§14.1.2).
-    // 핸들러가 반환한 raw Response의 status는 HttpResponse._status로 동기화되지 않으므로
-    // (getStatus()는 _status만 반환) native.status도 함께 본다 — 안 그러면 raw 206/205 등이
-    // 게이트를 통과해 압축된다. 미설정 status는 어댑터와 동일하게 200으로 취급한다.
-    const status = response.getStatus() ?? native?.status ?? HttpStatus.Ok;
+    // 미설정 status는 어댑터와 동일하게 200으로 취급한다.
+    const status = response.getStatus() ?? HttpStatus.Ok;
     if (
       status < 200
       || status === HttpStatus.NoContent
@@ -71,21 +68,15 @@ export function compressionMiddleware(opts?: CompressionOptions): MiddlewareDefi
     if (request.method === 'HEAD') return;
 
     if ((body === undefined || body === null) && nativeBody === null) return;
+    // 핸들러가 raw Response에 직접 설정한 CE도 이 읽기에 포함된다 — 이중 압축 금지 (§2.4.1)
     if (response.getHeader(HttpHeader.ContentEncoding) !== null) return;
-    // 핸들러가 반환한 raw Response 자체의 CE도 존중 — 이중 압축 금지 (§2.4.1)
-    if (native !== undefined && native.headers.get(HttpHeader.ContentEncoding) !== null) return;
 
     // RFC 9110 §7.7 + RFC 9111 §5.2.2.6: no-transform prohibits compression.
-    // CT·CE와 마찬가지로 native Response 자체의 Cache-Control도 본다 — raw Response에
-    // no-transform이 있으면 압축하지 않는다.
-    const cacheControl = response.getHeader(HttpHeader.CacheControl)
-      ?? (native !== undefined ? native.headers.get(HttpHeader.CacheControl) : null);
+    const cacheControl = response.getHeader(HttpHeader.CacheControl);
     if (cacheControl !== null && hasNoTransform(cacheControl)) return;
 
     // filter는 사용자 코드 — throw 시 보수적으로 압축을 포기한다 (응답은 원본 유지)
-    // 스트림 경로에서는 native Response 내부 CT(raw Response 핸들러의 SSE 등)도 본다.
-    const contentType = response.getContentType()
-      ?? (native !== undefined ? native.headers.get(HttpHeader.ContentType) : null);
+    const contentType = response.getContentType();
     if (contentType !== null) {
       let allowed: boolean;
       try {
@@ -109,7 +100,7 @@ export function compressionMiddleware(opts?: CompressionOptions): MiddlewareDefi
 
     // BREACH 활성 시 스트림은 압축하지 않는다 — 포맷 패딩 주입이 불가능하므로
     // 압축 이득보다 오라클 방어를 우선한다 (§9.3.1 정책). Vary는 위에서 이미 설정.
-    if (native !== undefined && breach !== undefined) return;
+    if (nativeBody !== null && breach !== undefined) return;
 
     // Check Accept-Encoding and negotiate before serializing body (avoids
     // wasteful JSON.stringify + TextEncoder.encode when no encoding matches).
@@ -132,42 +123,17 @@ export function compressionMiddleware(opts?: CompressionOptions): MiddlewareDefi
     }
 
     // ── 스트림 경로: 길이 미지 — threshold·팽창 가드 미적용, CL 제거 ──
-    if (native !== undefined && nativeBody !== null) {
-      // native Response의 자체 헤더(핸들러가 raw Response로 설정한 CT·커스텀 헤더 등)를
-      // setBody 전에 포착한다 — setBody(stream)이 native Response를 통째로 교체하므로,
-      // 보존하지 않으면 이 헤더들이 소실된다.
-      const preserved = native.headers;
-      const compressedStream = compressStream(nativeBody, encoding);
+    if (nativeBody !== null) {
+      // replaceBodyStream은 body만 갈아끼우고 헤더·status를 보존한다 — 핸들러가 raw
+      // Response에 설정한 CT·Vary·Set-Cookie·커스텀 헤더가 그대로 남으므로, 인코딩으로
+      // 거짓이 된 메타데이터만 여기서 무효화하면 된다.
       response
-        .setBody(compressedStream)
+        .replaceBodyStream(compressStream(nativeBody, encoding))
         .setHeader(HttpHeader.ContentEncoding, encoding)
         .removeHeader(HttpHeader.ContentLength);
       // RFC 9530 §2·§3: 비인코딩 기준 integrity 필드는 인코딩 후 거짓 — CL과 같이 무효화
       for (const field of INTEGRITY_FIELDS) response.removeHeader(field);
-      // 원본 native 헤더를 재적용 — 인코딩으로 무효해진 CL과 우리가 설정한 CE는 제외.
-      // 이미 설정된 헤더는 덮지 않되, Vary는 예외로 병합한다: 미들웨어가 위에서
-      // Accept-Encoding을 얹었으므로 단순 skip하면 핸들러가 설정한 selecting header
-      // (예: Accept-Language)가 소실되어 shared cache가 깨진다 (§4.1 · RFC 9110 §12.5.5).
-      for (const [name, value] of preserved) {
-        const lower = name.toLowerCase();
-        if (lower === HttpHeader.ContentEncoding || lower === HttpHeader.ContentLength) continue;
-        // 인코딩으로 무효해진 integrity 필드(RFC 9530)도 재적용하지 않는다
-        if ((INTEGRITY_FIELDS as readonly string[]).includes(lower)) continue;
-        // Set-Cookie는 다중값이라 아래에서 getSetCookie()로 일괄 append한다 — 여기서
-        // setHeader로 처리하면 두 번째 이후 쿠키가 소실된다 (RFC 6265: 다중 허용).
-        if (lower === HttpHeader.SetCookie) continue;
-        if (lower === HttpHeader.Vary) {
-          for (const token of varyTokensToAppend(response.getHeader(HttpHeader.Vary), value)) {
-            response.appendHeader(HttpHeader.Vary, token);
-          }
-          continue;
-        }
-        if (response.getHeader(name) === null) response.setHeader(name, value);
-      }
-      // 원본 native의 모든 Set-Cookie를 개별 헤더로 재적용 (iterator/​setHeader 병합 회피)
-      for (const cookie of preserved.getSetCookie()) {
-        response.appendHeader(HttpHeader.SetCookie, cookie);
-      }
+      // RFC 9110 §8.8.1: 인코딩으로 표현이 바뀌었으므로 strong ETag는 더 이상 유효하지 않다
       const streamETag = response.getHeader(HttpHeader.ETag);
       if (streamETag !== null) {
         response.setHeader(HttpHeader.ETag, weakenETag(streamETag));
