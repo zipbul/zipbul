@@ -236,8 +236,29 @@ export class QueryParser {
       i++;
     }
 
-    // Process last pair (only if limit was not reached)
-    if (!limitReached && keyStart < len) {
+    if (limitReached) {
+      // #1: the scan already `break`s at the cap (no full tail scan, no
+      // per-pair processing beyond it — DoS-safe). Strict mode still wants to
+      // OBSERVE an over-limit condition rather than silently truncate, so it
+      // does one bounded linear pass over just the leftover tail (starting at
+      // `i`, the '&' that closed the maxParams-th pair) looking for a single
+      // non-'&' character. A tail of only '&' (or nothing) is just empty
+      // sequences — not a real extra pair — so it does NOT count as exceeded.
+      // The (n+1)th pair's own content is never parsed: the reason is always
+      // the deterministic `LimitExceeded`, never whatever Malformed/Conflict
+      // that dropped content might otherwise have produced.
+      if (this.options.strict) {
+        for (let j = i; j < len; j++) {
+          if (qs.charCodeAt(j) !== 38) {
+            return err<QueryParserErrorData>({
+              reason: QueryParserErrorReason.LimitExceeded,
+              message: `Limit exceeded: query string has more than ${this.options.maxParams} parameters`,
+            });
+          }
+        }
+      }
+    } else if (keyStart < len) {
+      // Process last pair (only reached if the limit was not hit)
       if (keyEnd === -1) {
         keyEnd = len;
         valStart = len;
@@ -438,7 +459,6 @@ export class QueryParser {
     value: string,
   ): Err<QueryParserErrorData> | undefined {
     let current: QueryContainer = root;
-    let depth = 0;
     const maxDepth = this.options.depth;
     const rootKey = key.slice(0, firstBrace);
 
@@ -469,34 +489,57 @@ export class QueryParser {
 
     const keys = segments;
 
-    // Initialize/Validate root container
-    if (!Object.prototype.hasOwnProperty.call(root, rootKey)) {
-      const nextKey = keys[1] ?? '';
-
-      root[rootKey] = this.shouldCreateArray(nextKey) ? [] : {};
-    } else {
-      if (typeof root[rootKey] !== 'object' || root[rootKey] === null) {
-        if (this.options.strict) {
-          return err<QueryParserErrorData>({
-            reason: QueryParserErrorReason.ConflictingStructure,
-            message: `Conflict: key "${rootKey}" is both a scalar and a nested structure`,
-          });
-        }
-
-        const nextKey = keys[1] ?? '';
-
-        root[rootKey] = this.shouldCreateArray(nextKey) ? [] : {};
+    // N-3/R2: depth is enforced BEFORE any container is created — a whole-pair
+    // clean drop (non-strict) or `LimitExceeded` (strict), never the old
+    // allocate-then-truncate that left an empty-node residue (`{ b: {} }`)
+    // behind. `keys.length - 1` is the number of bracket groups (nesting
+    // levels) this key requests.
+    if (keys.length - 1 > maxDepth) {
+      if (this.options.strict) {
+        return err<QueryParserErrorData>({
+          reason: QueryParserErrorReason.LimitExceeded,
+          message: `Limit exceeded: key "${key}" nests deeper than the configured depth (${maxDepth})`,
+        });
       }
+
+      return;
     }
 
+    // Initialize/Validate root container. A scalar↔container collision here
+    // (`a=1` then `a[b]=2`) is resolved by the `duplicates` strategy (#6) via
+    // resolveScalarToContainer — never a hardcoded strict throw.
     let parent: QueryContainer = root;
     let parentKey: string | number = rootKey;
-    const rootContainer = root[rootKey];
 
-    if (this.isRecordValue(rootContainer) || Array.isArray(rootContainer)) {
-      current = rootContainer;
+    if (!Object.prototype.hasOwnProperty.call(root, rootKey)) {
+      const nextKey = keys[1] ?? '';
+      const created: QueryContainer = this.shouldCreateArray(nextKey) ? [] : {};
+
+      root[rootKey] = created;
+      current = created;
     } else {
-      return;
+      const existingRoot = root[rootKey];
+
+      if (this.isRecordValue(existingRoot) || Array.isArray(existingRoot)) {
+        current = existingRoot;
+      } else if (existingRoot === undefined) {
+        return;
+      } else {
+        const nextKey = keys[1] ?? '';
+        const resolution = this.resolveScalarToContainer(existingRoot, nextKey, root, rootKey);
+
+        if (isErr(resolution)) {
+          return resolution;
+        }
+
+        if (resolution === undefined) {
+          return;
+        }
+
+        current = resolution.container;
+        parent = resolution.parent;
+        parentKey = resolution.parentKey;
+      }
     }
 
     // Traverse and build from 2nd key match
@@ -504,24 +547,17 @@ export class QueryParser {
       const prop = keys[k] ?? '';
       const isLast = k === keys.length - 1;
 
-      if (depth >= maxDepth) {
-        return;
-      }
-
       // Pollution check — BEFORE any property access
       if (this.isBlockedKey(prop)) {
         return;
       }
 
-      // Conversion: Array with non-numeric key → Object
+      // Conversion: Array with non-numeric key → Object. This is a KEY-KIND
+      // mismatch (`[]`/`[i]` vs `[foo]`), not a scalar/structure conflict — the
+      // array and the incoming key both describe a CONTAINER, so materializing
+      // is lossless and never throws, even in strict mode (#2). Strict mode
+      // still rejects a genuine scalar↔container conflict elsewhere (#2b).
       if (Array.isArray(current) && prop !== '' && !this.isValidArrayIndex(prop)) {
-        if (this.options.strict) {
-          return err<QueryParserErrorData>({
-            reason: QueryParserErrorReason.ConflictingStructure,
-            message: `Conflict: non-numeric key "${prop}" used on an array structure at "${parentKey}"`,
-          });
-        }
-
         current = this.materializeArray(current, parent, parentKey);
       }
 
@@ -550,8 +586,6 @@ export class QueryParser {
               return leafErr;
             }
 
-            depth++;
-
             continue;
           }
 
@@ -562,7 +596,6 @@ export class QueryParser {
           parent = current;
           parentKey = current.length - 1;
           current = nextContainer;
-          depth++;
 
           continue;
         }
@@ -581,80 +614,101 @@ export class QueryParser {
               return leafErr;
             }
 
-            depth++;
-
             continue;
           }
 
           const nextKey = keys[k + 1] ?? '';
-          let nextValue = current[index];
+          const existingValue = current[index];
 
-          if (!this.isRecordValue(nextValue) && !Array.isArray(nextValue)) {
+          if (this.isRecordValue(existingValue) || Array.isArray(existingValue)) {
+            parent = current;
+            parentKey = prop;
+            current = existingValue;
+          } else if (existingValue === undefined) {
+            const created: QueryContainer = this.shouldCreateArray(nextKey) ? [] : {};
+
+            this.assignArrayRecordValue(current, prop, created);
+            parent = current;
+            parentKey = prop;
+            current = created;
+          } else {
             // An existing scalar at this index being nested into is a
-            // structure/scalar conflict — symmetric with the record path.
-            if (nextValue !== undefined && this.options.strict) {
-              return err<QueryParserErrorData>({
-                reason: QueryParserErrorReason.ConflictingStructure,
-                message: `Conflict: index "${prop}" is both a scalar and a nested structure`,
-              });
+            // scalar↔container collision — symmetric with the record path,
+            // resolved by the duplicates strategy (#6).
+            const resolution = this.resolveScalarToContainer(existingValue, nextKey, current, prop);
+
+            if (isErr(resolution)) {
+              return resolution;
             }
 
-            nextValue = this.shouldCreateArray(nextKey) ? [] : {};
-            this.assignArrayRecordValue(current, prop, nextValue);
-          }
+            if (resolution === undefined) {
+              return;
+            }
 
-          parent = current;
-          parentKey = prop;
-          current = nextValue;
-          depth++;
+            current = resolution.container;
+            parent = resolution.parent;
+            parentKey = resolution.parentKey;
+          }
 
           continue;
         }
       }
 
       if (isLast) {
-        const leafResult = this.assignLeaf(current, prop, value);
+        // R3: an empty-bracket push (`a[]=x`) that lands on a RECORD (not an
+        // array) container — e.g. `a[b]=1&a[]=2` — assigns to the next
+        // integer key (max(numeric own keys)+1, else "0"), never the literal
+        // "" key. `prop` only carries '' here as a bracket-derived push
+        // marker (a bare, non-bracketed key can never reach this loop), so
+        // this cannot be confused with a genuine top-level empty key name.
+        const leafKey = prop === '' && this.isRecordValue(current) ? this.nextRecordIntegerKey(current) : prop;
+        const leafResult = this.assignLeaf(current, leafKey, value);
 
         if (isErr(leafResult)) {
           return leafResult;
         }
-      } else {
+      } else if (this.isRecordValue(current)) {
         // Create next container
-        if (this.isRecordValue(current) && !Object.prototype.hasOwnProperty.call(current, prop)) {
+        if (!Object.prototype.hasOwnProperty.call(current, prop)) {
           const nextKey = keys[k + 1] ?? '';
+          const created: QueryContainer = this.shouldCreateArray(nextKey) ? [] : {};
 
-          current[prop] = this.shouldCreateArray(nextKey) ? [] : {};
-        } else if (this.isRecordValue(current)) {
+          current[prop] = created;
+          parent = current;
+          parentKey = prop;
+          current = created;
+        } else {
           const target = current[prop];
 
-          if (typeof target !== 'object' || target === null) {
-            if (this.options.strict) {
-              return err<QueryParserErrorData>({
-                reason: QueryParserErrorReason.ConflictingStructure,
-                message: `Conflict: key "${prop}" is both a scalar and a nested structure`,
-              });
+          if (this.isRecordValue(target) || Array.isArray(target)) {
+            parent = current;
+            parentKey = prop;
+            current = target;
+          } else if (target === undefined) {
+            return;
+          } else {
+            // An existing scalar at this key being nested into is a
+            // scalar↔container collision, resolved by the duplicates
+            // strategy (#6) — symmetric with the array-index path above.
+            const nextKey = keys[k + 1] ?? '';
+            const resolution = this.resolveScalarToContainer(target, nextKey, current, prop);
+
+            if (isErr(resolution)) {
+              return resolution;
             }
 
-            const nextKey = keys[k + 1] ?? '';
+            if (resolution === undefined) {
+              return;
+            }
 
-            current[prop] = this.shouldCreateArray(nextKey) ? [] : {};
+            current = resolution.container;
+            parent = resolution.parent;
+            parentKey = resolution.parentKey;
           }
         }
-
-        // Advance
-        parent = current;
-        parentKey = prop;
-
-        const nextValue = this.isRecordValue(current) ? current[prop] : undefined;
-
-        if (this.isRecordValue(nextValue) || Array.isArray(nextValue)) {
-          current = nextValue;
-        } else {
-          return;
-        }
+      } else {
+        return;
       }
-
-      depth++;
     }
   }
 
@@ -697,19 +751,36 @@ export class QueryParser {
         return this.assignToArrayIndex(obj, idx, key, value);
       }
 
-      if (this.options.strict) {
-        return err<QueryParserErrorData>({
-          reason: QueryParserErrorReason.ConflictingStructure,
-          message: `Conflict: non-numeric key "${key}" used on an array structure`,
-        });
-      }
-
+      // Key-kind mismatch (non-numeric key on an array), same as the
+      // parseComplexKey traversal-time conversion above — lossless, never
+      // throws even in strict mode (#2).
       this.assignArrayRecordValue(obj, key, value);
 
       return;
     }
 
     return this.assignToRecord(obj, key, value);
+  }
+
+  /**
+   * R3 helper: the next integer key to use when an empty-bracket push (`[]`)
+   * lands on a RECORD container instead of an array — `max(numeric own
+   * keys) + 1`, or `"0"` when the record has no numeric own keys yet.
+   */
+  private nextRecordIntegerKey(obj: QueryValueRecord): string {
+    let max = -1;
+
+    for (const key of Object.keys(obj)) {
+      if (this.isValidArrayIndex(key)) {
+        const n = parseInt(key, 10);
+
+        if (n > max) {
+          max = n;
+        }
+      }
+    }
+
+    return (max + 1).toString();
   }
 
   /**
@@ -731,6 +802,15 @@ export class QueryParser {
         return;
       }
 
+      if (this.options.duplicates === DuplicateStrategy.Array) {
+        // Existing value is a RECORD (not an array) — 'array' still combines
+        // losslessly, wrapping both into a fresh array (#3/#6). Never throws.
+        obj[key] = [existing, value];
+
+        return;
+      }
+
+      // Lossy container→scalar collision (first/last): strict throws (#2b).
       if (this.options.strict) {
         return err<QueryParserErrorData>({
           reason: QueryParserErrorReason.ConflictingStructure,
@@ -787,6 +867,16 @@ export class QueryParser {
         return;
       }
 
+      if (this.options.duplicates === DuplicateStrategy.Array) {
+        // Existing value is a RECORD (not an array) at this index — 'array'
+        // still combines losslessly, wrapping both into a fresh array
+        // (#3/#6). Never throws.
+        this.assignArrayRecordValue(arr, key, [existing, value]);
+
+        return;
+      }
+
+      // Lossy container→scalar collision (first/last): strict throws (#2b).
       if (this.options.strict) {
         return err<QueryParserErrorData>({
           reason: QueryParserErrorReason.ConflictingStructure,
@@ -877,13 +967,85 @@ export class QueryParser {
   ): QueryValueRecord {
     const materialized = this.arrayToObject(current);
 
-    if (Array.isArray(parent)) {
-      this.assignArrayRecordValue(parent, this.normalizeKey(parentKey), materialized);
-    } else if (this.isRecordValue(parent)) {
-      parent[this.normalizeKey(parentKey)] = materialized;
-    }
+    this.writeContainerSlot(parent, parentKey, materialized);
 
     return materialized;
+  }
+
+  /**
+   * Resolves a scalar↔container collision where a SCALAR value already
+   * exists and the current key path needs to build a CONTAINER there (`a=1`
+   * then `a[b]=2`, at any depth) — the mirror direction of
+   * {@link assignToRecord}'s container↔scalar collision. Resolved by the
+   * `duplicates` strategy (#6):
+   * - `array`: wraps losslessly — never throws, even in strict mode (#3).
+   *   `existingScalar` becomes the first element of a fresh array; when the
+   *   next path segment is itself array-shaped (`a=2&a[]=1`), that array IS
+   *   the slot's new value (`["2","1"]`); otherwise the slot becomes
+   *   `[existingScalar, newContainer]` and traversal continues into
+   *   `newContainer` (`a=2&a[b]=1` → `{a:["2",{b:"1"}]}`).
+   * - `first`/`last` are lossy: strict throws `ConflictingStructure` (#2b).
+   *   Non-strict `first` returns `undefined` — the caller must abort the
+   *   whole pair, leaving the existing scalar untouched. Non-strict `last`
+   *   overwrites the slot with a fresh, empty container.
+   *
+   * Writes the resolved replacement into `slotParent[slotKey]` itself, then
+   * returns the container to continue traversal into plus its OWN
+   * parent/parentKey (which, under an `array` wrap, is one level deeper than
+   * `slotParent`/`slotKey` — the wrapper array, not the original slot).
+   */
+  private resolveScalarToContainer(
+    existingScalar: QueryValue,
+    nextKey: string,
+    slotParent: QueryContainer,
+    slotKey: string | number,
+  ):
+    | Err<QueryParserErrorData>
+    | { container: QueryContainer; parent: QueryContainer; parentKey: string | number }
+    | undefined {
+    if (this.options.duplicates === DuplicateStrategy.Array) {
+      if (this.shouldCreateArray(nextKey)) {
+        const arr: QueryArray = [existingScalar];
+
+        this.writeContainerSlot(slotParent, slotKey, arr);
+
+        return { container: arr, parent: slotParent, parentKey: slotKey };
+      }
+
+      const container: QueryValueRecord = {};
+      const wrapper: QueryArray = [existingScalar, container];
+
+      this.writeContainerSlot(slotParent, slotKey, wrapper);
+
+      return { container, parent: wrapper, parentKey: 1 };
+    }
+
+    if (this.options.strict) {
+      return err<QueryParserErrorData>({
+        reason: QueryParserErrorReason.ConflictingStructure,
+        message: `Conflict: key "${this.normalizeKey(slotKey)}" is both a scalar and a nested structure`,
+      });
+    }
+
+    if (this.options.duplicates === DuplicateStrategy.First) {
+      return undefined;
+    }
+
+    // Last: overwrite entirely with a fresh, empty container.
+    const container: QueryContainer = this.shouldCreateArray(nextKey) ? [] : {};
+
+    this.writeContainerSlot(slotParent, slotKey, container);
+
+    return { container, parent: slotParent, parentKey: slotKey };
+  }
+
+  /** Writes `value` into `parent[key]`, whether `parent` is an array or a record. */
+  private writeContainerSlot(parent: QueryContainer, key: string | number, value: QueryContainer): void {
+    if (Array.isArray(parent)) {
+      this.assignArrayRecordValue(parent, this.normalizeKey(key), value);
+    } else if (this.isRecordValue(parent)) {
+      parent[this.normalizeKey(key)] = value;
+    }
   }
 
   /**

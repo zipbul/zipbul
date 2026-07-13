@@ -344,26 +344,56 @@ describe('QueryParser', () => {
       expect(parser.parse('a[b][c][d][e][f]=deep')).toEqual({
         a: { b: { c: { d: { e: { f: 'deep' } } } } },
       });
-      expect(parser.parse('a[b][c][d][e][f][g]=blocked')).toEqual({
-        a: { b: { c: { d: { e: { f: {} } } } } },
-      });
+      // N-3/R2 — depth exceeded is now a clean whole-pair drop (no empty-node
+      // residue at the deepest allowed level): was { a: { b: { c: { d: { e: { f: {} } } } } } }.
+      expect(parser.parse('a[b][c][d][e][f][g]=blocked')).toEqual({});
     });
 
-    it('should enforce depth 0 when nesting is disallowed', () => {
-      // Arrange
+    it('should clean-drop the whole pair when depth 0 disallows any nesting (N-3/R2)', () => {
+      // Arrange — was { a: {} } (empty-node residue); now a clean drop.
       const parser = QueryParser.create({ depth: 0, nesting: true });
 
       // Act & Assert
-      expect(parser.parse('a[b]=c')).toEqual({ a: {} });
+      expect(parser.parse('a[b]=c')).toEqual({});
     });
 
-    it('should enforce depth 1 when one level is allowed', () => {
+    it('should clean-drop an over-depth pair while keeping an allowed one at depth 1 (N-3/R2)', () => {
       // Arrange
       const parser = QueryParser.create({ depth: 1, nesting: true });
 
       // Act & Assert
       expect(parser.parse('a[b]=c')).toEqual({ a: { b: 'c' } });
-      expect(parser.parse('a[b][c]=d')).toEqual({ a: { b: {} } });
+      // Was { a: { b: {} } } (empty-node residue); now a clean drop.
+      expect(parser.parse('a[b][c]=d')).toEqual({});
+    });
+
+    it('should drop only the over-depth pair, leaving a sibling within-depth pair intact (N-3/R2)', () => {
+      // Arrange — the collateral-destruction oracle: a within-depth pair on
+      // the SAME key must survive an over-depth pair dropped afterwards.
+      const parser = QueryParser.create({ depth: 1, nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[b]=1&a[b][c]=2')).toEqual({ a: { b: '1' } });
+    });
+
+    it('should not consume any part of a within-depth key when preceded by an unrelated over-depth pair', () => {
+      // Arrange — a dropped over-depth pair must not affect a later,
+      // unrelated flat pair.
+      const parser = QueryParser.create({ depth: 1, nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('x=1&a[b][c]=1')).toEqual({ x: '1' });
+    });
+
+    it('should throw LimitExceeded in strict mode when depth is exceeded (#1/N-3)', () => {
+      // Arrange — strict mode observes the limit instead of silently dropping.
+      const parser = QueryParser.create({ depth: 1, nesting: true, strict: true });
+
+      // Act
+      const error = catchError(() => parser.parse('a[b][c]=1'));
+
+      // Assert
+      expect(error.reason).toBe(QueryParserErrorReason.LimitExceeded);
     });
   });
 
@@ -405,6 +435,64 @@ describe('QueryParser', () => {
 
       // Act & Assert
       expect(parser.parse('a=1&b=2')).toEqual({ a: '1', b: '2' });
+    });
+
+    // =======================================================================
+    // strict mode (#1) — LimitExceeded. The scan still `break`s at the limit
+    // (no full tail scan, DoS-safe); strict detects "over limit" by checking
+    // whether the remainder after the break contains at least one non-'&'
+    // character (an empty tail of only '&'/nothing is NOT over limit).
+    // =======================================================================
+    describe('strict mode: LimitExceeded (#1)', () => {
+      it('should not throw when the pair count is exactly at maxParams', () => {
+        const parser = QueryParser.create({ maxParams: 2, strict: true });
+
+        expect(parser.parse('a=1&b=2')).toEqual({ a: '1', b: '2' });
+        expect(() => parser.parse('a=1&b=2')).not.toThrow();
+      });
+
+      it('should not throw when a single trailing "&" follows the exact limit', () => {
+        // A trailing '&' is an empty sequence, not a real pair — not over limit.
+        const parser = QueryParser.create({ maxParams: 2, strict: true });
+
+        expect(parser.parse('a=1&b=2&')).toEqual({ a: '1', b: '2' });
+        expect(() => parser.parse('a=1&b=2&')).not.toThrow();
+      });
+
+      it('should not throw when multiple trailing "&" characters follow the exact limit', () => {
+        const parser = QueryParser.create({ maxParams: 2, strict: true });
+
+        expect(parser.parse('a=1&b=2&&&')).toEqual({ a: '1', b: '2' });
+        expect(() => parser.parse('a=1&b=2&&&')).not.toThrow();
+      });
+
+      it('should throw LimitExceeded when a trailing empty-name pair ("=") follows the limit', () => {
+        // A bare '=' is a real (empty-name) pair, per §2.3 — it counts as over limit.
+        const parser = QueryParser.create({ maxParams: 2, strict: true });
+
+        const error = catchError(() => parser.parse('a=1&b=2&='));
+
+        expect(error.reason).toBe(QueryParserErrorReason.LimitExceeded);
+      });
+
+      it('should throw LimitExceeded when a real (n+1)th pair follows the limit', () => {
+        const parser = QueryParser.create({ maxParams: 2, strict: true });
+
+        const error = catchError(() => parser.parse('a=1&b=2&c'));
+
+        expect(error.reason).toBe(QueryParserErrorReason.LimitExceeded);
+      });
+
+      it('should throw LimitExceeded rather than surface a malformed/conflict reason from the dropped tail', () => {
+        // The (n+1)th pair's own content is never processed once over-limit is
+        // detected — the reason is always the deterministic LimitExceeded, not
+        // whatever error the dropped pair's content might otherwise produce.
+        const parser = QueryParser.create({ maxParams: 2, strict: true, nesting: true });
+
+        const error = catchError(() => parser.parse('a=1&b=2&c[d'));
+
+        expect(error.reason).toBe(QueryParserErrorReason.LimitExceeded);
+      });
     });
   });
 
@@ -512,14 +600,14 @@ describe('QueryParser', () => {
       expect(parser.parse('id=1')).toEqual({ id: '1' });
     });
 
-    it('should drop a scalar duplicate of a record-valued key when duplicates is array', () => {
-      // Traced behavior: with duplicates 'array', a later scalar for a key that
-      // already holds a RECORD (not an array) is silently dropped — only an
-      // existing array collects the scalar. The record is never wrapped.
+    it('should wrap a scalar duplicate of a record-valued key when duplicates is array (#3/#6)', () => {
+      // #3/#6 — reversed from the old "drop" behavior: a later scalar for a key
+      // that already holds a RECORD (not an array) is combined losslessly into
+      // a fresh array, `[existingRecord, scalar]`, never dropped.
       const parser = QueryParser.create({ nesting: true, duplicates: 'array' });
 
       // Act & Assert
-      expect(parser.parse('a[b]=1&a=2')).toEqual({ a: { b: '1' } });
+      expect(parser.parse('a[b]=1&a=2')).toEqual({ a: [{ b: '1' }, '2'] });
     });
 
     it('should allow explicit array brackets when duplicates is first and nesting is true', () => {
@@ -1140,12 +1228,12 @@ describe('QueryParser', () => {
       expect(expectQueryArray(res.b)).toEqual(['x', 'y']);
     });
 
-    it('should handle depth with nesting when depth is set', () => {
-      // Arrange
+    it('should clean-drop the whole pair when depth is exceeded (N-3/R2)', () => {
+      // Arrange — was { a: { b: {} } } (empty-node residue); now a clean drop.
       const parser = QueryParser.create({ depth: 1, nesting: true });
 
       // Act & Assert
-      expect(parser.parse('a[b][c]=d')).toEqual({ a: { b: {} } });
+      expect(parser.parse('a[b][c]=d')).toEqual({});
     });
 
     it('should handle arrayLimit with nesting when limit is set', () => {
@@ -1184,10 +1272,12 @@ describe('QueryParser', () => {
       expect(res.data).toEqual({ name: 'a', '0': 'b' });
     });
 
-    it('should replace a root scalar with the nested structure when a bracket key follows', () => {
-      // Non-strict: the later structural key rebuilds the root container
-      // regardless of the duplicates strategy — the scalar '1' is discarded.
-      expect(parser.parse('a=1&a[b]=2')).toEqual({ a: { b: '2' } });
+    it('should keep the root scalar and drop the nested structure under default (first) duplicates (#6)', () => {
+      // #6 — reversed from the old "always rebuild" behavior: the root-init
+      // scalar↔container collision now routes through the duplicates strategy
+      // like every other conflict site. Default 'first' keeps the first-seen
+      // value (the scalar) and drops the whole `a[b]=2` write.
+      expect(parser.parse('a=1&a[b]=2')).toEqual({ a: '1' });
     });
 
     it('should keep the nested structure when a scalar follows under default duplicates', () => {
@@ -1223,6 +1313,206 @@ describe('QueryParser', () => {
       // Object path k[a][b]=1&k[a]=2 with last -> {k:{a:'2'}}.
       const lastParser = QueryParser.create({ nesting: true, duplicates: 'last' });
       expect(lastParser.parse('k[0][b]=1&k[0]=2')).toEqual({ k: ['2'] });
+    });
+  });
+
+  // =========================================================================
+  // Scalar↔container collisions resolved by the `duplicates` strategy (#6/#3/R1)
+  // — applied uniformly at all FIVE conflict sites (root-init, array-index
+  // traversal, record traversal, and the reverse assignToRecord/assignToArrayIndex
+  // paths). 'first'/'last' are lossy (strict throws, #2b); 'array' always wraps
+  // losslessly and NEVER throws, even in strict mode (#3) — a full reversal of
+  // the old strict-throw for dup:array scalar↔container collisions.
+  // =========================================================================
+  describe('scalar↔container collisions follow the duplicates strategy (#6/#3/R1)', () => {
+    const first = QueryParser.create({ nesting: true, duplicates: 'first' });
+    const last = QueryParser.create({ nesting: true, duplicates: 'last' });
+    const array = QueryParser.create({ nesting: true, duplicates: 'array' });
+
+    describe('root-level: scalar then container (a=2&a[b]=1)', () => {
+      it('should keep the scalar and drop the structure under first', () => {
+        expect(first.parse('a=2&a[b]=1')).toEqual({ a: '2' });
+      });
+
+      it('should overwrite the scalar with the structure under last', () => {
+        expect(last.parse('a=2&a[b]=1')).toEqual({ a: { b: '1' } });
+      });
+
+      it('should wrap the scalar and structure into an array under array', () => {
+        expect(array.parse('a=2&a[b]=1')).toEqual({ a: ['2', { b: '1' }] });
+      });
+    });
+
+    describe('root-level: container then scalar (a[b]=1&a=2)', () => {
+      it('should keep the structure and drop the scalar under first', () => {
+        expect(first.parse('a[b]=1&a=2')).toEqual({ a: { b: '1' } });
+      });
+
+      it('should overwrite the structure with the scalar under last', () => {
+        expect(last.parse('a[b]=1&a=2')).toEqual({ a: '2' });
+      });
+
+      it('should wrap the structure and scalar into an array under array', () => {
+        expect(array.parse('a[b]=1&a=2')).toEqual({ a: [{ b: '1' }, '2'] });
+      });
+    });
+
+    describe('root-level: scalar then push (a=2&a[]=1)', () => {
+      it('should keep the scalar and drop the push under first', () => {
+        expect(first.parse('a=2&a[]=1')).toEqual({ a: '2' });
+      });
+
+      it('should overwrite the scalar with a fresh array under last', () => {
+        expect(last.parse('a=2&a[]=1')).toEqual({ a: ['1'] });
+      });
+
+      it('should fold the scalar directly into the pushed array under array (no double-nesting)', () => {
+        expect(array.parse('a=2&a[]=1')).toEqual({ a: ['2', '1'] });
+      });
+    });
+
+    describe('root-level: push then scalar (a[]=1&a=2)', () => {
+      it('should keep the array and drop the scalar under first', () => {
+        expect(first.parse('a[]=1&a=2')).toEqual({ a: ['1'] });
+      });
+
+      it('should overwrite the array with the scalar under last', () => {
+        expect(last.parse('a[]=1&a=2')).toEqual({ a: '2' });
+      });
+
+      it('should push the scalar onto the existing array under array', () => {
+        expect(array.parse('a[]=1&a=2')).toEqual({ a: ['1', '2'] });
+      });
+    });
+
+    describe('nested one level down: scalar then structure (x[a]=2&x[a][b]=1)', () => {
+      it('should keep the scalar and drop the structure under first', () => {
+        expect(first.parse('x[a]=2&x[a][b]=1')).toEqual({ x: { a: '2' } });
+      });
+
+      it('should overwrite the scalar with the structure under last', () => {
+        expect(last.parse('x[a]=2&x[a][b]=1')).toEqual({ x: { a: { b: '1' } } });
+      });
+
+      it('should wrap the scalar and structure into an array under array', () => {
+        expect(array.parse('x[a]=2&x[a][b]=1')).toEqual({ x: { a: ['2', { b: '1' }] } });
+      });
+    });
+
+    describe('array-index level: scalar then structure (k[0]=2&k[0][b]=1)', () => {
+      // The 5th conflict site (array-index traversal) — symmetric with the
+      // object-key "nested one level down" case above, but reached via an
+      // explicit array index instead of an object key.
+      it('should keep the scalar and drop the structure under first', () => {
+        expect(first.parse('k[0]=2&k[0][b]=1')).toEqual({ k: ['2'] });
+      });
+
+      it('should overwrite the scalar with the structure under last', () => {
+        expect(last.parse('k[0]=2&k[0][b]=1')).toEqual({ k: [{ b: '1' }] });
+      });
+
+      it('should wrap the scalar and structure into an array under array', () => {
+        expect(array.parse('k[0]=2&k[0][b]=1')).toEqual({ k: [['2', { b: '1' }]] });
+      });
+    });
+
+    describe('strict mode: dup:array collisions are always lossless and never throw (#3)', () => {
+      const strictArray = QueryParser.create({ nesting: true, strict: true, duplicates: 'array' });
+
+      it('should not throw and should combine for a root scalar-then-push collision', () => {
+        expect(strictArray.parse('a=2&a[]=1')).toEqual({ a: ['2', '1'] });
+        expect(() => strictArray.parse('a=2&a[]=1')).not.toThrow();
+      });
+
+      it('should not throw and should combine for a root push-then-scalar collision (symmetry)', () => {
+        // This is the exact case that used to throw before #3 — the fix restores
+        // symmetry between the two orderings.
+        expect(strictArray.parse('a[]=1&a=2')).toEqual({ a: ['1', '2'] });
+        expect(() => strictArray.parse('a[]=1&a=2')).not.toThrow();
+      });
+
+      it('should not throw for a plain legitimate scalar duplicate (not a structure conflict at all)', () => {
+        expect(strictArray.parse('a=1&a=2&a=3')).toEqual({ a: ['1', '2', '3'] });
+        expect(() => strictArray.parse('a=1&a=2&a=3')).not.toThrow();
+      });
+
+      it('should not throw for a root object-then-scalar collision', () => {
+        expect(strictArray.parse('a[b]=1&a=2')).toEqual({ a: [{ b: '1' }, '2'] });
+        expect(() => strictArray.parse('a[b]=1&a=2')).not.toThrow();
+      });
+
+      it('should not throw for an array-index-level scalar-then-structure collision (5th conflict site)', () => {
+        expect(strictArray.parse('k[0]=2&k[0][b]=1')).toEqual({ k: [['2', { b: '1' }]] });
+        expect(() => strictArray.parse('k[0]=2&k[0][b]=1')).not.toThrow();
+      });
+    });
+
+    describe('strict mode: dup:first/last collisions remain lossy and still throw (#2b)', () => {
+      const strictFirst = QueryParser.create({ nesting: true, strict: true, duplicates: 'first' });
+      const strictLast = QueryParser.create({ nesting: true, strict: true, duplicates: 'last' });
+
+      it('should throw for a root scalar-then-push collision under first', () => {
+        expect(() => strictFirst.parse('a=2&a[]=1')).toThrow(/Conflict/);
+      });
+
+      it('should throw for a root push-then-scalar collision under first', () => {
+        expect(() => strictFirst.parse('a[]=1&a=2')).toThrow(/Conflict/);
+      });
+
+      it('should throw for a root scalar-then-push collision under last', () => {
+        expect(() => strictLast.parse('a=2&a[]=1')).toThrow(/Conflict/);
+      });
+
+      it('should throw for a root push-then-scalar collision under last', () => {
+        expect(() => strictLast.parse('a[]=1&a=2')).toThrow(/Conflict/);
+      });
+    });
+  });
+
+  // =========================================================================
+  // Array/object key-kind conflicts (#2/#2b/R3) — array↔object KEY-KIND
+  // mismatches (`[]`/`[i]` vs `[foo]`) always materialize losslessly and NEVER
+  // throw, in strict mode or not (#2). This is distinct from a SCALAR↔container
+  // conflict (`a=1&a[b]=2`), which strict still rejects (#2b, unchanged).
+  // R3: an empty-bracket push (`a[]=x`) landing on a RECORD (not an array)
+  // container assigns to the next integer key (max(numeric own keys)+1, else
+  // "0") instead of the literal "" key.
+  // =========================================================================
+  describe('array/object key-kind conflicts never throw (#2/#2b/R3)', () => {
+    const nonStrict = QueryParser.create({ nesting: true });
+    const strict = QueryParser.create({ nesting: true, strict: true });
+
+    it('should materialize array-then-object-key regardless of strict mode', () => {
+      // Array created first ('a[]=2' -> a:['2']), then a non-numeric key ('b')
+      // forces materialization — identical shape strict or not.
+      expect(nonStrict.parse('a[]=2&a[b]=1')).toEqual({ a: { '0': '2', b: '1' } });
+      expect(strict.parse('a[]=2&a[b]=1')).toEqual({ a: { '0': '2', b: '1' } });
+    });
+
+    it('should route an empty-bracket push landing on a record to the next integer key regardless of strict mode', () => {
+      // R3: object created first ('a[b]=1' -> a:{b:'1'}), then 'a[]=2' pushes
+      // onto a RECORD — lands at the next integer key ("0"), not the "" key.
+      expect(nonStrict.parse('a[b]=1&a[]=2')).toEqual({ a: { '0': '2', b: '1' } });
+      expect(strict.parse('a[b]=1&a[]=2')).toEqual({ a: { '0': '2', b: '1' } });
+    });
+
+    it('should advance the next-integer-key computation across repeated pushes onto a record', () => {
+      // R3, BVA: a second 'a[]=' push must continue from max(numeric own keys)+1
+      // ("1"), not collide with or reuse "0".
+      expect(nonStrict.parse('a[b]=1&a[]=2&a[]=3')).toEqual({ a: { '0': '2', '1': '3', b: '1' } });
+      expect(strict.parse('a[b]=1&a[]=2&a[]=3')).toEqual({ a: { '0': '2', '1': '3', b: '1' } });
+    });
+
+    it('should materialize a non-numeric key mixed into an array without throwing, even in strict mode', () => {
+      // #2 — migrated from a strict-throw expectation: array-vs-object KEY-KIND
+      // conflicts are a materialize case, never a strict error.
+      expect(nonStrict.parse('a[0]=y&a[foo]=x')).toEqual({ a: { '0': 'y', foo: 'x' } });
+      expect(strict.parse('a[0]=y&a[foo]=x')).toEqual({ a: { '0': 'y', foo: 'x' } });
+    });
+
+    it('should still throw ConflictingStructure in strict mode for a scalar-then-container conflict (#2b, unchanged)', () => {
+      // Scalar↔container (not array↔object key-kind) remains a strict throw.
+      expect(() => strict.parse('a=1&a[b]=2')).toThrow(/Conflict/);
     });
   });
 
@@ -1377,12 +1667,14 @@ describe('QueryParser', () => {
       expect(() => parser.parse('a[b=1')).toThrow(/unclosed bracket/);
     });
 
-    it('should throw when non-numeric key is mixed in array and strict is true', () => {
-      // Arrange
+    it('should materialize (not throw) when non-numeric key is mixed in array, even when strict is true', () => {
+      // #2 — array↔object key-kind conflicts always materialize losslessly and
+      // never throw, strict or not. Was: /non-numeric key/ throw.
       const parser = QueryParser.create({ nesting: true, strict: true });
 
       // Act & Assert
-      expect(() => parser.parse('a[0]=1&a[foo]=2')).toThrow(/non-numeric key/);
+      expect(parser.parse('a[0]=1&a[foo]=2')).toEqual({ a: { '0': '1', foo: '2' } });
+      expect(() => parser.parse('a[0]=1&a[foo]=2')).not.toThrow();
     });
 
     it('should convert array to object when non-numeric key is mixed in non-strict mode', () => {

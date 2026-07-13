@@ -13,13 +13,15 @@ const echoQuery = defineMiddleware([HttpAdapter], () => (ctx) => {
   http.response.send();
 });
 
-async function bootStrictApp(): Promise<{ fetch: (p: string) => Promise<Response>; close: () => Promise<void> }> {
+async function bootApp(
+  options: Parameters<typeof queryParser>[0],
+): Promise<{ fetch: (p: string) => Promise<Response>; close: () => Promise<void> }> {
   let captured: HttpAdapter | undefined;
   const testApp: TestApplication = await Tck.createApplication({
     adapterConfig: {
       HttpAdapter: {
         middlewares: {
-          [HttpAdapterPhase.OnRequest]: [queryParser({ strict: true, nesting: true }), echoQuery],
+          [HttpAdapterPhase.OnRequest]: [queryParser(options), echoQuery],
         },
       },
     },
@@ -28,6 +30,10 @@ async function bootStrictApp(): Promise<{ fetch: (p: string) => Promise<Response
   const server = captured!.getServer()!;
   const base = `http://127.0.0.1:${server.port as number}`;
   return { fetch: (p) => fetch(`${base}${p}`), close: () => testApp.close() };
+}
+
+async function bootStrictApp(): Promise<{ fetch: (p: string) => Promise<Response>; close: () => Promise<void> }> {
+  return bootApp({ strict: true, nesting: true });
 }
 
 describe('queryParser strict-mode malformed query — HTTP status', () => {
@@ -56,5 +62,43 @@ describe('queryParser strict-mode malformed query — HTTP status', () => {
     // parses and does NOT error.
     expect(res.status).toBe(204);
     expect(JSON.parse(res.headers.get('x-parsed-query')!)).toEqual({ a: { b: '1' } });
+  });
+});
+
+describe('queryParser strict-mode LimitExceeded (#1/N-3) — HTTP status', () => {
+  silentLogger();
+
+  describe('maxParams', () => {
+    let app: Awaited<ReturnType<typeof bootApp>>;
+    beforeAll(async () => { app = await bootApp({ strict: true, maxParams: 2 }); });
+    afterAll(async () => { await app.close(); });
+
+    it('a query within maxParams parses (2xx, not 400)', async () => {
+      const res = await app.fetch('/x?a=1&b=2');
+      expect(res.status).toBe(204);
+      expect(JSON.parse(res.headers.get('x-parsed-query')!)).toEqual({ a: '1', b: '2' });
+    });
+
+    it('a query exceeding maxParams under strict mode → 400 (not 500)', async () => {
+      const res = await app.fetch('/x?a=1&b=2&c=3');
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('depth', () => {
+    let app: Awaited<ReturnType<typeof bootApp>>;
+    beforeAll(async () => { app = await bootApp({ strict: true, nesting: true, depth: 1 }); });
+    afterAll(async () => { await app.close(); });
+
+    it('a query within depth parses (2xx, not 400)', async () => {
+      const res = await app.fetch('/x?a[b]=1');
+      expect(res.status).toBe(204);
+      expect(JSON.parse(res.headers.get('x-parsed-query')!)).toEqual({ a: { b: '1' } });
+    });
+
+    it('a query exceeding depth under strict mode → 400 (not 500)', async () => {
+      const res = await app.fetch('/x?a[b][c]=1');
+      expect(res.status).toBe(400);
+    });
   });
 });

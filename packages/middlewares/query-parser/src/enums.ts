@@ -24,6 +24,8 @@ export enum QueryParserErrorReason {
   MalformedQueryString = 'malformed-query-string',
   /** Key is used as both a scalar and a nested structure. */
   ConflictingStructure = 'conflicting-structure',
+  /** `depth` or `maxParams` was exceeded (strict mode only). */
+  LimitExceeded = 'limit-exceeded',
 }
 
 /**
