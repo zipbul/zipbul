@@ -70,7 +70,7 @@ search(ctx: HttpContext) {
 
 ### Malformed queries → 400 (not 500)
 
-In the middleware, a structurally malformed query string is a **client** error. When `strict` is enabled, the supply step returns an `httpError(BadRequest)` — the framework short-circuits the pipeline into a **400** response and never runs the handler. It is never thrown, so a hostile query can't be turned into a 500. Strict validates **structure** (brackets, scalar/structure conflicts) — a malformed percent-escape is data, not an error (see [`strict`](#strict)), so it never triggers the 400 path:
+In the middleware, a structurally malformed query string is a **client** error. When `strict` is enabled, the supply step returns an `httpError(BadRequest)` — the framework short-circuits the pipeline into a **400** response and never runs the handler. It is never thrown, so a hostile query can't be turned into a 500. Strict validates **structure** (brackets, scalar/structure conflicts) and **resource limits** (`depth`, `maxParams` — `LimitExceeded`) — a malformed percent-escape is data, not an error (see [`strict`](#strict)), so it never triggers the 400 path:
 
 ```typescript
 middlewares: {
@@ -102,14 +102,20 @@ interface QueryParserOptions {
 
 ### `depth`
 
-Maximum depth of nested object parsing (requires `nesting: true`). When the limit is exceeded the over-depth value is dropped and an empty container is left in its place. Strict mode does **not** throw on depth overflow.
+Maximum bracket-nesting depth of a single key (requires `nesting: true`) — the number of bracket groups (`a[b][c]` has depth 2). When a key requests more nesting than `depth` allows, the **whole pair is dropped** — no partial write, no empty-container residue left behind. In `strict` mode, exceeding `depth` throws `QueryParserErrorReason.LimitExceeded` instead of dropping.
 
 ```typescript
 const parser = QueryParser.create({ nesting: true, depth: 2 });
 
 parser.parse('a[b][c]=1');    // { a: { b: { c: '1' } } }
-parser.parse('a[b][c][d]=1'); // depth exceeded — '1' dropped: { a: { b: { c: {} } } }
+parser.parse('a[b][c][d]=1'); // depth exceeded — the whole pair is dropped: {}
+
+const strictParser = QueryParser.create({ nesting: true, depth: 2, strict: true });
+
+strictParser.parse('a[b][c][d]=1'); // throws QueryParserError (LimitExceeded)
 ```
+
+⚠️ Dropping is per-pair, not per-key: a sibling pair on the same key that IS within depth is unaffected — `a[b]=1&a[b][c][d]=2` (depth 2) → `{ a: { b: '1' } }`, not `{}`.
 
 ### `maxParams`
 
@@ -119,6 +125,16 @@ Maximum number of key-value pairs to parse. Parameters beyond this limit are sil
 const parser = QueryParser.create({ maxParams: 2 });
 
 parser.parse('a=1&b=2&c=3'); // { a: '1', b: '2' }
+```
+
+In `strict` mode, exceeding `maxParams` throws `QueryParserErrorReason.LimitExceeded` instead of silently truncating. A query string with *exactly* `maxParams` pairs — even with trailing `&` characters, which are empty sequences, not pairs — never throws:
+
+```typescript
+const strictParser = QueryParser.create({ maxParams: 2, strict: true });
+
+strictParser.parse('a=1&b=2');   // { a: '1', b: '2' } — exactly at the limit, no throw
+strictParser.parse('a=1&b=2&');  // { a: '1', b: '2' } — trailing '&' is empty, not a pair, no throw
+strictParser.parse('a=1&b=2&c'); // throws QueryParserError (LimitExceeded)
 ```
 
 ### `nesting`
@@ -144,19 +160,17 @@ When `false` (default), brackets are treated as literal characters in the key na
 
 ### `arrayLimit`
 
-Maximum array index allowed when `nesting` is enabled. Must be an integer in `[0, 10000]`; a value above 10000 throws `QueryParserErrorReason.InvalidArrayLimit` at `create()`. At **container creation** an index above this limit does not drop the value — the container falls back to a plain object keyed by the index string.
+Maximum array index allowed when `nesting` is enabled. Must be an integer in `[0, 10000]`; a value above 10000 throws `QueryParserErrorReason.InvalidArrayLimit` at `create()`.
+
+A key builds a real array only while its indices stay dense from `0` (`0`, `1`, `2`, … or `[]` pushes). The moment an index would leave a gap (greater than the current length) or exceed `arrayLimit`, the whole container materializes to a plain object keyed by the index strings — losslessly, with no `undefined` holes and no dropped values:
 
 ```typescript
 const parser = QueryParser.create({ nesting: true, arrayLimit: 5 });
 
-parser.parse('a[3]=ok');   // { a: [undefined, undefined, undefined, 'ok'] }  (sparse array)
-parser.parse('a[100]=no'); // over limit → object: { a: { '100': 'no' } }
-```
-
-⚠️ The object fallback only applies when the container is first created. If the key already holds an **array**, a later over-limit index is silently dropped:
-
-```typescript
-parser.parse('a[0]=x&a[100]=no'); // { a: ['x'] } — '100' dropped
+parser.parse('a[0]=x&a[1]=y');    // { a: ['x', 'y'] } — dense, stays an array
+parser.parse('a[3]=ok');          // { a: { '3': 'ok' } } — gap → object (no holes)
+parser.parse('a[6]=x');           // { a: { '6': 'x' } } — over limit → object
+parser.parse('a[0]=x&a[100]=no'); // { a: { '0': 'x', '100': 'no' } } — over limit, nothing dropped
 ```
 
 ### `duplicates`
@@ -184,12 +198,42 @@ QueryParser.create({ duplicates: 'array' }).parse(input);
 // { role: ['admin', 'user'] }
 ```
 
+**Scalar↔container collisions** — a key used once as a plain scalar and once as a nested structure (`a=1` then `a[b]=2`, in either order, at any depth) — are resolved by this same `duplicates` strategy, requires `nesting: true`:
+
+```typescript
+// Input: 'a=2&a[b]=1' (nesting: true)
+
+QueryParser.create({ nesting: true, duplicates: 'first' }).parse(input);
+// { a: '2' } — the first-seen value (the scalar) wins; the structure is dropped
+
+QueryParser.create({ nesting: true, duplicates: 'last' }).parse(input);
+// { a: { b: '1' } } — the last-seen value (the structure) wins; the scalar is dropped
+
+QueryParser.create({ nesting: true, duplicates: 'array' }).parse(input);
+// { a: ['2', { b: '1' }] } — both are combined losslessly into an array, in arrival order
+```
+
+`'array'` always combines losslessly, so it **never throws**, even in `strict` mode — this holds regardless of which side (scalar or structure) came first, and at any nesting depth, not just the root. `'first'`/`'last'` are lossy (one side is always discarded), so `strict` throws `ConflictingStructure` for them — see [`strict`](#strict) below.
+
+An empty-bracket push (`a[]=x`) that would normally append to an array behaves the same way when it lands on a key that's a container of the *other* kind — a plain object, not an array (e.g. after `a[b]=1&a[]=2`, `[]` folds losslessly into a fresh array under `duplicates: 'array'`, wraps under `'last'`, or is dropped under `'first'`, exactly like any other scalar↔container collision).
+
+> **`[]` on an existing plain object (no collision):** when `[]` push-syntax targets a key that is *already* an object (not created by a collision — e.g. `a[b]=1&a[]=2` under the default `duplicates: 'first'`, which keeps the object), the pushed value lands at the next integer key (`max(existing numeric keys) + 1`, or `"0"` if none) rather than the literal `""` key:
+>
+> ```typescript
+> QueryParser.create({ nesting: true }).parse('a[b]=1&a[]=2');
+> // { a: { '0': '2', b: '1' } } — not { a: { '': '2', b: '1' } }
+>
+> QueryParser.create({ nesting: true }).parse('a[b]=1&a[]=2&a[]=3');
+> // { a: { '0': '2', '1': '3', b: '1' } }
+> ```
+
 ### `strict`
 
 When enabled, `parse()` throws `QueryParserError` on **structural** problems instead of silently ignoring them. Percent-encoding syntax is never one of them — a malformed escape is never an error, even in strict mode (WHATWG §2.6; see [RFC 3986 Compliance](#-rfc-3986-compliance)). Malformed escapes are preserved as literals and invalid UTF-8 becomes U+FFFD, in strict and non-strict alike:
 
 - Unbalanced, nested, or unclosed brackets (`a]b[c]=1`, `a[[b]]=1`, `a[b=1`), and stray characters between bracket groups (`a[b]junk[c]=1`)
-- Conflicting key structures (`a=1&a[b]=2`) — detecting structure conflicts requires `nesting: true`; with nesting off, bracket keys are literal and never conflict
+- A **scalar↔container** collision (`a=1&a[b]=2`) under `duplicates: 'first'` or `'last'` — detecting it requires `nesting: true`; with nesting off, bracket keys are literal and never conflict. Under `duplicates: 'array'` this never throws — see [`duplicates`](#duplicates) above. An array↔object **key-kind** mismatch alone (`a[]=1&a[foo]=2`, or `a[0]=1&a[foo]=2`) is not a scalar↔container collision — it always materializes losslessly and never throws.
+- `depth` or `maxParams` exceeded — throws `LimitExceeded` instead of silently dropping/truncating; see [`depth`](#depth) and [`maxParams`](#maxparams) above.
 
 ```typescript
 const parser = QueryParser.create({ strict: true, nesting: true });
@@ -293,7 +337,8 @@ if (isErr(result)) {
 | `InvalidUrlEncoded` | `create()` | `urlEncoded` must be a boolean |
 | `InvalidAllowPrototypes` | `create()` | `allowPrototypes` must be a boolean |
 | `MalformedQueryString` | `parse()` | Malformed bracket/structure syntax (strict mode only) — never percent-encoding |
-| `ConflictingStructure` | `parse()` | Key used as both scalar and nested (strict mode only) |
+| `ConflictingStructure` | `parse()` | Key used as both scalar and nested, under `duplicates: 'first'`/`'last'` (strict mode only) — never thrown under `duplicates: 'array'`, which always combines losslessly |
+| `LimitExceeded` | `parse()` | `depth` or `maxParams` exceeded (strict mode only) — `arrayLimit` never throws |
 
 <br>
 
@@ -332,9 +377,9 @@ Default `duplicates: 'first'` prevents attackers from injecting values by append
 
 ### Resource limits
 
-- `depth` caps nested object recursion
-- `maxParams` caps the number of parsed pairs
-- `arrayLimit` caps array index allocation
+- `depth` caps nested object recursion — over-depth pairs are dropped (or throw `LimitExceeded` in `strict` mode)
+- `maxParams` caps the number of parsed pairs — excess pairs are dropped (or throw `LimitExceeded` in `strict` mode)
+- `arrayLimit` caps array index allocation — an over-limit index materializes into a plain object instead of allocating a huge sparse array; never throws
 
 <br>
 

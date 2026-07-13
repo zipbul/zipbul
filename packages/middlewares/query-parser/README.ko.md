@@ -70,7 +70,7 @@ search(ctx: HttpContext) {
 
 ### 잘못된 쿼리 → 400 (500 아님)
 
-미들웨어에서 구조적으로 잘못된 쿼리 스트링은 **클라이언트** 오류입니다. `strict`가 켜져 있으면 공급 단계가 `httpError(BadRequest)`를 반환하고, 프레임워크가 파이프라인을 **400** 응답으로 즉시 단락(short-circuit)시키며 핸들러는 실행되지 않습니다. throw가 아니므로 악의적인 쿼리가 500으로 바뀔 수 없습니다. strict는 **구조**(브래킷, 스칼라/구조 충돌)만 검증합니다 — 잘못된 퍼센트 이스케이프는 오류가 아니라 데이터이므로([`strict`](#strict) 참고) 400 경로를 유발하지 않습니다:
+미들웨어에서 구조적으로 잘못된 쿼리 스트링은 **클라이언트** 오류입니다. `strict`가 켜져 있으면 공급 단계가 `httpError(BadRequest)`를 반환하고, 프레임워크가 파이프라인을 **400** 응답으로 즉시 단락(short-circuit)시키며 핸들러는 실행되지 않습니다. throw가 아니므로 악의적인 쿼리가 500으로 바뀔 수 없습니다. strict는 **구조**(브래킷, 스칼라/구조 충돌)와 **리소스 한도**(`depth`, `maxParams` — `LimitExceeded`)를 검증합니다 — 잘못된 퍼센트 이스케이프는 오류가 아니라 데이터이므로([`strict`](#strict) 참고) 400 경로를 유발하지 않습니다:
 
 ```typescript
 middlewares: {
@@ -102,14 +102,20 @@ interface QueryParserOptions {
 
 ### `depth`
 
-중첩 객체 파싱의 최대 깊이 (`nesting: true` 필요). 한도를 초과하면 초과된 값은 버려지고 그 자리에 빈 컨테이너가 남습니다. strict 모드도 깊이 초과로는 throw하지 **않습니다**.
+키 하나의 최대 브래킷 중첩 깊이 (`nesting: true` 필요) — 브래킷 그룹의 개수(`a[b][c]`는 깊이 2)입니다. 키가 `depth`보다 더 깊은 중첩을 요구하면 **쌍 전체가 버려집니다** — 부분 기록도, 빈 컨테이너 잔재도 남기지 않습니다. `strict` 모드에서는 버리는 대신 `QueryParserErrorReason.LimitExceeded`를 throw합니다.
 
 ```typescript
 const parser = QueryParser.create({ nesting: true, depth: 2 });
 
 parser.parse('a[b][c]=1');    // { a: { b: { c: '1' } } }
-parser.parse('a[b][c][d]=1'); // 깊이 초과 — '1' 버려짐: { a: { b: { c: {} } } }
+parser.parse('a[b][c][d]=1'); // 깊이 초과 — 쌍 전체가 버려짐: {}
+
+const strictParser = QueryParser.create({ nesting: true, depth: 2, strict: true });
+
+strictParser.parse('a[b][c][d]=1'); // QueryParserError throw (LimitExceeded)
 ```
+
+⚠️ 버림은 쌍 단위이지 키 단위가 아닙니다 — 같은 키에 대한 형제 쌍이 depth 이내라면 영향받지 않습니다: `a[b]=1&a[b][c][d]=2` (depth 2) → `{ a: { b: '1' } }`이지 `{}`가 아닙니다.
 
 ### `maxParams`
 
@@ -119,6 +125,16 @@ parser.parse('a[b][c][d]=1'); // 깊이 초과 — '1' 버려짐: { a: { b: { c:
 const parser = QueryParser.create({ maxParams: 2 });
 
 parser.parse('a=1&b=2&c=3'); // { a: '1', b: '2' }
+```
+
+`strict` 모드에서는 `maxParams` 초과 시 조용히 잘라내는 대신 `QueryParserErrorReason.LimitExceeded`를 throw합니다. 쌍의 개수가 `maxParams`와 **정확히** 같으면 — 뒤에 `&`가 붙어 있어도(빈 시퀀스일 뿐 쌍이 아니므로) — 절대 throw하지 않습니다:
+
+```typescript
+const strictParser = QueryParser.create({ maxParams: 2, strict: true });
+
+strictParser.parse('a=1&b=2');   // { a: '1', b: '2' } — 정확히 한도, throw 없음
+strictParser.parse('a=1&b=2&');  // { a: '1', b: '2' } — 트레일링 '&'는 빈 시퀀스, 쌍 아님, throw 없음
+strictParser.parse('a=1&b=2&c'); // QueryParserError throw (LimitExceeded)
 ```
 
 ### `nesting`
@@ -144,19 +160,17 @@ parser.parse('filter[status]=active&filter[role]=admin');
 
 ### `arrayLimit`
 
-`nesting` 활성화 시 허용되는 최대 배열 인덱스. `[0, 10000]` 범위의 정수여야 하며, 10000을 초과하면 `create()`에서 `QueryParserErrorReason.InvalidArrayLimit`가 throw됩니다. **컨테이너 생성 시점**에는 한도를 초과하는 인덱스도 값을 버리지 않고, 컨테이너가 인덱스 문자열을 키로 갖는 일반 객체로 폴백됩니다.
+`nesting` 활성화 시 허용되는 최대 배열 인덱스. `[0, 10000]` 범위의 정수여야 하며, 10000을 초과하면 `create()`에서 `QueryParserErrorReason.InvalidArrayLimit`가 throw됩니다.
+
+키는 인덱스가 `0`부터 조밀하게 이어지는 동안(`0`, `1`, `2`, … 또는 `[]` push)에만 실제 배열이 됩니다. 인덱스가 구멍을 만들거나(현재 길이보다 큼) `arrayLimit`를 초과하는 순간, 컨테이너 전체가 인덱스 문자열을 키로 갖는 일반 객체로 무손실 변환됩니다 — `undefined` 구멍도, 버려지는 값도 없습니다:
 
 ```typescript
 const parser = QueryParser.create({ nesting: true, arrayLimit: 5 });
 
-parser.parse('a[3]=ok');   // { a: [undefined, undefined, undefined, 'ok'] }  (희소 배열)
-parser.parse('a[100]=no'); // 한도 초과 → 객체: { a: { '100': 'no' } }
-```
-
-⚠️ 객체 폴백은 컨테이너가 처음 생성될 때만 적용됩니다. 키가 이미 **배열**을 갖고 있다면, 이후의 한도 초과 인덱스는 조용히 버려집니다:
-
-```typescript
-parser.parse('a[0]=x&a[100]=no'); // { a: ['x'] } — '100' 버려짐
+parser.parse('a[0]=x&a[1]=y');    // { a: ['x', 'y'] } — 조밀 → 배열 유지
+parser.parse('a[3]=ok');          // { a: { '3': 'ok' } } — 구멍 → 객체 (홀 없음)
+parser.parse('a[6]=x');           // { a: { '6': 'x' } } — 한도 초과 → 객체
+parser.parse('a[0]=x&a[100]=no'); // { a: { '0': 'x', '100': 'no' } } — 한도 초과, 아무것도 안 버려짐
 ```
 
 ### `duplicates`
@@ -184,12 +198,42 @@ QueryParser.create({ duplicates: 'array' }).parse(input);
 // { role: ['admin', 'user'] }
 ```
 
+**스칼라↔컨테이너 충돌** — 한 키가 한 번은 평범한 스칼라로, 한 번은 중첩 구조로 쓰인 경우(`a=1` 다음 `a[b]=2`, 순서 무관, 어느 깊이든) — 도 동일한 `duplicates` 전략으로 해소됩니다(`nesting: true` 필요):
+
+```typescript
+// 입력: 'a=2&a[b]=1' (nesting: true)
+
+QueryParser.create({ nesting: true, duplicates: 'first' }).parse(input);
+// { a: '2' } — 먼저 나온 값(스칼라)이 이김; 구조는 버려짐
+
+QueryParser.create({ nesting: true, duplicates: 'last' }).parse(input);
+// { a: { b: '1' } } — 나중 값(구조)이 이김; 스칼라는 버려짐
+
+QueryParser.create({ nesting: true, duplicates: 'array' }).parse(input);
+// { a: ['2', { b: '1' }] } — 둘 다 등장 순서대로 배열에 무손실 결합
+```
+
+`'array'`는 항상 무손실로 결합하므로 `strict` 모드에서도 **절대 throw하지 않습니다** — 스칼라와 구조 중 어느 쪽이 먼저 왔는지, 루트인지 더 깊은 위치인지와 무관하게 성립합니다. `'first'`/`'last'`는 손실이 있으므로(둘 중 하나는 항상 버려짐) `strict`가 `ConflictingStructure`를 throw합니다 — 아래 [`strict`](#strict) 참고.
+
+빈 브래킷 push(`a[]=x`)가 평소엔 배열에 추가되지만, 그 키가 (배열이 아니라) 다른 종류의 컨테이너 — 평범한 객체 — 를 갖고 있을 때도 동일한 방식으로 동작합니다(예: `a[b]=1&a[]=2` 이후 `[]`는 `duplicates: 'array'`에서 새 배열로 무손실 결합되고, `'last'`에서는 덮어쓰고, `'first'`에서는 버려집니다 — 다른 스칼라↔컨테이너 충돌과 동일).
+
+> **이미 존재하는 평범한 객체에 대한 `[]` (충돌 아님):** `[]` push 문법이 이미 객체인 키를 대상으로 할 때(충돌로 만들어진 게 아닌 경우 — 예: 기본값 `duplicates: 'first'`에서 객체를 유지하는 `a[b]=1&a[]=2`) push된 값은 리터럴 `""` 키가 아니라 다음 정수 키(`max(기존 숫자 키) + 1`, 없으면 `"0"`)에 놓입니다:
+>
+> ```typescript
+> QueryParser.create({ nesting: true }).parse('a[b]=1&a[]=2');
+> // { a: { '0': '2', b: '1' } } — { a: { '': '2', b: '1' } }이 아님
+>
+> QueryParser.create({ nesting: true }).parse('a[b]=1&a[]=2&a[]=3');
+> // { a: { '0': '2', '1': '3', b: '1' } }
+> ```
+
 ### `strict`
 
 활성화 시 `parse()`는 무시하는 대신 **구조적** 문제에서 `QueryParserError`를 throw합니다. 퍼센트 인코딩 문법은 여기에 포함되지 않습니다 — strict 모드에서도 잘못된 이스케이프는 결코 오류가 아닙니다(WHATWG §2.6; [RFC 3986 준수](#-rfc-3986-준수) 참고). 잘못된 이스케이프는 리터럴로 보존되고, 무효한 UTF-8은 U+FFFD가 됩니다. strict·non-strict 모두 동일합니다:
 
 - 불균형·중첩·미닫힘 브래킷 (`a]b[c]=1`, `a[[b]]=1`, `a[b=1`) 및 브래킷 그룹 사이의 잉여 문자 (`a[b]junk[c]=1`)
-- 충돌하는 키 구조 (`a=1&a[b]=2`) — 구조 충돌 감지에는 `nesting: true`가 필요합니다. nesting이 꺼져 있으면 브래킷 키는 리터럴이라 충돌이 발생하지 않습니다
+- `duplicates: 'first'` 또는 `'last'`에서의 **스칼라↔컨테이너** 충돌 (`a=1&a[b]=2`) — 감지에는 `nesting: true`가 필요합니다. nesting이 꺼져 있으면 브래킷 키는 리터럴이라 충돌이 발생하지 않습니다. `duplicates: 'array'`에서는 절대 throw하지 않습니다 — 위 [`duplicates`](#duplicates) 참고. 배열↔객체 **키 종류** 불일치만 있는 경우(`a[]=1&a[foo]=2`, 또는 `a[0]=1&a[foo]=2`)는 스칼라↔컨테이너 충돌이 아니며, 항상 무손실로 객체화되고 throw하지 않습니다.
+- `depth` 또는 `maxParams` 초과 — 조용히 버리는/자르는 대신 `LimitExceeded`를 throw합니다. 위 [`depth`](#depth), [`maxParams`](#maxparams) 참고.
 
 ```typescript
 const parser = QueryParser.create({ strict: true, nesting: true });
@@ -293,7 +337,8 @@ if (isErr(result)) {
 | `InvalidUrlEncoded` | `create()` | `urlEncoded`가 불리언이 아님 |
 | `InvalidAllowPrototypes` | `create()` | `allowPrototypes`가 불리언이 아님 |
 | `MalformedQueryString` | `parse()` | 잘못된 브래킷/구조 문법 (strict 모드 전용) — 퍼센트 인코딩은 해당 없음 |
-| `ConflictingStructure` | `parse()` | 키가 스칼라와 중첩 구조로 동시 사용됨 (strict 모드 전용) |
+| `ConflictingStructure` | `parse()` | `duplicates: 'first'`/`'last'`에서 키가 스칼라와 중첩 구조로 동시 사용됨 (strict 모드 전용) — `duplicates: 'array'`에서는 항상 무손실 결합되므로 절대 throw하지 않음 |
+| `LimitExceeded` | `parse()` | `depth` 또는 `maxParams` 초과 (strict 모드 전용) — `arrayLimit`는 절대 throw하지 않음 |
 
 <br>
 
@@ -332,9 +377,9 @@ if (isErr(result)) {
 
 ### 리소스 제한
 
-- `depth`로 중첩 객체 재귀 깊이 제한
-- `maxParams`로 파싱 쌍 수 제한
-- `arrayLimit`로 배열 인덱스 할당 제한
+- `depth`로 중첩 객체 재귀 깊이 제한 — depth 초과 쌍은 버려짐(`strict` 모드에서는 `LimitExceeded` throw)
+- `maxParams`로 파싱 쌍 수 제한 — 초과분은 버려짐(`strict` 모드에서는 `LimitExceeded` throw)
+- `arrayLimit`로 배열 인덱스 할당 제한 — 한도 초과 인덱스는 거대한 희소 배열을 만드는 대신 평범한 객체로 객체화됨; 절대 throw하지 않음
 
 <br>
 
