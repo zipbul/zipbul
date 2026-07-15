@@ -58,13 +58,15 @@
     "@zipbul/http-adapter": "workspace:*"
   },
   "devDependencies": {
+    "@types/qs": "^6.9.18",
     "@zipbul/cli": "workspace:*",
     "@zipbul/common": "workspace:*",
     "@zipbul/http-adapter": "workspace:*",
     "@zipbul/tck": "workspace:*",
+    "fast-querystring": "^1.1.2",
     "mitata": "catalog:",
-    "qs": "^6.14.0",
-    "@types/qs": "^6.9.18"
+    "picoquery": "^2.5.0",
+    "qs": "^6.14.0"
   },
   "sideEffects": [
     "**/options.js"

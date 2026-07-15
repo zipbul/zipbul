@@ -1,6 +1,8 @@
 import { run, bench, boxplot, summary, do_not_optimize } from 'mitata';
 import querystring from 'node:querystring';
 
+import fastQuerystring from 'fast-querystring';
+import { parse as picoParse, type Options as PicoOptions } from 'picoquery';
 import qs from 'qs';
 
 import { QueryParser } from '../src/query-parser';
@@ -58,6 +60,31 @@ const dupFirstParser = QueryParser.create({ duplicates: 'first' });
 const dupLastParser = QueryParser.create({ duplicates: 'last' });
 const dupArrayParser = QueryParser.create({ duplicates: 'array' });
 const urlEncodedParser = QueryParser.create({ urlEncoded: true });
+
+// ── Competitor option presets (matched to our parser config for fairness) ──
+//
+// fast-querystring is flat-only (no nesting), so it appears in FLAT sections only.
+//
+// picoquery defaults to `nesting: true` + dot syntax; our parser uses bracket
+// syntax, so we pin `nestingSyntax: 'index'` to parse `a[b]=1` / `a[0]=1` the way
+// our `nestingParser` does. Flat comparisons use `nesting: false` to mirror our
+// `defaultParser` (nesting off). Repeated-bracket arrays (`brand[]=x`) need
+// `arrayRepeat: true` + `arrayRepeatSyntax: 'bracket'`. Each preset below was
+// verified to produce output structurally identical to our parser's.
+
+// Flat: mirror defaultParser (nesting disabled).
+const PICO_FLAT: Partial<PicoOptions> = { nesting: false };
+
+// Nested/indexed arrays: bracket syntax like `a[b][c]=1`, `a[0]=1`.
+const PICO_INDEX: Partial<PicoOptions> = { nesting: true, nestingSyntax: 'index' };
+
+// Nested + repeated-bracket arrays: like `brand[]=nike&brand[]=adidas`.
+const PICO_INDEX_BRACKET: Partial<PicoOptions> = {
+  nesting: true,
+  nestingSyntax: 'index',
+  arrayRepeat: true,
+  arrayRepeatSyntax: 'bracket',
+};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  BENCHMARKS
@@ -230,6 +257,14 @@ summary(() => {
   bench('flat 10 — URLSearchParams', () => {
     do_not_optimize(Object.fromEntries(new URLSearchParams(FLAT_10)));
   });
+
+  bench('flat 10 — fast-querystring', () => {
+    do_not_optimize(fastQuerystring.parse(FLAT_10));
+  });
+
+  bench('flat 10 — picoquery', () => {
+    do_not_optimize(picoParse(FLAT_10, PICO_FLAT));
+  });
 });
 
 summary(() => {
@@ -247,6 +282,14 @@ summary(() => {
 
   bench('flat 50 — URLSearchParams', () => {
     do_not_optimize(Object.fromEntries(new URLSearchParams(FLAT_50)));
+  });
+
+  bench('flat 50 — fast-querystring', () => {
+    do_not_optimize(fastQuerystring.parse(FLAT_50));
+  });
+
+  bench('flat 50 — picoquery', () => {
+    do_not_optimize(picoParse(FLAT_50, PICO_FLAT));
   });
 });
 
@@ -266,9 +309,21 @@ summary(() => {
   bench('encoded 5 — URLSearchParams', () => {
     do_not_optimize(Object.fromEntries(new URLSearchParams(ENCODED_5)));
   });
+
+  bench('encoded 5 — fast-querystring', () => {
+    do_not_optimize(fastQuerystring.parse(ENCODED_5));
+  });
+
+  bench('encoded 5 — picoquery', () => {
+    do_not_optimize(picoParse(ENCODED_5, PICO_FLAT));
+  });
 });
 
-// ── 10. vs qs — nested/array ──
+// ── 10. vs competitors — nested/array ──
+//
+// fast-querystring is intentionally absent here: it is flat-only and cannot
+// represent nested objects or arrays (`a[b]=1` becomes the literal key "a[b]"),
+// so it has no comparable result to benchmark against.
 
 summary(() => {
   bench('nested depth 3 — @zipbul/query-parser', () => {
@@ -277,6 +332,10 @@ summary(() => {
 
   bench('nested depth 3 — qs', () => {
     do_not_optimize(qs.parse(NESTED_3, { depth: 5 }));
+  });
+
+  bench('nested depth 3 — picoquery', () => {
+    do_not_optimize(picoParse(NESTED_3, PICO_INDEX));
   });
 });
 
@@ -288,6 +347,10 @@ summary(() => {
   bench('array ×10 — qs', () => {
     do_not_optimize(qs.parse(ARRAY_INDEX_10, { arrayLimit: 20 }));
   });
+
+  bench('array ×10 — picoquery', () => {
+    do_not_optimize(picoParse(ARRAY_INDEX_10, PICO_INDEX));
+  });
 });
 
 summary(() => {
@@ -297,6 +360,10 @@ summary(() => {
 
   bench('e-commerce — qs', () => {
     do_not_optimize(qs.parse(ECOMMERCE));
+  });
+
+  bench('e-commerce — picoquery', () => {
+    do_not_optimize(picoParse(ECOMMERCE, PICO_INDEX_BRACKET));
   });
 });
 
