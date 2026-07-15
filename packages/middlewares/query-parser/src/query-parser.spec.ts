@@ -555,6 +555,26 @@ describe('QueryParser', () => {
       expect(expectQueryRecord(allowed.arr)).toEqual({ '0': 'a', '10': 'b' });
       expect(expectQueryRecord(blocked.arr)).toEqual({ '0': 'a', '11': 'blocked' });
     });
+
+    it('should keep a dense array when the max index equals arrayLimit exactly', () => {
+      // Arrange — BVA on the arrayLimit boundary itself, isolated from the hole
+      // rule: a[2] is a dense append (index 2 == length 2) and 2 is not > the
+      // arrayLimit of 2, so the container stays a dense array.
+      const parser = QueryParser.create({ arrayLimit: 2, nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[0]=x&a[1]=y&a[2]=z')).toEqual({ a: ['x', 'y', 'z'] });
+    });
+
+    it('should materialize to an object when a dense index exceeds arrayLimit by one', () => {
+      // Arrange — BVA adjacent value: a[3] is one past the arrayLimit of 2
+      // (3 > 2), so the whole container materializes losslessly to an
+      // index-keyed object with no dropped values.
+      const parser = QueryParser.create({ arrayLimit: 2, nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[0]=x&a[1]=y&a[2]=z&a[3]=w')).toEqual({ a: { '0': 'x', '1': 'y', '2': 'z', '3': 'w' } });
+    });
   });
 
   // =========================================================================
