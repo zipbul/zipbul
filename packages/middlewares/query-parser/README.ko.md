@@ -215,7 +215,7 @@ QueryParser.create({ nesting: true, duplicates: 'array' }).parse(input);
 
 `'array'`는 항상 무손실로 결합하므로 `strict` 모드에서도 **절대 throw하지 않습니다** — 스칼라와 구조 중 어느 쪽이 먼저 왔는지, 루트인지 더 깊은 위치인지와 무관하게 성립합니다. `'first'`/`'last'`는 손실이 있으므로(둘 중 하나는 항상 버려짐) `strict`가 `ConflictingStructure`를 throw합니다 — 아래 [`strict`](#strict) 참고.
 
-빈 브래킷 push(`a[]=x`)가 평소엔 배열에 추가되지만, 그 키가 (배열이 아니라) 다른 종류의 컨테이너 — 평범한 객체 — 를 갖고 있을 때도 동일한 방식으로 동작합니다(예: `a[b]=1&a[]=2` 이후 `[]`는 `duplicates: 'array'`에서 새 배열로 무손실 결합되고, `'last'`에서는 덮어쓰고, `'first'`에서는 버려집니다 — 다른 스칼라↔컨테이너 충돌과 동일).
+빈 브래킷 push(`a[]=x`)가 현재 **스칼라**를 담고 있는 키에 떨어지면 그 자체가 스칼라↔컨테이너 충돌이며, 동일한 전략으로 해소됩니다: `a=1&a[]=2` → `duplicates: 'array'`에서 `{ a: ['1', '2'] }`(무손실 결합), `'last'`에서 `{ a: ['2'] }`(스칼라는 버려짐), `'first'`에서 `{ a: '1' }`(push가 버려짐) — 그리고 `strict`의 `'first'`/`'last'`에서는 다른 스칼라↔컨테이너 충돌과 똑같이 `ConflictingStructure`를 throw합니다. (`[]`가 **이미 평범한 객체인** 키에 떨어질 때는 충돌이 아니며 다음 정수 키에 추가됩니다 — 아래 노트 참고.)
 
 > **이미 존재하는 평범한 객체에 대한 `[]` (충돌 아님):** `[]` push 문법이 이미 객체인 키를 대상으로 할 때(충돌로 만들어진 게 아닌 경우 — 예: 기본값 `duplicates: 'first'`에서 객체를 유지하는 `a[b]=1&a[]=2`) push된 값은 리터럴 `""` 키가 아니라 다음 정수 키(`max(기존 숫자 키) + 1`, 없으면 `"0"`)에 놓입니다:
 >
@@ -278,7 +278,7 @@ QueryParser.create().parse('prototype=1');
 QueryParser.create({ nesting: true, allowPrototypes: true }).parse('a[toString]=1');
 // { a: { toString: '1' } } — 이전 동작 복원
 
-QueryParser.create({ allowPrototypes: true }).parse('a[__proto__][x]=1');
+QueryParser.create({ nesting: true, allowPrototypes: true }).parse('a[__proto__][x]=1');
 // { a: {} } — __proto__는 여전히 항상 차단됨
 ```
 

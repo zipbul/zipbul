@@ -215,7 +215,7 @@ QueryParser.create({ nesting: true, duplicates: 'array' }).parse(input);
 
 `'array'` always combines losslessly, so it **never throws**, even in `strict` mode — this holds regardless of which side (scalar or structure) came first, and at any nesting depth, not just the root. `'first'`/`'last'` are lossy (one side is always discarded), so `strict` throws `ConflictingStructure` for them — see [`strict`](#strict) below.
 
-An empty-bracket push (`a[]=x`) that would normally append to an array behaves the same way when it lands on a key that's a container of the *other* kind — a plain object, not an array (e.g. after `a[b]=1&a[]=2`, `[]` folds losslessly into a fresh array under `duplicates: 'array'`, wraps under `'last'`, or is dropped under `'first'`, exactly like any other scalar↔container collision).
+An empty-bracket push (`a[]=x`) that lands on a key currently holding a **scalar** is itself a scalar↔container collision, resolved by the same strategy: `a=1&a[]=2` → `{ a: ['1', '2'] }` under `duplicates: 'array'` (combined losslessly), `{ a: ['2'] }` under `'last'` (the scalar is discarded), or `{ a: '1' }` under `'first'` (the push is dropped) — and it throws `ConflictingStructure` under `strict` with `'first'`/`'last'`, exactly like any other scalar↔container collision. (When `[]` instead lands on a key that is **already a plain object**, there is no collision — the push appends at the next integer key; see the note below.)
 
 > **`[]` on an existing plain object (no collision):** when `[]` push-syntax targets a key that is *already* an object (not created by a collision — e.g. `a[b]=1&a[]=2` under the default `duplicates: 'first'`, which keeps the object), the pushed value lands at the next integer key (`max(existing numeric keys) + 1`, or `"0"` if none) rather than the literal `""` key:
 >
@@ -278,7 +278,7 @@ QueryParser.create().parse('prototype=1');
 QueryParser.create({ nesting: true, allowPrototypes: true }).parse('a[toString]=1');
 // { a: { toString: '1' } } — old behavior restored
 
-QueryParser.create({ allowPrototypes: true }).parse('a[__proto__][x]=1');
+QueryParser.create({ nesting: true, allowPrototypes: true }).parse('a[__proto__][x]=1');
 // { a: {} } — __proto__ is still always blocked
 ```
 
