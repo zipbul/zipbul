@@ -117,9 +117,18 @@ function whatwgPercentDecodeBytes(input: string): string {
  */
 export class QueryParser {
   private readonly options: ResolvedQueryParserOptions;
+  private readonly blockedKeys: ReadonlySet<string>;
+
+  /**
+   * Reusable 2-slot segment buffer for the single-bracket-group fast path
+   * (`root[seg]`). Overwritten on every fast-path key; never escapes
+   * parseComplexKey/traverseSegments and never survives a call.
+   */
+  private readonly segScratch: string[] = ['', ''];
 
   private constructor(options: ResolvedQueryParserOptions) {
     this.options = options;
+    this.blockedKeys = options.allowPrototypes ? POISONED_KEYS : DANGEROUS_KEYS;
   }
 
   /**
@@ -272,27 +281,6 @@ export class QueryParser {
     }
 
     return res;
-  }
-
-  /**
-   * Whether `key` must be dropped rather than written into the parsed output.
-   * `__proto__` is blocked unconditionally — even under `allowPrototypes: true`
-   * — because a plain assignment to it invokes the prototype setter. Every
-   * other `Object.prototype` own-name (`constructor`, `toString`,
-   * `hasOwnProperty`, …) is blocked only when `allowPrototypes` is `false`
-   * (the default); `allowPrototypes: true` reverts to the narrower
-   * `__proto__`-only policy.
-   */
-  private isBlockedKey(key: string): boolean {
-    if (POISONED_KEYS.has(key)) {
-      return true;
-    }
-
-    if (this.options.allowPrototypes) {
-      return false;
-    }
-
-    return DANGEROUS_KEYS.has(key);
   }
 
   private processPair(
@@ -460,34 +448,66 @@ export class QueryParser {
   ): Err<QueryParserErrorData> | undefined {
     let current: QueryContainer = root;
     const maxDepth = this.options.depth;
+    const blocked = this.blockedKeys;
     const rootKey = key.slice(0, firstBrace);
 
-    if (rootKey === '' || this.isBlockedKey(rootKey)) {
+    if (rootKey === '' || blocked.has(rootKey)) {
       return;
     }
 
     // Strict: the root-key portion (before the first '[') sits outside the
     // bracket scan below, so a stray ']' there must be rejected explicitly.
     if (this.options.strict && rootKey.includes(']')) {
-      return err<QueryParserErrorData>({
-        reason: QueryParserErrorReason.MalformedQueryString,
-        message: `Malformed query string: unbalanced brackets in key "${key}"`,
-      });
+      return this.errUnbalancedBrackets(key);
     }
 
-    // Split the bracket groups into path segments (`a[b][c]` → [a, b, c]).
-    const segments = this.splitBracketKeys(key, rootKey, firstBrace);
+    // Single-group fast path: a key of exactly `root[seg]` shape — one bracket
+    // group closing at the very end, no '['/']' inside — covers the dominant
+    // real-world keys (`a[]`, `a[0]`, `filter[status]`). It needs no strict
+    // bracket validation (the scan proves well-formedness) and, crucially, no
+    // per-pair segments-array allocation: a reusable 2-slot scratch array is
+    // filled instead (safe: traverseSegments never re-enters parseComplexKey,
+    // and parsing is fully synchronous). Anything else falls through to
+    // splitBracketKeys, byte-for-byte the previous behavior.
+    let keys: string[] | undefined;
+    const keyLen = key.length;
 
-    if (isErr(segments)) {
-      return segments;
+    if (key.charCodeAt(keyLen - 1) === 93) {
+      let simple = true;
+
+      for (let i = firstBrace + 1; i < keyLen - 1; i++) {
+        const c = key.charCodeAt(i);
+
+        if (c === 91 || c === 93) {
+          simple = false;
+          break;
+        }
+      }
+
+      if (simple) {
+        const scratch = this.segScratch;
+
+        scratch[0] = rootKey;
+        scratch[1] = key.slice(firstBrace + 1, keyLen - 1);
+        keys = scratch;
+      }
     }
 
-    if (segments === null) {
-      // Unclosed bracket (non-strict): assign the whole key as a leaf.
-      return this.assignLeaf(root, key, value);
-    }
+    if (keys === undefined) {
+      // General path: split the bracket groups into segments (`a[b][c]` → [a, b, c]).
+      const segments = this.splitBracketKeys(key, rootKey, firstBrace);
 
-    const keys = segments;
+      if (isErr(segments)) {
+        return segments;
+      }
+
+      if (segments === null) {
+        // Unclosed bracket (non-strict): assign the whole key as a leaf.
+        return this.assignLeaf(root, key, value);
+      }
+
+      keys = segments;
+    }
 
     // N-3/R2: depth is enforced BEFORE any container is created — a whole-pair
     // clean drop (non-strict) or `LimitExceeded` (strict), never the old
@@ -496,10 +516,7 @@ export class QueryParser {
     // levels) this key requests.
     if (keys.length - 1 > maxDepth) {
       if (this.options.strict) {
-        return err<QueryParserErrorData>({
-          reason: QueryParserErrorReason.LimitExceeded,
-          message: `Limit exceeded: key "${key}" nests deeper than the configured depth (${maxDepth})`,
-        });
+        return this.errDepthExceeded(key, maxDepth);
       }
 
       return;
@@ -542,49 +559,68 @@ export class QueryParser {
       }
     }
 
-    // Traverse and build from 2nd key match
-    for (let k = 1; k < keys.length; k++) {
-      const prop = keys[k] ?? '';
-      const isLast = k === keys.length - 1;
+    return this.traverseSegments(keys, value, current, parent, parentKey);
+  }
 
-      // Pollution check — BEFORE any property access
-      if (this.isBlockedKey(prop)) {
+  /** Cold: strict-mode unbalanced-bracket error (outlined off the hot path). */
+  private errUnbalancedBrackets(key: string): Err<QueryParserErrorData> {
+    return err<QueryParserErrorData>({
+      reason: QueryParserErrorReason.MalformedQueryString,
+      message: `Malformed query string: unbalanced brackets in key "${key}"`,
+    });
+  }
+
+  /** Cold: strict-mode depth-limit error (outlined off the hot path). */
+  private errDepthExceeded(key: string, maxDepth: number): Err<QueryParserErrorData> {
+    return err<QueryParserErrorData>({
+      reason: QueryParserErrorReason.LimitExceeded,
+      message: `Limit exceeded: key "${key}" nests deeper than the configured depth (${maxDepth})`,
+    });
+  }
+
+  /**
+   * Hot traversal loop, split out of parseComplexKey so both functions stay
+   * small for the JIT (inlining budgets are caller-size sensitive).
+   */
+  private traverseSegments(
+    keys: string[],
+    value: string,
+    current: QueryContainer,
+    parent: QueryContainer,
+    parentKey: string | number,
+  ): Err<QueryParserErrorData> | undefined {
+    const blocked = this.blockedKeys;
+    const keysLen = keys.length;
+    const lastK = keysLen - 1;
+    const arrayLimit = this.options.arrayLimit;
+
+    for (let k = 1; k < keysLen; k++) {
+      const prop = keys[k] as string;
+      const isLast = k === lastK;
+
+      // Pollution check — BEFORE any property access (direct Set lookup on the
+      // construction-resolved set; kept inline so the JIT never leaves it as an
+      // out-of-line call in this hot loop)
+      if (blocked.has(prop)) {
         return;
       }
 
-      // Conversion: Array with non-numeric key → Object. This is a KEY-KIND
-      // mismatch (`[]`/`[i]` vs `[foo]`), not a scalar/structure conflict — the
-      // array and the incoming key both describe a CONTAINER, so materializing
-      // is lossless and never throws, even in strict mode (#2). Strict mode
-      // still rejects a genuine scalar↔container conflict elsewhere (#2b).
-      if (Array.isArray(current) && prop !== '' && !this.isValidArrayIndex(prop)) {
-        current = this.materializeArray(current, parent, parentKey);
-      }
-
-      // Conversion: Array with an explicit numeric index that would create a
-      // hole (index > current.length) or exceeds arrayLimit (index > arrayLimit)
-      // → Object. Materialized BEFORE any write, so a hole element is never
-      // created (#4) and an over-limit index is never silently dropped (#5).
-      // Unlike the non-numeric-key conversion above, this never throws — even
-      // in strict mode — because it is a density/limit condition, not a
-      // key-kind conflict (strict limit-observability is a separate concern,
-      // out of scope for this change).
-      if (Array.isArray(current) && this.isValidArrayIndex(prop)) {
-        const index = parseInt(prop, 10);
-
-        if (index > current.length || index > this.options.arrayLimit) {
-          current = this.materializeArray(current, parent, parentKey);
-        }
-      }
-
+      // Array branch. Segment classification (validate+parse fused into ONE
+      // charCode pass) happens only here — the record path never consumes it.
+      // A segment that cannot extend the array as a dense array (non-numeric
+      // key #2, hole index > length #4, over-limit index > arrayLimit #5)
+      // materializes the array into an object — lossless, never throws, even
+      // in strict mode (a key-kind/density condition, not a scalar↔container
+      // conflict, #2b) — and falls through to the record path below in the
+      // same iteration, BEFORE any write, so no hole element is created and
+      // no over-limit value is dropped.
       if (Array.isArray(current)) {
         if (prop === '') {
           if (isLast) {
-            const leafErr = this.assignLeaf(current, prop, value);
-
-            if (isErr(leafErr)) {
-              return leafErr;
-            }
+            // Direct write: assignLeaf(array, '') is exactly a push — '' was
+            // blocked-checked above (never a dangerous key) and the empty key
+            // on an array unconditionally appends.
+            current.push(value);
 
             continue;
           }
@@ -600,15 +636,17 @@ export class QueryParser {
           continue;
         }
 
-        if (this.isValidArrayIndex(prop)) {
-          const index = parseInt(prop, 10);
+        const index = this.parseArrayIndex(prop);
 
-          // Invariant: the materialization check above guarantees `index <=
-          // current.length && index <= arrayLimit` here — any hole or
-          // over-limit index has already been converted to an object write.
-
+        if (index >= 0 && index <= current.length && index <= arrayLimit) {
+          // `index` is a valid dense-extension index here: `<= current.length`
+          // and `<= arrayLimit` — hole / over-limit / non-numeric segments
+          // take the materialization fall-through below instead.
           if (isLast) {
-            const leafErr = this.assignLeaf(current, prop, value);
+            // Direct write with the already-parsed index: skips assignLeaf's
+            // redundant blocked-key re-check (done above) and its
+            // re-validate / re-parse of `prop`.
+            const leafErr = this.assignToArrayIndex(current, index, prop, value);
 
             if (isErr(leafErr)) {
               return leafErr;
@@ -652,6 +690,10 @@ export class QueryParser {
 
           continue;
         }
+
+        // Non-dense segment (non-numeric / hole / over-limit): materialize to
+        // an object and continue on the record path in this same iteration.
+        current = this.materializeArray(current, parent, parentKey);
       }
 
       if (isLast) {
@@ -661,8 +703,13 @@ export class QueryParser {
         // "" key. `prop` only carries '' here as a bracket-derived push
         // marker (a bare, non-bracketed key can never reach this loop), so
         // this cannot be confused with a genuine top-level empty key name.
+        // Direct record write: `current` is never an array here (every array
+        // case above ends in `continue` or materializes into a record), so
+        // assignLeaf's array branches are dead and its blocked-key re-check is
+        // redundant (`prop` was checked above; a generated integer key is
+        // never dangerous). assignToRecord is the exact remaining behavior.
         const leafKey = prop === '' && this.isRecordValue(current) ? this.nextRecordIntegerKey(current) : prop;
-        const leafResult = this.assignLeaf(current, leafKey, value);
+        const leafResult = this.assignToRecord(current as QueryValueRecord, leafKey, value);
 
         if (isErr(leafResult)) {
           return leafResult;
@@ -717,20 +764,54 @@ export class QueryParser {
       return true;
     }
 
-    if (this.isValidArrayIndex(nextKey)) {
-      const n = parseInt(nextKey, 10);
+    const n = this.parseArrayIndex(nextKey);
 
-      return n >= 0 && n <= this.options.arrayLimit;
+    return n >= 0 && n <= this.options.arrayLimit;
+  }
+
+  /**
+   * Fused validate+parse of an array-index segment in a single charCode pass.
+   * Returns the numeric index, or -1 when `str` is not a valid array index
+   * under exactly {@link isValidArrayIndex}'s rules (empty, >10 chars,
+   * non-digits, leading zeros). For every accepted string the returned value
+   * equals `parseInt(str, 10)` (≤ 10 digits ⇒ exact in a double).
+   */
+  private parseArrayIndex(str: string): number {
+    const len = str.length;
+
+    if (len === 0 || len > 10) {
+      return -1;
     }
 
-    return false;
+    const first = str.charCodeAt(0);
+
+    // First char must be 0-9; reject leading zeros (except "0" itself)
+    if (first < 48 || first > 57 || (first === 48 && len > 1)) {
+      return -1;
+    }
+
+    let n = first - 48;
+
+    for (let i = 1; i < len; i++) {
+      const c = str.charCodeAt(i);
+
+      if (c < 48 || c > 57) {
+        return -1;
+      }
+
+      n = n * 10 + (c - 48);
+    }
+
+    return n;
   }
 
   /**
    * Assigns a value to a leaf position, with optional strict mode error reporting.
    */
   private assignLeaf(obj: QueryContainer, key: string, value: string): Err<QueryParserErrorData> | undefined {
-    if (this.isBlockedKey(key)) {
+    // `blockedKeys` (resolved once at construction) is a single monomorphic Set
+    // lookup on the hot path — no per-call `allowPrototypes` branch.
+    if (this.blockedKeys.has(key)) {
       return;
     }
 
@@ -855,7 +936,10 @@ export class QueryParser {
     const existing = arr[idx];
 
     if (existing === undefined) {
-      this.assignArrayRecordValue(arr, key, value);
+      // Numeric-index store: `idx` is dense (<= length) at every caller, and a
+      // numeric store to a canonical index is observably identical to the
+      // string-keyed store it replaces.
+      arr[idx] = value;
 
       return;
     }
@@ -907,7 +991,7 @@ export class QueryParser {
 
   private assignArrayRecordValue(target: QueryArray, key: string, value: QueryValue): void {
     // Direct assignment is safe here: dangerous keys (Object.prototype own-names,
-    // plus `__proto__`) are filtered upstream by isBlockedKey before any write
+    // plus `__proto__`) are filtered upstream via `blockedKeys` before any write
     // reaches this sink, and non-numeric keys convert the array to a plain
     // object before assignment — so `key` is only ever a numeric index or an
     // already-cleared property name.
