@@ -704,10 +704,9 @@ export class QueryParser {
         // marker (a bare, non-bracketed key can never reach this loop), so
         // this cannot be confused with a genuine top-level empty key name.
         // Direct record write: `current` is never an array here (every array
-        // case above ends in `continue` or materializes into a record), so
-        // assignLeaf's array branches are dead and its blocked-key re-check is
-        // redundant (`prop` was checked above; a generated integer key is
-        // never dangerous). assignToRecord is the exact remaining behavior.
+        // case above ends in `continue` or materializes into a record), and
+        // the blocked-key re-check assignLeaf would do is redundant (`prop` was
+        // checked above; a generated integer key is never dangerous).
         const leafKey = prop === '' && this.isRecordValue(current) ? this.nextRecordIntegerKey(current) : prop;
         const leafResult = this.assignToRecord(current as QueryValueRecord, leafKey, value);
 
@@ -808,35 +807,13 @@ export class QueryParser {
   /**
    * Assigns a value to a leaf position, with optional strict mode error reporting.
    */
-  private assignLeaf(obj: QueryContainer, key: string, value: string): Err<QueryParserErrorData> | undefined {
-    // `blockedKeys` (resolved once at construction) is a single monomorphic Set
-    // lookup on the hot path — no per-call `allowPrototypes` branch.
+  private assignLeaf(obj: QueryValueRecord, key: string, value: string): Err<QueryParserErrorData> | undefined {
+    // Every caller passes the top-level record (`processPair` for a flat/leaf
+    // key, `parseComplexKey` for an unclosed-bracket whole-key leaf); array
+    // containers are written directly at their bracket sites, so this sink only
+    // ever handles records. `blockedKeys` (resolved once at construction) is a
+    // single monomorphic Set lookup — no per-call `allowPrototypes` branch.
     if (this.blockedKeys.has(key)) {
-      return;
-    }
-
-    if (key === '' && Array.isArray(obj)) {
-      obj.push(value);
-
-      return;
-    }
-
-    if (Array.isArray(obj)) {
-      const idx = this.parseArrayIndex(key);
-
-      if (idx >= 0) {
-        // Invariant: every caller that can reach this branch with an array
-        // `obj` (parseComplexKey's push/leaf sites) has already materialized
-        // any hole/over-limit index into an object beforehand, so `idx` here
-        // is always <= obj.length && <= arrayLimit — never a drop candidate.
-        return this.assignToArrayIndex(obj, idx, key, value);
-      }
-
-      // Key-kind mismatch (non-numeric key on an array), same as the
-      // parseComplexKey traversal-time conversion above — lossless, never
-      // throws even in strict mode (#2).
-      this.assignArrayRecordValue(obj, key, value);
-
       return;
     }
 
