@@ -45,7 +45,6 @@ export function resolveQueryParserOptions(options?: QueryParserOptions): Resolve
     arrayLimit: options?.arrayLimit ?? DEFAULT_QUERY_PARSER_OPTIONS.arrayLimit,
     duplicates: options?.duplicates ?? DEFAULT_QUERY_PARSER_OPTIONS.duplicates,
     strict: options?.strict ?? DEFAULT_QUERY_PARSER_OPTIONS.strict,
-    urlEncoded: options?.urlEncoded ?? DEFAULT_QUERY_PARSER_OPTIONS.urlEncoded,
     allowPrototypes: options?.allowPrototypes ?? DEFAULT_QUERY_PARSER_OPTIONS.allowPrototypes,
   };
 }
@@ -86,10 +85,6 @@ export class QueryParserOptionsSchema {
   /** Whether strict mode is enabled. */
   @Field(isBoolean, { optional: true, context: { reason: QueryParserErrorReason.InvalidStrict } })
   strict?: boolean;
-
-  /** Whether `+` is decoded as a space (application/x-www-form-urlencoded). */
-  @Field(isBoolean, { optional: true, context: { reason: QueryParserErrorReason.InvalidUrlEncoded } })
-  urlEncoded?: boolean;
 
   /** Whether Object.prototype-named keys (other than `__proto__`) are allowed through. */
   @Field(isBoolean, { optional: true, context: { reason: QueryParserErrorReason.InvalidAllowPrototypes } })

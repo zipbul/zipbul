@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@zipbul/query-parser)](https://www.npmjs.com/package/@zipbul/query-parser)
 ![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/parkrevil/3965fb9d1fe2d6fc5c321cb38d88c823/raw/query-parser-coverage.json)
 
-엄격한 보안 제어를 갖춘 고성능 RFC 3986 준수 쿼리 스트링 파서.
+고성능 쿼리 스트링 파서 — RFC 3986 퍼센트 디코딩과 WHATWG application/x-www-form-urlencoded 값 시맨틱, 그리고 엄격한 보안 제어를 결합했습니다.
 
 > Bun 전용 설계. 옵션은 [@zipbul/baker](https://www.npmjs.com/package/@zipbul/baker)로 검증됩니다.
 
@@ -37,6 +37,9 @@ parser.parse('name=hello&city=seoul');
 
 parser.parse('q=hello%20world&lang=ko');
 // { q: 'hello world', lang: 'ko' }
+
+parser.parse('q=hello+world');
+// { q: 'hello world' } — '+'는 공백으로 디코딩됩니다 (WHATWG application/x-www-form-urlencoded)
 ```
 
 <br>
@@ -95,7 +98,6 @@ interface QueryParserOptions {
   arrayLimit?: number;      // 기본값: 20
   duplicates?: 'first' | 'last' | 'array';  // 기본값: 'first'
   strict?: boolean;         // 기본값: false
-  urlEncoded?: boolean;     // 기본값: false
   allowPrototypes?: boolean; // 기본값: false
 }
 ```
@@ -243,20 +245,6 @@ parser.parse('bad=%zz');            // { bad: '%zz' } — 잘못된 이스케이
 parser.parse('a=1&a[b]=2');        // QueryParserError throw (구조 충돌)
 ```
 
-### `urlEncoded`
-
-`+`를 공백으로 디코딩합니다 — `application/x-www-form-urlencoded`(브라우저와 `URLSearchParams`가 쿼리 스트링을 다루는 방식)와 동일. 기본은 비활성이며 [RFC 3986 준수](#-rfc-3986-준수) 참고.
-
-```typescript
-QueryParser.create({ urlEncoded: true }).parse('q=hello+world');
-// { q: 'hello world' }
-
-QueryParser.create().parse('q=hello+world'); // 기본값 — '+'는 리터럴
-// { q: 'hello+world' }
-```
-
-`+`→공백 변환과 퍼센트 디코딩은 독립적이라, 잘못된 이스케이프가 있어도 공백 변환은 유지됩니다: `parse('q=a+b%ZZ')` → `{ q: 'a b%ZZ' }`.
-
 ### `allowPrototypes`
 
 기본적으로 `Object.prototype`의 own-property 이름과 일치하는 모든 키(`constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` 등)는 위치(루트·중첩 세그먼트·리프)에 관계없이 파싱 결과에서 버려집니다. `prototype`은 이 집합에 포함되지 **않습니다**(함수 객체의 own-property이지 `Object.prototype`의 이름이 아니므로) — 절대 차단되지 않습니다. `__proto__`는 이 옵션과 무관하게 **항상** 차단됩니다. 이유는 [보안 → 프로토타입 오염 방지](#프로토타입-오염-방지) 참고.
@@ -334,7 +322,6 @@ if (isErr(result)) {
 | `InvalidDuplicates` | `create()` | `duplicates`가 `'first'`, `'last'`, `'array'` 중 하나가 아님 |
 | `InvalidNesting` | `create()` | `nesting`이 불리언이 아님 |
 | `InvalidStrict` | `create()` | `strict`가 불리언이 아님 |
-| `InvalidUrlEncoded` | `create()` | `urlEncoded`가 불리언이 아님 |
 | `InvalidAllowPrototypes` | `create()` | `allowPrototypes`가 불리언이 아님 |
 | `MalformedQueryString` | `parse()` | 잘못된 브래킷/구조 문법 (strict 모드 전용) — 퍼센트 인코딩은 해당 없음 |
 | `ConflictingStructure` | `parse()` | `duplicates: 'first'`/`'last'`에서 키가 스칼라와 중첩 구조로 동시 사용됨 (strict 모드 전용) — `duplicates: 'array'`에서는 항상 무손실 결합되므로 절대 throw하지 않음 |
@@ -346,7 +333,7 @@ if (isErr(result)) {
 
 이 파서는 [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) 시맨틱을 따릅니다:
 
-- **`+`는 기본적으로 리터럴** — 공백으로 디코딩하지 않습니다. ⚠️ `+`→공백으로 디코딩하는 브라우저·`URLSearchParams`·`qs`와 다릅니다. form-urlencoded 쿼리 스트링은 [`urlEncoded: true`](#urlencoded)를 사용하세요. 명확한 공백은 `%20`을 쓰세요.
+- **`+`는 항상 공백으로 디코딩됩니다** — WHATWG `application/x-www-form-urlencoded`(브라우저·`URLSearchParams`·`qs`를 비롯한 모든 주류 쿼리 스트링 파서)와 동일합니다. 키와 값 모두에 조건 없이 적용되며, 퍼센트 디코딩보다 먼저 일어나므로 `%2B`는 여전히 리터럴 `+`로 복원됩니다. 리터럴 `+`가 필요하면 `%2B`로 보내세요.
 - **퍼센트 디코딩은 WHATWG 준수이며, 단순 `decodeURIComponent`가 아닙니다** — 순수 ASCII 고속 경로는 유효한 값과 잘못된 값 모두 `%HH`를 `decodeURIComponent`의 throw 비용 없이 디코딩합니다. 멀티바이트 입력은 유효한 UTF-8이면 네이티브 `decodeURIComponent`를 사용하고, 그렇지 않으면 바이트 단위 디코더로 폴백합니다. 16진수는 대소문자를 구분하지 않습니다(`%3A` ≡ `%3a`). 잘못된 `%`(뒤에 16진수 2자리가 오지 않음)는 결코 오류가 아니며 리터럴 문자로 보존되고 디코딩이 계속됩니다(`%ZZ%41` → `%ZZA`). 무효한 UTF-8 바이트 시퀀스는 throw 대신 U+FFFD(대체 문자)로 디코딩됩니다. 선행 BOM은 제거되지 않고 보존됩니다. strict 모드에서도 동일합니다 — strict는 구조를 검증하며 퍼센트 문법은 검증하지 않습니다. WHATWG 인용 전문은 [STANDARDS.md](./STANDARDS.md) §2.5–§2.7을 참고하세요.
 - **`&` 구분자만 사용** — `;`는 구분자로 인식하지 않습니다.
 

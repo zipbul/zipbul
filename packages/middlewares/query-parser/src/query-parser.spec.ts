@@ -171,9 +171,9 @@ describe('QueryParser', () => {
       expect(parser.parse('??foo=bar')).toEqual({ '?foo': 'bar' });
     });
 
-    it('should treat plus sign as literal when strict RFC 3986 applies', () => {
+    it('should decode plus sign as space unconditionally (WHATWG x-www-form-urlencoded)', () => {
       // Act & Assert
-      expect(parser.parse('hello+world=test')).toEqual({ 'hello+world': 'test' });
+      expect(parser.parse('hello+world=test')).toEqual({ 'hello world': 'test' });
     });
 
     it('should not double-decode values when percent encoded twice', () => {
@@ -1824,75 +1824,67 @@ describe('QueryParser', () => {
   });
 
   // =========================================================================
-  // URL-Encoded (application/x-www-form-urlencoded)
+  // '+' -> space (application/x-www-form-urlencoded) — unconditional, WHATWG
+  // §2.4. There is no "literal +" mode; a literal '+' must be sent as '%2B'.
   // =========================================================================
-  describe('urlEncoded', () => {
-    const parser = QueryParser.create({ urlEncoded: true });
+  describe('plus-as-space (unconditional)', () => {
+    const parser = QueryParser.create();
 
-    it('should decode plus sign as space in values when urlEncoded is true', () => {
+    it('should decode plus sign as space in values', () => {
       // Act & Assert
-      expect(parser.parse('name=hello+world')).toEqual({ name: 'hello world' });
+      expect(parser.parse('a=b+c')).toEqual({ a: 'b c' });
       expect(parser.parse('q=foo+bar+baz')).toEqual({ q: 'foo bar baz' });
     });
 
-    it('should decode plus sign as space in keys when urlEncoded is true', () => {
+    it('should decode plus sign as space in keys', () => {
       // Act & Assert
-      expect(parser.parse('hello+world=test')).toEqual({ 'hello world': 'test' });
+      expect(parser.parse('a+b=c')).toEqual({ 'a b': 'c' });
     });
 
-    it('should decode plus sign combined with percent encoding when urlEncoded is true', () => {
+    it('should decode plus sign combined with percent encoding', () => {
       // Act & Assert
       expect(parser.parse('name=hello+world%21')).toEqual({ name: 'hello world!' });
       expect(parser.parse('q=%EC%84%9C%EC%9A%B8+%EC%8B%9C')).toEqual({ q: '서울 시' });
+    });
+
+    it('should decode %2B to a literal plus, unaffected by the +->space pass', () => {
+      // §2.4 order: '+'->space runs on the RAW string first, so a literal
+      // '%2B' escape (not a raw '+') is untouched by the substitution and
+      // still percent-decodes to '+'.
+      expect(parser.parse('a=%2B')).toEqual({ a: '+' });
     });
 
     it('should still decode plus as space when the value also has a malformed percent escape', () => {
       // '+'->space and percent-decoding are independent passes per WHATWG
       // x-www-form-urlencoded / URLSearchParams: a failed percent-decode must NOT
       // discard the already-applied '+'->space substitution.
-      expect(parser.parse('a=hello+world%ZZ')).toEqual({ a: 'hello world%ZZ' });
+      expect(parser.parse('a=a+b%ZZ')).toEqual({ a: 'a b%ZZ' });
       expect(parser.parse('a+b%ZZ=v')).toEqual({ 'a b%ZZ': 'v' });
     });
 
     it('should apply the plus-with-malformed-percent rule inside a nested bracket key', () => {
       // Arrange — the fix is in safeDecode, which every key/value (incl. bracket segments) flows through.
-      const nestingParser = QueryParser.create({ urlEncoded: true, nesting: true });
+      const nestingParser = QueryParser.create({ nesting: true });
 
       // Act & Assert
       expect(nestingParser.parse('user[full+name%ZZ]=alice')).toEqual({ user: { 'full name%ZZ': 'alice' } });
     });
 
-    it('should keep the literal plus on a malformed percent when urlEncoded is false', () => {
-      // Negative control — '+'->space must only happen under urlEncoded; the raw fallback is unchanged.
-      const defaultParser = QueryParser.create();
-
-      // Act & Assert
-      expect(defaultParser.parse('name=a+b%ZZ')).toEqual({ name: 'a+b%ZZ' });
-    });
-
-    it('should NOT throw on a malformed percent in strict mode even with urlEncoded', () => {
+    it('should NOT throw on a malformed percent in strict mode', () => {
       // §2.6 target — a malformed percent is not an error; '+'->space still
       // applies and the malformed '%ZZ' is preserved as a literal (Z is not hex).
-      const strictParser = QueryParser.create({ urlEncoded: true, strict: true });
+      const strictParser = QueryParser.create({ strict: true });
 
       // Act & Assert
       expect(strictParser.parse('a=hello+world%ZZ')).toEqual({ a: 'hello world%ZZ' });
     });
 
-    it('should decode multiple plus signs as multiple spaces when urlEncoded is true', () => {
+    it('should decode multiple plus signs as multiple spaces', () => {
       // Act & Assert
       expect(parser.parse('q=a++b+++c')).toEqual({ q: 'a  b   c' });
     });
 
-    it('should not decode plus when urlEncoded is false', () => {
-      // Arrange
-      const defaultParser = QueryParser.create();
-
-      // Act & Assert
-      expect(defaultParser.parse('name=hello+world')).toEqual({ name: 'hello+world' });
-    });
-
-    it('should handle form-typical payload when urlEncoded is true', () => {
+    it('should handle form-typical payload', () => {
       // Act & Assert
       expect(parser.parse('username=john+doe&password=p%40ss+word&remember=on')).toEqual({
         username: 'john doe',
@@ -1901,15 +1893,16 @@ describe('QueryParser', () => {
       });
     });
 
-    it('should handle plus in nested keys when urlEncoded and nesting are true', () => {
+    it('should handle plus in nested keys and values', () => {
       // Arrange
-      const nestingParser = QueryParser.create({ urlEncoded: true, nesting: true });
+      const nestingParser = QueryParser.create({ nesting: true });
 
       // Act & Assert
       expect(nestingParser.parse('user[full+name]=alice')).toEqual({ user: { 'full name': 'alice' } });
+      expect(nestingParser.parse('a[b]=x+y')).toEqual({ a: { b: 'x y' } });
     });
 
-    it('should handle only-plus values when urlEncoded is true', () => {
+    it('should handle only-plus values', () => {
       // Act & Assert
       expect(parser.parse('space=+')).toEqual({ space: ' ' });
       expect(parser.parse('spaces=+++')).toEqual({ spaces: '   ' });

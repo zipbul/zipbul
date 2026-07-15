@@ -17,7 +17,6 @@ export const DEFAULT_QUERY_PARSER_OPTIONS: ResolvedQueryParserOptions = {
   arrayLimit: 20,
   duplicates: DuplicateStrategy.First,
   strict: false,
-  urlEncoded: false,
   allowPrototypes: false,
 };
 

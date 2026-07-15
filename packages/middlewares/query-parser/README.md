@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@zipbul/query-parser)](https://www.npmjs.com/package/@zipbul/query-parser)
 ![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/parkrevil/3965fb9d1fe2d6fc5c321cb38d88c823/raw/query-parser-coverage.json)
 
-A high-performance, RFC 3986 compliant query string parser with strict security controls.
+A high-performance query string parser — RFC 3986 percent-decoding with WHATWG application/x-www-form-urlencoded value semantics and strict security controls.
 
 > Designed for Bun. Options are validated with [@zipbul/baker](https://www.npmjs.com/package/@zipbul/baker).
 
@@ -37,6 +37,9 @@ parser.parse('name=hello&city=seoul');
 
 parser.parse('q=hello%20world&lang=ko');
 // { q: 'hello world', lang: 'ko' }
+
+parser.parse('q=hello+world');
+// { q: 'hello world' } — '+' decodes to a space (WHATWG application/x-www-form-urlencoded)
 ```
 
 <br>
@@ -95,7 +98,6 @@ interface QueryParserOptions {
   arrayLimit?: number;      // Default: 20
   duplicates?: 'first' | 'last' | 'array';  // Default: 'first'
   strict?: boolean;         // Default: false
-  urlEncoded?: boolean;     // Default: false
   allowPrototypes?: boolean; // Default: false
 }
 ```
@@ -243,20 +245,6 @@ parser.parse('bad=%zz');            // { bad: '%zz' } — malformed escape is da
 parser.parse('a=1&a[b]=2');        // throws QueryParserError (conflicting structure)
 ```
 
-### `urlEncoded`
-
-Decode `+` as a space, matching `application/x-www-form-urlencoded` — how browsers and `URLSearchParams` treat query strings. Off by default; see [RFC 3986 Compliance](#-rfc-3986-compliance).
-
-```typescript
-QueryParser.create({ urlEncoded: true }).parse('q=hello+world');
-// { q: 'hello world' }
-
-QueryParser.create().parse('q=hello+world'); // default — '+' is literal
-// { q: 'hello+world' }
-```
-
-The `+`→space and percent-decoding are independent passes, so a malformed escape never discards the space: `parse('q=a+b%ZZ')` → `{ q: 'a b%ZZ' }`.
-
 ### `allowPrototypes`
 
 By default, every key that names an own-property of `Object.prototype` (`constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`, …) is dropped from the parsed output, at any position — root, nested segment, or leaf. `prototype` is **not** in this set (it is an own-property of function objects, not of `Object.prototype`) and is never blocked. `__proto__` is **always** blocked, regardless of this option. See [Security → Prototype pollution prevention](#prototype-pollution-prevention) for why.
@@ -334,7 +322,6 @@ if (isErr(result)) {
 | `InvalidDuplicates` | `create()` | `duplicates` must be `'first'`, `'last'`, or `'array'` |
 | `InvalidNesting` | `create()` | `nesting` must be a boolean |
 | `InvalidStrict` | `create()` | `strict` must be a boolean |
-| `InvalidUrlEncoded` | `create()` | `urlEncoded` must be a boolean |
 | `InvalidAllowPrototypes` | `create()` | `allowPrototypes` must be a boolean |
 | `MalformedQueryString` | `parse()` | Malformed bracket/structure syntax (strict mode only) — never percent-encoding |
 | `ConflictingStructure` | `parse()` | Key used as both scalar and nested, under `duplicates: 'first'`/`'last'` (strict mode only) — never thrown under `duplicates: 'array'`, which always combines losslessly |
@@ -346,7 +333,7 @@ if (isErr(result)) {
 
 This parser follows [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) semantics:
 
-- **`+` is literal by default** — not decoded to a space. ⚠️ This differs from browsers, `URLSearchParams`, and `qs`, which decode `+`→space. For form-urlencoded query strings set [`urlEncoded: true`](#urlencoded). Use `%20` for an unambiguous space.
+- **`+` always decodes to a space** — matching WHATWG `application/x-www-form-urlencoded` (browsers, `URLSearchParams`, `qs`, and every mainstream query-string parser). This applies unconditionally to both keys and values, before percent-decoding, so `%2B` still round-trips to a literal `+`. Send a literal `+` as `%2B`.
 - **Percent decoding is WHATWG-compliant, not just `decodeURIComponent`** — a pure-ASCII fast path decodes valid and malformed `%HH` alike without `decodeURIComponent`'s throw cost; multi-byte input uses native `decodeURIComponent` when it's valid UTF-8, falling back to a byte-level decoder otherwise. Hex digits are case-insensitive (`%3A` ≡ `%3a`). A malformed `%` (not followed by two hex digits) is never an error — it is preserved as a literal character and decoding continues (`%ZZ%41` → `%ZZA`). Invalid UTF-8 byte sequences decode to U+FFFD (replacement character) instead of throwing. A leading BOM is preserved, not stripped. This holds in strict mode too — strict validates structure, not percent syntax. See [STANDARDS.md](./STANDARDS.md) §2.5–§2.7 for the full WHATWG citations.
 - **`&` delimiter only** — `;` is not recognized as a separator.
 

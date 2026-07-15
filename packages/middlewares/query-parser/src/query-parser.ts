@@ -295,7 +295,7 @@ export class QueryParser {
     // SEQUENCES (`&&`) are skipped upstream in the scan loop, so they never
     // reach here.
     const keyRaw = qs.slice(keyStart, keyEnd);
-    const keyNeedsDecode = keyRaw.includes('%') || (this.options.urlEncoded && keyRaw.includes('+'));
+    const keyNeedsDecode = keyRaw.includes('%') || keyRaw.includes('+');
     const key = keyNeedsDecode ? this.safeDecode(keyRaw) : keyRaw;
 
     // Decode Value
@@ -303,7 +303,7 @@ export class QueryParser {
 
     if (valStart < valEnd) {
       const valRaw = qs.slice(valStart, valEnd);
-      const valNeedsDecode = valRaw.includes('%') || (this.options.urlEncoded && valRaw.includes('+'));
+      const valNeedsDecode = valRaw.includes('%') || valRaw.includes('+');
       val = valNeedsDecode ? this.safeDecode(valRaw) : valRaw;
     }
 
@@ -1101,7 +1101,10 @@ export class QueryParser {
   private safeDecode(raw: string): string {
     // '+'->space and percent-decoding are independent passes (WHATWG
     // x-www-form-urlencoded / URLSearchParams), applied in that order (§2.4).
-    const input = this.options.urlEncoded && raw.includes('+') ? raw.replaceAll('+', ' ') : raw;
+    // Unconditional: every '+' in a query string is treated as an encoded
+    // space, matching URLSearchParams/qs/browsers — there is no "literal +"
+    // mode. A literal '+' must be sent as '%2B'.
+    const input = raw.includes('+') ? raw.replaceAll('+', ' ') : raw;
 
     // ASCII fast path — no throw; handles valid and malformed pure-ASCII input
     // (e.g. '%ZZ') directly, sidestepping decodeURIComponent's costly throw on

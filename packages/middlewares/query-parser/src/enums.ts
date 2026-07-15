@@ -16,8 +16,6 @@ export enum QueryParserErrorReason {
   InvalidNesting = 'invalid-nesting',
   /** strict must be a boolean. */
   InvalidStrict = 'invalid-strict',
-  /** urlEncoded must be a boolean. */
-  InvalidUrlEncoded = 'invalid-url-encoded',
   /** allowPrototypes must be a boolean. */
   InvalidAllowPrototypes = 'invalid-allow-prototypes',
   /** Query string contains malformed syntax (unbalanced/nested brackets). */

@@ -96,7 +96,6 @@ describe('resolveQueryParserOptions', () => {
       arrayLimit: 10,
       duplicates: 'array' as const,
       strict: true,
-      urlEncoded: false,
       allowPrototypes: false,
     };
 
@@ -331,14 +330,6 @@ describe('validateQueryParserOptions', () => {
 
     // Act & Assert
     expect(assertErr(validateQueryParserOptions(resolved)).data.reason).toBe(QueryParserErrorReason.InvalidStrict);
-  });
-
-  it('should return Err with InvalidUrlEncoded when urlEncoded is not a boolean', () => {
-    // Arrange
-    const resolved = { ...resolveQueryParserOptions(), urlEncoded: {} } as unknown as ResolvedQueryParserOptions;
-
-    // Act & Assert
-    expect(assertErr(validateQueryParserOptions(resolved)).data.reason).toBe(QueryParserErrorReason.InvalidUrlEncoded);
   });
 
   it('should return first failing validation when multiple options are invalid', () => {

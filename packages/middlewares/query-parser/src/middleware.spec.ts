@@ -7,9 +7,9 @@
  * populates the RAW slot only; DTO validation is wired by the AOT compiler
  * and exercised end-to-end, not here).
  *
- * Configurable parsing behavior (nesting, depth, duplicates, strict,
- * urlEncoded) is verified in `query-parser.spec.ts` / `options.spec.ts`
- * against `QueryParser.create(opts)`.
+ * Configurable parsing behavior (nesting, depth, duplicates, strict) is
+ * verified in `query-parser.spec.ts` / `options.spec.ts` against
+ * `QueryParser.create(opts)`.
  */
 import { augmentRawKey } from '@zipbul/common';
 import { HttpAdapter, HttpStatus } from '@zipbul/http-adapter';
@@ -96,8 +96,8 @@ describe('queryParser — raw supply (default options)', () => {
     expect(await suppliedQuery('/n?user[name]=alice')).toEqual({ 'user[name]': 'alice' });
   });
 
-  it('should keep + literal under the default (urlEncoded off)', async () => {
-    expect(await suppliedQuery('/d?q=hello+world')).toEqual({ q: 'hello+world' });
+  it('should decode + as space unconditionally (WHATWG x-www-form-urlencoded)', async () => {
+    expect(await suppliedQuery('/d?q=hello+world')).toEqual({ q: 'hello world' });
   });
 
   it('should keep the first value for duplicate keys (HPP-safe default)', async () => {
@@ -108,10 +108,6 @@ describe('queryParser — raw supply (default options)', () => {
 describe('queryParser — raw supply (instance options)', () => {
   it('should honor nesting when the instance enables it', async () => {
     expect(await suppliedQuery('/n?user[name]=alice', { nesting: true })).toEqual({ user: { name: 'alice' } });
-  });
-
-  it('should honor urlEncoded when the instance enables it', async () => {
-    expect(await suppliedQuery('/d?q=hello+world', { urlEncoded: true })).toEqual({ q: 'hello world' });
   });
 });
 
