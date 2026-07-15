@@ -772,9 +772,9 @@ export class QueryParser {
   /**
    * Fused validate+parse of an array-index segment in a single charCode pass.
    * Returns the numeric index, or -1 when `str` is not a valid array index
-   * under exactly {@link isValidArrayIndex}'s rules (empty, >10 chars,
-   * non-digits, leading zeros). For every accepted string the returned value
-   * equals `parseInt(str, 10)` (≤ 10 digits ⇒ exact in a double).
+   * (rejected: empty, > 10 chars, non-digits, or a leading zero). For every
+   * accepted string the returned value equals `parseInt(str, 10)` (≤ 10 digits
+   * ⇒ exact in a double).
    */
   private parseArrayIndex(str: string): number {
     const len = str.length;
@@ -822,13 +822,13 @@ export class QueryParser {
     }
 
     if (Array.isArray(obj)) {
-      if (this.isValidArrayIndex(key)) {
+      const idx = this.parseArrayIndex(key);
+
+      if (idx >= 0) {
         // Invariant: every caller that can reach this branch with an array
         // `obj` (parseComplexKey's push/leaf sites) has already materialized
         // any hole/over-limit index into an object beforehand, so `idx` here
         // is always <= obj.length && <= arrayLimit — never a drop candidate.
-        const idx = parseInt(key, 10);
-
         return this.assignToArrayIndex(obj, idx, key, value);
       }
 
@@ -852,12 +852,12 @@ export class QueryParser {
     let max = -1;
 
     for (const key of Object.keys(obj)) {
-      if (this.isValidArrayIndex(key)) {
-        const n = parseInt(key, 10);
+      // parseArrayIndex returns -1 for any non-index key, which never beats
+      // `max` (>= -1), so only genuine numeric own-keys move it.
+      const n = this.parseArrayIndex(key);
 
-        if (n > max) {
-          max = n;
-        }
+      if (n > max) {
+        max = n;
       }
     }
 
@@ -1000,38 +1000,6 @@ export class QueryParser {
 
   private normalizeKey(key: string | number): string {
     return typeof key === 'number' ? key.toString() : key;
-  }
-
-  /**
-   * Checks if a string represents a valid non-negative integer for array indexing.
-   * Rejects: negative numbers, floats, empty strings, non-numeric strings, leading zeros.
-   */
-  private isValidArrayIndex(str: string): boolean {
-    if (str.length === 0 || str.length > 10) {
-      return false;
-    }
-
-    const code = str.charCodeAt(0);
-
-    // First char must be 0-9
-    if (code < 48 || code > 57) {
-      return false;
-    }
-
-    // Reject leading zeros (except "0" itself)
-    if (code === 48 && str.length > 1) {
-      return false;
-    }
-
-    for (let i = 1; i < str.length; i++) {
-      const c = str.charCodeAt(i);
-
-      if (c < 48 || c > 57) {
-        return false;
-      }
-    }
-
-    return true;
   }
 
   /**
