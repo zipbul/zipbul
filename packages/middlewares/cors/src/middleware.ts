@@ -3,7 +3,7 @@ import type { MiddlewareDefinition } from '@zipbul/common';
 import { defineMiddleware } from '@zipbul/common';
 import { HttpAdapter, HttpContext, HttpHeader } from '@zipbul/http-adapter';
 
-import type { CorsOptionsInput } from './options';
+import type { CorsOptions } from './options';
 
 import { Cors } from './cors';
 import { CorsAction } from './enums';
@@ -14,25 +14,23 @@ import { CorsAction } from './enums';
  * Options are resolved and validated at registration time (`Cors.create`)
  * so configuration errors fail fast at boot.
  *
- * Register on `HttpAdapterPhase.OnRequest` via a module's middleware map:
+ * Register declaratively on `HttpAdapterPhase.OnRequest` via the module's
+ * adapter config (there is no runtime `addMiddlewares` API):
  *
  * ```ts
  * defineModule({
- *   name: 'App',
- *   adapters: [
- *     {
- *       adapter: HttpAdapter,
- *       middlewares: {
- *         [HttpAdapterPhase.OnRequest]: [corsMiddleware({ origin: 'https://example.com' })],
- *       },
+ *   adapters: [{
+ *     adapter: HttpAdapter,
+ *     middlewares: {
+ *       [HttpAdapterPhase.OnRequest]: [corsMiddleware({ origin: 'https://example.com' })],
  *     },
- *   ],
+ *   }],
  * });
  * ```
  *
  * @throws {CorsError} when options fail validation.
  */
-export function corsMiddleware(opts?: CorsOptionsInput): MiddlewareDefinition {
+export function corsMiddleware(opts?: CorsOptions): MiddlewareDefinition {
   const cors = Cors.create(opts);
 
   return defineMiddleware([HttpAdapter], () => async ctx => {
@@ -44,10 +42,6 @@ export function corsMiddleware(opts?: CorsOptionsInput): MiddlewareDefinition {
 
     const result = await cors.handle(raw);
 
-    if (result.action === CorsAction.Reject) {
-      return;
-    }
-
     const response = http.response;
 
     const writeHeader = (value: string, name: string): void => {
@@ -57,6 +51,14 @@ export function corsMiddleware(opts?: CorsOptionsInput): MiddlewareDefinition {
         response.setHeader(name, value);
       }
     };
+
+    if (result.action === CorsAction.Reject) {
+      // Not a CORS success, but cache-correctness headers (chiefly Vary: Origin, and
+      // any already-negotiated Access-Control-* on a failed preflight) must still ride
+      // on the response (STANDARDS §7.1). The request itself is not blocked here.
+      result.headers.forEach(writeHeader);
+      return;
+    }
 
     if (result.action === CorsAction.RespondPreflight) {
       response.setStatus(result.statusCode);

@@ -13,7 +13,7 @@ import { HttpStatus } from '../../src/enums';
  *   HttpServer.fetch():
  *     L662 socketIp normalization, L668 evaluateTrustProxy, L671 createHttpRequest,
  *     L681 bad-request invalid-url, L694 not-implemented, L697 bad-request,
- *     L701 dispatchRequest, L703 getNativeResponse ?? end(), L704 catch
+ *     L342 dispatchRequest, L343 end(), L344 catch
  *   HttpAdapter.executePipeline():
  *     L191 OnRequest MW, L196 isSent(), L199 pipelineError,
  *     L203 resolveRoute, L206 isSent(), L213 BeforeParsing MW,
@@ -3360,7 +3360,7 @@ describe('HttpAdapter E2E', () => {
     const sseResponse = await fetch(`${BASE_URL}/sse-skip-before-response`);
     await sseResponse.text();
 
-    // Assert — SSE native Response SHOULD have x-before-response (merged via getNativeResponse)
+    // Assert — SSE native Response SHOULD have x-before-response (single header store, set via end())
     expect(sseResponse.headers.get('x-before-response')).toBe('applied');
 
     // Also check handler Response

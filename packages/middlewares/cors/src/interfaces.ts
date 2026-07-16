@@ -24,15 +24,24 @@ export interface CorsPreflightResult {
 /**
  * CORS validation failed.
  * Inspect `reason` to build an error response.
+ *
+ * `headers` carries the cache-correctness headers that must ride along even on a
+ * rejected/non-CORS response — chiefly `Vary: Origin` when the resource's allow-origin
+ * answer depends on the request origin (STANDARDS §7.1), plus any `Access-Control-*`
+ * headers already negotiated before a later preflight check failed. Merge them into
+ * the outgoing response; the request itself is not blocked by CORS.
  */
 export interface CorsRejectResult {
   action: CorsAction.Reject;
   reason: CorsRejectionReason;
+  headers: Headers;
 }
 
 /**
- * Error data payload used internally with the Result pattern.
- * @internal
+ * Error data payload carried by {@link CorsError} and the internal Result
+ * pattern. Kept in the public surface (not stripped) so the emitted
+ * {@link CorsError} constructor signature resolves — mirrors cookie's
+ * `CookieErrorData`.
  */
 export interface CorsErrorData {
   reason: CorsErrorReason;

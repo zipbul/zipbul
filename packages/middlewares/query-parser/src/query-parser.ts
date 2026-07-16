@@ -714,21 +714,28 @@ export class QueryParser {
           return leafResult;
         }
       } else if (this.isRecordValue(current)) {
+        // R3, non-terminal form: an empty-bracket segment (`a[][b]=c`) landing
+        // on a RECORD gets the same next-integer-key normalization as the
+        // terminal push above — never the literal "" key. Each pair synthesizes
+        // a fresh key (max(numeric own keys)+1), mirroring the one-push-per-pair
+        // behavior of the array branch.
+        const recordProp = prop === '' ? this.nextRecordIntegerKey(current) : prop;
+
         // Create next container
-        if (!Object.prototype.hasOwnProperty.call(current, prop)) {
+        if (!Object.prototype.hasOwnProperty.call(current, recordProp)) {
           const nextKey = keys[k + 1] ?? '';
           const created: QueryContainer = this.shouldCreateArray(nextKey) ? [] : {};
 
-          current[prop] = created;
+          current[recordProp] = created;
           parent = current;
-          parentKey = prop;
+          parentKey = recordProp;
           current = created;
         } else {
-          const target = current[prop];
+          const target = current[recordProp];
 
           if (this.isRecordValue(target) || Array.isArray(target)) {
             parent = current;
-            parentKey = prop;
+            parentKey = recordProp;
             current = target;
           } else if (target === undefined) {
             return;
@@ -737,7 +744,7 @@ export class QueryParser {
             // scalar↔container collision, resolved by the duplicates
             // strategy (#6) — symmetric with the array-index path above.
             const nextKey = keys[k + 1] ?? '';
-            const resolution = this.resolveScalarToContainer(target, nextKey, current, prop);
+            const resolution = this.resolveScalarToContainer(target, nextKey, current, recordProp);
 
             if (isErr(resolution)) {
               return resolution;

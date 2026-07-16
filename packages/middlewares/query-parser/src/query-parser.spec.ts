@@ -1523,6 +1523,21 @@ describe('QueryParser', () => {
       expect(strict.parse('a[b]=1&a[]=2&a[]=3')).toEqual({ a: { '0': '2', '1': '3', b: '1' } });
     });
 
+    it('should route a NON-terminal empty-bracket segment landing on a record to the next integer key regardless of strict mode', () => {
+      // R3, non-terminal form: 'filter[][b]=c' descending through a RECORD must
+      // synthesize the next integer key for the intermediate container — never
+      // create a literal "" key (regression: previously leaked {'': {b:'c'}}).
+      expect(nonStrict.parse('filter[x]=a&filter[][b]=c')).toEqual({ filter: { x: 'a', '0': { b: 'c' } } });
+      expect(strict.parse('filter[x]=a&filter[][b]=c')).toEqual({ filter: { x: 'a', '0': { b: 'c' } } });
+    });
+
+    it('should synthesize a fresh integer key per pair for repeated non-terminal pushes onto a record', () => {
+      // R3, non-terminal BVA: each '[]' pair opens its OWN container (max+1),
+      // mirroring the one-push-per-pair behavior of the array branch.
+      expect(nonStrict.parse('a[b]=1&a[][x]=2&a[][y]=3')).toEqual({ a: { b: '1', '0': { x: '2' }, '1': { y: '3' } } });
+      expect(strict.parse('a[b]=1&a[][x]=2&a[][y]=3')).toEqual({ a: { b: '1', '0': { x: '2' }, '1': { y: '3' } } });
+    });
+
     it('should materialize a non-numeric key mixed into an array without throwing, even in strict mode', () => {
       // #2 — migrated from a strict-throw expectation: array-vs-object KEY-KIND
       // conflicts are a materialize case, never a strict error.

@@ -34,7 +34,7 @@ import { Get, Post, Put, Delete, Patch, Options, Head, Method } from './decorato
 import { RawBody, Sse, BodyLimit, Status, Redirect, ContentType as ContentTypeDecorator, Header } from './decorators/method-option.decorator';
 import type { RouteHandler, ResolvedRoutePipeline } from './route-handler';
 import { DEFAULT_BODY_LIMIT_BYTES, DEFAULT_HTTP_PORT, TEXT_ENCODER, CACHE_CONTROL_NO_CACHE, CONNECTION_KEEP_ALIVE, X_ACCEL_BUFFERING_OFF } from './constants';
-import { HttpHeader, HttpStatus, HttpAdapterPhase, HttpAdapterStep, ContentType } from './enums';
+import { HttpHeader, HttpStatus, HttpAdapterPhase, HttpAdapterStep, ContentType, ResponseBodyKind } from './enums';
 import { parseBody } from './body';
 import { isAsyncIterable, formatSSEChunk } from './server-sent-event';
 import { writeErrorResponse, writeSuccessResponse } from './response-writer';
@@ -269,7 +269,7 @@ export class HttpAdapter extends Adapter {
       }],
       [HttpAdapterPhase.AfterHandle, async (context: AdapterContext) => {
         const http = context.to(HttpContext);
-        if (http.response.hasNativeResponse() || http.response.isSent()) return undefined;
+        if (http.response.bodyKind === ResponseBodyKind.Stream || http.response.isSent()) return undefined;
         return this.runHttpMiddlewares(resolvePhaseMws(HttpAdapterPhase.AfterHandle), http);
       }],
       [HttpAdapterPhase.BeforeResponse, async (context: AdapterContext) => {
@@ -446,9 +446,14 @@ export class HttpAdapter extends Adapter {
       // violated (bug, misconfiguration, or unexpected failure). Request
       // errors flow as `Err<ErrorResponseData>`, not exceptions. Respond
       // with a generic 500; headers set earlier (CORS, security) survive.
+      // The substituted body is a different representation than whatever
+      // ran before the throw (e.g. compression already encoded and stamped
+      // the prior body) — replaceRepresentation drops that representation's
+      // metadata (Content-Encoding, ETag, Cache-Control, Last-Modified,
+      // digests) so it doesn't ride along on the 500.
       res.setStatus(HttpStatus.InternalServerError);
       res.setContentType('text/plain');
-      res.setBody('Internal Server Error');
+      res.replaceRepresentation('Internal Server Error');
     }
   }
 
@@ -533,22 +538,24 @@ export class HttpAdapter extends Adapter {
       },
     });
 
+    // setBody leaves `_status` untouched, so a `@Status(201)` applied before
+    // the handler ran survives the wrap (unlike wrapping in a fresh native
+    // Response, which would default to 200).
+    http.response.setBody(stream);
+
     if (isSse) {
       // Bun: disable idle timeout for SSE so gaps between events don't drop the
       // connection.
       http.setTimeout(0);
-      http.response.setNativeResponse(new Response(stream, {
-        headers: {
-          [HttpHeader.ContentType]: ContentType.EventStream,
-          [HttpHeader.CacheControl]: CACHE_CONTROL_NO_CACHE,
-          [HttpHeader.Connection]: CONNECTION_KEEP_ALIVE,
-          [HttpHeader.XAccelBuffering]: X_ACCEL_BUFFERING_OFF,
-        },
-      }));
-    } else {
-      // Raw streaming — Content-Type from @ContentType or imperative setContentType.
-      http.response.setNativeResponse(new Response(stream));
+      // setHeader, not setContentType — setContentType appends `; charset=utf-8`
+      // to text/* types, which `text/event-stream` must not carry.
+      http.response
+        .setHeader(HttpHeader.ContentType, ContentType.EventStream)
+        .setHeader(HttpHeader.CacheControl, CACHE_CONTROL_NO_CACHE)
+        .setHeader(HttpHeader.Connection, CONNECTION_KEEP_ALIVE)
+        .setHeader(HttpHeader.XAccelBuffering, X_ACCEL_BUFFERING_OFF);
     }
+    // Raw (non-SSE) streaming — Content-Type from @ContentType or imperative setContentType.
   }
 
 

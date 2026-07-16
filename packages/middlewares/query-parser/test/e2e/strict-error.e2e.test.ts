@@ -56,6 +56,27 @@ describe('queryParser strict-mode malformed query — HTTP status', () => {
     expect(res.status).toBe(400);
   });
 
+  it('the 400 body carries the parser message verbatim, not a doubled prefix', async () => {
+    // Malformed BRACKET syntax is what strict mode rejects — an invalid
+    // percent-escape like %ZZ is NOT a parser error under WHATWG decoding
+    // (it passes through raw; any 400 for it comes from a lower layer with
+    // no parser message). The parser already emits "Malformed query
+    // string: ..."; the middleware must pass it through, not prepend a
+    // second copy.
+    const res = await app.fetch('/x?a[b]c[d]=1');
+    const body = await res.text();
+    expect(body).toContain('Malformed query string:');
+    expect(body).not.toContain('Malformed query string: Malformed query string:');
+  });
+
+  it('a conflicting-structure error keeps its own "Conflict:" message (no wrong prefix)', async () => {
+    const res = await app.fetch('/x?a=1&a[b]=2');
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain('Conflict:');
+    expect(body).not.toContain('Malformed query string: Conflict:');
+  });
+
   it('a well-formed query under strict mode still parses (2xx, not 5xx)', async () => {
     const res = await app.fetch('/x?a[b]=1');
     // echoQuery commits a header-only response (204 No Content); the point is it

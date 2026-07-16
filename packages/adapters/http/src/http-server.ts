@@ -340,9 +340,9 @@ export class HttpServer {
 
     try {
       await this.adapter.dispatchRequest(context);
-      return zipbulRes.getNativeResponse() ?? zipbulRes.end();
+      return zipbulRes.end();
     } catch (error) {
-      zipbulRes.cancelNativeStream();
+      zipbulRes.cancelBody();
       this.logger.error('Fetch Error', error instanceof Error ? error : undefined);
       return new Response('Internal server error', { status: HttpStatus.InternalServerError });
     } finally {

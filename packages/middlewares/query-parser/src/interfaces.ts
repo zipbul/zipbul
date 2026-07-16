@@ -1,8 +1,11 @@
 import type { DuplicateStrategy, QueryParserErrorReason } from './enums';
 
 /**
- * Error data payload used internally with the Result pattern.
- * @internal
+ * Error data payload carried by the `Result` pattern — the `E` type of the
+ * public {@link QueryParser.parseResult} return. Consumers read `.reason`
+ * (a {@link QueryParserErrorReason}) and `.message`.
+ *
+ * @public
  */
 export interface QueryParserErrorData {
   reason: QueryParserErrorReason;

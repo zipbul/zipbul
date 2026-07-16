@@ -37,6 +37,11 @@ export enum HttpHeader {
   AcceptEncoding = 'accept-encoding',
   TransferEncoding = 'transfer-encoding',
   ETag = 'etag',
+  LastModified = 'last-modified',
+  /** RFC 9530 — integrity of the content as transmitted (encoding included). */
+  ContentDigest = 'content-digest',
+  /** RFC 9530 — integrity of the selected representation (encoding excluded). */
+  ReprDigest = 'repr-digest',
   Connection = 'connection',
   XAccelBuffering = 'x-accel-buffering',
 

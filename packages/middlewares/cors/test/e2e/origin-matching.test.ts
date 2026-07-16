@@ -159,17 +159,19 @@ describe('CORS / origin', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('should let the route run and emit no CORS response headers (Fetch §4.10)', async () => {
+    it('should emit the static wildcard ACAO on a no-Origin response (§7.2)', async () => {
       const res = await app.fetch('/x');
       expect(res.status).toBe(404);
-      expect(res.headers.get('access-control-allow-origin')).toBeNull();
+      // §7.2 — a static `*` is sent on every response for the resource, including a
+      // request with no Origin header, and without Vary.
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+      expect(res.headers.get('vary')).toBeNull();
+      // preflight-only / credentialed headers stay absent on this non-preflight path
       expect(res.headers.get('access-control-allow-credentials')).toBeNull();
       expect(res.headers.get('access-control-allow-methods')).toBeNull();
       expect(res.headers.get('access-control-allow-headers')).toBeNull();
-      expect(res.headers.get('access-control-expose-headers')).toBeNull();
       expect(res.headers.get('access-control-max-age')).toBeNull();
       expect(res.headers.get('access-control-allow-private-network')).toBeNull();
-      expect(res.headers.get('vary')).toBeNull();
     });
   });
 
@@ -185,9 +187,10 @@ describe('CORS / origin', () => {
     });
     afterAll(async () => { await app.close(); });
 
-    it('should let the route run and emit no CORS response headers (Fetch §4.10)', async () => {
+    it('should withhold the CORS grant but still declare Vary: Origin (§7.1)', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://evil.com' } });
       expect(res.status).toBe(404);
+      // rejected → no grant headers
       expect(res.headers.get('access-control-allow-origin')).toBeNull();
       expect(res.headers.get('access-control-allow-credentials')).toBeNull();
       expect(res.headers.get('access-control-allow-methods')).toBeNull();
@@ -195,7 +198,9 @@ describe('CORS / origin', () => {
       expect(res.headers.get('access-control-expose-headers')).toBeNull();
       expect(res.headers.get('access-control-max-age')).toBeNull();
       expect(res.headers.get('access-control-allow-private-network')).toBeNull();
-      expect(res.headers.get('vary')).toBeNull();
+      // §7.1 — the resource's ACAO presence varies by Origin, so a shared cache must
+      // not replay this ACAO-less body to an allowed origin.
+      expect(varyTokens(res.headers.get('vary'))).toContain('origin');
     });
   });
 
@@ -222,6 +227,11 @@ describe('CORS / origin', () => {
     it('should omit Access-Control-Allow-Origin', async () => {
       const res = await app.fetch('/x', { headers: { Origin: 'https://c.com' } });
       expect(res.headers.get('access-control-allow-origin')).toBeNull();
+    });
+
+    it('should still declare Vary: Origin on the rejected response (§7.1)', async () => {
+      const res = await app.fetch('/x', { headers: { Origin: 'https://c.com' } });
+      expect(varyTokens(res.headers.get('vary'))).toContain('origin');
     });
   });
 

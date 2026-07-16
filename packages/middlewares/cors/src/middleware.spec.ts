@@ -5,8 +5,8 @@ import { mockContext } from '@zipbul/http-adapter/testing';
  * Covers the adapter integration contract — every branch in `middleware.ts`
  * is exercised against a real `HttpContext` produced by `@zipbul/http-adapter/testing`.
  *
- * The framework-agnostic `Cors` engine is verified separately in `cors.spec.ts`
- * and `cors-internals.spec.ts`. This file focuses on `MiddlewareDefinition`
+ * The framework-agnostic `Cors` engine is verified separately in `cors.spec.ts`.
+ * This file focuses on `MiddlewareDefinition`
  * shape, `ctx.to(HttpContext)`, `rawRequest` guard, action dispatch, and
  * header attachment style (`setHeader` vs `appendHeader`).
  */
