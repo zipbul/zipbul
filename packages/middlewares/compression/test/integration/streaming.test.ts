@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
 
+import { ResponseBodyKind } from '@zipbul/http-adapter';
+
 import { compressionMiddleware } from '../../index';
 import { CompressionCodec } from '../../src/enums';
 import { drainStream, makeRequestHeaders, mockContext, mockHttpResponse, streamOf, unwrap } from './helpers';
@@ -21,7 +23,7 @@ function runStream(
 }
 
 async function wireBytes(res: ReturnType<typeof mockHttpResponse>): Promise<Uint8Array> {
-  expect(res.hasNativeResponse()).toBe(true);
+  expect(res.bodyKind).toBe(ResponseBodyKind.Stream);
   const stream = res.getBodyStream();
   expect(stream).not.toBeNull();
   return drainStream(stream!);
@@ -129,7 +131,7 @@ describe('streaming', () => {
     });
     const res = runStream(failing, 'text/plain');
     expect(res.getHeader('content-encoding')).toBe('gzip');
-    expect(res.hasNativeResponse()).toBe(true);
+    expect(res.bodyKind).toBe(ResponseBodyKind.Stream);
     await expect(drainStream(res.getBodyStream()!)).rejects.toThrow();
   });
 

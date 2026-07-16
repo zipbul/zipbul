@@ -26,6 +26,16 @@ export function mockHttpResponse(opts: {
 } = {}): MockResponse {
   const res = new HttpResponse({ method: 'GET' } as unknown as HttpRequest);
 
+  // Body/native-response first, explicit headers last: setBody/setNativeResponse
+  // always clear Content-Length (it describes the *previous* body, adapter
+  // redesign D7), so a caller-declared header/CL must be applied *after* the
+  // body to survive — same order a real handler follows (body, then headers).
+  if (opts.nativeResponse !== undefined) {
+    res.setNativeResponse(opts.nativeResponse);
+  } else if (opts.body !== undefined) {
+    res.setBody(opts.body as never);
+  }
+
   if (opts.headers) {
     for (const [k, v] of Object.entries(opts.headers)) {
       res.setHeader(k.toLowerCase(), v);
@@ -36,12 +46,6 @@ export function mockHttpResponse(opts: {
   }
   if (opts.status !== undefined) {
     res.setStatus(opts.status);
-  }
-
-  if (opts.nativeResponse !== undefined) {
-    res.setNativeResponse(opts.nativeResponse);
-  } else if (opts.body !== undefined) {
-    res.setBody(opts.body as never);
   }
 
   return res;
