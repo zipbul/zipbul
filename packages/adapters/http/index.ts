@@ -14,6 +14,7 @@ export {
   HttpHeader,
   HttpStatus,
   HttpMethod,
+  ResponseBodyKind,
   UrlScheme,
 } from './src/enums';
 export { HTTP_STATUS_REASON, FORBIDDEN_HTTP_METHODS } from './src/constants';

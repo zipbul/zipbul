@@ -6,3 +6,4 @@ export { ContentType } from './content-type';
 export { HttpAdapterPhase } from './http-adapter-phase';
 export { HttpAdapterStep } from './http-adapter-step';
 export { UrlScheme } from './url-scheme';
+export { ResponseBodyKind } from './response-body-kind';

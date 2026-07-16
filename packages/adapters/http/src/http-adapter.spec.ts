@@ -2518,7 +2518,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       // Assert — signal was already aborted, iterator should never yield
       expect(yieldFn).not.toHaveBeenCalled();
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
       expect(nativeResponse!.headers.get('content-type')).toBe('text/event-stream');
 
@@ -2552,7 +2552,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await writeResult(adapter, sseStream(), context);
 
       // Assert
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
 
       // Drain the stream to collect chunks
@@ -2599,7 +2599,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Act
       await writeResult(adapter, asyncIterable, context);
 
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
 
       // Read one chunk then cancel
@@ -2633,7 +2633,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // cleanly. Per WHATWG SSE the client keeps received events and reconnects;
       // the throw is surfaced to the server log (not the client transport), so
       // the reader sees a clean EOF rather than a rejection.
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
 
       const reader = nativeResponse!.body!.getReader();
@@ -2664,7 +2664,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await writeResult(adapter, failingAfterAbort(), context);
 
       // Assert — stream should close gracefully (not error) since signal is aborted
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
 
       const reader = nativeResponse!.body!.getReader();
@@ -2748,7 +2748,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
 
       // Assert — pull-based: the stream does not eagerly consume all items.
       // After writeResult returns, the iterator should NOT have been fully drained.
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
 
       // ReadableStream may eagerly pull once to fill its buffer, but should NOT
@@ -2800,7 +2800,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await writeResult(adapter, asyncIterable, context);
 
       // Assert
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       const reader = nativeResponse!.body!.getReader();
       const decoder = new TextDecoder();
 
@@ -3095,7 +3095,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await writeResult(adapter, emptyGenerator(), context);
 
       // Assert — native response should be SSE with no data chunks
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
       expect(nativeResponse!.headers.get('content-type')).toBe('text/event-stream');
 
@@ -3124,7 +3124,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Assert — native response is set (SSE path). No event was emitted, so the
       // stream closes cleanly (empty) and the failure goes to the server log,
       // not the client transport — the reader sees a clean EOF, not a rejection.
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
 
       const reader = nativeResponse!.body!.getReader();
@@ -3163,7 +3163,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       // Assert — unlike SSE, a raw byte stream has no event/reconnect semantics:
       // the first chunk is delivered, then the stream is errored so the client
       // observes a truncated, incomplete response (HTTP chunked-transfer).
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
 
       const reader = nativeResponse!.body!.getReader();
@@ -3206,7 +3206,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await writeResult(adapter, asyncIterable, context);
 
       // Assert — native response should still be created
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
 
       // Cancel the stream — should not throw despite iterator.return() throwing
@@ -3249,7 +3249,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await writeResult(adapter, asyncIterable, context);
 
       // Assert
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
 
       const reader = nativeResponse!.body!.getReader();
@@ -3733,7 +3733,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await writeResult(adapter, sseGenerator(), context);
 
       // Assert
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
       expect(nativeResponse!.headers.get('content-type')).toBe('text/event-stream');
       expect(nativeResponse!.headers.get('cache-control')).toBe('no-cache');
@@ -3788,7 +3788,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await writeResult(adapter, asyncIterable, context);
 
       // Assert — no SSE headers
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       expect(nativeResponse).toBeInstanceOf(Response);
       expect(nativeResponse!.headers.get('content-type')).not.toBe('text/event-stream');
 
@@ -3829,7 +3829,7 @@ describe('HttpAdapter route-level middleware pipeline', () => {
       await writeResult(adapter, stringGenerator(), context);
 
       // Assert
-      const nativeResponse = http.response.getNativeResponse();
+      const nativeResponse = http.response.end();
       const reader = nativeResponse!.body!.getReader();
       const firstRead = await reader.read();
       expect(firstRead.done).toBe(false);

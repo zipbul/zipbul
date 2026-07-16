@@ -1,19 +1,12 @@
 import type { HttpRequest } from './http-request';
-import type { RedirectStatus, ResponseBodyValue } from './types';
+import type { BodySlot, BufferedBodyValue, RedirectStatus, ResponseBodyValue } from './types';
 
-import { ContentType, HttpHeader, HttpStatus } from './enums';
+import { ContentType, HttpHeader, HttpStatus, ResponseBodyKind } from './enums';
 import { reasonOf } from './utils';
 
 const DANGEROUS_SCHEME_PATTERN = /^(?:javascript|data|vbscript):/i;
 
 /** Fire-and-forget cancel — swallows errors from already-closed streams. */
-function cancelStreamQuietly(response: Response | undefined): void {
-  const body = response?.body;
-  if (body === null || body === undefined) return;
-  body.cancel().catch(() => {});
-}
-
-/** Fire-and-forget cancel for a bare stream (used when swapping bodies). */
 function cancelBodyQuietly(body: ReadableStream | null | undefined): void {
   if (body === null || body === undefined) return;
   body.cancel().catch(() => {});
@@ -45,55 +38,37 @@ function unionVary(existing: string, addition: string): string {
 }
 
 /**
- * Folds an override header entry into a base `Headers` under the merge rules
- * shared by every read and by the final wire assembly:
- *
- * 1. Native Response headers are the base (the handler's explicit choice wins).
- * 2. `Set-Cookie` is appended (RFC 6265: multiple allowed).
- * 3. `Vary` is unioned, never overwritten (RFC 9110 §12.5.5).
- * 4. Any other key is added only when the base lacks it.
+ * Headers that describe the *representation* rather than the exchange —
+ * discarded whenever the whole representation is swapped for a different one
+ * ({@link HttpResponse.replaceRepresentation}). CORS/security/Set-Cookie/Vary
+ * describe the exchange, not the body, and are never in this list.
  */
-function foldOverride(base: Headers, key: string, value: string): void {
-  if (key === HttpHeader.SetCookie) {
-    base.append(key, value);
-    return;
-  }
-  if (key === HttpHeader.Vary && base.has(key)) {
-    base.set(key, unionVary(base.get(key) as string, value));
-    return;
-  }
-  if (!base.has(key)) {
-    base.set(key, value);
-  }
-}
+const REPRESENTATION_METADATA_HEADERS: readonly string[] = [
+  HttpHeader.ContentEncoding,
+  HttpHeader.ETag,
+  HttpHeader.CacheControl,
+  HttpHeader.LastModified,
+  HttpHeader.ContentDigest,
+  HttpHeader.ReprDigest,
+];
 
 export class HttpResponse {
   private readonly req: HttpRequest;
-  private _body: ResponseBodyValue | undefined;
-  private _headers: Headers | undefined;
-  private _contentType: string | undefined;
-  private _contentLength: string | undefined;
+
+  private _headers: Headers;
   private _status: HttpStatus | undefined;
   private _statusText: string | undefined;
-
-  /** Cached final Response — once built via end(), never rebuilt. */
-  private _response: Response | undefined;
+  private _body: BodySlot = { kind: ResponseBodyKind.None };
 
   /** Middleware/handler committed flag — pipeline stops processing. */
   private _committed = false;
 
-  /** Tracks whether serialize() has been called to prevent double serialization. */
-  private _serialized = false;
-
-  /** Raw native Response before header merge (SSE, streaming, handler Response). */
-  private _rawNativeResponse: Response | undefined;
-
-  /** Cached merged native Response (raw + _headers). Created lazily in getNativeResponse(). */
-  private _mergedNativeResponse: Response | undefined;
+  /** Cached final Response — once built via end(), never rebuilt. */
+  private _response: Response | undefined;
 
   constructor(req: HttpRequest, headers?: Headers) {
     this.req = req;
-    this._headers = headers !== undefined ? new Headers(headers) : undefined;
+    this._headers = headers !== undefined ? new Headers(headers) : new Headers();
   }
 
   // ── Pipeline control ────────────────────────────────────────
@@ -133,42 +108,23 @@ export class HttpResponse {
   // ── State reset ─────────────────────────────────────────────
 
   /**
-   * Resets all response state including stream references.
+   * Resets all response state including the body slot.
    * Used by error recovery paths that need a clean slate.
    *
    * @public
    */
   reset(): void {
-    cancelStreamQuietly(this._rawNativeResponse);
-    this._headers = undefined;
-    this._contentType = undefined;
-    this._contentLength = undefined;
-    this._body = undefined;
+    this.discardBody();
+    this._headers = new Headers();
     this._status = undefined;
     this._statusText = undefined;
     this._committed = false;
-    this._serialized = false;
-    this._rawNativeResponse = undefined;
-    this._mergedNativeResponse = undefined;
     this._response = undefined;
   }
 
   // ── Status ──────────────────────────────────────────────────
 
-  /**
-   * Returns the status that will actually be sent.
-   *
-   * A native Response ships its own status verbatim (see {@link getNativeResponse}),
-   * so it takes precedence here: a middleware gate that read the buffered status
-   * instead would, for example, see 200 for a handler's 206 and compress a
-   * partial representation. Status `0` (`Response.error()`) is not a wire status —
-   * it falls through to the buffered value.
-   */
   getStatus(): HttpStatus | undefined {
-    const nativeStatus = this._rawNativeResponse?.status;
-    if (nativeStatus !== undefined && nativeStatus !== 0) {
-      return nativeStatus as HttpStatus;
-    }
     return this._status;
   }
 
@@ -181,65 +137,33 @@ export class HttpResponse {
   // ── Headers ─────────────────────────────────────────────────
 
   get headers(): Headers {
-    return this.ensureHeaders();
+    return this._headers;
   }
 
   /**
-   * Returns the header value that will actually be sent — the same merged view
-   * the wire gets, so a middleware never reads one thing and ships another.
-   *
    * `Set-Cookie` is multi-valued and cannot be represented as a single string
    * (`Headers.get` comma-folds it into an invalid value), so it always reads
    * `null` here; the wire keeps every cookie.
    */
   getHeader(name: string): string | null {
-    const normalized = name.toLowerCase();
-
-    if (normalized === HttpHeader.SetCookie) {
-      return null;
-    }
-
-    return this.mergedHeaderValue(normalized);
+    if (name.toLowerCase() === HttpHeader.SetCookie) return null;
+    return this._headers.get(name);
   }
 
   setHeader(name: string, value: string): this {
-    const normalized = name.toLowerCase();
-
-    if (normalized === HttpHeader.ContentType) {
-      this._contentType = value;
-      this._headers?.set(name, value);
-      return this;
-    }
-
-    if (normalized === HttpHeader.ContentLength) {
-      this._contentLength = value;
-      this._headers?.set(name, value);
-      return this;
-    }
-
-    this.ensureHeaders().set(name, value);
-    this._mergedNativeResponse = undefined;
+    this._headers.set(name, value);
     return this;
   }
 
   setHeaders(headers: Record<string, string>): this {
     for (const [name, value] of Object.entries(headers)) {
-      this.setHeader(name, value);
+      this._headers.set(name, value);
     }
     return this;
   }
 
   removeHeader(name: string): this {
-    const normalized = name.toLowerCase();
-
-    if (normalized === HttpHeader.ContentType) {
-      this._contentType = undefined;
-    } else if (normalized === HttpHeader.ContentLength) {
-      this._contentLength = undefined;
-    }
-
-    this._headers?.delete(name);
-    this._mergedNativeResponse = undefined;
+    this._headers.delete(name);
     return this;
   }
 
@@ -260,7 +184,7 @@ export class HttpResponse {
       && (contentType.startsWith('text/')
         || contentType === 'application/json'
         || contentType.endsWith('+json'));
-    this.setHeader(
+    this._headers.set(
       HttpHeader.ContentType,
       needsCharset ? `${contentType}; charset=utf-8` : contentType,
     );
@@ -277,129 +201,124 @@ export class HttpResponse {
    * @public
    */
   appendHeader(name: string, value: string): this {
-    this.ensureHeaders().append(name, value);
-    // 헤더 변경은 캐시된 native 병합 결과를 무효화한다 — 안 그러면 병합이 한 번
-    // 계산된 뒤의 append(예: BeforeResponse 미들웨어의 Vary)가 전송에 반영되지 않는다.
-    this._mergedNativeResponse = undefined;
+    this._headers.append(name, value);
     return this;
   }
 
-  // ── Body (all types unified) ────────────────────────────────
+  // ── Body model operations ───────────────────────────────────
+
+  /**
+   * The only way this class discards a body: unifies "clear the slot" and
+   * "cancel the stream it held" into one operation so no call site can do
+   * one without the other (the source of the fd/cursor leak this replaces —
+   * see the class-level design notes).
+   */
+  private discardBody(): void {
+    if (this._body.kind === ResponseBodyKind.Stream) cancelBodyQuietly(this._body.readable);
+    this._body = { kind: ResponseBodyKind.None };
+  }
+
+  /**
+   * Replaces the buffered representation entirely: discards the current body
+   * (any stream it held is cancelled) and the metadata that described the
+   * discarded representation (Content-Encoding, ETag, Cache-Control,
+   * Last-Modified, Content-Digest, Repr-Digest) — all of it describes bytes
+   * that no longer exist. Exchange headers (CORS, security, Set-Cookie, Vary)
+   * describe the exchange, not the body, and survive.
+   *
+   * Buffered representations only — streams go through {@link setBody} /
+   * {@link replaceBodyStream}.
+   *
+   * @public
+   */
+  replaceRepresentation(body: BufferedBodyValue): this {
+    this.setBody(body);
+    for (const header of REPRESENTATION_METADATA_HEADERS) this._headers.delete(header);
+    return this;
+  }
 
   getBody(): ResponseBodyValue | undefined {
-    return this._body;
+    return this._body.kind === ResponseBodyKind.Buffered ? this._body.value : undefined;
   }
 
   /**
    * Returns the streaming body (SSE, streaming, Blob, handler Response), or
    * `null` when the body is buffered or absent.
-   *
-   * This is the encapsulated way to reach a streaming body: middleware that
-   * needs to wrap it (compression) gets the stream, not the whole Response, and
-   * so cannot reach around the header/status model. Reading it does not consume
-   * it; passing it to a transform does — pair with {@link replaceBodyStream}.
    */
   getBodyStream(): ReadableStream | null {
-    return this._rawNativeResponse?.body ?? null;
+    return this._body.kind === ResponseBodyKind.Stream ? this._body.readable : null;
+  }
+
+  /**
+   * The body slot's kind. `Stream` covers a handler-supplied `Response`, a raw
+   * stream, and a Blob-backed body; it is not "streaming" in the runtime
+   * sense — a bodiless handler `Response` is `Stream` with `readable: null`.
+   */
+  get bodyKind(): ResponseBodyKind {
+    return this._body.kind;
   }
 
   /**
    * Swaps the streaming body while keeping the response's headers and status.
-   *
-   * The existing native headers are hoisted into the override store, and the new
-   * native carries the body alone. That inversion is the point: after the swap
-   * every header lives where `setHeader`/`removeHeader` can reach it, so a
-   * middleware that re-encodes the body can actually drop the now-false
-   * `Content-Length`/integrity fields and weaken the `ETag` — with the headers
-   * left on the native they would win the merge and ship stale metadata.
-   *
-   * With no native response set this is just {@link setBody}.
+   * Handing back the current stream is a no-op (a middleware that decides
+   * mid-flight not to transform must not cancel-and-reuse its own body).
    *
    * @param stream - The replacement body.
    * @returns `this` for chaining.
    * @public
    */
   replaceBodyStream(stream: ReadableStream): this {
-    const native = this._rawNativeResponse;
-    if (native === undefined) {
-      return this.setBody(stream);
+    if (this._body.kind === ResponseBodyKind.Stream && this._body.readable === stream) {
+      return this;
     }
-
-    const target = this.ensureHeaders();
-    for (const [key, value] of native.headers.entries()) {
-      if (key === HttpHeader.SetCookie) continue; // handled below — entries() folds cookies
-      if (key === HttpHeader.Vary && target.has(key)) {
-        target.set(key, unionVary(target.get(key) as string, value));
-        continue;
-      }
-      target.set(key, value);
-      if (key === HttpHeader.ContentType) this._contentType = value;
-      if (key === HttpHeader.ContentLength) this._contentLength = value;
-    }
-    for (const cookie of native.headers.getSetCookie()) {
-      target.append(HttpHeader.SetCookie, cookie);
-    }
-
-    const init: ResponseInit = {
-      ...(native.status !== 0 ? { status: native.status } : {}),
-      ...(native.statusText !== '' ? { statusText: native.statusText } : {}),
-    };
-
-    cancelBodyQuietly(native.body);
-    this._body = undefined;
-    this._rawNativeResponse = new Response(stream, init);
-    this._mergedNativeResponse = undefined;
-    this._serialized = false;
+    this.discardBody();
+    this._headers.delete(HttpHeader.ContentLength);
+    this._body = { kind: ResponseBodyKind.Stream, readable: stream, blobBacked: false };
     return this;
   }
 
   /**
    * Sets the response body. Handles all body types through a unified API:
-   * - `ReadableStream` → native Response passthrough
+   * - `ReadableStream` → stream slot passthrough
    * - `Blob` → stream() conversion with manual Content-Length (prevents Blob.type auto-CT)
-   * - All others → buffered body path
+   * - `undefined` → discards the body (≡ {@link discardBody}) — auto-204 candidate
+   * - All others → buffered slot, explicit `null` included (→ 200 with an empty body)
    *
-   * Mutually exclusive: `_body` and `_rawNativeResponse` — last `setBody()` call wins.
+   * `Content-Length` is always cleared first — it describes the previous
+   * body's byte length, which the new body does not share. The Blob branch
+   * re-declares it from the Blob's own known size.
    *
    * @param data - The response body value.
    * @returns `this` for chaining.
    * @public
    */
   setBody(data: ResponseBodyValue | undefined): this {
-    this._serialized = false;
+    this.discardBody();
+    this._headers.delete(HttpHeader.ContentLength);
 
     if (data instanceof ReadableStream) {
-      cancelStreamQuietly(this._rawNativeResponse);
-      this._body = undefined;
-      this._rawNativeResponse = new Response(data);
-      this._mergedNativeResponse = undefined;
+      this._body = { kind: ResponseBodyKind.Stream, readable: data, blobBacked: false };
       return this;
     }
 
     if (data instanceof Blob) {
-      cancelStreamQuietly(this._rawNativeResponse);
-      this._body = undefined;
+      // Content-Type is declared, not derived from bytes (§9) — a Blob only
+      // fills an empty slot; File is a Blob subclass, covered the same way.
       if (this.getContentType() === null && data.type) {
         this.setContentType(data.type);
       }
       this.setHeader(HttpHeader.ContentLength, data.size.toString());
-
-      const native = new Response(data.stream());
-      // `new Response(blob.stream())` still infers `Content-Type` from the Blob in
-      // Bun, and a native header beats the override store — which would silently
-      // override an explicitly-set Content-Type (and drop the charset we add for
-      // text types). Strip it so the resolved value above is the one that ships.
-      native.headers.delete(HttpHeader.ContentType);
-      this._rawNativeResponse = native;
-      this._mergedNativeResponse = undefined;
+      this._body = {
+        kind: ResponseBodyKind.Stream,
+        readable: data.stream(),
+        blobBacked: data.type !== '',
+      };
       return this;
     }
 
-    // Buffered body — clear native path
-    cancelStreamQuietly(this._rawNativeResponse);
-    this._body = data;
-    this._rawNativeResponse = undefined;
-    this._mergedNativeResponse = undefined;
+    if (data === undefined) return this;
+
+    this._body = { kind: ResponseBodyKind.Buffered, value: data };
     return this;
   }
 
@@ -416,216 +335,239 @@ export class HttpResponse {
     return this;
   }
 
-  // ── Native Response (lazy merge) ────────────────────────────
+  // ── Native Response decomposition (entry boundary) ──────────
 
   /**
-   * Stores a native `Response` for passthrough (SSE, streaming, handler Response).
-   * Merging with `_headers` happens lazily in `getNativeResponse()`.
+   * Decomposes a handler-supplied `Response` into this model at the pipeline
+   * boundary — the only entry point (`response-writer/write-success.ts`).
+   * There is no native `Response` stored anywhere after this call: headers,
+   * status, and body are absorbed, and the shell is discarded.
    *
-   * @param response - The native Response to passthrough.
+   * Header/cookie precedence is last-write-wins, same as every other write
+   * to this model (`Set-Cookie` appends, `Vary` unions) — the handler's
+   * `Response` is simply a later write in the pipeline, not a privileged one.
+   *
+   * `Response.error()` (status `0`, `type: 'error'`) is not a wire response —
+   * passing it through would ship a malformed response. It normalizes to a
+   * generic server error (or whatever status was already set before this
+   * call, which wins), with its body cancelled rather than adopted.
+   *
+   * @param response - The native Response to decompose.
    * @public
    */
   setNativeResponse(response: Response): void {
-    cancelStreamQuietly(this._rawNativeResponse);
-    this._rawNativeResponse = response;
-    this._mergedNativeResponse = undefined;
-    this._body = undefined;
-  }
+    this.discardBody();
 
-  /**
-   * Returns whether a native Response is set, without triggering the merge.
-   * Used by WriteResponse step to decide whether to skip BeforeResponse phase.
-   *
-   * @public
-   */
-  hasNativeResponse(): boolean {
-    return this._rawNativeResponse !== undefined;
-  }
-
-  /**
-   * Returns the raw native Response, pre-merge.
-   *
-   * Adapter-internal. Middleware must not reach past the response model: read
-   * through {@link getHeader}/{@link getStatus} (which report the merged, wire-true
-   * value) and swap bodies with {@link replaceBodyStream}. Handing out the raw
-   * Response leaks the two-store representation and lets callers ship headers that
-   * disagree with what they just read.
-   *
-   * @returns The raw native Response, or `undefined` if none is set.
-   * @internal
-   */
-  peekNativeResponse(): Response | undefined {
-    return this._rawNativeResponse;
-  }
-
-  /**
-   * Returns the native Response with `_headers` merged in.
-   * Creates and caches the merged Response on first call.
-   *
-   * Adapter-internal: this is the send-boundary assembly, called once by the
-   * server after every finalizer has run. Middleware reads go through
-   * {@link getHeader}/{@link getStatus}, which report this same merged view, so
-   * nothing needs the assembled Response mid-pipeline.
-   *
-   * Merge rules live in {@link mergedHeaders} — the single definition every read
-   * and this assembly share.
-   *
-   * @returns The merged Response, or `undefined` if no native Response set.
-   * @internal
-   */
-  getNativeResponse(): Response | undefined {
-    if (this._rawNativeResponse === undefined) return undefined;
-    if (this._mergedNativeResponse !== undefined) return this._mergedNativeResponse;
-
-    const headerOverrides = this.buildHeaders();
-
-    if (headerOverrides === undefined) {
-      return this._rawNativeResponse;
+    if (response.type === 'error' || response.status === 0) {
+      cancelBodyQuietly(response.body);
+      this._status ??= HttpStatus.InternalServerError;
+      // A normalized error response is a different representation than
+      // whatever a prior step described (ETag, Cache-Control, a real
+      // Content-Length) — that metadata is now false and must not ride
+      // along. The slot stays Stream{readable: null}, not Buffered: it is
+      // still the marker that a handler-side response applied here, which
+      // the AfterHandle skip contract depends on.
+      this._headers.delete(HttpHeader.ContentLength);
+      for (const header of REPRESENTATION_METADATA_HEADERS) this._headers.delete(header);
+      this._body = { kind: ResponseBodyKind.Stream, readable: null, blobBacked: false };
+      return;
     }
 
-    const merged = this.mergedHeaders(this._rawNativeResponse, headerOverrides);
+    // Must run before folding headers below: this Response's own
+    // Content-Length is the true length of the body being adopted and must
+    // survive the fold; a later delete would wipe it out too.
+    this._headers.delete(HttpHeader.ContentLength);
 
-    this._mergedNativeResponse = new Response(this._rawNativeResponse.body, {
-      status: this._rawNativeResponse.status,
-      statusText: this._rawNativeResponse.statusText,
-      headers: merged,
-    });
-    return this._mergedNativeResponse;
+    this._status = response.status as HttpStatus;
+    this._statusText = response.statusText !== '' ? response.statusText : undefined;
+
+    for (const [key, value] of response.headers.entries()) {
+      if (key === HttpHeader.SetCookie) continue; // entries() folds cookies — appended below
+      if (key === HttpHeader.Vary && this._headers.has(key)) {
+        this._headers.set(key, unionVary(this._headers.get(key)!, value));
+        continue;
+      }
+      this._headers.set(key, value);
+    }
+    for (const cookie of response.headers.getSetCookie()) {
+      this._headers.append(HttpHeader.SetCookie, cookie);
+    }
+
+    this._body = {
+      kind: ResponseBodyKind.Stream,
+      readable: response.body,
+      // Whether the handler built this Response from a Blob is not
+      // observable from here — assume conservatively that it might be. The
+      // cost only materializes when the wire has no Content-Type (§5).
+      blobBacked: response.body !== null,
+    };
   }
 
   /**
-   * Cancels the raw native Response stream. Used in error paths
-   * to release file descriptors when the response won't be sent.
+   * Cancels the current body if it is a stream. Used by error paths to
+   * release file descriptors when the response won't be sent.
    *
    * @public
    */
-  cancelNativeStream(): void {
-    cancelStreamQuietly(this._rawNativeResponse);
+  cancelBody(): void {
+    this.discardBody();
   }
 
   // ── Serialize (Content-Type inference + JSON.stringify) ──────
 
   /**
-   * Performs Content-Type inference and JSON serialization on the buffered body.
-   * Converts JS objects/arrays/numbers/booleans to JSON strings.
+   * Performs Content-Type inference and JSON serialization on the buffered
+   * body. Converts JS objects/arrays/numbers/booleans to JSON strings.
    *
    * Called by Serialize step between AfterHandle and BeforeResponse phases,
    * so that BeforeResponse middleware receives serialized bytes (enabling compression, ETag, signing).
    *
-   * No-op when the response has a native Response (SSE, streaming, Blob, handler Response)
-   * or when the body is already a string/binary type.
+   * No-op when the body is a stream (SSE, streaming, Blob, handler Response)
+   * or absent. Serialization is decided by the body's type, never by a
+   * Content-Type label — a leftover label from an earlier step (e.g.
+   * `@ContentType('text/html')`) must not suppress serializing an error
+   * body written after it.
+   *
+   * Naturally idempotent: once a value is serialized it becomes a `string`,
+   * which the type check below already treats as "leave it alone" — no
+   * separate "already serialized" flag is needed.
    *
    * @public
    */
   serialize(): void {
-    if (this._serialized) return;
-    this._serialized = true;
+    if (this._body.kind !== ResponseBodyKind.Buffered) return;
 
-    // Native Response — body is in the native Response, not in _body
-    if (this._rawNativeResponse !== undefined) return;
+    const value = this._body.value;
 
-    // No body — nothing to serialize
-    if (this._body === undefined) return;
-
-    // Content-Type inference from body type
     if (this.getContentType() === null) {
-      this.setContentType(this.inferContentType());
+      this.setContentType(this.inferContentType(value));
     }
 
-    // Already-serialized bodies: a string or binary body needs no JSON
-    // serialization regardless of Content-Type — re-stringifying a Uint8Array
-    // set by a BeforeResponse middleware (e.g. compression) would corrupt it
-    // into `{"0":31,"1":139,...}`. Honors the documented no-op contract above.
+    // Already-serialized values: a string is JSON text (or plain text)
+    // already; binary bodies must never be stringified (would corrupt a
+    // Uint8Array into `{"0":31,...}`); `null` means an intentionally empty
+    // body, not a value to encode.
     if (
-      typeof this._body === 'string'
-      || this._body instanceof Uint8Array
-      || this._body instanceof ArrayBuffer
+      typeof value === 'string'
+      || value instanceof Uint8Array
+      || value instanceof ArrayBuffer
+      || value === null
     ) {
       return;
     }
 
-    // JSON serialization
-    const contentType = this.getContentType();
-    if (contentType?.startsWith(ContentType.Json) === true) {
-      try {
-        this._body = JSON.stringify(this._body);
-      } catch (error) {
-        this.setContentType(ContentType.Text);
-        this._body = '[unserializable body]';
+    try {
+      this._body = { kind: ResponseBodyKind.Buffered, value: JSON.stringify(value) };
+    } catch (error) {
+      this.setContentType(ContentType.Text);
+      this._body = { kind: ResponseBodyKind.Buffered, value: '[unserializable body]' };
 
-        if (typeof console !== 'undefined') {
-          console.error('JSON serialization failed in HttpResponse.serialize():', error);
-        }
+      if (typeof console !== 'undefined') {
+        console.error('JSON serialization failed in HttpResponse.serialize():', error);
       }
     }
   }
 
-  // ── Build (buffered body → Response) ────────────────────────
+  // ── Build (model → Response) ────────────────────────────────
 
   private build(): Response {
     // Safety net: ensure serialization ran even if called outside the pipeline (e.g. tests, edge cases).
     // Idempotent — no-op if already called by Serialize step.
     this.serialize();
 
-    const location = this.getHeader(HttpHeader.Location);
+    // Out-of-range status must be normalized to a generic 500 representation
+    // before the RFC branches below run — normalizing it later, inside
+    // createResponse(), let a branch that must drop the body (HEAD, 204/205,
+    // a 3xx redirect) discard whatever was there and then have the fallback
+    // re-inject a body afterward, violating that branch's own no-body
+    // contract (e.g. a HEAD response shipping "Internal Server Error").
+    const s = this._status;
+    if (s !== undefined && s !== 101 && (s < 200 || s > 599)) {
+      this.setStatus(HttpStatus.InternalServerError);
+      this.setContentType('text/plain');
+      this.replaceRepresentation('Internal Server Error');
+    }
 
-    // 1. Redirect: Location header → default 302, body removed
-    if (typeof location === 'string' && location.length > 0) {
-      if (this._status === undefined) {
+    const location = this.getHeader(HttpHeader.Location);
+    const status = this._status;
+
+    // 1. Redirect: RFC 9110 §10.2.2 — the meaning of Location is subordinate
+    // to status. Only a 3xx (or no status yet, defaulting to 302) makes this
+    // a redirect; on e.g. 201 Created, Location names the created resource
+    // and its body must ship.
+    if (
+      typeof location === 'string' && location.length > 0
+      && (status === undefined || (status >= 300 && status <= 399))
+    ) {
+      if (status === undefined) {
         this.setStatus(HttpStatus.Found);
       }
-      this._body = undefined;
+      this.discardBody();
       // Body is dropped — content-coupled metadata (Content-Encoding set by a
-      // BeforeResponse middleware, stale Content-Length) would describe content
-      // that no longer exists. RFC 9110 §8.4: Content-Encoding is a property of
-      // the (now absent) representation content.
-      this._headers?.delete(HttpHeader.ContentEncoding);
-      this._headers?.delete(HttpHeader.ContentLength);
+      // BeforeResponse middleware, stale Content-Length, integrity digests)
+      // would describe content that no longer exists.
+      this._headers.delete(HttpHeader.ContentEncoding);
+      this._headers.delete(HttpHeader.ContentLength);
+      this._headers.delete(HttpHeader.ContentDigest);
+      this._headers.delete(HttpHeader.ReprDigest);
       return this.createResponse();
     }
 
-    // 2. 204/205/304: body removed per RFC — checked before Content-Type inference
+    // 2. 101: RFC 9110 §15.2.2 — Switching Protocols has no representation at
+    // all, so no Content-Type/-Length/-Encoding to strip, just the body.
+    if (this._status === HttpStatus.SwitchingProtocols) {
+      this.discardBody();
+      return this.createResponse();
+    }
+
+    // 3. 204/205/304: body removed per RFC — checked before Content-Type inference.
     if (
-      this._status === HttpStatus.NoContent ||
-      this._status === HttpStatus.ResetContent ||
-      this._status === HttpStatus.NotModified
+      this._status === HttpStatus.NoContent
+      || this._status === HttpStatus.ResetContent
+      || this._status === HttpStatus.NotModified
     ) {
-      this._body = undefined;
-      // RFC 9110 §15.3.5/§15.3.6: 204/205 MUST NOT contain content. Content-Type
-      // describes non-existent content and MUST be removed. 304 MAY carry
-      // Content-Type (RFC 9110 §15.4.5) so only strip for 204/205. Likewise
-      // Content-Encoding/Content-Length describe absent content on 204/205,
-      // while on 304 they are permitted representation metadata for cache updates.
+      this.discardBody();
+      // RFC 9110 §15.3.5/§15.3.6: 204/205 MUST NOT contain content, so
+      // Content-Type/-Encoding/-Length and integrity digests (which describe
+      // that now-absent content) are removed. 304 is exempt (RFC 9110
+      // §15.4.5): validators and representation metadata remain valid
+      // cache-revalidation data.
       if (this._status !== HttpStatus.NotModified) {
-        this._contentType = undefined;
-        this._headers?.delete(HttpHeader.ContentType);
-        this._headers?.delete(HttpHeader.ContentEncoding);
-        this._headers?.delete(HttpHeader.ContentLength);
+        this._headers.delete(HttpHeader.ContentType);
+        this._headers.delete(HttpHeader.ContentEncoding);
+        this._headers.delete(HttpHeader.ContentLength);
+        this._headers.delete(HttpHeader.ContentDigest);
+        this._headers.delete(HttpHeader.ReprDigest);
       }
       return this.createResponse();
     }
 
-    // 3. Auto 204: no status + no body — skip Content-Type
-    if (this._status === undefined && this._body === undefined) {
+    // 4. Auto 204: untouched state — no status was ever set and no body was
+    // ever assigned.
+    if (this._body.kind === ResponseBodyKind.None && this._status === undefined) {
       this.setStatus(HttpStatus.NoContent);
       return this.createResponse();
     }
 
-    // 4. HEAD: Content-Length from serialized body, then body removed (RFC 9110 §9.3.2)
+    // 5. HEAD: RFC 9110 §9.3.2 — body must not be sent. A buffered body's
+    // Content-Length is computed first (what a GET would have shipped); a
+    // stream's Content-Length, if any, was already declared by setBody's Blob
+    // branch and survives untouched.
     if (this.req.method === 'HEAD') {
       if (this._status === undefined) {
         this.setStatus(HttpStatus.Ok);
       }
 
-      if (typeof this._body === 'string') {
-        this.setHeader(HttpHeader.ContentLength, Buffer.byteLength(this._body, 'utf-8').toString());
-      } else if (this._body instanceof Uint8Array) {
-        this.setHeader(HttpHeader.ContentLength, this._body.byteLength.toString());
-      } else if (this._body instanceof ArrayBuffer) {
-        this.setHeader(HttpHeader.ContentLength, this._body.byteLength.toString());
+      if (this._body.kind === ResponseBodyKind.Buffered) {
+        const value = this._body.value;
+        if (typeof value === 'string') {
+          this.setHeader(HttpHeader.ContentLength, Buffer.byteLength(value, 'utf-8').toString());
+        } else if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
+          this.setHeader(HttpHeader.ContentLength, value.byteLength.toString());
+        }
       }
 
-      this._body = undefined;
+      this.discardBody();
       return this.createResponse();
     }
 
@@ -633,41 +575,41 @@ export class HttpResponse {
   }
 
   /**
-   * Creates the final `Response` from current state.
-   * Validates status range — out-of-range status falls back to 500.
+   * Assembles the final `Response` from the current model — the single
+   * assembly point every `build()` branch funnels through.
    */
   private createResponse(): Response {
-    const body = this.normalizeBody();
-    const status = this._status ?? HttpStatus.Ok;
-    const headers = this.buildHeaders();
+    const body = this._body.kind === ResponseBodyKind.Stream
+      ? this.wireBody(this._body)
+      : this.normalizeBody();
 
-    // Status range validation: Fetch Response constructor only accepts
-    // 200–599 (and the special-case 101 for switching protocols).
-    if (status !== 101 && (status < 200 || status > 599)) {
-      return new Response('Internal Server Error', {
-        status: HttpStatus.InternalServerError,
-        ...(headers !== undefined ? { headers } : {}),
-      });
-    }
-
-    const init: ResponseInit = {
-      status,
-      ...(headers !== undefined ? { headers } : {}),
+    return new Response(body, {
+      status: this._status ?? HttpStatus.Ok,
       ...(this._statusText !== undefined ? { statusText: this._statusText } : {}),
-    };
-
-    return new Response(body, init);
+      headers: this._headers,
+    });
   }
 
-  private inferContentType(): string {
-    if (this._body instanceof Uint8Array || this._body instanceof ArrayBuffer) {
+  /**
+   * Isolates a Bun runtime quirk: Bun infers `Content-Type` from a
+   * Blob-backed stream at send time, even after `removeHeader` deleted it in
+   * memory. Breaking the Blob backing (`pipeThrough`) defeats the inference,
+   * but costs ~17µs — only paid when the wire would otherwise ship no
+   * Content-Type at all.
+   */
+  private wireBody(slot: Extract<BodySlot, { kind: ResponseBodyKind.Stream }>): ReadableStream | null {
+    if (slot.readable === null || !slot.blobBacked) return slot.readable;
+    if (this._headers.has(HttpHeader.ContentType)) return slot.readable;
+    return slot.readable.pipeThrough(new TransformStream());
+  }
+
+  private inferContentType(value: BufferedBodyValue): string {
+    if (value instanceof Uint8Array || value instanceof ArrayBuffer) {
       return 'application/octet-stream';
     }
     if (
-      this._body !== null &&
-      (typeof this._body === 'object' ||
-        typeof this._body === 'number' ||
-        typeof this._body === 'boolean')
+      value !== null
+      && (typeof value === 'object' || typeof value === 'number' || typeof value === 'boolean')
     ) {
       return ContentType.Json;
     }
@@ -675,91 +617,19 @@ export class HttpResponse {
   }
 
   private normalizeBody(): string | Uint8Array | ArrayBuffer | null {
-    if (this._body === undefined || this._body === null) {
-      return null;
+    if (this._body.kind === ResponseBodyKind.None) return null;
+    if (this._body.kind === ResponseBodyKind.Stream) {
+      // Unreachable: build() only calls normalizeBody() for non-Stream slots.
+      throw new Error('normalizeBody received a Stream body — build() should have routed it through wireBody()');
     }
-    if (typeof this._body === 'string') {
-      return this._body;
-    }
-    if (this._body instanceof Uint8Array) {
-      return this._body;
-    }
-    if (this._body instanceof ArrayBuffer) {
-      return this._body;
-    }
-    if (typeof this._body === 'number' || typeof this._body === 'boolean') {
-      return this._body.toString();
-    }
+
+    const value = this._body.value;
+    if (value === null) return null;
+    if (typeof value === 'string') return value;
+    if (value instanceof Uint8Array) return value;
+    if (value instanceof ArrayBuffer) return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return value.toString();
+
     throw new Error('normalizeBody received an unserialized object — build() should have serialized it');
-  }
-
-  /**
-   * The merged header set — the native response's own headers as the base, with
-   * the override store folded in under {@link foldOverride}'s rules. This is the
-   * one place the merge is defined; every public read and the final wire
-   * assembly go through it, so a read can never disagree with what is sent.
-   */
-  private mergedHeaders(native: Response, overrides: Headers | undefined): Headers {
-    const merged = new Headers(native.headers);
-    if (overrides === undefined) return merged;
-
-    for (const [key, value] of overrides.entries()) {
-      if (key === HttpHeader.SetCookie) continue; // entries() folds cookies — appended below
-      foldOverride(merged, key, value);
-    }
-    for (const cookie of overrides.getSetCookie()) {
-      merged.append(HttpHeader.SetCookie, cookie);
-    }
-    return merged;
-  }
-
-  /** Single-header view of {@link mergedHeaders} — used by every public read. */
-  private mergedHeaderValue(normalized: string): string | null {
-    const overrides = this.buildHeaders();
-    const native = this._rawNativeResponse;
-
-    if (native === undefined) {
-      return overrides?.get(normalized) ?? null;
-    }
-
-    return this.mergedHeaders(native, overrides).get(normalized);
-  }
-
-  private ensureHeaders(): Headers {
-    if (this._headers === undefined) {
-      this._headers = new Headers();
-
-      if (this._contentType !== undefined) {
-        this._headers.set(HttpHeader.ContentType, this._contentType);
-      }
-
-      if (this._contentLength !== undefined) {
-        this._headers.set(HttpHeader.ContentLength, this._contentLength);
-      }
-    }
-
-    return this._headers;
-  }
-
-  private buildHeaders(): Headers | undefined {
-    if (this._headers === undefined) {
-      if (this._contentType === undefined && this._contentLength === undefined) {
-        return undefined;
-      }
-
-      const headers = new Headers();
-
-      if (this._contentType !== undefined) {
-        headers.set(HttpHeader.ContentType, this._contentType);
-      }
-
-      if (this._contentLength !== undefined) {
-        headers.set(HttpHeader.ContentLength, this._contentLength);
-      }
-
-      return headers;
-    }
-
-    return this._headers;
   }
 }

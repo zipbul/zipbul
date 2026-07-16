@@ -8,9 +8,9 @@
 파이프라인 (phase = 미들웨어 슬롯, `[step]` = 어댑터 내장 단계):
 ```
 OnRequest → [ResolveRoute] → BeforeParse → [ParseBody] → BeforeValidate → [Validation/Guard]
-  → BeforeHandle → [Handler] → AfterHandle → [WriteResponse] → [Serialize] → BeforeResponse → AfterResponse
+  → BeforeHandle → [Handler] → [WriteResponse] → AfterHandle → [Serialize] → BeforeResponse → AfterResponse
 ```
-정확한 이름·순서는 `src/enums/http-adapter-phase.ts`·`http-adapter-step.ts`가 정본이다.
+phase/step **이름**은 `src/enums/http-adapter-phase.ts`·`http-adapter-step.ts`가 정본이고, 이들이 인터리빙되는 **순서**는 `src/adapter-definition.ts`의 `pipeline` 배열이 정본이다.
 
 ---
 

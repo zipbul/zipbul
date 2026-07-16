@@ -3,7 +3,7 @@ import { reasonOf } from './utils';
 
 import { HttpResponse } from './http-response';
 import type { HttpRequest } from './http-request';
-import { HttpMethod } from './enums';
+import { HttpMethod, ResponseBodyKind } from './enums';
 import { createTestHttpRequest } from './test-fixtures/http-request-fixture';
 
 function createRequest(method: HttpMethod = HttpMethod.Get): HttpRequest {
@@ -71,7 +71,7 @@ describe('HttpResponse', () => {
   // ── reset() ────────────────────────────────────────────────
 
   describe('reset', () => {
-    it('should reset all state including committed and response and rawNativeResponse', () => {
+    it('should reset all state including committed, response, and body', () => {
       const res = createResponse();
       res.setStatus(200);
       res.setHeader('x-custom', 'value');
@@ -85,7 +85,7 @@ describe('HttpResponse', () => {
       expect(res.getStatus()).toBeUndefined();
       expect(res.getHeader('x-custom')).toBeNull();
       expect(res.getBody()).toBeUndefined();
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
     });
 
     it('should cancel existing stream on reset', () => {
@@ -96,13 +96,12 @@ describe('HttpResponse', () => {
         },
       });
       res.setBody(stream);
-      // Access private _rawNativeResponse to spy on its body.cancel
-      // We verify indirectly: after reset, hasNativeResponse is false
-      // and setting a new body does not throw (stream was properly cancelled)
+      // We verify indirectly: after reset, the body slot is empty and
+      // setting a new body does not throw (stream was properly cancelled)
 
       res.reset();
 
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
       expect(res.getBody()).toBeUndefined();
     });
   });
@@ -247,7 +246,7 @@ describe('HttpResponse', () => {
       res.setBody(body);
 
       expect(res.getBody()).toBe(body);
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
     });
 
     it('should set string body via buffered path', () => {
@@ -256,7 +255,7 @@ describe('HttpResponse', () => {
       res.setBody('hello');
 
       expect(res.getBody()).toBe('hello');
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
     });
 
     it('should preserve undefined body (F-RES-2)', () => {
@@ -288,7 +287,7 @@ describe('HttpResponse', () => {
       res.setBody(stream);
 
       expect(res.getBody()).toBeUndefined();
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
     });
 
     it('should set Blob body via stream with Content-Length and auto Content-Type', () => {
@@ -298,7 +297,7 @@ describe('HttpResponse', () => {
       res.setBody(blob);
 
       expect(res.getBody()).toBeUndefined();
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
       expect(res.getHeader('content-length')).toBe(blob.size.toString());
       expect(res.getContentType()).toBe('text/csv; charset=utf-8');
     });
@@ -326,11 +325,11 @@ describe('HttpResponse', () => {
       const res = createResponse();
       const stream = new ReadableStream({ start(c) { c.close(); } });
       res.setBody(stream);
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
 
       res.setBody('buffered');
 
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
       expect(res.getBody()).toBe('buffered');
     });
 
@@ -343,7 +342,7 @@ describe('HttpResponse', () => {
       res.setBody(stream);
 
       expect(res.getBody()).toBeUndefined();
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
     });
 
     it('should cancel previous stream on body transition', () => {
@@ -359,7 +358,7 @@ describe('HttpResponse', () => {
       res.setBody('new body');
 
       expect(res.getBody()).toBe('new body');
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
     });
   });
 
@@ -394,7 +393,7 @@ describe('HttpResponse', () => {
     });
   });
 
-  // ── Native Response (lazy merge) ───────────────────────────
+  // ── Native Response (decomposed at the pipeline boundary) ───
 
   describe('native response', () => {
     it('should store raw native response and clear body via setNativeResponse', () => {
@@ -404,31 +403,29 @@ describe('HttpResponse', () => {
       const nativeRes = new Response('native body');
       res.setNativeResponse(nativeRes);
 
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
       expect(res.getBody()).toBeUndefined();
     });
 
-    it('should return true from hasNativeResponse when native response is set', () => {
+    it('should reflect a Stream bodyKind when a native response is set', () => {
       const res = createResponse();
 
       res.setNativeResponse(new Response('test'));
 
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
     });
 
-    it('should return false from hasNativeResponse when no native response', () => {
+    it('should not reflect a Stream bodyKind when no native response was set', () => {
       const res = createResponse();
 
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
     });
 
-    it('should return undefined from getNativeResponse when no native response set', () => {
-      const res = createResponse();
+    // The old lazy-merge accessor no longer exists — end() is the single
+    // assembly point, and it always returns a Response (auto-204 when
+    // nothing was ever assigned), so there is no "undefined" case to test.
 
-      expect(res.getNativeResponse()).toBeUndefined();
-    });
-
-    it('should create merged Response with headers in getNativeResponse', () => {
+    it('should assemble a Response carrying both a pre-set header and setNativeResponse\'s own status', () => {
       const res = createResponse();
       res.setHeader('x-custom', 'middleware-value');
       res.setNativeResponse(new Response('body', {
@@ -436,61 +433,48 @@ describe('HttpResponse', () => {
         statusText: 'Created',
       }));
 
-      const merged = res.getNativeResponse();
+      const wire = res.end();
 
-      expect(merged).toBeInstanceOf(Response);
-      expect(merged!.status).toBe(201);
-      expect(merged!.headers.get('x-custom')).toBe('middleware-value');
+      expect(wire).toBeInstanceOf(Response);
+      expect(wire.status).toBe(201);
+      expect(wire.headers.get('x-custom')).toBe('middleware-value');
     });
 
-    it('should cache merged native Response on repeated getNativeResponse calls', () => {
-      const res = createResponse();
-      res.setNativeResponse(new Response('body'));
+    // The two tests previously here ("cache merged native Response on
+    // repeated [lazy-merge accessor] calls", "append Set-Cookie from
+    // _headers without overwriting native") tested the old two-store merge
+    // — end()'s own idempotent caching is covered by 'send / isSent / end'
+    // above, and Set-Cookie ordering across a setNativeResponse +
+    // appendHeader sequence is covered by http-response.wire-truth.spec.ts's
+    // 'Set-Cookie order across a body swap (last write wins)'.
 
-      const first = res.getNativeResponse();
-      const second = res.getNativeResponse();
+    // Setting a new header key after setNativeResponse reaching the final
+    // Response is a direct consequence of there being a single Headers
+    // store — nothing left to verify beyond the coexistence test above.
 
-      expect(first).toBe(second);
-    });
-
-    it('should append Set-Cookie from _headers without overwriting native', () => {
-      const res = createResponse();
-      const nativeRes = new Response('body', {
-        headers: { 'set-cookie': 'native=1' },
-      });
-      res.setNativeResponse(nativeRes);
-      res.appendHeader('set-cookie', 'middleware=2');
-
-      const merged = res.getNativeResponse();
-      const cookies = merged!.headers.getSetCookie();
-
-      expect(cookies).toContain('native=1');
-      expect(cookies).toContain('middleware=2');
-    });
-
-    it('should add _headers keys not in native response', () => {
-      const res = createResponse();
-      res.setNativeResponse(new Response('body'));
-      res.setHeader('x-added', 'by-middleware');
-
-      const merged = res.getNativeResponse();
-
-      expect(merged!.headers.get('x-added')).toBe('by-middleware');
-    });
-
-    it('should not overwrite native response headers with _headers keys', () => {
+    // Last-write-wins is an intentional design change (see the redesign
+    // doc §3): the old two-store model made native headers win regardless
+    // of pipeline order; the single-store model makes the later write win,
+    // matching Express/Fastify/Hono and letting BeforeResponse middleware
+    // (e.g. helmet) actually override a weak value a handler set.
+    it('lets a later setHeader override a value the native response declared (last write wins)', () => {
       const res = createResponse();
       res.setNativeResponse(new Response('body', {
         headers: { 'x-source': 'native' },
       }));
       res.setHeader('x-source', 'middleware');
 
-      const merged = res.getNativeResponse();
+      const wire = res.end();
 
-      expect(merged!.headers.get('x-source')).toBe('native');
+      expect(wire.headers.get('x-source')).toBe('middleware');
     });
 
-    it('should cancel native stream via cancelNativeStream', () => {
+    // cancelBody() (the old stream-only canceler's successor) is
+    // discardBody() — it does not just cancel the stream in place, it
+    // clears the body slot entirely, since "cancel and still claim to have
+    // a body" is exactly the stale-flag class of bug the single-slot
+    // redesign removes.
+    it('should empty the body slot via cancelBody', () => {
       const res = createResponse();
       const stream = new ReadableStream({
         start(controller) {
@@ -500,10 +484,9 @@ describe('HttpResponse', () => {
       res.setNativeResponse(new Response(stream));
 
       // Should not throw
-      res.cancelNativeStream();
+      res.cancelBody();
 
-      // After cancelling, the stream should be in a cancelled state
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind).toBe(ResponseBodyKind.None);
     });
   });
 
@@ -875,7 +858,7 @@ describe('HttpResponse', () => {
       res.setBody(body);
 
       expect(res.getBody()).toBe(body);
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
     });
 
     it('should handle ArrayBuffer body via buffered path', () => {
@@ -885,7 +868,7 @@ describe('HttpResponse', () => {
       res.setBody(body);
 
       expect(res.getBody()).toBe(body);
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
     });
 
     it('should handle rapid transitions stream to blob to buffer to stream', () => {
@@ -893,21 +876,21 @@ describe('HttpResponse', () => {
 
       const stream1 = new ReadableStream({ start(c) { c.close(); } });
       res.setBody(stream1);
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
       expect(res.getBody()).toBeUndefined();
 
       const blob = new Blob(['data'], { type: 'text/plain' });
       res.setBody(blob);
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
       expect(res.getBody()).toBeUndefined();
 
       res.setBody('buffered');
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
       expect(res.getBody()).toBe('buffered');
 
       const stream2 = new ReadableStream({ start(c) { c.close(); } });
       res.setBody(stream2);
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
       expect(res.getBody()).toBeUndefined();
     });
 
@@ -917,7 +900,7 @@ describe('HttpResponse', () => {
 
       res.setBody(emptyBlob);
 
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
       expect(res.getHeader('content-length')).toBe('0');
     });
   });
@@ -948,30 +931,12 @@ describe('HttpResponse', () => {
       const res = createResponse();
       res.setNativeResponse(new Response('native'));
 
-      expect(res.hasNativeResponse()).toBe(true);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(true);
 
       res.setBody('buffered override');
 
-      expect(res.hasNativeResponse()).toBe(false);
+      expect(res.bodyKind === ResponseBodyKind.Stream).toBe(false);
       expect(res.getBody()).toBe('buffered override');
-    });
-  });
-
-  // ── getNativeResponse with no _headers modifications ───────
-
-  describe('getNativeResponse with no headers modifications', () => {
-    it('should return merged response identical to raw when no _headers were added', async () => {
-      const res = createResponse();
-      res.setNativeResponse(new Response('body', {
-        status: 200,
-        headers: { 'x-native': 'value' },
-      }));
-
-      const merged = res.getNativeResponse();
-
-      expect(merged).toBeInstanceOf(Response);
-      expect(merged!.status).toBe(200);
-      expect(merged!.headers.get('x-native')).toBe('value');
     });
   });
 
@@ -1261,41 +1226,6 @@ describe('HttpResponse', () => {
 
       expect(response.status).toBe(304);
       expect(response.headers.get('content-encoding')).toBe('gzip');
-    });
-  });
-
-  // ── peekNativeResponse: read-only native access ──────────────
-
-  describe('peekNativeResponse', () => {
-    it('should return undefined when no native response is set', () => {
-      const res = createResponse();
-      expect(res.peekNativeResponse()).toBeUndefined();
-    });
-
-    it('should return the raw native Response with its own headers unmerged', () => {
-      const res = createResponse();
-      const native = new Response('x', { headers: { 'content-encoding': 'gzip' } });
-      res.setNativeResponse(native);
-      res.setHeader('x-middleware', 'set');
-
-      const peeked = res.peekNativeResponse();
-
-      expect(peeked).toBe(native);
-      expect(peeked!.headers.get('content-encoding')).toBe('gzip');
-      // raw peek이므로 _headers는 병합되지 않는다
-      expect(peeked!.headers.get('x-middleware')).toBeNull();
-    });
-
-    it('should not create the merged cache, so headers set after peeking still reach getNativeResponse', () => {
-      const res = createResponse();
-      res.setNativeResponse(new Response('x'));
-
-      res.peekNativeResponse();
-      // peek 이후에 미들웨어가 헤더를 추가해도
-      res.setHeader('x-late-header', 'late');
-
-      const merged = res.getNativeResponse();
-      expect(merged!.headers.get('x-late-header')).toBe('late');
     });
   });
 
