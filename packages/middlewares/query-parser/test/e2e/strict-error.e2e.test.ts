@@ -59,10 +59,10 @@ describe('queryParser strict-mode malformed query — HTTP status', () => {
   it('the 400 body carries the parser message verbatim, not a doubled prefix', async () => {
     // Malformed BRACKET syntax is what strict mode rejects — an invalid
     // percent-escape like %ZZ is NOT a parser error under WHATWG decoding
-    // (it passes through raw; any 400 for it comes from a lower layer with
-    // no parser message). The parser already emits "Malformed query
-    // string: ..."; the middleware must pass it through, not prepend a
-    // second copy.
+    // (it parses successfully; see the §2.6 test above), so only a bracket
+    // error can exercise this path. The parser already emits "Malformed
+    // query string: ..."; the middleware must pass it through, not prepend
+    // a second copy.
     const res = await app.fetch('/x?a[b]c[d]=1');
     const body = await res.text();
     expect(body).toContain('Malformed query string:');

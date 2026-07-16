@@ -1123,6 +1123,15 @@ describe('QueryParser', () => {
       expect(parser.parse('&&a=1&&b=2&&')).toEqual({ a: '1', b: '2' });
     });
 
+    it('should still count empty-value pairs (key=) toward maxParams', () => {
+      // Arrange — `a=` IS a produced pair (key emitted, empty value), unlike a
+      // bare '&' separator, so it consumes budget like any other pair.
+      const parser = QueryParser.create({ maxParams: 2 });
+
+      // Act & Assert
+      expect(parser.parse('a=&b=&c=')).toEqual({ a: '', b: '' });
+    });
+
     it('should still cap at maxParams counting only produced pairs', () => {
       // Arrange — boundary: real pairs DO count; the 3rd exceeds the cap
       const parser = QueryParser.create({ maxParams: 2 });
@@ -1548,6 +1557,15 @@ describe('QueryParser', () => {
     it('should still throw ConflictingStructure in strict mode for a scalar-then-container conflict (#2b, unchanged)', () => {
       // Scalar↔container (not array↔object key-kind) remains a strict throw.
       expect(() => strict.parse('a=1&a[b]=2')).toThrow(/Conflict/);
+    });
+
+    it('should materialize an array ELEMENT to an object when its parent is itself an array', () => {
+      // #2 with an ARRAY parent: the a[0] element becomes ['1'], then the
+      // non-numeric key 'foo' materializes it — exercising the
+      // materializeArray branch whose parent container is an array (sibling
+      // cases above all materialize under a record parent).
+      expect(nonStrict.parse('a[0][0]=1&a[0][foo]=2')).toEqual({ a: [{ '0': '1', foo: '2' }] });
+      expect(strict.parse('a[0][0]=1&a[0][foo]=2')).toEqual({ a: [{ '0': '1', foo: '2' }] });
     });
   });
 
