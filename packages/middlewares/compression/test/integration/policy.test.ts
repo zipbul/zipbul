@@ -147,7 +147,8 @@ describe('policy', () => {
       const m = unwrap(compressionMiddleware({ threshold: 0 }));
       const response = mockHttpResponse({ body, contentType: 'application/json' });
       expect(() => m.handler(mockContext({ headers: makeRequestHeaders('gzip') }, response))).not.toThrow();
-      expect(response.getBody()).toBe(body);
+      // 직렬화 불가 body(순환 참조·BigInt)는 손대지 않고 그대로 남는다 — identity 비교
+      expect(response.getBody()).toBe(body as never);
       expect(response.getHeader('content-encoding')).toBeNull();
     }
   });

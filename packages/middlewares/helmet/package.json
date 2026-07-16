@@ -1,40 +1,8 @@
 {
-  "name": "@zipbul/helmet",
-  "version": "0.0.1",
-  "description": "Standards-compliant security headers engine for Web Fetch APIs (CSP, HSTS, COOP/COEP, Permissions-Policy, etc.)",
+  "name": "helmet",
+  "version": "0.1.0",
+  "description": "A zipbul middleware.",
   "license": "MIT",
-  "author": "Junhyung Park (https://github.com/parkrevil)",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/zipbul/zipbul",
-    "directory": "packages/middlewares/helmet"
-  },
-  "bugs": {
-    "url": "https://github.com/zipbul/zipbul/issues"
-  },
-  "homepage": "https://github.com/zipbul/zipbul/tree/main/packages/middlewares/helmet#readme",
-  "keywords": [
-    "helmet",
-    "security",
-    "security-headers",
-    "csp",
-    "content-security-policy",
-    "hsts",
-    "permissions-policy",
-    "coop",
-    "coep",
-    "cors",
-    "owasp",
-    "http",
-    "fetch",
-    "web-api",
-    "bun",
-    "typescript",
-    "zipbul"
-  ],
-  "engines": {
-    "bun": ">=1.3.0"
-  },
   "type": "module",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -47,22 +15,22 @@
   "files": [
     "dist"
   ],
-  "publishConfig": {
-    "provenance": true
-  },
   "scripts": {
-    "build": "tsgo -p tsconfig.build.json",
-    "test": "bun test",
-    "coverage": "bun test --coverage"
+    "build": "zb build middleware",
+    "test": "bun test"
   },
   "dependencies": {
-    "@zipbul/result": "workspace:*"
-  },
-  "sideEffects": false,
-  "devDependencies": {
-    "@zipbul/http-adapter": "workspace:*"
+    "@zipbul/baker": "^5.2.0",
+    "@zipbul/result": "^1.0.0"
   },
   "peerDependencies": {
-    "@zipbul/http-adapter": "workspace:*"
+    "@zipbul/common": "^0.3.0",
+    "@zipbul/http-adapter": "^1.1.1"
+  },
+  "sideEffects": [
+    "**/options.js"
+  ],
+  "zipbul": {
+    "kind": "middleware"
   }
 }

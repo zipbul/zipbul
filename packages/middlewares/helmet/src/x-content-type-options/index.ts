@@ -1,0 +1,1 @@
+export { serializeXContentTypeOptions } from './serialize';

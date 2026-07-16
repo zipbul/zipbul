@@ -97,7 +97,8 @@ describe('negotiation', () => {
     expect(rejected.getHeader('content-length')).toBeNull();
     // identity 배제여도 acceptable 코딩이 있으면 정상 압축
     const ok = run('identity;q=0, gzip', { encodings: [CompressionCodec.Gzip] });
-    expect(ok.getStatus()).toBe(200);
+    // 미들웨어는 status를 건드리지 않는다 — 미설정 상태로 남아 어댑터가 200으로 보낸다.
+    expect(ok.getStatus()).toBeUndefined();
     expect(ok.getHeader('content-encoding')).toBe('gzip');
   });
 
