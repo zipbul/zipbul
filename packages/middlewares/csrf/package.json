@@ -1,0 +1,36 @@
+{
+  "name": "csrf",
+  "version": "0.1.0",
+  "description": "A zipbul middleware.",
+  "license": "MIT",
+  "type": "module",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "zb build middleware",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@zipbul/baker": "^5.2.0",
+    "@zipbul/result": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@zipbul/common": "^0.3.0",
+    "@zipbul/http-adapter": "^1.1.1"
+  },
+  "sideEffects": [
+    "**/options.js"
+  ],
+  "zipbul": {
+    "kind": "middleware"
+  }
+}
