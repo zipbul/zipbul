@@ -6,6 +6,7 @@ import type { MiddlewareDefinition } from '@zipbul/common';
 
 import type { HelmetOptions } from './options';
 import { resolveHelmetOptions } from './options';
+import { serializeReferrerPolicy } from './referrer-policy';
 import { serializeXContentTypeOptions } from './x-content-type-options';
 
 /**
@@ -41,6 +42,11 @@ export function helmetMiddleware(options?: Partial<HelmetOptions>): MiddlewareDe
     const xcto = serializeXContentTypeOptions(config.xContentTypeOptions);
     if (xcto !== undefined) {
       response.setHeader(xcto[0], xcto[1]);
+    }
+
+    const rp = serializeReferrerPolicy(config.referrerPolicy);
+    if (rp !== undefined) {
+      response.setHeader(rp[0], rp[1]);
     }
   });
 }
