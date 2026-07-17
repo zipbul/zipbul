@@ -1,0 +1,17 @@
+[test]
+coverageReporter = ["text", "lcov"]
+coverageThreshold = 0.95
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = [
+  "node_modules/**",
+  "dist/**",
+  "../*/**",
+  "../../*/*/**",
+  "test/**",
+  # src/options.ts is a baker @Recipe schema: bun cannot instrument a decorated
+  # class's field declarations, so it structurally cannot reach the gate.
+  "src/options.ts",
+]
+
+[test.reporter]
+dots = true
