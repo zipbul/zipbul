@@ -638,7 +638,14 @@ export class QueryParser {
       // same iteration, BEFORE any write, so no hole element is created and
       // no over-limit value is dropped.
       if (Array.isArray(current)) {
-        if (prop === '') {
+        // An empty-bracket push appends at index `current.length`, which must
+        // obey the SAME arrayLimit the explicit-index path below enforces
+        // (`index <= arrayLimit`) — otherwise `a[]` silently bypasses the bound
+        // that `a[<index>]` respects (GHSA-6rw7-vpxm-498p class). When the
+        // append index is over the limit, fall through to the materialization
+        // path (parseArrayIndex('') === -1 skips the dense block), converting
+        // the array to an index-keyed object losslessly.
+        if (prop === '' && current.length <= arrayLimit) {
           if (isLast) {
             // Direct write: assignLeaf(array, '') is exactly a push — '' was
             // blocked-checked above (never a dangerous key) and the empty key

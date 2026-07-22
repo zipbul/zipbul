@@ -575,6 +575,42 @@ describe('QueryParser', () => {
       // Act & Assert
       expect(parser.parse('a[0]=x&a[1]=y&a[2]=z&a[3]=w')).toEqual({ a: { '0': 'x', '1': 'y', '2': 'z', '3': 'w' } });
     });
+
+    it('should keep a dense array when [] pushes reach arrayLimit exactly', () => {
+      // Arrange — [] parity with the explicit-index boundary above: three pushes
+      // fill indices 0..2, and 2 == arrayLimit, so it stays a dense array,
+      // identical to 'a[0]=x&a[1]=y&a[2]=z'.
+      const parser = QueryParser.create({ arrayLimit: 2, nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[]=x&a[]=y&a[]=z')).toEqual({ a: ['x', 'y', 'z'] });
+    });
+
+    it('should materialize to an object when an [] push exceeds arrayLimit by one', () => {
+      // Arrange — the '[]' push must obey the SAME arrayLimit the explicit-index
+      // path enforces (GHSA-6rw7-vpxm-498p class: bracket-push must not bypass
+      // arrayLimit). The fourth push targets index 3 (> arrayLimit 2), so the
+      // container materializes losslessly to an index-keyed object — exactly as
+      // the explicit 'a[3]' path does, no dropped values.
+      const parser = QueryParser.create({ arrayLimit: 2, nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[]=x&a[]=y&a[]=z&a[]=w')).toEqual({ a: { '0': 'x', '1': 'y', '2': 'z', '3': 'w' } });
+    });
+
+    it('should enforce arrayLimit on a NON-terminal [] push (a[][x]) the same way', () => {
+      // Arrange — the arrayLimit guard must also cover the non-terminal push
+      // (each 'a[][x]' opens a fresh container at the next index). Indices 0..2
+      // stay an array of objects; the fourth (index 3 > arrayLimit 2)
+      // materializes the whole container losslessly to an index-keyed object.
+      const parser = QueryParser.create({ arrayLimit: 2, nesting: true });
+
+      // Act & Assert
+      expect(parser.parse('a[][x]=0&a[][x]=1&a[][x]=2')).toEqual({ a: [{ x: '0' }, { x: '1' }, { x: '2' }] });
+      expect(parser.parse('a[][x]=0&a[][x]=1&a[][x]=2&a[][x]=3')).toEqual({
+        a: { '0': { x: '0' }, '1': { x: '1' }, '2': { x: '2' }, '3': { x: '3' } },
+      });
+    });
   });
 
   // =========================================================================
