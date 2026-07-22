@@ -1547,6 +1547,34 @@ describe('QueryParser', () => {
       expect(strict.parse('a[b]=1&a[][x]=2&a[][y]=3')).toEqual({ a: { b: '1', '0': { x: '2' }, '1': { y: '3' } } });
     });
 
+    it('should push after the highest numeric key when an explicit index is interleaved between pushes', () => {
+      // R3, max+1 semantics: an explicit 'a[9]' written between pushes raises the
+      // max, so the next '[]' appends at 10 — never reuses/collides a lower slot.
+      // (Pins the pre-existing behavior the perf refactor must preserve.)
+      expect(nonStrict.parse('a[b]=x&a[]=1&a[9]=9&a[]=2')).toEqual({ a: { b: 'x', '0': '1', '9': '9', '10': '2' } });
+    });
+
+    it('should push after a pre-existing higher explicit index', () => {
+      // R3, max+1: 'a[9]' materializes a record {9}, then '[]' appends at 10.
+      expect(nonStrict.parse('a[9]=9&a[]=1')).toEqual({ a: { '9': '9', '10': '1' } });
+    });
+
+    it('should append after the max even when lower integer slots are free (no gap-filling)', () => {
+      // R3, max+1: with keys 0 and 2 present, '[]' appends at 3, not the free 1.
+      expect(nonStrict.parse('a[b]=x&a[0]=0&a[2]=2&a[]=1')).toEqual({ a: { b: 'x', '0': '0', '2': '2', '3': '1' } });
+    });
+
+    it('should keep the push index correct across a long run of pushes onto a record', () => {
+      // Perf-refactor guard: 50 sequential pushes onto a record must land at
+      // exactly 0..49 (max+1 each), the case the O(n^2) fix must keep intact.
+      const input = 'a[b]=x&' + Array.from({ length: 50 }, () => 'a[]=v').join('&');
+      const expected: Record<string, string> = { b: 'x' };
+      for (let i = 0; i < 50; i++) {
+        expected[String(i)] = 'v';
+      }
+      expect(nonStrict.parse(input)).toEqual({ a: expected });
+    });
+
     it('should materialize a non-numeric key mixed into an array without throwing, even in strict mode', () => {
       // #2 — migrated from a strict-throw expectation: array-vs-object KEY-KIND
       // conflicts are a materialize case, never a strict error.

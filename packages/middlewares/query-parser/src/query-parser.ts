@@ -126,6 +126,14 @@ export class QueryParser {
    */
   private readonly segScratch: string[] = ['', ''];
 
+  /**
+   * Per-record cache of the highest numeric own-key seen, so an empty-bracket
+   * push (`a[]=x`) landing on a record resolves its next index in O(1) instead
+   * of re-scanning every key (which made N consecutive pushes O(N^2)). Weakly
+   * keyed on the result containers, which live only for one `parse` call.
+   */
+  private readonly recordMaxIndex = new WeakMap<QueryValueRecord, number>();
+
   private constructor(options: ResolvedQueryParserOptions) {
     this.options = options;
     this.blockedKeys = options.allowPrototypes ? POISONED_KEYS : DANGEROUS_KEYS;
@@ -196,6 +204,12 @@ export class QueryParser {
     let isKey = true;
     let paramCount = 0;
     let limitReached = false;
+    // Track whether the current key/value slice contains '%' or '+' DURING the
+    // one scan that already visits every byte, so processPair never re-scans the
+    // slice with includes() to decide if it needs decoding (§2.4/§2.6 decode is
+    // only needed when one of those bytes is present).
+    let keyEnc = false;
+    let valEnc = false;
 
     // Fast path: Scan loop
     while (i < len) {
@@ -207,6 +221,13 @@ export class QueryParser {
           keyEnd = i;
           valStart = i + 1;
           isKey = false;
+        }
+      } else if (code === 37 || code === 43) {
+        // '%' or '+': this key/value slice will need decoding.
+        if (isKey) {
+          keyEnc = true;
+        } else {
+          valEnc = true;
         }
       } else if (code === 38) {
         // '&'
@@ -221,7 +242,7 @@ export class QueryParser {
             valStart = i;
           }
 
-          const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, i);
+          const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, i, keyEnc, valEnc);
 
           if (isErr(pairResult)) {
             return pairResult;
@@ -239,6 +260,8 @@ export class QueryParser {
           keyEnd = -1;
           valStart = -1;
           isKey = true;
+          keyEnc = false;
+          valEnc = false;
         }
       }
 
@@ -273,7 +296,7 @@ export class QueryParser {
         valStart = len;
       }
 
-      const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, len);
+      const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, len, keyEnc, valEnc);
 
       if (isErr(pairResult)) {
         return pairResult;
@@ -290,21 +313,21 @@ export class QueryParser {
     keyEnd: number,
     valStart: number,
     valEnd: number,
+    keyEnc: boolean,
+    valEnc: boolean,
   ): Err<QueryParserErrorData> | undefined {
     // Decode Key. An empty name (`=v`) is a valid §2.3 pair and is KEPT; empty
     // SEQUENCES (`&&`) are skipped upstream in the scan loop, so they never
     // reach here.
     const keyRaw = qs.slice(keyStart, keyEnd);
-    const keyNeedsDecode = keyRaw.includes('%') || keyRaw.includes('+');
-    const key = keyNeedsDecode ? this.safeDecode(keyRaw) : keyRaw;
+    const key = keyEnc ? this.safeDecode(keyRaw) : keyRaw;
 
     // Decode Value
     let val = '';
 
     if (valStart < valEnd) {
       const valRaw = qs.slice(valStart, valEnd);
-      const valNeedsDecode = valRaw.includes('%') || valRaw.includes('+');
-      val = valNeedsDecode ? this.safeDecode(valRaw) : valRaw;
+      val = valEnc ? this.safeDecode(valRaw) : valRaw;
     }
 
     // Check for Nesting
@@ -713,6 +736,9 @@ export class QueryParser {
         if (isErr(leafResult)) {
           return leafResult;
         }
+
+        // Keep the push-index cache in sync with an explicit numeric leaf key.
+        this.noteRecordNumericKey(current, leafKey);
       } else if (this.isRecordValue(current)) {
         // R3, non-terminal form: an empty-bracket segment (`a[][b]=c`) landing
         // on a RECORD gets the same next-integer-key normalization as the
@@ -727,6 +753,8 @@ export class QueryParser {
           const created: QueryContainer = this.shouldCreateArray(nextKey) ? [] : {};
 
           current[recordProp] = created;
+          // Keep the push-index cache in sync with an explicit numeric segment.
+          this.noteRecordNumericKey(current, recordProp);
           parent = current;
           parentKey = recordProp;
           current = created;
@@ -833,19 +861,51 @@ export class QueryParser {
    * keys) + 1`, or `"0"` when the record has no numeric own keys yet.
    */
   private nextRecordIntegerKey(obj: QueryValueRecord): string {
-    let max = -1;
+    let max = this.recordMaxIndex.get(obj);
 
-    for (const key of Object.keys(obj)) {
-      // parseArrayIndex returns -1 for any non-index key, which never beats
-      // `max` (>= -1), so only genuine numeric own-keys move it.
-      const n = this.parseArrayIndex(key);
+    if (max === undefined) {
+      // First push onto this record: establish the max once (O(n)). Every later
+      // push reads it from the cache, and out-of-band numeric writes keep it in
+      // sync via `noteRecordNumericKey`, so `max + 1` stays exact without a rescan.
+      max = -1;
 
-      if (n > max) {
-        max = n;
+      for (const key of Object.keys(obj)) {
+        // parseArrayIndex returns -1 for any non-index key, which never beats
+        // `max` (>= -1), so only genuine numeric own-keys move it.
+        const n = this.parseArrayIndex(key);
+
+        if (n > max) {
+          max = n;
+        }
       }
     }
 
-    return (max + 1).toString();
+    const next = max + 1;
+
+    // The caller writes `next` immediately, so it becomes the new max.
+    this.recordMaxIndex.set(obj, next);
+
+    return next.toString();
+  }
+
+  /**
+   * Keeps {@link nextRecordIntegerKey}'s cache correct when an EXPLICIT numeric
+   * key (e.g. `a[9]=x` between `a[]` pushes) is written to a record, so the next
+   * push still lands at max+1. A no-op before the record's first push (the max
+   * is scanned fresh then) and for non-numeric or not-higher keys.
+   */
+  private noteRecordNumericKey(obj: QueryContainer, key: string): void {
+    const cached = this.recordMaxIndex.get(obj as QueryValueRecord);
+
+    if (cached === undefined) {
+      return;
+    }
+
+    const n = this.parseArrayIndex(key);
+
+    if (n > cached) {
+      this.recordMaxIndex.set(obj as QueryValueRecord, n);
+    }
   }
 
   /**
@@ -898,12 +958,12 @@ export class QueryParser {
       return;
     }
 
-    // Array mode
-    if (Array.isArray(existing)) {
-      existing.push(value);
-    } else {
-      obj[key] = existing === undefined ? [value] : [existing, value];
-    }
+    // Array mode. An array/record `existing` already returned above (push /
+    // wrap), so `existing` is a scalar here — the removed `Array.isArray`
+    // branch was unreachable. The `undefined` arm is likewise runtime-dead (the
+    // key exists per the hasOwnProperty guard) but narrows the type under
+    // noUncheckedIndexedAccess.
+    obj[key] = existing === undefined ? [value] : [existing, value];
   }
 
   /**
