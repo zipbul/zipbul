@@ -27,6 +27,12 @@
     "@zipbul/common": "^0.3.0",
     "@zipbul/http-adapter": "^1.1.1"
   },
+  "devDependencies": {
+    "@zipbul/common": "workspace:*",
+    "@zipbul/core": "workspace:*",
+    "@zipbul/http-adapter": "workspace:*",
+    "@zipbul/tck": "workspace:*"
+  },
   "sideEffects": [
     "**/options.js"
   ],
