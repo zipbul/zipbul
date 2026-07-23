@@ -71,20 +71,28 @@ search(ctx: HttpContext) {
 
 `zb build middleware` extracts the accessor declaration into `dist/context-augments.d.ts` (consumer types) and `dist/context-augments.json` (app AOT manifest).
 
-### Malformed queries → 400 (not 500)
+### Resource limits & malformed queries → 400 (not 500)
 
-In the middleware, a structurally malformed query string is a **client** error. When `strict` is enabled, the supply step returns an `httpError(BadRequest)` — the framework short-circuits the pipeline into a **400** response and never runs the handler. It is never thrown, so a hostile query can't be turned into a 500. Strict validates **structure** (brackets, scalar/structure conflicts) and **resource limits** (`depth`, `maxParams` — `LimitExceeded`) — a malformed percent-escape is data, not an error (see [`strict`](#strict)), so it never triggers the 400 path:
+The `queryParser()` middleware defaults to **strict mode at the HTTP boundary** (the standalone `QueryParser` stays lenient — `strict: false`). An over-limit or malformed query is a **client** error: the supply step returns an `httpError(BadRequest)`, the framework short-circuits the pipeline into a **400**, and the handler never runs. It is never thrown, so a hostile query can't be turned into a 500 — and an over-limit query is **rejected**, not silently truncated (the industry norm).
+
+What strict rejects depends on `nesting`:
+
+- **Always** — resource-limit overflow: `maxParams` (and `depth`, when nesting is on) → `LimitExceeded`.
+- **Only under `nesting: true`** — malformed bracket structure (unbalanced/unclosed/nested) and scalar/structure conflicts. With nesting off, `[` and `]` are **literal** key characters and are never treated as malformed.
+- **Never** — a malformed percent-escape is data, not an error (see [`strict`](#strict)).
 
 ```typescript
 middlewares: {
-  [HttpAdapterPhase.BeforeValidate]: [queryParser({ strict: true, nesting: true })],
+  [HttpAdapterPhase.BeforeValidate]: [queryParser({ nesting: true })], // strict is the middleware default
 }
-// GET /search?a[b]c[d]=1   → 400 Bad Request  (malformed brackets, needs nesting)
-// GET /search?q=%ZZ        → handler runs; q === '%ZZ' (malformed escape preserved, not an error)
-// GET /search?q=hello      → handler runs normally
+// GET /search?a[b]c[d]=1        → 400 Bad Request  (malformed brackets — needs nesting)
+// GET /search?a=1&…(>maxParams) → 400 Bad Request  (over the limit — rejected, not truncated)
+// GET /search?filter[status]=x  → handler runs (flat: key is the literal 'filter[status]')
+// GET /search?q=%ZZ             → handler runs; q === '%ZZ' (malformed escape preserved, not an error)
+// GET /search?q=hello           → handler runs normally
 ```
 
-Under the default (`strict: false`) a malformed query is parsed leniently and never fails the request.
+To restore lenient parsing (truncate over-limit, recover malformed), opt out explicitly with `queryParser({ strict: false })`. The standalone `QueryParser.create()` is lenient by default.
 
 <br>
 

@@ -330,10 +330,20 @@ export class QueryParser {
       val = valEnc ? this.safeDecode(valRaw) : valRaw;
     }
 
-    // Check for Nesting
+    // Nesting. When nesting is OFF, '['/']' carry no structure — the whole key
+    // is a LITERAL name stored as-is, with NO bracket validation (an unbalanced
+    // '[' or ']' is ordinary data, not malformed syntax; validating it would
+    // contradict the nesting:false = literal contract and reject legitimate key
+    // names). Structural strictness applies only where structure exists, i.e.
+    // under nesting:true (via parseComplexKey below and the stray-']' check).
+    if (!this.options.nesting) {
+      return this.assignLeaf(res, key, val);
+    }
+
     const braceIdx = key.indexOf('[');
 
     if (braceIdx === -1) {
+      // Nesting on, but no '[' — a stray ']' is an unbalanced bracket.
       if (this.options.strict && key.includes(']')) {
         return err<QueryParserErrorData>({
           reason: QueryParserErrorReason.MalformedQueryString,
@@ -344,57 +354,7 @@ export class QueryParser {
       return this.assignLeaf(res, key, val);
     }
 
-    if (!this.options.nesting) {
-      if (this.options.strict) {
-        const bracketResult = this.validateBrackets(key);
-
-        if (isErr(bracketResult)) {
-          return bracketResult;
-        }
-      }
-
-      return this.assignLeaf(res, key, val);
-    }
-
     return this.parseComplexKey(res, key, braceIdx, val);
-  }
-
-  /**
-   * Validates bracket balance in a key string (strict mode only).
-   */
-  private validateBrackets(key: string): Err<QueryParserErrorData> | undefined {
-    let open = 0;
-
-    for (let i = 0; i < key.length; i++) {
-      const char = key[i];
-
-      if (char === '[') {
-        if (open > 0) {
-          return err<QueryParserErrorData>({
-            reason: QueryParserErrorReason.MalformedQueryString,
-            message: `Malformed query string: nested brackets in key "${key}"`,
-          });
-        }
-
-        open++;
-      } else if (char === ']') {
-        open--;
-
-        if (open < 0) {
-          return err<QueryParserErrorData>({
-            reason: QueryParserErrorReason.MalformedQueryString,
-            message: `Malformed query string: unbalanced brackets in key "${key}"`,
-          });
-        }
-      }
-    }
-
-    if (open !== 0) {
-      return err<QueryParserErrorData>({
-        reason: QueryParserErrorReason.MalformedQueryString,
-        message: `Malformed query string: unclosed bracket in key "${key}"`,
-      });
-    }
   }
 
   /**

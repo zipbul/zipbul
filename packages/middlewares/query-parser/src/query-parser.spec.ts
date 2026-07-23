@@ -1716,21 +1716,19 @@ describe('QueryParser', () => {
   // Strict Mode
   // =========================================================================
   describe('strict mode', () => {
-    it('should throw on unbalanced brackets when strict is true', () => {
-      // Arrange
+    it('should keep bracket characters LITERAL (never malformed) when nesting is off, even in strict', () => {
+      // Arrange — with nesting off, '['/']' carry no structure; the whole key is
+      // a literal name. Strict mode validates STRUCTURE, which only exists under
+      // nesting, so an unbalanced/unclosed/nested bracket key is NOT an error
+      // here — it is ordinary data, matching the lenient path. (Strict still
+      // enforces the resource limits; it just does not invent bracket grammar
+      // for a mode that treats brackets as literal.)
       const parser = QueryParser.create({ strict: true });
 
       // Act & Assert
-      expect(() => parser.parse('a]b=1')).toThrow(/unbalanced brackets/);
-      expect(() => parser.parse('a[b=1')).toThrow(/unclosed bracket/);
-    });
-
-    it('should throw on nested brackets when strict is true', () => {
-      // Arrange
-      const parser = QueryParser.create({ strict: true });
-
-      // Act & Assert
-      expect(() => parser.parse('a[[b]]=1')).toThrow(/nested brackets/);
+      expect(parser.parse('a]b=1')).toEqual({ 'a]b': '1' });
+      expect(parser.parse('a[b=1')).toEqual({ 'a[b': '1' });
+      expect(parser.parse('a[[b]]=1')).toEqual({ 'a[[b]]': '1' });
     });
 
     it('should throw on mixed scalar and nested keys when strict is true', () => {

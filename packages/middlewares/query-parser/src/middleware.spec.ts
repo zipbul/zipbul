@@ -137,3 +137,62 @@ describe('queryParser — getQuery augment error/null-query paths', () => {
     expect(result).toEqual({});
   });
 });
+
+describe('queryParser — safe-by-default rejection at the HTTP boundary', () => {
+  // The middleware defaults to strict mode so a resource-limit or malformed
+  // query is a LOUD client 400, never a silent 200 with dropped data. This
+  // matches the universal framework norm (Rack raises QueryLimitError, Django
+  // raises RequestDataTooBig) — reject, never silently truncate. The bare
+  // QueryParser primitive stays lenient (strict=false) for programmatic use.
+  it('should reject an over-maxParams query with 400 instead of silently truncating', () => {
+    // Arrange — 6 pairs over a maxParams of 5.
+    const result = callGetQuery('/x?a=1&b=2&c=3&d=4&e=5&f=6', { maxParams: 5 });
+
+    // Assert
+    expect(isErr(result)).toBe(true);
+    expect((result as Err<ErrorResponseData>).data.status).toBe(HttpStatus.BadRequest);
+  });
+
+  it('should reject a structurally malformed query with 400 when nesting is enabled', () => {
+    // Arrange & Act — bracket structure only exists (and is validated) under
+    // nesting; an unclosed bracket is then malformed request syntax → 400.
+    const result = callGetQuery('/x?a[b=1', { nesting: true });
+
+    // Assert
+    expect(isErr(result)).toBe(true);
+    expect((result as Err<ErrorResponseData>).data.status).toBe(HttpStatus.BadRequest);
+  });
+
+  it('should supply normal and literal-bracket queries (incl. unbalanced) as success by default', () => {
+    // The flat default treats brackets as LITERAL, so strict rejects only
+    // over-limit input — never a bracket-bearing key, balanced or not.
+    expect(callGetQuery('/x?a=1&b=2')).toEqual({ a: '1', b: '2' });
+    expect(callGetQuery('/x?filter[status]=open')).toEqual({ 'filter[status]': 'open' });
+    expect(callGetQuery('/x?a[b=1')).toEqual({ 'a[b': '1' });
+  });
+
+  it('should let the caller opt out of strict to restore lenient truncation', () => {
+    // Arrange — same over-limit input, but strict:false is explicitly requested.
+    const result = callGetQuery('/x?a=1&b=2&c=3&d=4&e=5&f=6', { maxParams: 5, strict: false });
+
+    // Assert — no error, truncated to the cap.
+    expect(isErr(result)).toBe(false);
+    expect(Object.keys(result as Record<string, unknown>).length).toBe(5);
+  });
+
+  it('should keep a percent-encoded bracket key literal at the flat default (no false 400)', () => {
+    // `%5B`/`%5D` decode to '['/']' — under the flat default these are literal
+    // key characters, never a malformed-bracket 400.
+    expect(callGetQuery('/x?x%5By=1')).toEqual({ 'x[y': '1' });
+  });
+
+  it('should reject a depth-overflow query with 400 when nesting is enabled', () => {
+    // Arrange & Act — 6 bracket groups over the default depth of 5.
+    const result = callGetQuery('/x?a[b][c][d][e][f][g]=1', { nesting: true });
+
+    // Assert — loud limit error, not a silent empty object.
+    expect(isErr(result)).toBe(true);
+    expect((result as Err<ErrorResponseData>).data.status).toBe(HttpStatus.BadRequest);
+    expect((result as Err<ErrorResponseData>).data.message).toContain('Limit exceeded');
+  });
+});
