@@ -933,6 +933,111 @@ describe('QueryParser', () => {
   // =========================================================================
   // Encoding Edge Cases
   // =========================================================================
+  // ===========================================================================
+  // Decode oracle — the safety net for safeDecode / whatwgPercentDecode* .
+  // An INDEPENDENT, straightforward WHATWG reference (+ -> space, percent-decode
+  // to bytes, then UTF-8 decode WITHOUT BOM with U+FFFD replacement) is run over
+  // a systematic corpus (all 256 single %XX bytes, valid multibyte, ill-formed
+  // UTF-8, malformed '%', mixed) and diffed against the parser's value decode.
+  // Any decode-path optimization must keep this green.
+  // ===========================================================================
+  describe('decode oracle (WHATWG percent-decode + UTF-8-without-BOM)', () => {
+    const HEX = '0123456789abcdef';
+
+    const whatwgRef = (raw: string): string => {
+      const s = raw.replace(/\+/g, ' '); // §2.4: '+' -> space BEFORE decoding
+      const enc = new TextEncoder();
+      const bytes: number[] = [];
+      // Iterate by CODE POINT (astral chars are one element) so a literal
+      // surrogate pair is never split; '%' and hex digits are ASCII, so the
+      // lookahead over the code-point array is exact.
+      const cps = Array.from(s);
+
+      for (let i = 0; i < cps.length; ) {
+        const ch = cps[i] ?? '';
+
+        if (ch === '%') {
+          const h1 = i + 2 < cps.length ? HEX.indexOf((cps[i + 1] ?? '').toLowerCase()) : -1;
+          const h2 = h1 === -1 ? -1 : HEX.indexOf((cps[i + 2] ?? '').toLowerCase());
+
+          if (h2 !== -1) {
+            bytes.push(h1 * 16 + h2);
+            i += 3;
+            continue;
+          }
+        }
+
+        for (const b of enc.encode(ch)) {
+          bytes.push(b);
+        }
+
+        i++;
+      }
+
+      return new TextDecoder('utf-8', { fatal: false, ignoreBOM: true }).decode(new Uint8Array(bytes));
+    };
+
+    // Corpus of value-position inputs (no raw '&'/'='/'#', which would split the
+    // pair). Percent-encoded reserved chars ARE included via the 256-byte sweep.
+    const buildCorpus = (): string[] => {
+      const cases: string[] = ['', 'hello', 'a b', 'a+b', 'a%2Bb', 'plain-text_123'];
+
+      // All 256 single %XX bytes (valid, malformed-adjacent, high bytes).
+      for (let b = 0; b < 256; b++) {
+        const hh = b.toString(16).padStart(2, '0');
+        cases.push(`%${hh}`, `x%${hh}y`, `%${hh}%${hh}`);
+      }
+
+      // Malformed '%' forms (truncated, non-hex).
+      cases.push('%', '%2', '%G1', '%1G', '%ZZ', 'a%', 'a%2', '100%', '%%41', '%41%', 'x%2By');
+
+      // Valid multibyte UTF-8.
+      cases.push('%EC%84%9C%EC%9A%B8', '%E4%B8%AD%E6%96%87', '%F0%9F%98%80', '%EF%BB%BFbom');
+
+      // Ill-formed UTF-8 (lone surrogate, overlong, truncated, out-of-range, mixed).
+      cases.push('%ED%A0%80', '%C0%AF', '%E4%B8', '%80', '%F4%90%80%80', '%E4%B8%AD%80', '%C3%28', '%F0%28%8C%28');
+
+      // Literal (non-encoded) multibyte to exercise the byte-path on raw content.
+      cases.push('중문', '한글', '😀', '﻿bom');
+
+      return cases;
+    };
+
+    it('should match the WHATWG reference decoder across the whole corpus', () => {
+      const parser = QueryParser.create();
+      const corpus = buildCorpus();
+
+      // Map every case to a { input, actual, expected } row, keep only the rows
+      // that diverge — functional (no in-test conditional) so a single assertion
+      // reports the exact failing inputs.
+      const mismatches = corpus
+        .map((input) => ({
+          input,
+          actual: (parser.parse(`k=${input}`) as Record<string, string>).k,
+          expected: whatwgRef(input),
+        }))
+        .filter((row) => row.actual !== row.expected)
+        .map((row) => `${JSON.stringify(row.input)}: got ${JSON.stringify(row.actual)} want ${JSON.stringify(row.expected)}`);
+
+      // Assert — every corpus case decodes identically to the reference.
+      expect(mismatches).toEqual([]);
+      expect(corpus.length).toBeGreaterThan(600);
+    });
+
+    it('should decode the same way in key position as in value position', () => {
+      const parser = QueryParser.create();
+
+      // Key-position decode uses the same safeDecode; spot-check the ill-formed
+      // and '+'/'%' cases resolve identically to the reference.
+      for (const input of ['a%20b', 'a+b', '%ED%A0%80', '%E4%B8%AD', '%2Bx']) {
+        const res = parser.parse(`${input}=v`) as Record<string, string>;
+        const [key] = Object.keys(res);
+
+        expect(key).toBe(whatwgRef(input));
+      }
+    });
+  });
+
   describe('encoding edge cases', () => {
     const parser = QueryParser.create();
 
