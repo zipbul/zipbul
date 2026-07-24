@@ -96,9 +96,8 @@ interface QueryParserOptions {
   maxParams?: number;       // 기본값: 1000
   nesting?: boolean;        // 기본값: false
   arrayLimit?: number;      // 기본값: 20
-  duplicates?: 'first' | 'last' | 'array';  // 기본값: 'first'
+  duplicates?: DuplicateStrategy;  // 기본값: DuplicateStrategy.Array
   strict?: boolean;         // 기본값: false
-  allowPrototypes?: boolean; // 기본값: false
 }
 ```
 
@@ -177,49 +176,49 @@ parser.parse('a[0]=x&a[100]=no'); // { a: { '0': 'x', '100': 'no' } } — 한도
 
 ### `duplicates`
 
-중복 키 처리 전략 (HTTP Parameter Pollution 방어). 문자열 리터럴 또는 패키지가 export하는 `DuplicateStrategy` 문자열 enum 중 어느 쪽을 써도 동일하게 동작합니다.
+반복된 **같은 종류** 중복 값 처리 전략 (HTTP Parameter Pollution 방어). 스칼라↔컨테이너 형태 충돌은 이와 독립적으로 해소됩니다(strict는 모든 전략에서 거부 — [`strict`](#strict) 참고).
 
 | 값 | `DuplicateStrategy` 멤버 | 동작 |
 |:---|:------------------------|:-----|
-| `'first'` _(기본)_ | `DuplicateStrategy.First` | 첫 번째 값 유지 — HPP 공격에 가장 안전 |
-| `'last'` | `DuplicateStrategy.Last` | 마지막 값 유지 |
-| `'array'` | `DuplicateStrategy.Array` | 모든 값을 배열로 수집 |
+| `DuplicateStrategy.Array` _(기본)_ | 모든 값을 배열로 보존 — 무손실; first/last/거부 결정은 DTO 계층에 위임 |
+| `DuplicateStrategy.First` | 첫 번째 값 유지 (나머지 버림) |
+| `DuplicateStrategy.Last` | 마지막 값 유지 (나머지 버림) |
 
 ```typescript
 import { DuplicateStrategy, QueryParser } from '@zipbul/query-parser';
 
 // 입력: 'role=admin&role=user'
 
-QueryParser.create({ duplicates: 'first' }).parse(input);
+QueryParser.create({ duplicates: DuplicateStrategy.First }).parse(input);
 // { role: 'admin' }
 
 QueryParser.create({ duplicates: DuplicateStrategy.Last }).parse(input);
 // { role: 'user' }
 
-QueryParser.create({ duplicates: 'array' }).parse(input);
+QueryParser.create({ duplicates: DuplicateStrategy.Array }).parse(input);
 // { role: ['admin', 'user'] }
 ```
 
-**스칼라↔컨테이너 충돌** — 한 키가 한 번은 평범한 스칼라로, 한 번은 중첩 구조로 쓰인 경우(`a=1` 다음 `a[b]=2`, 순서 무관, 어느 깊이든) — 도 동일한 `duplicates` 전략으로 해소됩니다(`nesting: true` 필요):
+**스칼라↔컨테이너 충돌** — 한 키가 한 번은 스칼라, 한 번은 중첩 구조로 쓰인 경우(`a=1` 다음 `a[b]=2`, 순서 무관, 어느 깊이든; `nesting: true` 필요) — 는 **형태 충돌**이며 `duplicates`와 **독립적으로** 해소됩니다. `strict`는 모든 전략에서 `ConflictingStructure`로 **거부**하고, 비-strict는 `duplicates`대로 해소합니다:
 
 ```typescript
-// 입력: 'a=2&a[b]=1' (nesting: true)
+// 입력: 'a=2&a[b]=1' (nesting: true) — 비-strict
 
-QueryParser.create({ nesting: true, duplicates: 'first' }).parse(input);
+QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.First }).parse(input);
 // { a: '2' } — 먼저 나온 값(스칼라)이 이김; 구조는 버려짐
 
-QueryParser.create({ nesting: true, duplicates: 'last' }).parse(input);
+QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Last }).parse(input);
 // { a: { b: '1' } } — 나중 값(구조)이 이김; 스칼라는 버려짐
 
-QueryParser.create({ nesting: true, duplicates: 'array' }).parse(input);
+QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Array }).parse(input);
 // { a: ['2', { b: '1' }] } — 둘 다 등장 순서대로 배열에 무손실 결합
 ```
 
-`'array'`는 항상 무손실로 결합하므로 `strict` 모드에서도 **절대 throw하지 않습니다** — 스칼라와 구조 중 어느 쪽이 먼저 왔는지, 루트인지 더 깊은 위치인지와 무관하게 성립합니다. `'first'`/`'last'`는 손실이 있으므로(둘 중 하나는 항상 버려짐) `strict`가 `ConflictingStructure`를 throw합니다 — 아래 [`strict`](#strict) 참고.
+충돌 규칙이 `duplicates`와 분리돼 있어, 기본값 `'array'`가 strict/미들웨어의 충돌-400을 조용히 무력화하지 않습니다. `strict`는 `'array'`를 포함한 모든 전략에서 `ConflictingStructure`를 throw합니다; 비-strict만 `duplicates`대로 해소합니다.
 
-빈 브래킷 push(`a[]=x`)가 현재 **스칼라**를 담고 있는 키에 떨어지면 그 자체가 스칼라↔컨테이너 충돌이며, 동일한 전략으로 해소됩니다: `a=1&a[]=2` → `duplicates: 'array'`에서 `{ a: ['1', '2'] }`(무손실 결합), `'last'`에서 `{ a: ['2'] }`(스칼라는 버려짐), `'first'`에서 `{ a: '1' }`(push가 버려짐) — 그리고 `strict`의 `'first'`/`'last'`에서는 다른 스칼라↔컨테이너 충돌과 똑같이 `ConflictingStructure`를 throw합니다. (`[]`가 **이미 평범한 객체인** 키에 떨어질 때는 충돌이 아니며 다음 정수 키에 추가됩니다 — 아래 노트 참고.)
+빈 브래킷 push(`a[]=x`)가 **스칼라**를 담고 있는 키에 떨어지면 그 자체가 스칼라↔컨테이너 충돌입니다: `a=2&a[]=1` → 비-strict `'array'`에서 `{ a: ['2', '1'] }`, `'last'`에서 `{ a: ['1'] }`, `'first'`에서 `{ a: '2' }` — 그리고 `strict`에서는 모든 전략이 `ConflictingStructure`를 throw합니다. (내재적 예외 하나: 이미 존재하는 `[]`-배열에 스칼라가 이어지는 `a[]=1&a=2`는 누적 배열과 중첩 배열을 구별할 수 없어 충돌이 아니라 또 다른 원소로 흡수됩니다 → `{ a: ['1', '2'] }`. `[]`가 **이미 평범한 객체인** 키에 떨어질 때는 충돌이 아니며 다음 정수 키에 추가됩니다 — 아래 노트 참고.)
 
-> **이미 존재하는 평범한 객체에 대한 `[]` (충돌 아님):** `[]` push 문법이 이미 객체인 키를 대상으로 할 때(충돌로 만들어진 게 아닌 경우 — 예: 기본값 `duplicates: 'first'`에서 객체를 유지하는 `a[b]=1&a[]=2`) push된 값은 리터럴 `""` 키가 아니라 다음 정수 키(`max(기존 숫자 키) + 1`, 없으면 `"0"`)에 놓입니다:
+> **이미 존재하는 평범한 객체에 대한 `[]` (충돌 아님):** `[]` push 문법이 이미 객체인 키를 대상으로 할 때(충돌로 만들어진 게 아닌 경우 — 예: `a[b]`가 객체를 만들고 `[]` push가 그 위에 추가되는 `a[b]=1&a[]=2`) push된 값은 리터럴 `""` 키가 아니라 다음 정수 키(`max(기존 숫자 키) + 1`, 없으면 `"0"`)에 놓입니다:
 >
 > ```typescript
 > QueryParser.create({ nesting: true }).parse('a[b]=1&a[]=2');
@@ -234,7 +233,7 @@ QueryParser.create({ nesting: true, duplicates: 'array' }).parse(input);
 활성화 시 `parse()`는 무시하는 대신 **구조적** 문제에서 `QueryParserError`를 throw합니다. 퍼센트 인코딩 문법은 여기에 포함되지 않습니다 — strict 모드에서도 잘못된 이스케이프는 결코 오류가 아닙니다(WHATWG §2.6; [RFC 3986 준수](#-rfc-3986-준수) 참고). 잘못된 이스케이프는 리터럴로 보존되고, 무효한 UTF-8은 U+FFFD가 됩니다. strict·non-strict 모두 동일합니다:
 
 - 불균형·중첩·미닫힘 브래킷 (`a]b[c]=1`, `a[[b]]=1`, `a[b=1`) 및 브래킷 그룹 사이의 잉여 문자 (`a[b]junk[c]=1`)
-- `duplicates: 'first'` 또는 `'last'`에서의 **스칼라↔컨테이너** 충돌 (`a=1&a[b]=2`) — 감지에는 `nesting: true`가 필요합니다. nesting이 꺼져 있으면 브래킷 키는 리터럴이라 충돌이 발생하지 않습니다. `duplicates: 'array'`에서는 절대 throw하지 않습니다 — 위 [`duplicates`](#duplicates) 참고. 배열↔객체 **키 종류** 불일치만 있는 경우(`a[]=1&a[foo]=2`, 또는 `a[0]=1&a[foo]=2`)는 스칼라↔컨테이너 충돌이 아니며, 항상 무손실로 객체화되고 throw하지 않습니다.
+- `duplicates: DuplicateStrategy.First` 또는 `'last'`에서의 **스칼라↔컨테이너** 충돌 (`a=1&a[b]=2`) — 감지에는 `nesting: true`가 필요합니다. nesting이 꺼져 있으면 브래킷 키는 리터럴이라 충돌이 발생하지 않습니다. `duplicates: DuplicateStrategy.Array`에서는 절대 throw하지 않습니다 — 위 [`duplicates`](#duplicates) 참고. 배열↔객체 **키 종류** 불일치만 있는 경우(`a[]=1&a[foo]=2`, 또는 `a[0]=1&a[foo]=2`)는 스칼라↔컨테이너 충돌이 아니며, 항상 무손실로 객체화되고 throw하지 않습니다.
 - `depth` 또는 `maxParams` 초과 — 조용히 버리는/자르는 대신 `LimitExceeded`를 throw합니다. 위 [`depth`](#depth), [`maxParams`](#maxparams) 참고.
 
 ```typescript
@@ -245,29 +244,19 @@ parser.parse('bad=%zz');            // { bad: '%zz' } — 잘못된 이스케이
 parser.parse('a=1&a[b]=2');        // QueryParserError throw (구조 충돌)
 ```
 
-### `allowPrototypes`
+### 위험한 키 (항상 차단)
 
-기본적으로 `Object.prototype`의 own-property 이름과 일치하는 모든 키(`constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` 등)는 위치(루트·중첩 세그먼트·리프)에 관계없이 파싱 결과에서 버려집니다. `prototype`은 이 집합에 포함되지 **않습니다**(함수 객체의 own-property이지 `Object.prototype`의 이름이 아니므로) — 절대 차단되지 않습니다. `__proto__`는 이 옵션과 무관하게 **항상** 차단됩니다. 이유는 [보안 → 프로토타입 오염 방지](#프로토타입-오염-방지) 참고.
+`Object.prototype`의 own-property 이름과 일치하는 모든 키(`constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` 등)와 `__proto__`는 위치(루트·중첩 세그먼트·리프)에 관계없이 **무조건** 파싱 결과에서 버려집니다. opt-out은 없습니다(이전의 `allowPrototypes` 옵션은 제거됨 — 켜면 recursive-merge 오염 가젯과 메서드섀도 크래시를 HTTP 경계에서 재활성화할 뿐 정당한 이득이 없었음). `prototype`은 이 집합에 포함되지 **않습니다**(함수 객체의 own-property이지 `Object.prototype`의 이름이 아니므로) — 절대 차단되지 않습니다. 이유는 [보안 → 프로토타입 오염 방지](#프로토타입-오염-방지) 참고.
 
 ```typescript
 QueryParser.create().parse('constructor=1');
-// {} — 기본값에서는 버려짐
+// {} — 버려짐
 
 QueryParser.create({ nesting: true }).parse('a[toString]=1');
 // { a: {} } — 리프에서 버려짐; "a" 컨테이너 껍데기는 남음
 
 QueryParser.create().parse('prototype=1');
 // { prototype: '1' } — Object.prototype own-name이 아니므로 절대 차단되지 않음
-```
-
-⚠️ **보안 경고:** `allowPrototypes: true`로 설정하면 `__proto__`만 차단하던 이전 정책으로 되돌아가고, 위의 다른 모든 키가 다시 일반 own-property 값으로 노출됩니다. 이는 실제 프로토타입 오염 원시성을 재활성화합니다 — `?constructor[prototype][x]=1`은 `{ constructor: { prototype: { x: '1' } } }`을 만들며, 애플리케이션 어딘가의 naive recursive merge(`merge({}, parsed)`)가 이를 그대로 `Object.prototype`까지 오염시킵니다. 메서드섀도 크래시도 재활성화됩니다(`?k[toString]=1`은 `String(parsed.k)`를 throw시킵니다). 파싱 결과를 어떻게 소비하는지 완전히 통제할 수 있을 때만 활성화하세요. `qs`의 `allowPrototypes` opt-in과 동일합니다.
-
-```typescript
-QueryParser.create({ nesting: true, allowPrototypes: true }).parse('a[toString]=1');
-// { a: { toString: '1' } } — 이전 동작 복원
-
-QueryParser.create({ nesting: true, allowPrototypes: true }).parse('a[__proto__][x]=1');
-// { a: {} } — __proto__는 여전히 항상 차단됨
 ```
 
 <br>
@@ -322,9 +311,8 @@ if (isErr(result)) {
 | `InvalidDuplicates` | `create()` | `duplicates`가 `'first'`, `'last'`, `'array'` 중 하나가 아님 |
 | `InvalidNesting` | `create()` | `nesting`이 불리언이 아님 |
 | `InvalidStrict` | `create()` | `strict`가 불리언이 아님 |
-| `InvalidAllowPrototypes` | `create()` | `allowPrototypes`가 불리언이 아님 |
 | `MalformedQueryString` | `parse()` | 잘못된 브래킷/구조 문법 (strict 모드 전용) — 퍼센트 인코딩은 해당 없음 |
-| `ConflictingStructure` | `parse()` | `duplicates: 'first'`/`'last'`에서 키가 스칼라와 중첩 구조로 동시 사용됨 (strict 모드 전용) — `duplicates: 'array'`에서는 항상 무손실 결합되므로 절대 throw하지 않음 |
+| `ConflictingStructure` | `parse()` | `duplicates: DuplicateStrategy.First`/`'last'`에서 키가 스칼라와 중첩 구조로 동시 사용됨 (strict 모드 전용) — `duplicates: DuplicateStrategy.Array`에서는 항상 무손실 결합되므로 절대 throw하지 않음 |
 | `LimitExceeded` | `parse()` | `depth` 또는 `maxParams` 초과 (strict 모드 전용) — `arrayLimit`는 절대 throw하지 않음 |
 
 <br>
@@ -343,9 +331,9 @@ if (isErr(result)) {
 
 ### 프로토타입 오염 방지
 
-기본값(`allowPrototypes: false`)에서는 `Object.prototype`의 own-property 이름과 일치하는 모든 키 — `constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` 등 — 가 모든 위치(루트·중첩 세그먼트·리프)에서 파싱 결과에서 버려지므로, `?constructor=1`, `?a[toString]=1`, 그리고 고전적인 `?constructor[prototype][x]=1` 체인이 모두 무력화됩니다. 중첩 세그먼트/리프에서 키가 버려져도 전체 결과가 아니라 상위 컨테이너 껍데기만 남습니다: `?a[toString]=1` → `{ a: {} }` (`{}`가 아님).
+`Object.prototype`의 own-property 이름과 일치하는 모든 키 — `constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` 등 — 가 모든 위치(루트·중첩 세그먼트·리프)에서 파싱 결과에서 버려지므로, `?constructor=1`, `?a[toString]=1`, 그리고 고전적인 `?constructor[prototype][x]=1` 체인이 모두 무력화됩니다. 중첩 세그먼트/리프에서 키가 버려져도 전체 결과가 아니라 상위 컨테이너 껍데기만 남습니다: `?a[toString]=1` → `{ a: {} }` (`{}`가 아님).
 
-`__proto__`는 옵션과 무관하게, 모든 위치에서 **항상** 차단됩니다 — `__proto__`에 대한 평범한 할당은 프로토타입 setter를 호출하므로, `allowPrototypes: true`를 설정해도 절대 일반 파라미터가 될 수 없습니다.
+`__proto__`는 옵션과 무관하게, 모든 위치에서 **항상** 차단됩니다 — `__proto__`에 대한 평범한 할당은 프로토타입 setter를 호출하므로 절대 일반 파라미터가 될 수 없으며, opt-out도 없습니다.
 
 `prototype`은 `Object.prototype`의 own-property 이름이 아니므로(함수 객체의 own-property이지 `Object.prototype`의 이름이 아님), 의도적으로 절대 차단되지 않고 일반 파라미터로 반환됩니다(`?prototype=1` → `{ prototype: '1' }`) — 이는 실수가 아니라 `qs`의 동작과 정확히 일치시킨 것입니다.
 
@@ -354,13 +342,11 @@ if (isErr(result)) {
 - **오염 가젯:** `?constructor[prototype][x]=1`은 이전에는 평범한 own 객체 `{ constructor: { prototype: { x: '1' } } }`를 만들었습니다. 이 결과가 애플리케이션 어딘가의 naive recursive merge(`merge({}, parsed)`)에 전달되면 그 형태 그대로 `Object.prototype`에 도달해 오염시킵니다. 파서 자신은 공유 프로토타입에 병합하지 않지만, 반환한 객체를 다운스트림 소비자가 어떻게 다루는지는 통제할 수 없으므로 — 가젯 형태 자체를 소스에서 차단합니다.
 - **메서드섀도 크래시:** `?k[toString]=1`은 이전에는 `{ k: { toString: '1' } }`을 만들었습니다 — 상속된 `Object.prototype.toString`을 *가리는* own-property 문자열입니다. 이후의 `String(parsed.k)` 호출은 throw합니다(`toString`이 함수가 아니므로). `?k[hasOwnProperty]=1`도 마찬가지로 이후의 `parsed.k.hasOwnProperty(...)` 호출을 깨뜨립니다.
 
-이전 동작이 필요하다면 — 예를 들어 이미 다운스트림에서 위험한 키 이름을 정제/거부하거나, 파싱 결과를 어디에도 병합하지 않는다면 — [`allowPrototypes: true`](#allowprototypes)를 설정해 `__proto__`만 차단하던 정책으로 되돌릴 수 있습니다. ⚠️ 이는 위의 두 취약점을 모두 재활성화합니다. 전체 경고는 [`allowPrototypes`](#allowprototypes) 절을 참고하세요.
-
-> **파괴적 변경:** 이전에는 `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`가 모두 일반 own-property 값으로 노출되었습니다(`__proto__`만 차단). 기본값에서는 이제 다시 버려집니다(`prototype`은 예외 — 위 참고). 노출되는 이전 동작에 의존하는 앱이라면 `allowPrototypes: true`를 전달하세요.
+> **파괴적 변경:** 이전에는 `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`가 모두 일반 own-property 값으로 노출되었습니다(`__proto__`만 차단). 기본값에서는 이제 다시 버려집니다(`prototype`은 예외 — 위 참고). 이 차단은 무조건적입니다(`allowPrototypes` opt-out은 제거됨).
 
 ### HPP (HTTP Parameter Pollution) 방어
 
-기본값 `duplicates: 'first'`는 공격자가 중복 키를 추가하여 값을 주입하는 것을 방지합니다.
+기본값 `duplicates: DuplicateStrategy.First`는 공격자가 중복 키를 추가하여 값을 주입하는 것을 방지합니다.
 
 ### 리소스 제한
 
