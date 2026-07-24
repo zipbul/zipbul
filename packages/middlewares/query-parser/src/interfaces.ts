@@ -57,15 +57,13 @@ export interface QueryParserOptions {
    * Strategy for handling repeated same-key values (HTTP Parameter Pollution).
    * Governs SAME-KIND duplicates only; a scalar↔container shape conflict is
    * resolved independently (strict rejects it under every strategy).
-   * - `DuplicateStrategy.Array` / `'array'` (default): keep every value in an
-   *   array — lossless, deferring the first/last/reject cardinality choice to
-   *   the DTO/validation layer.
-   * - `DuplicateStrategy.First` / `'first'`: keep the first value (drops the rest).
-   * - `DuplicateStrategy.Last` / `'last'`: keep the last value (drops the rest).
-   * Accepts the {@link DuplicateStrategy} enum or the equivalent string literal.
+   * - `DuplicateStrategy.Array` (default): keep every value in an array —
+   *   lossless, deferring the first/last/reject cardinality choice to the DTO.
+   * - `DuplicateStrategy.First`: keep the first value (drops the rest).
+   * - `DuplicateStrategy.Last`: keep the last value (drops the rest).
    * @default DuplicateStrategy.Array
    */
-  duplicates?: DuplicateStrategy | 'first' | 'last' | 'array';
+  duplicates?: DuplicateStrategy;
 
   /**
    * Whether to enable strict mode.

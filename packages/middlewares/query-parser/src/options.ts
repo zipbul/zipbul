@@ -79,7 +79,7 @@ export class QueryParserOptionsSchema {
 
   /** Duplicate-key strategy. */
   @Field(isIn(DUPLICATE_MODES), { optional: true, context: { reason: QueryParserErrorReason.InvalidDuplicates } })
-  duplicates?: DuplicateStrategy | 'first' | 'last' | 'array';
+  duplicates?: DuplicateStrategy;
 
   /** Whether strict mode is enabled. */
   @Field(isBoolean, { optional: true, context: { reason: QueryParserErrorReason.InvalidStrict } })

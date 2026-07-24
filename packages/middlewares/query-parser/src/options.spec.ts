@@ -50,33 +50,13 @@ describe('resolveQueryParserOptions', () => {
     expect(result.depth).toBe(DEFAULT_QUERY_PARSER_OPTIONS.depth);
   });
 
-  it('should return provided string field with rest defaults when duplicates is given', () => {
+  it('should return the provided duplicates enum member with rest defaults', () => {
     // Act
-    const result = resolveQueryParserOptions({ duplicates: 'last' });
+    const result = resolveQueryParserOptions({ duplicates: DuplicateStrategy.Last });
 
     // Assert
-    expect(result.duplicates).toBe('last');
+    expect(result.duplicates).toBe(DuplicateStrategy.Last);
     expect(result.depth).toBe(DEFAULT_QUERY_PARSER_OPTIONS.depth);
-  });
-
-  // ---------------------------------------------------------------------------
-  // DuplicateStrategy enum — the option accepts either the enum member or the
-  // equivalent string literal (public type is the union of both).
-  // ---------------------------------------------------------------------------
-  it('should accept the DuplicateStrategy enum member for duplicates', () => {
-    // Act
-    const result = resolveQueryParserOptions({ duplicates: DuplicateStrategy.Array });
-
-    // Assert
-    expect(result.duplicates).toBe(DuplicateStrategy.Array);
-  });
-
-  it('should accept the bare string literal for duplicates', () => {
-    // Act
-    const result = resolveQueryParserOptions({ duplicates: 'array' });
-
-    // Assert — the literal is the enum member's value, so they are interchangeable
-    expect(result.duplicates).toBe(DuplicateStrategy.Array);
   });
 
   it('should default duplicates to DuplicateStrategy.Array', () => {
@@ -94,7 +74,7 @@ describe('resolveQueryParserOptions', () => {
       maxParams: 50,
       nesting: true,
       arrayLimit: 10,
-      duplicates: 'array' as const,
+      duplicates: DuplicateStrategy.Array,
       strict: true,
     };
 
@@ -172,21 +152,6 @@ describe('validateQueryParserOptions', () => {
 
   it('should pass for every DuplicateStrategy enum member', () => {
     const modes = [DuplicateStrategy.First, DuplicateStrategy.Last, DuplicateStrategy.Array];
-
-    for (const mode of modes) {
-      // Arrange
-      const resolved: ResolvedQueryParserOptions = { ...resolveQueryParserOptions(), duplicates: mode };
-
-      // Act
-      const result = validateQueryParserOptions(resolved);
-
-      // Assert
-      expect(result).toBeUndefined();
-    }
-  });
-
-  it('should pass for every duplicates string literal', () => {
-    const modes = ['first', 'last', 'array'] as const;
 
     for (const mode of modes) {
       // Arrange

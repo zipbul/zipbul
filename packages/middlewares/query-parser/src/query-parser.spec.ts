@@ -4,7 +4,7 @@ import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
 import type { Err, Result } from '@zipbul/result';
 
-import { QueryParserErrorReason } from './enums';
+import { DuplicateStrategy, QueryParserErrorReason } from './enums';
 import { QueryParserError } from './interfaces';
 import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
 import type { QueryArray, QueryValue, QueryValueRecord } from './types';
@@ -609,7 +609,7 @@ describe('QueryParser', () => {
   describe('duplicates', () => {
     it('should keep first value when duplicates is first', () => {
       // Arrange
-      const parser = QueryParser.create({ duplicates: 'first' });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.First });
 
       // Act & Assert
       expect(parser.parse('id=1&id=2')).toEqual({ id: '1' });
@@ -618,7 +618,7 @@ describe('QueryParser', () => {
 
     it('should keep last value when duplicates is last', () => {
       // Arrange
-      const parser = QueryParser.create({ duplicates: 'last' });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.Last });
 
       // Act & Assert
       expect(parser.parse('id=1&id=2')).toEqual({ id: '2' });
@@ -627,7 +627,7 @@ describe('QueryParser', () => {
 
     it('should collect all values when duplicates is array', () => {
       // Arrange
-      const parser = QueryParser.create({ duplicates: 'array' });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.Array });
 
       // Act
       const two = parser.parse('id=1&id=2');
@@ -640,7 +640,7 @@ describe('QueryParser', () => {
 
     it('should not wrap single value when duplicates is array', () => {
       // Arrange
-      const parser = QueryParser.create({ duplicates: 'array' });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.Array });
 
       // Act & Assert
       expect(parser.parse('id=1')).toEqual({ id: '1' });
@@ -650,7 +650,7 @@ describe('QueryParser', () => {
       // #3/#6 — reversed from the old "drop" behavior: a later scalar for a key
       // that already holds a RECORD (not an array) is combined losslessly into
       // a fresh array, `[existingRecord, scalar]`, never dropped.
-      const parser = QueryParser.create({ nesting: true, duplicates: 'array' });
+      const parser = QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Array });
 
       // Act & Assert
       expect(parser.parse('a[b]=1&a=2')).toEqual({ a: [{ b: '1' }, '2'] });
@@ -658,7 +658,7 @@ describe('QueryParser', () => {
 
     it('should allow explicit array brackets when duplicates is first and nesting is true', () => {
       // Arrange
-      const parser = QueryParser.create({ duplicates: 'first', nesting: true });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.First, nesting: true });
 
       // Act
       const res = parser.parse('arr[]=1&arr[]=2');
@@ -669,7 +669,7 @@ describe('QueryParser', () => {
 
     it('should keep first value for a duplicate explicit array index when duplicates is first', () => {
       // Arrange — must be consistent with the object-key path (k[a]=1&k[a]=2 -> {k:{a:'1'}}).
-      const parser = QueryParser.create({ duplicates: 'first', nesting: true });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.First, nesting: true });
 
       // Act & Assert
       expect(parser.parse('k[0]=1&k[0]=2')).toEqual({ k: ['1'] });
@@ -677,7 +677,7 @@ describe('QueryParser', () => {
 
     it('should keep last value for a duplicate explicit array index when duplicates is last', () => {
       // Arrange
-      const parser = QueryParser.create({ duplicates: 'last', nesting: true });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.Last, nesting: true });
 
       // Act & Assert
       expect(parser.parse('k[0]=1&k[0]=2')).toEqual({ k: ['2'] });
@@ -685,7 +685,7 @@ describe('QueryParser', () => {
 
     it('should collect values for a duplicate explicit array index when duplicates is array', () => {
       // Arrange — consistent with the object-key path (k[a] array -> {k:{a:['1','2']}}).
-      const parser = QueryParser.create({ duplicates: 'array', nesting: true });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.Array, nesting: true });
 
       // Act & Assert
       expect(parser.parse('k[0]=1&k[0]=2')).toEqual({ k: [['1', '2']] });
@@ -694,7 +694,7 @@ describe('QueryParser', () => {
     it('should apply the duplicates strategy to a duplicate index at a deeper position', () => {
       // Arrange — the index-leaf fix must fire at any depth, not just the top level.
       // Consistent with object path a[x][y]=1&a[x][y]=2 -> {a:{x:{y:'1'}}}.
-      const parser = QueryParser.create({ duplicates: 'first', nesting: true });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.First, nesting: true });
 
       // Act & Assert
       expect(parser.parse('a[0][0]=1&a[0][0]=2')).toEqual({ a: [['1']] });
@@ -702,7 +702,7 @@ describe('QueryParser', () => {
 
     it('should apply the duplicates strategy when an explicit index duplicates a pushed element', () => {
       // Arrange — arr[]=1 pushes to index 0; arr[0]=2 then duplicates that same index.
-      const parser = QueryParser.create({ duplicates: 'first', nesting: true });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.First, nesting: true });
 
       // Act & Assert
       expect(parser.parse('arr[]=1&arr[0]=2')).toEqual({ arr: ['1'] });
@@ -1197,7 +1197,7 @@ describe('QueryParser', () => {
 
     it('should collect duplicate empty-name values under duplicates array', () => {
       // Arrange
-      const arrayParser = QueryParser.create({ duplicates: 'array' });
+      const arrayParser = QueryParser.create({ duplicates: DuplicateStrategy.Array });
 
       // Act & Assert — [['','v'],['','w']] → all values retained
       expect(arrayParser.parse('=v&=w')).toEqual({ '': ['v', 'w'] });
@@ -1205,7 +1205,7 @@ describe('QueryParser', () => {
 
     it('should keep the first value for a duplicate empty name under duplicates first', () => {
       // Arrange
-      const firstParser = QueryParser.create({ duplicates: 'first' });
+      const firstParser = QueryParser.create({ duplicates: DuplicateStrategy.First });
 
       // Act & Assert
       expect(firstParser.parse('=v&=w')).toEqual({ '': 'v' });
@@ -1213,7 +1213,7 @@ describe('QueryParser', () => {
 
     it('should keep the last value for a duplicate empty name under duplicates last', () => {
       // Arrange
-      const lastParser = QueryParser.create({ duplicates: 'last' });
+      const lastParser = QueryParser.create({ duplicates: DuplicateStrategy.Last });
 
       // Act & Assert
       expect(lastParser.parse('=v&=w')).toEqual({ '': 'w' });
@@ -1378,7 +1378,7 @@ describe('QueryParser', () => {
   describe('combined options', () => {
     it('should handle HPP with nesting when both enabled', () => {
       // Arrange
-      const parser = QueryParser.create({ duplicates: 'array', nesting: true });
+      const parser = QueryParser.create({ duplicates: DuplicateStrategy.Array, nesting: true });
 
       // Act
       const res = parser.parse('a=1&a=2&b[]=x&b[]=y');
@@ -1447,7 +1447,7 @@ describe('QueryParser', () => {
 
     it('should overwrite the nested structure with the scalar when duplicates is last', () => {
       // Arrange
-      const lastParser = QueryParser.create({ nesting: true, duplicates: 'last' });
+      const lastParser = QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Last });
 
       // Act & Assert
       expect(lastParser.parse('a[b]=1&a=2')).toEqual({ a: '2' });
@@ -1471,7 +1471,7 @@ describe('QueryParser', () => {
     it('should overwrite the nested structure with the scalar under duplicates:last on an array index', () => {
       // Guard: the fix must route through the duplicates strategy, NOT hard-code keep-structure.
       // Object path k[a][b]=1&k[a]=2 with last -> {k:{a:'2'}}.
-      const lastParser = QueryParser.create({ nesting: true, duplicates: 'last' });
+      const lastParser = QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Last });
       expect(lastParser.parse('k[0][b]=1&k[0]=2')).toEqual({ k: ['2'] });
     });
   });
@@ -1492,7 +1492,7 @@ describe('QueryParser', () => {
   // 'array' can never silently disable the middleware's conflict-400.
   // ===========================================================================
   describe('scalar↔container conflict rejection is decoupled from duplicates (strict)', () => {
-    for (const dup of ['first', 'last', 'array'] as const) {
+    for (const dup of [DuplicateStrategy.First, DuplicateStrategy.Last, DuplicateStrategy.Array]) {
       it(`should throw ConflictingStructure under duplicates:'${dup}' + strict for scalar-then-container`, () => {
         const p = QueryParser.create({ nesting: true, strict: true, duplicates: dup });
 
@@ -1515,9 +1515,9 @@ describe('QueryParser', () => {
   });
 
   describe('scalar↔container collisions follow the duplicates strategy (#6/#3/R1)', () => {
-    const first = QueryParser.create({ nesting: true, duplicates: 'first' });
-    const last = QueryParser.create({ nesting: true, duplicates: 'last' });
-    const array = QueryParser.create({ nesting: true, duplicates: 'array' });
+    const first = QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.First });
+    const last = QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Last });
+    const array = QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Array });
 
     describe('root-level: scalar then container (a=2&a[b]=1)', () => {
       it('should keep the scalar and drop the structure under first', () => {
@@ -1607,7 +1607,7 @@ describe('QueryParser', () => {
     });
 
     describe('strict mode: dup:array still REJECTS shape conflicts (decoupled from duplicates)', () => {
-      const strictArray = QueryParser.create({ nesting: true, strict: true, duplicates: 'array' });
+      const strictArray = QueryParser.create({ nesting: true, strict: true, duplicates: DuplicateStrategy.Array });
 
       it('should throw for a root scalar-then-container conflict (a scalar, then a[b])', () => {
         // Decoupled: the shape conflict is rejected in strict under EVERY
@@ -1644,8 +1644,8 @@ describe('QueryParser', () => {
     });
 
     describe('strict mode: dup:first/last collisions remain lossy and still throw (#2b)', () => {
-      const strictFirst = QueryParser.create({ nesting: true, strict: true, duplicates: 'first' });
-      const strictLast = QueryParser.create({ nesting: true, strict: true, duplicates: 'last' });
+      const strictFirst = QueryParser.create({ nesting: true, strict: true, duplicates: DuplicateStrategy.First });
+      const strictLast = QueryParser.create({ nesting: true, strict: true, duplicates: DuplicateStrategy.Last });
 
       it('should throw for a root scalar-then-push collision under first', () => {
         expect(() => strictFirst.parse('a=2&a[]=1')).toThrow(/Conflict/);
@@ -2263,7 +2263,7 @@ describe('QueryParser', () => {
 
     it('should keep an array for a duplicate explicit index under the array strategy', () => {
       // Arrange
-      const parser = QueryParser.create({ nesting: true, duplicates: 'array' });
+      const parser = QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Array });
 
       // Act & Assert
       expect(parser.parse('a[0]=1&a[0]=2')).toEqual({ a: [['1', '2']] });
