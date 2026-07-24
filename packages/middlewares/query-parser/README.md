@@ -104,9 +104,8 @@ interface QueryParserOptions {
   maxParams?: number;       // Default: 1000
   nesting?: boolean;        // Default: false
   arrayLimit?: number;      // Default: 20
-  duplicates?: 'first' | 'last' | 'array';  // Default: 'first'
+  duplicates?: 'first' | 'last' | 'array';  // Default: 'array'
   strict?: boolean;         // Default: false
-  allowPrototypes?: boolean; // Default: false
 }
 ```
 
@@ -187,47 +186,53 @@ parser.parse('a[0]=x&a[100]=no'); // { a: { '0': 'x', '100': 'no' } } — over l
 
 Strategy for handling duplicate keys (HTTP Parameter Pollution). Accepts either the bare string literal or the exported `DuplicateStrategy` string enum — both are equivalent.
 
+Governs SAME-KIND duplicates only; a scalar↔container shape conflict is resolved independently (`strict` rejects it under every strategy — see [`strict`](#strict)).
+
 | Value | `DuplicateStrategy` member | Behavior |
 |:------|:---------------------------|:---------|
-| `'first'` _(default)_ | `DuplicateStrategy.First` | Keep the first value — safest against HPP attacks |
-| `'last'` | `DuplicateStrategy.Last` | Keep the last value |
-| `'array'` | `DuplicateStrategy.Array` | Collect all values into an array |
+| `'array'` _(default)_ | `DuplicateStrategy.Array` | Keep every value in an array — lossless; defer the first/last/reject choice to the DTO layer |
+| `'first'` | `DuplicateStrategy.First` | Keep the first value (drops the rest) |
+| `'last'` | `DuplicateStrategy.Last` | Keep the last value (drops the rest) |
 
 ```typescript
 import { DuplicateStrategy, QueryParser } from '@zipbul/query-parser';
 
 // Input: 'role=admin&role=user'
 
-QueryParser.create({ duplicates: 'first' }).parse(input);
+QueryParser.create({ duplicates: DuplicateStrategy.First }).parse(input);
 // { role: 'admin' }
 
 QueryParser.create({ duplicates: DuplicateStrategy.Last }).parse(input);
 // { role: 'user' }
 
-QueryParser.create({ duplicates: 'array' }).parse(input);
+QueryParser.create({ duplicates: DuplicateStrategy.Array }).parse(input);
 // { role: ['admin', 'user'] }
 ```
 
-**Scalar↔container collisions** — a key used once as a plain scalar and once as a nested structure (`a=1` then `a[b]=2`, in either order, at any depth) — are resolved by this same `duplicates` strategy, requires `nesting: true`:
+**Scalar↔container collisions** — a key used once as a plain scalar and once as a nested structure (`a=1` then `a[b]=2`, in either order, at any depth; requires `nesting: true`) — are a **shape conflict**, resolved INDEPENDENTLY of `duplicates`. `strict` **rejects** the conflict under every strategy (`ConflictingStructure`); NON-strict resolves it per `duplicates`:
 
 ```typescript
-// Input: 'a=2&a[b]=1' (nesting: true)
+// Input: 'a=2&a[b]=1' (nesting: true)  — non-strict
 
-QueryParser.create({ nesting: true, duplicates: 'first' }).parse(input);
+QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.First }).parse(input);
 // { a: '2' } — the first-seen value (the scalar) wins; the structure is dropped
 
-QueryParser.create({ nesting: true, duplicates: 'last' }).parse(input);
+QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Last }).parse(input);
 // { a: { b: '1' } } — the last-seen value (the structure) wins; the scalar is dropped
 
-QueryParser.create({ nesting: true, duplicates: 'array' }).parse(input);
-// { a: ['2', { b: '1' }] } — both are combined losslessly into an array, in arrival order
+QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Array }).parse(input);       // the default
+// { a: ['2', { b: '1' }] } — both combined losslessly, in arrival order
+
+// strict + ANY strategy (including 'array'):
+QueryParser.create({ nesting: true, strict: true, duplicates: DuplicateStrategy.Array }).parse(input);
+// throws QueryParserError (ConflictingStructure)
 ```
 
-`'array'` always combines losslessly, so it **never throws**, even in `strict` mode — this holds regardless of which side (scalar or structure) came first, and at any nesting depth, not just the root. `'first'`/`'last'` are lossy (one side is always discarded), so `strict` throws `ConflictingStructure` for them — see [`strict`](#strict) below.
+The conflict rule being decoupled from `duplicates` is what keeps the default `'array'` from silently disabling the strict/middleware conflict-400.
 
-An empty-bracket push (`a[]=x`) that lands on a key currently holding a **scalar** is itself a scalar↔container collision, resolved by the same strategy: `a=1&a[]=2` → `{ a: ['1', '2'] }` under `duplicates: 'array'` (combined losslessly), `{ a: ['2'] }` under `'last'` (the scalar is discarded), or `{ a: '1' }` under `'first'` (the push is dropped) — and it throws `ConflictingStructure` under `strict` with `'first'`/`'last'`, exactly like any other scalar↔container collision. (When `[]` instead lands on a key that is **already a plain object**, there is no collision — the push appends at the next integer key; see the note below.)
+An empty-bracket push (`a[]=x`) that lands on a key currently holding a **scalar** is itself a scalar↔container conflict: `a=2&a[]=1` → `{ a: ['2', '1'] }` under non-strict `'array'`, `{ a: ['1'] }` under `'last'`, `{ a: '2' }` under `'first'` — and it throws `ConflictingStructure` under `strict` for every strategy. (One inherent exception: a scalar following an EXISTING `[]`-array under `'array'` — `a[]=1&a=2` — is absorbed as another element (`{ a: ['1', '2'] }`) rather than a conflict, since an accumulation array and a nesting array are indistinguishable. When `[]` lands on a key that is **already a plain object**, there is no conflict — the push appends at the next integer key; see the note below.)
 
-> **`[]` on an existing plain object (no collision):** when `[]` push-syntax targets a key that is *already* an object (not created by a collision — e.g. `a[b]=1&a[]=2` under the default `duplicates: 'first'`, which keeps the object), the pushed value lands at the next integer key (`max(existing numeric keys) + 1`, or `"0"` if none) rather than the literal `""` key:
+> **`[]` on an existing plain object (no collision):** when `[]` push-syntax targets a key that is *already* an object (not created by a collision — e.g. `a[b]=1&a[]=2`, where `a[b]` makes an object and the `[]` push appends onto it), the pushed value lands at the next integer key (`max(existing numeric keys) + 1`, or `"0"` if none) rather than the literal `""` key:
 >
 > ```typescript
 > QueryParser.create({ nesting: true }).parse('a[b]=1&a[]=2');
@@ -242,7 +247,7 @@ An empty-bracket push (`a[]=x`) that lands on a key currently holding a **scalar
 When enabled, `parse()` throws `QueryParserError` on **structural** problems instead of silently ignoring them. Percent-encoding syntax is never one of them — a malformed escape is never an error, even in strict mode (WHATWG §2.6; see [RFC 3986 Compliance](#-rfc-3986-compliance)). Malformed escapes are preserved as literals and invalid UTF-8 becomes U+FFFD, in strict and non-strict alike:
 
 - Unbalanced, nested, or unclosed brackets (`a]b[c]=1`, `a[[b]]=1`, `a[b=1`), and stray characters between bracket groups (`a[b]junk[c]=1`)
-- A **scalar↔container** collision (`a=1&a[b]=2`) under `duplicates: 'first'` or `'last'` — detecting it requires `nesting: true`; with nesting off, bracket keys are literal and never conflict. Under `duplicates: 'array'` this never throws — see [`duplicates`](#duplicates) above. An array↔object **key-kind** mismatch alone (`a[]=1&a[foo]=2`, or `a[0]=1&a[foo]=2`) is not a scalar↔container collision — it always materializes losslessly and never throws.
+- A **scalar↔container** conflict (`a=1&a[b]=2`) — under EVERY `duplicates` strategy (the conflict rule is decoupled from `duplicates`); detecting it requires `nesting: true` (with nesting off, bracket keys are literal and never conflict). An array↔object **key-kind** mismatch alone (`a[]=1&a[foo]=2`, or `a[0]=1&a[foo]=2`) is not a scalar↔container conflict — it always materializes losslessly and never throws.
 - `depth` or `maxParams` exceeded — throws `LimitExceeded` instead of silently dropping/truncating; see [`depth`](#depth) and [`maxParams`](#maxparams) above.
 
 ```typescript
@@ -253,29 +258,19 @@ parser.parse('bad=%zz');            // { bad: '%zz' } — malformed escape is da
 parser.parse('a=1&a[b]=2');        // throws QueryParserError (conflicting structure)
 ```
 
-### `allowPrototypes`
+### Dangerous keys (always blocked)
 
-By default, every key that names an own-property of `Object.prototype` (`constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`, …) is dropped from the parsed output, at any position — root, nested segment, or leaf. `prototype` is **not** in this set (it is an own-property of function objects, not of `Object.prototype`) and is never blocked. `__proto__` is **always** blocked, regardless of this option. See [Security → Prototype pollution prevention](#prototype-pollution-prevention) for why.
+Every key that names an own-property of `Object.prototype` (`constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`, …), plus `__proto__`, is dropped from the parsed output **unconditionally**, at any position — root, nested segment, or leaf. There is no opt-out (an earlier `allowPrototypes` option was removed: turning it on re-armed both the recursive-merge pollution gadget and the method-shadow crash at an HTTP boundary, for no legitimate benefit). `prototype` is **not** in this set (it is an own-property of function objects, not of `Object.prototype`) and is never blocked. See [Security → Prototype pollution prevention](#prototype-pollution-prevention) for why.
 
 ```typescript
 QueryParser.create().parse('constructor=1');
-// {} — dropped by default
+// {} — dropped
 
 QueryParser.create({ nesting: true }).parse('a[toString]=1');
 // { a: {} } — dropped at the leaf; the "a" shell remains
 
 QueryParser.create().parse('prototype=1');
 // { prototype: '1' } — not an Object.prototype own-name, never blocked
-```
-
-⚠️ **SECURITY:** setting `allowPrototypes: true` reverts to blocking only `__proto__`, and re-admits every other key above as an ordinary own-property value. This re-arms a real prototype-pollution primitive — `?constructor[prototype][x]=1` builds `{ constructor: { prototype: { x: '1' } } }`, which a naive recursive merge (`merge({}, parsed)`) elsewhere in your application walks straight into `Object.prototype` — as well as method-shadow crashes (`?k[toString]=1` makes `String(parsed.k)` throw). Only enable it if you fully control how the parsed object is consumed downstream. Matches `qs`'s `allowPrototypes` opt-in.
-
-```typescript
-QueryParser.create({ nesting: true, allowPrototypes: true }).parse('a[toString]=1');
-// { a: { toString: '1' } } — old behavior restored
-
-QueryParser.create({ nesting: true, allowPrototypes: true }).parse('a[__proto__][x]=1');
-// { a: {} } — __proto__ is still always blocked
 ```
 
 <br>
@@ -330,9 +325,8 @@ if (isErr(result)) {
 | `InvalidDuplicates` | `create()` | `duplicates` must be `'first'`, `'last'`, or `'array'` |
 | `InvalidNesting` | `create()` | `nesting` must be a boolean |
 | `InvalidStrict` | `create()` | `strict` must be a boolean |
-| `InvalidAllowPrototypes` | `create()` | `allowPrototypes` must be a boolean |
 | `MalformedQueryString` | `parse()` | Malformed bracket/structure syntax (strict mode only) — never percent-encoding |
-| `ConflictingStructure` | `parse()` | Key used as both scalar and nested, under `duplicates: 'first'`/`'last'` (strict mode only) — never thrown under `duplicates: 'array'`, which always combines losslessly |
+| `ConflictingStructure` | `parse()` | Key used as both a scalar and a nested structure (strict mode only) — rejected under every `duplicates` strategy, since the conflict rule is decoupled from `duplicates` |
 | `LimitExceeded` | `parse()` | `depth` or `maxParams` exceeded (strict mode only) — `arrayLimit` never throws |
 
 <br>
@@ -351,9 +345,9 @@ This parser follows [RFC 3986](https://datatracker.ietf.org/doc/html/rfc3986) se
 
 ### Prototype pollution prevention
 
-By default (`allowPrototypes: false`), every key that names an own-property of `Object.prototype` — `constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`, … — is dropped from the parsed output at every position (root, nested segment, leaf), so `?constructor=1`, `?a[toString]=1`, and the classic `?constructor[prototype][x]=1` chain are all neutralized. Dropping a key at a nested segment/leaf leaves the parent container shell in place rather than discarding the whole result: `?a[toString]=1` → `{ a: {} }`, not `{}`.
+Every key that names an own-property of `Object.prototype` — `constructor`, `toString`, `hasOwnProperty`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__`, … — is dropped from the parsed output at every position (root, nested segment, leaf), so `?constructor=1`, `?a[toString]=1`, and the classic `?constructor[prototype][x]=1` chain are all neutralized. Dropping a key at a nested segment/leaf leaves the parent container shell in place rather than discarding the whole result: `?a[toString]=1` → `{ a: {} }`, not `{}`.
 
-`__proto__` is **always** blocked, at every position and regardless of any option — a plain assignment to it invokes the prototype setter, so it can never be an ordinary parameter, even when `allowPrototypes: true` is set.
+`__proto__` is **always** blocked, at every position and regardless of any option — a plain assignment to it invokes the prototype setter, so it can never be an ordinary parameter, and there is no opt-out.
 
 `prototype` is **not** an own-property name of `Object.prototype` (it is an own-property of function objects, not of `Object.prototype`), so it is intentionally never blocked and is returned as an ordinary parameter (`?prototype=1` → `{ prototype: '1' }`) — this matches `qs`'s behavior exactly, it is not an oversight.
 
@@ -362,13 +356,11 @@ This closes two real vectors that existed when only `__proto__` was blocked:
 - **Pollution gadget:** `?constructor[prototype][x]=1` used to build an ordinary own object `{ constructor: { prototype: { x: '1' } } }`. Handed to a naive recursive merge elsewhere in an application (`merge({}, parsed)`), that shape reaches and pollutes `Object.prototype`. The parser itself never merges into a shared prototype, but it can't control what a downstream consumer does with the object it returns — so the gadget shape is dropped at the source instead.
 - **Method-shadow crash:** `?k[toString]=1` used to build `{ k: { toString: '1' } }` — an own-property string that *shadows* the inherited `Object.prototype.toString`. Any later `String(parsed.k)` throws (`toString` is not a function). `?k[hasOwnProperty]=1` similarly breaks a later `parsed.k.hasOwnProperty(...)` call.
 
-Need the old behavior — e.g. you already sanitize/reject dangerous key names downstream, or you never merge the parsed object into anything — set [`allowPrototypes: true`](#allowprototypes) to revert to blocking only `__proto__`. ⚠️ This re-arms both vectors above; see the [`allowPrototypes`](#allowprototypes) section for the full warning.
-
-> **BREAKING CHANGE:** previously `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` were all surfaced as ordinary own-property values (only `__proto__` was blocked). By default they are now dropped again (`prototype` excepted — see above). If your app relies on the surfaced-values behavior, pass `allowPrototypes: true`.
+> **BREAKING CHANGE:** previously `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` were all surfaced as ordinary own-property values (only `__proto__` was blocked). By default they are now dropped again (`prototype` excepted — see above). This blocking is unconditional (the `allowPrototypes` opt-out was removed).
 
 ### HPP (HTTP Parameter Pollution) defense
 
-Default `duplicates: 'first'` prevents attackers from injecting values by appending duplicate keys.
+The default `duplicates: DuplicateStrategy.Array` keeps every duplicate value (never silently choosing one); a scalar DTO field then rejects unexpected multiplicity with a loud 400. Set `duplicates: DuplicateStrategy.First` if you want the parser itself to keep only the first value.
 
 ### Resource limits
 
