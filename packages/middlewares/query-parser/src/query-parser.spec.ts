@@ -1480,10 +1480,40 @@ describe('QueryParser', () => {
   // Scalar↔container collisions resolved by the `duplicates` strategy (#6/#3/R1)
   // — applied uniformly at all FIVE conflict sites (root-init, array-index
   // traversal, record traversal, and the reverse assignToRecord/assignToArrayIndex
-  // paths). 'first'/'last' are lossy (strict throws, #2b); 'array' always wraps
-  // losslessly and NEVER throws, even in strict mode (#3) — a full reversal of
-  // the old strict-throw for dup:array scalar↔container collisions.
+  // paths). NON-STRICT resolution follows `duplicates` (first keeps the scalar,
+  // last overwrites, array wraps losslessly). STRICT rejects the shape conflict
+  // under EVERY strategy — the conflict rule is decoupled from `duplicates`.
   // =========================================================================
+  // ===========================================================================
+  // Decoupled conflict rule: a scalar↔container SHAPE conflict is resolved by
+  // its OWN rule, independent of the `duplicates` strategy (which governs only
+  // same-kind duplicate scalars). In STRICT mode the conflict is rejected under
+  // EVERY duplicates strategy — including 'array' — so flipping the default to
+  // 'array' can never silently disable the middleware's conflict-400.
+  // ===========================================================================
+  describe('scalar↔container conflict rejection is decoupled from duplicates (strict)', () => {
+    for (const dup of ['first', 'last', 'array'] as const) {
+      it(`should throw ConflictingStructure under duplicates:'${dup}' + strict for scalar-then-container`, () => {
+        const p = QueryParser.create({ nesting: true, strict: true, duplicates: dup });
+
+        expect(() => p.parse('a=1&a[b]=2')).toThrow(/Conflict/);
+      });
+
+      it(`should throw ConflictingStructure under duplicates:'${dup}' + strict for container-then-scalar`, () => {
+        const p = QueryParser.create({ nesting: true, strict: true, duplicates: dup });
+
+        expect(() => p.parse('a[b]=1&a=2')).toThrow(/Conflict/);
+      });
+
+      it(`should throw ConflictingStructure under duplicates:'${dup}' + strict for an array-index conflict`, () => {
+        const p = QueryParser.create({ nesting: true, strict: true, duplicates: dup });
+
+        expect(() => p.parse('k[0][b]=1&k[0]=2')).toThrow(/Conflict/);
+        expect(() => p.parse('k[0]=1&k[0][b]=2')).toThrow(/Conflict/);
+      });
+    }
+  });
+
   describe('scalar↔container collisions follow the duplicates strategy (#6/#3/R1)', () => {
     const first = QueryParser.create({ nesting: true, duplicates: 'first' });
     const last = QueryParser.create({ nesting: true, duplicates: 'last' });
@@ -1576,34 +1606,40 @@ describe('QueryParser', () => {
       });
     });
 
-    describe('strict mode: dup:array collisions are always lossless and never throw (#3)', () => {
+    describe('strict mode: dup:array still REJECTS shape conflicts (decoupled from duplicates)', () => {
       const strictArray = QueryParser.create({ nesting: true, strict: true, duplicates: 'array' });
 
-      it('should not throw and should combine for a root scalar-then-push collision', () => {
-        expect(strictArray.parse('a=2&a[]=1')).toEqual({ a: ['2', '1'] });
-        expect(() => strictArray.parse('a=2&a[]=1')).not.toThrow();
+      it('should throw for a root scalar-then-container conflict (a scalar, then a[b])', () => {
+        // Decoupled: the shape conflict is rejected in strict under EVERY
+        // strategy, including 'array' — this is what keeps the middleware-400
+        // alive once 'array' becomes the default.
+        expect(() => strictArray.parse('a=1&a[b]=2')).toThrow(/Conflict/);
+        expect(() => strictArray.parse('a=2&a[]=1')).toThrow(/Conflict/);
       });
 
-      it('should not throw and should combine for a root push-then-scalar collision (symmetry)', () => {
-        // This is the exact case that used to throw before #3 — the fix restores
-        // symmetry between the two orderings.
-        expect(strictArray.parse('a[]=1&a=2')).toEqual({ a: ['1', '2'] });
-        expect(() => strictArray.parse('a[]=1&a=2')).not.toThrow();
+      it('should throw for a root container-then-scalar conflict (a[b], then a scalar)', () => {
+        expect(() => strictArray.parse('a[b]=1&a=2')).toThrow(/Conflict/);
       });
 
-      it('should not throw for a plain legitimate scalar duplicate (not a structure conflict at all)', () => {
+      it('should throw for an array-index-level scalar↔structure conflict', () => {
+        expect(() => strictArray.parse('k[0]=2&k[0][b]=1')).toThrow(/Conflict/);
+        expect(() => strictArray.parse('k[0][b]=1&k[0]=2')).toThrow(/Conflict/);
+      });
+
+      it('should NOT throw for a plain legitimate scalar duplicate (same-kind, not a conflict)', () => {
+        // `duplicates` still governs same-kind duplicates: repeated scalars
+        // combine losslessly, never a conflict.
         expect(strictArray.parse('a=1&a=2&a=3')).toEqual({ a: ['1', '2', '3'] });
         expect(() => strictArray.parse('a=1&a=2&a=3')).not.toThrow();
       });
 
-      it('should not throw for a root object-then-scalar collision', () => {
-        expect(strictArray.parse('a[b]=1&a=2')).toEqual({ a: [{ b: '1' }, '2'] });
-        expect(() => strictArray.parse('a[b]=1&a=2')).not.toThrow();
-      });
-
-      it('should not throw for an array-index-level scalar-then-structure collision (5th conflict site)', () => {
-        expect(strictArray.parse('k[0]=2&k[0][b]=1')).toEqual({ k: [['2', { b: '1' }]] });
-        expect(() => strictArray.parse('k[0]=2&k[0][b]=1')).not.toThrow();
+      it('should absorb a scalar following an existing []-array as another element (array-push exception)', () => {
+        // An existing ARRAY under duplicates:'array' cannot be told apart from a
+        // duplicate-accumulation array, so a following scalar is pushed as one
+        // more element rather than raising a conflict — the one asymmetry with
+        // the scalar-first ordering above, inherent to the value model.
+        expect(strictArray.parse('a[]=1&a=2')).toEqual({ a: ['1', '2'] });
+        expect(() => strictArray.parse('a[]=1&a=2')).not.toThrow();
       });
     });
 

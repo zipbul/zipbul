@@ -894,20 +894,23 @@ export class QueryParser {
         return;
       }
 
-      if (this.options.duplicates === DuplicateStrategy.Array) {
-        // Existing value is a RECORD (not an array) — 'array' still combines
-        // losslessly, wrapping both into a fresh array (#3/#6). Never throws.
-        obj[key] = [existing, value];
-
-        return;
-      }
-
-      // Lossy container→scalar collision (first/last): strict throws (#2b).
+      // A scalar assigned onto an existing CONTAINER is a shape CONFLICT (not a
+      // same-kind duplicate). The conflict rule is DECOUPLED from `duplicates`:
+      // strict rejects it under EVERY strategy — including 'array' — so the
+      // 'array' default can never silently disable the conflict-400.
       if (this.options.strict) {
         return err<QueryParserErrorData>({
           reason: QueryParserErrorReason.ConflictingStructure,
           message: `Conflict: key "${key}" is a nested structure but being assigned a scalar value`,
         });
+      }
+
+      if (this.options.duplicates === DuplicateStrategy.Array) {
+        // Non-strict 'array': combine losslessly, wrapping both into a fresh
+        // array (#3/#6).
+        obj[key] = [existing, value];
+
+        return;
       }
 
       if (this.options.duplicates !== DuplicateStrategy.Last) {
@@ -962,21 +965,20 @@ export class QueryParser {
         return;
       }
 
-      if (this.options.duplicates === DuplicateStrategy.Array) {
-        // Existing value is a RECORD (not an array) at this index — 'array'
-        // still combines losslessly, wrapping both into a fresh array
-        // (#3/#6). Never throws.
-        this.assignArrayRecordValue(arr, key, [existing, value]);
-
-        return;
-      }
-
-      // Lossy container→scalar collision (first/last): strict throws (#2b).
+      // Scalar onto a container at an index is a shape CONFLICT, decoupled from
+      // `duplicates`: strict rejects it under every strategy (including 'array').
       if (this.options.strict) {
         return err<QueryParserErrorData>({
           reason: QueryParserErrorReason.ConflictingStructure,
           message: `Conflict: index "${key}" is a nested structure but being assigned a scalar value`,
         });
+      }
+
+      if (this.options.duplicates === DuplicateStrategy.Array) {
+        // Non-strict 'array': combine losslessly into a fresh array (#3/#6).
+        this.assignArrayRecordValue(arr, key, [existing, value]);
+
+        return;
       }
 
       if (this.options.duplicates !== DuplicateStrategy.Last) {
@@ -1066,6 +1068,15 @@ export class QueryParser {
     | Err<QueryParserErrorData>
     | { container: QueryContainer; parent: QueryContainer; parentKey: string | number }
     | undefined {
+    // Scalar-then-container is a shape CONFLICT, decoupled from `duplicates`:
+    // strict rejects it under every strategy (including 'array').
+    if (this.options.strict) {
+      return err<QueryParserErrorData>({
+        reason: QueryParserErrorReason.ConflictingStructure,
+        message: `Conflict: key "${this.normalizeKey(slotKey)}" is both a scalar and a nested structure`,
+      });
+    }
+
     if (this.options.duplicates === DuplicateStrategy.Array) {
       if (this.shouldCreateArray(nextKey)) {
         const arr: QueryArray = [existingScalar];
@@ -1081,13 +1092,6 @@ export class QueryParser {
       this.writeContainerSlot(slotParent, slotKey, wrapper);
 
       return { container, parent: wrapper, parentKey: 1 };
-    }
-
-    if (this.options.strict) {
-      return err<QueryParserErrorData>({
-        reason: QueryParserErrorReason.ConflictingStructure,
-        message: `Conflict: key "${this.normalizeKey(slotKey)}" is both a scalar and a nested structure`,
-      });
     }
 
     if (this.options.duplicates === DuplicateStrategy.First) {
