@@ -19,6 +19,7 @@ import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
 import type { Err } from '@zipbul/result';
 
+import { QueryParserErrorReason } from './enums';
 import { QueryParserError } from './interfaces';
 import { queryParser } from './middleware';
 
@@ -194,5 +195,16 @@ describe('queryParser — safe-by-default rejection at the HTTP boundary', () =>
     expect(isErr(result)).toBe(true);
     expect((result as Err<ErrorResponseData>).data.status).toBe(HttpStatus.BadRequest);
     expect((result as Err<ErrorResponseData>).data.message).toContain('Limit exceeded');
+  });
+
+  it('should carry the machine-readable reason in the 400 error body', () => {
+    // A client must be able to distinguish "back off, too many params"
+    // (LimitExceeded) from "fix your syntax" (MalformedQueryString) WITHOUT
+    // regexing the human message. The stable reason enum rides in errors[].
+    const limit = callGetQuery('/x?a=1&b=2&c=3', { maxParams: 2 }) as Err<ErrorResponseData>;
+    const malformed = callGetQuery('/x?a[b=1', { nesting: true }) as Err<ErrorResponseData>;
+
+    expect(limit.data.errors).toEqual([{ reason: QueryParserErrorReason.LimitExceeded }]);
+    expect(malformed.data.errors).toEqual([{ reason: QueryParserErrorReason.MalformedQueryString }]);
   });
 });

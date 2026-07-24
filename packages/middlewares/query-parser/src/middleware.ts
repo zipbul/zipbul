@@ -73,9 +73,11 @@ export function queryParser(options?: QueryParserOptions): MiddlewareDefinition 
 
           if (isErr(result)) {
             // The parser's message is already fully formed and self-describing
-            // (e.g. "Malformed query string: …" or "Conflict: …"); pass it
-            // through rather than prefixing a second, sometimes-wrong copy.
-            return httpError(HttpStatus.BadRequest, result.data.message);
+            // (e.g. "Malformed query string: …" or "Conflict: …") — pass it
+            // through (it echoes only the client's own input, in a JSON body).
+            // The STABLE `reason` enum rides in `errors[]` so a client can
+            // distinguish limit-exceeded from malformed WITHOUT parsing prose.
+            return httpError(HttpStatus.BadRequest, result.data.message, [{ reason: result.data.reason }]);
           }
 
           return result;
