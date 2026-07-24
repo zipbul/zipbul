@@ -34,9 +34,9 @@ describe('queryParser middleware e2e (default options)', () => {
     expect(parsedQuery(res)).toEqual({});
   });
 
-  it('should keep the first value for duplicate keys (HPP-safe default)', async () => {
+  it('should keep ALL values for duplicate keys (keep-all default)', async () => {
     const res = await app.fetch('/x?role=admin&role=user');
-    expect(parsedQuery(res)).toEqual({ role: 'admin' });
+    expect(parsedQuery(res)).toEqual({ role: ['admin', 'user'] });
   });
 
   it('should decode + as space unconditionally (WHATWG x-www-form-urlencoded)', async () => {

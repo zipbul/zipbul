@@ -34,10 +34,10 @@ export enum QueryParserErrorReason {
  * `duplicates` option type is the union of this enum and its string literals).
  */
 export enum DuplicateStrategy {
-  /** Keep the first value — safest against HPP attacks (default). */
+  /** Keep the first value — the most HPP-conservative choice. */
   First = 'first',
   /** Keep the last value. */
   Last = 'last',
-  /** Collect every value into an array. */
+  /** Collect every value into an array — the default (keep-all, lossless). */
   Array = 'array',
 }

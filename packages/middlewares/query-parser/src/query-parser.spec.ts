@@ -202,10 +202,10 @@ describe('QueryParser', () => {
     });
 
     it('should keep empty-name pairs whose segment is non-empty (§2.3)', () => {
-      // Act & Assert — a '=' segment has an empty name but IS kept; duplicates
-      // 'first' (default) collapses the repeated empty name to a single entry.
+      // Act & Assert — a '=' segment has an empty name but IS kept; the default
+      // duplicates 'array' keeps every repeated empty-name value.
       expect(parser.parse('=')).toEqual({ '': '' });
-      expect(parser.parse('=&=&=')).toEqual({ '': '' });
+      expect(parser.parse('=&=&=')).toEqual({ '': ['', '', ''] });
       expect(parser.parse('=value')).toEqual({ '': 'value' });
       expect(parser.parse('=value&foo=bar')).toEqual({ '': 'value', foo: 'bar' });
     });
@@ -1432,17 +1432,17 @@ describe('QueryParser', () => {
       expect(res.data).toEqual({ name: 'a', '0': 'b' });
     });
 
-    it('should keep the root scalar and drop the nested structure under default (first) duplicates (#6)', () => {
-      // #6 — reversed from the old "always rebuild" behavior: the root-init
-      // scalar↔container collision now routes through the duplicates strategy
-      // like every other conflict site. Default 'first' keeps the first-seen
-      // value (the scalar) and drops the whole `a[b]=2` write.
-      expect(parser.parse('a=1&a[b]=2')).toEqual({ a: '1' });
+    it('should wrap a root scalar↔container conflict losslessly under the default (array) duplicates (#6)', () => {
+      // The scalar↔container conflict is resolved by the duplicates strategy in
+      // NON-STRICT mode; the default 'array' keeps both losslessly (no data
+      // loss). (Strict rejects it — see the decoupled-conflict block.)
+      expect(parser.parse('a=1&a[b]=2')).toEqual({ a: ['1', { b: '2' }] });
     });
 
-    it('should keep the nested structure when a scalar follows under default duplicates', () => {
-      // Non-strict, duplicates 'first': the later scalar for a structured key is dropped.
-      expect(parser.parse('a[b]=1&a=2')).toEqual({ a: { b: '1' } });
+    it('should wrap the container and following scalar losslessly under the default (array)', () => {
+      // Non-strict default 'array': the later scalar is kept alongside the
+      // structure rather than dropped.
+      expect(parser.parse('a[b]=1&a=2')).toEqual({ a: [{ b: '1' }, '2'] });
     });
 
     it('should overwrite the nested structure with the scalar when duplicates is last', () => {
@@ -1462,10 +1462,10 @@ describe('QueryParser', () => {
       expect(res.arr).toEqual({ '5': 'b', foo: 'x' });
     });
 
-    it('should preserve the nested structure on a non-strict array-index structure-then-scalar conflict', () => {
-      // The object-key path keeps the structure (k[a][b]=1&k[a]=2 -> {k:{a:{b:'1'}}});
-      // the array-index path must not silently drop {b:'1'} for the later scalar.
-      expect(parser.parse('k[0][b]=1&k[0]=2')).toEqual({ k: [{ b: '1' }] });
+    it('should wrap a non-strict array-index structure↔scalar conflict losslessly under the default (array)', () => {
+      // Default 'array': the later scalar is kept alongside {b:'1'} at index 0,
+      // never silently dropped.
+      expect(parser.parse('k[0][b]=1&k[0]=2')).toEqual({ k: [[{ b: '1' }, '2']] });
     });
 
     it('should overwrite the nested structure with the scalar under duplicates:last on an array index', () => {
@@ -2252,12 +2252,13 @@ describe('QueryParser', () => {
       expect(parser.parse('a[]=1&a[]=2')).toEqual({ a: ['1', '2'] });
     });
 
-    it('should keep an array for a duplicate explicit index under the default (first) strategy', () => {
-      // Arrange — i < length is a duplicate, not a hole; array semantics apply.
+    it('should collect duplicate explicit-index values under the default (array) strategy', () => {
+      // Arrange — i < length is a duplicate, not a hole; the default 'array'
+      // keeps both values.
       const parser = QueryParser.create({ nesting: true });
 
       // Act & Assert
-      expect(parser.parse('a[0]=1&a[0]=2')).toEqual({ a: ['1'] });
+      expect(parser.parse('a[0]=1&a[0]=2')).toEqual({ a: [['1', '2']] });
     });
 
     it('should keep an array for a duplicate explicit index under the array strategy', () => {

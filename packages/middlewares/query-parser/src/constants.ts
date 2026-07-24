@@ -15,7 +15,7 @@ export const DEFAULT_QUERY_PARSER_OPTIONS: ResolvedQueryParserOptions = {
   maxParams: 1000,
   nesting: false,
   arrayLimit: 20,
-  duplicates: DuplicateStrategy.First,
+  duplicates: DuplicateStrategy.Array,
   strict: false,
 };
 

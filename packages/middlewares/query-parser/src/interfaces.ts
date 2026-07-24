@@ -54,12 +54,16 @@ export interface QueryParserOptions {
   arrayLimit?: number;
 
   /**
-   * Strategy for handling duplicate keys (HTTP Parameter Pollution).
-   * - `DuplicateStrategy.First` / `'first'`: Use the first value (Secure).
-   * - `DuplicateStrategy.Last` / `'last'`: Use the last value.
-   * - `DuplicateStrategy.Array` / `'array'`: Convert to array (Use with caution).
+   * Strategy for handling repeated same-key values (HTTP Parameter Pollution).
+   * Governs SAME-KIND duplicates only; a scalar↔container shape conflict is
+   * resolved independently (strict rejects it under every strategy).
+   * - `DuplicateStrategy.Array` / `'array'` (default): keep every value in an
+   *   array — lossless, deferring the first/last/reject cardinality choice to
+   *   the DTO/validation layer.
+   * - `DuplicateStrategy.First` / `'first'`: keep the first value (drops the rest).
+   * - `DuplicateStrategy.Last` / `'last'`: keep the last value (drops the rest).
    * Accepts the {@link DuplicateStrategy} enum or the equivalent string literal.
-   * @default DuplicateStrategy.First
+   * @default DuplicateStrategy.Array
    */
   duplicates?: DuplicateStrategy | 'first' | 'last' | 'array';
 

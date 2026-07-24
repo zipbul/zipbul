@@ -101,8 +101,10 @@ describe('queryParser — raw supply (default options)', () => {
     expect(await suppliedQuery('/d?q=hello+world')).toEqual({ q: 'hello world' });
   });
 
-  it('should keep the first value for duplicate keys (HPP-safe default)', async () => {
-    expect(await suppliedQuery('/h?role=admin&role=user')).toEqual({ role: 'admin' });
+  it('should keep ALL values for duplicate keys (keep-all default; DTO owns cardinality)', async () => {
+    // Default duplicates 'array' preserves every value; a scalar DTO field then
+    // rejects the multiplicity loudly rather than the parser silently choosing.
+    expect(await suppliedQuery('/h?role=admin&role=user')).toEqual({ role: ['admin', 'user'] });
   });
 });
 

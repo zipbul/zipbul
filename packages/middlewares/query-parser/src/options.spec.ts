@@ -79,12 +79,12 @@ describe('resolveQueryParserOptions', () => {
     expect(result.duplicates).toBe(DuplicateStrategy.Array);
   });
 
-  it('should default duplicates to DuplicateStrategy.First', () => {
+  it('should default duplicates to DuplicateStrategy.Array', () => {
     // Act
     const result = resolveQueryParserOptions();
 
     // Assert
-    expect(result.duplicates).toBe(DuplicateStrategy.First);
+    expect(result.duplicates).toBe(DuplicateStrategy.Array);
   });
 
   it('should return all provided values when fully specified', () => {
