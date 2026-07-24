@@ -5,8 +5,8 @@
  */
 export enum QueryParserErrorReason {
   // Option-validation reasons, ordered to match the schema's field order in
-  // options.ts (depth, maxParams, nesting, arrayLimit, duplicates, strict,
-  // allowPrototypes) so "first failure wins" reporting reads consistently.
+  // options.ts (depth, maxParams, nesting, arrayLimit, duplicates, strict) so
+  // "first failure wins" reporting reads consistently.
   /** depth must be a non-negative integer. */
   InvalidDepth = 'invalid-depth',
   /** maxParams must be a positive integer. */
@@ -19,8 +19,6 @@ export enum QueryParserErrorReason {
   InvalidDuplicates = 'invalid-duplicates',
   /** strict must be a boolean. */
   InvalidStrict = 'invalid-strict',
-  /** allowPrototypes must be a boolean. */
-  InvalidAllowPrototypes = 'invalid-allow-prototypes',
   /** Query string contains malformed syntax (unbalanced/nested brackets). */
   MalformedQueryString = 'malformed-query-string',
   /** Key is used as both a scalar and a nested structure. */

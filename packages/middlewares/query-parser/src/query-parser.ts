@@ -1,7 +1,7 @@
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result } from '@zipbul/result';
 
-import { DANGEROUS_KEYS, POISONED_KEYS } from './constants';
+import { DANGEROUS_KEYS } from './constants';
 import { DuplicateStrategy, QueryParserErrorReason } from './enums';
 import { QueryParserError } from './interfaces';
 import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
@@ -136,7 +136,7 @@ export class QueryParser {
 
   private constructor(options: ResolvedQueryParserOptions) {
     this.options = options;
-    this.blockedKeys = options.allowPrototypes ? POISONED_KEYS : DANGEROUS_KEYS;
+    this.blockedKeys = DANGEROUS_KEYS;
   }
 
   /**
@@ -814,7 +814,7 @@ export class QueryParser {
     // key, `parseComplexKey` for an unclosed-bracket whole-key leaf); array
     // containers are written directly at their bracket sites, so this sink only
     // ever handles records. `blockedKeys` (resolved once at construction) is a
-    // single monomorphic Set lookup — no per-call `allowPrototypes` branch.
+    // single monomorphic Set lookup on the always-on blocked-key set.
     if (this.blockedKeys.has(key)) {
       return;
     }

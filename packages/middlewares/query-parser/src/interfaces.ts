@@ -72,16 +72,4 @@ export interface QueryParserOptions {
    * @default false
    */
   strict?: boolean;
-
-  /**
-   * Whether to allow keys that name Object.prototype members (constructor, toString,
-   * hasOwnProperty, …) into the parsed output. `__proto__` is ALWAYS dropped regardless.
-   *
-   * SECURITY: setting this `true` re-arms a real prototype-pollution primitive
-   * (`constructor[prototype][x]=1` becomes a live gadget under a naive recursive merge) and
-   * method-shadow crashes (`k[toString]=1` makes `String(out.k)` throw). Leave false unless
-   * you fully control downstream consumption. Matches `qs`'s `allowPrototypes` opt-in.
-   * @default false
-   */
-  allowPrototypes?: boolean;
 }

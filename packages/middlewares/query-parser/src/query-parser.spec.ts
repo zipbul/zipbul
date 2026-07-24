@@ -123,16 +123,6 @@ describe('QueryParser', () => {
       expect(error.reason).toBe(QueryParserErrorReason.InvalidDuplicates);
     });
 
-    it('should throw QueryParserError when allowPrototypes is invalid', () => {
-      // Act
-      const error = catchError(() =>
-        QueryParser.create({ allowPrototypes: 'x' } as unknown as QueryParserOptions),
-      );
-
-      // Assert
-      expect(error).toBeInstanceOf(QueryParserError);
-      expect(error.reason).toBe(QueryParserErrorReason.InvalidAllowPrototypes);
-    });
   });
 
   // =========================================================================
@@ -898,14 +888,14 @@ describe('QueryParser', () => {
       expect(() => parser.parse('a[constructor]=1')).not.toThrow();
     });
 
-    it('should restore the old behavior when allowPrototypes is true, except __proto__', () => {
-      // Arrange
-      const parser = QueryParser.create({ nesting: true, allowPrototypes: true });
+    it('should block Object.prototype-named keys unconditionally (no opt-out)', () => {
+      // Arrange — the broad blocklist is always on; there is no allowPrototypes
+      // escape hatch (it re-armed the merge gadget + method-shadow crash for no
+      // legitimate benefit, so it was removed).
+      const parser = QueryParser.create({ nesting: true });
 
-      // Act & Assert — opt-in reverts to __proto__-only blocking
-      expect(parser.parse('a[toString]=1')).toEqual({ a: { toString: '1' } });
-
-      // __proto__ is still blocked unconditionally, even under allowPrototypes
+      // Act & Assert — method-name keys are dropped, leaving the parent shell
+      expect(parser.parse('a[toString]=1')).toEqual({ a: {} });
       expect(parser.parse('a[__proto__][x]=1')).toEqual({ a: {} });
       expectNoGlobalPollution();
     });

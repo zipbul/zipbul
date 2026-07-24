@@ -96,7 +96,6 @@ describe('resolveQueryParserOptions', () => {
       arrayLimit: 10,
       duplicates: 'array' as const,
       strict: true,
-      allowPrototypes: false,
     };
 
     // Act

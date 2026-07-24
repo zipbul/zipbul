@@ -17,16 +17,7 @@ export const DEFAULT_QUERY_PARSER_OPTIONS: ResolvedQueryParserOptions = {
   arrayLimit: 20,
   duplicates: DuplicateStrategy.First,
   strict: false,
-  allowPrototypes: false,
 };
-
-/**
- * The key that is ALWAYS blocked, even when {@link QueryParserOptions.allowPrototypes}
- * opts back into the rest of {@link DANGEROUS_KEYS}. `__proto__` is special: a plain
- * assignment (`obj.__proto__ = x`) invokes the prototype setter, so it is neutralized
- * at every position (root, nested segment, leaf) unconditionally.
- */
-export const POISONED_KEYS: ReadonlySet<string> = new Set(['__proto__']);
 
 /**
  * Every own-property name on `Object.prototype` (`constructor`, `toString`,
@@ -34,9 +25,9 @@ export const POISONED_KEYS: ReadonlySet<string> = new Set(['__proto__']);
  * runtime at module-load time — self-updating across engines/versions and an
  * O(1) `Set` lookup, rather than a hand-maintained literal list that can drift.
  *
- * By default (`allowPrototypes: false`) every key in this set is dropped from
- * the parsed output, at any position. This closes two real vectors previously
- * possible with only `__proto__` blocked:
+ * Every key in this set is dropped from the parsed output unconditionally, at
+ * any position (there is no opt-out). This closes two real vectors that a
+ * `__proto__`-only block leaves open:
  *  - Pollution gadget: `constructor[prototype][x]=1` builds an own
  *    `{ constructor: { prototype: { x: '1' } } }` shadow; fed to a naive
  *    recursive merge (`merge({}, parsed)`) elsewhere in an application, this
@@ -48,14 +39,7 @@ export const POISONED_KEYS: ReadonlySet<string> = new Set(['__proto__']);
  *
  * `prototype` is NOT an own-property name of `Object.prototype` (it is an
  * own-property of function objects, not of `Object.prototype`), so it is
- * intentionally NOT in this set and is never blocked — matching `qs`'s
- * `allowPrototypes` semantics exactly.
- *
- * Setting {@link QueryParserOptions.allowPrototypes} to `true` reverts to the
- * prior, narrower policy: only `__proto__` (see {@link POISONED_KEYS}) is
- * blocked, and every other key in this set — including `constructor` and the
- * `__define*__`/`__lookup*__` accessors — is returned as an ordinary
- * own-property value again.
+ * intentionally NOT in this set and is never blocked.
  */
 export const DANGEROUS_KEYS: ReadonlySet<string> = new Set([
   ...Object.getOwnPropertyNames(Object.prototype),
