@@ -233,7 +233,7 @@ QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Array }).parse
 활성화 시 `parse()`는 무시하는 대신 **구조적** 문제에서 `QueryParserError`를 throw합니다. 퍼센트 인코딩 문법은 여기에 포함되지 않습니다 — strict 모드에서도 잘못된 이스케이프는 결코 오류가 아닙니다(WHATWG §2.6; [RFC 3986 준수](#-rfc-3986-준수) 참고). 잘못된 이스케이프는 리터럴로 보존되고, 무효한 UTF-8은 U+FFFD가 됩니다. strict·non-strict 모두 동일합니다:
 
 - 불균형·중첩·미닫힘 브래킷 (`a]b[c]=1`, `a[[b]]=1`, `a[b=1`) 및 브래킷 그룹 사이의 잉여 문자 (`a[b]junk[c]=1`)
-- `duplicates: DuplicateStrategy.First` 또는 `'last'`에서의 **스칼라↔컨테이너** 충돌 (`a=1&a[b]=2`) — 감지에는 `nesting: true`가 필요합니다. nesting이 꺼져 있으면 브래킷 키는 리터럴이라 충돌이 발생하지 않습니다. `duplicates: DuplicateStrategy.Array`에서는 절대 throw하지 않습니다 — 위 [`duplicates`](#duplicates) 참고. 배열↔객체 **키 종류** 불일치만 있는 경우(`a[]=1&a[foo]=2`, 또는 `a[0]=1&a[foo]=2`)는 스칼라↔컨테이너 충돌이 아니며, 항상 무손실로 객체화되고 throw하지 않습니다.
+- **스칼라↔컨테이너** 충돌 (`a=1&a[b]=2`) — **모든** `duplicates` 전략에서(충돌 규칙이 `duplicates`와 분리돼 있음). 감지에는 `nesting: true`가 필요합니다. nesting이 꺼져 있으면 브래킷 키는 리터럴이라 충돌이 발생하지 않습니다. 배열↔객체 **키 종류** 불일치만 있는 경우(`a[]=1&a[foo]=2`, 또는 `a[0]=1&a[foo]=2`)는 스칼라↔컨테이너 충돌이 아니며, 항상 무손실로 객체화되고 throw하지 않습니다.
 - `depth` 또는 `maxParams` 초과 — 조용히 버리는/자르는 대신 `LimitExceeded`를 throw합니다. 위 [`depth`](#depth), [`maxParams`](#maxparams) 참고.
 
 ```typescript
@@ -346,7 +346,7 @@ if (isErr(result)) {
 
 ### HPP (HTTP Parameter Pollution) 방어
 
-기본값 `duplicates: DuplicateStrategy.First`는 공격자가 중복 키를 추가하여 값을 주입하는 것을 방지합니다.
+기본값 `DuplicateStrategy.Array`는 모든 중복 값을 보존하며(조용히 하나를 고르지 않음), 스칼라 DTO 필드가 예상치 못한 다중성을 큰 소리(400)로 거부합니다. 파서 자체가 첫 값만 유지하길 원하면 `DuplicateStrategy.First`로 설정하세요.
 
 ### 리소스 제한
 

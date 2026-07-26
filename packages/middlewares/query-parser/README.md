@@ -104,7 +104,7 @@ interface QueryParserOptions {
   maxParams?: number;       // Default: 1000
   nesting?: boolean;        // Default: false
   arrayLimit?: number;      // Default: 20
-  duplicates?: 'first' | 'last' | 'array';  // Default: 'array'
+  duplicates?: DuplicateStrategy;  // Default: DuplicateStrategy.Array
   strict?: boolean;         // Default: false
 }
 ```

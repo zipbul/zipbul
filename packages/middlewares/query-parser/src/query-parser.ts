@@ -134,6 +134,17 @@ export class QueryParser {
    */
   private readonly recordMaxIndex = new WeakMap<QueryValueRecord, number>();
 
+  /**
+   * Arrays created by DUPLICATE ACCUMULATION (`a=1&a=2` under
+   * {@link DuplicateStrategy.Array}) rather than by bracket syntax. Only these
+   * may absorb a further bare scalar as one more element; an array built by
+   * bracket syntax (`a[]`, `a[0]`, nested) is a CONTAINER, so a following
+   * scalar is a shape conflict that strict must reject. Without this
+   * provenance the two are indistinguishable and the conflict check is
+   * bypassed. Weakly keyed on result containers, which live for one parse.
+   */
+  private readonly duplicateArrays = new WeakSet<QueryArray>();
+
   private constructor(options: ResolvedQueryParserOptions) {
     this.options = options;
     this.blockedKeys = DANGEROUS_KEYS;
@@ -520,7 +531,26 @@ export class QueryParser {
     } else {
       const existingRoot = root[rootKey];
 
-      if (this.isRecordValue(existingRoot) || Array.isArray(existingRoot)) {
+      // A DUPLICATE-ACCUMULATION array (`a=1&a=2`) holds repeated SCALARS — it
+      // is not a container, so descending a bracket key into it (`a[b]=3`)
+      // is a scalar↔container conflict, resolved like any other rather than
+      // silently merging structure into the value list.
+      if (Array.isArray(existingRoot) && this.duplicateArrays.has(existingRoot)) {
+        const nextKey = keys[1] ?? '';
+        const resolution = this.resolveScalarToContainer(existingRoot, nextKey, root, rootKey);
+
+        if (isErr(resolution)) {
+          return resolution;
+        }
+
+        if (resolution === undefined) {
+          return;
+        }
+
+        current = resolution.container;
+        parent = resolution.parent;
+        parentKey = resolution.parentKey;
+      } else if (this.isRecordValue(existingRoot) || Array.isArray(existingRoot)) {
         current = existingRoot;
       } else if (existingRoot === undefined) {
         return;
@@ -888,7 +918,14 @@ export class QueryParser {
     const existing = obj[key];
 
     if (typeof existing === 'object' && existing !== null) {
-      if (Array.isArray(existing) && this.options.duplicates === DuplicateStrategy.Array) {
+      // Only a DUPLICATE-ACCUMULATION array absorbs a further scalar — a
+      // bracket-built array is a container, so falling through to the conflict
+      // check below is what makes the strict rejection provenance-correct.
+      if (
+        Array.isArray(existing) &&
+        this.options.duplicates === DuplicateStrategy.Array &&
+        this.duplicateArrays.has(existing)
+      ) {
         existing.push(value);
 
         return;
@@ -907,7 +944,8 @@ export class QueryParser {
 
       if (this.options.duplicates === DuplicateStrategy.Array) {
         // Non-strict 'array': combine losslessly, wrapping both into a fresh
-        // array (#3/#6).
+        // array (#3/#6). Not a duplicate-accumulation array — it holds a
+        // container — so it is NOT marked; a further scalar stays a conflict.
         obj[key] = [existing, value];
 
         return;
@@ -932,8 +970,13 @@ export class QueryParser {
     // wrap), so `existing` is a scalar here — the removed `Array.isArray`
     // branch was unreachable. The `undefined` arm is likewise runtime-dead (the
     // key exists per the hasOwnProperty guard) but narrows the type under
-    // noUncheckedIndexedAccess.
-    obj[key] = existing === undefined ? [value] : [existing, value];
+    // noUncheckedIndexedAccess. This is the ONE site that accumulates repeated
+    // SCALARS, so the array is marked as duplicate-provenance: only it may
+    // absorb a further scalar without raising a shape conflict.
+    const accumulated: QueryArray = existing === undefined ? [value] : [existing, value];
+
+    this.duplicateArrays.add(accumulated);
+    obj[key] = accumulated;
   }
 
   /**

@@ -1570,8 +1570,12 @@ describe('QueryParser', () => {
         expect(last.parse('a[]=1&a=2')).toEqual({ a: '2' });
       });
 
-      it('should push the scalar onto the existing array under array', () => {
-        expect(array.parse('a[]=1&a=2')).toEqual({ a: ['1', '2'] });
+      it('should wrap the structural array and the scalar losslessly under array', () => {
+        // `a[]=1` builds a CONTAINER array; a following bare scalar is a shape
+        // conflict, so non-strict 'array' wraps both sides (it does not push the
+        // scalar into the container, which would erase the distinction between
+        // the container and a duplicate-value list).
+        expect(array.parse('a[]=1&a=2')).toEqual({ a: [['1'], '2'] });
       });
     });
 
@@ -1633,13 +1637,27 @@ describe('QueryParser', () => {
         expect(() => strictArray.parse('a=1&a=2&a=3')).not.toThrow();
       });
 
-      it('should absorb a scalar following an existing []-array as another element (array-push exception)', () => {
-        // An existing ARRAY under duplicates:'array' cannot be told apart from a
-        // duplicate-accumulation array, so a following scalar is pushed as one
-        // more element rather than raising a conflict — the one asymmetry with
-        // the scalar-first ordering above, inherent to the value model.
-        expect(strictArray.parse('a[]=1&a=2')).toEqual({ a: ['1', '2'] });
-        expect(() => strictArray.parse('a[]=1&a=2')).not.toThrow();
+      it('should throw for a scalar following a STRUCTURAL array, whatever built it', () => {
+        // Provenance: an array built by BRACKET SYNTAX (`a[]`, `a[0]`, nested)
+        // is a container, so a following bare scalar is a shape conflict — the
+        // strategy fast path must not absorb it as "just another duplicate".
+        expect(() => strictArray.parse('a[]=1&a=2')).toThrow(/Conflict/);
+        expect(() => strictArray.parse('a[0]=1&a=2')).toThrow(/Conflict/);
+        expect(() => strictArray.parse('a[b][0]=1&a[b]=2')).toThrow(/Conflict/);
+      });
+
+      it('should throw when a bracket structure follows duplicate-accumulated scalars', () => {
+        // `a=1&a=2` accumulates a DUPLICATE array (not a container); a later
+        // `a[b]=3` is still a scalar↔container conflict and must be rejected,
+        // not merged into the accumulation array.
+        expect(() => strictArray.parse('a=1&a=2&a[b]=3')).toThrow(/Conflict/);
+      });
+
+      it('should keep absorbing plain duplicates into the accumulation array', () => {
+        // Same-kind duplicates are NOT a conflict: repeated bare scalars keep
+        // accumulating under 'array', in strict mode too.
+        expect(strictArray.parse('a=1&a=2&a=3')).toEqual({ a: ['1', '2', '3'] });
+        expect(() => strictArray.parse('a=1&a=2&a=3')).not.toThrow();
       });
     });
 
