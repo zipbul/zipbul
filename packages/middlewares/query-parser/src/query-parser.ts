@@ -1002,7 +1002,13 @@ export class QueryParser {
     }
 
     if (typeof existing === 'object' && existing !== null) {
-      if (Array.isArray(existing) && this.options.duplicates === DuplicateStrategy.Array) {
+      // Only a DUPLICATE-ACCUMULATION array absorbs a further scalar — mirrors
+      // assignToRecord, so the conflict rule is position-independent.
+      if (
+        Array.isArray(existing) &&
+        this.options.duplicates === DuplicateStrategy.Array &&
+        this.duplicateArrays.has(existing)
+      ) {
         existing.push(value);
 
         return;

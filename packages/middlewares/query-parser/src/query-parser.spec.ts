@@ -1672,6 +1672,15 @@ describe('QueryParser', () => {
         expect(() => strictArray.parse('k[0]=1&k[0]=2&k[0][b]=3')).toThrow(/Conflict/);
       });
 
+      it('should throw for a scalar following a STRUCTURAL array held at an explicit index', () => {
+        // The index-position mirror of the root case: `k[0][]` / `k[0][0]` build
+        // a CONTAINER at index 0, so a following `k[0]=2` scalar is a shape
+        // conflict — the assignToArrayIndex fast path must respect provenance
+        // exactly like the record path.
+        expect(() => strictArray.parse('k[0][]=1&k[0]=2')).toThrow(/Conflict/);
+        expect(() => strictArray.parse('k[0][0]=1&k[0]=2')).toThrow(/Conflict/);
+      });
+
       it('should keep accumulating same-kind duplicates at nested and index positions', () => {
         // The mirror of the two above: repeated scalars at the same nested key /
         // index are ordinary duplicates, never a conflict.
