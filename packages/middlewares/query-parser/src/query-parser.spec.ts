@@ -1689,6 +1689,79 @@ describe('QueryParser', () => {
       });
     });
 
+    // =======================================================================
+    // EXHAUSTIVE MATRIX — the conflict rule is position-, shape-, order- and
+    // strategy-independent. Individually enumerated cases kept letting a
+    // position slip through, so the whole cross-product is generated and
+    // asserted as three invariants instead.
+    //   position × container-shape × ordering × strategy × mode
+    // =======================================================================
+    describe('scalar↔container conflict matrix (all positions × shapes × orders × strategies)', () => {
+      const POSITIONS = [
+        { name: 'root', scalar: 'a=@', container: (shape: string) => `a${shape}=@` },
+        { name: 'nested-record', scalar: 'x[a]=@', container: (shape: string) => `x[a]${shape}=@` },
+        { name: 'array-index', scalar: 'k[0]=@', container: (shape: string) => `k[0]${shape}=@` },
+      ];
+      const SHAPES = ['[]', '[0]', '[b]'];
+      const STRATEGIES = [DuplicateStrategy.First, DuplicateStrategy.Last, DuplicateStrategy.Array];
+
+      const fill = (template: string, value: string): string => template.replace('@', value);
+
+      const buildInputs = (): { label: string; input: string }[] =>
+        POSITIONS.flatMap((position) =>
+          SHAPES.flatMap((shape) =>
+            [
+              {
+                label: `${position.name} ${shape} container-first`,
+                input: `${fill(position.container(shape), '1')}&${fill(position.scalar, '2')}`,
+              },
+              {
+                label: `${position.name} ${shape} scalar-first`,
+                input: `${fill(position.scalar, '1')}&${fill(position.container(shape), '2')}`,
+              },
+            ],
+          ),
+        );
+
+      it('should reject every scalar↔container conflict in strict mode, under every strategy', () => {
+        const survivors = buildInputs().flatMap(({ label, input }) =>
+          STRATEGIES.flatMap((duplicates) => {
+            const parser = QueryParser.create({ nesting: true, strict: true, duplicates });
+
+            try {
+              return [`${label} / ${duplicates}: ${JSON.stringify(parser.parse(input))}`];
+            } catch {
+              return [];
+            }
+          }),
+        );
+
+        // Assert — nothing survives strict: every combination raises.
+        expect(survivors).toEqual([]);
+      });
+
+      it('should keep every value in non-strict array mode (lossless at every position)', () => {
+        const lossy = buildInputs()
+          .map(({ label, input }) => {
+            const parser = QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Array });
+
+            return { label, out: JSON.stringify(parser.parse(input)) };
+          })
+          .filter(({ out }) => !['"1"', '"2"'].every((v) => out.includes(v)))
+          .map(({ label, out }) => `${label}: ${out}`);
+
+        expect(lossy).toEqual([]);
+      });
+
+      it('should treat repeated same-kind scalars as duplicates (never a conflict) at every position', () => {
+        const parser = QueryParser.create({ nesting: true, strict: true, duplicates: DuplicateStrategy.Array });
+
+        expect(parser.parse('a=1&a=2&a=3')).toEqual({ a: ['1', '2', '3'] });
+        expect(parser.parse('x[a]=1&x[a]=2&x[a]=3')).toEqual({ x: { a: ['1', '2', '3'] } });
+        expect(parser.parse('k[0]=1&k[0]=2&k[0]=3')).toEqual({ k: [['1', '2', '3']] });
+      });
+    });
+
     describe('strict mode: dup:first/last collisions remain lossy and still throw (#2b)', () => {
       const strictFirst = QueryParser.create({ nesting: true, strict: true, duplicates: DuplicateStrategy.First });
       const strictLast = QueryParser.create({ nesting: true, strict: true, duplicates: DuplicateStrategy.Last });
