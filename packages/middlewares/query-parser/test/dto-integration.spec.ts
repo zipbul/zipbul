@@ -37,6 +37,27 @@ class ArrayQueryDto {
 }
 arrayBaker.seal();
 
+/**
+ * Recipe for the form-encoding single/multi ambiguity: `?tags=a&tags=b` parses
+ * to an array, but `?tags=a` (one occurrence) parses to a bare scalar, which an
+ * `arrayOf` field rejects. A one-line `transform` normalizes the lone value into
+ * a 1-element array BEFORE the rules run — so the field accepts both arities
+ * while keeping full element validation.
+ */
+const wrapSingleIntoArray = {
+  deserialize: ({ value }: { value: unknown }): unknown => (value === undefined || Array.isArray(value) ? value : [value]),
+  serialize: ({ value }: { value: unknown }): unknown => value,
+};
+
+const coercingBaker = new Baker();
+
+@coercingBaker.Recipe
+class CoercingTagsDto {
+  @Field(arrayOf(isString), { optional: true, transform: wrapSingleIntoArray })
+  tags?: string[];
+}
+coercingBaker.seal();
+
 describe('duplicates:array default × baker DTO cardinality', () => {
   it('should accept a single value for a scalar field', () => {
     const parsed = parser.parse('role=admin');
@@ -64,5 +85,40 @@ describe('duplicates:array default × baker DTO cardinality', () => {
 
     expect(isBakerIssueSet(result)).toBe(false);
     expect(result).toEqual({ tags: ['a', 'b'] });
+  });
+
+  it('should reject a lone value for a plain arrayOf field (the single/multi ambiguity)', () => {
+    // Documents the raw behavior the transform recipe below exists to fix:
+    // one occurrence parses to a scalar, which `arrayOf` rejects as-is.
+    const parsed = parser.parse('tags=a');
+
+    expect(parsed).toEqual({ tags: 'a' });
+    expect(isBakerIssueSet(arrayBaker.deserialize(ArrayQueryDto, parsed as Record<string, unknown>))).toBe(true);
+  });
+});
+
+describe('single/multi ambiguity resolved by a field transform', () => {
+  it('should accept a lone value by wrapping it into a 1-element array', () => {
+    const parsed = parser.parse('tags=a');
+    const result = coercingBaker.deserialize(CoercingTagsDto, parsed as Record<string, unknown>);
+
+    expect(isBakerIssueSet(result)).toBe(false);
+    expect(result).toEqual({ tags: ['a'] });
+  });
+
+  it('should pass a multi value through unchanged', () => {
+    const parsed = parser.parse('tags=a&tags=b');
+    const result = coercingBaker.deserialize(CoercingTagsDto, parsed as Record<string, unknown>);
+
+    expect(isBakerIssueSet(result)).toBe(false);
+    expect(result).toEqual({ tags: ['a', 'b'] });
+  });
+
+  it('should still validate elements after wrapping (the transform is not an escape hatch)', () => {
+    // A non-string lone value is wrapped, then rejected by the element rule —
+    // coercion fixes arity only, never weakens type validation.
+    const result = coercingBaker.deserialize(CoercingTagsDto, { tags: 1 } as unknown as Record<string, unknown>);
+
+    expect(isBakerIssueSet(result)).toBe(true);
   });
 });
