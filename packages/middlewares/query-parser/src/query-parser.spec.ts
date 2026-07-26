@@ -1659,6 +1659,25 @@ describe('QueryParser', () => {
         expect(strictArray.parse('a=1&a=2&a=3')).toEqual({ a: ['1', '2', '3'] });
         expect(() => strictArray.parse('a=1&a=2&a=3')).not.toThrow();
       });
+
+      it('should throw when a structure follows accumulated scalars at a NESTED record key', () => {
+        // Provenance must hold at any depth, not just the root: `x[a]` accumulates
+        // a value list, so `x[a][b]` descending into it is a conflict.
+        expect(() => strictArray.parse('x[a]=1&x[a]=2&x[a][b]=3')).toThrow(/Conflict/);
+      });
+
+      it('should throw when a structure follows accumulated scalars at an ARRAY INDEX', () => {
+        // Same rule at an explicit index: `k[0]` accumulates a value list, so
+        // `k[0][b]` descending into it is a conflict.
+        expect(() => strictArray.parse('k[0]=1&k[0]=2&k[0][b]=3')).toThrow(/Conflict/);
+      });
+
+      it('should keep accumulating same-kind duplicates at nested and index positions', () => {
+        // The mirror of the two above: repeated scalars at the same nested key /
+        // index are ordinary duplicates, never a conflict.
+        expect(strictArray.parse('x[a]=1&x[a]=2&x[a]=3')).toEqual({ x: { a: ['1', '2', '3'] } });
+        expect(strictArray.parse('k[0]=1&k[0]=2&k[0]=3')).toEqual({ k: [['1', '2', '3']] });
+      });
     });
 
     describe('strict mode: dup:first/last collisions remain lossy and still throw (#2b)', () => {

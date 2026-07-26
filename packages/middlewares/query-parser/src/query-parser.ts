@@ -145,6 +145,21 @@ export class QueryParser {
    */
   private readonly duplicateArrays = new WeakSet<QueryArray>();
 
+  /**
+   * True when `value` is a container a bracket key may descend INTO. A
+   * duplicate-accumulation array is deliberately excluded: it holds repeated
+   * scalars, so descending into it is a scalar↔container conflict, not a
+   * traversal. Applied identically at all three descent sites (root init,
+   * array-index, record) so the conflict rule is position-independent.
+   */
+  private isDescendableContainer(value: QueryValue | undefined): value is QueryContainer {
+    if (Array.isArray(value)) {
+      return !this.duplicateArrays.has(value);
+    }
+
+    return this.isRecordValue(value);
+  }
+
   private constructor(options: ResolvedQueryParserOptions) {
     this.options = options;
     this.blockedKeys = DANGEROUS_KEYS;
@@ -531,26 +546,11 @@ export class QueryParser {
     } else {
       const existingRoot = root[rootKey];
 
-      // A DUPLICATE-ACCUMULATION array (`a=1&a=2`) holds repeated SCALARS — it
-      // is not a container, so descending a bracket key into it (`a[b]=3`)
-      // is a scalar↔container conflict, resolved like any other rather than
-      // silently merging structure into the value list.
-      if (Array.isArray(existingRoot) && this.duplicateArrays.has(existingRoot)) {
-        const nextKey = keys[1] ?? '';
-        const resolution = this.resolveScalarToContainer(existingRoot, nextKey, root, rootKey);
-
-        if (isErr(resolution)) {
-          return resolution;
-        }
-
-        if (resolution === undefined) {
-          return;
-        }
-
-        current = resolution.container;
-        parent = resolution.parent;
-        parentKey = resolution.parentKey;
-      } else if (this.isRecordValue(existingRoot) || Array.isArray(existingRoot)) {
+      // A DUPLICATE-ACCUMULATION array (`a=1&a=2`) is NOT descendable: it holds
+      // repeated scalars, so a bracket key landing on it (`a[b]=3`) is a
+      // scalar↔container conflict, resolved like any other rather than silently
+      // merging structure into the value list.
+      if (this.isDescendableContainer(existingRoot)) {
         current = existingRoot;
       } else if (existingRoot === undefined) {
         return;
@@ -678,7 +678,7 @@ export class QueryParser {
           const nextKey = keys[k + 1] ?? '';
           const existingValue = current[index];
 
-          if (this.isRecordValue(existingValue) || Array.isArray(existingValue)) {
+          if (this.isDescendableContainer(existingValue)) {
             parent = current;
             parentKey = prop;
             current = existingValue;
@@ -758,7 +758,7 @@ export class QueryParser {
         } else {
           const target = current[recordProp];
 
-          if (this.isRecordValue(target) || Array.isArray(target)) {
+          if (this.isDescendableContainer(target)) {
             parent = current;
             parentKey = recordProp;
             current = target;
@@ -1041,8 +1041,13 @@ export class QueryParser {
 
     // duplicates:'array' with an existing scalar — combine into a pair. An
     // existing array is already handled by the fast path above, so `existing`
-    // is necessarily a scalar at this point.
-    this.assignArrayRecordValue(arr, key, [existing, value]);
+    // is necessarily a scalar at this point. Marked as duplicate-provenance
+    // (mirroring the record path): it is a value list, not a container, so a
+    // later bracket key descending into it is a conflict, not a traversal.
+    const accumulated: QueryArray = [existing, value];
+
+    this.duplicateArrays.add(accumulated);
+    this.assignArrayRecordValue(arr, key, accumulated);
   }
 
   private assignArrayRecordValue(target: QueryArray, key: string, value: QueryValue): void {
