@@ -1753,6 +1753,24 @@ describe('QueryParser', () => {
         expect(lossy).toEqual([]);
       });
 
+      it('should treat an explicit [0] after a folded scalar as a duplicate of that slot', () => {
+        // The scalar↔array conflict FOLDS the scalar into the array's slot 0
+        // (`a=2&a[]=1` -> ['2','1'] — see the no-double-nesting test above), so
+        // slot 0 is OCCUPIED. An explicit `a[0]=` therefore addresses that same
+        // slot and is a DUPLICATE of it, accumulating exactly like a plain
+        // duplicate would — while `[1]`/`[]` address a free slot and stay flat.
+        // (This differs from qs, which folds without reserving slot 0; the shape
+        // here follows from this parser's own fold rule and is intentional.)
+        const parser = QueryParser.create({ nesting: true, duplicates: DuplicateStrategy.Array });
+
+        expect(parser.parse('a=2&a[]=1')).toEqual({ a: ['2', '1'] });
+        expect(parser.parse('a=2&a[1]=1')).toEqual({ a: ['2', '1'] });
+        expect(parser.parse('a=2&a[0]=1')).toEqual({ a: [['2', '1']] });
+        // …and it keeps accumulating, identical to a bare slot-0 duplicate.
+        expect(parser.parse('a=2&a[0]=1&a[0]=3')).toEqual({ a: [['2', '1', '3']] });
+        expect(parser.parse('a[0]=1&a[0]=3')).toEqual({ a: [['1', '3']] });
+      });
+
       it('should treat repeated same-kind scalars as duplicates (never a conflict) at every position', () => {
         const parser = QueryParser.create({ nesting: true, strict: true, duplicates: DuplicateStrategy.Array });
 
