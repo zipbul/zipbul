@@ -1,13 +1,115 @@
 import { err, isErr } from '@zipbul/result';
 import type { Err, Result } from '@zipbul/result';
 
-import { POISONED_KEYS } from './constants';
-import { QueryParserErrorReason } from './enums';
-import { QueryParserError } from './errors';
-import type { QueryParserErrorData } from './errors';
-import type { QueryParserOptions } from './interfaces';
+import { DANGEROUS_KEYS } from './constants';
+import { DuplicateStrategy, QueryParserErrorReason } from './enums';
+import { QueryParserError } from './interfaces';
+import type { QueryParserErrorData, QueryParserOptions } from './interfaces';
 import { resolveQueryParserOptions, validateQueryParserOptions } from './options';
 import type { QueryArray, QueryContainer, QueryValue, QueryValueRecord, ResolvedQueryParserOptions } from './types';
+
+// Module-level singletons for the WHATWG percent-decode fallback. `ignoreBOM:true`
+// implements "UTF-8 decode WITHOUT BOM" — a leading BOM must be preserved, not
+// stripped. `fatal:false` maps invalid sequences to U+FFFD instead of throwing.
+// Reused across calls: `decode()` (non-streaming) flushes state every call.
+const UTF8_ENCODER = new TextEncoder();
+const UTF8_DECODER = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+
+function hexNibble(code: number): number {
+  if (code >= 48 && code <= 57) {
+    return code - 48; // 0-9
+  }
+
+  if (code >= 65 && code <= 70) {
+    return code - 55; // A-F
+  }
+
+  if (code >= 97 && code <= 102) {
+    return code - 87; // a-f
+  }
+
+  return -1;
+}
+
+/**
+ * WHATWG percent-decode of a string (WHATWG URL #percent-decode + WHATWG
+ * Encoding #utf-8-decode-without-bom). A valid `%XX` becomes its byte, a
+ * malformed `%` is preserved as the literal 0x25 octet and decoding continues
+ * (§2.6), and invalid UTF-8 is replaced with U+FFFD (§2.5). Never throws.
+ *
+ * ASCII fast path: while every input char and every decoded byte is ASCII
+ * (< 0x80) — the overwhelmingly common case, valid (`hello%20world`) or malformed
+ * (`%ZZ`) — the result is built directly with no TextEncoder/TextDecoder and,
+ * crucially, without `decodeURIComponent`'s costly throw on malformed input.
+ * Returns `null` the moment a non-ASCII byte appears (part of a UTF-8 sequence),
+ * signalling the caller to use the native decoder / byte-level path instead.
+ */
+function whatwgPercentDecodeAscii(input: string): string | null {
+  const len = input.length;
+  let result = '';
+  let runStart = 0; // start of the current literal run to be sliced verbatim
+
+  for (let i = 0; i < len; i++) {
+    const c = input.charCodeAt(i);
+
+    if (c >= 0x80) {
+      return null;
+    }
+
+    if (c === 0x25) {
+      const h1 = i + 2 < len ? hexNibble(input.charCodeAt(i + 1)) : -1;
+      const h2 = h1 === -1 ? -1 : hexNibble(input.charCodeAt(i + 2));
+
+      if (h2 !== -1) {
+        const byte = h1 * 16 + h2;
+
+        if (byte >= 0x80) {
+          return null;
+        }
+
+        // Flush the literal run before this escape, then the decoded byte.
+        result += input.slice(runStart, i) + String.fromCharCode(byte);
+        i += 2;
+        runStart = i + 1;
+      }
+      // A malformed '%' (h2 === -1) stays in the run and is sliced as a literal.
+    }
+  }
+
+  return runStart === 0 ? input : result + input.slice(runStart);
+}
+
+/**
+ * Byte-level path of {@link whatwgPercentDecodeAscii}: UTF-8 encodes the input, then
+ * percent-decodes the bytes and decodes with replacement. Used when a non-ASCII
+ * byte is involved (multi-byte UTF-8, valid or ill-formed).
+ */
+function whatwgPercentDecodeBytes(input: string): string {
+  const src = UTF8_ENCODER.encode(input);
+  const out = new Uint8Array(src.length);
+  let o = 0;
+
+  for (let i = 0; i < src.length; i++) {
+    const b = src[i]!;
+
+    if (b !== 0x25) {
+      out[o++] = b;
+      continue;
+    }
+
+    const h1 = i + 2 < src.length ? hexNibble(src[i + 1]!) : -1;
+    const h2 = h1 === -1 ? -1 : hexNibble(src[i + 2]!);
+
+    if (h2 !== -1) {
+      out[o++] = h1 * 16 + h2;
+      i += 2;
+    } else {
+      out[o++] = 0x25; // malformed '%' preserved as a literal octet
+    }
+  }
+
+  return UTF8_DECODER.decode(out.subarray(0, o));
+}
 
 /**
  * High-performance, strict query string parser.
@@ -15,9 +117,52 @@ import type { QueryArray, QueryContainer, QueryValue, QueryValueRecord, Resolved
  */
 export class QueryParser {
   private readonly options: ResolvedQueryParserOptions;
+  private readonly blockedKeys: ReadonlySet<string>;
+
+  /**
+   * Reusable 2-slot segment buffer for the single-bracket-group fast path
+   * (`root[seg]`). Overwritten on every fast-path key; never escapes
+   * parseComplexKey/traverseSegments and never survives a call.
+   */
+  private readonly segScratch: string[] = ['', ''];
+
+  /**
+   * Per-record cache of the highest numeric own-key seen, so an empty-bracket
+   * push (`a[]=x`) landing on a record resolves its next index in O(1) instead
+   * of re-scanning every key (which made N consecutive pushes O(N^2)). Weakly
+   * keyed on the result containers, which live only for one `parse` call.
+   */
+  private readonly recordMaxIndex = new WeakMap<QueryValueRecord, number>();
+
+  /**
+   * Arrays created by DUPLICATE ACCUMULATION (`a=1&a=2` under
+   * {@link DuplicateStrategy.Array}) rather than by bracket syntax. Only these
+   * may absorb a further bare scalar as one more element; an array built by
+   * bracket syntax (`a[]`, `a[0]`, nested) is a CONTAINER, so a following
+   * scalar is a shape conflict that strict must reject. Without this
+   * provenance the two are indistinguishable and the conflict check is
+   * bypassed. Weakly keyed on result containers, which live for one parse.
+   */
+  private readonly duplicateArrays = new WeakSet<QueryArray>();
+
+  /**
+   * True when `value` is a container a bracket key may descend INTO. A
+   * duplicate-accumulation array is deliberately excluded: it holds repeated
+   * scalars, so descending into it is a scalar↔container conflict, not a
+   * traversal. Applied identically at all three descent sites (root init,
+   * array-index, record) so the conflict rule is position-independent.
+   */
+  private isDescendableContainer(value: QueryValue | undefined): value is QueryContainer {
+    if (Array.isArray(value)) {
+      return !this.duplicateArrays.has(value);
+    }
+
+    return this.isRecordValue(value);
+  }
 
   private constructor(options: ResolvedQueryParserOptions) {
     this.options = options;
+    this.blockedKeys = DANGEROUS_KEYS;
   }
 
   /**
@@ -85,15 +230,12 @@ export class QueryParser {
     let isKey = true;
     let paramCount = 0;
     let limitReached = false;
-
-    // Decode-needed flags, tracked DURING this scan so processPair never has to
-    // re-scan the sliced key/value with `.includes('%')`/`.includes('+')`. A key
-    // or value needs decoding iff it contains '%', or (under urlEncoded) '+'.
-    const urlEncoded = this.options.urlEncoded;
-    let keyPct = false;
-    let keyPlus = false;
-    let valPct = false;
-    let valPlus = false;
+    // Track whether the current key/value slice contains '%' or '+' DURING the
+    // one scan that already visits every byte, so processPair never re-scans the
+    // slice with includes() to decide if it needs decoding (§2.4/§2.6 decode is
+    // only needed when one of those bytes is present).
+    let keyEnc = false;
+    let valEnc = false;
 
     // Fast path: Scan loop
     while (i < len) {
@@ -106,71 +248,81 @@ export class QueryParser {
           valStart = i + 1;
           isKey = false;
         }
+      } else if (code === 37 || code === 43) {
+        // '%' or '+': this key/value slice will need decoding.
+        if (isKey) {
+          keyEnc = true;
+        } else {
+          valEnc = true;
+        }
       } else if (code === 38) {
         // '&'
-        if (keyEnd === -1) {
-          keyEnd = i;
-          valStart = i;
-        }
+        if (keyStart === i) {
+          // §2.2: an empty byte sequence (leading/consecutive '&') produces no
+          // pair and must NOT consume the maxParams budget. State is already in
+          // the post-reset shape (keyEnd/valStart -1, isKey true).
+          keyStart = i + 1;
+        } else {
+          if (keyEnd === -1) {
+            keyEnd = i;
+            valStart = i;
+          }
 
-        const keyNeedsDecode = keyPct || (urlEncoded && keyPlus);
-        const valNeedsDecode = valPct || (urlEncoded && valPlus);
-        const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, i, keyNeedsDecode, valNeedsDecode);
+          const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, i, keyEnc, valEnc);
 
-        if (isErr(pairResult)) {
-          return pairResult;
-        }
+          if (isErr(pairResult)) {
+            return pairResult;
+          }
 
-        // Only a real key-value pair counts toward maxParams. Empty segments
-        // (`&&`, `=&`) emit nothing (processPair returns false) and must not
-        // erode the budget, or they would silently drop later real parameters.
-        if (pairResult) {
           paramCount++;
 
           if (paramCount >= this.options.maxParams) {
             limitReached = true;
             break;
           }
-        }
 
-        // Reset
-        keyStart = i + 1;
-        keyEnd = -1;
-        valStart = -1;
-        isKey = true;
-        keyPct = false;
-        keyPlus = false;
-        valPct = false;
-        valPlus = false;
-      } else if (code === 37) {
-        // '%'
-        if (isKey) {
-          keyPct = true;
-        } else {
-          valPct = true;
-        }
-      } else if (code === 43) {
-        // '+'
-        if (isKey) {
-          keyPlus = true;
-        } else {
-          valPlus = true;
+          // Reset
+          keyStart = i + 1;
+          keyEnd = -1;
+          valStart = -1;
+          isKey = true;
+          keyEnc = false;
+          valEnc = false;
         }
       }
 
       i++;
     }
 
-    // Process last pair (only if limit was not reached)
-    if (!limitReached && keyStart < len) {
+    if (limitReached) {
+      // #1: the scan already `break`s at the cap (no full tail scan, no
+      // per-pair processing beyond it — DoS-safe). Strict mode still wants to
+      // OBSERVE an over-limit condition rather than silently truncate, so it
+      // does one bounded linear pass over just the leftover tail (starting at
+      // `i`, the '&' that closed the maxParams-th pair) looking for a single
+      // non-'&' character. A tail of only '&' (or nothing) is just empty
+      // sequences — not a real extra pair — so it does NOT count as exceeded.
+      // The (n+1)th pair's own content is never parsed: the reason is always
+      // the deterministic `LimitExceeded`, never whatever Malformed/Conflict
+      // that dropped content might otherwise have produced.
+      if (this.options.strict) {
+        for (let j = i; j < len; j++) {
+          if (qs.charCodeAt(j) !== 38) {
+            return err<QueryParserErrorData>({
+              reason: QueryParserErrorReason.LimitExceeded,
+              message: `Limit exceeded: query string has more than ${this.options.maxParams} parameters`,
+            });
+          }
+        }
+      }
+    } else if (keyStart < len) {
+      // Process last pair (only reached if the limit was not hit)
       if (keyEnd === -1) {
         keyEnd = len;
         valStart = len;
       }
 
-      const keyNeedsDecode = keyPct || (urlEncoded && keyPlus);
-      const valNeedsDecode = valPct || (urlEncoded && valPlus);
-      const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, len, keyNeedsDecode, valNeedsDecode);
+      const pairResult = this.processPair(res, qs, keyStart, keyEnd, valStart, len, keyEnc, valEnc);
 
       if (isErr(pairResult)) {
         return pairResult;
@@ -180,12 +332,6 @@ export class QueryParser {
     return res;
   }
 
-  /**
-   * Decodes and stores a single key-value pair.
-   *
-   * @returns `true` if a pair was emitted (counts toward maxParams), `false` if
-   *   the segment was empty/skipped, or `Err` on a strict-mode failure.
-   */
   private processPair(
     res: QueryValueRecord,
     qs: string,
@@ -193,42 +339,37 @@ export class QueryParser {
     keyEnd: number,
     valStart: number,
     valEnd: number,
-    keyNeedsDecode: boolean,
-    valNeedsDecode: boolean,
-  ): Err<QueryParserErrorData> | boolean {
-    // Decode Key. `keyNeedsDecode` was computed during the scan (presence of '%'
-    // or, under urlEncoded, '+'), so no re-scan of the sliced key is needed.
+    keyEnc: boolean,
+    valEnc: boolean,
+  ): Err<QueryParserErrorData> | undefined {
+    // Decode Key. An empty name (`=v`) is a valid §2.3 pair and is KEPT; empty
+    // SEQUENCES (`&&`) are skipped upstream in the scan loop, so they never
+    // reach here.
     const keyRaw = qs.slice(keyStart, keyEnd);
-    const keyDecoded = keyNeedsDecode ? this.safeDecode(keyRaw) : keyRaw;
-
-    if (isErr(keyDecoded)) {
-      return keyDecoded;
-    }
-
-    const key = keyDecoded;
-
-    if (!key) {
-      return false;
-    }
+    const key = keyEnc ? this.safeDecode(keyRaw) : keyRaw;
 
     // Decode Value
     let val = '';
 
     if (valStart < valEnd) {
       const valRaw = qs.slice(valStart, valEnd);
-      const valDecoded = valNeedsDecode ? this.safeDecode(valRaw) : valRaw;
-
-      if (isErr(valDecoded)) {
-        return valDecoded;
-      }
-
-      val = valDecoded;
+      val = valEnc ? this.safeDecode(valRaw) : valRaw;
     }
 
-    // Check for Nesting
+    // Nesting. When nesting is OFF, '['/']' carry no structure — the whole key
+    // is a LITERAL name stored as-is, with NO bracket validation (an unbalanced
+    // '[' or ']' is ordinary data, not malformed syntax; validating it would
+    // contradict the nesting:false = literal contract and reject legitimate key
+    // names). Structural strictness applies only where structure exists, i.e.
+    // under nesting:true (via parseComplexKey below and the stray-']' check).
+    if (!this.options.nesting) {
+      return this.assignLeaf(res, key, val);
+    }
+
     const braceIdx = key.indexOf('[');
 
     if (braceIdx === -1) {
+      // Nesting on, but no '[' — a stray ']' is an unbalanced bracket.
       if (this.options.strict && key.includes(']')) {
         return err<QueryParserErrorData>({
           reason: QueryParserErrorReason.MalformedQueryString,
@@ -236,97 +377,29 @@ export class QueryParser {
         });
       }
 
-      // `?? true`: assign* returns undefined on success, Err on strict failure.
-      // Map success to `true` so the caller counts this as an emitted pair.
-      return this.assignLeaf(res, key, val) ?? true;
+      return this.assignLeaf(res, key, val);
     }
 
-    if (!this.options.nesting) {
-      if (this.options.strict) {
-        const bracketResult = this.validateBrackets(key);
-
-        if (isErr(bracketResult)) {
-          return bracketResult;
-        }
-      }
-
-      return this.assignLeaf(res, key, val) ?? true;
-    }
-
-    return this.parseComplexKey(res, key, braceIdx, val) ?? true;
+    return this.parseComplexKey(res, key, braceIdx, val);
   }
 
   /**
-   * Validates bracket balance in a key string (strict mode only).
+   * Splits a bracketed key (`a[b][c]`) into its path segments (`[a, b, c]`),
+   * starting from `rootKey` and the first `[`. Returns the segments, an `Err`
+   * in strict mode on malformed brackets (nested / unbalanced / stray chars /
+   * unclosed), or `null` for a non-strict unclosed bracket (the caller then
+   * assigns the whole key as a leaf).
    */
-  private validateBrackets(key: string): Err<QueryParserErrorData> | undefined {
-    let open = 0;
-
-    for (let i = 0; i < key.length; i++) {
-      const char = key[i];
-
-      if (char === '[') {
-        if (open > 0) {
-          return err<QueryParserErrorData>({
-            reason: QueryParserErrorReason.MalformedQueryString,
-            message: `Malformed query string: nested brackets in key "${key}"`,
-          });
-        }
-
-        open++;
-      } else if (char === ']') {
-        open--;
-
-        if (open < 0) {
-          return err<QueryParserErrorData>({
-            reason: QueryParserErrorReason.MalformedQueryString,
-            message: `Malformed query string: unbalanced brackets in key "${key}"`,
-          });
-        }
-      }
-    }
-
-    if (open !== 0) {
-      return err<QueryParserErrorData>({
-        reason: QueryParserErrorReason.MalformedQueryString,
-        message: `Malformed query string: unclosed bracket in key "${key}"`,
-      });
-    }
-  }
-
-  private parseComplexKey(
-    root: QueryValueRecord,
+  private splitBracketKeys(
     key: string,
+    rootKey: string,
     firstBrace: number,
-    value: string,
-  ): Err<QueryParserErrorData> | undefined {
-    // `current` is assigned from the resolved root container below (or the
-    // function returns first), so no initializer is needed here.
-    let current: QueryContainer;
-    let depth = 0;
-    const maxDepth = this.options.depth;
-    const rootKey = key.slice(0, firstBrace);
-
-    if (rootKey === '' || POISONED_KEYS.has(rootKey)) {
-      return;
-    }
-
-    // Strict: the root-key portion (before the first '[') sits outside the
-    // bracket scan below, so a stray ']' there must be rejected explicitly.
-    if (this.options.strict && rootKey.includes(']')) {
-      return err<QueryParserErrorData>({
-        reason: QueryParserErrorReason.MalformedQueryString,
-        message: `Malformed query string: unbalanced brackets in key "${key}"`,
-      });
-    }
-
-    // State machine for parsing brackets
-    let i = firstBrace;
+  ): string[] | Err<QueryParserErrorData> | null {
     const len = key.length;
     let partStart = -1;
     const keys: string[] = [rootKey];
 
-    while (i < len) {
+    for (let i = firstBrace; i < len; i++) {
       const code = key.charCodeAt(i);
 
       if (code === 91) {
@@ -359,12 +432,10 @@ export class QueryParser {
           message: `Malformed query string: unexpected characters between bracket groups in key "${key}"`,
         });
       }
-
-      i++;
     }
 
-    // Unclosed bracket
     if (partStart !== -1) {
+      // Unclosed bracket: strict rejects; non-strict signals a whole-key leaf.
       if (this.options.strict) {
         return err<QueryParserErrorData>({
           reason: QueryParserErrorReason.MalformedQueryString,
@@ -372,120 +443,204 @@ export class QueryParser {
         });
       }
 
-      return this.assignLeaf(root, key, value);
+      return null;
     }
 
-    // Pollution check — up front, before any container is built. A poisoned
-    // segment anywhere in the key drops the whole pair; doing this before
-    // container creation guarantees a rejected key leaves no phantom parent
-    // behind (e.g. `a[__proto__][x]=1` yields {} rather than {a:{}}).
-    for (let s = 1; s < keys.length; s++) {
-      if (POISONED_KEYS.has(keys[s] ?? '')) {
-        return;
-      }
-    }
+    return keys;
+  }
 
-    // Initialize/Validate root container
-    if (!Object.prototype.hasOwnProperty.call(root, rootKey)) {
-      const nextKey = keys[1] ?? '';
+  private parseComplexKey(
+    root: QueryValueRecord,
+    key: string,
+    firstBrace: number,
+    value: string,
+  ): Err<QueryParserErrorData> | undefined {
+    let current: QueryContainer = root;
+    const maxDepth = this.options.depth;
+    const blocked = this.blockedKeys;
+    const rootKey = key.slice(0, firstBrace);
 
-      root[rootKey] = this.shouldCreateArray(nextKey) ? [] : {};
-    } else {
-      if (typeof root[rootKey] !== 'object' || root[rootKey] === null) {
-        if (this.options.strict) {
-          return err<QueryParserErrorData>({
-            reason: QueryParserErrorReason.ConflictingStructure,
-            message: `Conflict: key "${rootKey}" is both a scalar and a nested structure`,
-          });
-        }
-
-        const nextKey = keys[1] ?? '';
-
-        root[rootKey] = this.shouldCreateArray(nextKey) ? [] : {};
-      }
-    }
-
-    let parent: QueryContainer = root;
-    let parentKey: string | number = rootKey;
-    const rootContainer = root[rootKey];
-
-    if (this.isRecordValue(rootContainer) || Array.isArray(rootContainer)) {
-      current = rootContainer;
-    } else {
+    if (rootKey === '' || blocked.has(rootKey)) {
       return;
     }
 
-    // Traverse and build from 2nd key match
-    for (let k = 1; k < keys.length; k++) {
-      let prop = keys[k] ?? '';
-      const isLast = k === keys.length - 1;
+    // Strict: the root-key portion (before the first '[') sits outside the
+    // bracket scan below, so a stray ']' there must be rejected explicitly.
+    if (this.options.strict && rootKey.includes(']')) {
+      return this.errUnbalancedBrackets(key);
+    }
 
-      // `[]` array-append targeting a parent that resolved to a record (e.g.
-      // `a[k]=1&a[]=2`) would otherwise write to obj[''], a spurious empty-string
-      // key. Treat it as a structure conflict in strict mode; in lenient mode
-      // synthesize the next free numeric index so the value is preserved under a
-      // sane key, symmetric with the array→object conversion path. This runs
-      // BEFORE the depth cap so the boundary case still normalizes the empty prop
-      // instead of assigning the value under '' at the deepest level.
-      if (prop === '' && this.isRecordValue(current)) {
-        if (this.options.strict) {
-          return err<QueryParserErrorData>({
-            reason: QueryParserErrorReason.ConflictingStructure,
-            message: `Conflict: array-append "[]" used on an object structure at "${parentKey}"`,
-          });
-        }
+    // Single-group fast path: a key of exactly `root[seg]` shape — one bracket
+    // group closing at the very end, no '['/']' inside — covers the dominant
+    // real-world keys (`a[]`, `a[0]`, `filter[status]`). It needs no strict
+    // bracket validation (the scan proves well-formedness) and, crucially, no
+    // per-pair segments-array allocation: a reusable 2-slot scratch array is
+    // filled instead (safe: traverseSegments never re-enters parseComplexKey,
+    // and parsing is fully synchronous). Anything else falls through to
+    // splitBracketKeys, byte-for-byte the previous behavior.
+    let keys: string[] | undefined;
+    const keyLen = key.length;
 
-        prop = this.nextRecordIndex(current);
-      }
+    if (key.charCodeAt(keyLen - 1) === 93) {
+      let simple = true;
 
-      // Depth cap. `depth` counts the container levels descended so far. When a
-      // non-terminal key would push past the cap, stop descending and keep the
-      // value at the deepest permitted level as a leaf. Dropping it here (and
-      // leaving the just-created container empty) silently loses client data and
-      // leaves a phantom `{}` where a scalar was sent. Like maxParams/arrayLimit
-      // this truncates deeper structure silently rather than raising an error.
-      if (!isLast && depth + 1 >= maxDepth) {
-        return this.assignLeaf(current, prop, value);
-      }
+      for (let i = firstBrace + 1; i < keyLen - 1; i++) {
+        const c = key.charCodeAt(i);
 
-      // (Poisoned segments were already rejected up front, before any container
-      // was built — see the pre-scan above.)
-
-      // Parse the array index once (>=0, or -1 when not a valid index), but only
-      // on the array path — record keys never need it, so this stays off the
-      // hot object-nesting path. Fuses validation with integer parsing.
-      const arrIdx = Array.isArray(current) ? this.parseArrayIndex(prop) : -1;
-
-      // Conversion: Array with non-numeric key → Object
-      if (Array.isArray(current) && prop !== '' && arrIdx === -1) {
-        if (this.options.strict) {
-          return err<QueryParserErrorData>({
-            reason: QueryParserErrorReason.ConflictingStructure,
-            message: `Conflict: non-numeric key "${prop}" used on an array structure at "${parentKey}"`,
-          });
-        }
-
-        current = this.arrayToObject(current);
-
-        if (Array.isArray(parent)) {
-          const normalizedKey = this.normalizeKey(parentKey);
-
-          this.assignArrayRecordValue(parent, normalizedKey, current);
-        } else if (this.isRecordValue(parent)) {
-          parent[this.normalizeKey(parentKey)] = current;
+        if (c === 91 || c === 93) {
+          simple = false;
+          break;
         }
       }
 
+      if (simple) {
+        const scratch = this.segScratch;
+
+        scratch[0] = rootKey;
+        scratch[1] = key.slice(firstBrace + 1, keyLen - 1);
+        keys = scratch;
+      }
+    }
+
+    if (keys === undefined) {
+      // General path: split the bracket groups into segments (`a[b][c]` → [a, b, c]).
+      const segments = this.splitBracketKeys(key, rootKey, firstBrace);
+
+      if (isErr(segments)) {
+        return segments;
+      }
+
+      if (segments === null) {
+        // Unclosed bracket (non-strict): assign the whole key as a leaf.
+        return this.assignLeaf(root, key, value);
+      }
+
+      keys = segments;
+    }
+
+    // N-3/R2: depth is enforced BEFORE any container is created — a whole-pair
+    // clean drop (non-strict) or `LimitExceeded` (strict), never the old
+    // allocate-then-truncate that left an empty-node residue (`{ b: {} }`)
+    // behind. `keys.length - 1` is the number of bracket groups (nesting
+    // levels) this key requests.
+    if (keys.length - 1 > maxDepth) {
+      if (this.options.strict) {
+        return this.errDepthExceeded(key, maxDepth);
+      }
+
+      return;
+    }
+
+    // Initialize/Validate root container. A scalar↔container collision here
+    // (`a=1` then `a[b]=2`) is resolved by the `duplicates` strategy (#6) via
+    // resolveScalarToContainer — never a hardcoded strict throw.
+    let parent: QueryContainer = root;
+    let parentKey: string | number = rootKey;
+
+    if (!Object.prototype.hasOwnProperty.call(root, rootKey)) {
+      const nextKey = keys[1] ?? '';
+      const created: QueryContainer = this.shouldCreateArray(nextKey) ? [] : {};
+
+      root[rootKey] = created;
+      current = created;
+    } else {
+      const existingRoot = root[rootKey];
+
+      // A DUPLICATE-ACCUMULATION array (`a=1&a=2`) is NOT descendable: it holds
+      // repeated scalars, so a bracket key landing on it (`a[b]=3`) is a
+      // scalar↔container conflict, resolved like any other rather than silently
+      // merging structure into the value list.
+      if (this.isDescendableContainer(existingRoot)) {
+        current = existingRoot;
+      } else if (existingRoot === undefined) {
+        return;
+      } else {
+        const nextKey = keys[1] ?? '';
+        const resolution = this.resolveScalarToContainer(existingRoot, nextKey, root, rootKey);
+
+        if (isErr(resolution)) {
+          return resolution;
+        }
+
+        if (resolution === undefined) {
+          return;
+        }
+
+        current = resolution.container;
+        parent = resolution.parent;
+        parentKey = resolution.parentKey;
+      }
+    }
+
+    return this.traverseSegments(keys, value, current, parent, parentKey);
+  }
+
+  /** Cold: strict-mode unbalanced-bracket error (outlined off the hot path). */
+  private errUnbalancedBrackets(key: string): Err<QueryParserErrorData> {
+    return err<QueryParserErrorData>({
+      reason: QueryParserErrorReason.MalformedQueryString,
+      message: `Malformed query string: unbalanced brackets in key "${key}"`,
+    });
+  }
+
+  /** Cold: strict-mode depth-limit error (outlined off the hot path). */
+  private errDepthExceeded(key: string, maxDepth: number): Err<QueryParserErrorData> {
+    return err<QueryParserErrorData>({
+      reason: QueryParserErrorReason.LimitExceeded,
+      message: `Limit exceeded: key "${key}" nests deeper than the configured depth (${maxDepth})`,
+    });
+  }
+
+  /**
+   * Hot traversal loop, split out of parseComplexKey so both functions stay
+   * small for the JIT (inlining budgets are caller-size sensitive).
+   */
+  private traverseSegments(
+    keys: string[],
+    value: string,
+    current: QueryContainer,
+    parent: QueryContainer,
+    parentKey: string | number,
+  ): Err<QueryParserErrorData> | undefined {
+    const blocked = this.blockedKeys;
+    const keysLen = keys.length;
+    const lastK = keysLen - 1;
+    const arrayLimit = this.options.arrayLimit;
+
+    for (let k = 1; k < keysLen; k++) {
+      const prop = keys[k] as string;
+      const isLast = k === lastK;
+
+      // Pollution check — BEFORE any property access (direct Set lookup on the
+      // construction-resolved set; kept inline so the JIT never leaves it as an
+      // out-of-line call in this hot loop)
+      if (blocked.has(prop)) {
+        return;
+      }
+
+      // Array branch. Segment classification (validate+parse fused into ONE
+      // charCode pass) happens only here — the record path never consumes it.
+      // A segment that cannot extend the array as a dense array (non-numeric
+      // key #2, hole index > length #4, over-limit index > arrayLimit #5)
+      // materializes the array into an object — lossless, never throws, even
+      // in strict mode (a key-kind/density condition, not a scalar↔container
+      // conflict, #2b) — and falls through to the record path below in the
+      // same iteration, BEFORE any write, so no hole element is created and
+      // no over-limit value is dropped.
       if (Array.isArray(current)) {
-        if (prop === '') {
+        // An empty-bracket push appends at index `current.length`, which must
+        // obey the SAME arrayLimit the explicit-index path below enforces
+        // (`index <= arrayLimit`) — otherwise `a[]` silently bypasses the bound
+        // that `a[<index>]` respects (GHSA-6rw7-vpxm-498p class). When the
+        // append index is over the limit, fall through to the materialization
+        // path (parseArrayIndex('') === -1 skips the dense block), converting
+        // the array to an index-keyed object losslessly.
+        if (prop === '' && current.length <= arrayLimit) {
           if (isLast) {
-            const leafErr = this.assignLeaf(current, prop, value);
-
-            if (isErr(leafErr)) {
-              return leafErr;
-            }
-
-            depth++;
+            // Direct write: assignLeaf(array, '') is exactly a push — '' was
+            // blocked-checked above (never a dangerous key) and the empty key
+            // on an array unconditionally appends.
+            current.push(value);
 
             continue;
           }
@@ -497,101 +652,141 @@ export class QueryParser {
           parent = current;
           parentKey = current.length - 1;
           current = nextContainer;
-          depth++;
 
           continue;
         }
 
-        if (arrIdx !== -1) {
-          if (arrIdx > this.options.arrayLimit) {
-            return;
-          }
+        const index = this.parseArrayIndex(prop);
 
+        if (index >= 0 && index <= current.length && index <= arrayLimit) {
+          // `index` is a valid dense-extension index here: `<= current.length`
+          // and `<= arrayLimit` — hole / over-limit / non-numeric segments
+          // take the materialization fall-through below instead.
           if (isLast) {
-            // Call assignToArrayIndex directly with the numeric index: assignLeaf
-            // would re-parse the index and re-run the poison/empty checks already
-            // established here.
-            const leafErr = this.assignToArrayIndex(current, arrIdx, prop, value);
+            // Direct write with the already-parsed index: skips assignLeaf's
+            // redundant blocked-key re-check (done above) and its
+            // re-validate / re-parse of `prop`.
+            const leafErr = this.assignToArrayIndex(current, index, prop, value);
 
             if (isErr(leafErr)) {
               return leafErr;
             }
 
-            depth++;
-
             continue;
           }
 
           const nextKey = keys[k + 1] ?? '';
-          let nextValue = current[arrIdx];
+          const existingValue = current[index];
 
-          if (!this.isRecordValue(nextValue) && !Array.isArray(nextValue)) {
+          if (this.isDescendableContainer(existingValue)) {
+            parent = current;
+            parentKey = prop;
+            current = existingValue;
+          } else if (existingValue === undefined) {
+            const created: QueryContainer = this.shouldCreateArray(nextKey) ? [] : {};
+
+            this.assignArrayRecordValue(current, prop, created);
+            parent = current;
+            parentKey = prop;
+            current = created;
+          } else {
             // An existing scalar at this index being nested into is a
-            // structure/scalar conflict — symmetric with the record path.
-            if (nextValue !== undefined && this.options.strict) {
-              return err<QueryParserErrorData>({
-                reason: QueryParserErrorReason.ConflictingStructure,
-                message: `Conflict: index "${prop}" is both a scalar and a nested structure`,
-              });
+            // scalar↔container collision — symmetric with the record path,
+            // resolved by the duplicates strategy (#6).
+            const resolution = this.resolveScalarToContainer(existingValue, nextKey, current, prop);
+
+            if (isErr(resolution)) {
+              return resolution;
             }
 
-            nextValue = this.shouldCreateArray(nextKey) ? [] : {};
-            // Numeric-index write (#1b): arr[n] is JSC's fast path, not arr['n'].
-            current[arrIdx] = nextValue;
-          }
+            if (resolution === undefined) {
+              return;
+            }
 
-          parent = current;
-          parentKey = prop;
-          current = nextValue;
-          depth++;
+            current = resolution.container;
+            parent = resolution.parent;
+            parentKey = resolution.parentKey;
+          }
 
           continue;
         }
+
+        // Non-dense segment (non-numeric / hole / over-limit): materialize to
+        // an object and continue on the record path in this same iteration.
+        current = this.materializeArray(current, parent, parentKey);
       }
 
       if (isLast) {
-        const leafResult = this.assignLeaf(current, prop, value);
+        // R3: an empty-bracket push (`a[]=x`) that lands on a RECORD (not an
+        // array) container — e.g. `a[b]=1&a[]=2` — assigns to the next
+        // integer key (max(numeric own keys)+1, else "0"), never the literal
+        // "" key. `prop` only carries '' here as a bracket-derived push
+        // marker (a bare, non-bracketed key can never reach this loop), so
+        // this cannot be confused with a genuine top-level empty key name.
+        // Direct record write: `current` is never an array here (every array
+        // case above ends in `continue` or materializes into a record), and
+        // the blocked-key re-check assignLeaf would do is redundant (`prop` was
+        // checked above; a generated integer key is never dangerous).
+        const leafKey = prop === '' && this.isRecordValue(current) ? this.nextRecordIntegerKey(current) : prop;
+        const leafResult = this.assignToRecord(current as QueryValueRecord, leafKey, value);
 
         if (isErr(leafResult)) {
           return leafResult;
         }
-      } else {
+
+        // Keep the push-index cache in sync with an explicit numeric leaf key.
+        this.noteRecordNumericKey(current, leafKey);
+      } else if (this.isRecordValue(current)) {
+        // R3, non-terminal form: an empty-bracket segment (`a[][b]=c`) landing
+        // on a RECORD gets the same next-integer-key normalization as the
+        // terminal push above — never the literal "" key. Each pair synthesizes
+        // a fresh key (max(numeric own keys)+1), mirroring the one-push-per-pair
+        // behavior of the array branch.
+        const recordProp = prop === '' ? this.nextRecordIntegerKey(current) : prop;
+
         // Create next container
-        if (this.isRecordValue(current) && !Object.prototype.hasOwnProperty.call(current, prop)) {
+        if (!Object.prototype.hasOwnProperty.call(current, recordProp)) {
           const nextKey = keys[k + 1] ?? '';
+          const created: QueryContainer = this.shouldCreateArray(nextKey) ? [] : {};
 
-          current[prop] = this.shouldCreateArray(nextKey) ? [] : {};
-        } else if (this.isRecordValue(current)) {
-          const target = current[prop];
+          current[recordProp] = created;
+          // Keep the push-index cache in sync with an explicit numeric segment.
+          this.noteRecordNumericKey(current, recordProp);
+          parent = current;
+          parentKey = recordProp;
+          current = created;
+        } else {
+          const target = current[recordProp];
 
-          if (typeof target !== 'object' || target === null) {
-            if (this.options.strict) {
-              return err<QueryParserErrorData>({
-                reason: QueryParserErrorReason.ConflictingStructure,
-                message: `Conflict: key "${prop}" is both a scalar and a nested structure`,
-              });
+          if (this.isDescendableContainer(target)) {
+            parent = current;
+            parentKey = recordProp;
+            current = target;
+          } else if (target === undefined) {
+            return;
+          } else {
+            // An existing scalar at this key being nested into is a
+            // scalar↔container collision, resolved by the duplicates
+            // strategy (#6) — symmetric with the array-index path above.
+            const nextKey = keys[k + 1] ?? '';
+            const resolution = this.resolveScalarToContainer(target, nextKey, current, recordProp);
+
+            if (isErr(resolution)) {
+              return resolution;
             }
 
-            const nextKey = keys[k + 1] ?? '';
+            if (resolution === undefined) {
+              return;
+            }
 
-            current[prop] = this.shouldCreateArray(nextKey) ? [] : {};
+            current = resolution.container;
+            parent = resolution.parent;
+            parentKey = resolution.parentKey;
           }
         }
-
-        // Advance
-        parent = current;
-        parentKey = prop;
-
-        const nextValue = this.isRecordValue(current) ? current[prop] : undefined;
-
-        if (this.isRecordValue(nextValue) || Array.isArray(nextValue)) {
-          current = nextValue;
-        } else {
-          return;
-        }
+      } else {
+        return;
       }
-
-      depth++;
     }
   }
 
@@ -602,47 +797,112 @@ export class QueryParser {
 
     const n = this.parseArrayIndex(nextKey);
 
-    return n !== -1 && n <= this.options.arrayLimit;
+    return n >= 0 && n <= this.options.arrayLimit;
+  }
+
+  /**
+   * Fused validate+parse of an array-index segment in a single charCode pass.
+   * Returns the numeric index, or -1 when `str` is not a valid array index
+   * (rejected: empty, > 10 chars, non-digits, or a leading zero). For every
+   * accepted string the returned value equals `parseInt(str, 10)` (≤ 10 digits
+   * ⇒ exact in a double).
+   */
+  private parseArrayIndex(str: string): number {
+    const len = str.length;
+
+    if (len === 0 || len > 10) {
+      return -1;
+    }
+
+    const first = str.charCodeAt(0);
+
+    // First char must be 0-9; reject leading zeros (except "0" itself)
+    if (first < 48 || first > 57 || (first === 48 && len > 1)) {
+      return -1;
+    }
+
+    let n = first - 48;
+
+    for (let i = 1; i < len; i++) {
+      const c = str.charCodeAt(i);
+
+      if (c < 48 || c > 57) {
+        return -1;
+      }
+
+      n = n * 10 + (c - 48);
+    }
+
+    return n;
   }
 
   /**
    * Assigns a value to a leaf position, with optional strict mode error reporting.
    */
-  private assignLeaf(obj: QueryContainer, key: string, value: string): Err<QueryParserErrorData> | undefined {
-    if (POISONED_KEYS.has(key)) {
-      return;
-    }
-
-    if (key === '' && Array.isArray(obj)) {
-      obj.push(value);
-
-      return;
-    }
-
-    if (Array.isArray(obj)) {
-      const idx = this.parseArrayIndex(key);
-
-      if (idx !== -1) {
-        if (idx > this.options.arrayLimit) {
-          return;
-        }
-
-        return this.assignToArrayIndex(obj, idx, key, value);
-      }
-
-      if (this.options.strict) {
-        return err<QueryParserErrorData>({
-          reason: QueryParserErrorReason.ConflictingStructure,
-          message: `Conflict: non-numeric key "${key}" used on an array structure`,
-        });
-      }
-
-      this.assignArrayRecordValue(obj, key, value);
-
+  private assignLeaf(obj: QueryValueRecord, key: string, value: string): Err<QueryParserErrorData> | undefined {
+    // Every caller passes the top-level record (`processPair` for a flat/leaf
+    // key, `parseComplexKey` for an unclosed-bracket whole-key leaf); array
+    // containers are written directly at their bracket sites, so this sink only
+    // ever handles records. `blockedKeys` (resolved once at construction) is a
+    // single monomorphic Set lookup on the always-on blocked-key set.
+    if (this.blockedKeys.has(key)) {
       return;
     }
 
     return this.assignToRecord(obj, key, value);
+  }
+
+  /**
+   * R3 helper: the next integer key to use when an empty-bracket push (`[]`)
+   * lands on a RECORD container instead of an array — `max(numeric own
+   * keys) + 1`, or `"0"` when the record has no numeric own keys yet.
+   */
+  private nextRecordIntegerKey(obj: QueryValueRecord): string {
+    let max = this.recordMaxIndex.get(obj);
+
+    if (max === undefined) {
+      // First push onto this record: establish the max once (O(n)). Every later
+      // push reads it from the cache, and out-of-band numeric writes keep it in
+      // sync via `noteRecordNumericKey`, so `max + 1` stays exact without a rescan.
+      max = -1;
+
+      for (const key of Object.keys(obj)) {
+        // parseArrayIndex returns -1 for any non-index key, which never beats
+        // `max` (>= -1), so only genuine numeric own-keys move it.
+        const n = this.parseArrayIndex(key);
+
+        if (n > max) {
+          max = n;
+        }
+      }
+    }
+
+    const next = max + 1;
+
+    // The caller writes `next` immediately, so it becomes the new max.
+    this.recordMaxIndex.set(obj, next);
+
+    return next.toString();
+  }
+
+  /**
+   * Keeps {@link nextRecordIntegerKey}'s cache correct when an EXPLICIT numeric
+   * key (e.g. `a[9]=x` between `a[]` pushes) is written to a record, so the next
+   * push still lands at max+1. A no-op before the record's first push (the max
+   * is scanned fresh then) and for non-numeric or not-higher keys.
+   */
+  private noteRecordNumericKey(obj: QueryContainer, key: string): void {
+    const cached = this.recordMaxIndex.get(obj as QueryValueRecord);
+
+    if (cached === undefined) {
+      return;
+    }
+
+    const n = this.parseArrayIndex(key);
+
+    if (n > cached) {
+      this.recordMaxIndex.set(obj as QueryValueRecord, n);
+    }
   }
 
   /**
@@ -658,12 +918,23 @@ export class QueryParser {
     const existing = obj[key];
 
     if (typeof existing === 'object' && existing !== null) {
-      if (Array.isArray(existing) && this.options.duplicates === 'array') {
+      // Only a DUPLICATE-ACCUMULATION array absorbs a further scalar — a
+      // bracket-built array is a container, so falling through to the conflict
+      // check below is what makes the strict rejection provenance-correct.
+      if (
+        Array.isArray(existing) &&
+        this.options.duplicates === DuplicateStrategy.Array &&
+        this.duplicateArrays.has(existing)
+      ) {
         existing.push(value);
 
         return;
       }
 
+      // A scalar assigned onto an existing CONTAINER is a shape CONFLICT (not a
+      // same-kind duplicate). The conflict rule is DECOUPLED from `duplicates`:
+      // strict rejects it under EVERY strategy — including 'array' — so the
+      // 'array' default can never silently disable the conflict-400.
       if (this.options.strict) {
         return err<QueryParserErrorData>({
           reason: QueryParserErrorReason.ConflictingStructure,
@@ -671,27 +942,41 @@ export class QueryParser {
         });
       }
 
-      if (this.options.duplicates !== 'last') {
+      if (this.options.duplicates === DuplicateStrategy.Array) {
+        // Non-strict 'array': combine losslessly, wrapping both into a fresh
+        // array (#3/#6). Not a duplicate-accumulation array — it holds a
+        // container — so it is NOT marked; a further scalar stays a conflict.
+        obj[key] = [existing, value];
+
+        return;
+      }
+
+      if (this.options.duplicates !== DuplicateStrategy.Last) {
         return;
       }
     }
 
-    if (this.options.duplicates === 'first') {
+    if (this.options.duplicates === DuplicateStrategy.First) {
       return;
     }
 
-    if (this.options.duplicates === 'last') {
+    if (this.options.duplicates === DuplicateStrategy.Last) {
       obj[key] = value;
 
       return;
     }
 
-    // Array mode
-    if (Array.isArray(existing)) {
-      existing.push(value);
-    } else {
-      obj[key] = existing === undefined ? [value] : [existing, value];
-    }
+    // Array mode. An array/record `existing` already returned above (push /
+    // wrap), so `existing` is a scalar here — the removed `Array.isArray`
+    // branch was unreachable. The `undefined` arm is likewise runtime-dead (the
+    // key exists per the hasOwnProperty guard) but narrows the type under
+    // noUncheckedIndexedAccess. This is the ONE site that accumulates repeated
+    // SCALARS, so the array is marked as duplicate-provenance: only it may
+    // absorb a further scalar without raising a shape conflict.
+    const accumulated: QueryArray = existing === undefined ? [value] : [existing, value];
+
+    this.duplicateArrays.add(accumulated);
+    obj[key] = accumulated;
   }
 
   /**
@@ -708,21 +993,29 @@ export class QueryParser {
     const existing = arr[idx];
 
     if (existing === undefined) {
-      // Write via the numeric index, not the string key: `arr[0]=v` is JSC's
-      // fast contiguous-array put, whereas `arr['0']=v` takes the generic
-      // string-keyed put path (a large hotspot in profiling).
+      // Numeric-index store: `idx` is dense (<= length) at every caller, and a
+      // numeric store to a canonical index is observably identical to the
+      // string-keyed store it replaces.
       arr[idx] = value;
 
       return;
     }
 
     if (typeof existing === 'object' && existing !== null) {
-      if (Array.isArray(existing) && this.options.duplicates === 'array') {
+      // Only a DUPLICATE-ACCUMULATION array absorbs a further scalar — mirrors
+      // assignToRecord, so the conflict rule is position-independent.
+      if (
+        Array.isArray(existing) &&
+        this.options.duplicates === DuplicateStrategy.Array &&
+        this.duplicateArrays.has(existing)
+      ) {
         existing.push(value);
 
         return;
       }
 
+      // Scalar onto a container at an index is a shape CONFLICT, decoupled from
+      // `duplicates`: strict rejects it under every strategy (including 'array').
       if (this.options.strict) {
         return err<QueryParserErrorData>({
           reason: QueryParserErrorReason.ConflictingStructure,
@@ -730,33 +1023,45 @@ export class QueryParser {
         });
       }
 
-      if (this.options.duplicates !== 'last') {
+      if (this.options.duplicates === DuplicateStrategy.Array) {
+        // Non-strict 'array': combine losslessly into a fresh array (#3/#6).
+        this.assignArrayRecordValue(arr, key, [existing, value]);
+
+        return;
+      }
+
+      if (this.options.duplicates !== DuplicateStrategy.Last) {
         return;
       }
     }
 
-    if (this.options.duplicates === 'first') {
+    if (this.options.duplicates === DuplicateStrategy.First) {
       return;
     }
 
-    if (this.options.duplicates === 'last') {
-      arr[idx] = value;
+    if (this.options.duplicates === DuplicateStrategy.Last) {
+      this.assignArrayRecordValue(arr, key, value);
 
       return;
     }
 
     // duplicates:'array' with an existing scalar — combine into a pair. An
     // existing array is already handled by the fast path above, so `existing`
-    // is necessarily a scalar at this point.
-    arr[idx] = [existing, value];
+    // is necessarily a scalar at this point. Marked as duplicate-provenance
+    // (mirroring the record path): it is a value list, not a container, so a
+    // later bracket key descending into it is a conflict, not a traversal.
+    const accumulated: QueryArray = [existing, value];
+
+    this.duplicateArrays.add(accumulated);
+    this.assignArrayRecordValue(arr, key, accumulated);
   }
 
   private assignArrayRecordValue(target: QueryArray, key: string, value: QueryValue): void {
-    // Direct assignment is safe here: `__proto__` is filtered upstream by
-    // POISONED_KEYS before any write reaches this sink, and non-numeric keys
-    // convert the array to a plain object before assignment — so `key` is only
-    // ever a numeric index or an already-cleared property name. Any other name
-    // (constructor, prototype, …) is written as a harmless own-property shadow.
+    // Direct assignment is safe here: dangerous keys (Object.prototype own-names,
+    // plus `__proto__`) are filtered upstream via `blockedKeys` before any write
+    // reaches this sink, and non-numeric keys convert the array to a plain
+    // object before assignment — so `key` is only ever a numeric index or an
+    // already-cleared property name.
     (target as unknown as Record<string, QueryValue>)[key] = value;
   }
 
@@ -765,58 +1070,103 @@ export class QueryParser {
   }
 
   /**
-   * Smallest non-negative integer (as a string) that is not already an own key
-   * of `obj`. Used to give `[]` array-append a sane index when its parent
-   * resolved to a record instead of an array.
+   * Materializes an array container into a plain object in place, rewriting
+   * the single reference the array's parent holds to it — the only place
+   * that can be done without leaving an orphan reference is here, inside
+   * {@link parseComplexKey}, which is the sole holder of `parent`/`parentKey`.
+   * Used whenever an explicit index would otherwise create a hole
+   * (`index > current.length`) or exceed `arrayLimit` (`index > arrayLimit`):
+   * materializing BEFORE the write means no null/undefined element, and no
+   * silently dropped value, is ever produced.
    */
-  private nextRecordIndex(obj: QueryValueRecord): string {
-    let n = 0;
+  private materializeArray(
+    current: QueryArray,
+    parent: QueryContainer,
+    parentKey: string | number,
+  ): QueryValueRecord {
+    const materialized = this.arrayToObject(current);
 
-    while (Object.prototype.hasOwnProperty.call(obj, String(n))) {
-      n++;
-    }
+    this.writeContainerSlot(parent, parentKey, materialized);
 
-    return String(n);
+    return materialized;
   }
 
   /**
-   * Parses a string as a non-negative array index in a single digit walk,
-   * fusing validation and integer conversion (avoids isValidArrayIndex followed
-   * by a redundant parseInt). Returns the index, or -1 for anything that is not
-   * a valid index: empty, >10 digits, non-numeric, or a leading zero (except "0").
+   * Resolves a scalar↔container collision where a SCALAR value already
+   * exists and the current key path needs to build a CONTAINER there (`a=1`
+   * then `a[b]=2`, at any depth) — the mirror direction of
+   * {@link assignToRecord}'s container↔scalar collision. Resolved by the
+   * `duplicates` strategy (#6):
+   * - `array`: wraps losslessly — never throws, even in strict mode (#3).
+   *   `existingScalar` becomes the first element of a fresh array; when the
+   *   next path segment is itself array-shaped (`a=2&a[]=1`), that array IS
+   *   the slot's new value (`["2","1"]`); otherwise the slot becomes
+   *   `[existingScalar, newContainer]` and traversal continues into
+   *   `newContainer` (`a=2&a[b]=1` → `{a:["2",{b:"1"}]}`).
+   * - `first`/`last` are lossy: strict throws `ConflictingStructure` (#2b).
+   *   Non-strict `first` returns `undefined` — the caller must abort the
+   *   whole pair, leaving the existing scalar untouched. Non-strict `last`
+   *   overwrites the slot with a fresh, empty container.
+   *
+   * Writes the resolved replacement into `slotParent[slotKey]` itself, then
+   * returns the container to continue traversal into plus its OWN
+   * parent/parentKey (which, under an `array` wrap, is one level deeper than
+   * `slotParent`/`slotKey` — the wrapper array, not the original slot).
    */
-  private parseArrayIndex(str: string): number {
-    const len = str.length;
-
-    if (len === 0 || len > 10) {
-      return -1;
+  private resolveScalarToContainer(
+    existingScalar: QueryValue,
+    nextKey: string,
+    slotParent: QueryContainer,
+    slotKey: string | number,
+  ):
+    | Err<QueryParserErrorData>
+    | { container: QueryContainer; parent: QueryContainer; parentKey: string | number }
+    | undefined {
+    // Scalar-then-container is a shape CONFLICT, decoupled from `duplicates`:
+    // strict rejects it under every strategy (including 'array').
+    if (this.options.strict) {
+      return err<QueryParserErrorData>({
+        reason: QueryParserErrorReason.ConflictingStructure,
+        message: `Conflict: key "${this.normalizeKey(slotKey)}" is both a scalar and a nested structure`,
+      });
     }
 
-    let code = str.charCodeAt(0);
+    if (this.options.duplicates === DuplicateStrategy.Array) {
+      if (this.shouldCreateArray(nextKey)) {
+        const arr: QueryArray = [existingScalar];
 
-    // First char must be 0-9
-    if (code < 48 || code > 57) {
-      return -1;
-    }
+        this.writeContainerSlot(slotParent, slotKey, arr);
 
-    // Reject leading zeros (except "0" itself)
-    if (code === 48 && len > 1) {
-      return -1;
-    }
-
-    let n = code - 48;
-
-    for (let i = 1; i < len; i++) {
-      code = str.charCodeAt(i);
-
-      if (code < 48 || code > 57) {
-        return -1;
+        return { container: arr, parent: slotParent, parentKey: slotKey };
       }
 
-      n = n * 10 + (code - 48);
+      const container: QueryValueRecord = {};
+      const wrapper: QueryArray = [existingScalar, container];
+
+      this.writeContainerSlot(slotParent, slotKey, wrapper);
+
+      return { container, parent: wrapper, parentKey: 1 };
     }
 
-    return n;
+    if (this.options.duplicates === DuplicateStrategy.First) {
+      return undefined;
+    }
+
+    // Last: overwrite entirely with a fresh, empty container.
+    const container: QueryContainer = this.shouldCreateArray(nextKey) ? [] : {};
+
+    this.writeContainerSlot(slotParent, slotKey, container);
+
+    return { container, parent: slotParent, parentKey: slotKey };
+  }
+
+  /** Writes `value` into `parent[key]`, whether `parent` is an array or a record. */
+  private writeContainerSlot(parent: QueryContainer, key: string | number, value: QueryContainer): void {
+    if (Array.isArray(parent)) {
+      this.assignArrayRecordValue(parent, this.normalizeKey(key), value);
+    } else if (this.isRecordValue(parent)) {
+      parent[this.normalizeKey(key)] = value;
+    }
   }
 
   /**
@@ -840,23 +1190,31 @@ export class QueryParser {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
-  private safeDecode(raw: string): string | Err<QueryParserErrorData> {
+  private safeDecode(raw: string): string {
     // '+'->space and percent-decoding are independent passes (WHATWG
-    // x-www-form-urlencoded / URLSearchParams). Compute the '+'-substituted
-    // string up front so a percent-decode failure still preserves it.
-    const input = this.options.urlEncoded && raw.includes('+') ? raw.replaceAll('+', ' ') : raw;
+    // x-www-form-urlencoded / URLSearchParams), applied in that order (§2.4).
+    // Unconditional: every '+' in a query string is treated as an encoded
+    // space, matching URLSearchParams/qs/browsers — there is no "literal +"
+    // mode. A literal '+' must be sent as '%2B'.
+    const input = raw.includes('+') ? raw.replaceAll('+', ' ') : raw;
 
+    // ASCII fast path — no throw; handles valid and malformed pure-ASCII input
+    // (e.g. '%ZZ') directly, sidestepping decodeURIComponent's costly throw on
+    // malformed input. Malformed '%' is preserved (§2.6); it is NOT an error,
+    // even in strict mode (strict validates structure, not percent syntax).
+    const ascii = whatwgPercentDecodeAscii(input);
+
+    if (ascii !== null) {
+      return ascii;
+    }
+
+    // A non-ASCII byte is involved: native decode is fastest for valid multi-byte
+    // UTF-8; on invalid UTF-8 it throws and the byte-level decode applies
+    // replacement (invalid UTF-8 → U+FFFD, §2.5) and never fails.
     try {
       return decodeURIComponent(input);
     } catch {
-      if (this.options.strict) {
-        return err<QueryParserErrorData>({
-          reason: QueryParserErrorReason.MalformedQueryString,
-          message: `Malformed query string: invalid percent encoding in "${raw}"`,
-        });
-      }
-
-      return input;
+      return whatwgPercentDecodeBytes(input);
     }
   }
 }

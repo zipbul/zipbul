@@ -11,6 +11,7 @@
 
 import { run, bench, boxplot, summary, do_not_optimize } from 'mitata';
 
+import { DuplicateStrategy } from '../src/enums';
 import { QueryParser } from '../src/query-parser';
 
 import {
@@ -41,10 +42,9 @@ const defaultParser = QueryParser.create();
 const nestingParser = QueryParser.create({ nesting: true });
 const strictParser = QueryParser.create({ strict: true });
 const strictNestingParser = QueryParser.create({ nesting: true, strict: true });
-const dupFirstParser = QueryParser.create({ duplicates: 'first' });
-const dupLastParser = QueryParser.create({ duplicates: 'last' });
-const dupArrayParser = QueryParser.create({ duplicates: 'array' });
-const urlEncodedParser = QueryParser.create({ urlEncoded: true });
+const dupFirstParser = QueryParser.create({ duplicates: DuplicateStrategy.First });
+const dupLastParser = QueryParser.create({ duplicates: DuplicateStrategy.Last });
+const dupArrayParser = QueryParser.create({ duplicates: DuplicateStrategy.Array });
 
 // ── 1. Factory cost ──
 boxplot(() => {
@@ -59,7 +59,7 @@ boxplot(() => {
         maxParams: 500,
         nesting: true,
         arrayLimit: 50,
-        duplicates: 'array',
+        duplicates: DuplicateStrategy.Array,
         strict: true,
       }),
     );
@@ -117,8 +117,8 @@ summary(() => {
   bench('search form (flat)', () => do_not_optimize(defaultParser.parse(SEARCH_FORM)));
   bench('filter API (nested)', () => do_not_optimize(nestingParser.parse(FILTER_API)));
   bench('e-commerce (arrays)', () => do_not_optimize(nestingParser.parse(ECOMMERCE)));
-  bench('form payload (urlEncoded)', () => do_not_optimize(urlEncodedParser.parse(FORM_ENCODED)));
-  bench('plus-heavy (urlEncoded)', () => do_not_optimize(urlEncodedParser.parse(PLUS_HEAVY)));
+  bench('form payload', () => do_not_optimize(defaultParser.parse(FORM_ENCODED)));
+  bench('plus-heavy', () => do_not_optimize(defaultParser.parse(PLUS_HEAVY)));
 });
 
 await run();

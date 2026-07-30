@@ -8,8 +8,8 @@ import { bootQueryParserApp, parsedQuery, silentLogger, type QpTestApp } from '.
  * The middleware is the canonical `export const … = defineMiddleware(…)` shape,
  * so it runs with default options; `echoQuery` reads the parsed result back
  * through the typed `request.getQuery(dto)` accessor it installs and echoes it
- * into a response header. Configurable parsing (nesting, urlEncoded, strict,
- * duplicates, depth) is verified against `QueryParser.create(opts)` in
+ * into a response header. Configurable parsing (nesting, strict, duplicates,
+ * depth) is verified against `QueryParser.create(opts)` in
  * `query-parser.spec.ts` / `options.spec.ts`.
  */
 describe('queryParser middleware e2e (default options)', () => {
@@ -34,14 +34,14 @@ describe('queryParser middleware e2e (default options)', () => {
     expect(parsedQuery(res)).toEqual({});
   });
 
-  it('should keep the first value for duplicate keys (HPP-safe default)', async () => {
+  it('should keep ALL values for duplicate keys (keep-all default)', async () => {
     const res = await app.fetch('/x?role=admin&role=user');
-    expect(parsedQuery(res)).toEqual({ role: 'admin' });
+    expect(parsedQuery(res)).toEqual({ role: ['admin', 'user'] });
   });
 
-  it('should keep + literal by default (urlEncoded off)', async () => {
+  it('should decode + as space unconditionally (WHATWG x-www-form-urlencoded)', async () => {
     const res = await app.fetch('/x?q=a+b');
-    expect(parsedQuery(res)).toEqual({ q: 'a+b' });
+    expect(parsedQuery(res)).toEqual({ q: 'a b' });
   });
 
   it('should keep brackets literal by default (nesting off)', async () => {

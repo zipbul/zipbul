@@ -41,7 +41,17 @@ import { QueryParser } from './query-parser';
  * @throws {QueryParserError} when options fail validation.
  */
 export function queryParser(options?: QueryParserOptions): MiddlewareDefinition {
-  const parser = QueryParser.create(options);
+  // Default to strict AT THE HTTP BOUNDARY so a resource-limit overflow
+  // (maxParams / depth) or a malformed nested structure is a loud client 400
+  // instead of a silent 200 with truncated/dropped data — the universal
+  // framework norm is reject, not truncate (Rack raises QueryLimitError, Django
+  // RequestDataTooBig). Note this does NOT make every transformation loud:
+  // arrayLimit materialization, duplicate-key collapse, and dangerous-key
+  // dropping are lossless-or-by-design and remain quiet; strict only converts
+  // OVER-LIMIT and MALFORMED-STRUCTURE into errors. The bare QueryParser
+  // primitive keeps strict=false for lenient programmatic use; a caller can opt
+  // back out here with `queryParser({ strict: false })`.
+  const parser = QueryParser.create({ ...options, strict: options?.strict ?? true });
 
   return defineMiddleware({
     adapters: [HttpAdapter],
@@ -63,9 +73,11 @@ export function queryParser(options?: QueryParserOptions): MiddlewareDefinition 
 
           if (isErr(result)) {
             // The parser's message is already fully formed and self-describing
-            // (e.g. "Malformed query string: …" or "Conflict: …"); pass it
-            // through rather than prefixing a second, sometimes-wrong copy.
-            return httpError(HttpStatus.BadRequest, result.data.message);
+            // (e.g. "Malformed query string: …" or "Conflict: …") — pass it
+            // through (it echoes only the client's own input, in a JSON body).
+            // The STABLE `reason` enum rides in `errors[]` so a client can
+            // distinguish limit-exceeded from malformed WITHOUT parsing prose.
+            return httpError(HttpStatus.BadRequest, result.data.message, [{ reason: result.data.reason }]);
           }
 
           return result;

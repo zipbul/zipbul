@@ -1,14 +1,13 @@
-// Side-effect import: registering the baker @Recipe schema in options.ts must
-// run before any QueryParser.create() validates options. Listed in package.json
-// "sideEffects" so bundlers keep it. Do not drop.
+// Side-effect import: registers the options schema on the package-private baker
+// (`@queryParserBaker.Recipe`) so option validation works. Intentionally unassigned.
+// oxlint-disable-next-line import/no-unassigned-import
 import './src/options';
 
 export { QueryParser } from './src/query-parser';
 export { queryParser } from './src/middleware';
-export { QueryParserError } from './src/errors';
-export type { QueryParserErrorData } from './src/errors';
-export type { QueryParserOptions } from './src/interfaces';
-export { QueryParserErrorReason } from './src/enums';
+export { QueryParserError } from './src/interfaces';
+export type { QueryParserErrorData, QueryParserOptions } from './src/interfaces';
+export { DuplicateStrategy, QueryParserErrorReason } from './src/enums';
 export type { QueryValue, QueryArray, QueryValueRecord } from './src/types';
 
 // Re-exported so `QueryParser.parseResult()` is usable without a second import:

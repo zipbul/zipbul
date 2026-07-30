@@ -52,7 +52,6 @@ import {
 
 const flatParser = QueryParser.create({ nesting: false });
 const nestingParser = QueryParser.create({ nesting: true });
-const urlEncodedParser = QueryParser.create({ urlEncoded: true });
 
 // Hoisted (frozen) rival options — allocating these inside a bench body would
 // unfairly charge the rival for per-call option merging. picoquery needs
@@ -140,7 +139,7 @@ summary(() => {
 
 // ── + as space (form-urlencoded semantics) ──
 summary(() => {
-  bench('plus-heavy — @zipbul (urlEncoded)', () => do_not_optimize(urlEncodedParser.parse(PLUS_HEAVY)));
+  bench('plus-heavy — @zipbul', () => do_not_optimize(flatParser.parse(PLUS_HEAVY)));
   bench('plus-heavy — qs', () => do_not_optimize(qs.parse(PLUS_HEAVY)));
   bench('plus-heavy — URLSearchParams→record', () => do_not_optimize(usvToRecord(PLUS_HEAVY)));
 });

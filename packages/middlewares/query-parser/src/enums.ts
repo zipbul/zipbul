@@ -5,8 +5,8 @@
  */
 export enum QueryParserErrorReason {
   // Option-validation reasons, ordered to match the schema's field order in
-  // options.ts (depth, maxParams, nesting, arrayLimit, duplicates, strict,
-  // urlEncoded) so "first failure wins" reporting reads consistently.
+  // options.ts (depth, maxParams, nesting, arrayLimit, duplicates, strict) so
+  // "first failure wins" reporting reads consistently.
   /** depth must be a non-negative integer. */
   InvalidDepth = 'invalid-depth',
   /** maxParams must be a positive integer. */
@@ -19,10 +19,25 @@ export enum QueryParserErrorReason {
   InvalidDuplicates = 'invalid-duplicates',
   /** strict must be a boolean. */
   InvalidStrict = 'invalid-strict',
-  /** urlEncoded must be a boolean. */
-  InvalidUrlEncoded = 'invalid-url-encoded',
   /** Query string contains malformed syntax (unbalanced/nested brackets). */
   MalformedQueryString = 'malformed-query-string',
   /** Key is used as both a scalar and a nested structure. */
   ConflictingStructure = 'conflicting-structure',
+  /** `depth` or `maxParams` was exceeded (strict mode only). */
+  LimitExceeded = 'limit-exceeded',
+}
+
+/**
+ * Strategy for handling duplicate keys (HTTP Parameter Pollution). String-valued
+ * so the member value doubles as the wire/option literal — a consumer may write
+ * either {@link DuplicateStrategy.First} or the bare `'first'` literal (the public
+ * `duplicates` option type is the union of this enum and its string literals).
+ */
+export enum DuplicateStrategy {
+  /** Keep the first value — the most HPP-conservative choice. */
+  First = 'first',
+  /** Keep the last value. */
+  Last = 'last',
+  /** Collect every value into an array — the default (keep-all, lossless). */
+  Array = 'array',
 }

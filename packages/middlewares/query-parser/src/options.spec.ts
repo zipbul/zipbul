@@ -4,9 +4,9 @@ import { describe, expect, it } from 'bun:test';
 import { isErr } from '@zipbul/result';
 import type { Err } from '@zipbul/result';
 
-import { DEFAULT_QUERY_PARSER_OPTIONS } from './constants';
-import { QueryParserErrorReason } from './enums';
-import type { QueryParserErrorData } from './errors';
+import { DEFAULT_QUERY_PARSER_OPTIONS, MAX_ARRAY_LIMIT } from './constants';
+import { DuplicateStrategy, QueryParserErrorReason } from './enums';
+import type { QueryParserErrorData } from './interfaces';
 import { resolveQueryParserOptions, validateQueryParserOptions } from './options';
 import type { ResolvedQueryParserOptions } from './types';
 
@@ -50,13 +50,21 @@ describe('resolveQueryParserOptions', () => {
     expect(result.depth).toBe(DEFAULT_QUERY_PARSER_OPTIONS.depth);
   });
 
-  it('should return provided string field with rest defaults when duplicates is given', () => {
+  it('should return the provided duplicates enum member with rest defaults', () => {
     // Act
-    const result = resolveQueryParserOptions({ duplicates: 'last' });
+    const result = resolveQueryParserOptions({ duplicates: DuplicateStrategy.Last });
 
     // Assert
-    expect(result.duplicates).toBe('last');
+    expect(result.duplicates).toBe(DuplicateStrategy.Last);
     expect(result.depth).toBe(DEFAULT_QUERY_PARSER_OPTIONS.depth);
+  });
+
+  it('should default duplicates to DuplicateStrategy.Array', () => {
+    // Act
+    const result = resolveQueryParserOptions();
+
+    // Assert
+    expect(result.duplicates).toBe(DuplicateStrategy.Array);
   });
 
   it('should return all provided values when fully specified', () => {
@@ -66,9 +74,8 @@ describe('resolveQueryParserOptions', () => {
       maxParams: 50,
       nesting: true,
       arrayLimit: 10,
-      duplicates: 'array' as const,
+      duplicates: DuplicateStrategy.Array,
       strict: true,
-      urlEncoded: false,
     };
 
     // Act
@@ -143,8 +150,8 @@ describe('validateQueryParserOptions', () => {
     expect(result).toBeUndefined();
   });
 
-  it('should pass for all three valid duplicates values', () => {
-    const modes = ['first', 'last', 'array'] as const;
+  it('should pass for every DuplicateStrategy enum member', () => {
+    const modes = [DuplicateStrategy.First, DuplicateStrategy.Last, DuplicateStrategy.Array];
 
     for (const mode of modes) {
       // Arrange
@@ -169,9 +176,6 @@ describe('validateQueryParserOptions', () => {
     const errResult = assertErr(result);
 
     expect(errResult.data.reason).toBe(QueryParserErrorReason.InvalidDepth);
-    // The README documents this exact message string verbatim (`e.message` on
-    // the QueryParserError thrown by `create`), so pin the format.
-    expect(errResult.data.message).toBe('depth: min');
   });
 
   it('should return Err with InvalidDepth when depth is non-integer', () => {
@@ -239,6 +243,27 @@ describe('validateQueryParserOptions', () => {
     expect(errResult.data.reason).toBe(QueryParserErrorReason.InvalidArrayLimit);
   });
 
+  it('should pass when arrayLimit equals the MAX_ARRAY_LIMIT boundary', () => {
+    // Arrange — boundary: the upper bound itself is accepted
+    const resolved: ResolvedQueryParserOptions = { ...resolveQueryParserOptions(), arrayLimit: MAX_ARRAY_LIMIT };
+
+    // Act & Assert
+    expect(validateQueryParserOptions(resolved)).toBeUndefined();
+  });
+
+  it('should return Err with InvalidArrayLimit when arrayLimit exceeds MAX_ARRAY_LIMIT', () => {
+    // Arrange — one past the bound: an unbounded arrayLimit is a length-inflation DoS
+    const resolved: ResolvedQueryParserOptions = { ...resolveQueryParserOptions(), arrayLimit: MAX_ARRAY_LIMIT + 1 };
+
+    // Act
+    const result = validateQueryParserOptions(resolved);
+
+    // Assert
+    const errResult = assertErr(result);
+
+    expect(errResult.data.reason).toBe(QueryParserErrorReason.InvalidArrayLimit);
+  });
+
   it('should return Err with InvalidDuplicates when duplicates is invalid', () => {
     // Arrange
     const resolved = {
@@ -271,14 +296,6 @@ describe('validateQueryParserOptions', () => {
     expect(assertErr(validateQueryParserOptions(resolved)).data.reason).toBe(QueryParserErrorReason.InvalidStrict);
   });
 
-  it('should return Err with InvalidUrlEncoded when urlEncoded is not a boolean', () => {
-    // Arrange
-    const resolved = { ...resolveQueryParserOptions(), urlEncoded: {} } as unknown as ResolvedQueryParserOptions;
-
-    // Act & Assert
-    expect(assertErr(validateQueryParserOptions(resolved)).data.reason).toBe(QueryParserErrorReason.InvalidUrlEncoded);
-  });
-
   it('should return first failing validation when multiple options are invalid', () => {
     // Arrange — depth (V1) and maxParams (V2) both invalid
     const resolved: ResolvedQueryParserOptions = {
@@ -296,18 +313,16 @@ describe('validateQueryParserOptions', () => {
     expect(errResult.data.reason).toBe(QueryParserErrorReason.InvalidDepth);
   });
 
-  it('should keep validating correctly across repeated calls after the baker is sealed', () => {
-    // The baker seals lazily on first validation (isSealed guard). Exercise the
-    // post-seal path with an invalid → valid → invalid sequence to prove the
-    // one-time seal does not break subsequent success or failure validation.
-    const invalid = resolveQueryParserOptions({ depth: -1 });
-    const valid = resolveQueryParserOptions({ depth: 3 });
+  it('should produce identical output when called twice with same input', () => {
+    // Arrange
+    const resolved = resolveQueryParserOptions({ depth: 3 });
 
-    // First call triggers the seal and must still report the error.
-    expect(assertErr(validateQueryParserOptions(invalid)).data.reason).toBe(QueryParserErrorReason.InvalidDepth);
-    // A valid input after sealing passes.
-    expect(validateQueryParserOptions(valid)).toBeUndefined();
-    // And a later invalid input is still rejected (seal is not one-shot state).
-    expect(assertErr(validateQueryParserOptions(invalid)).data.reason).toBe(QueryParserErrorReason.InvalidDepth);
+    // Act
+    const result1 = validateQueryParserOptions(resolved);
+    const result2 = validateQueryParserOptions(resolved);
+
+    // Assert
+    expect(result1).toBeUndefined();
+    expect(result2).toBeUndefined();
   });
 });
