@@ -1,12 +1,13 @@
+import type { ERR } from './constants';
+
 /**
  * The error type returned by {@link err}.
  *
- * Every `Err` carries an optional `data` payload describing what went wrong.
- * The hidden marker property used for detection is intentionally excluded
- * from the type — it is managed internally by `err()` and checked only
- * through `isErr()`.
+ * Every `Err` carries a `data` payload describing what went wrong. It also
+ * carries an internal marker that brands the type, so only `err()` can create
+ * an `Err`. The marker is not exported, and `isErr()` is the only way to check it.
  *
- * @template E - The type of the attached error data. Defaults to `never`.
+ * @template E - The type of the attached error data. Defaults to `undefined`.
  *
  * @example
  * ```ts
@@ -14,8 +15,9 @@
  * console.log(e.data);  // 'not found'
  * ```
  */
-export type Err<E = never> = {
-  data: E;
+export type Err<E = undefined> = {
+  readonly data: E;
+  readonly [ERR]: true;
 };
 
 /**
@@ -25,7 +27,7 @@ export type Err<E = never> = {
  * runtime overhead, full type safety. Use {@link isErr} to narrow the type.
  *
  * @template T - The success value type.
- * @template E - The error data type. Defaults to `never`.
+ * @template E - The error data type. Defaults to `undefined`.
  *
  * @example
  * ```ts
@@ -35,7 +37,7 @@ export type Err<E = never> = {
  * }
  * ```
  */
-export type Result<T, E = never> = T | Err<E>;
+export type Result<T, E = undefined> = T | Err<E>;
 
 /**
  * A convenient type alias for asynchronous results.
@@ -44,7 +46,7 @@ export type Result<T, E = never> = T | Err<E>;
  * abstraction. Use it as a return type for async functions that may fail.
  *
  * @template T - The success value type.
- * @template E - The error data type. Defaults to `never`.
+ * @template E - The error data type. Defaults to `undefined`.
  *
  * @example
  * ```ts
@@ -55,4 +57,4 @@ export type Result<T, E = never> = T | Err<E>;
  * }
  * ```
  */
-export type ResultAsync<T, E = never> = Promise<Result<T, E>>;
+export type ResultAsync<T, E = undefined> = Promise<Result<T, E>>;

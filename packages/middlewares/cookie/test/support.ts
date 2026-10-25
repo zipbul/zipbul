@@ -22,7 +22,7 @@ export function captureCookieError(fn: () => unknown): CookieError {
 
 /** Narrow a Result to its Err arm via isErr() (throws on Ok). The distinct T param lets E infer. */
 export function asErr<T, E>(result: Result<T, E>): Err<E> {
-  if (!isErr<E>(result)) {
+  if (!isErr(result)) {
     throw new Error('expected an Err result, received an Ok');
   }
   return result;
@@ -30,7 +30,7 @@ export function asErr<T, E>(result: Result<T, E>): Err<E> {
 
 /** Unwrap a Result to its Ok value (throws if it is an Err). Use where a test expects success. */
 export function expectOk<T, E>(result: Result<T, E>): T {
-  if (isErr<E>(result)) {
+  if (isErr(result)) {
     throw new Error(`expected an Ok result, received an Err: ${JSON.stringify(result.data)}`);
   }
   return result;

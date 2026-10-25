@@ -1,12 +1,12 @@
 import type { Err } from './types';
-import { getMarkerKey } from './constants';
+import { ERR } from './constants';
 
 /**
  * Creates an immutable {@link Err} value with no attached data.
  *
  * The returned object is `Object.freeze()`-d. This function **never throws**.
  *
- * @returns A frozen `Err` with `data` typed as `never`.
+ * @returns A frozen `Err` with `data` typed as `undefined`.
  *
  * @example
  * ```ts
@@ -29,11 +29,9 @@ export function err(): Err;
  * ```
  */
 export function err<E>(data: E): Err<E>;
-export function err<E = never>(data?: E): Err<E> {
-  const result = {
-    [getMarkerKey()]: true,
+export function err<E = undefined>(data?: E): Err<E> {
+  return Object.freeze({
+    [ERR]: true as const,
     data: data as E,
-  };
-
-  return Object.freeze(result) as Err<E>;
+  });
 }

@@ -105,13 +105,13 @@ import { err } from '@zipbul/result';
 
 | Overload | Return | Description |
 |:---------|:-------|:------------|
-| `err()` | `Err<never>` | Error with no data |
+| `err()` | `Err<undefined>` | Error with no data |
 | `err<E>(data: E)` | `Err<E>` | Error with attached data |
 
 ```typescript
 // No data — simple signal
 const e1 = err();
-// e1.data → never (cannot access)
+// e1.data → undefined
 
 // With data — carry error details
 const e2 = err('not found');
@@ -141,11 +141,12 @@ import { isErr } from '@zipbul/result';
 ```
 
 ```typescript
-function isErr<E = unknown>(value: unknown): value is Err<E>
+function isErr(value: unknown): value is Err<unknown>
 ```
 
-- Returns `true` if `value` is a non-null object with the marker property set to `true`.
-- **Never throws** — handles `null`, `undefined`, primitives, and exceptions internally.
+- Returns `true` for values created by `err()`. It checks a marker, not the shape of `data`.
+- **Never throws** — handles `null`, `undefined`, primitives, and hostile Proxies internally.
+- No type argument needed. The error type is inferred from the `Result` you pass in. If the success type is too wide to tell apart (`unknown`, `object`), `data` is `unknown`.
 
 ```typescript
 const result: Result<number, string> = doSomething();
@@ -159,8 +160,6 @@ if (isErr(result)) {
 }
 ```
 
-> **Generic `E` caveat** — `isErr<E>()` provides a type assertion only. It does not validate the shape of `data` at runtime. Callers must ensure the generic matches the actual error type.
-
 <br>
 
 ### `Result<T, E>`
@@ -168,13 +167,13 @@ if (isErr(result)) {
 A plain union type — not a wrapper class.
 
 ```typescript
-type Result<T, E = never> = T | Err<E>;
+type Result<T, E = undefined> = T | Err<E>;
 ```
 
 | Parameter | Default | Description |
 |:----------|:--------|:------------|
 | `T` | — | Success value type |
-| `E` | `never` | Error data type |
+| `E` | `undefined` | Error data type |
 
 ```typescript
 // Simple — no error data
@@ -194,12 +193,17 @@ type ApiResult = Result<User, { code: string; message: string }>;
 The error type returned by `err()`.
 
 ```typescript
-type Err<E = never> = {
-  data: E;
+type Err<E = undefined> = {
+  readonly data: E;
+  // + an internal brand that only err() can set
 };
 ```
 
-> The marker property used for identification is deliberately excluded from the type. It is added internally by `err()` and checked by `isErr()` — this keeps the public API surface clean and prevents consumers from depending on implementation details.
+> **Branded** — `Err` carries an internal marker that is not exported, so a plain object can't be typed as `Err`. A success value that happens to have a `data` property is never mistaken for an `Err`.
+>
+> **One version** — `isErr()` detects an `Err` from any copy of 2.x, but the types of two different installed versions don't mix, and `Err` values from 1.x or earlier are not detected. Keep a single version installed.
+>
+> **Serialization** — the marker does not survive `JSON.stringify` or `structuredClone`. Rebuild with `err()` after crossing such a boundary.
 
 <br>
 
@@ -243,7 +247,9 @@ const apiResult = await safe(
 );
 ```
 
-> **Sync path** — `safe(fn)` detects a function via `!(fn instanceof Promise)`. A function that _returns_ a Promise is treated as sync — the Promise object becomes the success value `T`.
+> **Sync path** — any function is called synchronously. A function that _returns_ a Promise is treated as sync — the Promise object becomes the success value `T`. Pass the Promise itself to take the async path.
+>
+> **Never throws** — the async path never throws synchronously, even for hostile or cross-realm promises; every failure becomes an `Err`.
 >
 > **mapErr panic** — if `mapErr` itself throws, the throw propagates (sync) or the returned promise rejects (async). This is by design — `mapErr` is user code, and its failure is a panic, not an `Err`.
 
@@ -254,13 +260,13 @@ const apiResult = await safe(
 A type alias for async results — not a wrapper class.
 
 ```typescript
-type ResultAsync<T, E = never> = Promise<Result<T, E>>;
+type ResultAsync<T, E = undefined> = Promise<Result<T, E>>;
 ```
 
 | Parameter | Default | Description |
 |:----------|:--------|:------------|
 | `T` | — | Success value type |
-| `E` | `never` | Error data type |
+| `E` | `undefined` | Error data type |
 
 ```typescript
 // Use as return type for async Result-returning functions
@@ -276,34 +282,6 @@ const result: ResultAsync<Response, string> = safe(
   (e) => String(e),
 );
 ```
-
-<br>
-
-### Marker Key
-
-The marker key is a unique hidden property used to identify `Err` objects. It defaults to a collision-resistant string.
-
-```typescript
-import { DEFAULT_MARKER_KEY, getMarkerKey, setMarkerKey } from '@zipbul/result';
-```
-
-| Export | Type | Description |
-|:-------|:-----|:------------|
-| `DEFAULT_MARKER_KEY` | `string` | `'__$$e_9f4a1c7b__'` — the default key |
-| `getMarkerKey()` | `() => string` | Returns the current marker key |
-| `setMarkerKey(key)` | `(key: string) => void` | Changes the marker key |
-
-```typescript
-// Reset detection across independent modules
-import { setMarkerKey, getMarkerKey } from '@zipbul/result';
-
-setMarkerKey('__my_app_err__');
-console.log(getMarkerKey()); // '__my_app_err__'
-```
-
-> **Validation** — `setMarkerKey()` throws `TypeError` if the key is empty or whitespace-only.
->
-> **Warning** — changing the marker key means `isErr()` will no longer recognize `Err` objects created with the previous key. Only change this if you need to isolate error domains across independent modules.
 
 <br>
 
