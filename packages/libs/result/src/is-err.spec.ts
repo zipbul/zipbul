@@ -1,194 +1,127 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { describe, expect, expectTypeOf, test } from 'bun:test';
 
-import { DEFAULT_MARKER_KEY, setMarkerKey } from './constants';
 import { err } from './err';
 import { isErr } from './is-err';
+import type { Err, Result } from './types';
+
+// The registry key is the cross-copy and cross-version contract, so it is pinned literally.
+const MARKER = Symbol.for('@zipbul/result');
+
+interface Page {
+  data: string[];
+  total: number;
+}
+type PageResult = Result<Page, { code: 'X' }>;
+type MultiResult = Result<number, { code: 'X' }> | Result<number, { code: 'Y' }>;
+
+const pageError = (result: PageResult) => (isErr(result) ? result : undefined);
+const pageSuccess = (result: PageResult) => (isErr(result) ? undefined : result);
+const multiErrorData = (result: MultiResult) => (isErr(result) ? result.data : undefined);
+const errorOf = <T, E>(result: Result<T, E>): E | undefined => (isErr(result) ? result.data : undefined);
+const valueOf = <T, E>(result: Result<T, E>): T | undefined => (isErr(result) ? undefined : result);
 
 describe('isErr', () => {
-  afterEach(() => {
-    setMarkerKey(DEFAULT_MARKER_KEY);
-  });
-
-  describe('true cases', () => {
-    it('should return true for err() result', () => {
-      // Arrange / Act
-      const result = err();
-      // Assert
-      expect(isErr(result)).toBe(true);
-    });
-
-    it('should return true for err(data) result', () => {
-      // Arrange / Act
-      const result = err({ code: 'A' });
-      // Assert
-      expect(isErr(result)).toBe(true);
-    });
-
-    it('should return true for manually created object with marker true', () => {
-      // Arrange
-      const value = { [DEFAULT_MARKER_KEY]: true, data: {} };
-      // Act / Assert
-      expect(isErr(value)).toBe(true);
-    });
-
-    it('should return true for frozen object with marker true', () => {
-      // Arrange
-      const value = Object.freeze({ [DEFAULT_MARKER_KEY]: true, data: {} });
-      // Act / Assert
-      expect(isErr(value)).toBe(true);
-    });
-
-    it('should return true for object with extra properties', () => {
-      // Arrange
-      const value = { [DEFAULT_MARKER_KEY]: true, data: {}, extra: 1 };
+  describe('returns true', () => {
+    test.each([
+      ['err()', err()],
+      ['err(data)', err({ code: 'A' })],
+      ['an object marked with the registry symbol', { [MARKER]: true }],
+    ])('for %s', (_label, value) => {
       // Act / Assert
       expect(isErr(value)).toBe(true);
     });
   });
 
-  describe('false cases - primitives', () => {
-    it('should return false for null', () => {
-      expect(isErr(null)).toBe(false);
-    });
-
-    it('should return false for undefined', () => {
-      expect(isErr(undefined)).toBe(false);
-    });
-
-    it('should return false for string', () => {
-      expect(isErr('hello')).toBe(false);
-    });
-
-    it('should return false for number', () => {
-      expect(isErr(42)).toBe(false);
-    });
-
-    it('should return false for boolean true', () => {
-      expect(isErr(true)).toBe(false);
-    });
-
-    it('should return false for boolean false', () => {
-      expect(isErr(false)).toBe(false);
-    });
-
-    it('should return false for symbol', () => {
-      expect(isErr(Symbol('s'))).toBe(false);
-    });
-
-    it('should return false for bigint', () => {
-      expect(isErr(42n)).toBe(false);
-    });
-
-    it('should return false for function', () => {
-      expect(isErr(() => {})).toBe(false);
-    });
-  });
-
-  describe('false cases - objects', () => {
-    it('should return false for empty object', () => {
-      expect(isErr({})).toBe(false);
-    });
-
-    it('should return false for marker set to false', () => {
-      expect(isErr({ [DEFAULT_MARKER_KEY]: false })).toBe(false);
-    });
-
-    it('should return false for marker set to string true', () => {
-      expect(isErr({ [DEFAULT_MARKER_KEY]: 'true' })).toBe(false);
-    });
-
-    it('should return false for marker set to number 1', () => {
-      expect(isErr({ [DEFAULT_MARKER_KEY]: 1 })).toBe(false);
-    });
-
-    it('should return false for empty array', () => {
-      expect(isErr([])).toBe(false);
-    });
-
-    it('should return false for native Error instance', () => {
-      expect(isErr(new Error('x'))).toBe(false);
-    });
-
-    it('should return false for Object.create(null) without marker', () => {
-      expect(isErr(Object.create(null))).toBe(false);
-    });
-  });
-
-  describe('edge cases', () => {
-    it('should return true for object with only marker property', () => {
-      // Arrange
-      const value = { [DEFAULT_MARKER_KEY]: true };
-      // Act / Assert
-      expect(isErr(value)).toBe(true);
-    });
-
-    it('should return true for Object.create(null) with marker true', () => {
-      // Arrange
-      const value = Object.create(null);
-      value[DEFAULT_MARKER_KEY] = true;
-      // Act / Assert
-      expect(isErr(value)).toBe(true);
-    });
-
-    it('should return false for boxed Boolean(true) as marker value', () => {
-      // Arrange
-      // eslint-disable-next-line no-new-wrappers
-      const value = { [DEFAULT_MARKER_KEY]: new Boolean(true) };
+  describe('returns false', () => {
+    test.each([
+      ['null', null],
+      ['undefined', undefined],
+      ['a string', 'hello'],
+      ['a number', 42],
+      ['true', true],
+      ['false', false],
+      ['a symbol', Symbol('s')],
+      ['a bigint', 42n],
+      ['a function', () => {}],
+      ['an empty object', {}],
+      ['a plain { data } object', { data: 'x' }],
+      ['an array', []],
+      ['an Error', new Error('x')],
+      ['a null-prototype object', Object.create(null)],
+    ])('for %s', (_label, value) => {
       // Act / Assert
       expect(isErr(value)).toBe(false);
     });
+
+    test.each([
+      ['false', false],
+      ['the string "true"', 'true'],
+      ['the number 1', 1],
+      ['a boxed Boolean(true)', Object(true)],
+    ])('when the marker is %s', (_label, marker) => {
+      // Act / Assert
+      expect(isErr({ [MARKER]: marker })).toBe(false);
+    });
+
+    test('for an Err that went through JSON', () => {
+      // Arrange
+      const revived: unknown = JSON.parse(JSON.stringify(err('x')));
+      // Act / Assert
+      expect(isErr(revived)).toBe(false);
+    });
+
+    test('for a Proxy that throws on property access', () => {
+      // Arrange
+      const hostile = new Proxy(
+        {},
+        {
+          get() {
+            throw new Error('trap');
+          },
+        },
+      );
+      // Act / Assert
+      expect(isErr(hostile)).toBe(false);
+    });
+
+    test('for a revoked Proxy', () => {
+      // Arrange
+      const { proxy, revoke } = Proxy.revocable({}, {});
+      revoke();
+      // Act / Assert
+      expect(isErr(proxy)).toBe(false);
+    });
   });
 
-  describe('corner cases', () => {
-    it('should return false for Proxy that throws on property access', () => {
-      // Arrange
-      const hostileProxy = new Proxy({}, {
-        get() { throw new Error('proxy trap'); },
-        has() { throw new Error('proxy trap'); },
-      });
+  describe('types', () => {
+    test('takes no type argument and guards to Err<unknown>', () => {
       // Act / Assert
-      expect(() => isErr(hostileProxy)).not.toThrow();
-      expect(isErr(hostileProxy)).toBe(false);
+      expectTypeOf(isErr).toEqualTypeOf<(value: unknown) => value is Err<unknown>>();
     });
 
-    it('should return true for getter returning true as marker', () => {
-      // Arrange
-      const value = Object.defineProperty({}, DEFAULT_MARKER_KEY, {
-        get: () => true,
-        enumerable: true,
-        configurable: true,
-      });
+    test('narrows a success type that has a data property out of the error branch', () => {
       // Act / Assert
-      expect(isErr(value)).toBe(true);
+      expectTypeOf(pageError).returns.toEqualTypeOf<Err<{ code: 'X' }> | undefined>();
     });
 
-    it('should detect object with updated marker key', () => {
-      // Arrange
-      setMarkerKey('__custom__');
-      const value = { __custom__: true, data: {} };
+    test('narrows a success type that has a data property into the success branch', () => {
       // Act / Assert
-      expect(isErr(value)).toBe(true);
+      expectTypeOf(pageSuccess).returns.toEqualTypeOf<Page | undefined>();
     });
 
-    it('should not detect object with old marker key', () => {
-      // Arrange
-      setMarkerKey('__custom__');
-      const value = { [DEFAULT_MARKER_KEY]: true, data: {} };
+    test('keeps every error type of a multi-error union in the error branch', () => {
       // Act / Assert
-      expect(isErr(value)).toBe(false);
+      expectTypeOf(multiErrorData).returns.toEqualTypeOf<{ code: 'X' } | { code: 'Y' } | undefined>();
     });
-  });
 
-  describe('idempotency', () => {
-    it('should return same result when called multiple times on same value', () => {
-      // Arrange
-      const errValue = err({ code: 'A' });
-      const plainValue = { foo: 'bar' };
+    test('narrows a generic Result to E in the error branch', () => {
       // Act / Assert
-      for (let i = 0; i < 5; i++) {
-        expect(isErr(errValue)).toBe(true);
-        expect(isErr(plainValue)).toBe(false);
-      }
+      expect(errorOf<number, string>(err('x'))).toBe('x');
+    });
+
+    test('narrows a generic Result to T in the success branch', () => {
+      // Act / Assert
+      expect(valueOf<number, string>(7)).toBe(7);
     });
   });
 });

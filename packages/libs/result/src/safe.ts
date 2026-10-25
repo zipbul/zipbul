@@ -62,7 +62,7 @@ export function safe<T>(promise: Promise<T>): ResultAsync<T, unknown>;
  *
  * @param promise - The promise to wrap.
  * @param mapErr - Transforms the rejection reason into a typed error `E`.
- * @returns A `ResultAsync` that always resolves — either to `T` or to `Err<E>`.
+ * @returns A `ResultAsync` that resolves to `T` or `Err<E>`. It rejects only if `mapErr` throws.
  *
  * @example
  * ```ts
@@ -74,19 +74,20 @@ export function safe<T>(promise: Promise<T>): ResultAsync<T, unknown>;
  */
 export function safe<T, E>(promise: Promise<T>, mapErr: (thrown: unknown) => E): ResultAsync<T, E>;
 export function safe<T, E = unknown>(
-  fnOrPromise: (() => T) | Promise<T>,
+  input: (() => T) | Promise<T>,
   mapErr?: (thrown: unknown) => E,
 ): Result<T, E> | ResultAsync<T, E> {
-  if (fnOrPromise instanceof Promise) {
-    return fnOrPromise.then(
-      (value) => value as Result<T, E>,
-      (thrown: unknown) => (mapErr ? err(mapErr(thrown)) : err(thrown)) as Result<T, E>,
-    );
+  const toErr = (thrown: unknown) => err(mapErr ? mapErr(thrown) : (thrown as E));
+
+  if (typeof input === 'function') {
+    try {
+      return input();
+    } catch (thrown) {
+      return toErr(thrown);
+    }
   }
 
-  try {
-    return fnOrPromise();
-  } catch (thrown: unknown) {
-    return mapErr ? err(mapErr(thrown)) : err(thrown as E);
-  }
+  // A fresh native promise adopts `input`, so a hostile or foreign-realm
+  // promise can only reject it, never throw synchronously.
+  return new Promise<T>((resolve) => resolve(input)).then((value) => value, toErr);
 }

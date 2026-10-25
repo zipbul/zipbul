@@ -6,13 +6,55 @@ name: Release
 # workflow manually (workflow_dispatch) only when an intentional release is wanted.
 on:
   workflow_dispatch:
+    inputs:
+      package:
+        description: "Publish only this package (e.g. @zipbul/result). Its version must already be bumped in package.json. Leave empty for the changesets flow."
+        required: false
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  publish-one:
+    if: inputs.package != ''
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing (OIDC) needs npm >= 11.5.1.
+      - run: npm install -g npm@11
+
+      - run: bun install
+
+      - name: Build and publish ${{ inputs.package }}
+        env:
+          PACKAGE: ${{ inputs.package }}
+        run: |
+          manifest=$(grep -lx "  \"name\": \"$PACKAGE\"," packages/*/*/package.json)
+          test "$(printf '%s\n' "$manifest" | grep -c .)" -eq 1
+          dir=$(dirname "$manifest")
+          bun run --filter "$PACKAGE" build
+          cd "$dir"
+          npm publish --access public
+
   release:
+    if: inputs.package == ''
     runs-on: ubuntu-latest
 
     permissions:

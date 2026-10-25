@@ -105,13 +105,13 @@ import { err } from '@zipbul/result';
 
 | 오버로드 | 반환 | 설명 |
 |:---------|:-----|:-----|
-| `err()` | `Err<never>` | 데이터 없는 에러 |
+| `err()` | `Err<undefined>` | 데이터 없는 에러 |
 | `err<E>(data: E)` | `Err<E>` | 데이터가 첨부된 에러 |
 
 ```typescript
 // 데이터 없음 — 단순 신호
 const e1 = err();
-// e1.data → never (접근 불가)
+// e1.data → undefined
 
 // 데이터 포함 — 에러 상세 정보 전달
 const e2 = err('not found');
@@ -141,11 +141,12 @@ import { isErr } from '@zipbul/result';
 ```
 
 ```typescript
-function isErr<E = unknown>(value: unknown): value is Err<E>
+function isErr(value: unknown): value is Err<unknown>
 ```
 
-- `value`가 null이 아닌 객체이고, 마커 프로퍼티가 `true`인 경우에만 `true`를 반환합니다.
-- **절대 throw하지 않습니다** — `null`, `undefined`, 원시값, 예외를 내부적으로 처리합니다.
+- `err()`로 만든 값에 `true`를 반환합니다. `data`의 형태가 아니라 마커를 확인합니다.
+- **절대 throw하지 않습니다** — `null`, `undefined`, 원시값, hostile Proxy를 내부적으로 처리합니다.
+- 타입 인자가 필요 없습니다. 에러 타입은 전달한 `Result`에서 추론됩니다. 성공 타입이 너무 넓으면(`unknown`, `object`) `data`는 `unknown`이 됩니다.
 
 ```typescript
 const result: Result<number, string> = doSomething();
@@ -159,8 +160,6 @@ if (isErr(result)) {
 }
 ```
 
-> **제네릭 `E` 주의사항** — `isErr<E>()`는 타입 단언만 제공합니다. `data`의 형태를 런타임에서 검증하지 않습니다. 호출자가 제네릭이 실제 에러 타입과 일치하는지 보장해야 합니다.
-
 <br>
 
 ### `Result<T, E>`
@@ -168,13 +167,13 @@ if (isErr(result)) {
 평범한 유니온 타입 — 래퍼 클래스가 아닙니다.
 
 ```typescript
-type Result<T, E = never> = T | Err<E>;
+type Result<T, E = undefined> = T | Err<E>;
 ```
 
 | 파라미터 | 기본값 | 설명 |
 |:---------|:-------|:-----|
 | `T` | — | 성공 값 타입 |
-| `E` | `never` | 에러 데이터 타입 |
+| `E` | `undefined` | 에러 데이터 타입 |
 
 ```typescript
 // 단순 — 에러 데이터 없음
@@ -194,12 +193,17 @@ type ApiResult = Result<User, { code: string; message: string }>;
 `err()`가 반환하는 에러 타입입니다.
 
 ```typescript
-type Err<E = never> = {
-  data: E;
+type Err<E = undefined> = {
+  readonly data: E;
+  // + err()만 설정할 수 있는 내부 브랜드
 };
 ```
 
-> 식별에 사용되는 마커 프로퍼티는 의도적으로 타입에서 제외됩니다. `err()`가 런타임에 내부적으로 추가하고, `isErr()`를 통해서만 판별합니다 — 이렇게 하면 공개 API 표면이 깔끔해지고, 소비자가 구현 세부사항에 의존하는 것을 방지합니다.
+> **브랜드** — `Err`에는 export되지 않는 내부 마커가 있어서, 일반 객체를 `Err` 타입으로 만들 수 없습니다. 성공 값에 `data` 프로퍼티가 있어도 `Err`로 오인되지 않습니다.
+>
+> **단일 버전** — `isErr()`는 2.x의 어떤 사본이 만든 `Err`도 감지하지만, 서로 다른 버전이 설치되면 타입은 섞이지 않고, 1.x 이하의 `Err`는 감지되지 않습니다. 버전을 하나로 유지하세요.
+>
+> **직렬화** — 마커는 `JSON.stringify`나 `structuredClone`을 거치면 사라집니다. 이런 경계를 넘은 뒤에는 `err()`로 다시 만드세요.
 
 <br>
 
@@ -243,7 +247,9 @@ const apiResult = await safe(
 );
 ```
 
-> **동기 경로** — `safe(fn)`은 `!(fn instanceof Promise)`로 함수를 감지합니다. Promise를 _반환하는_ 함수는 동기로 처리되며, Promise 객체가 성공값 `T`가 됩니다.
+> **동기 경로** — 함수는 모두 동기로 호출됩니다. Promise를 _반환하는_ 함수는 동기로 처리되며, Promise 객체가 성공값 `T`가 됩니다. 비동기 경로를 쓰려면 Promise 자체를 넘기세요.
+>
+> **throw하지 않음** — 비동기 경로는 hostile Promise나 다른 realm의 Promise에도 동기적으로 throw하지 않고, 모든 실패를 `Err`로 바꿉니다.
 >
 > **mapErr 패닉** — `mapErr` 자체가 throw하면, 동기의 경우 throw가 전파되고 비동기의 경우 반환된 promise가 reject됩니다. 이는 의도된 설계입니다 — `mapErr`는 사용자 코드이며, 그 실패는 패닉(panic)이지 `Err`가 아닙니다.
 
@@ -254,13 +260,13 @@ const apiResult = await safe(
 비동기 결과를 위한 타입 별칭 — 래퍼 클래스가 아닙니다.
 
 ```typescript
-type ResultAsync<T, E = never> = Promise<Result<T, E>>;
+type ResultAsync<T, E = undefined> = Promise<Result<T, E>>;
 ```
 
 | 파라미터 | 기본값 | 설명 |
 |:---------|:-------|:-----|
 | `T` | — | 성공 값 타입 |
-| `E` | `never` | 에러 데이터 타입 |
+| `E` | `undefined` | 에러 데이터 타입 |
 
 ```typescript
 // 비동기 Result 반환 함수의 반환 타입으로 사용
@@ -276,34 +282,6 @@ const result: ResultAsync<Response, string> = safe(
   (e) => String(e),
 );
 ```
-
-<br>
-
-### 마커 키(Marker Key)
-
-마커 키는 `Err` 객체를 식별하는 데 사용되는 숨겨진 고유 프로퍼티입니다. 충돌에 강한 문자열이 기본값입니다.
-
-```typescript
-import { DEFAULT_MARKER_KEY, getMarkerKey, setMarkerKey } from '@zipbul/result';
-```
-
-| 내보내기 | 타입 | 설명 |
-|:---------|:-----|:-----|
-| `DEFAULT_MARKER_KEY` | `string` | `'__$$e_9f4a1c7b__'` — 기본 키 |
-| `getMarkerKey()` | `() => string` | 현재 마커 키 반환 |
-| `setMarkerKey(key)` | `(key: string) => void` | 마커 키 변경 |
-
-```typescript
-// 독립 모듈 간 감지 리셋
-import { setMarkerKey, getMarkerKey } from '@zipbul/result';
-
-setMarkerKey('__my_app_err__');
-console.log(getMarkerKey()); // '__my_app_err__'
-```
-
-> **검증** — `setMarkerKey()`는 키가 빈 문자열이거나 공백만으로 이루어진 경우 `TypeError`를 던집니다.
->
-> **주의** — 마커 키를 변경하면 `isErr()`가 이전 키로 생성된 `Err` 객체를 더 이상 인식하지 못합니다. 독립 모듈 간 에러 도메인을 분리해야 할 때만 변경하세요.
 
 <br>
 

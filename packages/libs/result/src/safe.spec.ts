@@ -1,283 +1,232 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, expectTypeOf, test } from 'bun:test';
+import { runInNewContext } from 'node:vm';
 
-import { isErr } from './is-err';
+import { err } from './err';
 import { safe } from './safe';
+import type { Result, ResultAsync } from './types';
+
+const fail = (message: string): never => {
+  throw new Error(message);
+};
+
+const withThrowingGetter = (key: 'constructor' | 'then'): Promise<number> =>
+  Object.defineProperty(Promise.resolve(1), key, {
+    get: () => fail(key),
+  });
 
 describe('safe', () => {
-  describe('sync happy path', () => {
-    it('should return fn result when sync fn succeeds', () => {
-      // Arrange
-      const fn = () => 42;
-      // Act
-      const result = safe(fn);
-      // Assert
-      expect(result).toBe(42);
+  describe('sync function', () => {
+    test.each([
+      ['a value', () => 42, 42],
+      ['null', () => null, null],
+      ['undefined', () => undefined, undefined],
+    ])('returns %s returned by fn', (_label, fn, expected) => {
+      // Act / Assert
+      expect(safe(fn)).toBe(expected);
     });
 
-    it('should return null when sync fn returns null', () => {
+    test('returns a Promise returned by fn as the success value', () => {
       // Arrange
-      const fn = () => null;
-      // Act
-      const result = safe(fn);
-      // Assert
-      expect(result).toBeNull();
+      const inner = Promise.resolve(99);
+      // Act / Assert
+      expect(safe(() => inner)).toBe(inner);
     });
 
-    it('should not call mapErr when sync fn succeeds', () => {
+    test('returns an Err-like value returned by fn as the success value', () => {
       // Arrange
-      const fn = () => 'ok';
-      const mapErr = mock(() => 'mapped');
+      const errLike = { data: 'not an Err' };
+      // Act / Assert
+      expect(safe(() => errLike)).toBe(errLike);
+    });
+
+    test.each([
+      ['an Error', new Error('boom')],
+      ['a string', 'boom'],
+      ['null', null],
+      ['undefined', undefined],
+    ])('returns Err carrying %s thrown by fn', (_label, thrown) => {
       // Act
-      safe(fn, mapErr);
+      const result = safe(() => {
+        throw thrown;
+      });
       // Assert
-      expect(mapErr).not.toHaveBeenCalled();
+      expect(result).toEqual(err(thrown));
+    });
+
+    test('returns Err carrying the TypeError when fn is a revoked Proxy', () => {
+      // Arrange
+      const { proxy, revoke } = Proxy.revocable(() => 1, {});
+      revoke();
+      // Act
+      const result = safe(proxy);
+      // Assert
+      expect(result).toEqual(err(expect.any(TypeError)));
     });
   });
 
-  describe('async happy path', () => {
-    it('should resolve value when promise resolves', async () => {
-      // Arrange
-      const promise = Promise.resolve(42);
+  describe('sync function with mapErr', () => {
+    test('returns Err carrying the mapped value', () => {
       // Act
-      const result = await safe(promise);
+      const result = safe(
+        () => fail('boom'),
+        (thrown) => (thrown as Error).message,
+      );
       // Assert
-      expect(result).toBe(42);
+      expect(result).toEqual(err('boom'));
     });
 
-    it('should resolve undefined when promise resolves with undefined', async () => {
+    test('passes the exact thrown value to mapErr', () => {
       // Arrange
-      const promise = Promise.resolve(undefined);
+      const thrown = { code: 'X' };
       // Act
-      const result = await safe(promise);
+      const result = safe(
+        () => {
+          throw thrown;
+        },
+        (value) => value === thrown,
+      );
       // Assert
-      expect(result).toBeUndefined();
+      expect(result).toEqual(err(true));
     });
 
-    it('should not call mapErr when promise resolves', async () => {
-      // Arrange
-      const promise = Promise.resolve('ok');
-      const mapErr = mock(() => 'mapped');
+    test('returns the value without calling mapErr when fn succeeds', () => {
       // Act
-      await safe(promise, mapErr);
+      const result = safe(
+        () => 'ok',
+        () => fail('mapErr called'),
+      );
       // Assert
-      expect(mapErr).not.toHaveBeenCalled();
+      expect(result).toBe('ok');
+    });
+
+    test('throws what mapErr throws', () => {
+      // Act / Assert
+      expect(() =>
+        safe(
+          () => fail('original'),
+          () => fail('mapErr panic'),
+        ),
+      ).toThrow('mapErr panic');
     });
   });
 
-  describe('sync error without mapErr', () => {
-    it('should return Err when sync fn throws Error', () => {
-      // Arrange
-      const fn = () => { throw new Error('boom'); };
-      // Act
-      const result = safe(fn);
-      // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data).toBeInstanceOf(Error);
-        expect((result.data as Error).message).toBe('boom');
-      }
+  describe('promise', () => {
+    test.each([
+      ['a value', Promise.resolve(42), 42],
+      ['undefined', Promise.resolve(undefined), undefined],
+      ['a value from a Promise subclass', (class Sub<T> extends Promise<T> {}).resolve(77), 77],
+    ])('resolves to %s', async (_label, promise, expected) => {
+      // Act / Assert
+      expect(await safe(promise)).toBe(expected);
     });
 
-    it('should return Err when sync fn throws string', () => {
-      // Arrange
-      const fn = () => { throw 'string error'; };
+    test.each([
+      ['an Error', new Error('boom')],
+      ['a string', 'boom'],
+      ['null', null],
+    ])('resolves to Err carrying %s the promise rejects with', async (_label, reason) => {
       // Act
-      const result = safe(fn);
+      const result = await safe(Promise.reject(reason));
       // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data).toBe('string error');
-      }
+      expect(result).toEqual(err(reason));
     });
 
-    it('should return Err wrapping null when sync fn throws null', () => {
+    test('resolves to the value of a promise from another realm', async () => {
       // Arrange
-      const fn = () => { throw null; };
-      // Act
-      const result = safe(fn);
-      // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data).toBeNull();
-      }
+      const foreign = runInNewContext('Promise.resolve(42)') as Promise<number>;
+      // Act / Assert
+      expect(await safe(foreign)).toBe(42);
     });
 
-    it('should return Err wrapping undefined when sync fn throws undefined', () => {
+    test('resolves to Err when a promise from another realm rejects', async () => {
       // Arrange
-      // eslint-disable-next-line no-throw-literal
-      const fn = () => { throw undefined; };
+      const foreign = runInNewContext('Promise.reject("boom")') as Promise<never>;
+      // Act / Assert
+      expect(await safe(foreign)).toEqual(err('boom'));
+    });
+
+    test.each([['constructor' as const], ['then' as const]])(
+      'resolves to Err when reading the promise %s throws',
+      async (key) => {
+        // Act
+        const result = safe(withThrowingGetter(key));
+        // Assert
+        expect(await result).toEqual(err(new Error(key)));
+      },
+    );
+
+    test('resolves to Err when calling the promise then throws', async () => {
+      // Arrange
+      const promise = Promise.resolve(1);
+      promise.then = () => fail('then');
       // Act
-      const result = safe(fn);
+      const result = safe(promise);
       // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data).toBeUndefined();
-      }
+      expect(await result).toEqual(err(new Error('then')));
+    });
+
+    test('resolves to Err when given a revoked Proxy', async () => {
+      // Arrange
+      const { proxy, revoke } = Proxy.revocable(Promise.resolve(1), {});
+      revoke();
+      // Act
+      const result = safe(proxy);
+      // Assert
+      expect(await result).toEqual(err(expect.any(TypeError)));
     });
   });
 
-  describe('sync error with mapErr', () => {
-    it('should return mapped Err when sync fn throws with mapErr', () => {
-      // Arrange
-      const fn = () => { throw new Error('fail'); };
-      const mapErr = (e: unknown) => (e as Error).message;
+  describe('promise with mapErr', () => {
+    test('resolves to Err carrying the mapped value', async () => {
       // Act
-      const result = safe(fn, mapErr);
+      const result = await safe(Promise.reject(new Error('boom')), (reason) => (reason as Error).message);
       // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data).toBe('fail');
-      }
+      expect(result).toEqual(err('boom'));
     });
 
-    it('should pass exact thrown reference to sync mapErr', () => {
+    test('passes the exact rejection reason to mapErr', async () => {
       // Arrange
-      const thrownObj = { code: 'X' };
-      const fn = () => { throw thrownObj; };
-      let received: unknown;
-      const mapErr = (e: unknown) => { received = e; return 'mapped'; };
+      const reason = { code: 'Y' };
       // Act
-      safe(fn, mapErr);
+      const result = await safe(Promise.reject(reason), (value) => value === reason);
       // Assert
-      expect(received).toBe(thrownObj);
+      expect(result).toEqual(err(true));
+    });
+
+    test('resolves to the value without calling mapErr when the promise resolves', async () => {
+      // Act
+      const result = await safe(Promise.resolve('ok'), () => fail('mapErr called'));
+      // Assert
+      expect(result).toBe('ok');
+    });
+
+    test('rejects with what mapErr throws', async () => {
+      // Act / Assert
+      await expect(safe(Promise.reject(new Error('original')), () => fail('mapErr panic'))).rejects.toThrow(
+        'mapErr panic',
+      );
     });
   });
 
-  describe('async error without mapErr', () => {
-    it('should resolve to Err when promise rejects with Error', async () => {
-      // Arrange
-      const promise = Promise.reject(new Error('async boom'));
-      // Act
-      const result = await safe(promise);
-      // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data).toBeInstanceOf(Error);
-        expect((result.data as Error).message).toBe('async boom');
-      }
+  describe('types', () => {
+    test('types a sync call as Result<T, unknown>', () => {
+      // Act / Assert
+      expectTypeOf(safe(() => 1)).toEqualTypeOf<Result<number, unknown>>();
     });
 
-    it('should resolve to Err when promise rejects with string', async () => {
-      // Arrange
-      const promise = Promise.reject('async string error');
-      // Act
-      const result = await safe(promise);
-      // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data).toBe('async string error');
-      }
+    test('types a sync call with mapErr as Result<T, E>', () => {
+      // Act / Assert
+      expectTypeOf(safe(() => 1, String)).toEqualTypeOf<Result<number, string>>();
     });
 
-    it('should resolve to Err wrapping null when promise rejects with null', async () => {
-      // Arrange
-      const promise = Promise.reject(null);
-      // Act
-      const result = await safe(promise);
-      // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data).toBeNull();
-      }
-    });
-  });
-
-  describe('async error with mapErr', () => {
-    it('should resolve to mapped Err when promise rejects with mapErr', async () => {
-      // Arrange
-      const promise = Promise.reject(new Error('async fail'));
-      const mapErr = (e: unknown) => (e as Error).message;
-      // Act
-      const result = await safe(promise, mapErr);
-      // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data).toBe('async fail');
-      }
+    test('types a promise call as ResultAsync<T, unknown>', async () => {
+      // Act / Assert
+      expectTypeOf(safe(Promise.resolve(1))).toEqualTypeOf<ResultAsync<number, unknown>>();
     });
 
-    it('should pass exact rejected reference to async mapErr', async () => {
-      // Arrange
-      const rejectedObj = { code: 'Y' };
-      const promise = Promise.reject(rejectedObj);
-      let received: unknown;
-      const mapErr = (e: unknown) => { received = e; return 'mapped'; };
-      // Act
-      await safe(promise, mapErr);
-      // Assert
-      expect(received).toBe(rejectedObj);
-    });
-  });
-
-  describe('edge cases', () => {
-    it('should take sync path when fn returns Promise (not unwrap)', () => {
-      // Arrange
-      const innerPromise = Promise.resolve(99);
-      const fn = () => innerPromise;
-      // Act
-      const result = safe(fn);
-      // Assert — result IS the Promise object, not 99
-      expect(result).toBe(innerPromise);
-    });
-
-    it('should return undefined when sync fn has no return', () => {
-      // Arrange
-      const fn = () => {};
-      // Act
-      const result = safe(fn);
-      // Assert
-      expect(result).toBeUndefined();
-    });
-
-    it('should use async path for Promise subclass', async () => {
-      // Arrange
-      class MyPromise<T> extends Promise<T> {}
-      const promise = MyPromise.resolve(77);
-      // Act
-      const result = await safe(promise);
-      // Assert
-      expect(result).toBe(77);
-    });
-
-    it('should not inspect return value and return Err-like object as success', () => {
-      // Arrange — fn returns object that looks like Err
-      const errLike = { data: 'not real' };
-      const fn = () => errLike;
-      // Act
-      const result = safe(fn);
-      // Assert — safe returns it as-is (success value)
-      expect(result).toBe(errLike);
-    });
-  });
-
-  describe('corner cases', () => {
-    it('should propagate when sync mapErr throws', () => {
-      // Arrange
-      const fn = () => { throw new Error('original'); };
-      const mapErr = () => { throw new Error('mapErr panic'); };
-      // Act / Assert — mapErr throw is NOT caught by safe
-      expect(() => safe(fn, mapErr)).toThrow('mapErr panic');
-    });
-
-    it('should reject when async mapErr throws', async () => {
-      // Arrange
-      const promise = Promise.reject(new Error('original'));
-      const mapErr = () => { throw new Error('async mapErr panic'); };
-      // Act / Assert — the returned promise rejects with mapErr's error
-      await expect(safe(promise, mapErr)).rejects.toThrow('async mapErr panic');
-    });
-
-    it('should return Err with undefined data when mapErr returns undefined', () => {
-      // Arrange
-      const fn = () => { throw new Error('fail'); };
-      const mapErr = () => undefined;
-      // Act
-      const result = safe(fn, mapErr);
-      // Assert
-      expect(isErr(result)).toBe(true);
-      if (isErr(result)) {
-        expect(result.data).toBeUndefined();
-      }
+    test('types a promise call with mapErr as ResultAsync<T, E>', async () => {
+      // Act / Assert
+      expectTypeOf(safe(Promise.resolve(1), String)).toEqualTypeOf<ResultAsync<number, string>>();
     });
   });
 });
